@@ -1,0 +1,43 @@
+# Worktrees
+.worktrees/
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Builds
+dist/
+out/
+release/
+*.tsbuildinfo
+
+# Electron
+*.dmg
+*.exe
+*.AppImage
+*.blockmap
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Coverage / test
+coverage/
+.vitest/
+
+# Local plugin scratch
+.local-plugins/
