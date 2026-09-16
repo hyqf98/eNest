@@ -33,7 +33,7 @@ artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
 mac:
   category: public.app-category.productivity
-  icon: assets/icons/enest-icon-512.png
+  # electron-builder 自动使用 buildResources 下的 icon.png / icon.icns
   hardenedRuntime: false
   gatekeeperAssess: false
   target:
@@ -43,13 +43,13 @@ mac:
       arch: [x64, arm64]
 
 win:
-  icon: assets/icons/enest-icon-256.png
+  # NSIS 需要 .ico；使用 build/icon.ico（由 electron-builder 自动发现）
   target:
     - target: nsis
       arch: [x64]
 
 linux:
-  icon: assets/icons/enest-icon-256.png
+  icon: assets/icons
   category: Utility
   synopsis: Plugin-based desktop shell
   desktop:
@@ -74,9 +74,9 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: eNest
-  installerIcon: assets/icons/enest-icon-256.png
-  uninstallerIcon: assets/icons/enest-icon-256.png
-  installerHeaderIcon: assets/icons/enest-icon-256.png
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
   installerLanguages: [zh_CN, en_US]
 
 dmg:
