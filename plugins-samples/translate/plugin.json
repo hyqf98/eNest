@@ -5,5 +5,13 @@
   "description": "划词翻译（示例）",
   "author": "eNest",
   "main": "index.html",
+  "form": "mini",
+  "features": [
+    {
+      "code": "main",
+      "explain": "翻译文本",
+      "cmds": ["翻译", "translate", "fy"]
+    }
+  ],
   "permissions": ["storage.local", "ui.setTitle"]
 }

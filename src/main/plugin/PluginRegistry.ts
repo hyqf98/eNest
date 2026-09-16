@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { PluginManifest, PluginSummary } from '@shared/types/plugin'
-import { resolvePluginUi } from '@shared/types/plugin'
+import { resolvePluginForm, resolvePluginUi } from '@shared/types/plugin'
 import { getAppPaths } from '../paths/pathsService'
 import { MOCK_MARKET_PLUGINS, mockToSummary, shortNameOf } from './mockMarket'
 import { installFromDirectory } from './PluginInstaller'
@@ -50,6 +50,7 @@ function manifestToSummary(
     rootPath,
     // UI 段归一：缺省 chrome=default / themeAware=true / background=opaque / preferredColorScheme=auto
     ui: resolvePluginUi(manifest.ui),
+    form: resolvePluginForm(manifest.form),
     ...extras
   }
 }

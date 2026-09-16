@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useShellStore } from '../stores/shellStore'
 import { ThemeSettingsSection } from '../components/ThemeSettingsSection'
+import { QuickSettingsSection } from '../components/QuickSettingsSection'
 import { LanguageSelect } from '../components/LanguageSelect'
 import { useI18n } from '../hooks/useI18n'
 import type { Locale } from '../i18n'
@@ -239,6 +240,7 @@ export function SettingsPage() {
   const TABS = [
     { id: 'general', label: t('settings.tabs.general') },
     { id: 'appearance', label: t('settings.tabs.appearance') },
+    { id: 'quick', label: '快捷启动' },
     { id: 'dev', label: t('settings.tabs.dev') },
   ] as const
 
@@ -346,6 +348,8 @@ export function SettingsPage() {
         )}
 
         {settingsTab === 'appearance' && <ThemeSettingsSection />}
+
+        {settingsTab === 'quick' && <QuickSettingsSection />}
 
         {settingsTab === 'dev' && (
           <Card title={t('settings.dev.title')} hint={t('settings.dev.hint')}>

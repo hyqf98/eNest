@@ -55,6 +55,22 @@ function handleEvent(payload: ShellEventPayload): void {
       }
       void store.refreshPlugins()
       break
+    case 'quick-hotkey-failed':
+      toastStore
+        .getState()
+        .push(
+          payload.failed.length > 0
+            ? `快捷键占用：${payload.failed.join('、')}${payload.registered.length ? `（已启用 ${payload.registered.join('、')}）` : ''}`
+            : '快捷键注册失败',
+          'warn'
+        )
+      break
+    case 'quick-open-view':
+      store.setView(payload.view)
+      break
+    case 'quick-config-changed':
+      store.appendLog('info', `[quick] hotkeys: ${payload.hotkeys.join(', ') || '(none)'}`)
+      break
   }
 }
 

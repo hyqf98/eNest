@@ -13,6 +13,13 @@ import type {
   ThemeTokens
 } from '@shared/types/plugin'
 import type { ShellEventPayload, InstallJobInfo, UpdateStatePayload } from '@shared/types/ipc'
+import type {
+  ApplicationScanResult,
+  QuickCommand,
+  QuickHotkeyApplyResult,
+  QuickHotkeyConfig,
+  QuickOpenRequest
+} from '@shared/types/quick'
 import {
   DEFAULT_SETTINGS,
   mockRegistry,
@@ -79,6 +86,19 @@ export interface ShellApi {
   closeWindow?(): void
   /** 在系统中打开路径；不可用时 UI 回退为复制剪贴板 */
   openPath?(path: string): Promise<void>
+
+  // —— 快捷启动 Quick（Electron preload 提供；mock 可省略）——
+  quickToggle?(): Promise<void>
+  quickHide?(): void
+  quickSearch?(query: string, limit?: number): Promise<{ items: QuickCommand[] }>
+  quickOpen?(req: QuickOpenRequest): Promise<{ ok: boolean; error?: string }>
+  quickScanApps?(force?: boolean): Promise<ApplicationScanResult>
+  quickGetConfig?(): Promise<QuickHotkeyConfig>
+  quickSetHotkeys?(payload: {
+    enabled?: boolean
+    hotkeys?: string[]
+  }): Promise<QuickHotkeyApplyResult>
+  onQuickShown?(cb: () => void): () => void
 }
 
 type EventCb = (payload: ShellEventPayload) => void
@@ -358,6 +378,28 @@ function createMockApi(): ShellApi {
         await navigator.clipboard?.writeText(path)
       } catch {
         /* 浏览器 mock 下剪贴板可能不可用 */
+      }
+    },
+    async quickSearch() {
+      return { items: [] }
+    },
+    async quickOpen() {
+      return { ok: false, error: 'mock' }
+    },
+    async quickScanApps() {
+      return { apps: [], complete: false, errors: ['mock'] }
+    },
+    async quickGetConfig() {
+      return { enabled: false, hotkeys: [], platform: 'darwin' as const }
+    },
+    async quickSetHotkeys() {
+      return {
+        ok: false,
+        enabled: false,
+        hotkeys: [],
+        registered: [],
+        failed: [],
+        error: 'mock'
       }
     },
   }

@@ -15,11 +15,15 @@ import { initLogService, logError, logInfo } from './logs/logService'
 import { kvStore } from './db/sqliteService'
 import { themePackRegistry } from './theme/themePacks'
 import { createShellWindow } from './window/createShellWindow'
+import { destroyQuickWindow } from './window/createQuickWindow'
 import { pluginHost } from './plugin/PluginHost'
 import { pluginRegistry } from './plugin/PluginRegistry'
 import { settingsStore } from './settings/SettingsStore'
 import { registerShellHandlers } from './ipc/shellHandlers'
 import { registerPluginHandlers } from './ipc/pluginHandlers'
+import { registerQuickHandlers } from './ipc/quickHandlers'
+import { initQuickHotkeys, disposeQuickHotkeys } from './hotkey/quickHotkey'
+import { scanApplications } from './launcher/appScanner'
 import { initUpdateService } from './update/updateService'
 
 registerSchemesAsPrivileged()
@@ -59,7 +63,13 @@ void app.whenReady().then(async () => {
 
     registerShellHandlers()
     registerPluginHandlers()
+    registerQuickHandlers()
     logInfo('main', 'ipc ok')
+
+    // 快捷启动：注册全局热键 + 后台扫描；小窗懒创建（首次呼出时）
+    initQuickHotkeys()
+    void scanApplications(false)
+    logInfo('main', 'quick launcher ok')
 
     // GitHub Release 自动更新（仅打包环境真正启用）
     initUpdateService()
@@ -79,5 +89,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   pluginHost.destroyAll()
+  disposeQuickHotkeys()
+  destroyQuickWindow()
   kvStore.close()
 })

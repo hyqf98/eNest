@@ -1110,6 +1110,53 @@
 }
 .switch.on::after { transform: translateX(16px); }
 
+/* —— 快捷启动热键录制 —— */
+.hotkey-recorder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.hotkey-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 160px;
+}
+.hotkey-empty {
+  color: var(--text-2);
+  font-size: 13px;
+}
+.hotkey-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 12px;
+}
+.hotkey-chip code {
+  font-family: inherit;
+}
+.hotkey-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.hotkey-remove:hover {
+  color: var(--danger);
+}
+.hotkey-recorder .btn.recording {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* 数据目录路径 + 打开按钮 */
 .path-actions {
   display: flex;
