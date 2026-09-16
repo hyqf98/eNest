@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>下载 eNest — macOS · Windows · Linux</title>
+  <meta name="description" content="下载 eNest 桌面工作台：支持 macOS（Intel / Apple Silicon）、Windows x64 与 Linux（AppImage / deb）。查看版本说明与 GitHub Releases。" />
+  <link rel="icon" href="assets/icons/enest-icon-256.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <header class="site-nav">
+    <div class="wrap site-nav-inner">
+      <a class="brand" href="./">
+        <img src="assets/icons/enest-icon-256.png" alt="" width="30" height="30" />
+        eNest
+        <span class="brand-tag">开源</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-label="打开菜单" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <nav class="nav-links" aria-label="主导航">
+        <a href="product.html">产品</a>
+        <a class="is-active" href="download.html">下载</a>
+        <a href="plugin/">文档</a>
+        <a href="https://github.com/hyqf98/eNest" rel="noopener noreferrer" target="_blank">GitHub</a>
+        <a class="nav-cta" href="download.html">立即下载</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="page-hero">
+      <div class="wrap reveal">
+        <div class="breadcrumb">
+          <a href="./">首页</a><span>/</span><span>下载</span>
+        </div>
+        <h1>下载 eNest</h1>
+        <p class="lead">
+          选择你的平台。安装包由 GitHub Releases 分发，支持应用内自动更新。
+          也可从源码构建开发版。
+        </p>
+      </div>
+    </section>
+
+    <section class="section-sm">
+      <div class="wrap">
+        <div class="platforms">
+          <article class="platform reveal">
+            <div class="platform-head">
+              <div class="platform-icon" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+              </div>
+              <div>
+                <h3>macOS</h3>
+                <div class="arch">Intel (x64) · Apple Silicon (arm64)</div>
+              </div>
+            </div>
+            <p>DMG 与 ZIP 双格式。首次打开若被 Gatekeeper 拦截，可在「系统设置 → 隐私与安全性」中允许。</p>
+            <div class="file">eNest-0.1.0-mac-{arch}.dmg</div>
+            <a class="btn btn-primary" href="https://github.com/hyqf98/eNest/releases/latest" rel="noopener noreferrer" target="_blank">下载 macOS 版</a>
+          </article>
+
+          <article class="platform reveal reveal-delay-1">
+            <div class="platform-head">
+              <div class="platform-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5L10.5 4.4v7.1H3V5.5zm0 13L10.5 19.6v-7.1H3v6zm8.2 1.2L21 21V12.5h-9.8v7.2zm0-15.4V11.5H21V3l-9.8 1.3z"/></svg>
+              </div>
+              <div>
+                <h3>Windows</h3>
+                <div class="arch">x64 · NSIS 安装向导</div>
+              </div>
+            </div>
+            <p>多步安装向导，可自定义安装目录。应用内通过 electron-updater 检查更新。</p>
+            <div class="file">eNest-0.1.0-win-x64.exe</div>
+            <a class="btn btn-primary" href="https://github.com/hyqf98/eNest/releases/latest" rel="noopener noreferrer" target="_blank">下载 Windows 版</a>
+          </article>
+
+          <article class="platform reveal reveal-delay-2">
+            <div class="platform-head">
+              <div class="platform-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.5 2c-.4 0-1.2.4-1.6 1.2-.3.6-.4 1.3-.3 2.1-.8.1-1.6.5-2.2 1.1-.9.9-1.3 2.2-1.1 3.6C6 10.4 5 11.6 5 13.5c0 2.2 1.4 3.5 2.8 4.3-.2.5-.3 1.1-.3 1.7 0 1.5.9 2.5 2.2 2.5.7 0 1.3-.3 1.8-.8.5.5 1.1.8 1.8.8 1.3 0 2.2-1 2.2-2.5 0-.6-.1-1.2-.3-1.7 1.4-.8 2.8-2.1 2.8-4.3 0-1.9-1-3.1-2.3-3.5.2-1.4-.2-2.7-1.1-3.6-.6-.6-1.4-1-2.2-1.1.1-.8 0-1.5-.3-2.1C13.7 2.4 12.9 2 12.5 2z"/></svg>
+              </div>
+              <div>
+                <h3>Linux</h3>
+                <div class="arch">x64 · AppImage · deb</div>
+              </div>
+            </div>
+            <p>AppImage 便携运行，适合自动更新；deb 适合 Debian / Ubuntu 系发行版安装。</p>
+            <div class="file">eNest-0.1.0-linux-x64.AppImage</div>
+            <a class="btn btn-primary" href="https://github.com/hyqf98/eNest/releases/latest" rel="noopener noreferrer" target="_blank">下载 Linux 版</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" style="padding-top:40px">
+      <div class="wrap">
+        <div class="section-head left reveal">
+          <div class="eyebrow">Versions</div>
+          <h2>版本与发行</h2>
+          <p>当前稳定版本与安装包命名规则。完整变更见 GitHub Releases。</p>
+        </div>
+        <div class="reveal" style="overflow-x:auto">
+          <table class="version-table">
+            <thead>
+              <tr>
+                <th>版本</th>
+                <th>渠道</th>
+                <th>说明</th>
+                <th>获取</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>0.1.0</strong></td>
+                <td><span class="badge">Latest</span></td>
+                <td>首个对外预览：多 Tab 隔离、市场 Mock、zapi、开发者控制台、本地 SQLite。</td>
+                <td><a href="https://github.com/hyqf98/eNest/releases/latest" rel="noopener noreferrer" target="_blank">Releases</a></td>
+              </tr>
+              <tr>
+                <td><strong>源码开发版</strong></td>
+                <td><span class="badge amber">Dev</span></td>
+                <td>克隆仓库后 <code class="inline">npm install && npm run dev</code>，适合插件联调。</td>
+                <td><a href="https://github.com/hyqf98/eNest" rel="noopener noreferrer" target="_blank">GitHub</a></td>
+              </tr>
+              <tr>
+                <td><strong>插件市场索引</strong></td>
+                <td><span class="badge muted">Registry</span></td>
+                <td>插件仓库 <code class="inline">hyqf98/eNest_plugin</code>，CI 生成 registry.json 与 <code class="inline">.enestplugin</code> 包。</td>
+                <td><a href="https://github.com/hyqf98/eNest_plugin" rel="noopener noreferrer" target="_blank">eNest_plugin</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout reveal" style="margin-top:24px">
+          安装包命名：<code class="inline">eNest-{version}-{os}-{arch}.{ext}</code>。
+          自动更新源为 GitHub Releases（<code class="inline">latest.yml</code> / <code class="inline">latest-mac.yml</code> / <code class="inline">latest-linux.yml</code>）。
+        </div>
+      </div>
+    </section>
+
+    <section class="section" style="padding-top:0">
+      <div class="wrap">
+        <div class="deep-grid">
+          <article class="deep-card reveal">
+            <h3>从源码构建</h3>
+            <p>适合贡献者与需要定制壳子的团队。需要 Node.js 与 npm。</p>
+            <pre class="pre"><code>git clone https://github.com/hyqf98/eNest.git
+cd eNest
+npm install
+npm run dev        # 开发
+npm run dist       # 本机打包</code></pre>
+          </article>
+          <article class="deep-card reveal reveal-delay-1">
+            <h3>系统要求</h3>
+            <ul>
+              <li>macOS 11+（Intel / Apple Silicon）</li>
+              <li>Windows 10 / 11 x64</li>
+              <li>主流 Linux 发行版（glibc 较新）</li>
+              <li>磁盘：安装包 &lt; 90MB；数据目录 <code class="inline">~/eNest</code></li>
+            </ul>
+            <div class="callout" style="margin-top:16px">
+              首次启动会创建 <code class="inline">~/eNest</code>（plugins / data / themes / settings.json）。
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta-band" style="padding-top:24px">
+      <div class="wrap reveal">
+        <h2>装好了？从第一个插件开始</h2>
+        <p>三分钟加载示例插件，或阅读完整开发文档。</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary btn-lg" href="plugin/#/getting-started">开发指南</a>
+          <a class="btn btn-ghost btn-lg" href="product.html">了解产品</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="footer-grid">
+        <div>
+          <a class="footer-brand" href="./">
+            <img src="assets/icons/enest-icon-256.png" alt="" width="28" height="28" />
+            eNest
+          </a>
+          <p class="footer-about">可组合的桌面工作台。开源插件化壳子，本地优先，权限可控。</p>
+        </div>
+        <div class="footer-col">
+          <h4>产品</h4>
+          <a href="product.html">产品介绍</a>
+          <a href="download.html">下载</a>
+          <a href="./#features">功能特性</a>
+        </div>
+        <div class="footer-col">
+          <h4>开发者</h4>
+          <a href="plugin/">插件文档</a>
+          <a href="plugin/#/api">zapi API</a>
+          <a href="plugin/#/getting-started">快速开始</a>
+        </div>
+        <div class="footer-col">
+          <h4>资源</h4>
+          <a href="https://github.com/hyqf98/eNest" rel="noopener noreferrer" target="_blank">GitHub</a>
+          <a href="https://github.com/hyqf98/eNest/releases" rel="noopener noreferrer" target="_blank">Releases</a>
+          <a href="plugin/#/faq">FAQ</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© 2026 eNest · MIT License</span>
+        <span>Built with Electron · 零构建静态站</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/landing.js" defer></script>
+</body>
+</html>

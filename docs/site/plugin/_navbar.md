@@ -4,4 +4,5 @@
 * [文档](/)
 * [快速开始](getting-started.md)
 * [API](api.md)
+* [示例](examples.md)
 * [GitHub](https://github.com/)

@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>产品介绍 — eNest 可组合的桌面工作台</title>
+  <meta name="description" content="深入了解 eNest：插件生命周期、进程与会话隔离、enest:// 安全协议、UI 集成标准与主题 Token。" />
+  <link rel="icon" href="assets/icons/enest-icon-256.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <header class="site-nav">
+    <div class="wrap site-nav-inner">
+      <a class="brand" href="./">
+        <img src="assets/icons/enest-icon-256.png" alt="" width="30" height="30" />
+        eNest
+        <span class="brand-tag">开源</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-label="打开菜单" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <nav class="nav-links" aria-label="主导航">
+        <a class="is-active" href="product.html">产品</a>
+        <a href="download.html">下载</a>
+        <a href="plugin/">文档</a>
+        <a href="https://github.com/hyqf98/eNest" rel="noopener noreferrer" target="_blank">GitHub</a>
+        <a class="nav-cta" href="download.html">立即下载</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="page-hero">
+      <div class="wrap reveal">
+        <div class="breadcrumb">
+          <a href="./">首页</a><span>/</span><span>产品</span>
+        </div>
+        <h1>可组合的桌面工作台</h1>
+        <p class="lead">
+          eNest 不是又一个「万能启动器」。它是一层可扩展的桌面壳子：
+          用插件组合效率、开发与内部工具，进程隔离、权限可控、数据本地优先。
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="download.html">下载体验</a>
+          <a class="btn btn-ghost" href="plugin/">插件开发文档</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" style="padding-top:32px">
+      <div class="wrap">
+        <div class="section-head left reveal">
+          <div class="eyebrow">Lifecycle</div>
+          <h2>插件生命周期</h2>
+          <p>插件在壳子中以原生 WebContentsView 存在：打开 → 可见/切换 → 重载 → 关闭销毁。无 LRU 保活，关 Tab 即回收，内存可预期。</p>
+        </div>
+        <div class="deep-card wide reveal">
+          <div class="flow">
+            <span class="flow-node">未安装</span>
+            <span class="flow-arrow">→</span>
+            <span class="flow-node">已安装</span>
+            <span class="flow-arrow">→</span>
+            <span class="flow-node">运行中（Tab）</span>
+            <span class="flow-arrow">⇄</span>
+            <span class="flow-node">激活 / 隐藏</span>
+            <span class="flow-arrow">→</span>
+            <span class="flow-node">重载</span>
+            <span class="flow-arrow">→</span>
+            <span class="flow-node">关闭 · 销毁</span>
+          </div>
+          <div class="deep-grid" style="margin-top:28px">
+            <div>
+              <h3 style="font-size:16px;margin:0 0 8px">打开（Open）</h3>
+              <p>解析安装路径 → 创建隔离 session → 注册 <code class="inline">enest://plugin/{id}</code> → 注入 pluginPreload → 加载入口 URL → 推送 <code class="inline">plugins-changed</code>。</p>
+            </div>
+            <div>
+              <h3 style="font-size:16px;margin:0 0 8px">关闭（Close）</h3>
+              <p>关闭 Tab 立即 <code class="inline">webContents.close()</code> 并移除 View；关窗口则 <code class="inline">destroyAll()</code>。插件应在 <code class="inline">pagehide</code> 自行 flush 状态。</p>
+            </div>
+          </div>
+          <div class="callout" style="margin-top:20px">
+            切换 Tab 仅改 <code class="inline">setVisible</code>，不销毁不可见页；窗口 resize 时由 PluginHost 重算所有插件 bounds。
+            细节见 <a href="plugin/#/lifecycle">生命周期文档</a>。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" style="padding-top:24px">
+      <div class="wrap">
+        <div class="section-head left reveal">
+          <div class="eyebrow">Isolation</div>
+          <h2>进程与会话隔离</h2>
+          <p>每个插件是独立的渲染进程与持久化 partition，Cookie、localStorage、缓存互不串扰。</p>
+        </div>
+        <div class="deep-grid">
+          <article class="deep-card reveal">
+            <h3>会话 partition</h3>
+            <p>打开时使用 <code class="inline">session.fromPartition('persist:plugin-' + id)</code>，协议映射仅指向该插件根目录，路径穿越会被拦截。</p>
+            <ul>
+              <li>独立 Cookie / 存储 / 缓存</li>
+              <li>CSP 约束下的本地资源加载</li>
+              <li>卸载时按版本策略清理数据</li>
+            </ul>
+          </article>
+          <article class="deep-card reveal reveal-delay-1">
+            <h3>窗口层级</h3>
+            <p>Shell UI 铺满窗口；Plugin View 叠在内容区（标题栏 + 插件条之下），保证壳子控件始终可点、插件全幅可交互。</p>
+            <ul>
+              <li>标题栏 / 插件条不被原生层遮挡</li>
+              <li>多 Tab 并行，各自 View 独立布局</li>
+              <li>关窗统一销毁，无残留进程</li>
+            </ul>
+          </article>
+        </div>
+        <div class="split-visual reveal" style="margin-top:24px">
+          <div>
+            <h3 style="margin:0 0 10px;font-size:18px;letter-spacing:-0.025em;color:var(--brand)">每个 Tab 一座「巢」</h3>
+            <p style="margin:0 0 12px;color:var(--muted);font-size:14px;line-height:1.7">
+              不是 iframe 拼盘，也不是单体工具箱。eNest 把每个插件提升为独立渲染进程：
+              崩溃、内存、会话数据彼此隔离，关闭即回收。
+            </p>
+            <p style="margin:0;color:var(--muted);font-size:14px;line-height:1.7">
+              需要并行工作时多开 Tab；需要专注时只留一个。工作台随任务组合，而不是被固定布局锁死。
+            </p>
+          </div>
+          <div class="visual">
+            <img src="assets/img/feature-isolation.png" alt="多 Tab 进程隔离示意" width="1024" height="1024" loading="lazy" />
+          </div>
+        </div>
+        <div class="deep-card wide reveal" style="margin-top:24px">
+          <h3>进程拓扑一览</h3>
+          <pre class="arch-box">┌─────────────────────────────────────────────────────────────┐
+│  Main Process (Node)                                        │
+│  createShellWindow · PluginHost · Protocol · IPC            │
+└───────────────┬─────────────────────────────┬───────────────┘
+                │ IPC (invoke / send)         │
+┌───────────────▼──────────────┐  ┌───────────▼────────────────┐
+│  Shell Renderer              │  │  Plugin Renderer × N       │
+│  React 壳子（市场/Tab/设置）  │  │  WebContentsView           │
+│  window.enestShell           │  │  window.enest / zapi       │
+└──────────────────────────────┘  └────────────────────────────┘</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" style="padding-top:24px">
+      <div class="wrap">
+        <div class="section-head left reveal">
+          <div class="eyebrow">UI standard</div>
+          <h2>UI 集成标准</h2>
+          <p>插件可用任意前端技术绘制界面。壳子通过 plugin.json 的 <code class="inline">ui</code> 段统一管理 chrome、主题注入与背景透明。</p>
+        </div>
+        <div class="deep-grid">
+          <article class="deep-card reveal">
+            <h3>Chrome 模式</h3>
+            <ul>
+              <li><strong>default</strong>：标准 48px 插件条，显示名称与协议路径</li>
+              <li><strong>minimal</strong>：细条 28px，最大化纵向空间</li>
+              <li><strong>none</strong>：无条全幅，适合看板、游戏、可视化</li>
+            </ul>
+          </article>
+          <article class="deep-card reveal reveal-delay-1">
+            <h3>主题与背景</h3>
+            <ul>
+              <li><code class="inline">themeAware</code>：加载后注入 CSS Token，切换时推送事件</li>
+              <li><code class="inline">background: transparent</code>：可透出壳子壁纸</li>
+              <li><code class="inline">preferredColorScheme</code>：light / dark / auto</li>
+            </ul>
+          </article>
+          <article class="deep-card wide reveal">
+            <h3>plugin.json ui 示例</h3>
+            <pre class="pre"><code>{
+  "ui": {
+    "chrome": "default",
+    "themeAware": true,
+    "background": "opaque",
+    "preferredColorScheme": "auto"
+  }
+}</code></pre>
+            <div class="callout" style="margin-top:16px">
+              完整字段与 Token 列表见 <a href="plugin/#/ui-standard">UI 集成标准</a>。
+            </div>
+          </article>
+        </div>
+        <div class="split-visual reverse reveal" style="margin-top:24px">
+          <div>
+            <h3 style="margin:0 0 10px;font-size:18px;letter-spacing:-0.025em;color:var(--brand)">主题即基础设施</h3>
+            <p style="margin:0 0 12px;color:var(--muted);font-size:14px;line-height:1.7">
+              壳子把颜色、圆角、背景等 Token 推给插件；主题包可动态注册（<code class="inline">enest.theme.register</code>），
+              切换后经 <code class="inline">theme-aware</code> 事件即时刷新。
+            </p>
+            <p style="margin:0;color:var(--muted);font-size:14px;line-height:1.7">
+              插件无需嵌入壳子 DOM，也无需重复实现深浅色逻辑——声明 <code class="inline">themeAware</code> 即可。
+            </p>
+          </div>
+          <div class="visual">
+            <img src="assets/img/feature-theme-canvas.png" alt="主题 Token 与插件画布示意" width="1024" height="1024" loading="lazy" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" style="padding-top:24px">
+      <div class="wrap">
+        <div class="panel reveal">
+          <div class="panel-grid">
+            <div>
+              <div class="eyebrow">Why eNest</div>
+              <h2>和「浏览器标签」或「单体工具箱」的差别</h2>
+              <p>eNest 在桌面壳层做组合：每个插件是真正的独立 Web 应用，而不是 iframe 拼盘；也不是把所有功能焊死在一个安装包里。</p>
+              <ul class="panel-list">
+                <li>进程级隔离，故障与内存不互相拖累</li>
+                <li>权限白名单，插件只能调用声明过的 API</li>
+                <li>本地优先数据，适合内网与离线场景</li>
+                <li>清单驱动安装，便于版本化与分发 <code class="inline">.enestplugin</code></li>
+              </ul>
+              <div class="panel-actions">
+                <a class="btn btn-mint" href="download.html">下载 eNest</a>
+                <a class="btn btn-dark-ghost" href="plugin/#/permissions">权限说明</a>
+              </div>
+            </div>
+            <pre class="panel-code"><code><span class="cmt">// 权限门禁示意</span>
+<span class="cmt">// plugin.json 声明 permissions</span>
+<span class="key">"permissions"</span>: [
+  <span class="str">"clipboard"</span>,
+  <span class="str">"notify"</span>,
+  <span class="str">"storage"</span>
+]
+
+<span class="cmt">// zapi 调用时主进程校验</span>
+<span class="cmt">// 未声明 → 明确错误码拒绝</span></code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta-band">
+      <div class="wrap reveal">
+        <h2>下一步</h2>
+        <p>从下载安装到第一个插件，路径很短。</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary btn-lg" href="download.html">下载</a>
+          <a class="btn btn-ghost btn-lg" href="plugin/#/getting-started">开始开发</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="footer-grid">
+        <div>
+          <a class="footer-brand" href="./">
+            <img src="assets/icons/enest-icon-256.png" alt="" width="28" height="28" />
+            eNest
+          </a>
+          <p class="footer-about">可组合的桌面工作台。开源插件化壳子，本地优先，权限可控。</p>
+        </div>
+        <div class="footer-col">
+          <h4>产品</h4>
+          <a href="product.html">产品介绍</a>
+          <a href="download.html">下载</a>
+          <a href="./#features">功能特性</a>
+        </div>
+        <div class="footer-col">
+          <h4>开发者</h4>
+          <a href="plugin/">插件文档</a>
+          <a href="plugin/#/api">zapi API</a>
+          <a href="plugin/#/getting-started">快速开始</a>
+        </div>
+        <div class="footer-col">
+          <h4>资源</h4>
+          <a href="https://github.com/hyqf98/eNest" rel="noopener noreferrer" target="_blank">GitHub</a>
+          <a href="https://github.com/hyqf98/eNest/releases" rel="noopener noreferrer" target="_blank">Releases</a>
+          <a href="plugin/#/faq">FAQ</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© 2026 eNest · MIT License</span>
+        <span>Built with Electron · 零构建静态站</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/landing.js" defer></script>
+</body>
+</html>

@@ -29,15 +29,17 @@
 | [快速开始](getting-started.md) | 环境、最小插件、在壳子中加载 |
 | [目录结构](structure.md) | 插件目录约定与必备文件 |
 | [plugin.json](manifest.md) | 清单字段与完整示例 |
-| [zapi API](api.md) | UI / 存储 / 剪贴板 / 通知 / 设置注册 |
+| [zapi API](api.md) | 完整方法参考：UI / 主题 / 设置 / 存储 / 剪贴板 / 通知 / 生命周期 |
+| [TypeScript 类型](api-types.md) | `window.enest` 接口声明与使用建议 |
+| [UI 集成标准](ui-standard.md) | chrome / 主题 Token / 透明底 / Canvas |
 | [权限说明](permissions.md) | 权限键与 API 对照表 |
 | [调试与热更新](debug.md) | 开发者控制台、Vite HMR、DevTools |
-| [生命周期](lifecycle.md) | 打开 / 切换 / 重载 / 关闭卸载 |
-| [错误码](errors.md) | 常见错误信息与处理 |
-| [示例插件](examples.md) | 仓库 `plugins-samples/*` 说明 |
+| [生命周期](lifecycle.md) | 状态机、事件时间线、handler 示例 |
+| [错误码](errors.md) | 代码内完整错误字符串与处理 |
+| [示例插件](examples.md) | 可复制的完整示例 + 仓库样例 |
 | [FAQ](faq.md) | 高频问题 |
 
-?> 建议顺序：**快速开始 → plugin.json → zapi → 调试**。示例见仓库 `plugins-samples/hello`。
+?> 建议顺序：**快速开始 → plugin.json → zapi API → 生命周期 → 示例**。示例见本页与仓库 `plugins-samples/hello`。
 
 ## 下一步
 

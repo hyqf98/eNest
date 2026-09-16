@@ -8,10 +8,11 @@
 
 * **能力**
   * [zapi API](api.md)
+  * [TypeScript 类型](api-types.md)
   * [UI 集成标准](ui-standard.md)
+  * [生命周期](lifecycle.md)
   * [权限说明](permissions.md)
   * [调试与热更新](debug.md)
-  * [生命周期](lifecycle.md)
 
 * **参考**
   * [错误码](errors.md)
