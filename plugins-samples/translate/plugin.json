@@ -1,0 +1,9 @@
+{
+  "id": "com.enest.translate",
+  "name": "划词翻译",
+  "version": "1.0.0",
+  "description": "划词翻译（示例）",
+  "author": "eNest",
+  "main": "index.html",
+  "permissions": ["storage.local", "ui.setTitle"]
+}

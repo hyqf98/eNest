@@ -1,0 +1,110 @@
+# eNest 三平台打包工作流
+# 触发：推送 v* 标签 / 手动 workflow_dispatch
+# 产物：macOS(dmg/zip) · Windows(NSIS setup) · Linux(AppImage/deb)
+# 自动更新：electron-builder 生成 latest*.yml + blockmap，随 Release 发布供 electron-updater 拉取
+#
+# 说明：
+# - 每平台各自 npm ci + electron-vite build + electron-builder（避免交叉编译）
+# - Windows NSIS 为多步安装向导，允许选择安装目录（见 electron-builder.yml）
+# - 静态资源 assets/sql、assets/icons 经 extraResources 打入 Resources/
+# - 打 tag 时创建已发布 Release（非 draft），否则 electron-updater 无法发现
+
+name: Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+          - os: ubuntu-latest
+            platform: linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild native modules for Electron
+        run: npx electron-rebuild -f
+        continue-on-error: true
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build renderer/main
+        run: npm run build
+
+      - name: Package (${{ matrix.platform }})
+        run: npx electron-builder --${{ matrix.platform }} --publish never
+        env:
+          # 未配置代码签名时避免 CI 失败；有证书时再注入 secrets
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: enest-${{ matrix.platform }}
+          if-no-files-found: error
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+            release/*.blockmap
+            release/latest*.yml
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Create / update published release
+        uses: softprops/action-gh-release@v2
+        with:
+          # 必须是已发布 Release：electron-updater 通过 GitHub API latest 发现版本
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/**
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

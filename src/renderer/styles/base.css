@@ -1,0 +1,68 @@
+/*
+ * base — 全局重置与文档级默认样式
+ * 使用方：渲染进程全局（main.tsx 引入），作用于所有页面。
+ * 契约：
+ *   - html/body/#root 高度 100%、overflow hidden（壳子单页视口）
+ *   - 默认字体/字号/颜色取自 tokens.css
+ *   - 统一滚动条、focus-visible 与按钮/输入重置
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+  /* 与系统窗口圆角呼应，避免内容顶满矩形边 */
+  border-radius: 12px;
+}
+
+#root {
+  height: 100%;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-3) 40%, transparent);
+  border: 3px solid transparent;
+  border-radius: 99px;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}

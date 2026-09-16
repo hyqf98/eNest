@@ -1,0 +1,308 @@
+/*
+ * detail — 插件详情弹窗与 Markdown 正文样式
+ * 使用方：PluginDetailModal(.detail-*)、MarkdownView(.md-*)。
+ * 布局契约：
+ *   - overlay 全屏 fixed，z-index 150（低于 Toast 200，高于壳子内容）
+ *   - modal 宽 min(840px, 92vw)，高 max 86vh，正文独立滚动
+ * 依赖：tokens.css 语义色 / 圆角 / 阴影。
+ */
+
+/* ========== Overlay / Modal ========== */
+.detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: grid;
+  place-items: center;
+  padding: 4vh 4vw;
+}
+
+.detail-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 10, 16, 0.45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+:root[data-theme="dark"] .detail-backdrop {
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.detail-modal {
+  position: relative;
+  width: min(840px, 92vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+
+/* ========== Header ========== */
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 22px 22px 18px;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(ellipse 80% 120% at 0% 0%, color-mix(in srgb, var(--link) 7%, transparent), transparent 60%),
+    var(--surface);
+  flex-shrink: 0;
+}
+
+.detail-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 800;
+  font-size: 18px;
+  flex-shrink: 0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 8px 20px rgba(15, 23, 42, 0.12);
+}
+
+.detail-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-meta h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+}
+
+.detail-sub {
+  margin-top: 4px;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.detail-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.detail-chip {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.detail-chip.perm {
+  background: color-mix(in srgb, var(--link) 8%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--link) 18%, var(--border));
+  color: var(--link);
+}
+
+.detail-chip.ok {
+  background: var(--ok-soft);
+  border-color: transparent;
+  color: var(--ok);
+}
+
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.detail-actions .btn {
+  height: 34px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+
+/* ========== Body ========== */
+.detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 28px;
+  overscroll-behavior: contain;
+}
+
+.detail-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 180px;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: center;
+}
+
+.detail-state strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.detail-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--link);
+  animation: detail-spin 0.7s linear infinite;
+  margin-bottom: 6px;
+}
+
+@keyframes detail-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ========== Markdown (GitHub-like) ========== */
+.markdown-body {
+  color: var(--text-2);
+  font-size: 13.5px;
+  line-height: 1.7;
+  user-select: text;
+}
+
+.markdown-body .md-h {
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 1.2em 0 0.5em;
+  line-height: 1.3;
+}
+
+.markdown-body .md-h:first-child {
+  margin-top: 0;
+}
+
+.markdown-body .md-h1 {
+  font-size: 22px;
+}
+
+.markdown-body .md-h2 {
+  font-size: 17px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown-body .md-h3 {
+  font-size: 14.5px;
+}
+
+.markdown-body .md-p {
+  margin: 0 0 0.85em;
+}
+
+.markdown-body .md-ul,
+.markdown-body .md-ol {
+  margin: 0 0 0.85em;
+  padding-left: 1.4em;
+}
+
+.markdown-body .md-ul {
+  list-style: disc;
+}
+
+.markdown-body .md-ol {
+  list-style: decimal;
+}
+
+.markdown-body li {
+  margin: 0.25em 0;
+}
+
+.markdown-body li::marker {
+  color: var(--text-3);
+}
+
+.markdown-body a {
+  color: var(--link);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--link) 35%, transparent);
+}
+
+.markdown-body a:hover {
+  border-bottom-color: var(--link);
+}
+
+.markdown-body .md-code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  padding: 0.15em 0.4em;
+  border-radius: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.markdown-body .md-pre {
+  margin: 0 0 0.9em;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #0b0d12;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.markdown-body .md-pre code {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.65;
+  color: #8be9b8;
+  white-space: pre;
+}
+
+.markdown-body .md-hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.4em 0;
+}
+
+.markdown-body strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.markdown-body em {
+  font-style: italic;
+}
+
+/* 小屏：头部改纵向、操作按钮换行 */
+@media (max-width: 640px) {
+  .detail-header {
+    flex-wrap: wrap;
+    padding: 16px;
+  }
+
+  .detail-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .detail-body {
+    padding: 16px;
+  }
+}

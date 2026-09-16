@@ -1,0 +1,54 @@
+{
+  "name": "enest",
+  "version": "0.1.0",
+  "description": "eNest — 插件化桌面壳子",
+  "main": "./out/main/index.js",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "lint": "eslint src --ext .ts,.tsx",
+    "e2e:smoke": "node scripts/e2e-smoke.mjs",
+    "dev:debug": "ENEST_REMOTE_DEBUG=9222 electron-vite dev",
+    "pack:dir": "npm run build && electron-builder --dir",
+    "rebuild:native": "electron-rebuild -f",
+    "dist": "npm run build && electron-builder --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never"
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.1",
+    "better-sqlite3": "^13.0.3",
+    "electron-updater": "^6.8.9",
+    "gsap": "^3.12.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sql.js": "^1.14.2",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@types/adm-zip": "^0.5.8",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "playwright-core": "^1.63.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "author": {
+    "name": "eNest",
+    "email": "dev@enest.local"
+  }
+}

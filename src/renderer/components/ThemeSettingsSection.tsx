@@ -1,0 +1,32 @@
+/**
+ * ThemeSettingsSection — 设置页「主题」整块（模式 / 主题包 / 背景 / 颜色 Token）
+ * 供 SettingsPage 或其它容器一键挂载；内部读 useTheme，无需透传 props。
+ * 依赖：useTheme、ThemeModeSelect、BackgroundPicker、ThemeTokenEditor。
+ */
+import { useTheme } from '../hooks/useTheme'
+import { ThemeModeSelect } from './ThemeModeSelect'
+import { BackgroundPicker } from './BackgroundPicker'
+import { ThemeTokenEditor } from './ThemeTokenEditor'
+
+export function ThemeSettingsSection() {
+  const theme = useTheme()
+
+  return (
+    <>
+      <ThemeModeSelect
+        mode={theme.mode}
+        resolved={theme.resolved}
+        packs={theme.packs}
+        packId={theme.packId}
+        onSetMode={(m) => void theme.setMode(m)}
+        onApplyPack={(id) => void theme.applyPack(id)}
+      />
+      <BackgroundPicker />
+      <ThemeTokenEditor
+        tokens={theme.tokens}
+        onSetToken={theme.setToken}
+        onReset={() => void theme.resetMode()}
+      />
+    </>
+  )
+}

@@ -1,0 +1,68 @@
+/*
+ * splash — 启动全屏层
+ * 使用方：App 首次挂载时的 Splash 组件。
+ * 配色与应用图标一致：墨绿 #011517 / 薄荷 #2DD4A8 / 琥珀 #F5A524。
+ */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #2dd4a8;
+}
+
+.splash-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 45%, rgba(45, 212, 168, 0.12), transparent 60%),
+    radial-gradient(ellipse 40% 35% at 50% 55%, rgba(245, 165, 36, 0.06), transparent 55%),
+    #011517;
+}
+
+.splash-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.splash-mark {
+  color: #2dd4a8;
+  overflow: visible;
+}
+
+.splash-hex {
+  opacity: 1;
+}
+
+.splash-tile-l,
+.splash-tile-r {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.splash-node {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.splash-word {
+  font-family: var(--font, Inter, system-ui, sans-serif);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: #e8fff6;
+}
+
+.splash-sub {
+  margin-top: -10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(45, 212, 168, 0.55);
+}

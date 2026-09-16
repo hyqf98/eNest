@@ -1,0 +1,16 @@
+{
+  "id": "com.enest.canvas-demo",
+  "name": "Canvas 动效演示",
+  "version": "1.0.0",
+  "description": "演示统一 UI 标准：chrome=none 全幅、主题感知 CSS 变量、透明背景 Canvas 动画。",
+  "author": "eNest",
+  "main": "index.html",
+  "permissions": ["ui.setTitle"],
+  "engines": { "enest": ">=0.1.0" },
+  "ui": {
+    "chrome": "none",
+    "themeAware": true,
+    "background": "transparent",
+    "preferredColorScheme": "auto"
+  }
+}

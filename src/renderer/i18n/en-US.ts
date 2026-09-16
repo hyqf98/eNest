@@ -1,0 +1,171 @@
+/**
+ * en-US — English dictionary
+ * Keys must stay aligned with zh-CN.ts; missing keys fall back to the key path.
+ */
+import type { DictSource } from './zh-CN'
+
+/** 结构与 zh-CN 对齐的英文词典；递归将叶子约束为 string */
+type DeepStringify<T> = {
+  [K in keyof T]: T[K] extends string ? string : DeepStringify<T[K]>
+}
+
+type EnDict = DeepStringify<DictSource>
+
+const enUS: EnDict = {
+  common: {
+    ok: 'OK',
+    cancel: 'Cancel',
+    save: 'Save',
+    close: 'Close',
+    open: 'Open',
+    copy: 'Copy',
+    copied: 'Copied',
+    loading: 'Loading…',
+    reset: 'Reset',
+    enable: 'Enable',
+    disable: 'Disable',
+  },
+  nav: {
+    market: 'Market',
+    settings: 'Settings',
+    dev: 'Developer',
+    home: 'Home',
+  },
+  window: {
+    minimize: 'Minimize',
+    maximize: 'Maximize',
+    close: 'Close',
+  },
+  market: {
+    browse: 'Browse',
+    installed: 'Installed',
+    searchPlaceholder: 'Search plugins…',
+    all: 'All',
+    viewAll: 'View all plugins',
+    official: 'Official plugins',
+    installedPlugins: 'Installed plugins',
+    emptyInstalled: 'No plugins installed yet',
+    emptySearch: 'No plugins found',
+    emptyHint: 'Try another category or keyword',
+    heroPrefix: 'Discover the best',
+    heroLead:
+      'Curated desktop productivity and developer tools. Each plugin runs in its own process — multi-tab, recycled on close.',
+    plugins: 'plugins',
+    updatedJustNow: 'Updated just now',
+  },
+  settings: {
+    title: 'Settings',
+    subtitle: 'General & appearance · plugin menus appear in the groups below',
+    tabs: {
+      general: 'General',
+      appearance: 'Appearance',
+      dev: 'Developer',
+    },
+    general: {
+      title: 'General',
+      hint: 'Language, hardware acceleration, and window behavior',
+      language: 'Language',
+      languageDesc: 'Interface language',
+      hardwareAccel: 'Hardware acceleration',
+      hardwareAccelDesc: 'Restart required after turning off',
+      dataRoot: 'Data folder',
+      dataRootDesc: 'Where plugins and local data are stored',
+      openFolder: 'Open folder',
+      copyPath: 'Copy path',
+      closeBehavior: 'On close',
+      closeBehaviorDesc: 'Minimize to tray or quit when the window closes',
+      minimizeToTray: 'Minimize to tray',
+      quitApp: 'Quit app',
+      updates: 'Software updates',
+      updatesDesc: 'Current version {version} · Check GitHub Release and auto-install',
+      checkUpdate: 'Check for updates',
+      checkingUpdate: 'Checking…',
+      installUpdate: 'Install and restart',
+      updateAvailableDesc: 'New version {version} found, downloading…',
+      updateDownloading: 'Downloading {progress}%',
+      updateReadyDesc: 'Version {version} is ready — install will restart the app',
+    },
+    theme: {
+      mode: 'Theme mode',
+      modeHint: 'Tune color tokens live below',
+      tokens: 'Color tokens',
+      tokensHint: 'Changes apply to the whole shell immediately',
+      light: 'Light',
+      dark: 'Dark',
+      lightDesc: 'Bright daytime',
+      darkDesc: 'Deep workspace',
+      reset: 'Restore defaults',
+    },
+    dev: {
+      title: 'Developer',
+      hint: 'Plugin developer console switches',
+      devMode: 'Developer mode',
+      devModeDesc: 'Show the developer entry in the bottom bar',
+      autoDevTools: 'Auto DevTools',
+      autoDevToolsDesc: 'Attach when a plugin starts',
+    },
+    pluginSection: {
+      hint: 'Injected via enest.settings.register',
+      enable: 'Enabled',
+      enableDesc: 'Data is kept when disabled',
+      showInSettings: 'Show in Settings',
+      showInSettingsDesc: 'Display under the plugin group',
+      customLabel: 'Custom label',
+      customLabelDesc: 'Sample text field',
+    },
+  },
+  theme: {
+    light: 'Light',
+    dark: 'Dark',
+  },
+  devConsole: {
+    title: 'Developer',
+    subtitle: 'Local dir debug · hot reload · DevTools · IPC logs',
+    developing: 'In development',
+    developingHint: 'development.main can point at Vite / Webpack',
+    emptyTitle: 'No dev plugins',
+    emptyDesc: 'Enter a local folder below to load plugin.json',
+    pathPlaceholder: 'Absolute path to a local plugin folder…',
+    loadDir: 'Load local folder',
+    reload: 'Hot reload',
+    logs: 'Logs',
+    logsHint: 'console + IPC',
+  },
+  toasts: {
+    needRestart: 'Restart required for this change',
+    hardwareEnabled: 'Hardware acceleration on — restart to apply',
+    hardwareDisabled: 'Hardware acceleration off — restart to apply',
+    pathCopied: 'Path copied to clipboard',
+    localeChanged: 'Language updated',
+    installed: 'Installed “{name}”',
+    closed: 'Closed “{name}”',
+    loadedDev: 'Loaded local plugin “{name}”',
+    loadDevFailed: 'Failed to load local plugin',
+    reloaded: 'Plugin hot-reloaded',
+    noPluginToReload: 'No open plugin to reload',
+    openPluginFirst: 'Open a plugin first',
+    devToolsOpened: 'DevTools opened',
+    themeSwitched: 'Switched to {label}',
+    themeReset: 'Reset',
+    updateNone: 'You are up to date',
+    updateAvailable: 'Update {version} available — downloading',
+    updateReady: 'Update downloaded — install to restart',
+    updateError: 'Update check failed',
+  },
+  plugin: {
+    install: 'Install',
+    open: 'Open',
+    close: 'Close',
+    installed: 'Installed',
+    uninstall: 'Uninstall',
+    permissions: 'Permissions',
+    version: 'Version',
+    author: 'Author',
+  },
+  empty: {
+    noData: 'No data',
+    noResults: 'No results',
+  },
+}
+
+export default enUS

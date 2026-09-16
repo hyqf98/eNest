@@ -1,0 +1,89 @@
+# electron-builder 打包配置（YAML 会被自动发现，无需 --config）
+# 静态资源：assets/sql → Resources/sql，assets/icons → Resources/icons
+
+appId: com.enest.shell
+productName: eNest
+copyright: Copyright © 2026 eNest
+directories:
+  output: release
+  buildResources: build
+
+# GitHub Releases 自动更新源（electron-updater 读取 app-update.yml）
+publish:
+  provider: github
+  owner: hyqf98
+  repo: eNest
+  releaseType: release
+
+files:
+  - out/**/*
+  - package.json
+
+asar: true
+extraResources:
+  - from: assets/sql
+    to: sql
+  - from: assets/icons
+    to: icons
+
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**"
+
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+mac:
+  category: public.app-category.productivity
+  icon: assets/icons/enest-icon-512.png
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+
+win:
+  icon: assets/icons/enest-icon-256.png
+  target:
+    - target: nsis
+      arch: [x64]
+
+linux:
+  icon: assets/icons/enest-icon-256.png
+  category: Utility
+  synopsis: Plugin-based desktop shell
+  desktop:
+    StartupWMClass: enest
+  # AppImage 支持 electron-updater；deb 仅作分发安装包
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  publish:
+    provider: github
+    owner: hyqf98
+    repo: eNest
+
+# Windows 安装向导：多步安装，可自定义安装目录
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: eNest
+  installerIcon: assets/icons/enest-icon-256.png
+  uninstallerIcon: assets/icons/enest-icon-256.png
+  installerHeaderIcon: assets/icons/enest-icon-256.png
+  installerLanguages: [zh_CN, en_US]
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications

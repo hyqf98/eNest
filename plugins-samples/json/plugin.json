@@ -1,0 +1,9 @@
+{
+  "id": "com.enest.json",
+  "name": "JSON 工坊",
+  "version": "1.0.0",
+  "description": "JSON 工坊（示例）",
+  "author": "eNest",
+  "main": "index.html",
+  "permissions": ["storage.local", "ui.setTitle"]
+}

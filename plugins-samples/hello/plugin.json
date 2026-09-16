@@ -1,0 +1,10 @@
+{
+  "id": "com.enest.hello",
+  "name": "Hello",
+  "version": "1.0.0",
+  "description": "eNest 示例插件",
+  "author": "eNest",
+  "main": "index.html",
+  "permissions": ["ui.setTitle", "storage.local", "notify"],
+  "engines": { "enest": ">=0.1.0" }
+}

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>eNest — 插件化桌面壳子</title>
+  <meta name="description" content="eNest 是开源的插件化桌面壳子：多 Tab 隔离运行、一键安装扩展、可主题化。" />
+  <link rel="icon" href="assets/icons/enest-icon-256.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="./">
+        <img src="assets/icons/enest-icon-256.png" alt="" />
+        eNest
+      </a>
+      <nav class="nav-links">
+        <a class="active" href="./">产品</a>
+        <a href="plugin/">插件开发</a>
+        <a href="plugin/#/api">API</a>
+        <a href="https://github.com/" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <div class="pill"><i></i> Electron 33 · React · 开源插件壳</div>
+      <h1>把桌面能力<br />装进可组合的插件里</h1>
+      <p class="lead">
+        eNest 是插件化桌面壳子：市场一键安装，多 Tab 独立进程运行，
+        关闭即回收。适合效率工具、开发者工具与内部工作台。
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="plugin/">开始开发插件</a>
+        <a class="btn btn-ghost" href="plugin/#/api">查看 API</a>
+      </div>
+    </section>
+
+    <section class="wrap features">
+      <article class="card">
+        <div class="tag">Isolation</div>
+        <h3>会话与进程隔离</h3>
+        <p>每个插件独立 <code class="inline">WebContentsView</code> 与 <code class="inline">persist:plugin-{id}</code>，Cookie / 本地存储互不干扰。</p>
+      </article>
+      <article class="card">
+        <div class="tag">Tabs</div>
+        <h3>多 Tab 并行</h3>
+        <p>顶部 Tab 切换插件页面；关闭 Tab 立即销毁渲染进程，内存干净可预期。</p>
+      </article>
+      <article class="card">
+        <div class="tag">ZAPI</div>
+        <h3>白名单插件 API</h3>
+        <p>preload 注入 <code class="inline">window.enest</code>，按 <code class="inline">plugin.json</code> 的 permissions 校验 IPC。</p>
+      </article>
+      <article class="card">
+        <div class="tag">Theme</div>
+        <h3>可主题化壳子</h3>
+        <p>浅色 / 深色 / 跟随系统；Token 可调，支持背景图与视频；主题插件可动态注册。</p>
+      </article>
+      <article class="card">
+        <div class="tag">Devtools</div>
+        <h3>开发者控制台</h3>
+        <p>本地目录热加载、Vite HMR、DevTools 一键打开，对标 uTools 开发台体验。</p>
+      </article>
+      <article class="card">
+        <div class="tag">Data</div>
+        <h3>本地优先数据</h3>
+        <p>数据根目录 <code class="inline">~/eNest</code>，SQLite（sql.js）写入 <code class="inline">data/enest.db</code>。</p>
+      </article>
+    </section>
+
+    <section class="wrap" style="padding-bottom:72px">
+      <div class="card" style="display:grid;grid-template-columns:1.2fr 1fr;gap:24px;align-items:center">
+        <div>
+          <div class="tag">Quick start</div>
+          <h3 style="font-size:22px;letter-spacing:-0.03em;margin:0 0 8px">三分钟跑通第一个插件</h3>
+          <p style="margin:0 0 16px">从市场打开示例，或在开发者页「加载本地目录」指向含 <code class="inline">plugin.json</code> 的文件夹。</p>
+          <a class="btn btn-primary" href="plugin/#/getting-started">阅读开发指南</a>
+        </div>
+        <pre style="margin:0"><code># 克隆并启动壳子
+npm install
+npm run dev
+
+# 示例插件
+plugins-samples/hello/</code></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">eNest Plugin Shell · 本文档可部署为 GitHub Pages · MIT</div>
+  </footer>
+</body>
+</html>

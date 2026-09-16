@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hello</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #12151c;
+        --text: #e8ecf4;
+        --accent: #5b8cff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: Inter, 'PingFang SC', sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      .card {
+        text-align: center;
+        padding: 2.5rem 3rem;
+        border-radius: 16px;
+        background: #181c26;
+        border: 1px solid #1e2430;
+      }
+      h1 { margin: 0 0 0.5rem; font-size: 1.75rem; }
+      p { margin: 0 0 1.25rem; color: #8b93a7; }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 0.6rem 1.1rem;
+        background: var(--accent);
+        color: white;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover { filter: brightness(1.1); }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Hello, eNest</h1>
+      <p>示例插件已加载</p>
+      <button id="btn">发送通知</button>
+    </div>
+    <script>
+      const zapi = window.enest || window.zapi
+      if (zapi) {
+        zapi.setTitle('Hello')
+        document.getElementById('btn').onclick = () => {
+          zapi.notify({ title: 'Hello', body: '来自示例插件的通知' })
+        }
+      }
+    </script>
+  </body>
+</html>

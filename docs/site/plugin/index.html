@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>插件开发文档 — eNest</title>
+  <meta name="description" content="eNest 插件开发文档：快速开始、plugin.json、zapi API、权限、调试、生命周期与错误码。" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- 站点图标：相对官网 assets -->
+  <link rel="icon" href="../assets/icons/enest-icon-256.png" />
+  <!-- Docsify 主题（CDN）；离线可改为本地 vendor/docsify.css -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify@4/lib/themes/vue.css" />
+  <!-- 中文 UI 与代码高亮样式微调 -->
+  <style>
+    /* 与官网 brand 轻量对齐，不引入完整 site.css，避免与 Docsify 布局冲突 */
+    :root {
+      --theme-color: #2dd4a8;
+      --enest-accent: #2dd4a8;
+    }
+    .sidebar {
+      border-right: 1px solid #eee;
+    }
+    .sidebar-nav > ul > li > p {
+      margin: 12px 0 4px;
+      font-weight: 600;
+      color: #666;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .app-name-link img {
+      max-width: 28px;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    .app-name-link {
+      display: inline-flex;
+      align-items: center;
+      font-weight: 600;
+    }
+    /* 官网跳转条 */
+    .enest-topbar {
+      position: fixed;
+      top: 0;
+      right: 0;
+      z-index: 20;
+      padding: 10px 16px;
+      font-size: 13px;
+      background: rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(6px);
+    }
+    .enest-topbar a {
+      color: #555;
+      text-decoration: none;
+      margin-left: 12px;
+    }
+    .enest-topbar a:hover {
+      color: var(--theme-color);
+    }
+    .markdown-section table {
+      display: table;
+      width: 100%;
+    }
+    .markdown-section code {
+      color: #c7254e;
+    }
+  </style>
+</head>
+<body>
+  <!-- 返回官网与 GitHub 的轻量导航 -->
+  <div class="enest-topbar">
+    <a href="../">官网首页</a>
+    <a href="https://github.com/" rel="noopener">GitHub</a>
+  </div>
+
+  <!-- Docsify 挂载点 -->
+  <div id="app">正在加载插件文档…</div>
+
+  <script>
+    // Docsify 配置（中文 UI）
+    window.$docsify = {
+      name: 'eNest 插件开发',
+      // 仓库链接（部署后请改成真实 GitHub 地址）
+      repo: 'https://github.com/',
+      loadSidebar: true,          // 使用 _sidebar.md
+      loadNavbar: true,           // 使用 _navbar.md
+      subMaxLevel: 3,             // 右侧大纲层级
+      auto2top: true,
+      relativePath: false,
+      alias: {
+        '/.*/_navbar.md': '/_navbar.md',
+        '/.*/_sidebar.md': '/_sidebar.md'
+      },
+      search: {
+        placeholder: '搜索文档',
+        noData: '没有结果',
+        depth: 3
+      },
+      // 中文文案
+      plugins: [
+        function (hook, vm) {
+          hook.doneEach(function () {
+            document.title = (document.querySelector('h1')?.innerText || '插件开发')
+              + ' — eNest';
+          });
+        }
+      ]
+    };
+  </script>
+
+  <!-- Docsify 运行时（CDN）。
+       离线/内网部署：将 docsify.min.js 放到 vendor/ 并改为 <script src="vendor/docsify.min.js"> -->
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
+  <!-- 全文搜索插件 -->
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+  <!-- 外链新窗口打开 -->
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/external-script.min.js"></script>
+</body>
+</html>

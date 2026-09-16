@@ -1,6 +1,3 @@
-# Worktrees
-.worktrees/
-
 # Dependencies
 node_modules/
 .pnp
@@ -41,3 +38,12 @@ coverage/
 
 # Local plugin scratch
 .local-plugins/
+
+# Playwright CLI artifacts
+.playwright-cli/
+
+# Worktrees
+.worktrees/
+
+# e2e screenshots
+e2e-artifacts/
