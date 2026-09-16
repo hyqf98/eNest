@@ -11,6 +11,7 @@ import { ThemeSettingsSection } from '@renderer/components/ThemeSettingsSection'
 import { FontSettingsSection } from '@renderer/components/FontSettingsSection'
 import { AnimationSettingsSection } from '@renderer/components/AnimationSettingsSection'
 import { DevConsoleSection } from '@renderer/components/DevConsoleSection'
+import { QuickSettingsSection } from '@renderer/components/QuickSettingsSection'
 import { LanguageSelect } from '@renderer/components/LanguageSelect'
 import { useI18n } from '@renderer/hooks/useI18n'
 import type { Locale } from '@renderer/i18n'
@@ -377,6 +378,7 @@ export function SettingsPage() {
   const TABS = [
     { id: 'general', label: t('settings.tabs.general') },
     { id: 'appearance', label: t('settings.tabs.appearance') },
+    { id: 'quick', label: '快捷启动' },
     { id: 'dev', label: t('settings.tabs.dev') },
   ] as const
 
@@ -574,6 +576,8 @@ export function SettingsPage() {
             <FontSettingsSection />
           </>
         )}
+
+        {settingsTab === 'quick' && <QuickSettingsSection />}
 
         {settingsTab === 'dev' && <DevConsoleSection />}
 

@@ -17,15 +17,18 @@ import { themePackRegistry } from '@main/theme/themePacks'
 import { createShellWindow } from '@main/window/createShellWindow'
 import {
   applyOrbOverlayVisibility,
-  destroyOrbOverlay,
-  layoutOrbOverlay
+  destroyOrbOverlay
 } from '@main/window/orbOverlayWindow'
+import { destroyQuickWindow } from '@main/window/createQuickWindow'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { applyProxyFromSettings } from '@main/proxy/proxyService'
 import { registerShellHandlers } from '@main/ipc/shellHandlers'
 import { registerPluginHandlers } from '@main/ipc/pluginHandlers'
+import { registerQuickHandlers } from '@main/ipc/quickHandlers'
+import { initQuickHotkeys, disposeQuickHotkeys } from '@main/hotkey/quickHotkey'
+import { scanApplications } from '@main/launcher/appScanner'
 import { initUpdateService } from '@main/update/updateService'
 
 registerSchemesAsPrivileged()
@@ -63,10 +66,7 @@ void app.whenReady().then(async () => {
 
     const win: BaseWindow = createShellWindow()
     logInfo('main', 'window ok')
-    win.on('resize', () => {
-      pluginHost.layoutAll()
-      layoutOrbOverlay()
-    })
+    win.on('resize', () => pluginHost.layoutAll())
     win.on('closed', () => {
       pluginHost.destroyAll()
       destroyOrbOverlay()
@@ -78,7 +78,13 @@ void app.whenReady().then(async () => {
 
     registerShellHandlers()
     registerPluginHandlers()
+    registerQuickHandlers()
     logInfo('main', 'ipc ok')
+
+    // 快捷启动：注册全局热键 + 后台扫描；小窗懒创建（首次呼出时）
+    initQuickHotkeys()
+    void scanApplications(false)
+    logInfo('main', 'quick launcher ok')
 
     // GitHub Release 自动更新（仅打包环境真正启用）
     initUpdateService()
@@ -98,5 +104,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   pluginHost.destroyAll()
+  disposeQuickHotkeys()
+  destroyQuickWindow()
   kvStore.close()
 })

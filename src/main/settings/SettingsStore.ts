@@ -10,6 +10,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type {
   GeneralSettings as SharedGeneralSettings,
+  QuickLauncherSettings,
   ThemeMode,
   ThemeTokens
 } from '@shared/types/plugin'
@@ -20,6 +21,16 @@ import { sendShellEvent } from '@main/window/createShellWindow'
 export type GeneralSettings = SharedGeneralSettings & {
   openAtLogin?: boolean
   [key: string]: unknown
+}
+
+/** 平台默认呼出快捷键；多条任一成功即启用 */
+export function defaultQuickHotkeys(platform: NodeJS.Platform = process.platform): string[] {
+  if (platform === 'darwin') return ['Alt+Space']
+  return ['Alt+Space', 'Control+Space']
+}
+
+export function defaultQuickLauncher(): QuickLauncherSettings {
+  return { enabled: true, hotkeys: defaultQuickHotkeys() }
 }
 
 export interface SettingsData {
@@ -36,7 +47,8 @@ const DEFAULTS: SettingsData = {
     closeBehavior: 'minimize-tray',
     tabStyle: 'classic',
     animationLevel: 'medium',
-    fontFamily: ''
+    fontFamily: '',
+    quickLauncher: defaultQuickLauncher()
   },
   plugins: {}
 }

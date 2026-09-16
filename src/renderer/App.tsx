@@ -2,19 +2,25 @@
  * App — 应用根组件
  * 启动后初始化 GSAP 默认值、水合主题（useTheme）、字体（useFont）、语言（useI18n.hydrate）、
  * 动画强度与 Tab 样式，并刷新插件列表（shellStore.refreshPlugins）。
- * 渲染 ShellLayout（壳子框架）与全局 NotificationHost 通知层。
- * 依赖：useTheme、useFont、useI18n、shellStore、marketMotion.initMotion。
+ * ?surface=quick 时渲染快捷启动小窗，不加载市场壳子。
+ * 依赖：useTheme、useFont、useI18n、shellStore、marketMotion.initMotion、QuickLauncherApp。
  */
 import { useEffect, useState } from 'react'
 import { ShellLayout } from '@renderer/layout/ShellLayout'
 import { NotificationHost } from '@renderer/components/NotificationHost'
 import { Splash } from '@renderer/components/Splash'
+import { QuickLauncherApp } from '@renderer/components/QuickLauncherApp'
 import { useTheme } from '@renderer/hooks/useTheme'
 import { useFont } from '@renderer/hooks/useFont'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { useAnimationLevel } from '@renderer/hooks/useAnimationLevel'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { initMotion } from '@renderer/gsap/marketMotion'
+
+function isQuickSurface(): boolean {
+  if (typeof window === 'undefined') return false
+  return new URLSearchParams(window.location.search).get('surface') === 'quick'
+}
 
 export default function App() {
   const hydrateTheme = useTheme().hydrate
@@ -24,8 +30,10 @@ export default function App() {
   const refreshPlugins = useShellStore((s) => s.refreshPlugins)
   const hydrateTabStyle = useShellStore((s) => s.hydrateTabStyle)
   const [splashDone, setSplashDone] = useState(false)
+  const quick = isQuickSurface()
 
   useEffect(() => {
+    if (quick) return
     initMotion()
     // 主题最先水合，减少首屏色相跳变
     void (async () => {
@@ -36,7 +44,11 @@ export default function App() {
       void hydrateTabStyle()
       void refreshPlugins()
     })()
-  }, [hydrateTheme, hydrateFont, hydrateI18n, hydrateAnimLevel, hydrateTabStyle, refreshPlugins])
+  }, [quick, hydrateTheme, hydrateFont, hydrateI18n, hydrateAnimLevel, hydrateTabStyle, refreshPlugins])
+
+  if (quick) {
+    return <QuickLauncherApp />
+  }
 
   return (
     <>

@@ -22,6 +22,14 @@ import type {
   ThemeTokens
 } from '@shared/types/plugin'
 import type { ProxyTestResult } from '@shared/types/ipc'
+import type {
+  ApplicationScanResult,
+  QuickHotkeyApplyResult,
+  QuickHotkeyConfig,
+  QuickOpenRequest,
+  QuickOpenResult,
+  QuickSearchResult
+} from '@shared/types/quick'
 
 type Unsubscribe = () => void
 
@@ -151,6 +159,16 @@ export interface EnestShellApi {
   minimizeWindow(): void
   maximizeWindow(): void
   closeWindow(): void
+
+  // —— 快捷启动 Quick ——
+  quickToggle(): Promise<void>
+  quickHide(): void
+  quickSearch(query: string, limit?: number): Promise<QuickSearchResult>
+  quickOpen(req: QuickOpenRequest): Promise<QuickOpenResult>
+  quickScanApps(force?: boolean): Promise<ApplicationScanResult>
+  quickGetConfig(): Promise<QuickHotkeyConfig>
+  quickSetHotkeys(payload: { enabled?: boolean; hotkeys?: string[] }): Promise<QuickHotkeyApplyResult>
+  onQuickShown(cb: () => void): Unsubscribe
 }
 
 const api: EnestShellApi = {
@@ -316,7 +334,27 @@ const api: EnestShellApi = {
 
   minimizeWindow: () => ipcRenderer.send(IpcChannels.WindowMinimize),
   maximizeWindow: () => ipcRenderer.send(IpcChannels.WindowMaximize),
-  closeWindow: () => ipcRenderer.send(IpcChannels.WindowClose)
+  closeWindow: () => ipcRenderer.send(IpcChannels.WindowClose),
+
+  quickToggle: () => ipcRenderer.invoke(IpcChannels.QuickToggle).then(() => undefined),
+  quickHide: () => {
+    ipcRenderer.invoke(IpcChannels.QuickHide).catch(() => undefined)
+  },
+  quickSearch: (query: string, limit?: number) =>
+    ipcRenderer.invoke(IpcChannels.QuickSearch, { query, limit }) as Promise<QuickSearchResult>,
+  quickOpen: (req: QuickOpenRequest) =>
+    ipcRenderer.invoke(IpcChannels.QuickOpen, req) as Promise<QuickOpenResult>,
+  quickScanApps: (force?: boolean) =>
+    ipcRenderer.invoke(IpcChannels.QuickScanApps, { force }) as Promise<ApplicationScanResult>,
+  quickGetConfig: () =>
+    ipcRenderer.invoke(IpcChannels.QuickGetConfig) as Promise<QuickHotkeyConfig>,
+  quickSetHotkeys: (payload: { enabled?: boolean; hotkeys?: string[] }) =>
+    ipcRenderer.invoke(IpcChannels.QuickSetHotkeys, payload) as Promise<QuickHotkeyApplyResult>,
+  onQuickShown(cb: () => void): Unsubscribe {
+    const handler = () => cb()
+    ipcRenderer.on(IpcChannels.QuickShown, handler)
+    return () => ipcRenderer.removeListener(IpcChannels.QuickShown, handler)
+  }
 }
 
 contextBridge.exposeInMainWorld('enestShell', api)

@@ -62,6 +62,13 @@ export function resolvePluginUi(ui?: Partial<PluginUiConfig> | null): PluginUiCo
   }
 }
 
+/**
+ * 插件呈现形态：
+ * - mini：命令面板（Quick 小窗）优先；骨架阶段打开时仍进主窗 Tab
+ * - panel：主壳子大插件 Tab（终端/数据库等），缺省
+ */
+export type PluginForm = 'mini' | 'panel'
+
 export interface PluginManifest {
   id: string
   name: string
@@ -79,6 +86,13 @@ export interface PluginManifest {
   development?: { main?: string }
   /** UI 集成配置；缺省等价 DEFAULT_PLUGIN_UI */
   ui?: Partial<PluginUiConfig>
+  /** 打开形态；缺省 panel（主窗 Tab） */
+  form?: PluginForm
+}
+
+/** 命令面 / 设置使用的插件 form 归一 */
+export function resolvePluginForm(form?: string | null): PluginForm {
+  return form === 'mini' ? 'mini' : 'panel'
 }
 
 /** 市场/已安装列表使用的插件摘要 */
@@ -98,6 +112,8 @@ export interface PluginSummary {
   devUrl?: string
   /** 已归一的 UI 配置（供壳子 chrome / 主题注入使用） */
   ui: PluginUiConfig
+  /** 已归一的打开形态；缺省 panel */
+  form?: PluginForm
 }
 
 export interface PluginTab {
@@ -176,6 +192,14 @@ export interface ProxyConfig {
   url?: string
 }
 
+/** 全局呼出快捷启动小窗的设置 */
+export interface QuickLauncherSettings {
+  /** 是否启用全局热键；false 时不注册 */
+  enabled: boolean
+  /** Electron accelerator 列表，任一触发 toggle；失败项会被跳过 */
+  hotkeys: string[]
+}
+
 /** 设置 → 通用（保持轻量） */
 export interface GeneralSettings {
   locale: 'zh-CN' | 'en-US'
@@ -194,6 +218,8 @@ export interface GeneralSettings {
   customFonts?: CustomFontMeta[]
   /** 网络代理；缺省/none 为直连，变更经 session.setProxy 即时生效 */
   proxy?: ProxyConfig
+  /** 快捷启动（Quick 小窗）配置 */
+  quickLauncher?: QuickLauncherSettings
 }
 
 export interface AppPaths {

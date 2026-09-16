@@ -1,9 +1,9 @@
 /**
- * orbOverlayWindow — 左侧圆轨透明置顶悬浮窗
+ * orbOverlayWindow — 左侧圆轨透明子窗口
+ * 作为主窗 child 附着：拖动/缩放时跟随主窗，不抢全局置顶（不会浮到其它 App 之上）。
  * 覆盖在插件 WebContentsView 之上，不占用插件内容宽度（inset 恒 0）。
- * 壳子 renderer 经 ShellSyncOrbState 推送 Tab 状态；悬浮窗经同一 shellApi 操作。
  */
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, type BaseWindow } from 'electron'
 import { join } from 'node:path'
 import { ORB_OVERLAY_WIDTH, TITLEBAR_HEIGHT } from '@shared/constants'
 import { IpcChannels, type OrbRailState } from '@shared/types/ipc'
@@ -13,9 +13,12 @@ import {
   resolvePreload,
   setPluginLeftInset
 } from '@main/window/createShellWindow'
-import { logInfo } from '@main/logs/logService'
+import { logInfo, logWarn } from '@main/logs/logService'
 
 let overlayWin: BrowserWindow | null = null
+let attachedTo: BaseWindow | null = null
+let parentListenersBound = false
+
 let lastState: OrbRailState = {
   view: 'home',
   tabStyle: 'classic',
@@ -61,9 +64,56 @@ function loadOverlay(win: BrowserWindow): void {
   }
 }
 
+/** 主窗几何变化时同步悬浮窗（拖动、缩放） */
+function onParentGeometry(): void {
+  layoutOverlay()
+}
+
+/** 主窗失焦：藏起悬浮窗，避免盖到其它应用 */
+function onParentBlur(): void {
+  if (overlayWin && !overlayWin.isDestroyed() && overlayWin.isVisible()) {
+    overlayWin.hide()
+  }
+}
+
+/** 主窗聚焦：orb 模式恢复悬浮窗 */
+function onParentFocus(): void {
+  if (lastState.tabStyle === 'orb') {
+    showOrbOverlay()
+  }
+}
+
+function bindParentListeners(parent: BaseWindow): void {
+  if (attachedTo === parent && parentListenersBound) return
+  unbindParentListeners()
+  attachedTo = parent
+  parent.on('move', onParentGeometry)
+  parent.on('resize', onParentGeometry)
+  parent.on('moved', onParentGeometry)
+  parent.on('blur', onParentBlur)
+  parent.on('focus', onParentFocus)
+  parentListenersBound = true
+}
+
+function unbindParentListeners(): void {
+  if (!attachedTo || attachedTo.isDestroyed()) {
+    attachedTo = null
+    parentListenersBound = false
+    return
+  }
+  attachedTo.off('move', onParentGeometry)
+  attachedTo.off('resize', onParentGeometry)
+  attachedTo.off('moved', onParentGeometry)
+  attachedTo.off('blur', onParentBlur)
+  attachedTo.off('focus', onParentFocus)
+  parentListenersBound = false
+  attachedTo = null
+}
+
 export function createOrbOverlayWindow(): void {
   if (overlayWin && !overlayWin.isDestroyed()) return
 
+  const parent = getMainWindow()
   const win = new BrowserWindow({
     width: ORB_OVERLAY_WIDTH,
     height: 400,
@@ -77,9 +127,13 @@ export function createOrbOverlayWindow(): void {
     fullscreenable: false,
     skipTaskbar: true,
     hasShadow: false,
-    alwaysOnTop: true,
+    // 不设全局 alwaysOnTop；用 parent 绑定跟随主窗，只盖在本应用之上
+    alwaysOnTop: false,
     focusable: true,
     backgroundColor: '#00000000',
+    ...(parent && !parent.isDestroyed()
+      ? { parent: parent as unknown as BrowserWindow }
+      : {}),
     webPreferences: {
       preload: resolvePreload('shellPreload.js'),
       contextIsolation: true,
@@ -90,11 +144,15 @@ export function createOrbOverlayWindow(): void {
     }
   })
 
-  win.setAlwaysOnTop(true, 'screen-saver')
-  try {
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  } catch {
-    /* optional API */
+  // 附加父子关系（部分 Electron 版本需显式 setParentWindow）
+  if (parent && !parent.isDestroyed()) {
+    try {
+      const anyWin = win as unknown as { setParentWindow?: (p: BaseWindow) => void }
+      anyWin.setParentWindow?.(parent)
+    } catch (err) {
+      logWarn('orb', `setParentWindow failed: ${(err as Error).message}`)
+    }
+    bindParentListeners(parent)
   }
 
   loadOverlay(win)
@@ -116,6 +174,12 @@ export function showOrbOverlay(): void {
   createOrbOverlayWindow()
   if (!overlayWin || overlayWin.isDestroyed()) return
   layoutOverlay()
+  // 子窗口：不抢焦点，但要保证叠在插件 WebContentsView 之上
+  try {
+    overlayWin.moveTop()
+  } catch {
+    /* ignore */
+  }
   overlayWin.showInactive()
 }
 
@@ -126,9 +190,15 @@ export function hideOrbOverlay(): void {
 export function layoutOrbOverlay(): void {
   if (!overlayWin || overlayWin.isDestroyed() || !overlayWin.isVisible()) return
   layoutOverlay()
+  try {
+    overlayWin.moveTop()
+  } catch {
+    /* ignore */
+  }
 }
 
 export function destroyOrbOverlay(): void {
+  unbindParentListeners()
   if (overlayWin && !overlayWin.isDestroyed()) overlayWin.destroy()
   overlayWin = null
 }
@@ -140,11 +210,7 @@ export function applyOrbOverlayVisibility(tabStyle: 'classic' | 'orb'): void {
     setPluginLeftInset(0)
     showOrbOverlay()
     const parent = getMainWindow()
-    if (parent && !parent.isDestroyed()) {
-      parent.removeAllListeners('resize')
-      parent.on('resize', layoutOrbOverlay)
-      parent.on('move', layoutOrbOverlay)
-    }
+    if (parent && !parent.isDestroyed()) bindParentListeners(parent)
   } else {
     hideOrbOverlay()
   }

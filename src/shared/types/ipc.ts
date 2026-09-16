@@ -74,6 +74,15 @@ export const IpcChannels = {
   /** 系统级通知（Electron Notification） */
   ShellSystemNotify: 'shell:system-notify',
 
+  /** 快捷启动（Quick 小窗） */
+  QuickToggle: 'quick:toggle',
+  QuickHide: 'quick:hide',
+  QuickSearch: 'quick:search',
+  QuickOpen: 'quick:open',
+  QuickScanApps: 'quick:scan-apps',
+  QuickGetConfig: 'quick:get-config',
+  QuickSetHotkeys: 'quick:set-hotkeys',
+
   WindowMinimize: 'window:minimize',
   WindowMaximize: 'window:maximize',
   WindowClose: 'window:close',
@@ -88,7 +97,12 @@ export const IpcChannels = {
   PluginLifecycleAck: 'plugin:lifecycle-ack',
 
   /** 主进程 → 壳子渲染进程推送 */
-  ShellEvent: 'shell:event'
+  ShellEvent: 'shell:event',
+
+  /** Quick 渲染层 → 主进程：Esc 请求隐藏 */
+  QuickHideRequest: 'quick:hide-request',
+  /** 主进程 → Quick 渲染层：窗口已显示，请求聚焦输入框 */
+  QuickShown: 'quick:shown'
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]
@@ -122,6 +136,12 @@ export type ShellEventPayload =
   | { type: 'go-home' }
   /** 悬浮窗请求主壳切换视图 */
   | { type: 'set-view'; view: 'home' | 'settings' | 'plugin' | 'dev' }
+  /** 快捷键注册失败（至少部分占用） */
+  | { type: 'quick-hotkey-failed'; failed: string[]; registered: string[] }
+  /** 快捷启动配置变更 */
+  | { type: 'quick-config-changed'; enabled: boolean; hotkeys: string[] }
+  /** 命令面要求壳子切换视图 */
+  | { type: 'quick-open-view'; view: 'home' | 'settings' | 'dev' }
 
 /** orb 悬浮窗同步的 Tab 状态（壳子 renderer → main → overlay） */
 export interface OrbRailState {
