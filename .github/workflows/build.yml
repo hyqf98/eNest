@@ -46,12 +46,15 @@ jobs:
           node-version: 20
           cache: npm
 
+      # Python 3.11 自带 distutils，避免 node-gyp 在 3.12+ 上失败
+      - name: Setup Python
+        if: matrix.platform != 'win'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install dependencies
         run: npm ci
-
-      - name: Install setuptools (node-gyp / Python 3.12+)
-        if: matrix.platform != 'win'
-        run: python3 -m pip install --user setuptools
 
       - name: Rebuild native modules for Electron
         run: npx electron-rebuild -f
@@ -69,8 +72,6 @@ jobs:
           # 未配置代码签名时避免 CI 失败；有证书时再注入 secrets
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Python 3.12+ 无 distutils；node-gyp 依赖 setuptools
-          npm_config_python: python3
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
