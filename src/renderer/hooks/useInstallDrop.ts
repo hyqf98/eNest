@@ -7,7 +7,7 @@
  * 依赖：shellApi.getPathForFile / installPlugin。
  */
 import { useEffect, useRef, useState } from 'react'
-import { shellApi } from '../services/shellApi'
+import { shellApi } from '@renderer/services/shellApi'
 
 export interface UseInstallDropResult {
   /** 是否正在拖入文件（用于显示全窗遮罩） */

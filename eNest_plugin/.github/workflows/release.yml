@@ -1,0 +1,86 @@
+name: release-plugins
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/**'
+      - 'scripts/**'
+      - '.github/workflows/release.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build registry
+        run: node scripts/build-registry.mjs
+
+      - name: Pack all plugins
+        id: pack
+        run: |
+          mkdir -p dist/icons
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const reg = JSON.parse(fs.readFileSync('registry.json','utf8'));
+            for (const p of reg.plugins) {
+              console.log('::notice::pack', p.id);
+            }
+          "
+          for d in plugins/*/; do
+            id=$(basename "$d")
+            [ -f "$d/plugin.json" ] || continue
+            node scripts/pack-plugin.mjs "$id" dist
+            # icon
+            if [ -f "$d/icon.png" ]; then cp "$d/icon.png" "dist/icons/${id}.png"; fi
+            if [ -f "$d/icon.svg" ]; then cp "$d/icon.svg" "dist/icons/${id}.svg"; fi
+          done
+
+      - name: Patch registry asset URLs
+        env:
+          REPO: ${{ github.repository }}
+          TAG: plugins-${{ github.run_number }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            const reg = JSON.parse(fs.readFileSync('registry.json','utf8'));
+            const base = 'https://github.com/' + process.env.REPO + '/releases/download/' + process.env.TAG;
+            for (const p of reg.plugins) {
+              const name = p.asset.name;
+              p.asset.url = base + '/' + name;
+              try {
+                const st = fs.statSync('dist/' + name);
+                p.asset.size = st.size;
+              } catch {}
+              const crypto = require('crypto');
+              try {
+                p.asset.sha256 = crypto.createHash('sha256').update(fs.readFileSync('dist/' + name)).digest('hex');
+              } catch {}
+              if (p.icon && !/^https?:/.test(p.icon)) {
+                const ext = p.icon.includes('.') ? p.icon.slice(p.icon.lastIndexOf('.')) : '';
+                p.icon = base + '/icons/' + p.id + ext;
+              }
+            }
+            fs.writeFileSync('dist/registry.json', JSON.stringify(reg, null, 2) + '\n');
+            fs.writeFileSync('registry.json', JSON.stringify(reg, null, 2) + '\n');
+          "
+          echo "TAG=plugins-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: plugins-${{ github.run_number }}
+          name: Plugins ${{ github.run_number }}
+          files: |
+            dist/**
+          generate_release_notes: true

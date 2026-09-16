@@ -11,9 +11,11 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import type { PluginManifest, PluginSummary } from '@shared/types/plugin'
 import { resolvePluginUi } from '@shared/types/plugin'
-import { getAppPaths } from '../paths/pathsService'
-import { MOCK_MARKET_PLUGINS, mockToSummary, shortNameOf } from './mockMarket'
-import { installFromDirectory } from './PluginInstaller'
+import { getAppPaths } from '@main/paths/pathsService'
+import { MOCK_MARKET_PLUGINS, mockToSummary, shortNameOf } from '@main/plugin/mockMarket'
+import { installFromDirectory } from '@main/plugin/PluginInstaller'
+import { fetchRemoteMarket, type MarketPluginSummary } from '@main/plugin/marketClient'
+import { logInfo, logWarn } from '@main/logs/logService'
 
 export interface InstalledPlugin {
   manifest: PluginManifest
@@ -58,6 +60,9 @@ export class PluginRegistry {
   private installed = new Map<string, InstalledPlugin>()
   private dev = new Map<string, PluginSummary>()
   private devManifests = new Map<string, PluginManifest>()
+  /** 远程 eNest_plugin 市场缓存；断网时沿用上次成功结果 */
+  private remoteMarket: MarketPluginSummary[] = []
+  private remoteFetchedAt = 0
 
 /** 扫描 userData/plugins 下所有已安装插件，解析 manifest 并缓存到内存 */
   async scan(): Promise<void> {
@@ -88,13 +93,49 @@ export class PluginRegistry {
         // skip invalid plugin dirs
       }
     }
+    // 启动后异步拉取远程市场，不阻塞 scan
+    void this.refreshRemoteMarket()
   }
 
-/** 返回合并后的插件列表：市场 mock → 已安装 → 开发态（后者覆盖前者） */
+  /** 拉取 eNest_plugin registry；成功则覆盖 remoteMarket */
+  async refreshRemoteMarket(force = false): Promise<void> {
+    const ttl = 5 * 60 * 1000
+    if (!force && Date.now() - this.remoteFetchedAt < ttl) return
+    const list = await fetchRemoteMarket()
+    this.remoteFetchedAt = Date.now()
+    if (list.length) {
+      this.remoteMarket = list
+      logInfo('registry', `remote market ok: ${list.length} plugins`)
+    } else {
+      logWarn('registry', 'remote market empty or unreachable, keep local/mock')
+    }
+  }
+
+  getRemoteMarket(): MarketPluginSummary[] {
+    return this.remoteMarket
+  }
+
+/** 返回合并后的插件列表：远程市场 → mock → 已安装 → 开发态（后者覆盖前者） */
   list(): PluginSummary[] {
     const byId = new Map<string, PluginSummary>()
+    for (const remote of this.remoteMarket) {
+      byId.set(remote.id, {
+        id: remote.id,
+        name: remote.name,
+        version: remote.version,
+        description: remote.description,
+        author: remote.author,
+        category: remote.category,
+        installs: remote.installs,
+        color: remote.color,
+        glyph: remote.glyph,
+        permissions: remote.permissions,
+        installed: this.installed.has(remote.id) || this.dev.has(remote.id),
+        ui: remote.ui
+      })
+    }
     for (const mock of mockToSummary(false)) {
-      byId.set(mock.id, mock)
+      if (!byId.has(mock.id)) byId.set(mock.id, mock)
     }
     for (const item of this.installed.values()) {
       byId.set(item.manifest.id, manifestToSummary(item.manifest, item.rootPath))
@@ -110,6 +151,23 @@ export class PluginRegistry {
     if (dev) return { ...dev, installed: true }
     const inst = this.installed.get(id)
     if (inst) return manifestToSummary(inst.manifest, inst.rootPath)
+    const remote = this.remoteMarket.find((s) => s.id === id)
+    if (remote) {
+      return {
+        id: remote.id,
+        name: remote.name,
+        version: remote.version,
+        description: remote.description,
+        author: remote.author,
+        category: remote.category,
+        installs: remote.installs,
+        color: remote.color,
+        glyph: remote.glyph,
+        permissions: remote.permissions,
+        installed: false,
+        ui: remote.ui
+      }
+    }
     return mockToSummary(false).find((s) => s.id === id) ?? null
   }
 

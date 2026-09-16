@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hello</title>
+  <style>
+    :root {
+      --bg: #f4f5f7;
+      --text: #0f1420;
+      --text-2: #5c6578;
+      --accent: #1a1f2e;
+      --surface: #fff;
+      --border: rgba(15, 23, 42, 0.08);
+    }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+    main { display: grid; place-items: center; height: 100%; padding: 24px; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 32px;
+      text-align: center;
+      max-width: 360px;
+    }
+    h1 { margin: 0 0 8px; font-size: 22px; }
+    p { margin: 0; color: var(--text-2); font-size: 14px; line-height: 1.5; }
+    button {
+      margin-top: 16px;
+      height: 36px;
+      padding: 0 16px;
+      border-radius: 10px;
+      border: 0;
+      background: var(--accent);
+      color: var(--bg);
+      font-weight: 600;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="card">
+      <h1>Hello</h1>
+      <p>这是 eNest_plugin 仓库的最小示例插件。主题 Token 由壳子注入时自动生效。</p>
+      <button id="btn" type="button">打招呼</button>
+    </div>
+  </main>
+  <script>
+    const api = window.enest || window.zapi
+    document.getElementById('btn').onclick = async () => {
+      try {
+        await api?.ui?.setTitle?.('Hello')
+        await api?.notify?.({ title: 'Hello', body: '示例插件运行正常' })
+      } catch (_) {}
+    }
+  </script>
+</body>
+</html>

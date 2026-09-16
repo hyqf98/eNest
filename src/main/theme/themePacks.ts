@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { ThemePack } from '@shared/types/plugin'
-import { getAppPaths } from '../paths/pathsService'
+import { getAppPaths } from '@main/paths/pathsService'
 
 function registryFile(): string {
   return join(getAppPaths().themes, 'registry.json')

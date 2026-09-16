@@ -3,10 +3,10 @@
  * 供 SettingsPage 或其它容器一键挂载；内部读 useTheme，无需透传 props。
  * 依赖：useTheme、ThemeModeSelect、BackgroundPicker、ThemeTokenEditor。
  */
-import { useTheme } from '../hooks/useTheme'
-import { ThemeModeSelect } from './ThemeModeSelect'
-import { BackgroundPicker } from './BackgroundPicker'
-import { ThemeTokenEditor } from './ThemeTokenEditor'
+import { useTheme } from '@renderer/hooks/useTheme'
+import { ThemeModeSelect } from '@renderer/components/ThemeModeSelect'
+import { BackgroundPicker } from '@renderer/components/BackgroundPicker'
+import { ThemeTokenEditor } from '@renderer/components/ThemeTokenEditor'
 
 export function ThemeSettingsSection() {
   const theme = useTheme()

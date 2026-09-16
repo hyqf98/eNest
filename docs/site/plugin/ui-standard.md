@@ -84,6 +84,50 @@ eNest 插件可以使用任意前端技术（HTML/CSS/Canvas/WebGL）绘制界�
 - `document.documentElement.dataset.theme` = `"light"` | `"dark"`
 - `color-scheme` 与之一致（影响滚动条、表单控件）
 
+### 主题包（插件自定义主题）
+
+主题插件可在加载后调用 `enest.theme.register(ThemePack)`，壳子写入
+`~/eNest/themes/registry.json` 并推送 `theme-packs-changed`，设置 → 主题
+的「主题包」下拉**即时出现**，用户选择后全壳生效。
+
+```js
+await enest.theme.register({
+  id: 'com.example.forest',
+  name: '森林',
+  mode: 'dark',
+  tokens: {
+    '--bg': '#0a1f1c',
+    '--surface': '#0f2924',
+    '--surface-2': '#14352f',
+    '--text': '#e8fff8',
+    '--text-2': '#9ccfc0',
+    '--text-3': '#6a9a8c',
+    '--accent': '#2dd4a8',
+    '--border': 'rgba(255,255,255,0.08)',
+    '--border-strong': 'rgba(255,255,255,0.14)',
+    '--ok': '#3dd68c',
+    '--danger': '#ff7a8e',
+  },
+  background: {
+    type: 'color',
+    value: 'linear-gradient(160deg,#0a1f1c,#134e4a)',
+    opacity: 0.9,
+  },
+})
+```
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `id` | ✓ | 全局唯一；同 id 覆盖注册 |
+| `name` | ✓ | 下拉显示名 |
+| `source` | 自动 | 缺省为当前插件 id |
+| `mode` | ✓ | `light` / `dark` / `system` |
+| `tokens` | ✓ | CSS 变量覆盖，名与壳子 Token 一致 |
+| `background` | | 可选壳子背景（color/image/video） |
+
+**动态读取**：所有 Token 均可通过 `enest.theme.getTokens()` / `ui.onThemeChange`
+实时获取；主题包应用后会再次广播，插件无需轮询。
+
 ### 叠加顺序
 
 ```

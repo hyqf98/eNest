@@ -3,7 +3,7 @@
  * 组件内优先使用本 hook；模块级文案可用 i18n/index 的 t()。
  * 依赖：i18n store（useI18nStore）。
  */
-import { useI18nStore, type Locale } from '../i18n'
+import { useI18nStore, type Locale } from '@renderer/i18n'
 
 export type { Locale }
 

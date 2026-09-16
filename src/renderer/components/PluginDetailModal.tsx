@@ -6,9 +6,9 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PluginPermission, PluginSummary } from '@shared/types/plugin'
-import { shellApi } from '../services/shellApi'
-import { playModalIn, playModalOut } from '../gsap/marketMotion'
-import { MarkdownView } from './MarkdownView'
+import { shellApi } from '@renderer/services/shellApi'
+import { playModalIn, playModalOut } from '@renderer/gsap/marketMotion'
+import { MarkdownView } from '@renderer/components/MarkdownView'
 
 /** 权限键 → 中文说明（未收录时原样展示） */
 const PERMISSION_LABELS: Partial<Record<PluginPermission, string>> = {

@@ -2,7 +2,7 @@
  * LanguageSelect — 语言分段选择（中文 | English）
  * 受控组件；复用 .segmented 样式，value 为 Locale。
  */
-import type { Locale } from '../i18n'
+import type { Locale } from '@renderer/i18n'
 
 interface Props {
   value: Locale

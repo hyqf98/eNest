@@ -7,20 +7,26 @@
  * PluginRegistry、PluginHost、SettingsStore、createShellWindow。
  */
 import { app, BaseWindow } from 'electron'
-import { registerSchemesAsPrivileged, initPluginProtocol } from './plugin/pluginProtocol'
-import { applyHardwareAccelerationBeforeReady } from './hardwareAcceleration'
-import { ensureAppDirs } from './paths/pathsService'
-import { migrateToDataRoot } from './paths/migrate'
-import { initLogService, logError, logInfo } from './logs/logService'
-import { kvStore } from './db/sqliteService'
-import { themePackRegistry } from './theme/themePacks'
-import { createShellWindow } from './window/createShellWindow'
-import { pluginHost } from './plugin/PluginHost'
-import { pluginRegistry } from './plugin/PluginRegistry'
-import { settingsStore } from './settings/SettingsStore'
-import { registerShellHandlers } from './ipc/shellHandlers'
-import { registerPluginHandlers } from './ipc/pluginHandlers'
-import { initUpdateService } from './update/updateService'
+import { registerSchemesAsPrivileged, initPluginProtocol } from '@main/plugin/pluginProtocol'
+import { applyHardwareAccelerationBeforeReady } from '@main/hardwareAcceleration'
+import { ensureAppDirs } from '@main/paths/pathsService'
+import { migrateToDataRoot } from '@main/paths/migrate'
+import { initLogService, logError, logInfo } from '@main/logs/logService'
+import { kvStore } from '@main/db/sqliteService'
+import { themePackRegistry } from '@main/theme/themePacks'
+import { createShellWindow } from '@main/window/createShellWindow'
+import {
+  applyOrbOverlayVisibility,
+  destroyOrbOverlay,
+  layoutOrbOverlay
+} from '@main/window/orbOverlayWindow'
+import { pluginHost } from '@main/plugin/PluginHost'
+import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { settingsStore } from '@main/settings/SettingsStore'
+import { applyProxyFromSettings } from '@main/proxy/proxyService'
+import { registerShellHandlers } from '@main/ipc/shellHandlers'
+import { registerPluginHandlers } from '@main/ipc/pluginHandlers'
+import { initUpdateService } from '@main/update/updateService'
 
 registerSchemesAsPrivileged()
 
@@ -42,6 +48,9 @@ void app.whenReady().then(async () => {
     await migrateToDataRoot()
     logInfo('main', 'migrate ok')
     await settingsStore.load()
+    // 代理需在创建窗口/启动 updater 前应用，确保首批网络请求走代理
+    await applyProxyFromSettings()
+    logInfo('main', 'proxy ok')
     ensureAppDirs()
     const backend = await kvStore.initDatabase()
     logInfo('main', `kv backend=${backend}`)
@@ -54,8 +63,18 @@ void app.whenReady().then(async () => {
 
     const win: BaseWindow = createShellWindow()
     logInfo('main', 'window ok')
-    win.on('resize', () => pluginHost.layoutAll())
-    win.on('closed', () => pluginHost.destroyAll())
+    win.on('resize', () => {
+      pluginHost.layoutAll()
+      layoutOrbOverlay()
+    })
+    win.on('closed', () => {
+      pluginHost.destroyAll()
+      destroyOrbOverlay()
+    })
+
+    // 按已保存设置决定是否显示圆轨悬浮窗
+    const tabStyle = settingsStore.getAll().general?.tabStyle
+    applyOrbOverlayVisibility(tabStyle === 'orb' ? 'orb' : 'classic')
 
     registerShellHandlers()
     registerPluginHandlers()

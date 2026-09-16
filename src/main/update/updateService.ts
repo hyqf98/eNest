@@ -5,9 +5,13 @@
  * 关键依赖：electron-updater、sendShellEvent、app.getVersion。
  */
 import { app } from 'electron'
-import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-updater'
-import { logError, logInfo, logWarn } from '../logs/logService'
-import { sendShellEvent } from '../window/createShellWindow'
+// electron-updater 为 CJS，ESM 下需默认导入再解构，避免 Named export not found
+import electronUpdater from 'electron-updater'
+import type { UpdateInfo, ProgressInfo } from 'electron-updater'
+import { logError, logInfo, logWarn } from '@main/logs/logService'
+import { sendShellEvent } from '@main/window/createShellWindow'
+
+const { autoUpdater } = electronUpdater
 
 export type UpdateStatus =
   | 'idle'

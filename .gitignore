@@ -47,3 +47,6 @@ coverage/
 
 # e2e screenshots
 e2e-artifacts/
+
+# iconutil 中间产物
+assets/icons/AppIcon.iconset/

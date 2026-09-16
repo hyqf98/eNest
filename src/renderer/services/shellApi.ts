@@ -8,11 +8,12 @@ import type {
   AppPaths,
   PluginSummary,
   PluginTab,
+  ProxyConfig,
   ThemeMode,
   ThemePack,
   ThemeTokens
 } from '@shared/types/plugin'
-import type { ShellEventPayload, InstallJobInfo, UpdateStatePayload } from '@shared/types/ipc'
+import type { ShellEventPayload, InstallJobInfo, ProxyTestResult, UpdateStatePayload } from '@shared/types/ipc'
 import {
   DEFAULT_SETTINGS,
   mockRegistry,
@@ -21,13 +22,13 @@ import {
   writeMockSettings,
   writeMockTheme,
   type ShellSettingsData,
-} from './mockData'
+} from '@renderer/services/mockData'
 
 /** shell:get-theme 返回：ThemeTokens + 主题包列表 */
 export type ShellThemeResult = ThemeTokens & { packs: ThemePack[] }
 
 export interface PickFileOptions {
-  filters?: 'image' | 'video' | 'media'
+  filters?: 'image' | 'video' | 'media' | 'font'
 }
 
 export interface HardwareAccelState {
@@ -38,12 +39,37 @@ export interface HardwareAccelSetResult {
   needRestart: boolean
 }
 
+export interface ProxySetResult {
+  needRestart: boolean
+  proxy: ProxyConfig
+}
+
 /** preload 注入到渲染进程的完整 shell 能力面 */
 export interface ShellApi {
   getPlugins(): Promise<PluginSummary[]>
   openPlugin(id: string): Promise<void>
   closePlugin(tabId: string): Promise<void>
   activatePlugin(tabId: string): Promise<void>
+  /** 隐藏全部插件原生视图（回首页/设置/开发者时，避免遮挡壳子） */
+  hidePlugins(): Promise<void>
+  /** 设置插件内容区左侧 inset（px）；orb 悬浮窗模式恒为 0 */
+  setPluginInset?(left: number): Promise<void>
+  /** 回首页（隐藏插件 + 主壳 setView home） */
+  goHome?(): Promise<void>
+  /** 主壳切换视图 */
+  setShellView?(view: string): Promise<void>
+  syncOrbState?(state: {
+    view: string
+    tabStyle: string
+    activeTabId: string | null
+    tabs: unknown[]
+  }): Promise<void>
+  getOrbState?(): Promise<{
+    view: string
+    tabStyle: string
+    activeTabId: string | null
+    tabs: unknown[]
+  }>
   getTheme(): Promise<ShellThemeResult>
   setTheme(
     mode: ThemeMode,
@@ -60,6 +86,22 @@ export interface ShellApi {
   getPluginReadme(pluginId: string): Promise<string>
   getHardwareAcceleration(): Promise<HardwareAccelState>
   setHardwareAcceleration(enabled: boolean): Promise<HardwareAccelSetResult>
+  /** 读取代理配置；浏览器 mock 读 localStorage */
+  getProxy?(): Promise<ProxyConfig>
+  /** 写入并即时应用；浏览器 mock 仅持久化 */
+  setProxy?(config: ProxyConfig): Promise<ProxySetResult>
+  /** 测试代理连通性；浏览器 mock 对 none 返回 ok */
+  testProxy?(config?: ProxyConfig): Promise<ProxyTestResult>
+  /** Electron：复制/写入自定义字体到 ~/eNest/fonts/；浏览器 mock 返回 not-available */
+  saveCustomFont?(payload: {
+    sourcePath?: string
+    dataBase64?: string
+    fileName: string
+  }): Promise<{ ok: boolean; path?: string; fileName?: string; error?: string }>
+  /** Electron：读取自定义字体 base64；浏览器 mock 走 localStorage */
+  readCustomFont?(fileName: string): Promise<{ ok: boolean; dataBase64?: string; error?: string }>
+  /** Electron：删除自定义字体文件 */
+  deleteCustomFont?(fileName: string): Promise<{ ok: boolean; error?: string }>
   /** 将本地文件夹 / .enestplugin 路径入队安装；进度经 onEvent / onInstallProgress 推送 */
   installPlugin(sourcePath: string): Promise<InstallJobInfo>
   getInstallQueue?(): Promise<{ active: InstallJobInfo[]; waiting: InstallJobInfo[] }>
@@ -69,11 +111,17 @@ export interface ShellApi {
   downloadUpdate?(): Promise<UpdateStatePayload>
   installUpdate?(): Promise<UpdateStatePayload>
   getUpdateState?(): Promise<UpdateStatePayload>
+  /** 系统级通知（Electron Notification）；浏览器 mock 用 Web Notification 兜底 */
+  systemNotify?(title: string, body?: string): Promise<void>
   /** 仅订阅 install-progress 事件 */
   onInstallProgress?(
     cb: (payload: { jobId: string; name: string; progress: number; step?: string }) => void
   ): () => void
   onEvent(cb: (payload: ShellEventPayload) => void): () => void
+  /** orb 悬浮窗订阅 Tab 状态推送 */
+  onOrbEvent?(
+    cb: (payload: { type: 'orb-state'; state: import('@shared/types/ipc').OrbRailState }) => void
+  ): () => void
   minimizeWindow?(): void
   maximizeWindow?(): void
   closeWindow?(): void
@@ -135,6 +183,24 @@ function createMockApi(): ShellApi {
     },
     async activatePlugin() {
       /* mock no-op */
+    },
+    async hidePlugins() {
+      /* mock no-op */
+    },
+    async setPluginInset() {
+      /* mock no-op */
+    },
+    async goHome() {
+      window.location.hash = ''
+    },
+    async setShellView() {
+      /* mock */
+    },
+    async syncOrbState() {
+      /* mock */
+    },
+    async getOrbState() {
+      return { view: 'home', tabStyle: 'classic', activeTabId: null, tabs: [] }
     },
     async getTheme() {
       theme = readMockTheme()
@@ -198,18 +264,31 @@ function createMockApi(): ShellApi {
       return { ...settings }
     },
     async setSettings(partial) {
-      settings = { ...settings, ...partial }
+      settings = {
+        ...settings,
+        ...partial,
+        general: {
+          ...settings.general,
+          ...partial.general,
+        },
+      }
       writeMockSettings(settings)
     },
     async getPaths() {
       return { ...mockPaths }
     },
-    async pickFile() {
+    async pickFile(options?: PickFileOptions) {
       // 浏览器 mock：隐藏 input[type=file]，返回 object URL 供预览
+      const acceptMap: Record<string, string> = {
+        image: 'image/*',
+        video: 'video/*',
+        media: 'image/*,video/*',
+        font: '.ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2',
+      }
       return new Promise<string | null>((resolve) => {
         const input = document.createElement('input')
         input.type = 'file'
-        input.accept = 'image/*,video/*'
+        input.accept = acceptMap[options?.filters ?? 'media'] ?? 'image/*,video/*'
         input.style.display = 'none'
         const cleanup = () => input.remove()
         input.addEventListener('change', () => {
@@ -266,6 +345,34 @@ function createMockApi(): ShellApi {
       hwAccel = enabled !== false
       return { needRestart: true }
     },
+    async getProxy() {
+      settings = readMockSettings()
+      return (settings.general?.proxy as ProxyConfig | undefined) ?? { type: 'none' }
+    },
+    async setProxy(config) {
+      const proxy: ProxyConfig = config && config.type ? config : { type: 'none' }
+      settings = {
+        ...settings,
+        general: { ...settings.general, proxy },
+      }
+      writeMockSettings(settings)
+      return { needRestart: false, proxy }
+    },
+    async testProxy(config) {
+      const c = config ?? (await this.getProxy?.()) ?? { type: 'none' }
+      if (!c.type || c.type === 'none') return { ok: true, latencyMs: 0 }
+      // 浏览器环境无法 TCP 探测，仅做格式校验
+      if (c.type === 'custom') {
+        try {
+          new URL(c.url ?? '')
+          return { ok: true, latencyMs: 0 }
+        } catch {
+          return { ok: false, error: 'invalid proxy url' }
+        }
+      }
+      if (!c.host || !c.port) return { ok: false, error: 'host/port required' }
+      return { ok: true, latencyMs: 0 }
+    },
     async installPlugin(sourcePath) {
       // 浏览器 mock：无法读真实文件系统，用文件名模拟一条 0→100 的进度流水
       const name = sourcePath.split(/[/\\]/).filter(Boolean).pop() ?? sourcePath
@@ -304,11 +411,13 @@ function createMockApi(): ShellApi {
       return ''
     },
     async checkForUpdates() {
-      return {
+      const state = {
         status: 'not-available' as const,
         currentVersion: '0.0.0-dev',
         packaged: false
       }
+      emit({ type: 'update-status', state })
+      return state
     },
     async downloadUpdate() {
       return {
@@ -331,6 +440,16 @@ function createMockApi(): ShellApi {
         status: 'idle' as const,
         currentVersion: '0.0.0-dev',
         packaged: false
+      }
+    },
+    async systemNotify(title, body) {
+      // 浏览器 mock：尝试 Web Notification，失败静默
+      try {
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          new Notification(title, { body: body ?? '' })
+        }
+      } catch {
+        /* ignore */
       }
     },
     onInstallProgress(cb) {
@@ -379,6 +498,18 @@ export const shellApi: ShellApi = rawShell
         if (rawShell.pickFile) return rawShell.pickFile(options)
         return mockApi.pickFile(options)
       },
+      saveCustomFont: (payload) => {
+        if (rawShell.saveCustomFont) return rawShell.saveCustomFont(payload)
+        return Promise.resolve({ ok: false, error: 'not-available' })
+      },
+      readCustomFont: (fileName) => {
+        if (rawShell.readCustomFont) return rawShell.readCustomFont(fileName)
+        return Promise.resolve({ ok: false, error: 'not-available' })
+      },
+      deleteCustomFont: (fileName) => {
+        if (rawShell.deleteCustomFont) return rawShell.deleteCustomFont(fileName)
+        return Promise.resolve({ ok: false, error: 'not-available' })
+      },
       getPluginReadme: (pluginId) => {
         if (rawShell.getPluginReadme) return rawShell.getPluginReadme(pluginId)
         return mockApi.getPluginReadme(pluginId)
@@ -390,6 +521,21 @@ export const shellApi: ShellApi = rawShell
       setHardwareAcceleration: (enabled) => {
         if (rawShell.setHardwareAcceleration) return rawShell.setHardwareAcceleration(enabled)
         return mockApi.setHardwareAcceleration(enabled)
+      },
+      getProxy: () => {
+        if (rawShell.getProxy) return rawShell.getProxy()
+        return mockApi.getProxy?.() ?? Promise.resolve({ type: 'none' as const })
+      },
+      setProxy: (config) => {
+        if (rawShell.setProxy) return rawShell.setProxy(config)
+        return (
+          mockApi.setProxy?.(config) ??
+          Promise.resolve({ needRestart: false, proxy: { type: 'none' as const } })
+        )
+      },
+      testProxy: (config) => {
+        if (rawShell.testProxy) return rawShell.testProxy(config)
+        return mockApi.testProxy?.(config) ?? Promise.resolve({ ok: true, latencyMs: 0 })
       },
       getTheme: () => {
         if (rawShell.getTheme) return rawShell.getTheme()

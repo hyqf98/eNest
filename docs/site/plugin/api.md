@@ -29,12 +29,73 @@ await enest.ui.setBadge(3)
 
 ## 主题
 
+### 读取 Token（动态）
+
+插件可随时读取壳子当前解析后的主题 Token，与 `themeAware` 注入内容一致：
+
 ```js
-// 读取壳子注入的 CSS Token（按 manifest.ui.preferredColorScheme 解析）
 const { mode, tokens } = await enest.theme.getTokens()
 // mode: 'light' | 'dark'
-// tokens: { '--bg': '#…', '--accent': '#…', … }
+// tokens: {
+//   '--bg', '--surface', '--surface-2', '--surface-3',
+//   '--border', '--border-strong',
+//   '--text', '--text-2', '--text-3',
+//   '--accent', '--ok', '--ok-soft', '--danger', '--danger-soft', '--link'
+// }
 ```
+
+订阅变更（壳子设置切换 / 系统主题 / 应用主题包）：
+
+```js
+const off = enest.ui.onThemeChange(({ mode, tokens }) => {
+  // 更新 Canvas / WebGL / 自绘 UI
+})
+// off() 取消订阅
+```
+
+### 注册主题包（安装后自动出现在设置）
+
+插件在加载完成后调用 `theme.register`，壳子会：
+1. 写入 `~/eNest/themes/registry.json`（`source` 自动记为当前插件 id）
+2. 推送 `theme-packs-changed` 事件
+3. 设置 → 主题 →「主题包」下拉即时刷新，无需重启
+
+```js
+await enest.theme.register({
+  id: 'com.example.forest',     // 全局唯一，同 id 覆盖
+  name: '森林',                 // 下拉显示名
+  mode: 'dark',                 // 'light' | 'dark' | 'system'
+  tokens: {
+    '--bg': '#0a1f1c',
+    '--surface': '#0f2924',
+    '--text': '#e8fff8',
+    '--text-2': '#9ccfc0',
+    '--accent': '#2dd4a8',
+    '--border': 'rgba(255,255,255,0.08)',
+  },
+  // 可选：同时绑定壳子背景（纯色 / CSS 渐变 / 本地路径）
+  background: {
+    type: 'color',
+    value: 'linear-gradient(160deg,#0a1f1c,#134e4a)',
+    opacity: 0.9,
+  },
+})
+```
+
+**ThemePack 契约**（`@shared/types/plugin`）：
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `id` | ✓ | 主题包唯一 id |
+| `name` | ✓ | 设置页显示名 |
+| `source` | 自动 | 缺省为当前插件 id；内置为 `enest.builtin` |
+| `mode` | ✓ | `light` / `dark` / `system` |
+| `tokens` | ✓ | 覆盖的 CSS 变量（与壳子 Token 名一致） |
+| `background` | | 可选背景，类型见 UI 标准 |
+
+用户在设置中选择该主题包后，壳子会把 `tokens` 写入 `documentElement`，并再次广播 `theme-change` 给所有 `themeAware` 插件。
+
+> TypeScript 项目可自行声明 `interface EnestApi`，或从示例插件拷贝类型定义。
 
 ## 本地存储
 
@@ -85,20 +146,6 @@ await enest.settings.register({
 await enest.settings.get('name')
 await enest.settings.set('name', '世界')
 ```
-
-## 主题包注册（扩展）
-
-```js
-// 将主题写入壳子下拉列表（ThemePack）
-await enest.theme?.register({
-  id: 'my-theme',
-  name: '森林',
-  mode: 'dark',
-  tokens: { '--bg': '#0a1f1c', '--accent': '#2dd4a8' }
-})
-```
-
-> TypeScript 项目可自行声明 `interface EnestApi`，或从示例插件拷贝类型定义。
 
 ## 下一步
 

@@ -189,13 +189,28 @@ export function writeMockTheme(data: MockThemeData): void {
   localStorage.setItem(THEME_KEY, JSON.stringify(data))
 }
 
-/** 通用设置（契约：locale / hardwareAcceleration / dataRoot? / closeBehavior） */
+/** Tab 呈现方式 */
+export type TabStyle = 'classic' | 'orb'
+
+/** 动画效果强度 */
+export type AnimationLevel = 'low' | 'medium' | 'high'
+
+/** 通用设置（契约：locale / hardwareAcceleration / dataRoot? / closeBehavior / tabStyle / animationLevel） */
 export interface GeneralSettingsData {
   locale?: 'zh-CN' | 'en-US'
   hardwareAcceleration?: boolean
   dataRoot?: string
-  closeBehavior?: 'tray' | 'quit'
+  /** 与 @shared GeneralSettings 对齐：minimize-tray | quit */
+  closeBehavior?: 'minimize-tray' | 'quit'
+  tabStyle?: TabStyle
+  animationLevel?: AnimationLevel
   openAtLogin?: boolean
+  /** 当前界面字体 CSS font-family */
+  fontFamily?: string
+  /** 已上传自定义字体元数据 */
+  customFonts?: { id: string; name: string; family: string; fileName: string }[]
+  /** 网络代理；none/缺省 = 直连 */
+  proxy?: { type: 'none' | 'http' | 'socks5' | 'custom'; host?: string; port?: number; url?: string }
   [key: string]: unknown
 }
 
@@ -204,12 +219,12 @@ export interface GeneralSettingsData {
  * 保留扁平字段以兼容既有 mock 读取方。
  */
 export interface ShellSettingsData {
-  theme?: { mode: 'light' | 'dark'; overrides?: Record<string, Record<string, string>> }
+  theme?: { mode: ThemeMode; overrides?: Record<string, Record<string, string>>; packId?: string; background?: BackgroundConfig }
   general?: GeneralSettingsData
   plugins?: Record<string, Record<string, unknown>>
   /** @deprecated mock 兼容扁平字段 */
   launchAtLogin?: boolean
-  closeBehavior?: 'tray' | 'quit'
+  closeBehavior?: 'minimize-tray' | 'quit'
   devMode?: boolean
   autoDevTools?: boolean
 }
@@ -219,24 +234,35 @@ export const DEFAULT_SETTINGS: ShellSettingsData = {
   general: {
     locale: 'zh-CN',
     hardwareAcceleration: true,
-    closeBehavior: 'tray',
+    closeBehavior: 'minimize-tray',
+    tabStyle: 'classic',
+    animationLevel: 'medium',
+    fontFamily: '',
+    proxy: { type: 'none' },
   },
   launchAtLogin: true,
-  closeBehavior: 'tray',
+  closeBehavior: 'minimize-tray',
   devMode: true,
   autoDevTools: false,
 }
 
-/** 读取 mock 设置（localStorage，缺省回落 DEFAULT_SETTINGS，general 做浅合并） */
+/** 读取 mock 设置（localStorage，缺省回落 DEFAULT_SETTINGS，general 做浅合并 + 历史值归一） */
 export function readMockSettings(): ShellSettingsData {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (raw) {
       const saved = JSON.parse(raw) as Partial<ShellSettingsData>
+      const general = { ...DEFAULT_SETTINGS.general, ...saved.general }
+      // 历史 localStorage 可能存 'tray'，归一到共享契约 'minimize-tray'
+      if ((general.closeBehavior as string | undefined) === 'tray') {
+        general.closeBehavior = 'minimize-tray'
+      }
+      const flat = saved.closeBehavior
       return {
         ...DEFAULT_SETTINGS,
         ...saved,
-        general: { ...DEFAULT_SETTINGS.general, ...saved.general },
+        general,
+        closeBehavior: general.closeBehavior === 'quit' || flat === 'quit' ? 'quit' : 'minimize-tray',
       }
     }
   } catch {

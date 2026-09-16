@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-import { getAppPaths } from '../paths/pathsService'
+import { getAppPaths } from '@main/paths/pathsService'
 
 type Backend = 'sqlite' | 'none'
 

@@ -11,6 +11,9 @@
   place-items: center;
   overflow: hidden;
   color: #2dd4a8;
+  /* 首帧即不透明，避免透出底层主题色造成闪烁 */
+  opacity: 1;
+  will-change: opacity;
 }
 
 .splash-bg {
@@ -59,10 +62,22 @@
 }
 
 .splash-sub {
-  margin-top: -10px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: rgba(45, 212, 168, 0.55);
+  margin-top: -8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  color: rgba(45, 212, 168, 0.62);
+}
+
+/* Splash 结束前壳子不透出、不抢焦点；ready 后淡入 */
+.app-boot {
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.28s ease;
+}
+
+.app-boot.ready {
+  opacity: 1;
+  pointer-events: auto;
 }

@@ -1,21 +1,30 @@
 /**
  * SettingsPage — 设置页
  * 左侧标签（通用/主题/开发者 + 已安装插件动态分组），右侧渲染对应卡片。
- * 通用：语言分段、硬件加速开关、数据目录（只读+打开/复制）、关闭行为、检查更新。
+ * 通用：语言分段、硬件加速开关、数据目录（只读+打开/复制）、关闭行为、代理、Tab 样式、检查更新。
  * 主题面板挂载 ThemeSettingsSection（模式/主题包/背景/Token）；插件列表来自 shellStore.plugins。
  * 依赖：shellStore、ThemeSettingsSection、useI18n、shellApi。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useShellStore } from '../stores/shellStore'
-import { ThemeSettingsSection } from '../components/ThemeSettingsSection'
-import { LanguageSelect } from '../components/LanguageSelect'
-import { useI18n } from '../hooks/useI18n'
-import type { Locale } from '../i18n'
-import { shellApi } from '../services/shellApi'
-import { toastStore } from '../hooks/useToast'
+import { useShellStore } from '@renderer/stores/shellStore'
+import { ThemeSettingsSection } from '@renderer/components/ThemeSettingsSection'
+import { FontSettingsSection } from '@renderer/components/FontSettingsSection'
+import { AnimationSettingsSection } from '@renderer/components/AnimationSettingsSection'
+import { DevConsoleSection } from '@renderer/components/DevConsoleSection'
+import { LanguageSelect } from '@renderer/components/LanguageSelect'
+import { useI18n } from '@renderer/hooks/useI18n'
+import type { Locale } from '@renderer/i18n'
+import { shellApi } from '@renderer/services/shellApi'
+import { toastStore } from '@renderer/hooks/useToast'
+import type { ProxyConfig, ProxyType } from '@shared/types/plugin'
 import type { UpdateStatePayload } from '@shared/types/ipc'
 
-type CloseBehavior = 'tray' | 'quit'
+type CloseBehavior = 'minimize-tray' | 'quit'
+
+/** 历史 mock 值 'tray' 归一到共享契约 'minimize-tray' */
+function normalizeCloseBehavior(v: unknown): CloseBehavior {
+  return v === 'quit' ? 'quit' : 'minimize-tray'
+}
 
 function Switch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return <button type="button" className={`switch${on ? ' on' : ''}`} onClick={onToggle} aria-pressed={on} />
@@ -58,26 +67,60 @@ function pickGeneral(settings: Awaited<ReturnType<typeof shellApi.getSettings>>)
     locale: (g.locale as Locale | undefined) ?? undefined,
     hardwareAcceleration: g.hardwareAcceleration,
     dataRoot: g.dataRoot,
-    closeBehavior: (g.closeBehavior as CloseBehavior | undefined) ?? settings.closeBehavior ?? 'tray',
+    closeBehavior: normalizeCloseBehavior(g.closeBehavior ?? settings.closeBehavior),
+    proxy: (g.proxy as ProxyConfig | undefined) ?? undefined,
   }
+}
+
+/** 校验并归一化表单为可写入的 ProxyConfig；不完整返回 null */
+function normalizeProxyForm(
+  type: ProxyType,
+  host: string,
+  port: string,
+  url: string
+): ProxyConfig | null {
+  if (type === 'none') return { type: 'none' }
+  if (type === 'custom') {
+    const u = url.trim()
+    if (!u) return null
+    try {
+      // 允许 socks5:// / http:// 等；URL 构造失败视为非法
+      new URL(u)
+    } catch {
+      return null
+    }
+    return { type, url: u }
+  }
+  const h = host.trim()
+  const p = Number(port)
+  if (!h || !Number.isInteger(p) || p < 1 || p > 65535) return null
+  return { type, host: h, port: p }
 }
 
 export function SettingsPage() {
   const settingsTab = useShellStore((s) => s.settingsTab)
   const setSettingsTab = useShellStore((s) => s.setSettingsTab)
   const plugins = useShellStore((s) => s.plugins)
+  const tabStyle = useShellStore((s) => s.tabStyle)
+  const setTabStyle = useShellStore((s) => s.setTabStyle)
   const { t, locale, setLocale } = useI18n()
 
   const installed = plugins.filter((p) => p.installed)
 
   const [hwAccel, setHwAccel] = useState(true)
   const [dataRoot, setDataRoot] = useState('')
-  const [closeBehavior, setCloseBehavior] = useState<CloseBehavior>('tray')
+  const [closeBehavior, setCloseBehavior] = useState<CloseBehavior>('minimize-tray')
   const [loadingGeneral, setLoadingGeneral] = useState(true)
   const [updateState, setUpdateState] = useState<UpdateStatePayload | null>(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const updateBusy = useRef(false)
   const checkingRef = useRef(false)
+
+  const [proxyType, setProxyType] = useState<ProxyType>('none')
+  const [proxyHost, setProxyHost] = useState('')
+  const [proxyPort, setProxyPort] = useState('')
+  const [proxyUrl, setProxyUrl] = useState('')
+  const [testingProxy, setTestingProxy] = useState(false)
 
   /** 读取通用设置 + 硬件加速 + 数据根路径 */
   useEffect(() => {
@@ -89,6 +132,20 @@ export function SettingsPage() {
         if (cancelled) return
         const general = pickGeneral(settings)
         setCloseBehavior(general.closeBehavior)
+        // 代理：优先专用 getProxy，回落 settings.general.proxy
+        try {
+          const proxy = shellApi.getProxy
+            ? await shellApi.getProxy()
+            : general.proxy ?? { type: 'none' as const }
+          if (!cancelled && proxy) {
+            setProxyType(proxy.type ?? 'none')
+            setProxyHost(proxy.host ?? '')
+            setProxyPort(proxy.port != null ? String(proxy.port) : '')
+            setProxyUrl(proxy.url ?? '')
+          }
+        } catch {
+          /* 保持默认直连 */
+        }
         if (shellApi.getHardwareAcceleration) {
           const state = await shellApi.getHardwareAcceleration()
           if (!cancelled) setHwAccel(state.enabled !== false)
@@ -125,11 +182,11 @@ export function SettingsPage() {
       if (payload.type === 'update-status' && payload.state) {
         setUpdateState(payload.state)
         const st = payload.state.status
+        // 通知只在事件侧提示一次，避免与 handleCheckUpdate 结果回调重复
         if (st === 'available') {
           toastStore.getState().push(
             t('toasts.updateAvailable', { version: payload.state.latestVersion ?? '' })
           )
-          // 发现新版本后自动下载，完成后提示可安装重启
           if (shellApi.downloadUpdate && !updateBusy.current) {
             updateBusy.current = true
             void shellApi.downloadUpdate().finally(() => {
@@ -138,6 +195,7 @@ export function SettingsPage() {
           }
         } else if (st === 'not-available' && checkingRef.current) {
           toastStore.getState().push(t('toasts.updateNone'))
+          checkingRef.current = false
         } else if (st === 'downloaded') {
           toastStore.getState().push(t('toasts.updateReady'))
         } else if (st === 'error' && payload.state.error) {
@@ -160,10 +218,13 @@ export function SettingsPage() {
       try {
         const result = await check()
         if (result) setUpdateState(result)
-        if (result?.status === 'not-available') {
-          toastStore.getState().push(t('toasts.updateNone'))
-        } else if (result?.status === 'error') {
-          toastStore.getState().push(t('toasts.updateError'))
+        // 无 IPC 事件时（浏览器 mock）才在此补提示；Electron 由 update-status 事件统一提示
+        if (!shellApi.onEvent) {
+          if (result?.status === 'not-available') {
+            toastStore.getState().push(t('toasts.updateNone'))
+          } else if (result?.status === 'error') {
+            toastStore.getState().push(t('toasts.updateError'))
+          }
         }
       } catch {
         toastStore.getState().push(t('toasts.updateError'))
@@ -207,13 +268,90 @@ export function SettingsPage() {
   const handleCloseBehavior = useCallback(
     (value: CloseBehavior) => {
       setCloseBehavior(value)
+      // 契约路径：settings.general.closeBehavior（主进程 SettingsStore 只持久化 general）
       void shellApi.setSettings({
-        closeBehavior: value,
         general: { closeBehavior: value },
       })
     },
     [],
   )
+
+  /** 持久化 + 即时 setProxy；表单不完整时仅提示不落盘 */
+  const persistProxy = useCallback(
+    (config: ProxyConfig | null, silentIncomplete = false) => {
+      if (!config) {
+        if (!silentIncomplete) toastStore.getState().push(t('settings.general.proxyInvalid'))
+        return
+      }
+      void (async () => {
+        try {
+          if (shellApi.setProxy) {
+            await shellApi.setProxy(config)
+          } else {
+            await shellApi.setSettings({ general: { proxy: config } })
+          }
+          toastStore.getState().push(
+            config.type === 'none' ? t('settings.general.proxyCleared') : t('settings.general.proxyApplied')
+          )
+        } catch {
+          toastStore.getState().push(t('settings.general.proxyInvalid'))
+        }
+      })()
+    },
+    [t],
+  )
+
+  const handleProxyType = useCallback(
+    (value: ProxyType) => {
+      setProxyType(value)
+      if (value === 'none') {
+        persistProxy({ type: 'none' })
+        return
+      }
+      // 切到有配置的类型时，若表单已完整则立刻保存；否则等 blur 补齐
+      persistProxy(normalizeProxyForm(value, proxyHost, proxyPort, proxyUrl), true)
+    },
+    [persistProxy, proxyHost, proxyPort, proxyUrl],
+  )
+
+  const handleProxyFieldBlur = useCallback(() => {
+    if (proxyType === 'none') return
+    persistProxy(normalizeProxyForm(proxyType, proxyHost, proxyPort, proxyUrl))
+  }, [persistProxy, proxyHost, proxyPort, proxyType, proxyUrl])
+
+  const handleTestProxy = useCallback(() => {
+    if (!shellApi.testProxy) return
+    const config = normalizeProxyForm(proxyType, proxyHost, proxyPort, proxyUrl)
+    if (!config) {
+      toastStore.getState().push(t('settings.general.proxyInvalid'))
+      return
+    }
+    setTestingProxy(true)
+    void (async () => {
+      try {
+        const result = await shellApi.testProxy!(config)
+        if (result.ok) {
+          if (config.type === 'none') {
+            toastStore.getState().push(t('settings.general.proxyTestOkDirect'))
+          } else {
+            toastStore.getState().push(
+              t('settings.general.proxyTestOk', { ms: String(result.latencyMs ?? 0) })
+            )
+          }
+        } else {
+          toastStore.getState().push(
+            t('settings.general.proxyTestFail', { error: result.error ?? 'unknown' })
+          )
+        }
+      } catch (err) {
+        toastStore.getState().push(
+          t('settings.general.proxyTestFail', { error: (err as Error).message })
+        )
+      } finally {
+        setTestingProxy(false)
+      }
+    })()
+  }, [proxyHost, proxyPort, proxyType, proxyUrl, t])
 
   /** 优先 openPath；不可用则复制到剪贴板 */
   const handleOpenDataRoot = useCallback(() => {
@@ -300,9 +438,92 @@ export function SettingsPage() {
                 value={closeBehavior}
                 onChange={(e) => handleCloseBehavior(e.target.value as CloseBehavior)}
               >
-                <option value="tray">{t('settings.general.minimizeToTray')}</option>
+                <option value="minimize-tray">{t('settings.general.minimizeToTray')}</option>
                 <option value="quit">{t('settings.general.quitApp')}</option>
               </select>
+            </Field>
+            <Field label={t('settings.general.proxy')} desc={t('settings.general.proxyDesc')}>
+              <div className="proxy-row">
+                <select
+                  value={proxyType}
+                  onChange={(e) => handleProxyType(e.target.value as ProxyType)}
+                  aria-label={t('settings.general.proxyType')}
+                >
+                  <option value="none">{t('settings.general.proxyNone')}</option>
+                  <option value="http">{t('settings.general.proxyHttp')}</option>
+                  <option value="socks5">{t('settings.general.proxySocks5')}</option>
+                  <option value="custom">{t('settings.general.proxyCustom')}</option>
+                </select>
+                {proxyType === 'http' || proxyType === 'socks5' ? (
+                  <>
+                    <input
+                      type="text"
+                      className="proxy-host"
+                      value={proxyHost}
+                      placeholder={t('settings.general.proxyHostPlaceholder')}
+                      aria-label={t('settings.general.proxyHost')}
+                      onChange={(e) => setProxyHost(e.target.value)}
+                      onBlur={handleProxyFieldBlur}
+                    />
+                    <input
+                      type="text"
+                      className="proxy-port"
+                      value={proxyPort}
+                      placeholder={t('settings.general.proxyPortPlaceholder')}
+                      aria-label={t('settings.general.proxyPort')}
+                      inputMode="numeric"
+                      onChange={(e) => setProxyPort(e.target.value.replace(/[^\d]/g, ''))}
+                      onBlur={handleProxyFieldBlur}
+                    />
+                  </>
+                ) : null}
+                {proxyType === 'custom' ? (
+                  <input
+                    type="text"
+                    className="proxy-url"
+                    value={proxyUrl}
+                    placeholder={t('settings.general.proxyUrlPlaceholder')}
+                    aria-label={t('settings.general.proxyUrl')}
+                    onChange={(e) => setProxyUrl(e.target.value)}
+                    onBlur={handleProxyFieldBlur}
+                  />
+                ) : null}
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  onClick={handleTestProxy}
+                  disabled={testingProxy || proxyType === 'none'}
+                >
+                  {testingProxy ? t('settings.general.proxyTesting') : t('settings.general.proxyTest')}
+                </button>
+              </div>
+            </Field>
+            <Field label={t('settings.general.tabStyle')} desc={t('settings.general.tabStyleDesc')}>
+              <div className="segmented tab-style-seg" role="group" aria-label={t('settings.general.tabStyle')}>
+                <button
+                  type="button"
+                  className={tabStyle === 'classic' ? 'active' : ''}
+                  onClick={() => setTabStyle('classic')}
+                >
+                  <span className="tab-style-icon classic-icon" aria-hidden="true">
+                    <i />
+                    <i />
+                  </span>
+                  {t('settings.general.tabStyleClassic')}
+                </button>
+                <button
+                  type="button"
+                  className={tabStyle === 'orb' ? 'active' : ''}
+                  onClick={() => setTabStyle('orb')}
+                >
+                  <span className="tab-style-icon orb-icon" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  {t('settings.general.tabStyleOrb')}
+                </button>
+              </div>
             </Field>
             <Field
               label={t('settings.general.updates')}
@@ -345,18 +566,16 @@ export function SettingsPage() {
           </Card>
         )}
 
-        {settingsTab === 'appearance' && <ThemeSettingsSection />}
+        {settingsTab === 'general' && <AnimationSettingsSection />}
 
-        {settingsTab === 'dev' && (
-          <Card title={t('settings.dev.title')} hint={t('settings.dev.hint')}>
-            <Field label={t('settings.dev.devMode')} desc={t('settings.dev.devModeDesc')}>
-              <Switch on onToggle={() => undefined} />
-            </Field>
-            <Field label={t('settings.dev.autoDevTools')} desc={t('settings.dev.autoDevToolsDesc')}>
-              <Switch on={false} onToggle={() => undefined} />
-            </Field>
-          </Card>
+        {settingsTab === 'appearance' && (
+          <>
+            <ThemeSettingsSection />
+            <FontSettingsSection />
+          </>
         )}
+
+        {settingsTab === 'dev' && <DevConsoleSection />}
 
         {settingsTab.startsWith('p:') &&
           (() => {

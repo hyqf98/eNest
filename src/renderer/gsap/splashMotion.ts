@@ -20,10 +20,10 @@ export function playSplash(h: SplashHandles, onDone: () => void): void {
   const tl = gsap.timeline({
     defaults: { ease: 'power3.out' },
     onComplete: () => {
+      // 淡出后立刻 onDone，避免二次跳帧
       gsap.to(h.root, {
         autoAlpha: 0,
-        scale: 1.06,
-        duration: 0.45,
+        duration: 0.32,
         ease: 'power2.inOut',
         onComplete: onDone
       })
@@ -38,24 +38,25 @@ export function playSplash(h: SplashHandles, onDone: () => void): void {
     strokeDashoffset: 1,
     autoAlpha: 1
   })
+  gsap.set(h.ring, { autoAlpha: 0, scale: 0.92 })
 
-  tl.to(h.hex, { strokeDashoffset: 0, duration: 0.85, ease: 'power2.inOut' }, 0.1)
-    .to(h.ring, { autoAlpha: 0.35, scale: 1.08, duration: 0.7, transformOrigin: '50% 50%' }, 0.35)
-    .to(h.tileL, { autoAlpha: 1, scale: 1, duration: 0.45, ease: 'back.out(1.6)' }, 0.55)
-    .to(h.tileR, { autoAlpha: 1, scale: 1, duration: 0.45, ease: 'back.out(1.6)' }, 0.68)
-    .to(h.node, { scale: 1, duration: 0.4, ease: 'back.out(2)' }, 0.85)
+  tl.to(h.hex, { strokeDashoffset: 0, duration: 0.8, ease: 'power2.inOut' }, 0.08)
+    .to(h.ring, { autoAlpha: 0.35, scale: 1.08, duration: 0.65, transformOrigin: '50% 50%' }, 0.32)
+    .to(h.tileL, { autoAlpha: 1, scale: 1, duration: 0.42, ease: 'back.out(1.6)' }, 0.5)
+    .to(h.tileR, { autoAlpha: 1, scale: 1, duration: 0.42, ease: 'back.out(1.6)' }, 0.62)
+    .to(h.node, { scale: 1, duration: 0.38, ease: 'back.out(2)' }, 0.8)
     .to(
       h.node,
       {
-        scale: 1.25,
-        duration: 0.28,
+        scale: 1.2,
+        duration: 0.26,
         yoyo: true,
         repeat: 1,
         ease: 'sine.inOut'
       },
-      1.1
+      1.05
     )
-    .to(h.wordmark, { autoAlpha: 1, y: 0, duration: 0.4 }, 1.05)
-    .to(h.ring, { autoAlpha: 0, scale: 1.25, duration: 0.5 }, 1.35)
-    .to({}, { duration: 0.25 }) // 停顿一拍再收
+    .to(h.wordmark, { autoAlpha: 1, y: 0, duration: 0.38 }, 1.0)
+    .to(h.ring, { autoAlpha: 0, scale: 1.22, duration: 0.45 }, 1.25)
+    .to({}, { duration: 0.18 })
 }

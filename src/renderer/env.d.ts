@@ -7,5 +7,5 @@
  */
 interface Window {
   /** preload 桥接的 shell 能力；缺失时 shellApi 回退到 mock 实现 */
-  enestShell?: import('./services/shellApi').ShellApi
+  enestShell?: import('@renderer/services/shellApi').ShellApi
 }

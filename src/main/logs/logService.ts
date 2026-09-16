@@ -9,7 +9,7 @@
  */
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { getAppPaths } from '../paths/pathsService'
+import { getAppPaths } from '@main/paths/pathsService'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 

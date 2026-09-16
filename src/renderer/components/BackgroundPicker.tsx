@@ -1,26 +1,81 @@
 /**
- * BackgroundPicker — 壳子背景媒体选择器
- * 支持 none / color / image / video；选文件（pickMedia）、不透明度滑条、适配 cover|contain。
- * GIF 按静态图处理。路径以 http/blob/data 时可预览，本地绝对路径提示等待 enest:// 资源。
- * 依赖：useTheme（setBackground）、shellApi.pickMedia、@shared/types/plugin。
+ * BackgroundPicker — 壳子背景选择器
+ * none / color（含预设渐变色卡）/ image / video；不透明度与 cover|contain。
+ * 渐变作为 CSS background 写入 color.value，由 AppBackground 直接铺底。
+ * 依赖：useTheme（setBackground）、shellApi.pickFile、@shared/types/plugin。
  */
 import { useRef, useState } from 'react'
 import type { BackgroundConfig, BackgroundType } from '@shared/types/plugin'
-import { resolveMediaSrc, useThemeStore } from '../hooks/useTheme'
-import { shellApi } from '../services/shellApi'
-import { toastStore } from '../hooks/useToast'
+import { resolveMediaSrc, useThemeStore } from '@renderer/hooks/useTheme'
+import { shellApi } from '@renderer/services/shellApi'
+import { toastStore } from '@renderer/hooks/useToast'
 
 const TYPE_OPTIONS: { id: BackgroundType; label: string }[] = [
   { id: 'none', label: '无' },
-  { id: 'color', label: '纯色' },
+  { id: 'color', label: '氛围色' },
   { id: 'image', label: '图片' },
   { id: 'video', label: '视频' },
 ]
 
+/** 预设氛围背景：柔和多层渐变，避免生硬纯色 */
+export const BG_GRADIENTS: { id: string; name: string; css: string; swatch: string }[] = [
+  {
+    id: 'dawn',
+    name: '晨曦',
+    css: 'radial-gradient(ellipse 90% 70% at 15% 0%, #fde68a 0%, transparent 55%), radial-gradient(ellipse 70% 60% at 85% 10%, #fda4af 0%, transparent 50%), linear-gradient(165deg, #fef3c7 0%, #e0e7ff 45%, #fce7f3 100%)',
+    swatch: 'linear-gradient(135deg,#fde68a,#fda4af,#c7d2fe)',
+  },
+  {
+    id: 'mint',
+    name: '薄荷',
+    css: 'radial-gradient(ellipse 80% 55% at 10% 0%, #6ee7b7 0%, transparent 50%), radial-gradient(ellipse 60% 50% at 90% 80%, #67e8f9 0%, transparent 50%), linear-gradient(160deg, #ecfdf5 0%, #e0f2fe 50%, #f0fdfa 100%)',
+    swatch: 'linear-gradient(135deg,#6ee7b7,#67e8f9)',
+  },
+  {
+    id: 'lavender',
+    name: '薰衣草',
+    css: 'radial-gradient(ellipse 75% 55% at 20% 0%, #c4b5fd 0%, transparent 50%), radial-gradient(ellipse 65% 50% at 85% 70%, #f0abfc 0%, transparent 48%), linear-gradient(155deg, #f5f3ff 0%, #ede9fe 40%, #fae8ff 100%)',
+    swatch: 'linear-gradient(135deg,#c4b5fd,#f0abfc)',
+  },
+  {
+    id: 'peach',
+    name: '蜜桃',
+    css: 'radial-gradient(ellipse 80% 60% at 0% 0%, #fdba74 0%, transparent 52%), radial-gradient(ellipse 70% 50% at 100% 30%, #f9a8d4 0%, transparent 50%), linear-gradient(170deg, #fff7ed 0%, #ffedd5 45%, #fce7f3 100%)',
+    swatch: 'linear-gradient(135deg,#fdba74,#f9a8d4)',
+  },
+  {
+    id: 'ocean',
+    name: '深海',
+    css: 'radial-gradient(ellipse 85% 60% at 15% 0%, #38bdf8 0%, transparent 50%), radial-gradient(ellipse 70% 55% at 85% 80%, #818cf8 0%, transparent 48%), linear-gradient(160deg, #0c4a6e 0%, #1e1b4b 50%, #0f172a 100%)',
+    swatch: 'linear-gradient(135deg,#38bdf8,#818cf8,#0f172a)',
+  },
+  {
+    id: 'aurora',
+    name: '极光',
+    css: 'radial-gradient(ellipse 70% 50% at 20% 10%, #34d399 0%, transparent 50%), radial-gradient(ellipse 65% 45% at 80% 0%, #22d3ee 0%, transparent 48%), radial-gradient(ellipse 55% 40% at 60% 90%, #a78bfa 0%, transparent 45%), linear-gradient(180deg, #022c22 0%, #0f172a 55%, #1e1b4b 100%)',
+    swatch: 'linear-gradient(135deg,#34d399,#22d3ee,#a78bfa)',
+  },
+  {
+    id: 'ink',
+    name: '墨色',
+    css: 'radial-gradient(ellipse 70% 50% at 0% 0%, rgba(148,163,184,0.35) 0%, transparent 55%), radial-gradient(ellipse 50% 40% at 100% 100%, rgba(99,102,241,0.25) 0%, transparent 50%), linear-gradient(155deg, #1e293b 0%, #0f172a 50%, #020617 100%)',
+    swatch: 'linear-gradient(135deg,#475569,#1e293b,#020617)',
+  },
+  {
+    id: 'sand',
+    name: '暖沙',
+    css: 'radial-gradient(ellipse 80% 55% at 10% 0%, #fcd34d 0%, transparent 50%), radial-gradient(ellipse 60% 45% at 90% 60%, #fb923c 0%, transparent 45%), linear-gradient(165deg, #fffbeb 0%, #fef3c7 40%, #ffedd5 100%)',
+    swatch: 'linear-gradient(135deg,#fcd34d,#fb923c)',
+  },
+]
+
+/** 默认选中「薰衣草」——柔和不抢内容 */
+const DEFAULT_GRADIENT = BG_GRADIENTS[2]
+
 const DEFAULT_BG: BackgroundConfig = {
   type: 'none',
   value: '',
-  opacity: 0.45,
+  opacity: 0.85,
   fit: 'cover',
 }
 
@@ -31,6 +86,13 @@ function isGif(path: string): boolean {
 function shortName(path: string): string {
   const parts = path.split(/[/\\]/)
   return parts[parts.length - 1] || path
+}
+
+/** 从 CSS 字符串反查预设 id（用于高亮） */
+function matchGradientId(value: string): string | null {
+  if (!value) return null
+  const hit = BG_GRADIENTS.find((g) => g.css === value)
+  return hit?.id ?? null
 }
 
 export function BackgroundPicker() {
@@ -54,13 +116,15 @@ export function BackgroundPicker() {
     if (type === 'color') {
       void setBackground({
         type: 'color',
-        value: cfg.type === 'color' && cfg.value ? cfg.value : '#1a1f2e',
+        value:
+          cfg.type === 'color' && cfg.value
+            ? cfg.value
+            : DEFAULT_GRADIENT.css,
         opacity: cfg.opacity,
         fit: cfg.fit,
       })
       return
     }
-    // image / video：尽量沿用已有 value，或触发选文件
     if ((cfg.type === 'image' || cfg.type === 'video') && cfg.value) {
       void setBackground({ ...cfg, type })
       return
@@ -94,10 +158,17 @@ export function BackgroundPicker() {
   const mediaLocal =
     (cfg.type === 'image' || cfg.type === 'video') && cfg.value && !resolveMediaSrc(cfg.value).playable
 
+  const activeGradId = cfg.type === 'color' ? matchGradientId(cfg.value) : null
+  const customSolid =
+    cfg.type === 'color' &&
+    cfg.value &&
+    !activeGradId &&
+    /^#[0-9a-fA-F]{3,8}$/.test(cfg.value)
+
   return (
     <div className="s-card">
       <h2>背景</h2>
-      <p className="hint">类壁纸引擎：纯色 / 静态图 / 循环视频，可调不透明度与适配</p>
+      <p className="hint">预设氛围渐变，或用图片 / 循环视频；可调不透明度</p>
 
       <div className="bg-type-row" role="radiogroup" aria-label="背景类型">
         {TYPE_OPTIONS.map((t) => (
@@ -115,22 +186,44 @@ export function BackgroundPicker() {
       </div>
 
       {cfg.type === 'color' && (
-        <div className="field">
-          <div>
-            <div className="label">背景颜色</div>
-            <p className="desc">铺满整个壳子底层</p>
+        <>
+          <div className="bg-grad-grid" role="listbox" aria-label="氛围渐变">
+            {BG_GRADIENTS.map((g) => {
+              const active = activeGradId === g.id
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  className={`bg-grad-card${active ? ' active' : ''}`}
+                  title={g.name}
+                  onClick={() => patch({ value: g.css, opacity: active && cfg.opacity > 0.7 ? 0.85 : cfg.opacity })}
+                >
+                  <span className="bg-grad-face" style={{ background: g.css }} />
+                  <span className="bg-grad-name">{g.name}</span>
+                </button>
+              )
+            })}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span className="swatch" style={{ background: cfg.value || '#1a1f2e' }} />
-            <input
-              ref={colorInputRef}
-              type="color"
-              value={/^#[0-9a-fA-F]{6}$/.test(cfg.value) ? cfg.value : '#1a1f2e'}
-              aria-label="背景颜色"
-              onChange={(e) => patch({ value: e.target.value })}
-            />
+
+          <div className="field">
+            <div>
+              <div className="label">自定义色</div>
+              <p className="desc">仍可选用单色铺底</p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span className="swatch" style={{ background: customSolid ? cfg.value : '#e2e8f0' }} />
+              <input
+                ref={colorInputRef}
+                type="color"
+                value={customSolid ? cfg.value : '#64748b'}
+                aria-label="自定义背景颜色"
+                onChange={(e) => patch({ value: e.target.value })}
+              />
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {(cfg.type === 'image' || cfg.type === 'video') && (
@@ -163,7 +256,7 @@ export function BackgroundPicker() {
             </div>
             <input
               type="range"
-              min={0.05}
+              min={0.15}
               max={1}
               step={0.05}
               value={cfg.opacity}

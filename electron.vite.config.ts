@@ -1,25 +1,32 @@
 /**
  * electron.vite.config — 构建配置
- * 职责：配置 main / preload / renderer 三个构建目标的入口、别名与插件。
- * 被 electron-vite 在 dev / build 时读取。
- * 关键依赖：electron-vite、@vitejs/plugin-react、@shared 别名指向 src/shared。
+ * 别名：@main → src/main，@preload → src/preload，@renderer → src/renderer，@shared → src/shared
+ * 与 tsconfig.node.json / tsconfig.web.json 的 paths 保持一致。
  */
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'node:path'
 
+const r = (...p: string[]) => resolve(process.cwd(), ...p)
+
+/** main / preload / renderer 共用的路径别名 */
+const sharedAlias = {
+  '@main': r('src/main'),
+  '@preload': r('src/preload'),
+  '@renderer': r('src/renderer'),
+  '@shared': r('src/shared')
+}
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
     resolve: {
-      alias: {
-        '@shared': resolve('src/shared')
-      }
+      alias: sharedAlias
     },
     build: {
       rollupOptions: {
         input: {
-          index: resolve('src/main/index.ts')
+          index: r('src/main/index.ts')
         }
       }
     }
@@ -27,15 +34,13 @@ export default defineConfig({
   preload: {
     plugins: [externalizeDepsPlugin()],
     resolve: {
-      alias: {
-        '@shared': resolve('src/shared')
-      }
+      alias: sharedAlias
     },
     build: {
       rollupOptions: {
         input: {
-          shellPreload: resolve('src/preload/shellPreload.ts'),
-          pluginPreload: resolve('src/preload/pluginPreload.ts')
+          shellPreload: r('src/preload/shellPreload.ts'),
+          pluginPreload: r('src/preload/pluginPreload.ts')
         }
       }
     }
@@ -43,16 +48,14 @@ export default defineConfig({
   renderer: {
     plugins: [react()],
     resolve: {
-      alias: {
-        '@renderer': resolve('src/renderer'),
-        '@shared': resolve('src/shared')
-      }
+      alias: sharedAlias
     },
-    root: resolve('src/renderer'),
+    root: r('src/renderer'),
     build: {
       rollupOptions: {
         input: {
-          index: resolve('src/renderer/index.html')
+          index: r('src/renderer/index.html'),
+          'orb-overlay': r('src/renderer/orb-overlay.html')
         }
       }
     }

@@ -5,9 +5,10 @@
  */
 import { useEffect } from 'react'
 import type { ShellEventPayload } from '@shared/types/ipc'
-import { shellApi } from '../services/shellApi'
-import { useShellStore } from '../stores/shellStore'
-import { toastStore } from './useToast'
+import { shellApi } from '@renderer/services/shellApi'
+import { useShellStore } from '@renderer/stores/shellStore'
+import { useThemeStore } from '@renderer/hooks/useTheme'
+import { toastStore } from '@renderer/hooks/useToast'
 
 function handleEvent(payload: ShellEventPayload): void {
   const store = useShellStore.getState()
@@ -28,6 +29,16 @@ function handleEvent(payload: ShellEventPayload): void {
       break
     case 'theme-changed':
       /* useTheme owns DOM apply; event is informational */
+      break
+    case 'theme-packs-changed':
+      // 插件 theme.register / 卸载后刷新设置页主题包下拉
+      void useThemeStore.getState().refreshPacks()
+      break
+    case 'go-home':
+      store.goHome()
+      break
+    case 'set-view':
+      store.setView(payload.view)
       break
     case 'settings-sections':
       store.appendLog('info', `[settings] sections updated (${(payload.sections as unknown[]).length})`)
@@ -54,6 +65,8 @@ function handleEvent(payload: ShellEventPayload): void {
         )
       }
       void store.refreshPlugins()
+      // 卸载可能带走主题包
+      void useThemeStore.getState().refreshPacks()
       break
   }
 }

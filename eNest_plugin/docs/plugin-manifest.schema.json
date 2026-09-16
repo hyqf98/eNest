@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://enest.local/schemas/plugin-manifest.json",
+  "title": "eNest plugin.json",
+  "type": "object",
+  "required": ["id", "name", "version", "main", "description"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9-]+)+$",
+      "description": "全局唯一反向域名，必须与目录名一致"
+    },
+    "name": { "type": "string", "minLength": 1 },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+([-+].*)?$"
+    },
+    "description": { "type": "string", "maxLength": 200 },
+    "author": { "type": "string" },
+    "main": { "type": "string", "default": "index.html" },
+    "category": {
+      "type": "string",
+      "enum": ["效率", "开发", "设计", "媒体", "其它"]
+    },
+    "icon": { "type": "string" },
+    "homepage": { "type": "string" },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "clipboard.read",
+          "clipboard.write",
+          "shell.openExternal",
+          "storage.local",
+          "notify",
+          "ui.setTitle",
+          "ui.setIcon",
+          "ui.setBadge",
+          "ui.resize",
+          "ui.toast",
+          "settings.register"
+        ]
+      }
+    },
+    "engines": {
+      "type": "object",
+      "properties": { "enest": { "type": "string" } }
+    },
+    "ui": {
+      "type": "object",
+      "properties": {
+        "chrome": { "enum": ["default", "minimal", "none"] },
+        "themeAware": { "type": "boolean" },
+        "background": { "enum": ["opaque", "transparent"] },
+        "preferredColorScheme": { "enum": ["auto", "light", "dark"] }
+      }
+    },
+    "market": {
+      "type": "object",
+      "properties": {
+        "featured": { "type": "boolean" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "screenshots": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "additionalProperties": true
+}

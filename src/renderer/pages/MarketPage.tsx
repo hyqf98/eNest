@@ -2,25 +2,27 @@
  * MarketPage — 插件市场首页
  * 包含 Hero（统计胶囊/打字机/搜索/分类）、精选轮播、插件卡片网格。
  * 数据来自 shellStore + shellApi.getPlugins；动效见 gsap/marketMotion（playHeroIn / animateCards）。
- * 卡片/轮播点击打开 PluginDetailModal，操作按钮安装/打开。
- * 依赖：shellStore、CATEGORIES(mockData)、StatsPill/SearchBox/CategoryChips/SegmentTabs/FeaturedCarousel/PluginCard/PluginDetailModal。
+ * 文案走 useI18n；卡片/轮播点击打开 PluginDetailModal。
+ * 依赖：shellStore、useI18n、CATEGORIES(mockData)、StatsPill/SearchBox 等。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CATEGORIES } from '../services/mockData'
-import { useShellStore } from '../stores/shellStore'
-import { StatsPill } from '../components/StatsPill'
-import { SearchBox } from '../components/SearchBox'
-import { CategoryChips } from '../components/CategoryChips'
-import { SegmentTabs } from '../components/SegmentTabs'
-import { FeaturedCarousel } from '../components/FeaturedCarousel'
-import { PluginCard } from '../components/PluginCard'
-import { PluginDetailModal } from '../components/PluginDetailModal'
-import { animateCards, playHeroIn } from '../gsap/marketMotion'
+import { useShellStore } from '@renderer/stores/shellStore'
+import { useI18n } from '@renderer/hooks/useI18n'
+import { StatsPill } from '@renderer/components/StatsPill'
+import { SearchBox } from '@renderer/components/SearchBox'
+import { CategoryChips } from '@renderer/components/CategoryChips'
+import { SegmentTabs } from '@renderer/components/SegmentTabs'
+import { FeaturedCarousel } from '@renderer/components/FeaturedCarousel'
+import { PluginCard } from '@renderer/components/PluginCard'
+import { PluginDetailModal } from '@renderer/components/PluginDetailModal'
+import { animateCards, playHeroIn } from '@renderer/gsap/marketMotion'
 
-const TYPE_WORDS = ['插件', '效率工具', '开发利器', 'eNest']
+/** 打字机词条：中文 / 英文各一组，随 locale 切换（不含品牌名，避免「发现最佳 eNest」） */
+const TYPE_WORDS_ZH = ['插件', '效率工具', '开发利器']
+const TYPE_WORDS_EN = ['plugins', 'productivity', 'dev tools']
 
-/** Hero 标题旁的循环打字机文案（插件 / 效率工具 / 开发利器 / eNest） */
-function Typewriter() {
+/** Hero 标题旁的循环打字机文案 */
+function Typewriter({ words }: { words: string[] }) {
   const [text, setText] = useState('')
   useEffect(() => {
     let w = 0
@@ -31,7 +33,7 @@ function Typewriter() {
 
     const tick = () => {
       if (cancelled) return
-      const word = TYPE_WORDS[w % TYPE_WORDS.length]
+      const word = words[w % words.length]
       if (!deleting) {
         c += 1
         setText(word.slice(0, c))
@@ -60,8 +62,21 @@ function Typewriter() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [])
+  }, [words])
   return <span>{text}</span>
+}
+
+/** mock 分类为中文键；显示时按 locale 映射文案，筛选仍用原键 */
+const CATEGORY_KEYS = ['全部', '效率', '开发', '设计'] as const
+
+function categoryLabel(key: string, t: (k: string) => string): string {
+  const map: Record<string, string> = {
+    全部: t('market.all'),
+    效率: t('market.catProductivity'),
+    开发: t('market.catDev'),
+    设计: t('market.catDesign'),
+  }
+  return map[key] ?? key
 }
 
 export function MarketPage() {
@@ -74,11 +89,13 @@ export function MarketPage() {
   const setSeg = useShellStore((s) => s.setSeg)
   const openPlugin = useShellStore((s) => s.openPlugin)
   const refreshPlugins = useShellStore((s) => s.refreshPlugins)
+  const { t, locale } = useI18n()
   const scrollRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
   const heroPlayed = useRef(false)
-  /** 当前打开详情的插件 id（始终从 plugins 取最新 installed 状态） */
   const [detailId, setDetailId] = useState<string | null>(null)
+
+  const typeWords = locale === 'en-US' ? TYPE_WORDS_EN : TYPE_WORDS_ZH
 
   useEffect(() => {
     void refreshPlugins()
@@ -119,7 +136,12 @@ export function MarketPage() {
     if (nodes?.length) animateCards(Array.from(nodes))
   }, [list])
 
-  const gridTitle = seg === 'installed' ? '已安装插件' : category === '全部' ? '官方插件' : category
+  const gridTitle =
+    seg === 'installed'
+      ? t('market.installedPlugins')
+      : category === '全部'
+        ? t('market.official')
+        : categoryLabel(category, t)
 
   const handleOpen = (id: string) => {
     void openPlugin(id)
@@ -144,21 +166,28 @@ export function MarketPage() {
         <div className="hero">
           <StatsPill count={plugins.length || 6} />
           <h1>
-            发现最佳{' '}
+            {t('market.heroPrefix')}{' '}
             <span className="type-wrap">
-              <Typewriter />
+              <Typewriter words={typeWords} />
               <span className="caret" aria-hidden="true" />
             </span>
           </h1>
-          <p className="lead">精选桌面效率与开发工具目录。安装后以独立进程运行，多 Tab 并行，关闭即回收。</p>
+          <p className="lead">{t('market.heroLead')}</p>
           <SearchBox value={query} onChange={setQuery} />
-          <CategoryChips categories={CATEGORIES} value={category} onChange={setCategory} />
+          <CategoryChips
+            categories={CATEGORY_KEYS.map((k) => categoryLabel(k, t))}
+            value={categoryLabel(category, t)}
+            onChange={(label) => {
+              const hit = CATEGORY_KEYS.find((k) => categoryLabel(k, t) === label)
+              setCategory(hit ?? '全部')
+            }}
+          />
         </div>
 
         <div className="home-toolbar">
           <SegmentTabs value={seg} onChange={setSeg} />
           <button className="link-more" type="button" onClick={showAll}>
-            查看全部插件
+            {t('market.viewAll')}
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M5 12h14M13 6l6 6-6 6" />
             </svg>
@@ -171,13 +200,13 @@ export function MarketPage() {
 
         <div className="section-head grid-head">
           <h2>{gridTitle}</h2>
-          <span className="stars">{list.length} 个</span>
+          <span className="stars">{t('market.pluginsCount', { n: list.length })}</span>
         </div>
         <div className="grid" ref={gridRef}>
           {list.length === 0 ? (
             <div className="empty">
-              <strong>{seg === 'installed' ? '还没有安装插件' : '没有找到插件'}</strong>
-              <span>试试其他分类或关键词</span>
+              <strong>{seg === 'installed' ? t('market.emptyInstalled') : t('market.emptySearch')}</strong>
+              <span>{t('market.emptyHint')}</span>
             </div>
           ) : (
             list.map((p) => (

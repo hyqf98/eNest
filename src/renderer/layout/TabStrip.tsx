@@ -4,8 +4,8 @@
  * 依赖：shellStore（view/tabs/activeTabId/goHome/activateTab/closeTab）、animateTabIn。
  */
 import { useEffect, useRef } from 'react'
-import { useShellStore } from '../stores/shellStore'
-import { animateTabIn } from '../gsap/marketMotion'
+import { useShellStore } from '@renderer/stores/shellStore'
+import { animateTabIn } from '@renderer/gsap/marketMotion'
 
 export function TabStrip() {
   const view = useShellStore((s) => s.view)
@@ -16,7 +16,8 @@ export function TabStrip() {
   const closeTab = useShellStore((s) => s.closeTab)
   const prevCount = useRef(0)
 
-  const homeActive = view === 'home' || view === 'settings' || view === 'dev'
+  // 首页高亮：仅 market；设置/开发者打开时不高亮首页
+  const homeActive = view === 'home'
 
   // 仅在 tabs 增加时对新 Tab 播放入场动画，避免重渲染/关闭时误触发
   useEffect(() => {

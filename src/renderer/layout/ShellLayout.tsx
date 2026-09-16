@@ -1,22 +1,18 @@
 /**
  * ShellLayout — 壳子主框架布局
- * 底层 AppBackground（z-index 0）+ TitleBar / 舞台内容（z-index 1）+ BottomBar。
- * 视图切换由 shellStore.view 驱动；挂载时通过 useShellEvents 订阅主进程 IPC 事件。
- * 同时挂载拖拽安装遮罩（InstallDropHost）与右上安装进度面板（InstallProgressPanel）。
- * 依赖：shellStore、useShellEvents、AppBackground、useShellScale、InstallDropHost、InstallProgressPanel。
+ * classic：顶栏 TabStrip；orb：圆轨在左侧透明悬浮窗（主壳不渲染，插件全宽无白条）。
  */
 import { useEffect } from 'react'
-import { TitleBar } from './TitleBar'
-import { BottomBar } from './BottomBar'
-import { AppBackground } from '../components/AppBackground'
-import { MarketPage } from '../pages/MarketPage'
-import { SettingsPage } from '../pages/SettingsPage'
-import { DevConsolePage } from '../pages/DevConsolePage'
-import { PluginHostChrome } from '../pages/PluginHostChrome'
-import { InstallDropHost } from '../components/InstallDropOverlay'
-import { InstallProgressPanel } from '../components/InstallProgressPanel'
-import { useShellStore } from '../stores/shellStore'
-import { useShellEvents } from '../hooks/useShellEvents'
+import { TitleBar } from '@renderer/layout/TitleBar'
+import { BottomBar } from '@renderer/layout/BottomBar'
+import { AppBackground } from '@renderer/components/AppBackground'
+import { MarketPage } from '@renderer/pages/MarketPage'
+import { SettingsPage } from '@renderer/pages/SettingsPage'
+import { PluginHostChrome } from '@renderer/pages/PluginHostChrome'
+import { InstallDropHost } from '@renderer/components/InstallDropOverlay'
+import { InstallProgressPanel } from '@renderer/components/InstallProgressPanel'
+import { useShellStore } from '@renderer/stores/shellStore'
+import { useShellEvents } from '@renderer/hooks/useShellEvents'
 
 /** 按窗口宽度写入 --shell-scale（0.85–1.1），供 clamp/calc 微调密度；标题栏 48px 固定不缩放 */
 function useShellScale(): void {
@@ -43,23 +39,24 @@ export function ShellLayout() {
   useShellEvents()
   useShellScale()
   const view = useShellStore((s) => s.view)
+  const tabStyle = useShellStore((s) => s.tabStyle)
 
   return (
-    <div className="app">
+    <div className={`app${tabStyle === 'orb' ? ' tab-orb' : ''}`}>
       <AppBackground />
       <div className="app-chrome">
         <TitleBar />
         <div className="stage">
           {view === 'home' && <MarketPage />}
           {view === 'settings' && <SettingsPage />}
-          {view === 'dev' && <DevConsolePage />}
           {view === 'plugin' && <PluginHostChrome />}
+          {/* view === 'dev' 已并入设置页开发者菜单；兼容旧状态回落首页 */}
+          {view === 'dev' && <MarketPage />}
           <BottomBar />
         </div>
       </div>
-      {/* 拖拽安装：全窗遮罩 + window 级 drop 监听 */}
+      {/* orb：左侧圆轨在独立透明悬浮窗，主壳不渲染，避免占宽白条 */}
       <InstallDropHost />
-      {/* 安装进度：右上浮动卡片，队列空时自动卸载 */}
       <InstallProgressPanel />
     </div>
   )

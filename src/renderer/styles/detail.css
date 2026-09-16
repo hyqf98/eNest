@@ -290,19 +290,114 @@
   font-style: italic;
 }
 
+/* 中窄屏：头部压缩、路径省略 */
+@media (max-width: 900px) {
+  .detail-modal {
+    width: min(840px, 96vw);
+  }
+
+  .detail-header {
+    gap: 12px;
+    padding: 18px 18px 14px;
+  }
+
+  .detail-icon {
+    width: 48px;
+    height: 48px;
+    font-size: 16px;
+    border-radius: 14px;
+  }
+
+  .detail-meta h2 {
+    font-size: 18px;
+  }
+
+  .detail-body {
+    padding: 16px 18px 24px;
+  }
+}
+
 /* 小屏：头部改纵向、操作按钮换行 */
 @media (max-width: 640px) {
+  .detail-overlay {
+    padding: 2vh 3vw;
+    align-items: end;
+  }
+
+  .detail-modal {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: var(--radius-lg);
+  }
+
   .detail-header {
     flex-wrap: wrap;
-    padding: 16px;
+    padding: 14px;
+    gap: 10px;
+  }
+
+  .detail-icon {
+    width: 42px;
+    height: 42px;
+    font-size: 14px;
+    border-radius: 12px;
+  }
+
+  .detail-meta h2 {
+    font-size: 16px;
+  }
+
+  .detail-sub {
+    font-size: 12px;
   }
 
   .detail-actions {
     width: 100%;
     justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .detail-actions .btn {
+    height: 32px;
+    padding: 0 12px;
+    font-size: 12px;
   }
 
   .detail-body {
-    padding: 16px;
+    padding: 14px;
+  }
+
+  .markdown-body {
+    font-size: 13px;
+  }
+
+  .markdown-body .md-h1 {
+    font-size: 19px;
+  }
+
+  .markdown-body .md-h2 {
+    font-size: 15.5px;
+  }
+}
+
+/* 极限窄屏：操作按钮铺满 */
+@media (max-width: 420px) {
+  .detail-overlay {
+    padding: 0;
+  }
+
+  .detail-modal {
+    max-height: 100%;
+    height: 100%;
+    border-radius: 0;
+    border: 0;
+  }
+
+  .detail-actions {
+    justify-content: stretch;
+  }
+
+  .detail-actions .btn {
+    flex: 1;
   }
 }

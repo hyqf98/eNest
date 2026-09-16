@@ -36,18 +36,19 @@ import {
   getPluginContentBounds,
   resolvePreload,
   sendShellEvent
-} from '../window/createShellWindow'
-import { logInfo, logWarn } from '../logs/logService'
-import { clearPluginSession } from './PluginSessionStore'
+} from '@main/window/createShellWindow'
+import { logInfo, logWarn } from '@main/logs/logService'
+import { clearPluginSession } from '@main/plugin/PluginSessionStore'
 import {
   INITIAL_LIFECYCLE_STATE,
   nextState,
   type PluginLifecycleAction,
   type PluginLifecycleState
-} from './PluginLifecycle'
-import { pluginRegistry } from './PluginRegistry'
-import { registerPluginProtocolForSession } from './pluginProtocol'
-import { resolveThemeTokens, themeTokensToInjectScript } from '../theme/resolveThemeCss'
+} from '@main/plugin/PluginLifecycle'
+import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { applyProxyToPluginPartition } from '@main/proxy/proxyService'
+import { registerPluginProtocolForSession } from '@main/plugin/pluginProtocol'
+import { resolveThemeTokens, themeTokensToInjectScript } from '@main/theme/resolveThemeCss'
 
 /** beforeClose 等待插件 ack 的上限；超时直接销毁，避免挂死关闭流程 */
 const BEFORE_CLOSE_ACK_TIMEOUT_MS = 300
@@ -147,6 +148,8 @@ export class PluginHost {
 
     const partition = pluginPartition(pluginId) // 每插件独立 partition，隔离 cookie/storage
     const ses = session.fromPartition(partition)
+    // 新建的插件 session 需继承当前应用代理（直连时 no-op）
+    void applyProxyToPluginPartition(pluginId)
     if (!summary.devUrl) {
       registerPluginProtocolForSession(ses, pluginId, rootPath)
     }
@@ -340,6 +343,17 @@ export class PluginHost {
   layoutAll(): void {
     for (const entry of this.entries.values()) {
       entry.view.setBounds(getPluginContentBounds(pluginChromeBarHeight(entry.ui.chrome)))
+    }
+  }
+
+  /** 隐藏全部插件视图：回首页/设置/开发者时调用，避免原生层盖住壳子 Tab 与内容 */
+  hideAllViews(): void {
+    for (const entry of this.entries.values()) {
+      try {
+        entry.view.setVisible(false)
+      } catch {
+        // view 可能已销毁
+      }
     }
   }
 

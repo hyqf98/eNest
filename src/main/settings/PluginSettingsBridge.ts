@@ -4,7 +4,7 @@
  * 被 pluginHandlers（settings.register/get/set）调用。
  * 关键依赖：createShellWindow.sendShellEvent（事件推送）。
  */
-import { sendShellEvent } from '../window/createShellWindow'
+import { sendShellEvent } from '@main/window/createShellWindow'
 
 export interface SettingsSectionItem {
   key: string

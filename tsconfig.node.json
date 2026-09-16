@@ -13,6 +13,8 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
+      "@main/*": ["src/main/*"],
+      "@preload/*": ["src/preload/*"],
       "@shared/*": ["src/shared/*"]
     }
   },

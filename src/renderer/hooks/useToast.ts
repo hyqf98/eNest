@@ -1,14 +1,15 @@
 /**
- * useToast — 全局 Toast 队列（zustand）
- * push 进队列并定时 dismiss；bindEl 绑定 DOM 节点以驱动入场/退场 GSAP。
- * 支持可选 type（info/success/warn/error），供插件 ui.toast 与壳子共用。
- * 依赖：marketMotion（toastIn/toastOut）、@shared/types/ipc（ToastKind）。
+ * useToast — 全局 Toast 兼容层
+ * push 包装到 notifyService；内置提示默认顶部弹出（与 notify 默认一致）。
+ * 业务可逐步改用 notify.info/success/warn/error/custom；本 API 保持兼容。
+ * items / bindEl 保留空实现以兼容旧调用；渲染由 NotificationHost 负责。
+ * 依赖：notifyService、@shared/types/ipc（ToastKind）。
  */
 import { create } from 'zustand'
 import type { ToastKind } from '@shared/types/ipc'
-import { toastIn, toastOut } from '../gsap/marketMotion'
+import { notify } from '@renderer/services/notifyService'
 
-/** 单条 Toast：id、文案、可选类型与已绑定 DOM 元素 */
+/** 单条 Toast：id、文案、可选类型（历史形状保留） */
 export interface ToastItem {
   id: number
   message: string
@@ -18,36 +19,30 @@ export interface ToastItem {
 }
 
 interface ToastState {
+  /** 历史队列；渲染已迁至 NotificationHost，此处恒为空以避免双渲染 */
   items: ToastItem[]
   push: (message: string, type?: ToastKind) => void
   dismiss: (id: number) => void
   bindEl: (id: number, el: HTMLElement) => void
 }
 
-let seq = 0
-
-/** Toast 全局队列 store；组件通过 useToast 订阅 */
-export const toastStore = create<ToastState>((set, get) => ({
+/** Toast 兼容 store：push 转发 notifyService（默认顶部）；组件应改用 notify.xxx */
+export const toastStore = create<ToastState>(() => ({
   items: [],
   push: (message, type) => {
-    const id = ++seq
-    set((s) => ({ items: [...s.items, { id, message, type }] }))
-    window.setTimeout(() => {
-      void get().dismiss(id)
-    }, 2200)
+    const level = type ?? 'info'
+    // 内置系统提示统一走顶部
+    notify.custom({ body: message, level, position: 'top' })
   },
-  dismiss: async (id) => {
-    const item = get().items.find((t) => t.id === id)
-    if (item?.el) await toastOut(item.el)
-    set((s) => ({ items: s.items.filter((t) => t.id !== id) }))
+  dismiss: () => {
+    /* 由 NotificationHost / notifyStore 自动 dismiss */
   },
-  bindEl: (id, el) => {
-    set((s) => ({ items: s.items.map((t) => (t.id === id ? { ...t, el } : t)) }))
-    toastIn(el)
+  bindEl: () => {
+    /* 入场由 NotificationHost bindEl 驱动 */
   },
 }))
 
-/** 便捷 hook：读取 Toast 列表与 DOM 绑定回调 */
+/** 便捷 hook：push 已兼容 notify；新代码建议直接 import notify */
 export function useToast() {
   const items = toastStore((s) => s.items)
   const bindEl = toastStore((s) => s.bindEl)

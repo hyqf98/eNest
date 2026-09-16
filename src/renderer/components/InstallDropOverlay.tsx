@@ -6,7 +6,7 @@
  * 依赖：useInstallDrop.dragging、install.css。
  */
 import '../styles/install.css'
-import { useInstallDrop } from '../hooks/useInstallDrop'
+import { useInstallDrop } from '@renderer/hooks/useInstallDrop'
 
 export function InstallDropOverlay({ visible }: { visible: boolean }) {
   if (!visible) return null

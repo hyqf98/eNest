@@ -5,7 +5,7 @@
  * 依赖：useTheme（THEME_MODE_LABELS）、@shared/types/plugin。
  */
 import type { ThemeMode, ThemePack } from '@shared/types/plugin'
-import { THEME_MODE_LABELS } from '../hooks/useTheme'
+import { THEME_MODE_LABELS } from '@renderer/hooks/useTheme'
 
 interface Props {
   mode: ThemeMode
@@ -45,8 +45,8 @@ export function ThemeModeSelect({ mode, resolved, packs, packId, onSetMode, onAp
             <div className="sw">
               {m === 'system' ? (
                 <>
-                  <i style={{ background: '#f4f5f7' }} />
-                  <i style={{ background: '#0a0c10' }} />
+                  <i style={{ background: '#f3f4f6' }} />
+                  <i style={{ background: '#0d1118' }} />
                 </>
               ) : (
                 (
@@ -54,8 +54,8 @@ export function ThemeModeSelect({ mode, resolved, packs, packId, onSetMode, onAp
                 ).map((k) => {
                   const preset =
                     m === 'light'
-                      ? { '--bg': '#f4f5f7', '--surface': '#ffffff', '--accent': '#1a1f2e', '--text': '#0f1420' }
-                      : { '--bg': '#0a0c10', '--surface': '#12151c', '--accent': '#f2f4f8', '--text': '#f2f4f8' }
+                      ? { '--bg': '#f3f4f6', '--surface': '#ffffff', '--accent': '#1a1f2e', '--text': '#0f1420' }
+                      : { '--bg': '#0d1118', '--surface': '#161b24', '--accent': '#e8ecf4', '--text': '#f3f5f9' }
                   return <i key={k} style={{ background: preset[k] }} />
                 })
               )}

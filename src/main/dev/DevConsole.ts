@@ -5,8 +5,8 @@
  * 关键依赖：PluginInstaller（manifest 校验）、PluginRegistry（dev 插件注册）。
  */
 import { dialog } from 'electron'
-import { installFromDirectory } from '../plugin/PluginInstaller'
-import { pluginRegistry } from '../plugin/PluginRegistry'
+import { installFromDirectory } from '@main/plugin/PluginInstaller'
+import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import type { PluginSummary } from '@shared/types/plugin'
 import { resolvePluginUi } from '@shared/types/plugin'
 

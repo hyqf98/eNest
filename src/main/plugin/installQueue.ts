@@ -12,11 +12,11 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type { InstallJobInfo } from '@shared/types/ipc'
-import { logError, logInfo } from '../logs/logService'
-import { getAppPaths } from '../paths/pathsService'
-import { installPluginFromPath } from './PluginInstaller'
-import { pluginRegistry } from './PluginRegistry'
-import { sendShellEvent } from '../window/createShellWindow'
+import { logError, logInfo } from '@main/logs/logService'
+import { getAppPaths } from '@main/paths/pathsService'
+import { installPluginFromPath } from '@main/plugin/PluginInstaller'
+import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { sendShellEvent } from '@main/window/createShellWindow'
 
 /** 并行安装上限：见文件头「为什么需要队列」 */
 export const MAX_PARALLEL_INSTALLS = 3

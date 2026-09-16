@@ -11,9 +11,9 @@ import { extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { protocol, type Session } from 'electron'
 import { PROTOCOL } from '@shared/constants'
 import { resolvePluginUi } from '@shared/types/plugin'
-import { getAppPaths } from '../paths/pathsService'
-import { pluginRegistry } from './PluginRegistry'
-import { resolveThemeTokens, themeTokensToCss } from '../theme/resolveThemeCss'
+import { getAppPaths } from '@main/paths/pathsService'
+import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { resolveThemeTokens, themeTokensToCss } from '@main/theme/resolveThemeCss'
 
 /** 壳子生成的主题 CSS 虚拟文件名；插件可 <link href="enest://plugin/{id}/__enest_theme.css"> */
 const THEME_CSS_FILE = '__enest_theme.css'

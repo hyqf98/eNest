@@ -1,11 +1,12 @@
 /**
  * windowState — 窗口几何计算工具
- * 职责：根据壳子窗口内容区尺寸，计算插件内容区可用边界（扣除标题栏+插件条高度）。
+ * 职责：根据壳子窗口内容区尺寸，计算插件内容区可用边界（扣除标题栏+插件条+左侧 orb 通道）。
  * 被 PluginHost / createShellWindow 调用，用于 WebContentsView 布局。
- * 关键依赖：@shared/constants 中的 TITLEBAR_HEIGHT / PLUGIN_BAR_HEIGHT / pluginChromeBarHeight。
+ * 关键依赖：@shared/constants、createShellWindow.getPluginLeftInset。
  */
 import type { BaseWindow, Rectangle } from 'electron'
 import { TITLEBAR_HEIGHT, PLUGIN_BAR_HEIGHT, pluginChromeBarHeight } from '@shared/constants'
+import { getPluginLeftInset } from '@main/window/createShellWindow'
 
 /** 返回壳子窗口内容区完整边界 */
 export function getContentBounds(win: BaseWindow): Rectangle {
@@ -13,7 +14,7 @@ export function getContentBounds(win: BaseWindow): Rectangle {
 }
 
 /**
- * 返回插件内容区边界：扣除标题栏与插件条高度，高度不小于 0。
+ * 返回插件内容区边界：扣除标题栏、插件条高度与左侧 orb 通道。
  * @param chromeBarHeight 插件条像素高，由 manifest.ui.chrome 决定
  */
 export function getPluginContentBounds(
@@ -22,10 +23,11 @@ export function getPluginContentBounds(
 ): Rectangle {
   const b = win.getContentBounds()
   const top = TITLEBAR_HEIGHT + Math.max(0, chromeBarHeight)
+  const left = getPluginLeftInset()
   return {
-    x: 0,
+    x: left,
     y: top,
-    width: b.width,
+    width: Math.max(0, b.width - left),
     height: Math.max(0, b.height - top)
   }
 }

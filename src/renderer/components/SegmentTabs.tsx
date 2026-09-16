@@ -2,7 +2,7 @@
  * SegmentTabs — 市场「浏览 / 已安装」分段切换
  * 受控组件；value 为 shellStore.Seg，onChange 写回 shellStore.setSeg。
  */
-import type { Seg } from '../stores/shellStore'
+import type { Seg } from '@renderer/stores/shellStore'
 
 interface Props {
   value: Seg

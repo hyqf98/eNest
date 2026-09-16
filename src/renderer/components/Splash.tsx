@@ -5,7 +5,7 @@
  * 依赖：gsap、splashMotion。
  */
 import { useEffect, useRef, useState } from 'react'
-import { playSplash, type SplashHandles } from '../gsap/splashMotion'
+import { playSplash, type SplashHandles } from '@renderer/gsap/splashMotion'
 
 export function Splash({ onDone }: { onDone: () => void }) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -72,7 +72,7 @@ export function Splash({ onDone }: { onDone: () => void }) {
           <circle className="splash-node" cx="100" cy="100" r="7" fill="#F5A524" />
         </svg>
         <div className="splash-word">eNest</div>
-        <div className="splash-sub">Plugin Shell</div>
+        <div className="splash-sub">可组合的桌面工作台</div>
       </div>
     </div>
   )

@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react'
 import type { InstallJobInfo } from '@shared/types/ipc'
-import { shellApi } from '../services/shellApi'
+import { shellApi } from '@renderer/services/shellApi'
 import '../styles/install.css'
 
 interface QueueSnapshot {

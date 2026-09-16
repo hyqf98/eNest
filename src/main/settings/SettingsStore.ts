@@ -13,8 +13,8 @@ import type {
   ThemeMode,
   ThemeTokens
 } from '@shared/types/plugin'
-import { getDefaultSettingsPath, setAppPathsRoot } from '../paths/pathsService'
-import { sendShellEvent } from '../window/createShellWindow'
+import { getDefaultSettingsPath, setAppPathsRoot } from '@main/paths/pathsService'
+import { sendShellEvent } from '@main/window/createShellWindow'
 
 /** 通用设置：以 shared 契约为准，保留历史 openAtLogin 扩展字段 */
 export type GeneralSettings = SharedGeneralSettings & {
@@ -33,7 +33,10 @@ const DEFAULTS: SettingsData = {
   general: {
     locale: 'zh-CN',
     hardwareAcceleration: true,
-    closeBehavior: 'minimize-tray'
+    closeBehavior: 'minimize-tray',
+    tabStyle: 'classic',
+    animationLevel: 'medium',
+    fontFamily: ''
   },
   plugins: {}
 }

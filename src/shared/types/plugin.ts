@@ -145,6 +145,37 @@ export interface ThemeTokens {
   background?: BackgroundConfig
 }
 
+/** Tab 呈现方式：classic 顶栏条 / orb 左侧悬浮圆形轨道 */
+export type TabStyle = 'classic' | 'orb'
+
+/** 动画效果强度：low 几乎无动画 / medium 默认 / high 加强动效 */
+export type AnimationLevel = 'low' | 'medium' | 'high'
+
+/** 自定义字体元数据（二进制另存：Electron 写 ~/eNest/fonts/，mock 存 localStorage dataURL） */
+export interface CustomFontMeta {
+  id: string
+  /** 显示名，通常取自文件名去掉扩展名 */
+  name: string
+  /** FontFace family 名（不含引号） */
+  family: string
+  /** 磁盘文件名（含扩展名）；mock 下与 id 对应的 localStorage 键后缀 */
+  fileName: string
+}
+
+/** 代理类型：直连 / HTTP / SOCKS5 / 自定义 URL（scheme://[user:pass@]host:port） */
+export type ProxyType = 'none' | 'http' | 'socks5' | 'custom'
+
+/** 代理配置；type=none 或缺省表示直连 */
+export interface ProxyConfig {
+  type: ProxyType
+  /** http/socks5 主机名或 IP */
+  host?: string
+  /** http/socks5 端口 */
+  port?: number
+  /** custom：完整代理 URL，如 socks5://127.0.0.1:1080 或 http://user:pass@host:8080 */
+  url?: string
+}
+
 /** 设置 → 通用（保持轻量） */
 export interface GeneralSettings {
   locale: 'zh-CN' | 'en-US'
@@ -153,6 +184,16 @@ export interface GeneralSettings {
   /** 数据根目录，默认 ~/eNest；可覆盖 */
   dataRoot?: string
   closeBehavior: 'minimize-tray' | 'quit'
+  /** Tab 样式；变更即时生效 */
+  tabStyle?: TabStyle
+  /** 动画效果强度；变更即时生效 */
+  animationLevel?: AnimationLevel
+  /** 当前界面字体 CSS font-family；空/缺省用 tokens.css 默认 --font 栈 */
+  fontFamily?: string
+  /** 已上传的自定义字体元数据列表 */
+  customFonts?: CustomFontMeta[]
+  /** 网络代理；缺省/none 为直连，变更经 session.setProxy 即时生效 */
+  proxy?: ProxyConfig
 }
 
 export interface AppPaths {

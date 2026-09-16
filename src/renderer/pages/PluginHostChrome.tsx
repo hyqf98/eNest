@@ -3,9 +3,10 @@
  * 顶部 plugin-bar 显示插件名与 enest:// 协议 URL；主体为启动中/出错占位。
  * 支持 manifest.ui.chrome 三档：default（48px 标准条）/ minimal（28px 细条）/ none（无条，全幅）。
  * 实际插件内容由 main 侧 WebContentsView 覆盖本层（pointer-events: none）。
+ * orb 模式下本层经 CSS `left: var(--orb-rail-inset)` 从通道右侧起铺，左侧不铺底、不占满圆轨通道。
  * 依赖：shellStore（tabs/activeTabId/plugins/pluginReady/pluginError）、@shared/constants 协议与分区工具。
  */
-import { useShellStore } from '../stores/shellStore'
+import { useShellStore } from '@renderer/stores/shellStore'
 import { pluginProtocolUrl, pluginPartition } from '@shared/constants'
 import type { PluginChromeMode } from '@shared/types/plugin'
 

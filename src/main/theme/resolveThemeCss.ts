@@ -8,8 +8,8 @@
  */
 import { nativeTheme } from 'electron'
 import type { PluginPreferredColorScheme } from '@shared/types/plugin'
-import { settingsStore } from '../settings/SettingsStore'
-import { themePackRegistry } from './themePacks'
+import { settingsStore } from '@main/settings/SettingsStore'
+import { themePackRegistry } from '@main/theme/themePacks'
 
 /** 与壳子 useTheme THEME_PRESETS 对齐的内置 Token（主进程侧副本，避免 renderer 依赖） */
 export const THEME_TOKEN_PRESETS: Record<'light' | 'dark', Record<string, string>> = {

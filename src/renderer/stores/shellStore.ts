@@ -5,9 +5,24 @@
  * 依赖：shellApi、toastStore。
  */
 import { create } from 'zustand'
-import type { PluginSummary, PluginTab, ShellView } from '@shared/types/plugin'
-import { shellApi } from '../services/shellApi'
-import { toastStore } from '../hooks/useToast'
+import type { PluginSummary, PluginTab, ShellView, TabStyle } from '@shared/types/plugin'
+import { shellApi } from '@renderer/services/shellApi'
+import { toastStore } from '@renderer/hooks/useToast'
+
+/** 将当前 Tab 状态推送到主进程，供左侧悬浮窗渲染 */
+function pushOrbState(state: {
+  view: ShellView
+  tabStyle: TabStyle
+  activeTabId: string | null
+  tabs: PluginTab[]
+}): void {
+  void shellApi.syncOrbState?.({
+    view: state.view,
+    tabStyle: state.tabStyle,
+    activeTabId: state.activeTabId,
+    tabs: state.tabs
+  }).catch(() => undefined)
+}
 
 /** 市场分段：浏览全部 vs 已安装 */
 export type Seg = 'browse' | 'installed'
@@ -23,6 +38,8 @@ interface ShellState {
   settingsTab: string
   pluginReady: boolean
   pluginError: string | null
+  /** Tab 呈现方式：classic 顶栏 / orb 左侧悬浮圆轨 */
+  tabStyle: TabStyle
   devLogs: { level: 'info' | 'dim' | 'warn'; text: string }[]
 
   setView: (view: ShellView) => void
@@ -32,6 +49,8 @@ interface ShellState {
   setSettingsTab: (t: string) => void
   setPluginReady: (ready: boolean) => void
   setPluginError: (msg: string | null) => void
+  setTabStyle: (style: TabStyle) => void
+  hydrateTabStyle: () => Promise<void>
   appendLog: (level: 'info' | 'dim' | 'warn', text: string) => void
 
   refreshPlugins: () => Promise<void>
@@ -66,18 +85,52 @@ export const useShellStore = create<ShellState>((set, get) => ({
   settingsTab: 'general',
   pluginReady: false,
   pluginError: null,
+  tabStyle: 'classic',
   devLogs: [
     { level: 'dim', text: '[enest] shell ready' },
     { level: 'info', text: '[host] renderer boot' },
   ],
 
-  setView: (view) => set({ view }),
+  setView: (view) => {
+    if (view !== 'plugin') {
+      void shellApi.hidePlugins?.().catch(() => undefined)
+    }
+    set({ view })
+    const s = get()
+    pushOrbState(s)
+  },
   setQuery: (query) => set({ query }),
   setCategory: (category) => set({ category }),
   setSeg: (seg) => set({ seg }),
   setSettingsTab: (settingsTab) => set({ settingsTab }),
-  setPluginReady: (pluginReady) => set({ pluginReady }),
-  setPluginError: (pluginError) => set({ pluginError }),
+  setPluginReady: (ready) => set({ pluginReady: ready }),
+  setPluginError: (msg) => set({ pluginError: msg }),
+
+  setTabStyle: (style) => {
+    set({ tabStyle: style })
+    document.documentElement.dataset.tabStyle = style
+    // overlay 模式：插件全宽 inset=0；悬浮窗由主进程显示/隐藏
+    void shellApi.setPluginInset?.(0).catch(() => undefined)
+    void shellApi
+      .setSettings({ general: { tabStyle: style } })
+      .catch(() => undefined)
+    pushOrbState(get())
+  },
+
+  hydrateTabStyle: async () => {
+    try {
+      const settings = await shellApi.getSettings()
+      const raw = settings.general?.tabStyle
+      const style: TabStyle = raw === 'orb' ? 'orb' : 'classic'
+      set({ tabStyle: style })
+      document.documentElement.dataset.tabStyle = style
+      void shellApi.setPluginInset?.(0).catch(() => undefined)
+      pushOrbState(get())
+    } catch {
+      document.documentElement.dataset.tabStyle = 'classic'
+    }
+  },
+
   appendLog: (level, text) =>
     set((s) => ({ devLogs: [...s.devLogs, { level, text }].slice(-200) })),
 
@@ -116,6 +169,7 @@ export const useShellStore = create<ShellState>((set, get) => ({
       pluginReady: false,
       pluginError: null,
     })
+    pushOrbState(get())
     void get().appendLog('info', `[host] open ${id}`)
     window.setTimeout(() => {
       if (get().activeTabId === tab!.id) set({ pluginReady: true })
@@ -136,6 +190,7 @@ export const useShellStore = create<ShellState>((set, get) => ({
       pluginReady: false,
       pluginError: null,
     })
+    pushOrbState(get())
     toastStore.getState().push(`已关闭「${gone.title}」`)
     get().appendLog('info', `[host] close ${gone.pluginId}`)
   },
@@ -143,12 +198,17 @@ export const useShellStore = create<ShellState>((set, get) => ({
   activateTab: async (tabId) => {
     await shellApi.activatePlugin(tabId)
     set({ activeTabId: tabId, view: 'plugin', pluginReady: false, pluginError: null })
+    pushOrbState(get())
     window.setTimeout(() => {
       if (get().activeTabId === tabId) set({ pluginReady: true })
     }, 300)
   },
 
-  goHome: () => set({ view: 'home', pluginReady: false, pluginError: null }),
+  goHome: () => {
+    void shellApi.hidePlugins?.().catch(() => undefined)
+    set({ view: 'home', pluginReady: false, pluginError: null })
+    pushOrbState(get())
+  },
 
   updateTabTitle: (tabId, title) =>
     set((s) => ({ tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, title } : t)) })),
@@ -158,6 +218,7 @@ export const useShellStore = create<ShellState>((set, get) => ({
     const remaining = tabs.filter((t) => t.id !== tabId)
     const nextId = pickNextTab(tabs, tabId, activeTabId)
     set({ tabs: remaining, activeTabId: nextId, view: nextId ? 'plugin' : 'home' })
+    pushOrbState(get())
   },
 
   loadDevPlugin: async (dirPath) => {

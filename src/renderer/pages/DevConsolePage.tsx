@@ -4,7 +4,7 @@
  * 依赖：shellStore（devLogs/loadDevPlugin/reloadActivePlugin/openDevToolsActive/plugins）。
  */
 import { useEffect, useRef, useState } from 'react'
-import { useShellStore } from '../stores/shellStore'
+import { useShellStore } from '@renderer/stores/shellStore'
 
 export function DevConsolePage() {
   const devLogs = useShellStore((s) => s.devLogs)
@@ -60,7 +60,7 @@ export function DevConsolePage() {
                 onChange={(e) => setDirPath(e.target.value)}
               />
             </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+            <div className="dev-actions">
               <button
                 className="btn btn-primary btn-sm"
                 type="button"

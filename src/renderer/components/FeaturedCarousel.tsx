@@ -6,8 +6,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PluginSummary } from '@shared/types/plugin'
-import { PluginSlide } from './PluginSlide'
-import { setCarouselX } from '../gsap/marketMotion'
+import { PluginSlide } from '@renderer/components/PluginSlide'
+import { setCarouselX } from '@renderer/gsap/marketMotion'
 
 const AUTOPLAY_MS = 3800
 

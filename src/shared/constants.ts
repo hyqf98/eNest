@@ -9,12 +9,26 @@ export const PROTOCOL = 'enest'
 export const PLUGIN_PARTITION_PREFIX = 'persist:plugin-'
 export const SHELL_PARTITION = 'enest-shell'
 
-/** 内容区标题栏高度（壳子 renderer） */
-export const TITLEBAR_HEIGHT = 48
+/** 内容区标题栏高度（壳子 renderer）— 与 CSS --titlebar-h 保持一致 */
+export const TITLEBAR_HEIGHT = 36
 /** 插件工具条高度：default / minimal / none */
 export const PLUGIN_BAR_HEIGHT = 48
 export const PLUGIN_BAR_HEIGHT_MINIMAL = 28
 export const PLUGIN_BAR_HEIGHT_NONE = 0
+
+/**
+ * orb 悬浮窗宽度（px）。overlay BrowserWindow 贴主窗左侧、盖在插件原生层之上，
+ * **不占用插件内容区宽度**（插件 inset 恒为 0）。
+ */
+export const ORB_OVERLAY_WIDTH = 56
+
+/**
+ * 传统左侧通道 inset（仅 classic 关闭 overlay 时不用）。
+ * overlay 模式下主进程会强制 setPluginLeftInset(0)。
+ */
+export const ORB_RAIL_INSET = 0
+export const ORB_RAIL_INSET_EXPANDED = 0
+export const ORB_RAIL_INSET_CLASSIC = 0
 
 /** 按 manifest.ui.chrome 计算插件条像素高度 */
 export function pluginChromeBarHeight(

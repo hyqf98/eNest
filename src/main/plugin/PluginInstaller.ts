@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import AdmZip from 'adm-zip'
 import type { PluginManifest } from '@shared/types/plugin'
-import { logInfo, logWarn } from '../logs/logService'
+import { logInfo, logWarn } from '@main/logs/logService'
 
 /** 安装进度回调：percent 0–100，step 为当前步骤中文描述 */
 export type InstallProgress = (percent: number, step: string) => void

@@ -1,12 +1,14 @@
 /**
  * AppBackground — 固定底层背景媒体层
- * color 直接铺色；image/video 按 opacity + object-fit 渲染；video 静音自动循环。
+ * color 直接铺色（含 CSS 渐变）；image/video 按 opacity + object-fit 渲染。
+ * 高动画档附加 AmbientParticles 气泡层。
  * pointer-events: none；z-index: 0；内容层在 ShellLayout 中 z-index: 1。
- * 依赖：useTheme（background）、resolveMediaSrc。
+ * 依赖：useTheme（background）、resolveMediaSrc、AmbientParticles。
  */
 import { useEffect } from 'react'
 import type { BackgroundConfig } from '@shared/types/plugin'
-import { resolveMediaSrc, useThemeStore } from '../hooks/useTheme'
+import { resolveMediaSrc, useThemeStore } from '@renderer/hooks/useTheme'
+import { AmbientParticles } from '@renderer/components/AmbientParticles'
 
 function MediaLayer({ config }: { config: BackgroundConfig }) {
   const { src, playable, placeholder } = resolveMediaSrc(config.value)
@@ -37,7 +39,6 @@ function MediaLayer({ config }: { config: BackgroundConfig }) {
     )
   }
 
-  // image（含 GIF）
   return (
     <img
       className="app-bg-media"
@@ -59,21 +60,22 @@ export function AppBackground() {
     return () => document.documentElement.classList.remove('has-bg-media')
   }, [active])
 
-  if (!active || !background) return null
-
-  if (background.type === 'color') {
-    return (
-      <div
-        className="app-bg"
-        aria-hidden
-        style={{ background: background.value, opacity: background.opacity }}
-      />
-    )
-  }
-
   return (
-    <div className="app-bg" aria-hidden>
-      <MediaLayer config={background} />
-    </div>
+    <>
+      {active && background && (
+        <div className="app-bg" aria-hidden>
+          {background.type === 'color' ? (
+            // 渐变/纯色直接写在满屏容器上，避免子元素无尺寸导致不生效
+            <div
+              className="app-bg-fill"
+              style={{ background: background.value, opacity: background.opacity }}
+            />
+          ) : (
+            <MediaLayer config={background} />
+          )}
+        </div>
+      )}
+      <AmbientParticles />
+    </>
   )
 }

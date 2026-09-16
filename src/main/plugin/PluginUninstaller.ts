@@ -13,12 +13,12 @@ import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pluginPartition } from '@shared/constants'
-import { logError, logInfo, logWarn } from '../logs/logService'
-import { getAppPaths, pluginStorageFile } from '../paths/pathsService'
-import { sendShellEvent } from '../window/createShellWindow'
-import { clearPluginSession } from './PluginSessionStore'
-import { pluginHost } from './PluginHost'
-import { pluginRegistry } from './PluginRegistry'
+import { logError, logInfo, logWarn } from '@main/logs/logService'
+import { getAppPaths, pluginStorageFile } from '@main/paths/pathsService'
+import { sendShellEvent } from '@main/window/createShellWindow'
+import { clearPluginSession } from '@main/plugin/PluginSessionStore'
+import { pluginHost } from '@main/plugin/PluginHost'
+import { pluginRegistry } from '@main/plugin/PluginRegistry'
 
 export interface UninstallResult {
   ok: boolean

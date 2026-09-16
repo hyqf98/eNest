@@ -1,10 +1,11 @@
 /**
- * ThemeTokenEditor — 颜色 Token 编辑器（友好中文名 + 高级变量名）
- * 展示可编辑 CSS 变量色板与重置；模式/主题包在 ThemeModeSelect，背景在 BackgroundPicker。
- * 由 ThemeSettingsSection 组合挂载；回调经 useTheme 即时写入 DOM 与 shellApi。
- * 依赖：useTheme（EDITABLE_TOKENS / normalizeHex）。
+ * ThemeTokenEditor — 颜色 Token 编辑器（友好中文名 + 色卡弹层）
+ * 点击色块打开 react-colorful 色卡；色板即时写入 DOM 与 shellApi。
+ * 由 ThemeSettingsSection 组合挂载。
+ * 依赖：useTheme（EDITABLE_TOKENS / normalizeHex）、ColorPickerField。
  */
-import { EDITABLE_TOKENS, normalizeHex } from '../hooks/useTheme'
+import { EDITABLE_TOKENS, normalizeHex } from '@renderer/hooks/useTheme'
+import { ColorPickerField } from '@renderer/components/ColorPickerField'
 
 interface Props {
   tokens: Record<string, string>
@@ -16,27 +17,25 @@ export function ThemeTokenEditor({ tokens, onSetToken, onReset }: Props) {
   return (
     <div className="s-card">
       <h2>颜色微调</h2>
-      <p className="hint">修改立即作用于整个壳子；色块下为高级 CSS 变量名</p>
+      <p className="hint">点击色块打开色卡，修改立即作用于整个壳子</p>
       <div className="token-grid">
         {EDITABLE_TOKENS.map((t) => {
           const raw = tokens[t.key]
-          const v = normalizeHex(typeof raw === 'string' && raw.startsWith('#') ? raw : '#1a1f2e')
+          const v = normalizeHex(typeof raw === 'string' && raw.startsWith('#') ? raw : '#64748b')
           return (
             <div className="token-box" key={t.key}>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 550 }}>{t.label}</div>
+              <div className="token-meta">
+                <div className="token-label">{t.label}</div>
                 <code>{t.key}</code>
               </div>
-              <div className="right">
-                <span className="stars">{v}</span>
-                <span className="swatch" style={{ background: v }} />
+              <div className="token-right">
+                <span className="token-hex">{v}</span>
+                <ColorPickerField
+                  value={v}
+                  label={t.label}
+                  onChange={(hex) => onSetToken(t.key, hex)}
+                />
               </div>
-              <input
-                type="color"
-                value={v}
-                aria-label={t.label}
-                onChange={(e) => onSetToken(t.key, e.target.value)}
-              />
             </div>
           )
         })}

@@ -6,9 +6,9 @@
  * 依赖：zustand、shellApi、zh-CN/en-US 词典。
  */
 import { create } from 'zustand'
-import { shellApi } from '../services/shellApi'
-import zhCN from './zh-CN'
-import enUS from './en-US'
+import { shellApi } from '@renderer/services/shellApi'
+import zhCN from '@renderer/i18n/zh-CN'
+import enUS from '@renderer/i18n/en-US'
 
 /** 支持的界面语言 */
 export type Locale = 'zh-CN' | 'en-US'

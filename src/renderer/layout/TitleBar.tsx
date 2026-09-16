@@ -1,38 +1,51 @@
 /**
- * TitleBar — 顶部标题栏（macOS 风格 traffic lights + 窗口控制）
- * 位于壳子最上方；包含装饰性红绿灯、中间 TabStrip、右侧最小化/最大化/关闭按钮。
- * 窗口操作经 shellApi 转发到 preload / main。
- * 依赖：shellApi；子组件：TabStrip。
+ * TitleBar — 顶部标题栏（macOS 风格）
+ * 36px：红绿灯 + 中间拖拽区。classic 显示文字 Tab；orb 的 Tab 在左侧 FloatingTabRail
+ * （含插件页，通过原生层左侧 inset 露出），顶栏不重复渲染圆球。
+ * 依赖：shellApi、shellStore；子组件：TabStrip。
  */
-import { TabStrip } from './TabStrip'
-import { shellApi } from '../services/shellApi'
+import { TabStrip } from '@renderer/layout/TabStrip'
+import { shellApi } from '@renderer/services/shellApi'
+import { useShellStore } from '@renderer/stores/shellStore'
 
 export function TitleBar() {
+  const tabStyle = useShellStore((s) => s.tabStyle)
+
   return (
     <header className="titlebar">
-      <div className="traffic" aria-hidden="true">
-        <i className="r" />
-        <i className="y" />
-        <i className="g" />
+      <div className="traffic" role="group" aria-label="窗口控制">
+        <button
+          type="button"
+          className="traffic-btn r"
+          aria-label="关闭"
+          onClick={() => shellApi.closeWindow?.()}
+        >
+          <svg viewBox="0 0 12 12" width="8" height="8" aria-hidden>
+            <path d="M3.2 3.2l5.6 5.6M8.8 3.2L3.2 8.8" stroke="rgba(0,0,0,0.35)" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="traffic-btn y"
+          aria-label="最小化"
+          onClick={() => shellApi.minimizeWindow?.()}
+        >
+          <svg viewBox="0 0 12 12" width="8" height="8" aria-hidden>
+            <path d="M3 6h6" stroke="rgba(0,0,0,0.35)" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="traffic-btn g"
+          aria-label="最大化"
+          onClick={() => shellApi.maximizeWindow?.()}
+        >
+          <svg viewBox="0 0 12 12" width="8" height="8" aria-hidden>
+            <path d="M4 8V4h4" stroke="rgba(0,0,0,0.35)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </svg>
+        </button>
       </div>
-      <TabStrip />
-      <div className="win-controls">
-        <button className="win-btn" type="button" aria-label="最小化" onClick={() => shellApi.minimizeWindow?.()}>
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <path d="M2 6h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        </button>
-        <button className="win-btn" type="button" aria-label="最大化" onClick={() => shellApi.maximizeWindow?.()}>
-          <svg width="11" height="11" viewBox="0 0 12 12">
-            <rect x="2.5" y="2.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" />
-          </svg>
-        </button>
-        <button className="win-btn x" type="button" aria-label="关闭" onClick={() => shellApi.closeWindow?.()}>
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <path d="M3 3l6 6M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        </button>
-      </div>
+      {tabStyle === 'classic' ? <TabStrip /> : <div className="titlebar-spacer" aria-hidden="true" />}
     </header>
   )
 }

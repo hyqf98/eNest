@@ -138,9 +138,26 @@ export interface EnestPluginApi {
     /** 订阅主题变更；壳子 setTheme / OS 主题切换时推送 */
     onThemeChange(cb: (event: PluginThemeChangeEvent) => void): Unsubscribe
   }
-  /** 主题命名空间：enest.theme.getTokens()（与 ui.getThemeTokens 等价） */
+  /** 主题命名空间：enest.theme.getTokens() / register() */
   theme: {
     getTokens(): Promise<{ mode: 'light' | 'dark'; tokens: PluginThemeTokens }>
+    /**
+     * 注册主题包到壳子设置 → 主题 下拉列表。
+     * ThemePack: { id, name, mode, tokens, source?, background? }
+     */
+    register(pack: {
+      id: string
+      name: string
+      mode?: 'light' | 'dark' | 'system'
+      tokens: Record<string, string>
+      source?: string
+      background?: {
+        type: 'none' | 'color' | 'image' | 'video'
+        value: string
+        opacity?: number
+        fit?: 'cover' | 'contain'
+      }
+    }): Promise<unknown>
   }
   settings: {
     register(section: {
@@ -216,7 +233,9 @@ const api: EnestPluginApi = {
   theme: {
     // 规范入口：enest.theme.getTokens()；ui.getThemeTokens 为兼容别名
     getTokens: () =>
-      call<{ mode: 'light' | 'dark'; tokens: PluginThemeTokens }>('theme.getTokens')
+      call<{ mode: 'light' | 'dark'; tokens: PluginThemeTokens }>('theme.getTokens'),
+    // 注册主题包 → 主进程 themePackRegistry，壳子设置页主题下拉即时刷新
+    register: (pack) => call('theme.register', [pack]),
   },
   settings: {
     register: (section) => call<boolean>('settings.register', [section]),

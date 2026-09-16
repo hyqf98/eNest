@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-16T12:31:12.340Z",
+  "channel": "stable",
+  "categories": [
+    "效率",
+    "开发",
+    "设计",
+    "媒体",
+    "其它"
+  ],
+  "plugins": [
+    {
+      "id": "com.example.hello",
+      "name": "Hello 示例",
+      "version": "1.0.0",
+      "description": "eNest 插件仓库最小示例：展示 manifest 与市场元数据约定。",
+      "author": "eNest",
+      "category": "效率",
+      "icon": "icons/com.example.hello.svg",
+      "tags": [
+        "示例",
+        "入门"
+      ],
+      "permissions": [
+        "storage.local",
+        "ui.setTitle"
+      ],
+      "engines": {
+        "enest": ">=0.1.0"
+      },
+      "featured": false,
+      "installs": 0,
+      "ui": {
+        "chrome": "default",
+        "themeAware": true,
+        "background": "opaque",
+        "preferredColorScheme": "auto"
+      },
+      "asset": {
+        "name": "com.example.hello@1.0.0.enestplugin",
+        "url": "com.example.hello@1.0.0.enestplugin",
+        "size": 0,
+        "sha256": ""
+      }
+    }
+  ]
+}

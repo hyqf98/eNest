@@ -6,14 +6,14 @@
  */
 import { create } from 'zustand'
 import type { BackgroundConfig, ThemeMode, ThemePack, ThemeTokens } from '@shared/types/plugin'
-import { shellApi } from '../services/shellApi'
-import { toastStore } from './useToast'
+import { shellApi } from '@renderer/services/shellApi'
+import { toastStore } from '@renderer/hooks/useToast'
 
 /** light/dark 预设颜色 Token 与中文标签（system 不在此表，解析后套用对应预设） */
 export const THEME_PRESETS = {
   light: {
     label: '浅色',
-    '--bg': '#f4f5f7',
+    '--bg': '#f3f4f6',
     '--surface': '#ffffff',
     '--surface-2': '#f0f2f5',
     '--surface-3': '#e8ebf0',
@@ -28,18 +28,18 @@ export const THEME_PRESETS = {
   },
   dark: {
     label: '深色',
-    '--bg': '#0a0c10',
-    '--surface': '#12151c',
-    '--surface-2': '#171b24',
-    '--surface-3': '#1e2430',
-    '--border': 'rgba(255,255,255,0.06)',
-    '--border-strong': 'rgba(255,255,255,0.12)',
-    '--text': '#f2f4f8',
-    '--text-2': '#9aa3b5',
-    '--text-3': '#5e677a',
-    '--accent': '#f2f4f8',
-    '--ok': '#3ecf8e',
-    '--danger': '#ff6b81',
+    '--bg': '#0d1118',
+    '--surface': '#161b24',
+    '--surface-2': '#1c2230',
+    '--surface-3': '#252d3d',
+    '--border': 'rgba(255,255,255,0.09)',
+    '--border-strong': 'rgba(255,255,255,0.16)',
+    '--text': '#f3f5f9',
+    '--text-2': '#b4bdcf',
+    '--text-3': '#7c879c',
+    '--accent': '#e8ecf4',
+    '--ok': '#3dd68c',
+    '--danger': '#ff7a8e',
   },
 } as const
 
@@ -160,6 +160,7 @@ interface ThemeState {
   background: BackgroundConfig | null
   hydrated: boolean
   hydrate: () => Promise<void>
+  refreshPacks: () => Promise<void>
   setMode: (mode: ThemeMode) => Promise<void>
   setToken: (key: string, value: string) => void
   resetMode: () => Promise<void>
@@ -241,6 +242,16 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     }
   },
 
+  /** 重新拉取主题包列表（插件 theme.register / 卸载后壳子事件触发） */
+  refreshPacks: async () => {
+    try {
+      const t = (await shellApi.getTheme()) as ThemeTokens & { packs?: ThemePack[] }
+      set({ packs: t.packs ?? [] })
+    } catch {
+      /* ignore */
+    }
+  },
+
   setMode: async (mode) => {
     const { overrides, packs, packId, background } = get()
     const resolved = resolveThemeMode(mode)
@@ -291,8 +302,15 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
   setBackground: async (bg) => {
     const { mode, overrides, packId } = get()
+    // 先同步 DOM 与 store，保证切换即时可见（不受 IPC 延迟影响）
+    const active = !!bg && bg.type !== 'none' && !!bg.value
+    document.documentElement.classList.toggle('has-bg-media', active)
     set({ background: bg })
-    await persistTheme({ mode, overrides, packId, background: bg })
+    try {
+      await persistTheme({ mode, overrides, packId, background: bg })
+    } catch {
+      /* 持久化失败不影响本地即时预览 */
+    }
   },
 }))
 

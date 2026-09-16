@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs'
 import { copyFile, cp, mkdir, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app } from 'electron'
-import { ensureAppDirs, getAppPaths, pluginStorageDir } from './pathsService'
+import { ensureAppDirs, getAppPaths, pluginStorageDir } from '@main/paths/pathsService'
 
 const FLAG_FILE = '.migrated'
 

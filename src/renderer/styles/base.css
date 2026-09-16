@@ -20,12 +20,18 @@ body {
   font-family: var(--font);
   font-size: 14px;
   color: var(--text);
-  background: var(--bg);
+  /* 启动期与 Splash 同色，避免首帧白闪 */
+  background: #011517;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   user-select: none;
-  /* 与系统窗口圆角呼应，避免内容顶满矩形边 */
   border-radius: 12px;
+}
+
+/* 主题水合后再交给 tokens 的 --bg */
+:root[data-theme] body,
+:root[data-theme] html {
+  background: var(--bg);
 }
 
 #root {

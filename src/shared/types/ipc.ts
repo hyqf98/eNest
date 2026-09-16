@@ -14,6 +14,20 @@ export const IpcChannels = {
   ShellOpenPlugin: 'shell:open-plugin',
   ShellClosePlugin: 'shell:close-plugin',
   ShellActivatePlugin: 'shell:activate-plugin',
+  /** 隐藏全部插件 WebContentsView（回首页/设置时调用，避免遮挡壳子 UI） */
+  ShellHidePlugins: 'shell:hide-plugins',
+  /** 设置插件内容区左侧 inset（orb 传统通道模式；overlay 模式恒为 0） */
+  ShellSetPluginInset: 'shell:set-plugin-inset',
+  /** 壳子 → 主进程：同步圆轨悬浮窗所需 Tab 状态 */
+  ShellSyncOrbState: 'shell:sync-orb-state',
+  /** 悬浮窗 → 主进程：读取圆轨状态 */
+  ShellGetOrbState: 'shell:get-orb-state',
+  /** 主进程 → 悬浮窗：Tab 状态变更推送 */
+  ShellOrbEvent: 'shell:orb-event',
+  /** 悬浮窗/壳子：回首页 */
+  ShellGoHome: 'shell:go-home',
+  /** 悬浮窗/壳子：切换主壳视图 */
+  ShellSetView: 'shell:set-view',
   ShellGetBounds: 'shell:get-bounds',
   ShellSetContentBounds: 'shell:set-content-bounds',
   ShellGetTheme: 'shell:get-theme',
@@ -34,6 +48,16 @@ export const IpcChannels = {
   ShellGetHardwareAccel: 'shell:get-hardware-accel',
   ShellSetHardwareAccel: 'shell:set-hardware-accel',
 
+  /** 网络代理：读/写（写即 session.setProxy）/ 连通性测试 */
+  ShellGetProxy: 'shell:get-proxy',
+  ShellSetProxy: 'shell:set-proxy',
+  ShellTestProxy: 'shell:test-proxy',
+
+  /** 自定义字体：复制到 ~/eNest/fonts/、读 base64、删除 */
+  ShellSaveCustomFont: 'shell:save-custom-font',
+  ShellReadCustomFont: 'shell:read-custom-font',
+  ShellDeleteCustomFont: 'shell:delete-custom-font',
+
   /** 插件拖拽/路径安装：入队后由主进程 installQueue 限流执行 */
   ShellInstallPlugin: 'shell:install-plugin',
   ShellGetInstallQueue: 'shell:get-install-queue',
@@ -46,6 +70,9 @@ export const IpcChannels = {
   ShellDownloadUpdate: 'shell:download-update',
   ShellInstallUpdate: 'shell:install-update',
   ShellGetUpdateState: 'shell:get-update-state',
+
+  /** 系统级通知（Electron Notification） */
+  ShellSystemNotify: 'shell:system-notify',
 
   WindowMinimize: 'window:minimize',
   WindowMaximize: 'window:maximize',
@@ -91,6 +118,34 @@ export type ShellEventPayload =
   | { type: 'uninstall-result'; pluginId: string; name: string; ok: boolean; error?: string }
   /** 自动更新状态变更（检查 / 下载进度 / 就绪 / 错误） */
   | { type: 'update-status'; state: UpdateStatePayload }
+  /** 悬浮窗请求主壳回首页 */
+  | { type: 'go-home' }
+  /** 悬浮窗请求主壳切换视图 */
+  | { type: 'set-view'; view: 'home' | 'settings' | 'plugin' | 'dev' }
+
+/** orb 悬浮窗同步的 Tab 状态（壳子 renderer → main → overlay） */
+export interface OrbRailState {
+  view: 'home' | 'settings' | 'dev' | 'plugin'
+  tabStyle: 'classic' | 'orb'
+  activeTabId: string | null
+  tabs: Array<{
+    id: string
+    pluginId: string
+    title: string
+    color: string
+    glyph: string
+  }>
+}
+
+/** shell:orb-event 负载：主进程 → 悬浮窗 */
+export type OrbEventPayload = { type: 'orb-state'; state: OrbRailState }
+
+/** shell:test-proxy 负载 */
+export interface ProxyTestResult {
+  ok: boolean
+  latencyMs?: number
+  error?: string
+}
 
 /** 更新状态推送到渲染层的负载 */
 export interface UpdateStatePayload {

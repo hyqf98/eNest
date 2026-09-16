@@ -7,7 +7,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { app } from 'electron'
-import { getDefaultSettingsPath } from './paths/pathsService'
+import { getDefaultSettingsPath } from '@main/paths/pathsService'
 
 /** 默认开启硬件加速 */
 const DEFAULT_ENABLED = true

@@ -6,39 +6,69 @@
  * 关键依赖：PluginHost、PluginRegistry、SettingsStore、pathsService、sqliteService、
  * themePacks、createShellWindow、DevConsole。
  */
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import { dialog, ipcMain } from 'electron'
+import { copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { basename, extname, join } from 'node:path'
+import { dialog, ipcMain, Notification } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
 import type { ThemeTokens } from '@shared/types/plugin'
-import { pickAndLoadDevPlugin } from '../dev/DevConsole'
-import { kvDelete, kvGet, kvSet } from '../db/sqliteService'
-import { logInfo, logWarn } from '../logs/logService'
-import { getAppPaths } from '../paths/pathsService'
-import { pluginHost } from '../plugin/PluginHost'
-import { pluginRegistry } from '../plugin/PluginRegistry'
-import { enqueueInstall, getInstallQueueState } from '../plugin/installQueue'
-import { uninstallPlugin } from '../plugin/PluginUninstaller'
-import { settingsStore } from '../settings/SettingsStore'
-import { themePackRegistry } from '../theme/themePacks'
+import { pickAndLoadDevPlugin } from '@main/dev/DevConsole'
+import { kvDelete, kvGet, kvSet } from '@main/db/sqliteService'
+import { logInfo, logWarn } from '@main/logs/logService'
+import { getAppPaths, getAppPathsRoot } from '@main/paths/pathsService'
+import { pluginHost } from '@main/plugin/PluginHost'
+import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { enqueueInstall, getInstallQueueState } from '@main/plugin/installQueue'
+import { uninstallPlugin } from '@main/plugin/PluginUninstaller'
+import { settingsStore } from '@main/settings/SettingsStore'
+import {
+  applyProxy,
+  getActiveProxy,
+  normalizeProxy,
+  testProxyConnectivity
+} from '@main/proxy/proxyService'
+import { themePackRegistry } from '@main/theme/themePacks'
 import {
   checkForUpdates,
   downloadUpdate,
   getUpdateState,
   quitAndInstallUpdate
-} from '../update/updateService'
+} from '@main/update/updateService'
 import {
   getMainWindow,
   getShellBounds,
   getShellWebContents,
-  sendShellEvent
-} from '../window/createShellWindow'
+  sendShellEvent,
+  setPluginLeftInset
+} from '@main/window/createShellWindow'
+import {
+  applyOrbOverlayVisibility,
+  getOrbRailState,
+  setOrbRailState
+} from '@main/window/orbOverlayWindow'
 
 /** shell:pick-file 支持的媒体过滤器 */
-const PICK_FILTERS: Record<'image' | 'video' | 'media', { name: string; extensions: string[] }> = {
+const PICK_FILTERS: Record<'image' | 'video' | 'media' | 'font', { name: string; extensions: string[] }> = {
   image: { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] },
   video: { name: '视频', extensions: ['mp4', 'webm'] },
-  media: { name: '媒体', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'webm'] }
+  media: { name: '媒体', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'webm'] },
+  font: { name: '字体', extensions: ['ttf', 'otf', 'woff', 'woff2'] }
+}
+
+/** 自定义字体允许的扩展名 */
+const FONT_EXTS = new Set(['.ttf', '.otf', '.woff', '.woff2'])
+
+/** 自定义字体落盘目录：{dataRoot}/fonts */
+function fontsDir(): string {
+  return join(getAppPathsRoot(), 'fonts')
+}
+
+/** 清洗字体文件名，防止路径穿越；非法时回落 custom-font */
+function sanitizeFontFileName(raw: string): string {
+  const base = basename(String(raw ?? '')).replace(/[^\w.\-]+/g, '_')
+  const ext = extname(base).toLowerCase()
+  if (!FONT_EXTS.has(ext) || base.startsWith('.')) return ''
+  return base
 }
 
 type PickFilterKey = keyof typeof PICK_FILTERS
@@ -83,6 +113,42 @@ export function registerShellHandlers(): void {
 
   ipcMain.handle(IpcChannels.ShellActivatePlugin, (_e, tabId: string) => {
     pluginHost.activatePlugin(tabId)
+    return { ok: true }
+  })
+
+  ipcMain.handle(IpcChannels.ShellHidePlugins, () => {
+    pluginHost.hideAllViews()
+    return { ok: true }
+  })
+
+  ipcMain.handle(IpcChannels.ShellSetPluginInset, (_e, left: number) => {
+    setPluginLeftInset(Number(left) || 0)
+    pluginHost.layoutAll()
+    return { ok: true }
+  })
+
+  ipcMain.handle(IpcChannels.ShellSyncOrbState, (_e, state) => {
+    setOrbRailState(state)
+    if (state?.tabStyle) applyOrbOverlayVisibility(state.tabStyle)
+    return { ok: true }
+  })
+
+  ipcMain.handle(IpcChannels.ShellGetOrbState, () => getOrbRailState())
+
+  ipcMain.handle(IpcChannels.ShellGoHome, () => {
+    pluginHost.hideAllViews()
+    sendShellEvent({ type: 'go-home' })
+    return { ok: true }
+  })
+
+  ipcMain.handle(IpcChannels.ShellSetView, (_e, view: string) => {
+    if (view !== 'plugin') pluginHost.hideAllViews()
+    sendShellEvent({
+      type: 'set-view',
+      view: (['home', 'settings', 'plugin', 'dev'] as const).includes(view as 'home')
+        ? (view as 'home' | 'settings' | 'plugin' | 'dev')
+        : 'home'
+    })
     return { ok: true }
   })
 
@@ -205,6 +271,26 @@ export function registerShellHandlers(): void {
     }
   )
 
+  // —— 系统级通知 ——
+
+  /** shell:system-notify — 弹出 OS 通知（Electron Notification） */
+  ipcMain.handle(
+    IpcChannels.ShellSystemNotify,
+    (_e, title?: string, body?: string): { ok: boolean; error?: string } => {
+      try {
+        if (!Notification.isSupported()) return { ok: false, error: 'notification unsupported' }
+        new Notification({
+          title: String(title ?? 'eNest').slice(0, 120),
+          body: String(body ?? '').slice(0, 500)
+        }).show()
+        return { ok: true }
+      } catch (err) {
+        logWarn('ipc', `shell:system-notify failed: ${(err as Error).message}`)
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
+
   // —— 硬件加速 ——
 
   ipcMain.handle(IpcChannels.ShellGetHardwareAccel, () => ({
@@ -218,6 +304,95 @@ export function registerShellHandlers(): void {
     })
     return { needRestart: true as const }
   })
+
+  // —— 网络代理 ——
+
+  ipcMain.handle(IpcChannels.ShellGetProxy, () => {
+    const fromSettings = (settingsStore.getAll().general as { proxy?: unknown }).proxy
+    return fromSettings ? normalizeProxy(fromSettings) : getActiveProxy()
+  })
+
+  /** 写入 settings.general.proxy 并即时 session.setProxy；返回是否需要重启（否） */
+  ipcMain.handle(IpcChannels.ShellSetProxy, async (_e, config) => {
+    const next = normalizeProxy(config)
+    const all = settingsStore.getAll()
+    await settingsStore.setAll({
+      general: { ...all.general, proxy: next }
+    })
+    await applyProxy(next)
+    return { needRestart: false, proxy: next }
+  })
+
+  /** TCP 探测代理 host:port（5s 超时）；未传 config 时测当前已保存配置 */
+  ipcMain.handle(IpcChannels.ShellTestProxy, (_e, config?) =>
+    testProxyConnectivity(config ? normalizeProxy(config) : undefined)
+  )
+
+  // —— 自定义字体 ——
+
+  /**
+   * shell:save-custom-font — 将本地字体复制到 ~/eNest/fonts/（或直接写 base64）。
+   * payload: { sourcePath?: string; dataBase64?: string; fileName: string }
+   * 返回落盘后的绝对路径。
+   */
+  ipcMain.handle(
+    IpcChannels.ShellSaveCustomFont,
+    async (
+      _e,
+      payload: { sourcePath?: string; dataBase64?: string; fileName: string }
+    ): Promise<{ ok: boolean; path?: string; fileName?: string; error?: string }> => {
+      try {
+        const fileName = sanitizeFontFileName(payload?.fileName ?? '')
+        if (!fileName) return { ok: false, error: 'invalid font file name' }
+        const dir = fontsDir()
+        await mkdir(dir, { recursive: true })
+        const dest = join(dir, fileName)
+        if (payload?.sourcePath) {
+          await copyFile(payload.sourcePath, dest)
+        } else if (payload?.dataBase64) {
+          await writeFile(dest, Buffer.from(payload.dataBase64, 'base64'))
+        } else {
+          return { ok: false, error: 'sourcePath or dataBase64 required' }
+        }
+        return { ok: true, path: dest, fileName }
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
+
+  /** shell:read-custom-font — 读 ~/eNest/fonts/{fileName} 为 base64，供 FontFace 加载 */
+  ipcMain.handle(
+    IpcChannels.ShellReadCustomFont,
+    async (_e, fileName: string): Promise<{ ok: boolean; dataBase64?: string; error?: string }> => {
+      try {
+        const safe = sanitizeFontFileName(fileName)
+        if (!safe) return { ok: false, error: 'invalid font file name' }
+        const file = join(fontsDir(), safe)
+        if (!existsSync(file)) return { ok: false, error: 'font not found' }
+        const buf = await readFile(file)
+        return { ok: true, dataBase64: buf.toString('base64') }
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
+
+  /** shell:delete-custom-font — 删除 ~/eNest/fonts/{fileName}（文件不存在视为成功） */
+  ipcMain.handle(
+    IpcChannels.ShellDeleteCustomFont,
+    async (_e, fileName: string): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        const safe = sanitizeFontFileName(fileName)
+        if (!safe) return { ok: false, error: 'invalid font file name' }
+        const file = join(fontsDir(), safe)
+        if (existsSync(file)) await unlink(file)
+        return { ok: true }
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
 
   // —— 插件安装（拖拽 / 路径）——
 
