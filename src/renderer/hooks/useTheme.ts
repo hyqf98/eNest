@@ -136,13 +136,20 @@ function applyToDom(
   return tokens
 }
 
-/** 媒体 URL：http/blob/data 直接用；本地绝对路径在浏览器 mock 下仅作占位提示 */
+/** 媒体 URL：http/blob/data/enest 直接用；绝对本地路径转 enest://media（Electron 协议） */
 export function resolveMediaSrc(value: string): { src: string; playable: boolean; placeholder?: string } {
   if (!value) return { src: '', playable: false }
   if (/^(https?:|blob:|data:|enest:)/i.test(value)) {
     return { src: value, playable: true }
   }
-  // Electron 主进程后续提供 enest://media?path=；当前仅展示路径提示
+  // POSIX / Windows 绝对路径 → 主进程 pluginProtocol 的 enest://media
+  if (/^(\/|[a-zA-Z]:[\\/])/.test(value)) {
+    return {
+      src: `enest://media/?path=${encodeURIComponent(value)}`,
+      playable: true,
+      placeholder: value,
+    }
+  }
   return {
     src: '',
     playable: false,
@@ -176,6 +183,7 @@ async function persistTheme(state: {
 }): Promise<void> {
   const resolved = resolveThemeMode(state.mode)
   const modeOverrides = state.overrides[resolved] ?? {}
+  // 始终带上 packId/background 键：null → undefined，供主进程显式清除
   await shellApi.setTheme(state.mode, modeOverrides, {
     packId: state.packId ?? undefined,
     background: state.background ?? undefined,

@@ -22,6 +22,22 @@ import type { UpdateStatePayload } from '@shared/types/ipc'
 
 type CloseBehavior = 'minimize-tray' | 'quit'
 
+/** 插件注册的设置 section（来自 settings-sections 事件 / getSettingsSections） */
+interface PluginSettingsItem {
+  key: string
+  type: string
+  label: string
+  default?: unknown
+  options?: Array<{ label: string; value: unknown }>
+}
+
+interface PluginSettingsSection {
+  id: string
+  title: string
+  pluginId: string
+  items: PluginSettingsItem[]
+}
+
 /** 历史 mock 值 'tray' 归一到共享契约 'minimize-tray' */
 function normalizeCloseBehavior(v: unknown): CloseBehavior {
   return v === 'quit' ? 'quit' : 'minimize-tray'
@@ -123,6 +139,10 @@ export function SettingsPage() {
   const [proxyUrl, setProxyUrl] = useState('')
   const [testingProxy, setTestingProxy] = useState(false)
 
+  /** 插件 settings.register 注入的 section 与持久化值 */
+  const [pluginSections, setPluginSections] = useState<PluginSettingsSection[]>([])
+  const [pluginSettings, setPluginSettings] = useState<Record<string, Record<string, unknown>>>({})
+
   /** 读取通用设置 + 硬件加速 + 数据根路径 */
   useEffect(() => {
     let cancelled = false
@@ -169,6 +189,69 @@ export function SettingsPage() {
       cancelled = true
     }
   }, [])
+
+  /** 插件设置 section + 已持久化值；订阅 settings-sections 实时刷新 */
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const settings = await shellApi.getSettings()
+        if (!cancelled && settings.plugins) {
+          setPluginSettings(settings.plugins as Record<string, Record<string, unknown>>)
+        }
+      } catch {
+        /* ignore */
+      }
+      if (shellApi.getSettingsSections) {
+        try {
+          const sections = await shellApi.getSettingsSections()
+          if (!cancelled) setPluginSections(sections as PluginSettingsSection[])
+        } catch {
+          /* ignore */
+        }
+      }
+    })()
+    if (!shellApi.onEvent) {
+      return () => {
+        cancelled = true
+      }
+    }
+    const off = shellApi.onEvent((payload) => {
+      if (payload.type === 'settings-sections') {
+        setPluginSections((payload.sections as PluginSettingsSection[]) ?? [])
+      }
+    })
+    return () => {
+      cancelled = true
+      off()
+    }
+  }, [])
+
+  /** 写入插件单项：优先 setPluginSetting（同步 Bridge），回落 setSettings.plugins */
+  const handlePluginSetting = useCallback(
+    (pluginId: string, key: string, value: unknown) => {
+      setPluginSettings((prev) => ({
+        ...prev,
+        [pluginId]: { ...(prev[pluginId] ?? {}), [key]: value },
+      }))
+      void (async () => {
+        try {
+          if (shellApi.setPluginSetting) {
+            await shellApi.setPluginSetting(pluginId, key, value)
+          } else {
+            const settings = await shellApi.getSettings()
+            const bag = { ...(settings.plugins?.[pluginId] ?? {}), [key]: value }
+            await shellApi.setSettings({
+              plugins: { ...(settings.plugins ?? {}), [pluginId]: bag },
+            })
+          }
+        } catch {
+          /* 乐观更新；写入失败下次 hydrate 会纠正 */
+        }
+      })()
+    },
+    [],
+  )
 
   /** 订阅主进程 update-status 推送，并拉取一次当前状态 */
   useEffect(() => {
@@ -586,23 +669,72 @@ export function SettingsPage() {
             const id = settingsTab.slice(2)
             const p = installed.find((x) => x.id === id)
             if (!p) return null
+            const sections = pluginSections.filter((s) => s.pluginId === id)
+            const values = pluginSettings[id] ?? {}
+            const renderValue = (item: PluginSettingsItem) => {
+              const raw = item.key in values ? values[item.key] : item.default
+              if (item.type === 'boolean' || item.type === 'bool' || item.type === 'switch') {
+                return (
+                  <Switch
+                    on={raw !== false && raw != null}
+                    onToggle={() => handlePluginSetting(id, item.key, !(raw !== false && raw != null))}
+                  />
+                )
+              }
+              if (item.type === 'select' && Array.isArray(item.options) && item.options.length > 0) {
+                return (
+                  <select
+                    value={raw === undefined || raw === null ? '' : String(raw)}
+                    onChange={(e) => {
+                      const opt = item.options?.find((o) => String(o.value) === e.target.value)
+                      handlePluginSetting(id, item.key, opt ? opt.value : e.target.value)
+                    }}
+                  >
+                    {item.options.map((o) => (
+                      <option key={String(o.value)} value={String(o.value)}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                )
+              }
+              if (item.type === 'number') {
+                return (
+                  <input
+                    type="number"
+                    defaultValue={raw === undefined || raw === null ? '' : String(raw)}
+                    onBlur={(e) => {
+                      const n = Number(e.target.value)
+                      if (!Number.isNaN(n)) handlePluginSetting(id, item.key, n)
+                    }}
+                  />
+                )
+              }
+              // string / text / 默认
+              return (
+                <input
+                  type="text"
+                  defaultValue={raw === undefined || raw === null ? '' : String(raw)}
+                  onBlur={(e) => handlePluginSetting(id, item.key, e.target.value)}
+                />
+              )
+            }
             return (
               <Card title={p.name} hint={t('settings.pluginSection.hint')}>
-                <Field label={t('settings.pluginSection.enable')} desc={t('settings.pluginSection.enableDesc')}>
-                  <Switch on onToggle={() => undefined} />
-                </Field>
-                <Field
-                  label={t('settings.pluginSection.showInSettings')}
-                  desc={t('settings.pluginSection.showInSettingsDesc')}
-                >
-                  <Switch on onToggle={() => undefined} />
-                </Field>
-                <Field
-                  label={t('settings.pluginSection.customLabel')}
-                  desc={t('settings.pluginSection.customLabelDesc')}
-                >
-                  <input type="text" defaultValue="朋友" />
-                </Field>
+                {sections.length === 0 ? (
+                  <p className="desc">{t('settings.pluginSection.empty')}</p>
+                ) : (
+                  sections.map((section) => (
+                    <div key={section.id} className="plugin-settings-section">
+                      {section.title ? <h3 className="label">{section.title}</h3> : null}
+                      {section.items.map((item) => (
+                        <Field key={item.key} label={item.label}>
+                          {renderValue(item)}
+                        </Field>
+                      ))}
+                    </div>
+                  ))
+                )}
               </Card>
             )
           })()}

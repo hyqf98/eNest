@@ -18,7 +18,8 @@ body {
   height: 100%;
   overflow: hidden;
   font-family: var(--font);
-  font-size: 14px;
+  /* 字号档：useFont 写 --font-size-base（缺省 14px）；与 --shell-scale 窗口密度独立 */
+  font-size: var(--font-size-base, 14px);
   color: var(--text);
   /* 启动期与 Splash 同色，避免首帧白闪 */
   background: #011517;

@@ -6,6 +6,7 @@
  */
 import type {
   AppPaths,
+  MarketInstallResult,
   PluginSummary,
   PluginTab,
   ProxyConfig,
@@ -65,6 +66,10 @@ export interface ShellApi {
   goHome?(): Promise<void>
   /** 主壳切换视图 */
   setShellView?(view: string): Promise<void>
+  /** 悬浮窗按展开态改宽度（固定宽度后为 no-op） */
+  resizeOrbOverlay?(expanded: boolean): Promise<void>
+  /** 悬浮窗命中：true=可点交互区，false=穿透给下层插件 */
+  setOrbOverlayHit?(receive: boolean): Promise<void>
   syncOrbState?(state: {
     view: string
     tabStyle: string
@@ -77,6 +82,15 @@ export interface ShellApi {
     activeTabId: string | null
     tabs: unknown[]
   }>
+  /** 卸载插件：关 Tab → 清 storage → 删文件 → 重扫；结果经 uninstall-result 事件 */
+  uninstallPlugin?(pluginId: string): Promise<void>
+  /** 启用/禁用已安装插件（持久化）；成功返回更新后的 summary */
+  setPluginEnabled?(pluginId: string, enabled: boolean): Promise<PluginSummary>
+  /** 从市场安装/更新：sample 优先，否则远程入队；force 强制走远程更新 */
+  installMarketPlugin?(
+    pluginId: string,
+    opts?: { force?: boolean }
+  ): Promise<MarketInstallResult>
   getTheme(): Promise<ShellThemeResult>
   setTheme(
     mode: ThemeMode,
@@ -88,6 +102,23 @@ export interface ShellApi {
   openDevTools(pluginId: string): Promise<void>
   getSettings(): Promise<ShellSettingsData>
   setSettings(settings: Partial<ShellSettingsData>): Promise<void>
+  /** 拉取插件已注册的设置 section 列表（Electron）；mock 返回空数组 */
+  getSettingsSections?(): Promise<
+    Array<{
+      id: string
+      title: string
+      pluginId: string
+      items: Array<{
+        key: string
+        type: string
+        label: string
+        default?: unknown
+        options?: Array<{ label: string; value: unknown }>
+      }>
+    }>
+  >
+  /** 写入单个插件设置项（Electron）；mock 回落 setSettings.plugins */
+  setPluginSetting?(pluginId: string, key: string, value: unknown): Promise<void>
   getPaths(): Promise<AppPaths>
   pickFile(options?: PickFileOptions): Promise<string | null>
   getPluginReadme(pluginId: string): Promise<string>
@@ -157,7 +188,6 @@ function createMockApi(): ShellApi {
   let theme = readMockTheme()
   let settings = readMockSettings()
   const openTabs = new Map<string, PluginTab>()
-  let hwAccel = true
 
   const emit = (payload: ShellEventPayload): void => {
     for (const cb of listeners) cb(payload)
@@ -179,6 +209,9 @@ function createMockApi(): ShellApi {
     async openPlugin(id) {
       const plugin = mockRegistry.getById(id)
       if (!plugin) return
+      if (plugin.installed && plugin.enabled === false) {
+        throw new Error(`plugin disabled: ${id}`)
+      }
       if (!plugin.installed) {
         mockRegistry.install(id)
         emit({ type: 'plugins-changed' })
@@ -216,11 +249,39 @@ function createMockApi(): ShellApi {
     async setShellView() {
       /* mock */
     },
+    async resizeOrbOverlay() {
+      /* mock */
+    },
+    async setOrbOverlayHit() {
+      /* mock */
+    },
     async syncOrbState() {
       /* mock */
     },
     async getOrbState() {
       return { view: 'home', tabStyle: 'classic', activeTabId: null, tabs: [] }
+    },
+    async uninstallPlugin(id) {
+      const name = mockRegistry.getById(id)?.name ?? id
+      mockRegistry.uninstall(id)
+      mockRegistry.setEnabled(id, true)
+      emit({ type: 'uninstall-result', pluginId: id, name, ok: true })
+      emit({ type: 'plugins-changed' })
+    },
+    async setPluginEnabled(id, enabled) {
+      const summary = mockRegistry.setEnabled(id, enabled !== false)
+      if (!summary) throw new Error(`plugin not found: ${id}`)
+      emit({ type: 'plugins-changed' })
+      return summary
+    },
+    async installMarketPlugin(id) {
+      const existing = mockRegistry.getById(id)
+      if (!existing) throw new Error(`plugin not found: ${id}`)
+      if (existing.installed) return { ok: true, mode: 'already', name: existing.name }
+      mockRegistry.install(id)
+      emit({ type: 'install-result', jobId: `mock-${id}`, name: existing.name, ok: true })
+      emit({ type: 'plugins-changed' })
+      return { ok: true, mode: 'sample', name: existing.name }
     },
     async getTheme() {
       theme = readMockTheme()
@@ -291,6 +352,30 @@ function createMockApi(): ShellApi {
           ...settings.general,
           ...partial.general,
         },
+        // plugins 按插件 id 合并，避免整包覆盖丢失其它插件/键
+        plugins: partial.plugins
+          ? Object.fromEntries(
+              Object.entries({
+                ...(settings.plugins ?? {}),
+                ...partial.plugins,
+              }).map(([id, bag]) => [
+                id,
+                { ...((settings.plugins?.[id] as Record<string, unknown> | undefined) ?? {}), ...bag },
+              ]),
+            )
+          : settings.plugins,
+      }
+      writeMockSettings(settings)
+    },
+    async getSettingsSections() {
+      return []
+    },
+    async setPluginSetting(pluginId, key, value) {
+      settings = readMockSettings()
+      const bag = { ...(settings.plugins?.[pluginId] ?? {}), [key]: value }
+      settings = {
+        ...settings,
+        plugins: { ...(settings.plugins ?? {}), [pluginId]: bag },
       }
       writeMockSettings(settings)
     },
@@ -359,10 +444,18 @@ function createMockApi(): ShellApi {
       ].join('\n')
     },
     async getHardwareAcceleration() {
-      return { enabled: hwAccel }
+      settings = readMockSettings()
+      const fromSettings = settings.general?.hardwareAcceleration
+      return { enabled: fromSettings !== false }
     },
     async setHardwareAcceleration(enabled) {
-      hwAccel = enabled !== false
+      const next = enabled !== false
+      settings = readMockSettings()
+      settings = {
+        ...settings,
+        general: { ...settings.general, hardwareAcceleration: next },
+      }
+      writeMockSettings(settings)
       return { needRestart: true }
     },
     async getProxy() {
@@ -582,6 +675,17 @@ export const shellApi: ShellApi = rawShell
       getTheme: () => {
         if (rawShell.getTheme) return rawShell.getTheme()
         return mockApi.getTheme()
+      },
+      getSettingsSections: () => {
+        if (rawShell.getSettingsSections) return rawShell.getSettingsSections()
+        return mockApi.getSettingsSections?.() ?? Promise.resolve([])
+      },
+      setPluginSetting: (pluginId, key, value) => {
+        if (rawShell.setPluginSetting) return rawShell.setPluginSetting(pluginId, key, value)
+        return (
+          mockApi.setPluginSetting?.(pluginId, key, value) ??
+          Promise.resolve()
+        )
       },
       setTheme: (mode, overrides, extra) => {
         if (rawShell.setTheme) return rawShell.setTheme(mode, overrides, extra)

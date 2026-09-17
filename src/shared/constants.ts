@@ -16,11 +16,24 @@ export const PLUGIN_BAR_HEIGHT = 48
 export const PLUGIN_BAR_HEIGHT_MINIMAL = 28
 export const PLUGIN_BAR_HEIGHT_NONE = 0
 
+/** 圆球直径（与 orb-overlay.css .orb-face 一致） */
+export const ORB_FACE_SIZE = 44
+/** 设置圆钮直径（与 tabs 独立，不参与展开宽度逻辑） */
+export const ORB_SETTINGS_SIZE = 40
+/** 圆球悬停放大系数 */
+export const ORB_FACE_HOVER_SCALE = 1.14
+
 /**
- * orb 悬浮窗宽度（px）。overlay BrowserWindow 贴主窗左侧、盖在插件原生层之上，
- * **不占用插件内容区宽度**（插件 inset 恒为 0）。
+ * 悬浮窗固定宽度：展开与收起都用同一宽度，避免 hover 时 setBounds
+ * 触发 macOS 重合成（插件层短暂盖住悬浮窗）与伪 mouseleave。
+ * 计算：把手占位 + panel 边距 + 圆球（含 hover 放大/位移）+ 激活光环。
  */
-export const ORB_OVERLAY_WIDTH = 56
+export const ORB_OVERLAY_WIDTH = 84
+
+/** @deprecated 使用 ORB_OVERLAY_WIDTH；保留签名兼容旧调用 */
+export function orbOverlayWidth(_expanded?: boolean): number {
+  return ORB_OVERLAY_WIDTH
+}
 
 /**
  * 传统左侧通道 inset（仅 classic 关闭 overlay 时不用）。

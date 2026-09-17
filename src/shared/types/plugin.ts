@@ -108,12 +108,28 @@ export interface PluginSummary {
   glyph: string
   permissions: PluginPermission[]
   installed: boolean
+  /** 是否启用；缺省/undefined 视为 true。禁用时 openPlugin 拒绝，Quick 索引排除 */
+  enabled?: boolean
+  /** 远程市场存在更高版本时的版本号（已安装插件才有） */
+  latestVersion?: string
   rootPath?: string
   devUrl?: string
   /** 已归一的 UI 配置（供壳子 chrome / 主题注入使用） */
   ui: PluginUiConfig
   /** 已归一的打开形态；缺省 panel */
   form?: PluginForm
+}
+
+/** 市场安装结果：sample 本地同步安装 / remote 已入队下载 */
+export type MarketInstallMode = 'sample' | 'remote' | 'already'
+
+export interface MarketInstallResult {
+  ok: boolean
+  mode?: MarketInstallMode
+  /** remote 模式的队列任务 id（进度经 install-progress 推送） */
+  jobId?: string
+  name?: string
+  error?: string
 }
 
 export interface PluginTab {
@@ -192,13 +208,48 @@ export interface ProxyConfig {
   url?: string
 }
 
+/** Quick 最近使用一条记录 */
+export interface QuickRecentEntry {
+  /** 命令 id，如 `app:<path>` / `plugin:<id>:<code>` / `action:<action>` */
+  id: string
+  /** 最近一次使用时间戳（ms） */
+  ts: number
+  /** 累计使用次数 */
+  count: number
+}
+
 /** 全局呼出快捷启动小窗的设置 */
 export interface QuickLauncherSettings {
   /** 是否启用全局热键；false 时不注册 */
   enabled: boolean
   /** Electron accelerator 列表，任一触发 toggle；失败项会被跳过 */
   hotkeys: string[]
+  /** 最近使用命令（按 ts 倒序，截断 20）；缺省 = 尚未记录 */
+  recent?: QuickRecentEntry[]
 }
+
+/** 启动 Splash 背景类型：brand 品牌色 / none 主题色 / image 自定义图 */
+export type SplashBackgroundType = 'brand' | 'none' | 'image'
+
+/** 启动 Splash 背景配置 */
+export interface SplashBackgroundConfig {
+  type: SplashBackgroundType
+  /** image：本地绝对路径或 enest:// 资源 URL */
+  value?: string
+  /** 0–1，自定义图透明度 */
+  opacity?: number
+}
+
+/** 会话恢复：单条已打开插件 Tab 的轻量引用 */
+export interface SessionTabRef {
+  pluginId: string
+  /** 显示名缓存；恢复时以已安装插件最新 name 为准 */
+  title?: string
+}
+
+/** 允许的界面字号档（相对基准 14px 的倍率） */
+export const FONT_SIZE_SCALES = [0.9, 1.0, 1.15, 1.3] as const
+export type FontSizeScale = (typeof FONT_SIZE_SCALES)[number]
 
 /** 设置 → 通用（保持轻量） */
 export interface GeneralSettings {
@@ -212,14 +263,24 @@ export interface GeneralSettings {
   tabStyle?: TabStyle
   /** 动画效果强度；变更即时生效 */
   animationLevel?: AnimationLevel
-  /** 当前界面字体 CSS font-family；空/缺省用 tokens.css 默认 --font 栈 */
+  /** 当前界面中文/默认字体 CSS font-family；空/缺省用 tokens.css 默认 --font 栈 */
   fontFamily?: string
+  /** 英文/Latin 优先字体栈；有值时 --font = en + cjk 拼接。缺省行为与仅用 fontFamily 一致 */
+  fontFamilyEn?: string
+  /** 界面字号倍率（0.9 / 1.0 / 1.15 / 1.3）；缺省 1.0，写 --font-size-base */
+  fontSizeScale?: number
   /** 已上传的自定义字体元数据列表 */
   customFonts?: CustomFontMeta[]
+  /** 会话恢复：上次打开的插件 Tab 列表（仅插件，不含壳子页） */
+  sessionTabs?: SessionTabRef[]
+  /** 会话恢复：上次激活的插件 id；空/缺失则回首页 */
+  sessionActivePluginId?: string
   /** 网络代理；缺省/none 为直连，变更经 session.setProxy 即时生效 */
   proxy?: ProxyConfig
   /** 快捷启动（Quick 小窗）配置 */
   quickLauncher?: QuickLauncherSettings
+  /** 启动 Splash 背景；缺省 = brand 品牌色 */
+  splashBackground?: SplashBackgroundConfig
 }
 
 export interface AppPaths {

@@ -133,13 +133,21 @@ async function dispatch(
         title: section.title,
         items: section.items ?? []
       })
+      // 用已持久化值覆盖 bridge 中的 default，保证重启后 settings.get 读到上次写入
+      const persisted = settingsStore.getPluginSettings(pluginId)
+      for (const item of section.items ?? []) {
+        if (item?.key && item.key in persisted) {
+          pluginSettingsBridge.set(pluginId, item.key, persisted[item.key])
+        }
+      }
       return true
     }
     case 'settings.get': {
       const key = String(args[0] ?? '')
-      const fromBridge = pluginSettingsBridge.get(pluginId, key)
-      if (fromBridge !== undefined) return fromBridge
-      return settingsStore.getPluginSettings(pluginId)[key]
+      // 持久化值优先（壳子/重启后写入），bridge 仅作未落盘时的 default 兜底
+      const persisted = settingsStore.getPluginSettings(pluginId)
+      if (key in persisted) return persisted[key]
+      return pluginSettingsBridge.get(pluginId, key)
     }
     case 'settings.set': {
       const key = String(args[0] ?? '')

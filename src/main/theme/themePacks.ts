@@ -66,6 +66,23 @@ export class ThemePackRegistry {
     return removed
   }
 
+  /**
+   * 按来源插件移除其注册的全部主题包（插件卸载时 GC）。
+   * 返回被删除的 pack id 列表；无匹配时不落盘。
+   */
+  async removeBySource(source: string): Promise<string[]> {
+    if (!source) return []
+    const removedIds: string[] = []
+    for (const [id, pack] of this.packs) {
+      if (pack.source === source) {
+        this.packs.delete(id)
+        removedIds.push(id)
+      }
+    }
+    if (removedIds.length > 0) await this.persist()
+    return removedIds
+  }
+
   private async persist(): Promise<void> {
     const file = registryFile()
     await mkdir(dirname(file), { recursive: true })

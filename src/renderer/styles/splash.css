@@ -1,7 +1,8 @@
 /*
  * splash — 启动全屏层
  * 使用方：App 首次挂载时的 Splash 组件。
- * 配色与应用图标一致：墨绿 #011517 / 薄荷 #2DD4A8 / 琥珀 #F5A524。
+ * 品牌兜底配色与应用图标一致：墨绿 #011517 / 薄荷 #2DD4A8 / 琥珀 #F5A524。
+ * 主题色模式经 --splash-* 局部变量注入（见 Splash.applySplashTokens）。
  */
 .splash {
   position: fixed;
@@ -10,7 +11,8 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  color: #2dd4a8;
+  /* 优先主题 accent，缺失回落品牌薄荷 */
+  color: var(--splash-accent, #2dd4a8);
   /* 首帧即不透明，避免透出底层主题色造成闪烁 */
   opacity: 1;
   will-change: opacity;
@@ -20,13 +22,55 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 60% 50% at 50% 45%, rgba(45, 212, 168, 0.12), transparent 60%),
+    radial-gradient(
+      ellipse 60% 50% at 50% 45%,
+      color-mix(in srgb, var(--splash-accent, #2dd4a8) 12%, transparent),
+      transparent 60%
+    ),
     radial-gradient(ellipse 40% 35% at 50% 55%, rgba(245, 165, 36, 0.06), transparent 55%),
-    #011517;
+    var(--splash-bg, #011517);
+}
+
+/* 自定义启动背景图：cover 铺底 */
+.splash-photo {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+/* 自定义图之上压一层暗角，保证标识可读 */
+.splash--photo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 55% 45% at 50% 45%,
+    rgba(1, 21, 23, 0.18),
+    rgba(1, 21, 23, 0.55)
+  );
+  pointer-events: none;
+}
+
+/* high 档粒子层 */
+.splash-particles {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  display: none;
+}
+
+.splash--high .splash-particles {
+  display: block;
 }
 
 .splash-stage {
   position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -34,8 +78,13 @@
 }
 
 .splash-mark {
-  color: #2dd4a8;
+  color: var(--splash-accent, #2dd4a8);
   overflow: visible;
+}
+
+/* high：描边更醒目 */
+.splash--high .splash-mark {
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--splash-accent, #2dd4a8) 35%, transparent));
 }
 
 .splash-hex {
@@ -58,7 +107,7 @@
   font-size: 28px;
   font-weight: 700;
   letter-spacing: -0.04em;
-  color: #e8fff6;
+  color: var(--splash-text, #e8fff6);
 }
 
 .splash-sub {
@@ -66,7 +115,7 @@
   font-size: 12.5px;
   font-weight: 500;
   letter-spacing: 0.18em;
-  color: rgba(45, 212, 168, 0.62);
+  color: color-mix(in srgb, var(--splash-accent, #2dd4a8) 62%, transparent);
 }
 
 /* Splash 结束前壳子不透出、不抢焦点；ready 后淡入 */

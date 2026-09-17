@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>eNest — 可组合的桌面工作台</title>
-  <meta name="description" content="eNest 是开源插件化桌面壳子：多 Tab 隔离运行、拖拽安装扩展、主题 Token 与 zapi 开发者 API。把桌面能力装进可组合的插件里。" />
-  <meta property="og:title" content="eNest — 可组合的桌面工作台" />
-  <meta property="og:description" content="开源插件化桌面壳子：多 Tab 隔离、一键安装、可主题化。" />
+  <title>eNest — 插件化桌面工作台</title>
+  <meta name="description" content="eNest 是开源插件化桌面壳子：多 Tab 独立进程、拖拽安装、主题 Token 与 zapi 权限门禁。首页即市场，关 Tab 即回收。" />
+  <meta property="og:title" content="eNest — 插件化桌面工作台" />
+  <meta property="og:description" content="开源桌面壳子：多 Tab 进程隔离、一键安装、可主题化。" />
   <meta property="og:type" content="website" />
   <link rel="icon" href="assets/icons/enest-icon-256.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -18,7 +18,7 @@
   <header class="site-nav">
     <div class="wrap site-nav-inner">
       <a class="brand" href="./">
-        <img src="assets/icons/enest-icon-256.png" alt="" width="30" height="30" />
+        <img src="assets/icons/enest-icon-256.png" alt="" width="28" height="28" />
         eNest
         <span class="brand-tag">开源</span>
       </a>
@@ -36,15 +36,15 @@
   </header>
 
   <main>
-    <!-- Hero -->
+    <!-- Hero：左侧卖点 + 右侧真实壳子 CSS 仿真 -->
     <section class="hero">
       <div class="wrap hero-inner">
         <div>
-          <div class="pill"><i></i> Electron 33 · React · MIT 开源</div>
-          <h1>把桌面能力<br />装进<span class="grad">可组合的插件</span>里</h1>
+          <div class="pill"><i></i> Electron 33 · React · MIT</div>
+          <h1>一个壳子，<br /><em>按需组合</em>桌面工具</h1>
           <p class="lead">
-            eNest 是可组合的桌面工作台：市场一键安装，多 Tab 独立进程运行，关闭即回收。
-            适合效率工具、开发者工具与内部工作台。
+            eNest 是插件化桌面工作台：首页即市场，多 Tab 独立进程运行，关 Tab 立即销毁。
+            每个插件是真正的 Web 应用，不是 iframe 拼盘。
           </p>
           <div class="hero-actions">
             <a class="btn btn-primary btn-lg" href="download.html">下载 eNest</a>
@@ -52,170 +52,430 @@
           </div>
           <div class="hero-meta">
             <span>macOS / Windows / Linux</span>
-            <span>本地数据 · SQLite</span>
-            <span>插件权限白名单</span>
+            <span>数据在 ~/eNest</span>
+            <span>权限白名单</span>
           </div>
         </div>
 
-        <div class="mock-shot reveal">
-          <div class="shot-hero">
-            <img
-              src="assets/img/hero-market.png"
-              alt="eNest 插件市场与多 Tab 界面示意"
-              width="1536"
-              height="1024"
-              fetchpriority="high"
-            />
+        <div class="app-shot reveal">
+          <div class="app-glow" aria-hidden="true"></div>
+          <div class="app-window" id="hero-app">
+            <div class="app-titlebar">
+              <div class="app-traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div class="app-tabs">
+                <span class="app-tab active">首页</span>
+                <span class="app-tab"><span class="ico" style="background:#5b8cff">C</span>剪贴板</span>
+                <span class="app-tab"><span class="ico" style="background:#3ddc97">{}</span>JSON</span>
+              </div>
+            </div>
+            <div class="app-body">
+              <aside class="app-rail" aria-hidden="true">
+                <div class="app-orb" style="background:#1a1f2e">N</div>
+                <div class="app-orb" style="background:#5b8cff">C</div>
+                <div class="app-orb" style="background:#3ddc97">{}</div>
+                <div class="app-orb dim">+</div>
+              </aside>
+              <div class="app-main">
+                <div class="app-hero-mini">
+                  <div class="app-stats"><span class="dot"></span> 7 插件 · 2 已安装</div>
+                  <h2 class="app-h">发现插件</h2>
+                  <div class="app-search">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                    搜索插件、作者、标签…
+                  </div>
+                  <div class="app-chips">
+                    <span class="app-chip on">全部</span>
+                    <span class="app-chip">效率</span>
+                    <span class="app-chip">开发</span>
+                    <span class="app-chip">设计</span>
+                  </div>
+                </div>
+                <div class="app-cards">
+                  <article class="app-card">
+                    <div class="app-card-head">
+                      <span class="app-card-icon" style="background:linear-gradient(160deg,#7aa7ff,#5b8cff)">C</span>
+                      <strong>剪贴板历史</strong>
+                    </div>
+                    <p>本地保存历史，搜索与一键粘贴</p>
+                    <div class="app-card-foot"><span class="tag">效率</span><span>12.4k</span><span class="btn-mini ghost">打开</span></div>
+                  </article>
+                  <article class="app-card">
+                    <div class="app-card-head">
+                      <span class="app-card-icon" style="background:linear-gradient(160deg,#6ff0b5,#3ddc97)">{}</span>
+                      <strong>JSON 工坊</strong>
+                    </div>
+                    <p>格式化、校验、路径查询</p>
+                    <div class="app-card-foot"><span class="tag">开发</span><span>8.1k</span><span class="btn-mini ghost">打开</span></div>
+                  </article>
+                  <article class="app-card">
+                    <div class="app-card-head">
+                      <span class="app-card-icon" style="background:linear-gradient(160deg,#f7c76a,#f5a524)">文</span>
+                      <strong>划词翻译</strong>
+                    </div>
+                    <p>多引擎翻译，术语表与历史</p>
+                    <div class="app-card-foot"><span class="tag">效率</span><span>15.2k</span><span class="btn-mini">安装</span></div>
+                  </article>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Trust strip -->
     <section class="trust">
       <div class="wrap trust-inner reveal">
-        <div class="trust-item"><strong>WebContentsView</strong> 原生隔离</div>
+        <div class="trust-item"><strong>WebContentsView</strong> 独立渲染</div>
         <span class="sep"></span>
         <div class="trust-item"><strong>plugin.json</strong> 清单契约</div>
         <span class="sep"></span>
-        <div class="trust-item"><strong>zapi</strong> 权限门禁 API</div>
+        <div class="trust-item"><strong>zapi</strong> 权限门禁</div>
         <span class="sep"></span>
         <div class="trust-item"><strong>sql.js</strong> 本地 SQLite</div>
         <span class="sep"></span>
-        <div class="trust-item"><strong>enest://</strong> 安全协议</div>
+        <div class="trust-item"><strong>enest://</strong> 防路径穿越</div>
       </div>
     </section>
 
-    <!-- Features -->
+    <!-- 交错功能块：文案对齐真实实现 -->
     <section class="section" id="features">
       <div class="wrap">
         <div class="section-head reveal">
-          <div class="eyebrow">Features</div>
-          <h2>为插件而生的桌面壳子</h2>
-          <p>从安装、隔离到主题与数据，eNest 把「可扩展桌面」需要的底座一次配齐。</p>
-        </div>
-        <div class="features">
-          <article class="card reveal">
-            <div class="card-icon">#</div>
-            <h3>多 Tab 隔离</h3>
-            <p>每个插件独立 <code class="inline">WebContentsView</code> 与 <code class="inline">persist:plugin-{id}</code> 会话，Cookie / 本地存储互不干扰，关闭 Tab 立即销毁进程。</p>
-          </article>
-          <article class="card reveal reveal-delay-1">
-            <div class="card-icon amber">↓</div>
-            <h3>拖拽安装</h3>
-            <p>市场一键安装，或开发者控制台「加载本地目录」指向含 <code class="inline">plugin.json</code> 的文件夹。热加载，改完即看。</p>
-          </article>
-          <article class="card reveal reveal-delay-2">
-            <div class="card-icon">T</div>
-            <h3>主题 Token</h3>
-            <p>浅色 / 深色 / 跟随系统；CSS Token 可调，支持背景图与视频。主题插件可动态注册，插件经 <code class="inline">themeAware</code> 接收注入。</p>
-          </article>
-          <article class="card reveal">
-            <div class="card-icon dark">z</div>
-            <h3>zapi 插件 API</h3>
-            <p>preload 注入 <code class="inline">window.enest</code>（别名 <code class="inline">zapi</code>），覆盖 UI、存储、剪贴板、通知与设置注册，按 permissions 校验 IPC。</p>
-          </article>
-          <article class="card reveal reveal-delay-1">
-            <div class="card-icon">⚙</div>
-            <h3>开发者控制台</h3>
-            <p>本地目录热加载、Vite HMR、DevTools 一键打开，对标 uTools 开发台体验。调试链路完整，示例插件开箱即用。</p>
-          </article>
-          <article class="card reveal reveal-delay-2">
-            <div class="card-icon amber">DB</div>
-            <h3>本地数据 SQLite</h3>
-            <p>数据根目录 <code class="inline">~/eNest</code>，sql.js 真 SQLite 写入 <code class="inline">data/enest.db</code>。本地优先，不依赖云端账号。</p>
-          </article>
+          <div class="eyebrow">What it actually is</div>
+          <h2>不是启动器，是可拆装的桌面底座</h2>
+          <p>安装、隔离、主题、数据、调试链路一次配齐。下面每一块都对应源码里的真实能力。</p>
         </div>
 
-        <!-- Product shots -->
-        <div class="media-band" style="margin-top:40px">
-          <article class="media-card reveal">
-            <div class="thumb">
-              <img src="assets/img/feature-install.png" alt="一键安装插件示意" width="1024" height="1024" loading="lazy" />
+        <article class="feature-row reveal">
+          <div class="feature-copy">
+            <h3>多 Tab · 真进程隔离</h3>
+            <p>
+              每个插件使用独立的 <code class="inline">WebContentsView</code> 与
+              <code class="inline">persist:plugin-{id}</code> session。
+              Cookie、localStorage、缓存互不串扰；关 Tab 直接 <code class="inline">close()</code>，无 LRU 保活。
+            </p>
+            <ul class="feature-list">
+              <li>崩溃与内存占用不互相拖累</li>
+              <li>切换 Tab 只改可见性，不销毁不可见页</li>
+              <li>关窗口统一 <code class="inline">destroyAll()</code></li>
+            </ul>
+          </div>
+          <div class="feature-visual" style="padding:16px;background:var(--bg)">
+            <div class="app-split">
+              <div class="app-pane">
+                <div class="app-pane-bar"><span class="live"></span> 剪贴板历史</div>
+                <div class="app-pane-body">
+                  <span class="k">session</span>: persist:plugin-clipboard<br />
+                  <span class="k">storage</span>: <span class="s">"独立 A"</span><br />
+                  <span class="k">cookie</span>: 互不共享
+                </div>
+              </div>
+              <div class="app-pane is-dark">
+                <div class="app-pane-bar"><span class="live"></span> JSON 工坊</div>
+                <div class="app-pane-body">
+                  <span class="k">session</span>: persist:plugin-json<br />
+                  <span class="k">storage</span>: <span class="s">"独立 B"</span><br />
+                  <span class="k">theme</span>: dark token 注入
+                </div>
+              </div>
             </div>
-            <div class="meta">
-              <h3>拖入即装</h3>
-              <p>市场一键安装，或开发者控制台加载本地目录，热加载改完即看。</p>
+            <div style="margin-top:10px;font-size:12px;color:var(--faint);text-align:center">
+              左右并行 · 数据不串 · 关闭即回收
             </div>
-          </article>
-          <article class="media-card reveal reveal-delay-1">
-            <div class="thumb">
-              <img src="assets/img/feature-isolation.png" alt="多 Tab 进程隔离示意" width="1024" height="1024" loading="lazy" />
+          </div>
+        </article>
+
+        <article class="feature-row reverse reveal">
+          <div class="feature-copy">
+            <h3>拖拽安装 · 本地热加载</h3>
+            <p>
+              市场一键安装，或开发者控制台「加载本地目录」。最多 3 个并行安装队列；
+              改完源码热重载，DevTools 一键打开。权限不足会返回明确错误码，而不是静默失败。
+            </p>
+            <ul class="feature-list">
+              <li><code class="inline">webUtils.getPathForFile</code> 解析拖入路径</li>
+              <li><code class="inline">enest://plugin/{id}</code> 协议限制在插件根目录</li>
+              <li>卸载可按版本策略清理数据</li>
+            </ul>
+          </div>
+          <div class="feature-visual" style="padding:20px;display:grid;place-items:center;min-height:240px;background:
+            radial-gradient(ellipse 50% 50% at 50% 50%, rgba(13,159,110,0.1), transparent 70%), var(--surface)">
+            <div style="text-align:center">
+              <div style="width:88px;height:88px;margin:0 auto 14px;border-radius:22px;border:2px dashed rgba(13,159,110,0.45);display:grid;place-items:center;background:var(--mint-soft)">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#0d9f6e" stroke-width="1.8"><path d="M12 4v10m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg>
+              </div>
+              <div style="font-weight:650;font-size:14px;margin-bottom:4px">拖入 .enestplugin 或本地目录</div>
+              <div style="font-size:12.5px;color:var(--muted);font-family:var(--mono)">plugin.json + 入口 HTML</div>
+              <div style="margin-top:14px;display:inline-flex;gap:8px;font-size:11px;font-weight:600">
+                <span style="padding:4px 10px;border-radius:999px;background:var(--mint-soft);color:#0b3d36">队列 1/3</span>
+                <span style="padding:4px 10px;border-radius:999px;background:var(--bg);color:var(--muted)">校验清单</span>
+                <span style="padding:4px 10px;border-radius:999px;background:var(--bg);color:var(--muted)">写入 ~/eNest/plugins</span>
+              </div>
             </div>
-            <div class="meta">
-              <h3>真正隔离</h3>
-              <p>独立 WebContentsView 与 partition，Cookie / 存储互不干扰。</p>
+          </div>
+        </article>
+
+        <article class="feature-row reveal">
+          <div class="feature-copy">
+            <h3>主题 Token · 插件跟着变</h3>
+            <p>
+              浅色 / 深色 / 跟随系统；颜色、圆角等 Token 可调，支持背景图与视频。
+              插件声明 <code class="inline">themeAware</code> 后，加载时注入 CSS 变量，切换时推送事件——不用嵌壳子 DOM。
+            </p>
+            <ul class="feature-list">
+              <li>chrome：default / minimal / none</li>
+              <li>透明背景可透出壳子壁纸</li>
+              <li>主题包可经 <code class="inline">enest.theme.register</code> 动态注册</li>
+            </ul>
+          </div>
+          <div class="feature-visual theme-demo" id="theme-demo">
+            <div class="theme-demo-bar">
+              <strong>主题 Token</strong>
+              <div class="theme-toggle" role="group" aria-label="切换主题演示">
+                <button type="button" data-theme-btn="light" class="on">浅色</button>
+                <button type="button" data-theme-btn="dark">深色</button>
+              </div>
             </div>
-          </article>
-          <article class="media-card reveal reveal-delay-2">
-            <div class="thumb">
-              <img src="assets/img/feature-theme-canvas.png" alt="主题 Token 与插件画布示意" width="1024" height="1024" loading="lazy" />
+            <div class="theme-stage" id="theme-stage">
+              <div class="theme-swatches">
+                <div class="swatch" style="background:#f3f4f6;color:#0f1420">bg</div>
+                <div class="swatch" style="background:#ffffff;color:#0f1420">surface</div>
+                <div class="swatch" style="background:#1a1f2e;color:#fff">accent</div>
+                <div class="swatch" style="background:#0d9f6e;color:#fff">ok</div>
+              </div>
+              <div class="theme-row">
+                <span class="theme-chip on">全部</span>
+                <span class="theme-chip">效率</span>
+                <span class="theme-chip">开发</span>
+              </div>
             </div>
-            <div class="meta">
-              <h3>主题 Token</h3>
-              <p>浅色 / 深色实时切换，插件经 themeAware 接收 CSS 变量注入。</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- 瀑布流插件墙 -->
+    <section class="section" id="ecosystem" style="padding-top:8px">
+      <div class="wrap">
+        <div class="waterfall-wrap reveal">
+          <div class="waterfall-head">
+            <div>
+              <div class="eyebrow" style="color:#5eead4">Plugin wall</div>
+              <h2>插件像应用，不像扩展按钮</h2>
+              <p>每个插件有独立 UI、权限与生命周期。示例与市场源数据来自 <code class="inline" style="color:#b8f5e0;background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px">plugins-samples</code> 与 eNest_plugin 注册表。</p>
             </div>
-          </article>
+          </div>
+          <div class="waterfall" id="waterfall">
+            <div class="wf-col">
+              <article class="wf-card" data-delay="0">
+                <div class="wf-card-head">
+                  <span class="wf-icon" style="background:linear-gradient(160deg,#7aa7ff,#5b8cff)">C</span>
+                  <div><h3>剪贴板历史</h3><div class="cat">效率</div></div>
+                </div>
+                <p>本地加密保存剪贴板，搜索、置顶、一键粘贴。</p>
+                <div class="meta"><span>12.4k 安装</span><span class="state">已安装</span></div>
+              </article>
+              <article class="wf-card" data-delay="40">
+                <div class="wf-card-head">
+                  <span class="wf-icon" style="background:linear-gradient(160deg,#f7c76a,#f5a524)">文</span>
+                  <div><h3>划词翻译</h3><div class="cat">效率</div></div>
+                </div>
+                <p>多引擎划词与段落翻译，术语表与历史回看。</p>
+                <div class="meta"><span>15.2k 安装</span><span>安装</span></div>
+              </article>
+              <article class="wf-card" data-delay="80">
+                <div class="wf-card-head">
+                  <span class="wf-icon" style="background:linear-gradient(160deg,#ff8aa0,#ff5c7a)">✓</span>
+                  <div><h3>轻清单</h3><div class="cat">效率</div></div>
+                </div>
+                <p>全局快捷键唤起的极简待办，本地优先。</p>
+                <div class="meta"><span>4.3k 安装</span><span>安装</span></div>
+              </article>
+            </div>
+            <div class="wf-col">
+              <article class="wf-card" data-delay="20">
+                <div class="wf-card-head">
+                  <span class="wf-icon" style="background:linear-gradient(160deg,#6ff0b5,#3ddc97)">{}</span>
+                  <div><h3>JSON 工坊</h3><div class="cat">开发</div></div>
+                </div>
+                <p>格式化、校验、路径查询与类型生成。</p>
+                <div class="meta"><span>8.1k 安装</span><span class="state">已安装</span></div>
+              </article>
+              <article class="wf-card" data-delay="60">
+                <div class="wf-card-head">
+                  <span class="wf-icon" style="background:linear-gradient(160deg,#7dd3fc,#38bdf8)">/</span>
+                  <div><h3>代码片段库</h3><div class="cat">开发</div></div>
+                </div>
+                <p>跨语言片段管理、变量占位与快速插入。</p>
+                <div class="meta"><span>3.9k 安装</span><span>安装</span></div>
+              </article>
+              <article class="wf-card" data-delay="100">
+                <div class="wf-card-head">
+                  <span class="wf-icon" style="background:linear-gradient(160deg,#67e8f9,#22d3ee)">◎</span>
+                  <div><h3>Canvas 动效演示</h3><div class="cat">开发</div></div>
+                </div>
+                <p>chrome=none 全幅 + 透明背景 + 主题感知。</p>
+                <div class="meta"><span>1.2k 安装</span><span>安装</span></div>
+              </article>
+            </div>
+            <div class="wf-col">
+              <article class="wf-card" data-delay="30">
+                <div class="wf-card-head">
+                  <span class="wf-icon" style="background:linear-gradient(160deg,#c4b5fd,#a78bfa)">◈</span>
+                  <div><h3>取色器</h3><div class="cat">设计</div></div>
+                </div>
+                <p>屏幕取色、调色板与设计 Token 导出。</p>
+                <div class="meta"><span>6.7k 安装</span><span>安装</span></div>
+              </article>
+              <article class="wf-card" data-delay="70">
+                <div class="wf-card-head">
+                  <span class="wf-icon" style="background:linear-gradient(160deg,#86efac,#22c55e)">⌂</span>
+                  <div><h3>Hello 示例</h3><div class="cat">入门</div></div>
+                </div>
+                <p>最小 manifest 示例，适合第一次跑通。</p>
+                <div class="meta"><span>样例</span><span>文档</span></div>
+              </article>
+            </div>
+            <div class="wf-col">
+              <article class="wf-card" data-delay="50">
+                <div class="wf-card-head">
+                  <span class="wf-icon" style="background:linear-gradient(160deg,#fda4af,#f43f5e)">⌘</span>
+                  <div><h3>快捷指令</h3><div class="cat">效率</div></div>
+                </div>
+                <p>把常用动作挂到全局热键与启动器。</p>
+                <div class="meta"><span>2.1k 安装</span><span>安装</span></div>
+              </article>
+              <article class="wf-card" data-delay="90">
+                <div class="wf-card-head">
+                  <span class="wf-icon" style="background:linear-gradient(160deg,#fcd34d,#f59e0b)">▣</span>
+                  <div><h3>截图标注</h3><div class="cat">设计</div></div>
+                </div>
+                <p>区域截图、箭头标注、一键复制到剪贴板。</p>
+                <div class="meta"><span>5.6k 安装</span><span>安装</span></div>
+              </article>
+              <article class="wf-card" data-delay="110">
+                <div class="wf-card-head">
+                  <span class="wf-icon" style="background:linear-gradient(160deg,#94a3b8,#64748b)">⚙</span>
+                  <div><h3>开发者控制台</h3><div class="cat">内置</div></div>
+                </div>
+                <p>本地目录热加载、Vite HMR、DevTools。</p>
+                <div class="meta"><span>内置</span><span class="state">可用</span></div>
+              </article>
+            </div>
+          </div>
+          <div class="waterfall-actions">
+            <a class="btn btn-mint" href="plugin/">阅读插件文档</a>
+            <a class="btn btn-dark-ghost" href="plugin/#/getting-started">快速开始</a>
+            <a class="btn btn-dark-ghost" href="https://github.com/hyqf98/eNest_plugin" rel="noopener noreferrer" target="_blank">插件仓库</a>
+          </div>
         </div>
       </div>
     </section>
 
-    <!-- How it works -->
-    <section class="section" id="how" style="padding-top:24px">
+    <!-- 隔离动效 -->
+    <section class="section" id="isolation" style="padding-top:24px">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <div class="eyebrow">Isolation</div>
+          <h2>两个插件，两座「巢」</h2>
+          <p>并行工作时多开 Tab；需要专注时只留一个。工作台随任务组合，而不是被固定布局锁死。</p>
+        </div>
+        <div class="iso-stage reveal">
+          <div class="iso-canvas" id="iso-canvas">
+            <div class="iso-note">IPC</div>
+            <div class="iso-grid">
+              <div class="iso-cell is-focus" data-iso="0">
+                <div class="iso-cell-head"><span class="iso-dot"></span> 剪贴板历史</div>
+                <code>partition: persist:plugin-clipboard<br />chrome: default<br />permissions: clipboard, storage</code>
+              </div>
+              <div class="iso-cell" data-iso="1">
+                <div class="iso-cell-head"><span class="iso-dot" style="background:#3ddc97"></span> JSON 工坊</div>
+                <code>partition: persist:plugin-json<br />chrome: minimal<br />permissions: clipboard</code>
+              </div>
+              <div class="iso-cell" data-iso="2">
+                <div class="iso-cell-head"><span class="iso-dot" style="background:#f5a524"></span> Canvas 演示</div>
+                <code>chrome: none<br />background: transparent<br />themeAware: true</code>
+              </div>
+              <div class="iso-cell" data-iso="3">
+                <div class="iso-cell-head"><span class="iso-dot" style="background:#a78bfa"></span> 取色器</div>
+                <code>storage.local only<br />关 Tab → close()<br />无 LRU 保活</code>
+              </div>
+            </div>
+          </div>
+          <div>
+            <h3 style="margin:0 0 10px;font-size:20px;letter-spacing:-0.03em">进程拓扑一眼看清</h3>
+            <p style="margin:0 0 12px;color:var(--muted);font-size:14.5px;line-height:1.72">
+              Main Process 管窗口、协议与 IPC；Shell Renderer 是 React 壳子；
+              每个插件是独立 Renderer，preload 注入 <code class="inline">window.enest</code>（别名 <code class="inline">zapi</code>）。
+            </p>
+            <pre class="pre" style="margin:0"><code>Main ──IPC── Shell Renderer (市场 / Tab / 设置)
+         └──IPC── Plugin Renderer × N
+                   persist:plugin-{id}
+                   enest://plugin/{id}</code></pre>
+            <div class="hero-actions" style="margin-top:18px">
+              <a class="btn btn-ghost" href="product.html">深入产品细节</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 三步 -->
+    <section class="section" id="how" style="padding-top:16px">
       <div class="wrap">
         <div class="section-head reveal">
           <div class="eyebrow">How it works</div>
           <h2>三步跑通第一个插件</h2>
-          <p>插件 = 本地 Web 应用 + plugin.json 清单。壳子负责安装、隔离、Tab 与 API 白名单。</p>
+          <p>插件 = 本地 Web 应用 + plugin.json。壳子负责安装、隔离、Tab 与 API 白名单。</p>
         </div>
         <div class="steps">
           <article class="step reveal">
             <div class="step-num">01</div>
-            <h3>安装壳子</h3>
-            <p>下载对应平台安装包，或从源码启动开发版。</p>
+            <h3>装壳子</h3>
+            <p>下载安装包，或从源码启动开发版。</p>
             <pre><code>npm install
 npm run dev</code></pre>
           </article>
           <article class="step reveal reveal-delay-1">
             <div class="step-num">02</div>
-            <h3>准备插件目录</h3>
-            <p>最小结构：入口 HTML + 清单。示例见仓库 <code class="inline">plugins-samples/hello</code>。</p>
+            <h3>准备目录</h3>
+            <p>最小结构：入口 HTML + 清单。样例见 <code class="inline">plugins-samples/hello</code>。</p>
             <pre><code>my-plugin/
 ├── plugin.json
 └── index.html</code></pre>
           </article>
           <article class="step reveal reveal-delay-2">
             <div class="step-num">03</div>
-            <h3>加载并调试</h3>
-            <p>开发者控制台加载本地目录，热重载 + DevTools。权限不足时会收到明确错误码。</p>
-            <pre><code># 市场示例一键安装
+            <h3>加载调试</h3>
+            <p>开发者控制台加载本地目录，热重载 + DevTools。</p>
+            <pre><code># 市场一键装
 # 或「加载本地目录」</code></pre>
           </article>
         </div>
       </div>
     </section>
 
-    <!-- Plugin ecosystem -->
-    <section class="section" id="ecosystem" style="padding-top:16px">
+    <!-- 清单契约 -->
+    <section class="section" style="padding-top:8px">
       <div class="wrap">
         <div class="panel reveal">
           <div class="panel-grid">
             <div>
-              <div class="eyebrow">Plugin ecosystem</div>
-              <h2>清单驱动 · 权限可控 · 文档齐全</h2>
+              <div class="eyebrow">Manifest first</div>
+              <h2>清单驱动 · 权限可控</h2>
               <p>
-                参考 uTools 插件模型：清单 + Web 入口 + 受控 API。
-                eNest 用 Electron 原生多 View 实现真正的进程隔离与多 Tab。
+                参考 uTools 的插件模型：清单 + Web 入口 + 受控 API。
+                eNest 用 Electron 原生多 View 做到真正的进程隔离与多 Tab。
               </p>
               <ul class="panel-list">
-                <li><code class="inline" style="background:rgba(45,212,168,0.15);color:#b8f5e0">plugin.json</code> 完整字段与校验</li>
+                <li><code class="inline" style="background:rgba(20,184,146,0.15);color:#b8f5e0">plugin.json</code> 字段完整校验</li>
                 <li>生命周期：打开 → 切换 → 重载 → 关闭销毁</li>
                 <li>UI 标准：chrome / themeAware / 透明背景</li>
                 <li>权限键与 zapi API 一一对照</li>
               </ul>
               <div class="panel-actions">
-                <a class="btn btn-mint" href="plugin/">阅读插件文档</a>
-                <a class="btn btn-dark-ghost" href="plugin/#/getting-started">快速开始</a>
+                <a class="btn btn-mint" href="plugin/">插件文档</a>
+                <a class="btn btn-dark-ghost" href="plugin/#/api">zapi API</a>
               </div>
             </div>
             <pre class="panel-code"><code><span class="cmt">// plugin.json 最小示例</span>
@@ -230,7 +490,7 @@ npm run dev</code></pre>
   ],
   <span class="key">"ui"</span>: {
     <span class="key">"chrome"</span>: <span class="str">"default"</span>,
-    <span class="key">"themeAware"</span>: true
+    <span class="key">"themeAware"</span>: <span class="str">true</span>
   }
 }</code></pre>
           </div>
@@ -238,10 +498,9 @@ npm run dev</code></pre>
       </div>
     </section>
 
-    <!-- Download CTA -->
     <section class="cta-band" id="download">
       <div class="wrap reveal">
-        <h2>准备好组合你的工作台了吗？</h2>
+        <h2>把工具装进自己的巢</h2>
         <p>下载 eNest，或从 GitHub 源码构建。插件文档与示例同步开源。</p>
         <div class="hero-actions">
           <a class="btn btn-primary btn-lg" href="download.html">前往下载</a>
@@ -256,10 +515,10 @@ npm run dev</code></pre>
       <div class="footer-grid">
         <div>
           <a class="footer-brand" href="./">
-            <img src="assets/icons/enest-icon-256.png" alt="" width="28" height="28" />
+            <img src="assets/icons/enest-icon-256.png" alt="" width="26" height="26" />
             eNest
           </a>
-          <p class="footer-about">可组合的桌面工作台。开源插件化壳子，本地优先，权限可控。</p>
+          <p class="footer-about">插件化桌面工作台。开源壳子，本地优先，权限可控。</p>
         </div>
         <div class="footer-col">
           <h4>产品</h4>

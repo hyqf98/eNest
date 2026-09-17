@@ -13,6 +13,7 @@ import type {
   QuickOpenResult,
   QuickSearchResult
 } from '@shared/types/quick'
+import type { QuickRecentEntry } from '@shared/types/plugin'
 import {
   hideQuickWindow,
   toggleQuickWindow
@@ -22,7 +23,7 @@ import {
   getQuickHotkeyConfig
 } from '../hotkey/quickHotkey'
 import { scanApplications } from '../launcher/appScanner'
-import { searchQuickCommands } from '../launcher/commandIndex'
+import { searchQuickCommands, QUICK_RECENT_MAX } from '../launcher/commandIndex'
 import { launchLocalApp } from '../launcher/appLauncher'
 import { pluginHost } from '../plugin/PluginHost'
 import { settingsStore } from '../settings/SettingsStore'
@@ -38,11 +39,53 @@ function focusMainWindow(): void {
   }
 }
 
+function recentIdOf(req: QuickOpenRequest): string {
+  if (req.kind === 'app') return `app:${req.path}`
+  if (req.kind === 'plugin') return `plugin:${req.pluginId}:${req.code ?? ''}`
+  return `action:${req.action}`
+}
+
+/**
+ * 成功打开后把命令写入 general.quickLauncher.recent（截断 20）。
+ * 必须合并既有 quickLauncher（保留 enabled/hotkeys），禁止整段覆盖。
+ */
+async function touchRecent(req: QuickOpenRequest): Promise<void> {
+  try {
+    const id = recentIdOf(req)
+    const general = settingsStore.getAll().general
+    const ql = general.quickLauncher
+    const prev: QuickRecentEntry[] = ql?.recent ?? []
+    const existing = prev.find((r) => r.id === id)
+    const next: QuickRecentEntry[] = [
+      { id, ts: Date.now(), count: (existing?.count ?? 0) + 1 },
+      ...prev.filter((r) => r.id !== id)
+    ].slice(0, QUICK_RECENT_MAX)
+    await settingsStore.setAll({
+      general: {
+        ...general,
+        quickLauncher: {
+          enabled: ql?.enabled ?? true,
+          hotkeys: ql?.hotkeys ?? [],
+          ...ql,
+          recent: next
+        }
+      }
+    })
+  } catch (err) {
+    logError('quick', `touchRecent failed: ${(err as Error).message}`)
+  }
+}
+
+function readRecent(): QuickRecentEntry[] {
+  return settingsStore.getAll().general.quickLauncher?.recent ?? []
+}
+
 async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
   try {
     if (req.kind === 'app') {
       await launchLocalApp(req.path)
       hideQuickWindow()
+      void touchRecent(req)
       return { ok: true }
     }
     if (req.kind === 'plugin') {
@@ -50,6 +93,7 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
       hideQuickWindow()
       focusMainWindow()
       sendShellEvent({ type: 'plugins-changed' })
+      void touchRecent(req)
       return { ok: true }
     }
     // action
@@ -57,14 +101,17 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
     focusMainWindow()
     if (req.action === 'refresh-apps') {
       const result = await scanApplications(true)
+      if (result.complete) void touchRecent(req)
       return { ok: result.complete, error: result.errors[0] }
     }
     if (req.action === 'open-settings') {
       sendShellEvent({ type: 'quick-open-view', view: 'settings' })
+      void touchRecent(req)
       return { ok: true }
     }
     if (req.action === 'open-market') {
       sendShellEvent({ type: 'quick-open-view', view: 'home' })
+      void touchRecent(req)
       return { ok: true }
     }
     return { ok: true }
@@ -86,7 +133,11 @@ export function registerQuickHandlers(): void {
   })
 
   ipcMain.handle(IpcChannels.QuickSearch, async (_e, payload: { query?: string; limit?: number }) => {
-    const items = await searchQuickCommands(String(payload?.query ?? ''), payload?.limit ?? 20)
+    const items = await searchQuickCommands(
+      String(payload?.query ?? ''),
+      payload?.limit ?? 20,
+      readRecent()
+    )
     const result: QuickSearchResult = { items }
     return result
   })
@@ -109,6 +160,7 @@ export function registerQuickHandlers(): void {
       const applyResult = applyQuickHotkeys(payload)
       // 只持久化「当前生效」集合：全失败时主进程已回滚到 lastGood，
       // 若写入请求值会导致下次启动重复失败并丢失可用快捷键。
+      // 合并既有 quickLauncher，保留 recent 等扩展字段。
       const general = settingsStore.getAll().general
       const persistHotkeys =
         applyResult.enabled && applyResult.registered.length > 0
@@ -118,6 +170,7 @@ export function registerQuickHandlers(): void {
         general: {
           ...general,
           quickLauncher: {
+            ...general.quickLauncher,
             enabled: applyResult.enabled,
             hotkeys: persistHotkeys
           }

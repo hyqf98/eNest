@@ -15,6 +15,7 @@ import {
 } from '@shared/types/ipc'
 import type {
   AppPaths,
+  MarketInstallResult,
   PluginSummary,
   ProxyConfig,
   ThemeMode,
@@ -41,6 +42,22 @@ export interface ShellSettingsData {
   general?: Record<string, unknown>
   plugins?: Record<string, Record<string, unknown>>
   [key: string]: unknown
+}
+
+/** 插件注册的设置 section（与主进程 PluginSettingsBridge 对齐） */
+export interface ShellSettingsSectionItem {
+  key: string
+  type: string
+  label: string
+  default?: unknown
+  options?: Array<{ label: string; value: unknown }>
+}
+
+export interface ShellSettingsSection {
+  id: string
+  title: string
+  pluginId: string
+  items: ShellSettingsSectionItem[]
 }
 
 export interface PickFileOptions {
@@ -86,6 +103,10 @@ export interface EnestShellApi {
   goHome(): Promise<void>
   /** 主壳切换视图 */
   setShellView(view: string): Promise<void>
+  /** 悬浮窗展开/收起时调整自身宽度（固定宽度后为 no-op） */
+  resizeOrbOverlay(expanded: boolean): Promise<void>
+  /** 悬浮窗命中：true=可点交互区，false=穿透给下层插件 */
+  setOrbOverlayHit(receive: boolean): Promise<void>
   /** 同步圆轨状态到悬浮窗 */
   syncOrbState(state: {
     view: string
@@ -101,6 +122,13 @@ export interface EnestShellApi {
   }>
   /** 卸载插件：关 Tab → 清 storage → 删文件 → 重扫；结果经 uninstall-result 事件 */
   uninstallPlugin(pluginId: string): Promise<void>
+  /** 启用/禁用已安装插件（持久化）；成功返回更新后的 summary */
+  setPluginEnabled(pluginId: string, enabled: boolean): Promise<PluginSummary>
+  /** 从市场安装/更新：sample 优先，否则远程入队；force 强制走远程更新 */
+  installMarketPlugin(
+    pluginId: string,
+    opts?: { force?: boolean }
+  ): Promise<MarketInstallResult>
   getTheme(): Promise<ShellThemeResult>
   setTheme(
     mode: ThemeMode,
@@ -112,6 +140,10 @@ export interface EnestShellApi {
   openDevTools(pluginId: string): Promise<void>
   getSettings(): Promise<ShellSettingsData>
   setSettings(settings: Partial<ShellSettingsData>): Promise<void>
+  /** 拉取插件已注册的设置 section 列表 */
+  getSettingsSections(): Promise<ShellSettingsSection[]>
+  /** 写入单个插件设置项 */
+  setPluginSetting(pluginId: string, key: string, value: unknown): Promise<void>
   getPaths(): Promise<AppPaths>
   pickFile(options?: PickFileOptions): Promise<string | null>
   getPluginReadme(pluginId: string): Promise<string>
@@ -193,6 +225,12 @@ const api: EnestShellApi = {
   setShellView: (view: string) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellSetView, view)),
 
+  resizeOrbOverlay: (expanded: boolean) =>
+    expectOk(ipcRenderer.invoke(IpcChannels.ShellResizeOrbOverlay, expanded)),
+
+  setOrbOverlayHit: (receive: boolean) =>
+    expectOk(ipcRenderer.invoke(IpcChannels.ShellSetOrbOverlayHit, receive === true)),
+
   syncOrbState: (state) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellSyncOrbState, state)),
 
@@ -207,18 +245,33 @@ const api: EnestShellApi = {
   uninstallPlugin: (pluginId: string) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellUninstallPlugin, pluginId)),
 
+  setPluginEnabled: (pluginId: string, enabled: boolean) =>
+    unwrapOk<PluginSummary>(
+      ipcRenderer.invoke(IpcChannels.ShellSetPluginEnabled, pluginId, enabled)
+    ),
+
+  installMarketPlugin: (pluginId: string, opts?: { force?: boolean }) =>
+    unwrapOk<MarketInstallResult>(
+      ipcRenderer.invoke(IpcChannels.ShellInstallMarketPlugin, pluginId, opts)
+    ),
+
   getTheme: () => ipcRenderer.invoke(IpcChannels.ShellGetTheme) as Promise<ShellThemeResult>,
 
   setTheme: async (mode, overrides, extra) => {
     const current = (await ipcRenderer.invoke(IpcChannels.ShellGetTheme)) as ShellThemeResult
+    // renderer 已按 resolved(light|dark) 传入 overrides。
+    // system 模式写入 system 键，由主进程 SettingsStore + nativeTheme 落到 light/dark
+    //（preload 环境 matchMedia 不可靠，不能在渲染桥内解析）。
+    const overrideKey = mode === 'system' ? ('system' as const) : mode
     await ipcRenderer.invoke(IpcChannels.ShellSetTheme, {
       mode,
       overrides: {
         ...(current?.overrides ?? {}),
-        [mode]: overrides ?? {}
+        [overrideKey]: overrides ?? {}
       },
-      ...(extra?.packId !== undefined ? { packId: extra.packId } : {}),
-      ...(extra?.background !== undefined ? { background: extra.background } : {})
+      // 始终带上 packId/background 键：显式 undefined 可清除（取消主题包/背景）
+      ...(extra && 'packId' in extra ? { packId: extra.packId } : {}),
+      ...(extra && 'background' in extra ? { background: extra.background } : {})
     })
   },
 
@@ -235,6 +288,13 @@ const api: EnestShellApi = {
 
   setSettings: (settings: Partial<ShellSettingsData>) =>
     ipcRenderer.invoke(IpcChannels.ShellSetSettings, settings),
+
+  getSettingsSections: () =>
+    ipcRenderer.invoke(IpcChannels.ShellGetSettingsSections) as Promise<ShellSettingsSection[]>,
+
+  setPluginSetting: async (pluginId: string, key: string, value: unknown) => {
+    await expectOk(ipcRenderer.invoke(IpcChannels.ShellSetPluginSetting, pluginId, key, value))
+  },
 
   getPaths: () => ipcRenderer.invoke(IpcChannels.ShellGetPaths) as Promise<AppPaths>,
 

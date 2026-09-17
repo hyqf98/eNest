@@ -18,9 +18,14 @@ import { logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, getAppPathsRoot } from '@main/paths/pathsService'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
-import { enqueueInstall, getInstallQueueState } from '@main/plugin/installQueue'
+import {
+  enqueueInstall,
+  enqueueInstallFromUrl,
+  getInstallQueueState
+} from '@main/plugin/installQueue'
 import { uninstallPlugin } from '@main/plugin/PluginUninstaller'
 import { settingsStore } from '@main/settings/SettingsStore'
+import { pluginSettingsBridge } from '@main/settings/PluginSettingsBridge'
 import {
   applyProxy,
   getActiveProxy,
@@ -44,6 +49,8 @@ import {
 import {
   applyOrbOverlayVisibility,
   getOrbRailState,
+  setOrbOverlayExpanded,
+  setOrbOverlayHit,
   setOrbRailState
 } from '@main/window/orbOverlayWindow'
 
@@ -152,6 +159,17 @@ export function registerShellHandlers(): void {
     return { ok: true }
   })
 
+  ipcMain.handle(IpcChannels.ShellResizeOrbOverlay, (_e, expanded: boolean) => {
+    setOrbOverlayExpanded(expanded === true)
+    return { ok: true }
+  })
+
+  /** 悬浮窗命中切换：true=接收点击，false=透明穿透 */
+  ipcMain.handle(IpcChannels.ShellSetOrbOverlayHit, (_e, receive: boolean) => {
+    setOrbOverlayHit(receive === true)
+    return { ok: true }
+  })
+
   /**
    * shell:uninstall-plugin — 完整卸载：关 Tab → 清 partition storage →
    * 删插件目录与 storage JSON → 重扫注册表。结果经 uninstall-result 事件推送。
@@ -168,6 +186,93 @@ export function registerShellHandlers(): void {
       return { ok: false, error: (err as Error).message }
     }
   })
+
+  /**
+   * shell:set-plugin-enabled — 启用/禁用已安装插件。
+   * 持久化到 ~/eNest/plugins/disabled.json；成功返回更新后的 summary。
+   */
+  ipcMain.handle(
+    IpcChannels.ShellSetPluginEnabled,
+    async (_e, pluginId: string, enabled: boolean) => {
+      try {
+        const id = String(pluginId ?? '').trim()
+        if (!id) return { ok: false, error: 'plugin id required' }
+        logInfo('ipc', `shell:set-plugin-enabled ${id} → ${enabled !== false}`)
+        const summary = await pluginRegistry.setPluginEnabled(id, enabled !== false)
+        return { ok: true, data: summary }
+      } catch (err) {
+        logWarn('ipc', `shell:set-plugin-enabled failed: ${(err as Error).message}`)
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
+
+  /**
+   * shell:install-market-plugin — 从市场安装/更新插件。
+   * 策略：本地 sample 优先（同步）；否则远程 assetUrl 入队下载（进度经 install-progress）。
+   * force=true 时已安装也会走远程更新（需 latestVersion 更高）。
+   */
+  ipcMain.handle(
+    IpcChannels.ShellInstallMarketPlugin,
+    async (_e, pluginId: string, opts?: { force?: boolean }) => {
+      try {
+        const id = String(pluginId ?? '').trim()
+        if (!id) return { ok: false, error: 'plugin id required' }
+        const force = opts?.force === true
+        const existing = pluginRegistry.get(id)
+        if (!existing) return { ok: false, error: `plugin not found: ${id}` }
+
+        // 已安装且非强制 → 直接返回（幂等）
+        if (existing.installed && !force) {
+          return { ok: true, data: { ok: true, mode: 'already', name: existing.name } }
+        }
+
+        // 未安装：先试 sample（离线/内置），失败再远程
+        if (!existing.installed) {
+          try {
+            const summary = await pluginRegistry.installFromSample(id)
+            logInfo('ipc', `shell:install-market-plugin ${id} via sample`)
+            sendShellEvent({
+              type: 'install-result',
+              jobId: `sample-${id}`,
+              name: summary.name,
+              ok: true
+            })
+            sendShellEvent({ type: 'plugins-changed' })
+            return { ok: true, data: { ok: true, mode: 'sample', name: summary.name } }
+          } catch (sampleErr) {
+            logInfo(
+              'ipc',
+              `sample miss ${id}: ${(sampleErr as Error).message} → try remote`
+            )
+          }
+        }
+
+        // 远程下载入队
+        const remote = pluginRegistry.getRemoteEntry(id)
+        if (!remote?.assetUrl) {
+          return {
+            ok: false,
+            error: force
+              ? `no remote asset to update: ${id}`
+              : `plugin not installable: ${id}（无本地 sample 且远程无资产）`
+          }
+        }
+        const job = enqueueInstallFromUrl(remote.assetUrl, {
+          name: remote.name || id,
+          sha256: remote.assetSha256
+        })
+        logInfo('ipc', `shell:install-market-plugin ${id} queued remote job=${job.id}`)
+        return {
+          ok: true,
+          data: { ok: true, mode: 'remote', jobId: job.id, name: remote.name }
+        }
+      } catch (err) {
+        logWarn('ipc', `shell:install-market-plugin failed: ${(err as Error).message}`)
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
 
   ipcMain.handle(IpcChannels.ShellGetBounds, () => getShellBounds())
 
@@ -215,6 +320,22 @@ export function registerShellHandlers(): void {
   ipcMain.handle(IpcChannels.ShellSetSettings, async (_e, partial) => {
     return settingsStore.setAll(partial)
   })
+
+  /** 设置页插件分组：已注册 section 列表 */
+  ipcMain.handle(IpcChannels.ShellGetSettingsSections, () => pluginSettingsBridge.listAll())
+
+  /** 设置页插件分组：写入单项，同步 Bridge 与 settings.json */
+  ipcMain.handle(
+    IpcChannels.ShellSetPluginSetting,
+    async (_e, pluginId: string, key: string, value: unknown) => {
+      const id = String(pluginId ?? '')
+      const k = String(key ?? '')
+      if (!id || !k) return { ok: false, error: 'pluginId and key required' }
+      pluginSettingsBridge.set(id, k, value)
+      await settingsStore.setPluginSetting(id, k, value)
+      return { ok: true }
+    }
+  )
 
   // —— 路径与数据 ——
 

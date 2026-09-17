@@ -16,15 +16,28 @@ import { FeaturedCarousel } from '@renderer/components/FeaturedCarousel'
 import { PluginCard } from '@renderer/components/PluginCard'
 import { PluginDetailModal } from '@renderer/components/PluginDetailModal'
 import { animateCards, playHeroIn } from '@renderer/gsap/marketMotion'
+import { useAnimationLevelStore } from '@renderer/hooks/useAnimationLevel'
 
 /** 打字机词条：中文 / 英文各一组，随 locale 切换（不含品牌名，避免「发现最佳 eNest」） */
 const TYPE_WORDS_ZH = ['插件', '效率工具', '开发利器']
 const TYPE_WORDS_EN = ['plugins', 'productivity', 'dev tools']
 
-/** Hero 标题旁的循环打字机文案 */
+/** Hero 标题旁的循环打字机文案；按动画档位调速（low 静态首词，不循环删除） */
 function Typewriter({ words }: { words: string[] }) {
-  const [text, setText] = useState('')
+  const level = useAnimationLevelStore((s) => s.level)
+  const [text, setText] = useState(() => (level === 'low' ? (words[0] ?? '') : ''))
+
   useEffect(() => {
+    if (level === 'low') {
+      setText(words[0] ?? '')
+      return
+    }
+    // medium：既有节奏；high：略快
+    const typeMs = level === 'high' ? 95 : 120
+    const deleteMs = level === 'high' ? 42 : 55
+    const holdMs = level === 'high' ? 1200 : 1600
+    const gapMs = level === 'high' ? 240 : 320
+
     let w = 0
     let c = 0
     let deleting = false
@@ -41,20 +54,20 @@ function Typewriter({ words }: { words: string[] }) {
           timer = window.setTimeout(() => {
             deleting = true
             tick()
-          }, 1600)
+          }, holdMs)
           return
         }
-        timer = window.setTimeout(tick, 120)
+        timer = window.setTimeout(tick, typeMs)
       } else {
         c -= 1
         setText(word.slice(0, c))
         if (c === 0) {
           deleting = false
           w += 1
-          timer = window.setTimeout(tick, 320)
+          timer = window.setTimeout(tick, gapMs)
           return
         }
-        timer = window.setTimeout(tick, 55)
+        timer = window.setTimeout(tick, deleteMs)
       }
     }
     tick()
@@ -62,7 +75,7 @@ function Typewriter({ words }: { words: string[] }) {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [words])
+  }, [words, level])
   return <span>{text}</span>
 }
 

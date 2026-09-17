@@ -1,55 +1,91 @@
-/* orb-overlay — 透明悬浮窗内的圆轨样式（独立于主壳 tokens，自带变量） */
+/* orb-overlay — 透明悬浮窗；窗口宽度固定，展开只切 class */
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+  overflow: hidden;
+}
+
 .orb-rail {
   --accent: #1a1f2e;
-  --surface: rgba(255, 255, 255, 0.92);
-  --text: #0f1420;
+  --surface: rgba(255, 255, 255, 0.9);
   --text-2: #5c6578;
   --danger: #e11d48;
-  --border: rgba(15, 23, 42, 0.12);
+  --dock-bg: rgba(18, 22, 34, 0.62);
+  --dock-border: rgba(255, 255, 255, 0.22);
+  --dock-fg: rgba(255, 255, 255, 0.95);
   position: relative;
   width: 100%;
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 48px 0 64px;
   box-sizing: border-box;
+  background: transparent !important;
+  overflow: visible;
   font-family: system-ui, -apple-system, 'PingFang SC', sans-serif;
+  pointer-events: none;
 }
 
-.orb-handle {
+/*
+ * Tab 区：垂直居中。
+ * 收起时整区不抢点击（仅 handle 命中），避免 84px 宽挡插件。
+ * 展开后 zone 可命中，保证把手↔圆球滑动不丢 hover。
+ */
+.orb-tabs-zone {
   position: absolute;
   left: 0;
   top: 50%;
   transform: translateY(-50%);
-  width: 14px;
-  height: 56px;
+  width: 100%;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 56px;
+  padding: 6px 0;
+  box-sizing: content-box;
+}
+
+.orb-rail.expanded .orb-tabs-zone {
+  pointer-events: auto;
+}
+
+.orb-handle {
+  flex-shrink: 0;
+  width: 12px;
+  height: 48px;
   border: 0;
-  border-radius: 0 12px 12px 0;
-  background: rgba(255, 255, 255, 0.22);
-  backdrop-filter: blur(12px);
+  border-radius: 0 10px 10px 0;
+  background: rgba(18, 22, 34, 0.45);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 1px 0 10px rgba(0, 0, 0, 0.22);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   cursor: pointer;
   padding: 0;
-  z-index: 3;
-  transition: opacity 0.2s;
+  margin-left: 2px;
+  z-index: 4;
+  pointer-events: auto;
+  transition:
+    opacity 0.22s ease,
+    transform 0.28s cubic-bezier(0.22, 1.2, 0.36, 1);
 }
 
+/* 展开后把手淡出但保留占位，避免 zone 内 hit 区塌陷触发 leave */
 .orb-rail.expanded .orb-handle {
   opacity: 0;
-  pointer-events: none;
+  transform: translateX(-4px);
 }
 
 .orb-handle-grip {
   width: 2px;
-  height: 14px;
+  height: 12px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.75);
 }
 
 .orb-handle-dots {
@@ -60,11 +96,11 @@
 }
 
 .orb-handle-dots i {
-  width: 4px;
-  height: 4px;
+  width: 3px;
+  height: 3px;
   border-radius: 50%;
   display: block;
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
 .orb-panel {
@@ -72,10 +108,14 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 0;
+  margin-left: 4px;
   opacity: 0;
   transform: translateX(-10px);
-  transition: opacity 0.22s ease, transform 0.3s cubic-bezier(0.22, 1.2, 0.36, 1);
+  transition:
+    opacity 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.34s cubic-bezier(0.22, 1.2, 0.36, 1);
   pointer-events: none;
+  background: transparent !important;
 }
 
 .orb-rail.expanded .orb-panel {
@@ -88,11 +128,14 @@
   position: relative;
   display: flex;
   align-items: center;
-  margin-top: -8px;
+  margin-top: -10px;
   opacity: 0;
-  transform: scale(0.72);
-  transition: opacity 0.24s ease, transform 0.32s cubic-bezier(0.22, 1.3, 0.36, 1);
+  transform: translateX(-10px) scale(0.68);
+  transition:
+    opacity 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.4s cubic-bezier(0.22, 1.35, 0.36, 1);
   pointer-events: none;
+  background: transparent;
 }
 
 .orb-item:first-child {
@@ -101,7 +144,7 @@
 
 .orb-rail.expanded .orb-item {
   opacity: 1;
-  transform: scale(1);
+  transform: translateX(0) scale(1);
   pointer-events: auto;
 }
 
@@ -109,35 +152,43 @@
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.65);
   background: var(--surface);
   color: var(--text-2);
   display: grid;
   place-items: center;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-  transition: transform 0.2s cubic-bezier(0.22, 1.3, 0.36, 1), box-shadow 0.2s;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  transition:
+    transform 0.22s cubic-bezier(0.22, 1.4, 0.36, 1),
+    box-shadow 0.2s ease;
   padding: 0;
-  margin-left: 6px;
+  margin-left: 4px;
 }
 
 .orb-face:hover {
-  transform: scale(1.1);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  transform: scale(1.12) translateX(3px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.26);
+}
+
+.orb-face:active {
+  transform: scale(1.02) translateX(2px);
 }
 
 .orb-item.active .orb-face {
   box-shadow:
-    0 0 0 3px rgba(255, 255, 255, 0.7),
-    0 6px 18px rgba(0, 0, 0, 0.2);
-  transform: scale(1.06);
+    0 0 0 3px rgba(255, 255, 255, 0.75),
+    0 0 0 5px rgba(26, 31, 46, 0.25),
+    0 8px 20px rgba(0, 0, 0, 0.22);
+  transform: scale(1.08);
 }
 
 .orb-glyph {
   font-size: 13px;
   font-weight: 800;
   color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+  line-height: 1;
 }
 
 .orb-close {
@@ -147,22 +198,28 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.95);
   color: var(--text-2);
   display: grid;
   place-items: center;
   opacity: 0;
-  transform: scale(0.6);
+  transform: scale(0.55);
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.18s, background 0.15s, color 0.15s;
+  transition:
+    opacity 0.14s ease,
+    transform 0.2s cubic-bezier(0.22, 1.4, 0.36, 1),
+    background 0.14s,
+    color 0.14s;
   z-index: 2;
   padding: 0;
+  pointer-events: none;
 }
 
 .orb-item:hover .orb-close {
   opacity: 1;
   transform: scale(1);
+  pointer-events: auto;
 }
 
 .orb-close:hover {
@@ -171,18 +228,80 @@
   color: #fff;
 }
 
+/* 设置钮：深色玻璃，在浅色/深色插件上都可见 */
 .orb-dock {
   position: absolute;
   left: 6px;
-  bottom: 14px;
+  bottom: 16px;
+  pointer-events: auto;
+  z-index: 5;
 }
 
 .orb-dock .orb-face {
   margin-left: 0;
-  background: rgba(255, 255, 255, 0.88);
-  color: var(--text-2);
+  width: 40px;
+  height: 40px;
+  background: var(--dock-bg);
+  border: 1px solid var(--dock-border);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: var(--dock-fg);
+}
+
+.orb-dock .orb-face:hover {
+  transform: scale(1.08);
+  background: rgba(18, 22, 34, 0.78);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
 }
 
 .orb-dock .orb-face.active {
-  color: var(--accent);
+  color: #fff;
+  background: rgba(26, 31, 46, 0.82);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.35),
+    0 2px 12px rgba(0, 0, 0, 0.28);
+}
+
+/* ========== Animation intensity (data-anim) ========== */
+/* low：压短 transition、弹簧改线性、取消 hover 大位移；与主壳 app.css 策略一致 */
+:root[data-anim="low"] *,
+:root[data-anim="low"] *::before,
+:root[data-anim="low"] *::after {
+  transition-duration: 0.08s !important;
+  transition-delay: 0s !important;
+  transition-timing-function: linear !important;
+}
+
+:root[data-anim="low"] .orb-face:hover,
+:root[data-anim="low"] .orb-face:active,
+:root[data-anim="low"] .orb-item.active .orb-face,
+:root[data-anim="low"] .orb-dock .orb-face:hover {
+  transform: none;
+}
+
+/* low：展开 item 不做缩放弹入，仅快速淡入 */
+:root[data-anim="low"] .orb-item {
+  transform: translateX(0) scale(1);
+}
+
+/* high：略增强弹开与圆球放大（对齐主壳 app.css 的 high orb 段，幅度克制） */
+:root[data-anim="high"] .orb-panel {
+  transition:
+    opacity 0.36s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.48s cubic-bezier(0.22, 1.25, 0.36, 1);
+}
+
+:root[data-anim="high"] .orb-item {
+  transition:
+    opacity 0.36s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.52s cubic-bezier(0.22, 1.4, 0.36, 1);
+}
+
+:root[data-anim="high"] .orb-face:hover {
+  transform: scale(1.18) translateX(6px);
+}
+
+:root[data-anim="high"] .orb-dock .orb-face:hover {
+  transform: scale(1.12);
 }

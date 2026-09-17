@@ -46,6 +46,7 @@ import {
   type PluginLifecycleState
 } from '@main/plugin/PluginLifecycle'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { isEnabledSync } from '@main/plugin/pluginEnabledStore'
 import { applyProxyToPluginPartition } from '@main/proxy/proxyService'
 import { registerPluginProtocolForSession } from '@main/plugin/pluginProtocol'
 import { resolveThemeTokens, themeTokensToInjectScript } from '@main/theme/resolveThemeCss'
@@ -137,6 +138,11 @@ export class PluginHost {
     if (existing) {
       this.activatePlugin(pluginId, enter)
       return pluginId
+    }
+
+    // 已显式禁用的插件拒绝打开（Quick / 市场 / IPC 均走此路径）
+    if (!isEnabledSync(pluginId)) {
+      throw new Error(`plugin disabled: ${pluginId}`)
     }
 
     const summary = await pluginRegistry.ensureInstalled(pluginId)
@@ -272,6 +278,7 @@ export class PluginHost {
         }
       }
       if (!entry.view.webContents.isDestroyed()) {
+        entry.view.webContents.removeAllListeners()
         entry.view.webContents.close()
       }
     } catch {
@@ -282,6 +289,7 @@ export class PluginHost {
     clearPluginSession(pluginId)
     this.enterSent.delete(pluginId)
     this.pendingEnter.delete(pluginId)
+    this.states.delete(pluginId)
 
     if (this.activeTabId === pluginId) {
       this.activeTabId = null
@@ -422,13 +430,10 @@ export class PluginHost {
     })
   }
 
-  /** 关闭所有插件，清空状态（窗口关闭或应用退出时调用） */
-  destroyAll(reason: PluginCloseReason = 'app-quit'): void {
-    for (const id of [...this.entries.keys()]) {
-      // 退出路径不等待 ack 闭环到调用方；内部仍有 300ms 上限
-      void this.closePlugin(id, reason)
-    }
+  /** 关闭所有插件，清空状态（窗口关闭或应用退出时调用；等待全部 close 闭环） */
+  async destroyAll(reason: PluginCloseReason = 'app-quit'): Promise<void> {
     this.activeTabId = null
+    await Promise.all([...this.entries.keys()].map((id) => this.closePlugin(id, reason)))
   }
 
   // —— 内部：状态机 + 事件发送 ——

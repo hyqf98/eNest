@@ -1437,6 +1437,21 @@
   color: var(--ok);
 }
 
+.btn-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.btn-danger:hover:not(:disabled) {
+  filter: brightness(0.97);
+  transform: translateY(-1px);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  pointer-events: none;
+  transform: none;
+}
+
 .btn-sm {
   height: 28px;
   padding: 0 11px;
@@ -2500,6 +2515,57 @@
   margin-bottom: 8px;
 }
 
+.font-settings .field .segmented.font-size-seg {
+  flex-shrink: 0;
+}
+
+.font-settings .field .segmented.font-size-seg button {
+  min-width: 52px;
+  padding: 0 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 中英字体槽 chip 行 */
+.font-slot-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 12px;
+}
+
+.font-slot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 550;
+  transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.font-slot-chip:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.font-slot-chip.active {
+  border-color: var(--link);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 12%, transparent);
+}
+
+.font-slot-preview {
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text);
+}
+
 .font-card {
   display: flex;
   flex-direction: column;
@@ -3034,6 +3100,12 @@
   scroll-behavior: auto !important;
 }
 
+/* low：功能向无限 spinner / 进度指示白名单——加载态必须可读，不受 iteration-count:1 误伤 */
+:root[data-anim="low"] .detail-spinner {
+  animation-duration: 0.7s !important;
+  animation-iteration-count: infinite !important;
+}
+
 /* medium：卡片轻抬升（Hero 标题慢速流光见 .hero h1 段） */
 :root[data-anim="medium"] .card:hover,
 :root[data-anim="medium"] .slide:hover {
@@ -3202,4 +3274,19 @@
 
 .anim-level-seg {
   min-width: 200px;
+}
+
+/* ========== Splash background settings（设置 → 主题 → 启动背景） ========== */
+.splash-bg-settings .bg-type-row {
+  margin-bottom: 0;
+}
+
+.splash-bg-settings .splash-bg-preview {
+  margin-top: 4px;
+}
+
+.splash-bg-settings code {
+  font-size: 12px;
+  color: var(--text-2);
+  word-break: break-all;
 }

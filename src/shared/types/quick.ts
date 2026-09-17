@@ -28,6 +28,12 @@ export interface QuickCommand {
   form?: 'mini' | 'panel'
   /** kind=action */
   action?: QuickActionId
+  /** 可显示图标：data URL 或 enest:// 资源；无则 UI 用 kind 色点/首字母 */
+  icon?: string
+  /** 最近使用时间戳（ms）；有值时 UI 可归入「最近」分区 */
+  lastUsedTs?: number
+  /** 累计使用次数（来自 settings recent） */
+  useCount?: number
 }
 
 export interface QuickSearchRequest {

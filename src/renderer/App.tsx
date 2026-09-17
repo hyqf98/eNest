@@ -2,6 +2,7 @@
  * App — 应用根组件
  * 启动后初始化 GSAP 默认值、水合主题（useTheme）、字体（useFont）、语言（useI18n.hydrate）、
  * 动画强度与 Tab 样式，并刷新插件列表（shellStore.refreshPlugins）。
+ * Splash 结束后恢复上次会话 Tab（hydrateSessionTabs）。
  * ?surface=quick 时渲染快捷启动小窗，不加载市场壳子。
  * 依赖：useTheme、useFont、useI18n、shellStore、marketMotion.initMotion、QuickLauncherApp。
  */
@@ -29,22 +30,32 @@ export default function App() {
   const hydrateAnimLevel = useAnimationLevel().hydrate
   const refreshPlugins = useShellStore((s) => s.refreshPlugins)
   const hydrateTabStyle = useShellStore((s) => s.hydrateTabStyle)
+  const hydrateSessionTabs = useShellStore((s) => s.hydrateSessionTabs)
   const [splashDone, setSplashDone] = useState(false)
   const quick = isQuickSurface()
 
   useEffect(() => {
     if (quick) return
     initMotion()
-    // 主题最先水合，减少首屏色相跳变
+    // 主题最先水合，减少首屏色相跳变；Tab 样式（圆轨悬浮窗）等 Splash 结束后再同步
     void (async () => {
       await hydrateTheme()
       void hydrateFont()
       void hydrateI18n()
       void hydrateAnimLevel()
-      void hydrateTabStyle()
       void refreshPlugins()
     })()
-  }, [quick, hydrateTheme, hydrateFont, hydrateI18n, hydrateAnimLevel, hydrateTabStyle, refreshPlugins])
+  }, [quick, hydrateTheme, hydrateFont, hydrateI18n, hydrateAnimLevel, refreshPlugins])
+
+  // Splash 结束后：水合 Tab 样式，并在插件列表就绪后恢复会话 Tab
+  useEffect(() => {
+    if (quick || !splashDone) return
+    void hydrateTabStyle()
+    void (async () => {
+      await refreshPlugins()
+      await hydrateSessionTabs()
+    })()
+  }, [quick, splashDone, hydrateTabStyle, hydrateSessionTabs, refreshPlugins])
 
   if (quick) {
     return <QuickLauncherApp />

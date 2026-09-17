@@ -28,6 +28,10 @@ export const IpcChannels = {
   ShellGoHome: 'shell:go-home',
   /** 悬浮窗/壳子：切换主壳视图 */
   ShellSetView: 'shell:set-view',
+  /** 悬浮窗展开/收起时按内容调整自身宽度（固定宽度后为 no-op，保留兼容） */
+  ShellResizeOrbOverlay: 'shell:resize-orb-overlay',
+  /** 悬浮窗是否接收鼠标（透明区穿透，交互区收回） */
+  ShellSetOrbOverlayHit: 'shell:set-orb-overlay-hit',
   ShellGetBounds: 'shell:get-bounds',
   ShellSetContentBounds: 'shell:set-content-bounds',
   ShellGetTheme: 'shell:get-theme',
@@ -37,6 +41,10 @@ export const IpcChannels = {
   ShellOpenDevTools: 'shell:open-devtools',
   ShellGetSettings: 'shell:get-settings',
   ShellSetSettings: 'shell:set-settings',
+  /** 壳子设置页：拉取插件已注册的设置 section 列表 */
+  ShellGetSettingsSections: 'shell:get-settings-sections',
+  /** 壳子设置页：写入单个插件设置项（同步 Bridge + SettingsStore） */
+  ShellSetPluginSetting: 'shell:set-plugin-setting',
 
   /** 路径与数据 */
   ShellGetPaths: 'shell:get-paths',
@@ -64,6 +72,12 @@ export const IpcChannels = {
 
   /** 卸载插件：关闭 Tab → 清 partition storage → 删文件 → 重扫注册表 */
   ShellUninstallPlugin: 'shell:uninstall-plugin',
+
+  /** 启用/禁用已安装插件（持久化到 plugins/disabled.json） */
+  ShellSetPluginEnabled: 'shell:set-plugin-enabled',
+
+  /** 从市场安装/更新插件：本地 sample 优先，否则远程 assetUrl 下载入队 */
+  ShellInstallMarketPlugin: 'shell:install-market-plugin',
 
   /** 应用自动更新（GitHub Release + electron-updater） */
   ShellCheckUpdate: 'shell:check-update',

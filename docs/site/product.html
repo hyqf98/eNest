@@ -116,9 +116,9 @@
             </ul>
           </article>
         </div>
-        <div class="split-visual reveal" style="margin-top:24px">
+        <div class="split-visual reveal" style="margin-top:24px;grid-template-columns:1fr 1fr;gap:28px;align-items:center">
           <div>
-            <h3 style="margin:0 0 10px;font-size:18px;letter-spacing:-0.025em;color:var(--brand)">每个 Tab 一座「巢」</h3>
+            <h3 style="margin:0 0 10px;font-size:18px;letter-spacing:-0.025em;color:var(--ink)">每个 Tab 一座「巢」</h3>
             <p style="margin:0 0 12px;color:var(--muted);font-size:14px;line-height:1.7">
               不是 iframe 拼盘，也不是单体工具箱。eNest 把每个插件提升为独立渲染进程：
               崩溃、内存、会话数据彼此隔离，关闭即回收。
@@ -127,8 +127,23 @@
               需要并行工作时多开 Tab；需要专注时只留一个。工作台随任务组合，而不是被固定布局锁死。
             </p>
           </div>
-          <div class="visual">
-            <img src="assets/img/feature-isolation.png" alt="多 Tab 进程隔离示意" width="1024" height="1024" loading="lazy" />
+          <div style="border-radius:var(--radius);border:1px solid var(--line);background:var(--bg);padding:16px;box-shadow:var(--shadow)">
+            <div class="app-split">
+              <div class="app-pane">
+                <div class="app-pane-bar"><span class="live"></span> 剪贴板</div>
+                <div class="app-pane-body">
+                  <span class="k">partition</span>: persist:plugin-clipboard<br />
+                  <span class="k">storage</span>: <span class="s">独立 A</span>
+                </div>
+              </div>
+              <div class="app-pane is-dark">
+                <div class="app-pane-bar"><span class="live"></span> JSON</div>
+                <div class="app-pane-body">
+                  <span class="k">partition</span>: persist:plugin-json<br />
+                  <span class="k">storage</span>: <span class="s">独立 B</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="deep-card wide reveal" style="margin-top:24px">
@@ -186,9 +201,9 @@
             </div>
           </article>
         </div>
-        <div class="split-visual reverse reveal" style="margin-top:24px">
+        <div class="split-visual reverse reveal" style="margin-top:24px;grid-template-columns:1fr 1fr;gap:28px;align-items:center">
           <div>
-            <h3 style="margin:0 0 10px;font-size:18px;letter-spacing:-0.025em;color:var(--brand)">主题即基础设施</h3>
+            <h3 style="margin:0 0 10px;font-size:18px;letter-spacing:-0.025em;color:var(--ink)">主题即基础设施</h3>
             <p style="margin:0 0 12px;color:var(--muted);font-size:14px;line-height:1.7">
               壳子把颜色、圆角、背景等 Token 推给插件；主题包可动态注册（<code class="inline">enest.theme.register</code>），
               切换后经 <code class="inline">theme-aware</code> 事件即时刷新。
@@ -197,8 +212,34 @@
               插件无需嵌入壳子 DOM，也无需重复实现深浅色逻辑——声明 <code class="inline">themeAware</code> 即可。
             </p>
           </div>
-          <div class="visual">
-            <img src="assets/img/feature-theme-canvas.png" alt="主题 Token 与插件画布示意" width="1024" height="1024" loading="lazy" />
+          <div style="border-radius:var(--radius);border:1px solid var(--line);overflow:hidden;box-shadow:var(--shadow);background:var(--surface)">
+            <div style="display:flex;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--bg);font-size:12.5px;font-weight:600">
+              Token 预览
+            </div>
+            <div style="padding:16px;background:#f3f4f6">
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+                <div style="height:44px;border-radius:10px;background:#f3f4f6;border:1px solid rgba(15,23,42,.08)"></div>
+                <div style="height:44px;border-radius:10px;background:#fff;border:1px solid rgba(15,23,42,.08)"></div>
+                <div style="height:44px;border-radius:10px;background:#1a1f2e"></div>
+                <div style="height:44px;border-radius:10px;background:#0d9f6e"></div>
+              </div>
+              <div style="display:flex;gap:8px">
+                <span style="height:28px;padding:0 12px;border-radius:999px;background:#1a1f2e;color:#fff;font-size:12px;display:inline-flex;align-items:center;font-weight:600">激活</span>
+                <span style="height:28px;padding:0 12px;border-radius:999px;background:#fff;color:#0f1420;font-size:12px;display:inline-flex;align-items:center;box-shadow:0 1px 2px rgba(15,23,42,.06)">chip</span>
+              </div>
+            </div>
+            <div style="padding:16px;background:#0d1118">
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+                <div style="height:44px;border-radius:10px;background:#0d1118;border:1px solid rgba(255,255,255,.08)"></div>
+                <div style="height:44px;border-radius:10px;background:#161b24;border:1px solid rgba(255,255,255,.08)"></div>
+                <div style="height:44px;border-radius:10px;background:#e8ecf4"></div>
+                <div style="height:44px;border-radius:10px;background:#3dd68c"></div>
+              </div>
+              <div style="display:flex;gap:8px">
+                <span style="height:28px;padding:0 12px;border-radius:999px;background:#e8ecf4;color:#0d1118;font-size:12px;display:inline-flex;align-items:center;font-weight:600">激活</span>
+                <span style="height:28px;padding:0 12px;border-radius:999px;background:#161b24;color:#f3f5f9;font-size:12px;display:inline-flex;align-items:center">chip</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -41,6 +41,8 @@
 
   --font: "Inter", "SF Pro Display", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+  /* 正文基准字号；useFont 按 fontSizeScale 写入 calc(14px * scale)，与 --shell-scale 独立 */
+  --font-size-base: 14px;
 
   --titlebar-h: 36px;
   /* ResizeObserver / 窗口宽度驱动的 UI 密度系数（0.85–1.1）；chrome 固定尺寸不参与 */

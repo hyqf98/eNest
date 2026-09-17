@@ -16,7 +16,6 @@ import { kvStore } from '@main/db/sqliteService'
 import { themePackRegistry } from '@main/theme/themePacks'
 import { createShellWindow } from '@main/window/createShellWindow'
 import {
-  applyOrbOverlayVisibility,
   destroyOrbOverlay
 } from '@main/window/orbOverlayWindow'
 import { destroyQuickWindow } from '@main/window/createQuickWindow'
@@ -72,9 +71,8 @@ void app.whenReady().then(async () => {
       destroyOrbOverlay()
     })
 
-    // 按已保存设置决定是否显示圆轨悬浮窗
-    const tabStyle = settingsStore.getAll().general?.tabStyle
-    applyOrbOverlayVisibility(tabStyle === 'orb' ? 'orb' : 'classic')
+    // 圆轨悬浮窗：不在冷启动/ Splash 阶段显示；
+    // 由壳子 splash 结束后 syncOrbState(tabStyle) 再 applyOrbOverlayVisibility
 
     registerShellHandlers()
     registerPluginHandlers()
@@ -102,9 +100,18 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
-  pluginHost.destroyAll()
+let quitting = false
+app.on('before-quit', (event) => {
+  if (quitting) return
+  quitting = true
+  event.preventDefault()
   disposeQuickHotkeys()
   destroyQuickWindow()
-  kvStore.close()
+  void pluginHost
+    .destroyAll()
+    .catch(() => {})
+    .finally(() => {
+      kvStore.close()
+      app.quit()
+    })
 })

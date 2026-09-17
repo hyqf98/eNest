@@ -1,12 +1,12 @@
 /**
  * PluginUninstaller — 插件卸载器
  * 职责：完整卸载一个已安装插件——关闭运行中 Tab → 清空 partition storage
- *       → 删除插件目录与 storage JSON → 重扫注册表 → 推送壳子事件。
- * 为什么独立：卸载横跨 Host（视图）、session（分区数据）、文件系统、Registry，
- *       放在任一现有模块都会造成循环依赖或职责膨胀。
+ *       → 删除插件目录与 storage JSON → GC 其注册的主题包 → 重扫注册表 → 推送壳子事件。
+ * 为什么独立：卸载横跨 Host（视图）、session（分区数据）、文件系统、Registry、
+ *       主题包与设置，放在任一现有模块都会造成循环依赖或职责膨胀。
  * 被 shellHandlers（ShellUninstallPlugin）调用。
  * 关键依赖：PluginHost（关 Tab + 生命周期）、PluginRegistry（重扫）、
- *       pathsService（目录）、PluginSessionStore、logService。
+ *       pathsService（目录）、PluginSessionStore、themePackRegistry、settingsStore、logService。
  */
 import { session } from 'electron'
 import { existsSync } from 'node:fs'
@@ -17,8 +17,11 @@ import { logError, logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, pluginStorageFile } from '@main/paths/pathsService'
 import { sendShellEvent } from '@main/window/createShellWindow'
 import { clearPluginSession } from '@main/plugin/PluginSessionStore'
+import { clearPluginDisabled } from '@main/plugin/pluginEnabledStore'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { settingsStore } from '@main/settings/SettingsStore'
+import { themePackRegistry } from '@main/theme/themePacks'
 
 export interface UninstallResult {
   ok: boolean
@@ -104,11 +107,17 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
     logWarn('uninstall', `${id} ${msg}`)
   }
 
-  // 7) 开发态一并移除（若曾 addDevPlugin）
+  // 7) 开发态一并移除（若曾 addDevPlugin）；清理启用/禁用记录避免重装后仍禁用
   try {
     pluginRegistry.removeDevPlugin(id)
   } catch {
     // 非开发态时无副作用
+  }
+  try {
+    await clearPluginDisabled(id)
+    logInfo('uninstall', `cleared disabled record ${id}`)
+  } catch (err) {
+    logWarn('uninstall', `${id} clear disabled record failed: ${(err as Error).message}`)
   }
 
   // 8) 重扫注册表，让列表回到磁盘真实状态
@@ -117,6 +126,24 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
     logInfo('uninstall', `registry rescanned`)
   } catch (err) {
     const msg = `registry scan failed: ${(err as Error).message}`
+    errors.push(msg)
+    logWarn('uninstall', `${id} ${msg}`)
+  }
+
+  // 8b) GC 该插件注册的主题包（source === pluginId）；活动 pack 指向被删包时清 packId
+  try {
+    const removedPackIds = await themePackRegistry.removeBySource(id)
+    if (removedPackIds.length > 0) {
+      logInfo('uninstall', `removed theme packs ${removedPackIds.join(', ')}`)
+      const theme = settingsStore.getTheme()
+      if (theme.packId && removedPackIds.includes(theme.packId)) {
+        await settingsStore.setTheme({ packId: undefined })
+        logInfo('uninstall', `cleared active packId ${theme.packId}`)
+      }
+      sendShellEvent({ type: 'theme-packs-changed' })
+    }
+  } catch (err) {
+    const msg = `remove theme packs failed: ${(err as Error).message}`
     errors.push(msg)
     logWarn('uninstall', `${id} ${msg}`)
   }

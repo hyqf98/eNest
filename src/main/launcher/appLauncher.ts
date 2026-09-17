@@ -6,7 +6,7 @@
  * 安全：只允许启动扫描缓存中的应用路径，拒绝任意路径。
  */
 import { spawn } from 'node:child_process'
-import { shell } from 'electron'
+import { app, shell } from 'electron'
 import { getCachedApps } from './appScanner'
 import { logError, logInfo } from '../logs/logService'
 
@@ -40,6 +40,31 @@ export function isKnownAppPath(path: string): boolean {
   const cached = getCachedApps()
   if (!cached) return false
   return cached.apps.some((a) => a.path === path)
+}
+
+/** path → dataURL 图标缓存；空串表示无图标，避免重复 getFileIcon */
+const iconCache = new Map<string, string>()
+
+/**
+ * 取本地应用图标（data URL）。失败/无图标返回 undefined。
+ * 结果缓存，命令面搜索时只为 top 结果解析，不阻塞扫描。
+ */
+export async function getAppIconDataUrl(path: string): Promise<string | undefined> {
+  const hit = iconCache.get(path)
+  if (hit !== undefined) return hit || undefined
+  try {
+    const img = await app.getFileIcon(path, { size: 'normal' })
+    if (!img || img.isEmpty()) {
+      iconCache.set(path, '')
+      return undefined
+    }
+    const url = img.toDataURL()
+    iconCache.set(path, url)
+    return url
+  } catch {
+    iconCache.set(path, '')
+    return undefined
+  }
 }
 
 export async function launchLocalApp(path: string): Promise<void> {

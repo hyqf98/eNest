@@ -8,8 +8,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PluginSummary } from '@shared/types/plugin'
 import { PluginSlide } from '@renderer/components/PluginSlide'
 import { setCarouselX } from '@renderer/gsap/marketMotion'
+import { useAnimationLevelStore } from '@renderer/hooks/useAnimationLevel'
 
-const AUTOPLAY_MS = 3800
+/** 自动播间隔：low 关闭；medium 3800；high 略快。null = 不自动播 */
+function autoplayMs(level: 'low' | 'medium' | 'high'): number | null {
+  if (level === 'low') return null
+  if (level === 'high') return 3200
+  return 3800
+}
 
 interface Props {
   items: PluginSummary[]
@@ -22,6 +28,7 @@ export function FeaturedCarousel({ items, onOpen, onDetail }: Props) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const [index, setIndex] = useState(0)
   const timerRef = useRef<number | null>(null)
+  const level = useAnimationLevelStore((s) => s.level)
 
   // 用第一张 slide 实测宽度（含 gap）换算 index → translateX，保证与 CSS 布局一致
   const slideWidth = useCallback(() => {
@@ -47,14 +54,16 @@ export function FeaturedCarousel({ items, onOpen, onDetail }: Props) {
   const start = useCallback(() => {
     stop()
     if (items.length < 2) return
+    const ms = autoplayMs(level)
+    if (ms == null) return // low：不自动播，仅手动切页
     timerRef.current = window.setInterval(() => {
       setIndex((i) => {
         const next = (i + 1) % items.length
         apply(next)
         return next
       })
-    }, AUTOPLAY_MS)
-  }, [apply, items.length, stop])
+    }, ms)
+  }, [apply, items.length, level, stop])
 
   useEffect(() => {
     setIndex(0)

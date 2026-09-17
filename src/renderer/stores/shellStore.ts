@@ -2,6 +2,7 @@
  * shellStore — 壳子全局状态（zustand）
  * 管理视图切换、插件列表、Tab 生命周期、搜索/筛选条件、插件就绪/错误与开发者日志。
  * 异步动作通过 shellApi 与 main/preload 交互；Toast 经 toastStore 推送。
+ * Tab 会话：打开/关闭/激活后 debounce 写入 settings.sessionTabs，启动时 hydrateSessionTabs 恢复。
  * 依赖：shellApi、toastStore。
  */
 import { create } from 'zustand'
@@ -22,6 +23,31 @@ function pushOrbState(state: {
     activeTabId: state.activeTabId,
     tabs: state.tabs
   }).catch(() => undefined)
+}
+
+/** Tab 会话持久化 debounce（ms）；避免连续开关 Tab 时刷 IPC */
+const SESSION_PERSIST_MS = 400
+let sessionPersistTimer: ReturnType<typeof setTimeout> | null = null
+
+/** debounce 将当前 tabs / active 写入 settings.sessionTabs（仅插件，不含壳子页） */
+function scheduleSessionPersist(state: {
+  tabs: PluginTab[]
+  activeTabId: string | null
+}): void {
+  if (sessionPersistTimer) clearTimeout(sessionPersistTimer)
+  sessionPersistTimer = setTimeout(() => {
+    sessionPersistTimer = null
+    const sessionTabs = state.tabs.map((t) => ({ pluginId: t.pluginId, title: t.title }))
+    const active = state.tabs.find((t) => t.id === state.activeTabId)
+    void shellApi
+      .setSettings({
+        general: {
+          sessionTabs,
+          sessionActivePluginId: active?.pluginId ?? ''
+        }
+      })
+      .catch(() => undefined)
+  }, SESSION_PERSIST_MS)
 }
 
 /** 市场分段：浏览全部 vs 已安装 */
@@ -51,6 +77,8 @@ interface ShellState {
   setPluginError: (msg: string | null) => void
   setTabStyle: (style: TabStyle) => void
   hydrateTabStyle: () => Promise<void>
+  /** 启动时从 settings.sessionTabs 恢复已安装插件 Tab；失败静默跳过 */
+  hydrateSessionTabs: () => Promise<void>
   appendLog: (level: 'info' | 'dim' | 'warn', text: string) => void
 
   refreshPlugins: () => Promise<void>
@@ -131,6 +159,51 @@ export const useShellStore = create<ShellState>((set, get) => ({
     }
   },
 
+  /**
+   * 启动恢复：仅恢复 settings.sessionTabs 中「当前已安装」的插件 Tab。
+   * 未安装/打开失败的静默跳过；activePluginId 无匹配则回首页。
+   * 依赖 refreshPlugins 先完成（App 在 splash 后调用）。
+   */
+  hydrateSessionTabs: async () => {
+    try {
+      const settings = await shellApi.getSettings()
+      const saved = settings.general?.sessionTabs
+      if (!Array.isArray(saved) || saved.length === 0) return
+      // 确保插件列表就绪（openPlugin 依赖 plugins.find）
+      if (get().plugins.length === 0) {
+        await get().refreshPlugins()
+      }
+      const plugins = get().plugins
+      const restoredIds = new Set<string>()
+      for (const item of saved) {
+        const pid = item?.pluginId
+        if (!pid || restoredIds.has(pid)) continue
+        const plugin = plugins.find((p) => p.id === pid)
+        // 仅恢复已安装插件；未安装/不存在静默跳过
+        if (!plugin?.installed) continue
+        try {
+          await get().openPlugin(pid)
+          restoredIds.add(pid)
+        } catch {
+          /* 单个失败不影响其它恢复 */
+        }
+      }
+      if (restoredIds.size === 0) return
+      const activePid = settings.general?.sessionActivePluginId
+      const activeTab = activePid
+        ? get().tabs.find((t) => t.pluginId === activePid)
+        : undefined
+      if (activeTab) {
+        await get().activateTab(activeTab.id)
+      } else {
+        // active 缺失或未恢复成功 → 首页（Tab 仍保留，可手动点开）
+        get().goHome()
+      }
+    } catch {
+      /* 设置读取失败：保持空会话 */
+    }
+  },
+
   appendLog: (level, text) =>
     set((s) => ({ devLogs: [...s.devLogs, { level, text }].slice(-200) })),
 
@@ -170,6 +243,7 @@ export const useShellStore = create<ShellState>((set, get) => ({
       pluginError: null,
     })
     pushOrbState(get())
+    scheduleSessionPersist(get())
     void get().appendLog('info', `[host] open ${id}`)
     window.setTimeout(() => {
       if (get().activeTabId === tab!.id) set({ pluginReady: true })
@@ -191,6 +265,7 @@ export const useShellStore = create<ShellState>((set, get) => ({
       pluginError: null,
     })
     pushOrbState(get())
+    scheduleSessionPersist(get())
     toastStore.getState().push(`已关闭「${gone.title}」`)
     get().appendLog('info', `[host] close ${gone.pluginId}`)
   },
@@ -199,6 +274,7 @@ export const useShellStore = create<ShellState>((set, get) => ({
     await shellApi.activatePlugin(tabId)
     set({ activeTabId: tabId, view: 'plugin', pluginReady: false, pluginError: null })
     pushOrbState(get())
+    scheduleSessionPersist(get())
     window.setTimeout(() => {
       if (get().activeTabId === tabId) set({ pluginReady: true })
     }, 300)
@@ -219,6 +295,8 @@ export const useShellStore = create<ShellState>((set, get) => ({
     const nextId = pickNextTab(tabs, tabId, activeTabId)
     set({ tabs: remaining, activeTabId: nextId, view: nextId ? 'plugin' : 'home' })
     pushOrbState(get())
+    // 卸载 / 主进程关 Tab 也会走到这里，保证 sessionTabs 同步移除
+    scheduleSessionPersist(get())
   },
 
   loadDevPlugin: async (dirPath) => {

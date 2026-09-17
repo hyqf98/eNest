@@ -4,7 +4,7 @@
  * 仅被 shellApi 的 mock 实现与 MarketPage 的 CATEGORIES 使用。
  * 依赖：@shared/types/plugin。
  */
-import type { BackgroundConfig, PluginSummary, ThemeMode } from '@shared/types/plugin'
+import type { BackgroundConfig, PluginSummary, SplashBackgroundConfig, ThemeMode } from '@shared/types/plugin'
 import { DEFAULT_PLUGIN_UI } from '@shared/types/plugin'
 
 const DEFAULT_INSTALLED = ['com.enest.clipboard', 'com.enest.json']
@@ -116,6 +116,7 @@ export const MARKET_PLUGINS: PluginSummary[] = (
 export const CATEGORIES = ['全部', '效率', '开发', '设计'] as const
 
 const INSTALLED_KEY = 'enest.installed.v1'
+const DISABLED_KEY = 'enest.disabled.v1'
 const THEME_KEY = 'enest.theme.v1'
 const SETTINGS_KEY = 'enest.settings.v1'
 
@@ -132,13 +133,31 @@ function writeInstalledIds(ids: string[]): void {
   localStorage.setItem(INSTALLED_KEY, JSON.stringify(ids))
 }
 
-/** 本地插件注册表：按 localStorage 中的已安装 id 列表过滤样例插件 */
+function readDisabledIds(): string[] {
+  try {
+    const raw = localStorage.getItem(DISABLED_KEY)
+    return raw ? (JSON.parse(raw) as string[]) : []
+  } catch {
+    return []
+  }
+}
+
+function writeDisabledIds(ids: string[]): void {
+  localStorage.setItem(DISABLED_KEY, JSON.stringify(ids))
+}
+
+/** 本地插件注册表：按 localStorage 中的已安装 id 列表过滤样例插件，并合并启用状态 */
 export const mockRegistry = {
   readInstalledIds,
   writeInstalledIds,
   getPlugins(): PluginSummary[] {
     const ids = readInstalledIds()
-    return MARKET_PLUGINS.map((p) => ({ ...p, installed: ids.includes(p.id) }))
+    const disabled = new Set(readDisabledIds())
+    return MARKET_PLUGINS.map((p) => ({
+      ...p,
+      installed: ids.includes(p.id),
+      enabled: !disabled.has(p.id),
+    }))
   },
   install(id: string): PluginSummary | undefined {
     const ids = readInstalledIds()
@@ -147,6 +166,14 @@ export const mockRegistry = {
   },
   uninstall(id: string): void {
     writeInstalledIds(readInstalledIds().filter((x) => x !== id))
+    this.setEnabled(id, true)
+  },
+  setEnabled(id: string, enabled: boolean): PluginSummary | undefined {
+    const disabled = new Set(readDisabledIds())
+    if (enabled) disabled.delete(id)
+    else disabled.add(id)
+    writeDisabledIds([...disabled])
+    return this.getPlugins().find((p) => p.id === id)
   },
   getById(id: string): PluginSummary | undefined {
     return this.getPlugins().find((p) => p.id === id)
@@ -205,12 +232,22 @@ export interface GeneralSettingsData {
   tabStyle?: TabStyle
   animationLevel?: AnimationLevel
   openAtLogin?: boolean
-  /** 当前界面字体 CSS font-family */
+  /** 当前界面中文/默认字体 CSS font-family */
   fontFamily?: string
+  /** 英文/Latin 优先字体栈；有值时 --font = en + cjk 拼接 */
+  fontFamilyEn?: string
+  /** 界面字号倍率（0.9 / 1.0 / 1.15 / 1.3） */
+  fontSizeScale?: number
   /** 已上传自定义字体元数据 */
   customFonts?: { id: string; name: string; family: string; fileName: string }[]
+  /** 会话恢复：上次打开的插件 Tab */
+  sessionTabs?: Array<{ pluginId: string; title?: string }>
+  /** 会话恢复：上次激活的插件 id */
+  sessionActivePluginId?: string
   /** 网络代理；none/缺省 = 直连 */
   proxy?: { type: 'none' | 'http' | 'socks5' | 'custom'; host?: string; port?: number; url?: string }
+  /** 启动 Splash 背景；缺省 brand = 默认品牌色 */
+  splashBackground?: SplashBackgroundConfig
   [key: string]: unknown
 }
 
@@ -238,7 +275,13 @@ export const DEFAULT_SETTINGS: ShellSettingsData = {
     tabStyle: 'classic',
     animationLevel: 'medium',
     fontFamily: '',
+    fontFamilyEn: '',
+    fontSizeScale: 1,
+    customFonts: [],
+    sessionTabs: [],
+    sessionActivePluginId: '',
     proxy: { type: 'none' },
+    splashBackground: { type: 'brand', opacity: 0.55 },
   },
   launchAtLogin: true,
   closeBehavior: 'minimize-tray',

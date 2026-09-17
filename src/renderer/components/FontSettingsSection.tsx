@@ -1,24 +1,42 @@
 /**
- * FontSettingsSection — 设置页「字体」整块（预设卡片 + 已上传列表 + 上传按钮）
+ * FontSettingsSection — 设置页「字体」整块
+ * 结构：字号四档 → 英文字体槽 → 中文字体槽 → 自定义上传列表。
+ * 中英双槽：有英文栈时 --font = en + cjk（Latin 优先）；无英文栈时行为与旧版一致。
  * 供 SettingsPage 外观标签挂载；内部读 useFont / useI18n，无需透传 props。
  * 依赖：useFont、useI18n、toastStore。
  */
 import { useCallback, useEffect, useRef } from 'react'
-import { useFont, FONT_PRESETS, MAX_FONT_BYTES } from '@renderer/hooks/useFont'
+import {
+  useFont,
+  FONT_PRESETS_EN,
+  FONT_PRESETS_CJK,
+  MAX_FONT_BYTES,
+} from '@renderer/hooks/useFont'
+import { FONT_SIZE_SCALES } from '@shared/types/plugin'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { toastStore } from '@renderer/hooks/useToast'
 
 /** 预览样例：中英数混排，便于观察字形 */
 const PREVIEW_TEXT = '永 Aa 字体'
 
+/** 字号档展示（短硬编码，i18n 无对应 key） */
+const SIZE_OPTIONS: { value: number; label: string }[] = FONT_SIZE_SCALES.map((s) => ({
+  value: s,
+  label: `${Math.round(s * 100)}%`,
+}))
+
 export function FontSettingsSection() {
   const {
-    presetId,
+    enPresetId,
+    cjkPresetId,
     customFontId,
     customFonts,
+    fontSizeScale,
     uploading,
     hydrate,
-    setPreset,
+    setEnPreset,
+    setCjkPreset,
+    setFontSizeScale,
     applyCustom,
     uploadFont,
     removeCustomFont,
@@ -61,30 +79,95 @@ export function FontSettingsSection() {
       <h2>{t('settings.font.title')}</h2>
       <p className="hint">{t('settings.font.hint')}</p>
 
+      {/* 字号档：与 --shell-scale 独立，写 --font-size-base */}
       <div className="field" style={{ borderTop: 'none', paddingBottom: 8 }}>
         <div>
-          <div className="label">{t('settings.font.presetsLabel')}</div>
-          <p className="desc">{t('settings.font.presetsDesc')}</p>
+          <div className="label">字号</div>
+          <p className="desc">调整正文与界面文字大小，即时生效</p>
+        </div>
+        <div className="segmented font-size-seg" role="group" aria-label="字号">
+          {SIZE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              className={fontSizeScale === opt.value ? 'active' : ''}
+              onClick={() => void setFontSizeScale(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="font-grid" role="listbox" aria-label={t('settings.font.presetsLabel')}>
-        {FONT_PRESETS.map((preset) => {
-          const active = presetId === preset.id && !customFontId
+      {/* 英文字体槽（可选；空 = 默认，不单独指定） */}
+      <div className="field">
+        <div>
+          <div className="label">英文字体</div>
+          <p className="desc">Latin 字符优先使用；「默认」时不单独指定</p>
+        </div>
+      </div>
+      <div className="font-slot-row" role="listbox" aria-label="英文字体">
+        <button
+          type="button"
+          role="option"
+          aria-selected={!enPresetId}
+          className={`font-slot-chip${!enPresetId ? ' active' : ''}`}
+          onClick={() => void setEnPreset(null)}
+        >
+          默认
+        </button>
+        {FONT_PRESETS_EN.map((preset) => {
+          const active = enPresetId === preset.id
           return (
             <button
               key={preset.id}
               type="button"
               role="option"
               aria-selected={active}
-              className={`font-card${active ? ' active' : ''}`}
-              onClick={() => void setPreset(preset.id)}
+              className={`font-slot-chip${active ? ' active' : ''}`}
+              onClick={() => void setEnPreset(preset.id)}
             >
-              <span className="font-preview" style={{ fontFamily: preset.previewFamily }}>
-                {PREVIEW_TEXT}
+              <span className="font-slot-preview" style={{ fontFamily: preset.previewFamily }}>
+                Aa
               </span>
-              <strong>{t(preset.nameKey)}</strong>
-              {active ? <em className="font-badge">{t('settings.font.active')}</em> : null}
+              {preset.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* 中文字体槽 */}
+      <div className="field">
+        <div>
+          <div className="label">中文字体</div>
+          <p className="desc">{t('settings.font.presetsDesc')}</p>
+        </div>
+      </div>
+      <div className="font-slot-row" role="listbox" aria-label="中文字体">
+        <button
+          type="button"
+          role="option"
+          aria-selected={!cjkPresetId && !customFontId}
+          className={`font-slot-chip${!cjkPresetId && !customFontId ? ' active' : ''}`}
+          onClick={() => void setCjkPreset(null)}
+        >
+          默认
+        </button>
+        {FONT_PRESETS_CJK.map((preset) => {
+          const active = cjkPresetId === preset.id && !customFontId
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              role="option"
+              aria-selected={active}
+              className={`font-slot-chip${active ? ' active' : ''}`}
+              onClick={() => void setCjkPreset(preset.id)}
+            >
+              <span className="font-slot-preview" style={{ fontFamily: preset.previewFamily }}>
+                永
+              </span>
+              {preset.label}
             </button>
           )
         })}

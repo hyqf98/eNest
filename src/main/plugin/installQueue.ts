@@ -1,20 +1,23 @@
 /**
  * installQueue — 插件安装队列（并发上限 3）
- * 职责：接收来自拖拽 / IPC 的安装请求，按 FIFO 调度；
+ * 职责：接收来自拖拽 / IPC / 远程市场的安装请求，按 FIFO 调度；
  *       同时最多 3 个任务并行，其余进入等待列表；
  *       通过 shell:event 推送 install-progress / install-queue / install-result。
  * 为什么需要队列：同时拖入多个包时，无限并行会争抢磁盘 IO、
  *       让进度 UI 与日志顺序不可预期；上限 3 覆盖「多文件拖入」的常见峰值，
  *       又保证用户能同时关注到每条进度。
- * 被 shellHandlers（ShellInstallPlugin）调用；安装完成后重扫 PluginRegistry。
- * 关键依赖：PluginInstaller、PluginRegistry、logService、sendShellEvent。
+ * 被 shellHandlers（ShellInstallPlugin / ShellInstallMarketPlugin）调用；
+ * 安装完成后重扫 PluginRegistry。
+ * 关键依赖：PluginInstaller、PluginRegistry、marketClient（远程下载）、
+ * logService、sendShellEvent。
  */
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type { InstallJobInfo } from '@shared/types/ipc'
 import { logError, logInfo } from '@main/logs/logService'
 import { getAppPaths } from '@main/paths/pathsService'
-import { installPluginFromPath } from '@main/plugin/PluginInstaller'
+import { installFromZip, installPluginFromPath } from '@main/plugin/PluginInstaller'
+import { downloadPluginPackage } from '@main/plugin/marketClient'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { sendShellEvent } from '@main/window/createShellWindow'
 
@@ -22,7 +25,11 @@ import { sendShellEvent } from '@main/window/createShellWindow'
 export const MAX_PARALLEL_INSTALLS = 3
 
 interface InstallJob extends InstallJobInfo {
-  sourcePath: string
+  /** 本地路径安装 */
+  sourcePath?: string
+  /** 远程 URL 安装 */
+  sourceUrl?: string
+  expectedSha256?: string | null
 }
 
 /** FIFO 等待 + 运行中任务；done/failed 会立刻出队（结果走 toast） */
@@ -64,17 +71,46 @@ function pump(): void {
   }
 }
 
+async function runLocalJob(job: InstallJob): Promise<{ manifest: { id: string; version: string; name: string } }> {
+  const destRoot = getAppPaths().plugins
+  const sourcePath = job.sourcePath!
+  logInfo('install-queue', `start ${job.name} ← ${sourcePath}`)
+  return installPluginFromPath(sourcePath, destRoot, (p, step) => {
+    reportProgress(job, p, step)
+  })
+}
+
+async function runRemoteJob(job: InstallJob): Promise<{ manifest: { id: string; version: string; name: string } }> {
+  const destRoot = getAppPaths().plugins
+  const url = job.sourceUrl!
+  logInfo('install-queue', `start remote ${job.name} ← ${url}`)
+  reportProgress(job, 2, '下载安装包')
+  const pkg = await downloadPluginPackage(url, {
+    expectedSha256: job.expectedSha256,
+    fileName: `${job.name}.enestplugin`,
+    onProgress: (p) => {
+      const pct = Math.round(p.percent * 0.7)
+      reportProgress(job, Math.max(2, pct), p.total ? `下载中 ${pct}%` : '下载中…')
+    }
+  })
+  try {
+    reportProgress(job, 72, '解压安装')
+    const result = await installFromZip(pkg.path, destRoot, (p, step) => {
+      reportProgress(job, 72 + Math.round(p * 0.28), step)
+    })
+    return result
+  } finally {
+    await pkg.cleanup()
+  }
+}
+
 async function runJob(job: InstallJob): Promise<void> {
   activeCount++
   job.status = 'active'
   reportProgress(job, 0, '开始安装')
   emitQueue()
   try {
-    const destRoot = getAppPaths().plugins
-    logInfo('install-queue', `start ${job.name} ← ${job.sourcePath}`)
-    const result = await installPluginFromPath(job.sourcePath, destRoot, (p, step) => {
-      reportProgress(job, p, step)
-    })
+    const result = job.sourceUrl ? await runRemoteJob(job) : await runLocalJob(job)
     // 重扫注册表，让市场列表立即出现新装插件
     await pluginRegistry.scan()
     job.status = 'done'
@@ -126,6 +162,29 @@ export function enqueueInstall(sourcePath: string): InstallJobInfo {
   }
   queue.push(job)
   logInfo('install-queue', `enqueue ${job.name} ← ${sourcePath}`)
+  pump()
+  emitQueue()
+  return publicView(job)
+}
+
+/**
+ * 入队远程 URL 安装（市场资产）。
+ * 下载 + 解压安装共用同一进度通道 install-progress。
+ */
+export function enqueueInstallFromUrl(
+  url: string,
+  opts: { name: string; sha256?: string | null }
+): InstallJobInfo {
+  const job: InstallJob = {
+    id: randomUUID(),
+    name: opts.name || url.split('/').pop() || 'plugin',
+    progress: 0,
+    status: 'queued',
+    sourceUrl: url,
+    expectedSha256: opts.sha256 ?? null
+  }
+  queue.push(job)
+  logInfo('install-queue', `enqueue remote ${job.name} ← ${url}`)
   pump()
   emitQueue()
   return publicView(job)

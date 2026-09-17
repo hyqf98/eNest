@@ -1,17 +1,17 @@
 /**
  * pluginProtocol — 自定义协议 enest://
  * 职责：注册 enest:// 协议，将插件资源请求映射到本地文件系统，包含路径穿越防护与 CSP 注入；
- * 另提供 enest://media/?path= 读取用户主目录 / 数据根下的本地媒体（背景图/视频）。
+ * 另提供 enest://media/?path= 读取数据根 / 用户在设置中显式选择过的本地媒体（背景图/视频）。
  * 被 index.ts（initPluginProtocol）与 PluginHost（registerPluginProtocolForSession）调用。
- * 关键依赖：PluginRegistry（查找 rootPath）、pathsService（数据根）、@shared/constants（PROTOCOL）。
+ * 关键依赖：PluginRegistry（查找 rootPath）、pathsService（数据根）、settingsStore（已选媒体）、@shared/constants（PROTOCOL）。
  */
 import { readFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { extname, isAbsolute, join, relative, resolve } from 'node:path'
-import { protocol, type Session } from 'electron'
+import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { app, protocol, type Session } from 'electron'
 import { PROTOCOL } from '@shared/constants'
 import { resolvePluginUi } from '@shared/types/plugin'
-import { getAppPaths } from '@main/paths/pathsService'
+import { defaultDataRoot, getAppPaths } from '@main/paths/pathsService'
+import { settingsStore } from '@main/settings/SettingsStore'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { resolveThemeTokens, themeTokensToCss } from '@main/theme/resolveThemeCss'
 
@@ -111,14 +111,26 @@ function parsePluginUrl(url: string): { pluginId: string; filePath: string } | n
   }
 }
 
-/** 绝对路径是否落在允许的媒体根（用户主目录或数据根）内 */
+/** 绝对路径是否落在 root 内（含 root 自身）；沿用 path.relative 穿越防护 */
+function isInsideRoot(root: string, abs: string): boolean {
+  if (!root) return false
+  const rel = relative(root, abs)
+  if (rel === '') return true
+  return Boolean(rel) && !rel.startsWith('..') && !isAbsolute(rel)
+}
+
+/** 绝对路径是否落在允许的媒体根（数据根 + 设置中用户显式选择的媒体目录）内 */
 function isAllowedMediaPath(abs: string): boolean {
-  const roots = [homedir(), getAppPaths().root]
+  const roots = [getAppPaths().root, defaultDataRoot()]
   for (const root of roots) {
-    if (!root) continue
-    const rel = relative(root, abs)
-    if (rel && !rel.startsWith('..') && !isAbsolute(rel)) return true
-    if (rel === '') return true
+    if (isInsideRoot(root, abs)) return true
+  }
+  const theme = settingsStore.getTheme()
+  const splash = settingsStore.getAll().general.splashBackground
+  const selected = [theme.background?.value, splash?.value]
+  for (const value of selected) {
+    if (typeof value !== 'string' || !isAbsolute(value)) continue
+    if (isInsideRoot(dirname(resolve(value)), abs)) return true
   }
   return false
 }
@@ -157,7 +169,7 @@ export function initPluginProtocol(): void {
     const mediaAbs = resolveMediaRequest(request.url)
     if (mediaAbs) {
       try {
-        return await fileResponse(mediaAbs, true)
+        return await fileResponse(mediaAbs, !app.isPackaged)
       } catch {
         return new Response('not found', { status: 404 })
       }

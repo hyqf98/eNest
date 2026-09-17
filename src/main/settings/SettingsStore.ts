@@ -8,6 +8,7 @@
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { nativeTheme } from 'electron'
 import type {
   GeneralSettings as SharedGeneralSettings,
   QuickLauncherSettings,
@@ -48,7 +49,14 @@ const DEFAULTS: SettingsData = {
     tabStyle: 'classic',
     animationLevel: 'medium',
     fontFamily: '',
-    quickLauncher: defaultQuickLauncher()
+    fontFamilyEn: '',
+    fontSizeScale: 1,
+    customFonts: [],
+    sessionTabs: [],
+    sessionActivePluginId: '',
+    proxy: { type: 'none' },
+    quickLauncher: defaultQuickLauncher(),
+    splashBackground: { type: 'brand', opacity: 0.55 }
   },
   plugins: {}
 }
@@ -100,14 +108,21 @@ export class SettingsStore {
     this.ensureLoaded()
     if (theme.mode) this.data.theme.mode = theme.mode as ThemeMode
     if (theme.overrides) {
+      const ov = theme.overrides as Record<string, Record<string, string> | undefined>
       for (const key of ['light', 'dark'] as const) {
-        if (theme.overrides[key]) {
-          this.data.theme.overrides[key] = theme.overrides[key]
+        if (ov[key]) {
+          this.data.theme.overrides[key] = ov[key]
         }
       }
+      // system 模式：preload 把 overrides 写在 system 键，这里按 nativeTheme 落到 light/dark
+      if (ov.system) {
+        const resolved: 'light' | 'dark' = nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+        this.data.theme.overrides[resolved] = ov.system
+      }
     }
-    if (theme.packId !== undefined) this.data.theme.packId = theme.packId
-    if (theme.background !== undefined) this.data.theme.background = theme.background
+    // 用 `in` 判断：显式传 undefined/null 可清除 packId / background（取消主题包/背景）
+    if ('packId' in theme) this.data.theme.packId = theme.packId
+    if ('background' in theme) this.data.theme.background = theme.background
     await this.persist()
     sendShellEvent({ type: 'theme-changed', mode: this.data.theme.mode })
     return this.getTheme()
@@ -118,7 +133,12 @@ export class SettingsStore {
     this.ensureLoaded()
     if (partial.theme) this.data.theme = { ...this.data.theme, ...partial.theme }
     if (partial.general) this.data.general = { ...this.data.general, ...partial.general }
-    if (partial.plugins) this.data.plugins = { ...this.data.plugins, ...partial.plugins }
+    // plugins 按插件 id 合并 bag，避免整包覆盖丢失未提交的键
+    if (partial.plugins) {
+      for (const [id, bag] of Object.entries(partial.plugins)) {
+        this.data.plugins[id] = { ...(this.data.plugins[id] ?? {}), ...(bag ?? {}) }
+      }
+    }
     if (partial.general && 'dataRoot' in partial.general) {
       setAppPathsRoot(this.data.general.dataRoot ?? null)
     }
