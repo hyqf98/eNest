@@ -1,12 +1,13 @@
 # electron-builder 打包配置（YAML 会被自动发现，无需 --config）
-# 静态资源：assets/icons → Resources/icons（存储走 Node 内置 node:sqlite，无原生依赖）
+# 图标与静态资源统一放 assets/icons（icon.icns / icon.ico / icon.png）
+# 运行时 extraResources：assets/icons → Resources/icons（存储走 node:sqlite，无原生依赖）
 
 appId: com.enest.shell
 productName: eNest
 copyright: Copyright © 2026 eNest
 directories:
   output: release
-  buildResources: build
+  buildResources: assets/icons
 
 # GitHub Releases 自动更新源（electron-updater 读取 app-update.yml）
 publish:
@@ -28,7 +29,8 @@ artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
 mac:
   category: public.app-category.productivity
-  # electron-builder 自动使用 buildResources 下的 icon.png / icon.icns
+  # electron-builder 使用 buildResources(assets/icons) 下的 icon.icns / icon.png
+  icon: assets/icons/icon.icns
   hardenedRuntime: false
   gatekeeperAssess: false
   target:
@@ -38,7 +40,8 @@ mac:
       arch: [x64, arm64]
 
 win:
-  # NSIS 需要 .ico；使用 build/icon.ico（由 electron-builder 自动发现）
+  # NSIS 需要 .ico；统一用 assets/icons/icon.ico
+  icon: assets/icons/icon.ico
   target:
     - target: nsis
       arch: [x64]
@@ -69,9 +72,9 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: eNest
-  installerIcon: build/icon.ico
-  uninstallerIcon: build/icon.ico
-  installerHeaderIcon: build/icon.ico
+  installerIcon: assets/icons/icon.ico
+  uninstallerIcon: assets/icons/icon.ico
+  installerHeaderIcon: assets/icons/icon.ico
   installerLanguages: [zh_CN, en_US]
 
 dmg:

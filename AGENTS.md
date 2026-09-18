@@ -9,8 +9,9 @@ npm run dev          # electron-vite dev
 npm run typecheck    # tsc node + web（提交前必须通过）
 npm run build        # electron-vite build
 npm run lint         # eslint（若配置存在）
-node scripts/rewrite-imports.mjs   # 相对路径 → @ 别名（可重复执行）
 ```
+
+本地工具脚本与 `packages/plugin-sdk` **不入壳子仓库**（见 `.gitignore`）；打包图标只认 `assets/icons/icon.{icns,ico,png}`。
 
 主进程/preload 变更需重启 `npm run dev`；纯 renderer 可依赖 HMR。
 
@@ -35,11 +36,7 @@ import type { PluginTab } from '@shared/types/plugin'
 import { pluginHost } from '../plugin/PluginHost'
 ```
 
-同一目录内相对导入（如 `./Button`）可以保留。发现历史相对路径时跑：
-
-```bash
-node scripts/rewrite-imports.mjs
-```
+同一目录内相对导入（如 `./Button`）可以保留。跨目录请直接写 `@` 别名。
 
 新增顶层目录时，必须同时改：`electron.vite.config.ts` 的 `sharedAlias`、`tsconfig.node.json`、`tsconfig.web.json`。
 

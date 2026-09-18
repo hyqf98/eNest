@@ -9,6 +9,11 @@ out/
 release/
 *.tsbuildinfo
 
+# 本地工具链 / SDK（不入壳子仓库；图标统一在 assets/icons）
+scripts/
+packages/
+build/
+
 # Electron
 *.dmg
 *.exe

@@ -5,17 +5,12 @@
   "main": "./out/main/index.js",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/*"
-  ],
   "scripts": {
     "dev": "electron-vite dev",
-    "postinstall": "node scripts/patch-electron-app.mjs",
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "lint": "eslint src --ext .ts,.tsx",
-    "e2e:smoke": "node scripts/e2e-smoke.mjs",
     "dev:debug": "ENEST_REMOTE_DEBUG=9222 electron-vite dev",
     "pack:dir": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder --publish never",
