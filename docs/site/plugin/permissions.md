@@ -8,23 +8,40 @@ permission denied: <perm>
 
 ---
 
-## 权限键全表
+## 权限键全表（当前 28 项）
 
-源码：`src/shared/types/plugin.ts` → `PluginPermission`
+权威源：`src/shared/types/plugin.ts` → `PluginPermission` / `PLUGIN_PERMISSIONS`（运行时 manifest 校验同源）。权限列表随壳子演进动态增加——新增贡献点类权限以「插槽化 / 贡献点」相关文档为准。
 
 | 权限键 | 覆盖的 API | 说明 | 敏感度 |
 |--------|-----------|------|--------|
 | `clipboard.read` | `enest.clipboard.readText()` | 读系统剪贴板纯文本 | 高 |
 | `clipboard.write` | `enest.clipboard.writeText(text)` | 写系统剪贴板纯文本 | 中 |
+| `clipboard.readImage` | `enest.clipboard.readImage()` | 读系统剪贴板图片 | 高 |
+| `clipboard.writeImage` | `enest.clipboard.writeImage(dataUrl)` | 写系统剪贴板图片 | 中 |
+| `clipboard.history` | `enest.clipboard.history.list/get/remove/clear/togglePin` | 读取主机侧剪贴板历史 | 高 |
+| `screen.capture` | `enest.screen.capture()`<br>`enest.screen.selectRegion()` | 屏幕截图 / 区域选择 | 高 |
+| `screen.record` | `enest.screen.record.start/stop/cancel` | 屏幕录制 | 高 |
+| `pin.create` | `enest.pin.open/close/list/closeAll` | 创建置顶贴图窗口 | 中 |
+| `net.fetch` | `enest.net.fetch(req)` | 受控 HTTPS 请求（仅 GET/POST，2MB 上限） | 中 |
 | `shell.openExternal` | `enest.shell.openExternal(url)` | 用系统默认浏览器打开 http(s) 链接 | 中 |
 | `storage.local` | `enest.storage.get/set/remove/clear`<br>`enest.storage.session.get/set/remove/clear` | 持久化 KV **与** 会话态 KV（复用同一权限） | 低 |
 | `notify` | `enest.notify({ title, body })` | 操作系统通知 | 低 |
 | `ui.setTitle` | `enest.ui.setTitle(title)`<br>别名 `enest.setTitle` | 修改 Tab 标题 | 低 |
 | `ui.setIcon` | `enest.ui.setIcon(icon)`<br>别名 `enest.setIcon` | 修改 Tab 图标 | 低 |
 | `ui.setBadge` | `enest.ui.setBadge(badge)`<br>别名 `enest.setBadge` | 修改 Tab 角标 | 低 |
-| `ui.resize` | `enest.ui.resize(size)`<br>别名 `enest.resize` | 建议内容尺寸（当前预留） | 低 |
+| `ui.resize` | `enest.ui.resize(size)`<br>`enest.ui.setHeight(height)`<br>别名 `enest.resize` | 建议内容尺寸 / Quick 高度上报 | 低 |
 | `ui.toast` | `enest.ui.toast({ message, type? })` | 壳子应用内 Toast | 低 |
 | `settings.register` | `enest.settings.register(section)` | 向壳子设置页注入插件设置分组 | 中 |
+| `settings.page` | （预留） | 自定义设置页嵌入（页面嵌入后续批次接线；设置 item `type: "page"` 需此项） | 中 |
+| `hotkey` | `enest.hotkey.register(acc, opts?)`<br>`enest.hotkey.unregister(acc)` | 注册/注销全局快捷键（每插件上限 4 个；与壳子 Quick 热键、系统/其它应用占用互斥） | 高 |
+| `contribute` | `enest.contribute.registerQuickProvider(meta)`<br>`enest.contribute.unregisterQuickProvider(id)`<br>`enest.contribute.respondQuickQuery(reqId, items)` | 贡献点（Quick 搜索 provider 注册与查询回传）；声明式 `contributes` 段无需此权限 | 中 |
+| `vault.write` | `enest.vault.set(key, secret)`<br>`enest.vault.has(keyOrRef)`<br>`enest.vault.remove(keyOrRef)` | 插件密钥保险库写入/存在/删除；`set` 返回 `secretRef`，无明文 get | 高 |
+| `ssh.session` | `enest.ssh.connect(input)`<br>`enest.ssh.write/resize/disconnect`<br>`enest.ssh.listSessions()` | SSH 终端会话生命周期 | 高 |
+| `ssh.exec` | `enest.ssh.exec(input)`<br>`enest.ssh.metrics.start/stop/latest`<br>`enest.ssh.completion.suggest(input)` | 远程命令执行 / 性能采样 / 命令补全 | 高 |
+| `ssh.sftp` | `enest.ssh.sftp.list/download/upload`<br>`enest.ssh.pickLocalFile(opts?)` | SFTP 文件列表与传输、本地文件选择 | 高 |
+| `db.connect` | `enest.db.test/open/close/listSessions/pickSqliteFile` | 数据库连接生命周期与 SQLite 文件选择 | 高 |
+| `db.query` | `enest.db.execute/explain/cancel`<br>`enest.db.applyChanges`<br>`enest.db.importPreview/importRun` | SQL 执行、结果集变更与 CSV 导入 | 高 |
+| `db.schema` | `enest.db.schema.tree/describe/ddl`<br>`enest.db.completion.suggest`<br>`enest.db.dialects.list` | 对象树 / 表详情 / DDL / SQL 补全 / 方言词库 | 中 |
 
 ---
 
@@ -36,7 +53,8 @@ permission denied: <perm>
 |-----|------|
 | `enest.theme.getTokens()` / `ui.getThemeTokens()` | 主题感知是基础能力 |
 | `enest.ui.onThemeChange(cb)` | 同上 |
-| `enest.theme.register(pack)` | 主题包注册；`source` 自动绑定插件 id |
+| `enest.theme.register(pack)` | 主题包注册；`source` 自动绑定插件 id（每插件上限 8 个，仅能覆盖自己的 pack） |
+| `enest.i18n.getLocale()` / `onLocaleChange(cb)` | 语言感知是基础能力 |
 | `enest.settings.get(key)` / `set(key, value)` | 读写本插件自己的设置，由 Bridge / SettingsStore 按 pluginId 隔离 |
 | `enest.on / off` | 事件总线 |
 | `enest.onEnter / onOut / onBeforeClose / onDestroy` | 生命周期 |
@@ -68,10 +86,67 @@ permission denied: <perm>
 | `storage.session.clear` | `storage.local` |
 | `clipboard.readText` | `clipboard.read` |
 | `clipboard.writeText` | `clipboard.write` |
+| `clipboard.readImage` | `clipboard.readImage` |
+| `clipboard.writeImage` | `clipboard.writeImage` |
+| `clipboard.history.list` | `clipboard.history` |
+| `clipboard.history.get` | `clipboard.history` |
+| `clipboard.history.remove` | `clipboard.history` |
+| `clipboard.history.clear` | `clipboard.history` |
+| `clipboard.history.togglePin` | `clipboard.history` |
+| `screen.capture` | `screen.capture` |
+| `screen.selectRegion` | `screen.capture` |
+| `screen.record.start` | `screen.record` |
+| `screen.record.stop` | `screen.record` |
+| `screen.record.cancel` | `screen.record` |
+| `pin.open` | `pin.create` |
+| `pin.close` | `pin.create` |
+| `pin.closeAll` | `pin.create` |
+| `pin.list` | `pin.create` |
+| `net.fetch` | `net.fetch` |
 | `shell.openExternal` | `shell.openExternal` |
 | `notify` | `notify` |
 | `theme.register` | — （无需） |
 | `theme.getTokens` | — （无需） |
+| `ui.setHeight` | `ui.resize`（复用，无需单独声明） |
+| `hotkey.register` | `hotkey` |
+| `hotkey.unregister` | `hotkey` |
+| `i18n.getLocale` | — （无需） |
+| `contribute.registerQuickProvider` | `contribute` |
+| `contribute.unregisterQuickProvider` | `contribute` |
+| `contribute.respondQuickQuery` | `contribute` |
+| `vault.set` | `vault.write` |
+| `vault.has` | `vault.write` |
+| `vault.remove` | `vault.write` |
+| `ssh.connect` | `ssh.session` |
+| `ssh.write` | `ssh.session` |
+| `ssh.resize` | `ssh.session` |
+| `ssh.disconnect` | `ssh.session` |
+| `ssh.listSessions` | `ssh.session` |
+| `ssh.exec` | `ssh.exec` |
+| `ssh.metrics.start` | `ssh.exec` |
+| `ssh.metrics.stop` | `ssh.exec` |
+| `ssh.metrics.latest` | `ssh.exec` |
+| `ssh.completion.suggest` | `ssh.exec` |
+| `ssh.sftp.list` | `ssh.sftp` |
+| `ssh.sftp.download` | `ssh.sftp` |
+| `ssh.sftp.upload` | `ssh.sftp` |
+| `ssh.pickLocalFile` | `ssh.sftp` |
+| `db.test` | `db.connect` |
+| `db.open` | `db.connect` |
+| `db.close` | `db.connect` |
+| `db.listSessions` | `db.connect` |
+| `db.pickSqliteFile` | `db.connect` |
+| `db.execute` | `db.query` |
+| `db.explain` | `db.query` |
+| `db.cancel` | `db.query` |
+| `db.applyChanges` | `db.query` |
+| `db.importPreview` | `db.query` |
+| `db.importRun` | `db.query` |
+| `db.schema.tree` | `db.schema` |
+| `db.schema.describe` | `db.schema` |
+| `db.schema.ddl` | `db.schema` |
+| `db.completion.suggest` | `db.schema` |
+| `db.dialects.list` | `db.schema` |
 
 未出现在映射表中的 method 返回：`unknown method: <method>`。
 
@@ -120,7 +195,7 @@ permission denied: <perm>
 ## 处理权限错误
 
 ```js
-const api = window.enest || window.zapi
+const api = window.enest // zapi 为 @deprecated 历史别名，计划 v2 移除
 
 try {
   await api.clipboard.writeText('x')
@@ -180,6 +255,6 @@ async function canCall(fn) {
 
 ## 相关文档
 
-- [zapi API](api.md) — 各方法的权限标注与错误
+- [enest API](api.md) — 各方法的权限标注与错误
 - [错误码](errors.md) — `permission denied` 与其它错误
-- [plugin.json](manifest.md) — 清单字段
+- [plugin.json](manifest.md) — 清单字段（含声明式 `contributes` 贡献点段）

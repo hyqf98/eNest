@@ -1,14 +1,15 @@
 /**
  * AppBackground — 固定底层背景媒体层
  * color 直接铺色（含 CSS 渐变）；image/video 按 opacity + object-fit 渲染。
- * 高动画档附加 AmbientParticles 气泡层。
+ * 高动画档附加 AmbientParticles 气泡层；并挂载 useFpsGuard（high 档 FPS 采样自动降级）。
  * pointer-events: none；z-index: 0；内容层在 ShellLayout 中 z-index: 1。
- * 依赖：useTheme（background）、resolveMediaSrc、AmbientParticles。
+ * 依赖：useTheme（background）、resolveMediaSrc、AmbientParticles、useFpsGuard。
  */
 import { useEffect } from 'react'
 import type { BackgroundConfig } from '@shared/types/plugin'
 import { resolveMediaSrc, useThemeStore } from '@renderer/hooks/useTheme'
 import { AmbientParticles } from '@renderer/components/AmbientParticles'
+import { useFpsGuard } from '@renderer/hooks/useFpsGuard'
 
 function MediaLayer({ config }: { config: BackgroundConfig }) {
   const { src, playable, placeholder } = resolveMediaSrc(config.value)
@@ -54,11 +55,18 @@ function MediaLayer({ config }: { config: BackgroundConfig }) {
 export function AppBackground() {
   const background = useThemeStore((s) => s.background)
   const active = !!background && background.type !== 'none' && !!background.value
+  const opacity = background?.opacity ?? 0.85
+  // FPS 守卫：high 档采样，连续掉帧自动降 medium（App.tsx 不必接线）
+  useFpsGuard()
 
   useEffect(() => {
     document.documentElement.classList.toggle('has-bg-media', active)
-    return () => document.documentElement.classList.remove('has-bg-media')
-  }, [active])
+    document.documentElement.style.setProperty('--bg-media-opacity', String(opacity))
+    return () => {
+      document.documentElement.classList.remove('has-bg-media')
+      document.documentElement.style.removeProperty('--bg-media-opacity')
+    }
+  }, [active, opacity])
 
   return (
     <>

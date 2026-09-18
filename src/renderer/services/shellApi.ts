@@ -14,7 +14,13 @@ import type {
   ThemePack,
   ThemeTokens
 } from '@shared/types/plugin'
-import type { ShellEventPayload, InstallJobInfo, ProxyTestResult, UpdateStatePayload } from '@shared/types/ipc'
+import type {
+  ShellEventPayload,
+  InstallJobInfo,
+  PluginCallTraceEntry,
+  ProxyTestResult,
+  UpdateStatePayload
+} from '@shared/types/ipc'
 import type {
   ApplicationScanResult,
   QuickCommand,
@@ -55,7 +61,8 @@ export interface ProxySetResult {
 /** preload 注入到渲染进程的完整 shell 能力面 */
 export interface ShellApi {
   getPlugins(): Promise<PluginSummary[]>
-  openPlugin(id: string): Promise<void>
+  /** enter.code 透传给插件 onEnter（首页卡片/轨道入口等贡献点打开场景） */
+  openPlugin(id: string, enter?: { code?: string; payload?: unknown }): Promise<void>
   closePlugin(tabId: string): Promise<void>
   activatePlugin(tabId: string): Promise<void>
   /** 隐藏全部插件原生视图（回首页/设置/开发者时，避免遮挡壳子） */
@@ -66,21 +73,25 @@ export interface ShellApi {
   goHome?(): Promise<void>
   /** 主壳切换视图 */
   setShellView?(view: string): Promise<void>
-  /** 悬浮窗按展开态改宽度（固定宽度后为 no-op） */
-  resizeOrbOverlay?(expanded: boolean): Promise<void>
-  /** 悬浮窗命中：true=可点交互区，false=穿透给下层插件 */
-  setOrbOverlayHit?(receive: boolean): Promise<void>
+  /** 圆轨 rail 视图展开/收起：主进程切换 WebContentsView 宽度 */
+  setOrbRailExpanded?(expanded: boolean): Promise<void>
   syncOrbState?(state: {
     view: string
     tabStyle: string
     activeTabId: string | null
+    /** 可选：主进程以 settingsStore 为准，不信任该字段 */
+    animationLevel?: string
+    theme?: { mode: string; tokens: Record<string, string> }
     tabs: unknown[]
   }): Promise<void>
   getOrbState?(): Promise<{
     view: string
     tabStyle: string
     activeTabId: string | null
+    animationLevel: string
+    theme: { mode: string; tokens: Record<string, string> }
     tabs: unknown[]
+    contribEntries?: import('@shared/types/ipc').OrbRailState['contribEntries']
   }>
   /** 卸载插件：关 Tab → 清 storage → 删文件 → 重扫；结果经 uninstall-result 事件 */
   uninstallPlugin?(pluginId: string): Promise<void>
@@ -100,6 +111,8 @@ export interface ShellApi {
   loadDevPlugin(dirPath: string): Promise<PluginSummary>
   reloadPlugin(pluginId: string): Promise<void>
   openDevTools(pluginId: string): Promise<void>
+  /** plugin:call 调用跟踪（Electron；mock 返回空数组） */
+  getPluginCallTrace?(): Promise<PluginCallTraceEntry[]>
   getSettings(): Promise<ShellSettingsData>
   setSettings(settings: Partial<ShellSettingsData>): Promise<void>
   /** 拉取插件已注册的设置 section 列表（Electron）；mock 返回空数组 */
@@ -176,7 +189,15 @@ export interface ShellApi {
   quickSetHotkeys?(payload: {
     enabled?: boolean
     hotkeys?: string[]
+    activeHotkey?: string
   }): Promise<QuickHotkeyApplyResult>
+  quickProbeHotkey?(acc: string): Promise<{
+    acc: string
+    free: boolean
+    ours: boolean
+    hint?: string
+  }>
+  quickResize?(height: number, animate?: boolean): void
   onQuickShown?(cb: () => void): () => void
 }
 
@@ -194,19 +215,19 @@ function createMockApi(): ShellApi {
   }
 
   const mockPaths: AppPaths = {
-    root: '~/eNest',
-    plugins: '~/eNest/plugins',
-    data: '~/eNest/data',
-    themes: '~/eNest/themes',
-    settings: '~/eNest/settings.json',
-    database: '~/eNest/data/enest.db'
+    root: '~/.eNest',
+    plugins: '~/.eNest/plugins',
+    data: '~/.eNest/data',
+    themes: '~/.eNest/themes',
+    settings: '~/.eNest/settings.json',
+    database: '~/.eNest/data/enest.db'
   }
 
   return {
     async getPlugins() {
       return mockRegistry.getPlugins()
     },
-    async openPlugin(id) {
+    async openPlugin(id, _enter) {
       const plugin = mockRegistry.getById(id)
       if (!plugin) return
       if (plugin.installed && plugin.enabled === false) {
@@ -249,17 +270,21 @@ function createMockApi(): ShellApi {
     async setShellView() {
       /* mock */
     },
-    async resizeOrbOverlay() {
-      /* mock */
-    },
-    async setOrbOverlayHit() {
+    async setOrbRailExpanded() {
       /* mock */
     },
     async syncOrbState() {
       /* mock */
     },
     async getOrbState() {
-      return { view: 'home', tabStyle: 'classic', activeTabId: null, tabs: [] }
+      return {
+        view: 'home',
+        tabStyle: 'classic',
+        activeTabId: null,
+        animationLevel: 'medium',
+        theme: { mode: 'light', tokens: {} },
+        tabs: []
+      }
     },
     async uninstallPlugin(id) {
       const name = mockRegistry.getById(id)?.name ?? id
@@ -313,14 +338,16 @@ function createMockApi(): ShellApi {
       }
     },
     async loadDevPlugin(dirPath) {
-      const id = `dev.local.${dirPath.split(/[/\\]/).filter(Boolean).pop() ?? 'plugin'}`
+      // mock：空路径模拟系统选择框，给一个固定开发目录
+      const path = dirPath.trim() || '/tmp/enest-dev-plugin'
+      const id = `dev.local.${path.split(/[/\\]/).filter(Boolean).pop() ?? 'plugin'}`
       const existing = mockRegistry.getById(id)
       if (existing) return existing
       const dev: PluginSummary = {
         id,
         name: id.split('.').pop() ?? id,
         version: '0.0.1-dev',
-        description: `本地开发插件 · ${dirPath}`,
+        description: `本地开发插件 · ${path}`,
         author: 'dev',
         category: '开发',
         installs: 'dev',
@@ -328,8 +355,9 @@ function createMockApi(): ShellApi {
         glyph: '⚙',
         permissions: [],
         installed: true,
-        rootPath: dirPath,
+        rootPath: path,
         devUrl: 'http://127.0.0.1:5173',
+        dev: true,
         ui: { chrome: 'default', themeAware: true, background: 'opaque', preferredColorScheme: 'auto' },
       }
       return dev
@@ -339,6 +367,9 @@ function createMockApi(): ShellApi {
     },
     async openDevTools() {
       /* mock no-op */
+    },
+    async getPluginCallTrace() {
+      return []
     },
     async getSettings() {
       settings = readMockSettings()
@@ -595,6 +626,9 @@ function createMockApi(): ShellApi {
     async quickSearch() {
       return { items: [] }
     },
+    quickResize() {
+      /* mock：浏览器无小窗高度 */
+    },
     async quickOpen() {
       return { ok: false, error: 'mock' }
     },
@@ -602,7 +636,7 @@ function createMockApi(): ShellApi {
       return { apps: [], complete: false, errors: ['mock'] }
     },
     async quickGetConfig() {
-      return { enabled: false, hotkeys: [], platform: 'darwin' as const }
+      return { enabled: false, hotkeys: [], platform: 'darwin' as const, activeHotkey: '' }
     },
     async quickSetHotkeys() {
       return {
@@ -611,6 +645,7 @@ function createMockApi(): ShellApi {
         hotkeys: [],
         registered: [],
         failed: [],
+        activeHotkey: '',
         error: 'mock'
       }
     },

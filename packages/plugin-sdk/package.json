@@ -1,0 +1,41 @@
+{
+  "name": "@enest/plugin-sdk",
+  "version": "0.1.0",
+  "description": "eNest 插件开发者 SDK — window.enest 运行时 API 类型 + plugin.json manifest 校验",
+  "type": "module",
+  "license": "MIT",
+  "main": "./src/enest-api.d.ts",
+  "types": "./src/enest-api.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/enest-api.d.ts",
+      "default": "./src/enest-api.d.ts"
+    },
+    "./enest-api": "./src/enest-api.d.ts",
+    "./manifest-schema.json": "./src/manifest-schema.json",
+    "./validate": "./src/validate.mjs",
+    "./bin": "./bin/enest-validate.mjs"
+  },
+  "bin": {
+    "enest-validate": "./bin/enest-validate.mjs"
+  },
+  "files": [
+    "src",
+    "bin",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "ajv": "^8.17.0 || ^8.20.0"
+  },
+  "peerDependenciesMeta": {
+    "ajv": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

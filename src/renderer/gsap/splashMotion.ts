@@ -16,6 +16,10 @@ export interface SplashHandles {
   node: Element | null
   wordmark: Element | null
   ring: Element | null
+  /** 副标题；high 档参与入场（可选，旧句柄兼容） */
+  sub?: Element | null
+  /** 标题容器；high 档整体缩放入场（可选） */
+  stage?: Element | null
 }
 
 /** 档位时长缩放系数 */
@@ -84,13 +88,17 @@ export function playSplash(
     strokeWidth: isHigh ? 7 : 6,
   })
   gsap.set(h.ring, { autoAlpha: 0, scale: 0.92 })
+  if (isHigh && h.stage) {
+    gsap.set(h.stage, { scale: 0.94, transformOrigin: '50% 50%' })
+    if (h.sub) gsap.set(h.sub, { autoAlpha: 0, y: 10, letterSpacing: '0.32em' })
+  }
 
   tl.to(h.hex, { strokeDashoffset: 0, duration: 0.8 * m, ease: 'power2.inOut' }, 0.08 * m)
     .to(
       h.ring,
       {
-        autoAlpha: isHigh ? 0.5 : 0.35,
-        scale: isHigh ? 1.12 : 1.08,
+        autoAlpha: isHigh ? 0.55 : 0.35,
+        scale: isHigh ? 1.14 : 1.08,
         duration: 0.65 * m,
         transformOrigin: '50% 50%',
       },
@@ -110,10 +118,10 @@ export function playSplash(
     .to(
       h.node,
       {
-        scale: isHigh ? 1.35 : 1.2,
+        scale: isHigh ? 1.45 : 1.2,
         duration: 0.26 * m,
         yoyo: true,
-        repeat: 1,
+        repeat: isHigh ? 2 : 1,
         ease: 'sine.inOut',
       },
       1.05 * m,
@@ -123,6 +131,27 @@ export function playSplash(
       { autoAlpha: 1, y: 0, duration: 0.38 * m, ease: isHigh ? 'back.out(1.4)' : 'power3.out' },
       1.0 * m,
     )
-    .to(h.ring, { autoAlpha: 0, scale: isHigh ? 1.35 : 1.22, duration: 0.45 * m }, 1.25 * m)
-    .to({}, { duration: (isHigh ? 0.28 : 0.18) * m })
+    .to(h.ring, { autoAlpha: 0, scale: isHigh ? 1.48 : 1.22, duration: 0.45 * m }, 1.25 * m)
+
+  if (isHigh) {
+    // 高档：舞台整体回弹 + 副标题字距收束 + 二次光环
+    if (h.stage) {
+      tl.to(h.stage, { scale: 1, duration: 0.55 * m, ease: 'back.out(1.6)' }, 0.05 * m)
+    }
+    if (h.sub) {
+      tl.to(
+        h.sub,
+        { autoAlpha: 1, y: 0, letterSpacing: '0.18em', duration: 0.45 * m, ease: 'power2.out' },
+        1.15 * m,
+      )
+    }
+    tl.fromTo(
+      h.ring,
+      { autoAlpha: 0, scale: 0.85 },
+      { autoAlpha: 0.28, scale: 1.25, duration: 0.35 * m, ease: 'power1.out' },
+      1.55 * m,
+    ).to(h.ring, { autoAlpha: 0, scale: 1.55, duration: 0.4 * m }, 1.9 * m)
+  }
+
+  tl.to({}, { duration: (isHigh ? 0.28 : 0.18) * m })
 }

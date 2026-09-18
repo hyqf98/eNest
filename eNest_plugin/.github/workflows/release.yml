@@ -6,6 +6,7 @@ on:
     paths:
       - 'plugins/**'
       - 'scripts/**'
+      - 'docs/**'
       - '.github/workflows/release.yml'
   workflow_dispatch: {}
 
@@ -21,6 +22,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Install schema validator deps
+        run: npm install --no-save ajv@^8
+
+      - name: Validate plugin manifests
+        run: node scripts/validate-manifests.mjs
 
       - name: Build registry
         run: node scripts/build-registry.mjs
@@ -81,6 +88,10 @@ jobs:
         with:
           tag_name: plugins-${{ github.run_number }}
           name: Plugins ${{ github.run_number }}
+          # 打包测试默认 draft，不进入 /releases/latest，避免误发第一版
+          # 正式发版时将 draft 改为 false（或改为 workflow 输入控制）
+          draft: true
+          prerelease: false
           files: |
             dist/**
           generate_release_notes: true

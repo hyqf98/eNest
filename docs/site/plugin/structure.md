@@ -10,8 +10,7 @@ my-plugin/
 ├── logo.png         # 可选：图标（建议 512×512）
 ├── index.html       # 必选：主界面入口
 ├── README.md        # 建议：市场详情页渲染
-├── settings.html    # 可选：设置面板
-└── preload.js       # 可选（壳子已注入 enest API，一般无需自带）
+└── settings.html    # 可选：设置面板（保留/实验，壳子尚未消费）
 ```
 
 ## 约定说明

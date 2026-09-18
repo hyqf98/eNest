@@ -2,15 +2,46 @@
   "id": "com.example.hello",
   "name": "Hello 示例",
   "version": "1.0.0",
-  "description": "eNest 插件仓库最小示例：展示 manifest 与市场元数据约定。",
+  "description": "eNest 标准插件骨架：manifest + 静态资源 + 全幅渲染。",
   "author": "eNest",
   "main": "index.html",
   "category": "效率",
   "icon": "icon.svg",
-  "permissions": ["storage.local", "ui.setTitle"],
+  "permissions": ["storage.local", "ui.setTitle", "ui.toast", "contribute", "settings.register"],
   "engines": { "enest": ">=0.1.0" },
+  "features": [
+    { "code": "main", "explain": "打开 Hello", "cmds": ["hello", "你好"] },
+    { "code": "hello", "explain": "首页卡片入口", "cmds": ["问候"] }
+  ],
+  "contributes": {
+    "settings": [
+      {
+        "id": "hello-prefs",
+        "title": "Hello 插件设置",
+        "items": [
+          { "key": "greeting", "type": "text", "label": "问候语", "default": "你好，eNest！" },
+          { "key": "autoHello", "type": "switch", "label": "启动时自动问候", "default": false },
+          { "key": "fontSize", "type": "slider", "label": "展示字号", "min": 12, "max": 28, "step": 1, "default": 14 },
+          { "key": "accent", "type": "color", "label": "强调色", "default": "#7aa2ff" }
+        ]
+      }
+    ],
+    "homeCards": [
+      {
+        "id": "hello-card",
+        "title": "Hello 快捷入口",
+        "glyph": "H",
+        "color": "#7aa2ff",
+        "explain": "从首页一键打开 Hello 插件",
+        "openCode": "hello"
+      }
+    ],
+    "railEntries": [
+      { "id": "hello-rail", "glyph": "H", "color": "#7aa2ff", "title": "Hello", "openCode": "hello" }
+    ]
+  },
   "ui": {
-    "chrome": "default",
+    "chrome": "none",
     "themeAware": true,
     "background": "opaque",
     "preferredColorScheme": "auto"

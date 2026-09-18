@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>屏幕助手</title>
+    <style>
+      :root {
+        --bg: #0f1419;
+        --surface: #161b22;
+        --surface-2: #1c2330;
+        --border: rgba(255, 255, 255, 0.08);
+        --text: #e8eef7;
+        --text-2: #9aa7b8;
+        --text-3: #6b7789;
+        --accent: #38bdf8;
+        --ok: #3dd68c;
+        --danger: #ff6b7a;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        overflow: hidden;
+      }
+      .app {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        height: 100%;
+        min-height: 0;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+      }
+      h1 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      .status {
+        font-size: 12px;
+        color: var(--text-2);
+        max-width: 50%;
+        text-align: right;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .status.rec { color: var(--danger); font-weight: 600; }
+      main {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        min-height: 0;
+      }
+      nav {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 12px;
+        border-right: 1px solid var(--border);
+        background: var(--surface);
+      }
+      nav button {
+        appearance: none;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--text-2);
+        text-align: left;
+        padding: 10px 12px;
+        border-radius: 10px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      nav button:hover { background: var(--surface-2); color: var(--text); }
+      nav button.active {
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+        border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+        color: var(--accent);
+      }
+      .panel {
+        display: none;
+        padding: 16px;
+        overflow: auto;
+        min-height: 0;
+      }
+      .panel.active { display: block; }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .btn {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        color: var(--text);
+        padding: 8px 14px;
+        border-radius: 10px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .btn:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+      .btn.primary {
+        background: var(--accent);
+        border-color: transparent;
+        color: #041018;
+        font-weight: 600;
+      }
+      .btn.danger {
+        background: color-mix(in srgb, var(--danger) 18%, var(--surface-2));
+        border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+        color: var(--danger);
+      }
+      .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      .hint {
+        font-size: 12px;
+        color: var(--text-3);
+        line-height: 1.5;
+        margin-bottom: 12px;
+      }
+      .preview {
+        border: 1px dashed var(--border);
+        border-radius: 12px;
+        min-height: 180px;
+        display: grid;
+        place-items: center;
+        background: var(--surface);
+        overflow: hidden;
+      }
+      .preview img {
+        max-width: 100%;
+        max-height: 320px;
+        display: block;
+      }
+      .preview .empty {
+        color: var(--text-3);
+        font-size: 12px;
+        padding: 24px;
+      }
+      .check {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--text-2);
+        user-select: none;
+      }
+      footer {
+        border-top: 1px solid var(--border);
+        padding: 10px 16px;
+        font-size: 12px;
+        color: var(--text-3);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        background: var(--surface);
+        cursor: pointer;
+      }
+      .card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+      .card img { width: 100%; height: 88px; object-fit: cover; display: block; background: #000; }
+      .card .meta { padding: 6px 8px; font-size: 11px; color: var(--text-3); }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>屏幕助手</h1>
+        <div class="status" id="status">就绪</div>
+      </header>
+      <main>
+        <nav>
+          <button data-tab="capture" class="active">截图</button>
+          <button data-tab="record">录屏</button>
+          <button data-tab="gallery">最近</button>
+        </nav>
+        <section class="panel active" id="panel-capture">
+          <div class="hint">
+            点击「矩形截图」后全屏选区；完成后可复制到剪贴板或贴到屏幕。
+          </div>
+          <div class="row">
+            <button class="btn primary" id="btn-capture">矩形截图</button>
+            <button class="btn" id="btn-full">全屏截图</button>
+            <button class="btn" id="btn-copy" disabled>复制图片</button>
+            <button class="btn" id="btn-pin" disabled>贴到屏幕</button>
+          </div>
+          <div class="preview" id="shot-preview"><div class="empty">尚无截图</div></div>
+        </section>
+        <section class="panel" id="panel-record">
+          <div class="hint">
+            选择区域后开始录制；停止后文件保存在 <code>~/eNest/recordings/</code>。
+            系统音频受操作系统权限限制，不可用时将自动降级为无声。
+          </div>
+          <div class="row">
+            <button class="btn primary" id="btn-rec-start">选择区域并开始</button>
+            <button class="btn danger" id="btn-rec-stop" disabled>停止</button>
+            <button class="btn" id="btn-rec-cancel" disabled>取消</button>
+          </div>
+          <div class="row">
+            <label class="check"><input type="checkbox" id="chk-audio" /> 录入声音</label>
+          </div>
+          <div class="hint" id="rec-info"></div>
+        </section>
+        <section class="panel" id="panel-gallery">
+          <div class="hint">本次会话截取的图像，点击可贴到屏幕。</div>
+          <div class="grid" id="gallery"></div>
+        </section>
+      </main>
+      <footer id="footer">权限不足时请在市场详情中确认插件能力声明。</footer>
+    </div>
+    <script>
+      const api = window.enest || window.zapi
+      let lastShot = null
+      let recSession = null
+      const gallery = []
+
+      const $ = (id) => document.getElementById(id)
+      const status = (text, rec = false) => {
+        const el = $('status')
+        el.textContent = text
+        el.classList.toggle('rec', rec)
+      }
+      const toast = async (message, type = 'info') => {
+        try {
+          await api?.ui?.toast?.({ message, type })
+        } catch {}
+      }
+      const isPerm = (err) => String(err?.message || err).includes('permission denied')
+
+      document.querySelectorAll('nav button').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('nav button').forEach((b) => b.classList.remove('active'))
+          document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'))
+          btn.classList.add('active')
+          $('panel-' + btn.dataset.tab).classList.add('active')
+        })
+      })
+
+      function setShot(dataUrl) {
+        lastShot = dataUrl
+        $('shot-preview').innerHTML = '<img alt="截图" src="' + dataUrl + '"/>'
+        $('btn-copy').disabled = false
+        $('btn-pin').disabled = false
+        gallery.unshift({ dataUrl, ts: Date.now() })
+        if (gallery.length > 20) gallery.pop()
+        renderGallery()
+      }
+
+      function renderGallery() {
+        const root = $('gallery')
+        root.innerHTML = ''
+        if (!gallery.length) {
+          root.innerHTML = '<div class="empty">暂无记录</div>'
+          return
+        }
+        for (const item of gallery) {
+          const card = document.createElement('div')
+          card.className = 'card'
+          card.innerHTML = '<img alt=""/><div class="meta">' + new Date(item.ts).toLocaleTimeString() + '</div>'
+          card.querySelector('img').src = item.dataUrl
+          card.onclick = async () => {
+            setShot(item.dataUrl)
+            try {
+              await api.pin.open({ dataUrl: item.dataUrl, width: 420 })
+              toast('已贴到屏幕', 'success')
+            } catch (e) {
+              toast(isPerm(e) ? '缺少 pin.create 权限' : String(e.message || e), 'error')
+            }
+          }
+          root.appendChild(card)
+        }
+      }
+
+      async function doCapture(mode) {
+        if (!api?.screen) {
+          toast('eNest API 不可用', 'error')
+          return
+        }
+        try {
+          status(mode === 'region' ? '请选择截图区域…' : '截取全屏…')
+          let bounds
+          if (mode === 'region') {
+            bounds = await api.screen.selectRegion()
+            if (!bounds) {
+              status('已取消')
+              return
+            }
+          }
+          const shot = await api.screen.capture({ bounds })
+          setShot(shot.dataUrl)
+          status(`已截取 ${shot.width}×${shot.height}`)
+          toast('截图完成', 'success')
+        } catch (e) {
+          status('截图失败')
+          toast(isPerm(e) ? '缺少 screen.capture 权限' : String(e.message || e), 'error')
+        }
+      }
+
+      $('btn-capture').onclick = () => doCapture('region')
+      $('btn-full').onclick = () => doCapture('full')
+
+      $('btn-copy').onclick = async () => {
+        if (!lastShot) return
+        try {
+          await api.clipboard.writeImage(lastShot)
+          toast('已复制图片', 'success')
+        } catch (e) {
+          toast(isPerm(e) ? '缺少 clipboard.writeImage 权限' : String(e.message || e), 'error')
+        }
+      }
+
+      $('btn-pin').onclick = async () => {
+        if (!lastShot) return
+        try {
+          await api.pin.open({ dataUrl: lastShot, width: 420 })
+          toast('已贴到屏幕', 'success')
+        } catch (e) {
+          toast(isPerm(e) ? '缺少 pin.create 权限' : String(e.message || e), 'error')
+        }
+      }
+
+      function setRecUi(running) {
+        $('btn-rec-start').disabled = running
+        $('btn-rec-stop').disabled = !running
+        $('btn-rec-cancel').disabled = !running
+        status(running ? '录制中…' : '就绪', running)
+      }
+
+      $('btn-rec-start').onclick = async () => {
+        if (!api?.screen?.record) return
+        try {
+          const bounds = await api.screen.selectRegion()
+          if (!bounds) {
+            status('已取消')
+            return
+          }
+          const withAudio = $('chk-audio').checked
+          const { sessionId } = await api.screen.record.start({ bounds, withAudio })
+          recSession = sessionId
+          setRecUi(true)
+          $('rec-info').textContent = `会话 ${sessionId.slice(0, 8)} · ${bounds.width}×${bounds.height}`
+        } catch (e) {
+          setRecUi(false)
+          toast(isPerm(e) ? '缺少 screen.record 权限' : String(e.message || e), 'error')
+        }
+      }
+
+      $('btn-rec-stop').onclick = async () => {
+        if (!recSession) return
+        try {
+          const result = await api.screen.record.stop(recSession)
+          recSession = null
+          setRecUi(false)
+          $('rec-info').textContent = `已保存 ${result.path}（${Math.round(result.size / 1024)} KB，${Math.round(result.durationMs / 1000)}s）`
+          toast('录屏完成', 'success')
+        } catch (e) {
+          recSession = null
+          setRecUi(false)
+          toast(String(e.message || e), 'error')
+        }
+      }
+
+      $('btn-rec-cancel').onclick = async () => {
+        if (!recSession) return
+        try {
+          await api.screen.record.cancel(recSession)
+        } catch {}
+        recSession = null
+        setRecUi(false)
+        $('rec-info').textContent = '已取消录制'
+      }
+
+      api?.onEnter?.(({ code }) => {
+        if (code === 'capture') void doCapture('region')
+        if (code === 'record') document.querySelector('[data-tab="record"]').click()
+        if (code === 'pin' && lastShot) void $('btn-pin').click()
+      })
+      api?.ui?.setTitle?.('屏幕助手')
+      renderGallery()
+    </script>
+  </body>
+</html>

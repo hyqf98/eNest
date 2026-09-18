@@ -13,14 +13,17 @@ GET https://github.com/hyqf98/eNest_plugin/releases/latest/download/{id}@{versio
 
 ## 目录结构
 
+标准插件形态见 [docs/PLUGIN_STRUCTURE.md](docs/PLUGIN_STRUCTURE.md)（对齐 uTools：`plugin.json` + `logo` + `index.html` + `assets/`）。
+
 ```
 eNest_plugin/
 ├── plugins/
 │   └── com.example.hello/
 │       ├── plugin.json          # 插件清单（权威元数据）
-│       ├── index.html           # 入口
-│       ├── icon.png             # 可选 128×128
-│       └── ...
+│       ├── logo.png             # 可选 128×128
+│       ├── index.html           # 入口（ui.chrome 缺省 none，全幅）
+│       └── assets/              # css / js / images
+├── docs/PLUGIN_STRUCTURE.md     # 标准结构说明
 ├── registry.json                # CI 生成，勿手改（本地可提交快照便于预览）
 ├── scripts/build-registry.mjs   # 扫 plugins/ 生成 registry
 ├── scripts/pack-plugin.mjs      # 打 .enestplugin（zip）
@@ -45,7 +48,7 @@ eNest_plugin/
   "homepage": "https://github.com/org/eNest_plugin/tree/main/plugins/com.example.hello",
   "engines": { "enest": ">=0.1.0" },
   "ui": {
-    "chrome": "default",
+    "chrome": "none",
     "themeAware": true,
     "background": "opaque",
     "preferredColorScheme": "auto"
@@ -69,9 +72,17 @@ eNest_plugin/
 | `main` | ✓ | 入口 HTML 相对路径 |
 | `category` | ✓ | 分类：效率 / 开发 / 设计 / 媒体 / 其它 |
 | `icon` | | 相对路径；缺省用 name 首字 |
-| `permissions` | | 与壳子权限表一致 |
-| `ui` | | chrome / themeAware / background / preferredColorScheme |
+| `permissions` | | 与壳子权限表一致（白名单见 `docs/plugin-manifest.schema.json`，权威源为壳子 `src/shared/types/plugin.ts` → `PLUGIN_PERMISSIONS`，当前 21 项） |
+| `engines` | | `enest` 版本范围：`*` / `^x.y.z` / `>=x.y.z` / 精确 |
+| `features` | | Quick 指令 `{ code, explain?, cmds }` |
+| `window` | | 最小尺寸 minWidth / minHeight |
+| `form` | | `mini` 命令面板小窗 / `panel` 主窗 Tab（缺省） |
+| `development` | | 开发态入口 URL `{ main }` |
+| `ui` | | chrome（缺省 none，default 已废弃）/ themeAware / background / preferredColorScheme |
 | `market` | | 市场展示扩展 |
+
+> Manifest JSON Schema：`docs/plugin-manifest.schema.json`（CI 用 ajv 校验，脚本 `scripts/validate-manifests.mjs`）。
+> 单文件快速校验也可用壳子仓库 SDK：`node ../eNest/packages/plugin-sdk/bin/enest-validate.mjs plugins/<id>/plugin.json`（详见 [packages/plugin-sdk](../eNest/packages/plugin-sdk/README.md)）。
 
 ## registry.json（壳子列表索引）
 
@@ -127,9 +138,13 @@ CI 由所有 `plugin.json` 聚合，**一次下载即可渲染完整列表与分
 # 1. 新建插件目录
 mkdir -p plugins/com.example.hello
 # 2. 写 plugin.json + index.html
-# 3. 本地生成索引预览
+# 3. 校验全部 manifest（ajv + docs/plugin-manifest.schema.json）
+node scripts/validate-manifests.mjs
+# 3b. 单文件校验（壳子 SDK CLI；workspaces 接线后也可 npx enest-validate）
+node ../eNest/packages/plugin-sdk/bin/enest-validate.mjs plugins/com.example.hello/plugin.json
+# 4. 本地生成索引预览（内部先跑同一校验，失败不产出）
 node scripts/build-registry.mjs
-# 4. 单包
+# 5. 单包
 node scripts/pack-plugin.mjs com.example.hello
 ```
 

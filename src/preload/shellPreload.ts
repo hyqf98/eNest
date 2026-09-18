@@ -10,6 +10,7 @@ import {
   IpcChannels,
   type InstallJobInfo,
   type OrbRailState,
+  type PluginCallTraceEntry,
   type ShellEventPayload,
   type UpdateStatePayload
 } from '@shared/types/ipc'
@@ -103,22 +104,26 @@ export interface EnestShellApi {
   goHome(): Promise<void>
   /** 主壳切换视图 */
   setShellView(view: string): Promise<void>
-  /** 悬浮窗展开/收起时调整自身宽度（固定宽度后为 no-op） */
-  resizeOrbOverlay(expanded: boolean): Promise<void>
-  /** 悬浮窗命中：true=可点交互区，false=穿透给下层插件 */
-  setOrbOverlayHit(receive: boolean): Promise<void>
+  /** 圆轨 rail 视图展开/收起：主进程切换 WebContentsView 宽度 */
+  setOrbRailExpanded(expanded: boolean): Promise<void>
   /** 同步圆轨状态到悬浮窗 */
   syncOrbState(state: {
     view: string
     tabStyle: string
     activeTabId: string | null
+    /** 可选：主进程以 settingsStore 为准，不信任该字段 */
+    animationLevel?: string
+    theme?: { mode: string; tokens: Record<string, string> }
     tabs: unknown[]
   }): Promise<void>
   getOrbState(): Promise<{
     view: string
     tabStyle: string
     activeTabId: string | null
+    animationLevel: string
+    theme: { mode: string; tokens: Record<string, string> }
     tabs: unknown[]
+    contribEntries?: OrbRailState['contribEntries']
   }>
   /** 卸载插件：关 Tab → 清 storage → 删文件 → 重扫；结果经 uninstall-result 事件 */
   uninstallPlugin(pluginId: string): Promise<void>
@@ -138,6 +143,8 @@ export interface EnestShellApi {
   loadDevPlugin(dirPath: string): Promise<PluginSummary>
   reloadPlugin(pluginId: string): Promise<void>
   openDevTools(pluginId: string): Promise<void>
+  /** plugin:call 调用跟踪（最近 200 条环形缓冲，DevConsole 面板轮询） */
+  getPluginCallTrace(): Promise<PluginCallTraceEntry[]>
   getSettings(): Promise<ShellSettingsData>
   setSettings(settings: Partial<ShellSettingsData>): Promise<void>
   /** 拉取插件已注册的设置 section 列表 */
@@ -199,7 +206,14 @@ export interface EnestShellApi {
   quickOpen(req: QuickOpenRequest): Promise<QuickOpenResult>
   quickScanApps(force?: boolean): Promise<ApplicationScanResult>
   quickGetConfig(): Promise<QuickHotkeyConfig>
-  quickSetHotkeys(payload: { enabled?: boolean; hotkeys?: string[] }): Promise<QuickHotkeyApplyResult>
+  quickSetHotkeys(payload: {
+    enabled?: boolean
+    hotkeys?: string[]
+    activeHotkey?: string
+  }): Promise<QuickHotkeyApplyResult>
+  quickProbeHotkey(acc: string): Promise<import('@shared/types/quick').QuickHotkeyProbeResult>
+  /** 请求主进程按内容高度调整小窗 */
+  quickResize(height: number, animate?: boolean): void
   onQuickShown(cb: () => void): Unsubscribe
 }
 
@@ -225,11 +239,8 @@ const api: EnestShellApi = {
   setShellView: (view: string) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellSetView, view)),
 
-  resizeOrbOverlay: (expanded: boolean) =>
-    expectOk(ipcRenderer.invoke(IpcChannels.ShellResizeOrbOverlay, expanded)),
-
-  setOrbOverlayHit: (receive: boolean) =>
-    expectOk(ipcRenderer.invoke(IpcChannels.ShellSetOrbOverlayHit, receive === true)),
+  setOrbRailExpanded: (expanded: boolean) =>
+    expectOk(ipcRenderer.invoke(IpcChannels.ShellSetOrbRailExpanded, expanded)),
 
   syncOrbState: (state) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellSyncOrbState, state)),
@@ -239,7 +250,10 @@ const api: EnestShellApi = {
       view: string
       tabStyle: string
       activeTabId: string | null
+      animationLevel: string
+      theme: { mode: string; tokens: Record<string, string> }
       tabs: unknown[]
+      contribEntries?: OrbRailState['contribEntries']
     }>,
 
   uninstallPlugin: (pluginId: string) =>
@@ -283,6 +297,9 @@ const api: EnestShellApi = {
 
   openDevTools: (pluginId: string) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellOpenDevTools, pluginId)),
+
+  getPluginCallTrace: () =>
+    ipcRenderer.invoke(IpcChannels.ShellGetPluginTrace) as Promise<PluginCallTraceEntry[]>,
 
   getSettings: () => ipcRenderer.invoke(IpcChannels.ShellGetSettings),
 
@@ -408,8 +425,19 @@ const api: EnestShellApi = {
     ipcRenderer.invoke(IpcChannels.QuickScanApps, { force }) as Promise<ApplicationScanResult>,
   quickGetConfig: () =>
     ipcRenderer.invoke(IpcChannels.QuickGetConfig) as Promise<QuickHotkeyConfig>,
-  quickSetHotkeys: (payload: { enabled?: boolean; hotkeys?: string[] }) =>
-    ipcRenderer.invoke(IpcChannels.QuickSetHotkeys, payload) as Promise<QuickHotkeyApplyResult>,
+  quickSetHotkeys: (payload: {
+    enabled?: boolean
+    hotkeys?: string[]
+    activeHotkey?: string
+  }) => ipcRenderer.invoke(IpcChannels.QuickSetHotkeys, payload) as Promise<QuickHotkeyApplyResult>,
+  quickProbeHotkey: (acc: string) =>
+    ipcRenderer.invoke(IpcChannels.QuickProbeHotkey, { acc }) as Promise<
+      import('@shared/types/quick').QuickHotkeyProbeResult
+    >,
+
+  quickResize: (height: number, animate?: boolean) => {
+    ipcRenderer.send(IpcChannels.QuickResize, { height, animate })
+  },
   onQuickShown(cb: () => void): Unsubscribe {
     const handler = () => cb()
     ipcRenderer.on(IpcChannels.QuickShown, handler)

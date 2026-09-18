@@ -1,11 +1,18 @@
 /**
  * TabStrip — 标题栏内的多插件 Tab 条
  * 渲染「首页」固定 Tab + shellStore.tabs 中的插件 Tab；点击切换/关闭插件。
+ * Tab 态：
+ * - 普通激活/后台：常规样式
+ * - lazy（惰性会话恢复占位）：半透明 + 骨架呼吸效果，title 提示「点击加载」
+ * - crashed（渲染进程崩溃且不再自动重启）：红色小点 + 重试图标，点击重新 openPlugin
  * 依赖：shellStore（view/tabs/activeTabId/goHome/activateTab/closeTab）、animateTabIn。
  */
 import { useEffect, useRef } from 'react'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { animateTabIn } from '@renderer/gsap/marketMotion'
+import { HouseIcon, RotateCwIcon, XIcon } from '@renderer/components/icons'
+import { PluginIcon } from '@renderer/components/PluginIcon'
+import { PLUGIN_ICON_DISPLAY_TAB } from '@shared/constants'
 
 export function TabStrip() {
   const view = useShellStore((s) => s.view)
@@ -31,40 +38,62 @@ export function TabStrip() {
 
   return (
     <div className="tab-strip">
-      <button className={`home-tab${homeActive ? ' active' : ''}`} type="button" title="首页" onClick={goHome}>
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z" />
-        </svg>
-        首页
-      </button>
-      {tabs.map((tab) => {
-        const active = tab.id === activeTabId && view === 'plugin'
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            data-tab={tab.id}
-            className={`tab${active ? ' active' : ''}`}
-            onClick={() => void activateTab(tab.id)}
-          >
-            <span className="ico" style={{ background: tab.color }}>
-              {tab.glyph}
-            </span>
-            <span>{tab.title}</span>
-            <span
-              className="close"
-              onClick={(e) => {
-                e.stopPropagation()
-                void closeTab(tab.id)
-              }}
+      <div className="tab-strip-scroll">
+        <button className={`home-tab${homeActive ? ' active' : ''}`} type="button" title="首页" onClick={goHome}>
+          <HouseIcon size={13} strokeWidth={1.7} />
+          首页
+        </button>
+        {tabs.map((tab) => {
+          const active = tab.id === activeTabId && view === 'plugin'
+          // 惰性恢复占位 / 崩溃态附加样式
+          const stateClass = tab.lazy ? ' lazy' : tab.crashed ? ' crashed' : ''
+          const hint = tab.lazy
+            ? `${tab.title} — 点击加载（上次会话，未启动）`
+            : tab.crashed
+              ? `${tab.title} — 已崩溃，点击重试`
+              : tab.title
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              data-tab={tab.id}
+              title={hint}
+              className={`tab${active ? ' active' : ''}${stateClass}`}
+              onClick={() => void activateTab(tab.id)}
             >
-              <svg width="9" height="9" viewBox="0 0 10 10">
-                <path d="M2 2l6 6M8 2L2 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </span>
-          </button>
-        )
-      })}
+              {tab.crashed ? (
+                <span className="crash-dot" aria-hidden="true" />
+              ) : (
+                <PluginIcon
+                  className="ico"
+                  src={undefined}
+                  glyph={tab.glyph}
+                  slot="tab"
+                  size={PLUGIN_ICON_DISPLAY_TAB}
+                  style={{ background: tab.color }}
+                />
+              )}
+              <span>{tab.title}</span>
+              {tab.lazy && <span className="lazy-hint">点击加载</span>}
+              {tab.crashed && (
+                <span className="retry" aria-hidden="true">
+                  <RotateCwIcon size={10} strokeWidth={2.2} />
+                </span>
+              )}
+              <span
+                className="close"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  void closeTab(tab.id)
+                }}
+              >
+                <XIcon size={9} strokeWidth={1.7} />
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      <div className="titlebar-drag-fill" aria-hidden="true" />
     </div>
   )
 }

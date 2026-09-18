@@ -39,7 +39,8 @@ my-hello/
   <h1>Hello eNest</h1>
   <button id="go">打招呼</button>
   <script>
-    const api = window.enest || window.zapi
+    // zapi 为 deprecated 别名；本地双名兜底写法，壳子环境 enest 必有
+    const api = window.enest ?? window.zapi
     document.getElementById('go').onclick = async () => {
       await api.ui.setTitle('Hello')
       await api.notify({ title: 'Hello', body: '来自插件' })

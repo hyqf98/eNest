@@ -1,4 +1,7 @@
-/* orb-overlay — 透明悬浮窗；窗口宽度固定，展开只切 class */
+/* orb-overlay — 透明悬浮视图；窗口宽度固定，展开只切 class */
+/* 主题：token 变量（--surface/--text-2/--danger/--border-strong…）由主进程随 orb-state 注入；
+   未到达时按 data-theme 用近似兜底。注意：不要设置 color-scheme ——
+   它会改写 Chromium 画布基色，可能破坏透明视图。 */
 html,
 body {
   margin: 0;
@@ -9,13 +12,22 @@ body {
 }
 
 .orb-rail {
-  --accent: #1a1f2e;
-  --surface: rgba(255, 255, 255, 0.9);
-  --text-2: #5c6578;
-  --danger: #e11d48;
-  --dock-bg: rgba(18, 22, 34, 0.62);
-  --dock-border: rgba(255, 255, 255, 0.22);
-  --dock-fg: rgba(255, 255, 255, 0.95);
+  /* 全部元素统一走主题 token（与 classic 底部设置钮/圆球同源）：
+     --surface 表面 / --text-2 图标 / --border-strong 描边，浅深色自动跟随。
+     阴影同样按 data-theme 分档，与壳子 --shadow-soft/--shadow-float 同强度量级 */
+  --orb-face-bg: color-mix(in srgb, var(--surface, #ffffff) 94%, transparent);
+  --orb-face-border: var(--border-strong, rgba(15, 23, 42, 0.16));
+  --orb-face-ring: rgba(255, 255, 255, 0.8);
+  --orb-face-ring-2: rgba(26, 31, 46, 0.22);
+  --orb-close-bg: rgba(255, 255, 255, 0.95);
+  --orb-close-border: rgba(15, 23, 42, 0.1);
+  --orb-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 6px 16px rgba(15, 23, 42, 0.08);
+  --orb-shadow-hover:
+    0 2px 4px rgba(15, 23, 42, 0.06),
+    0 10px 24px rgba(15, 23, 42, 0.13);
+  --orb-handle-shadow: 1px 0 5px rgba(15, 23, 42, 0.08);
   position: relative;
   width: 100%;
   height: 100%;
@@ -24,6 +36,23 @@ body {
   overflow: visible;
   font-family: system-ui, -apple-system, 'PingFang SC', sans-serif;
   pointer-events: none;
+}
+
+:root[data-theme='dark'] .orb-rail {
+  --orb-face-bg: color-mix(in srgb, var(--surface, #161b24) 96%, transparent);
+  /* token 的深色 border-strong(0.16) 在深底上过淡，圆球描边用更亮的固定值 */
+  --orb-face-border: rgba(255, 255, 255, 0.22);
+  --orb-face-ring: rgba(255, 255, 255, 0.5);
+  --orb-face-ring-2: rgba(0, 0, 0, 0.45);
+  --orb-close-bg: rgba(30, 36, 48, 0.96);
+  --orb-close-border: rgba(255, 255, 255, 0.2);
+  --orb-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 6px 18px rgba(0, 0, 0, 0.42);
+  --orb-shadow-hover:
+    0 2px 4px rgba(0, 0, 0, 0.35),
+    0 10px 26px rgba(0, 0, 0, 0.5);
+  --orb-handle-shadow: 1px 0 6px rgba(0, 0, 0, 0.45);
 }
 
 /*
@@ -54,12 +83,14 @@ body {
   flex-shrink: 0;
   width: 12px;
   height: 48px;
-  border: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--orb-face-border);
+  border-left: 0;
   border-radius: 0 10px 10px 0;
-  background: rgba(18, 22, 34, 0.45);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 1px 0 10px rgba(0, 0, 0, 0.22);
+  /* 与圆球/classic 同源的主题 token 配色；不用 backdrop-filter（透明视图内取不到下层） */
+  background: var(--orb-face-bg);
+  color: var(--text-2, #5c6578);
+  box-shadow: var(--orb-handle-shadow);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -85,7 +116,8 @@ body {
   width: 2px;
   height: 12px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.75);
+  background: currentColor;
+  opacity: 0.8;
 }
 
 .orb-handle-dots {
@@ -152,13 +184,13 @@ body {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.65);
-  background: var(--surface);
-  color: var(--text-2);
+  border: 2px solid var(--orb-face-border);
+  background: var(--orb-face-bg);
+  color: var(--text-2, #5c6578);
   display: grid;
   place-items: center;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--orb-shadow);
   transition:
     transform 0.22s cubic-bezier(0.22, 1.4, 0.36, 1),
     box-shadow 0.2s ease;
@@ -168,7 +200,12 @@ body {
 
 .orb-face:hover {
   transform: scale(1.12) translateX(3px);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.26);
+  box-shadow: var(--orb-shadow-hover);
+}
+
+/* dock 在固定宽视图内：hover 仅中心放大，不做右移（右移会推出视图被裁切） */
+.orb-dock .orb-face:hover {
+  transform: scale(1.12);
 }
 
 .orb-face:active {
@@ -177,9 +214,9 @@ body {
 
 .orb-item.active .orb-face {
   box-shadow:
-    0 0 0 3px rgba(255, 255, 255, 0.75),
-    0 0 0 5px rgba(26, 31, 46, 0.25),
-    0 8px 20px rgba(0, 0, 0, 0.22);
+    0 0 0 3px var(--orb-face-ring),
+    0 0 0 5px var(--orb-face-ring-2),
+    var(--orb-shadow);
   transform: scale(1.08);
 }
 
@@ -198,9 +235,9 @@ body {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  background: rgba(255, 255, 255, 0.95);
-  color: var(--text-2);
+  border: 1px solid var(--orb-close-border);
+  background: var(--orb-close-bg);
+  color: var(--text-2, #5c6578);
   display: grid;
   place-items: center;
   opacity: 0;
@@ -223,16 +260,46 @@ body {
 }
 
 .orb-close:hover {
-  background: var(--danger);
-  border-color: var(--danger);
+  background: var(--danger, #e11d48);
+  border-color: var(--danger, #e11d48);
   color: #fff;
 }
 
-/* 设置钮：深色玻璃，在浅色/深色插件上都可见 */
+/* rail-entries 插槽贡献：Tab 圆点与插件入口之间的细分隔线 */
+.orb-contrib-sep {
+  margin: 4px 0 6px 14px;
+  width: 22px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.orb-contrib-sep span {
+  display: block;
+  width: 100%;
+  height: 1px;
+  background: var(--orb-face-border);
+  opacity: 0.8;
+}
+
+/* 贡献入口圆点：比 Tab 圆球略小一档（36px），同 hover/过渡体系 */
+.orb-contrib .orb-face {
+  width: 36px;
+  height: 36px;
+  border-width: 1.5px;
+}
+
+.orb-contrib .orb-glyph {
+  font-size: 12px;
+}
+
+/* 设置钮：与展开轨道圆球左缘对齐（panel 4 + face 4 ≈ 8），并距窗口边留呼吸空间 */
 .orb-dock {
   position: absolute;
-  left: 6px;
-  bottom: 16px;
+  /* 与 shared ORB_DOCK_PAD_* 保持一致的视觉内边距 */
+  left: 10px;
+  bottom: 18px;
   pointer-events: auto;
   z-index: 5;
 }
@@ -241,26 +308,21 @@ body {
   margin-left: 0;
   width: 40px;
   height: 40px;
-  background: var(--dock-bg);
-  border: 1px solid var(--dock-border);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  color: var(--dock-fg);
 }
 
-.orb-dock .orb-face:hover {
-  transform: scale(1.08);
-  background: rgba(18, 22, 34, 0.78);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
-}
-
+/* 设置钮不显示选中态外圈（与顶部 Tab 模式的设置入口保持一致） */
 .orb-dock .orb-face.active {
-  color: #fff;
-  background: rgba(26, 31, 46, 0.82);
-  box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.35),
-    0 2px 12px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--orb-shadow);
+}
+
+/* 独立小视图未重置 UA 默认蓝色 focus 框，点击后残留蓝色外圈——统一去掉 */
+.orb-face:focus,
+.orb-face:focus-visible,
+.orb-handle:focus,
+.orb-handle:focus-visible,
+.orb-dock .orb-face:focus,
+.orb-dock .orb-face:focus-visible {
+  outline: none;
 }
 
 /* ========== Animation intensity (data-anim) ========== */
@@ -303,5 +365,5 @@ body {
 }
 
 :root[data-anim="high"] .orb-dock .orb-face:hover {
-  transform: scale(1.12);
+  transform: scale(1.16);
 }

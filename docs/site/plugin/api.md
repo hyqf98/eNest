@@ -1,14 +1,16 @@
-# zapi API 完整参考
+# enest API 完整参考
 
 eNest 通过统一 preload（`pluginPreload`）向插件页注入 **`window.enest`**，同时暴露别名 **`window.zapi`**（两者是同一个对象）。
+
+> **`zapi` 为 `@deprecated` 历史别名**：保留兼容，计划 v2 移除。新代码统一使用 `enest.*`；本地调试需要双名兜底时写 `window.enest`（壳子环境必有）。
 
 所有能力调用经 IPC 通道 `plugin:call` 进入主进程 `pluginHandlers`，完成 **发送者身份校验 → pluginId 匹配 → 权限断言 → 方法分发**。
 
 ```js
-const api = window.enest || window.zapi
+const api = window.enest
 ```
 
-?> **命名约定**：文档以 `enest.*` 书写；你可以在项目里继续使用历史别名 `zapi.*`。
+?> **命名约定**：文档与示例统一以 `enest.*` 书写。
 
 ---
 
@@ -44,12 +46,22 @@ resolve({ ok: true, data })
 | `ui` | `setTitle(title)` | `ui.setTitle` | 设置 Tab 标题 |
 | `ui` | `setIcon(icon)` | `ui.setIcon` | 设置 Tab 图标 |
 | `ui` | `setBadge(badge)` | `ui.setBadge` | 设置角标 |
-| `ui` | `resize(size)` | `ui.resize` | 建议内容尺寸（当前预留） |
+| `ui` | `resize(size)` | `ui.resize` | 建议/设置主窗最小尺寸 |
+| `ui` | `setHeight(height)` | `ui.resize` | 期望内容高度（Quick 内嵌消费） |
 | `ui` | `toast({ message, type? })` | `ui.toast` | 壳子应用内 Toast |
 | `ui` | `getThemeTokens()` | 无 | 读主题 Token（别名） |
 | `ui` | `onThemeChange(cb)` | 无 | 订阅主题变更 |
 | `theme` | `getTokens()` | 无 | 读当前主题 Token |
-| `theme` | `register(pack)` | 无 | 注册主题包 |
+| `theme` | `register(pack)` | 无 | 注册主题包（≤8 个/插件） |
+| `hotkey` | `register(acc, opts?)` | `hotkey` | 注册全局热键 |
+| `hotkey` | `unregister(acc)` | `hotkey` | 注销全局热键 |
+| `hotkey` | `onHotkey(cb)` | 无 | 订阅热键触发 |
+| `i18n` | `getLocale()` | 无 | 读壳子语言 |
+| `i18n` | `onLocaleChange(cb)` | 无 | 订阅语言变更 |
+| `contribute` | `registerQuickProvider(meta)` | `contribute` | 注册 Quick 搜索 provider |
+| `contribute` | `unregisterQuickProvider(id)` | `contribute` | 注销 provider |
+| `contribute` | `onQuickQuery(cb)` | `contribute` | 订阅 Quick 搜索查询 |
+| `contribute` | `respondQuickQuery(reqId, items)` | `contribute` | 回传查询结果 |
 | `settings` | `register(section)` | `settings.register` | 注册设置分组 |
 | `settings` | `get(key)` | 无 | 读插件设置 |
 | `settings` | `set(key, value)` | 无 | 写插件设置 |
@@ -57,6 +69,14 @@ resolve({ ok: true, data })
 | `storage.session` | `get/set/remove/clear` | `storage.local` | 会话态 KV |
 | `clipboard` | `readText()` | `clipboard.read` | 读纯文本 |
 | `clipboard` | `writeText(text)` | `clipboard.write` | 写纯文本 |
+| `clipboard` | `readImage()` | `clipboard.readImage` | 读图片 dataURL |
+| `clipboard` | `writeImage(dataUrl)` | `clipboard.writeImage` | 写图片 |
+| `clipboard.history` | `list/get/remove/clear/togglePin` | `clipboard.history` | 剪贴板历史 |
+| `screen` | `capture({ displayId?, bounds? })` | `screen.capture` | 截图 |
+| `screen` | `selectRegion()` | `screen.capture` | 全屏区域选择 |
+| `screen.record` | `start/stop/cancel` | `screen.record` | 矩形录屏 |
+| `pin` | `open/close/list/closeAll` | `pin.create` | 贴图窗口 |
+| `net` | `fetch({ url, method?, headers?, body?, timeoutMs? })` | `net.fetch` | 受控 HTTPS |
 | `shell` | `openExternal(url)` | `shell.openExternal` | 系统浏览器打开 |
 | — | `notify({ title?, body? })` | `notify` | 系统通知 |
 | — | `on(event, cb)` / `off(event, cb)` | 无 | 通用事件 |
@@ -132,12 +152,31 @@ await enest.ui.setBadge('') // 清除
 |--|--|
 | **权限** | `ui.resize` |
 | **参数** | `size: { width?: number; height?: number }` |
-| **返回** | `Promise<boolean>` — 当前实现恒为 `true` |
+| **返回** | `Promise<boolean>` |
 
-?> **现状**：主进程分发器里此方法为 **预留空实现**（no-op），仅完成权限校验后直接返回 `true`。请勿依赖它改变实际布局；用 `window` 字段声明最小尺寸，或自行响应容器 resize。
+?> **现状**：主进程读取 `plugin.json` 的 `window.minWidth` / `minHeight` 对主窗口应用 `setMinimumSize`（幂等，重复调用无害）。`size` 参数本身暂不改变布局。
 
 ```js
 await enest.ui.resize({ width: 960, height: 640 })
+```
+
+---
+
+### `ui.setHeight(height)`
+
+上报插件期望的内容高度（Quick 命令面板内嵌场景使用）。
+
+| | |
+|--|--|
+| **权限** | `ui.resize`（复用） |
+| **参数** | `height: number` — 期望高度 px（正数） |
+| **返回** | `Promise<boolean>` |
+| **错误** | `invalid height`（非正数） |
+
+?> **现状**：主进程记录该高度（`getPluginDesiredHeight`）；Quick 内嵌容器接入后据此调整小窗高度。主窗 Tab 场景仅记录不动作。
+
+```js
+await enest.ui.setHeight(420)
 ```
 
 ---
@@ -230,9 +269,11 @@ enest.off('theme-change', handler)
 const { mode, tokens } = await enest.theme.getTokens()
 ```
 
-内置预设 Token 名（完整语义见 [UI 集成标准](ui-standard.md)）：
+内置预设 Token 名（完整语义与兜底调色板见 [UI 集成标准](ui-standard.md)）：
 
-`--bg` · `--surface` · `--surface-2` · `--surface-3` · `--border` · `--border-strong` · `--text` · `--text-2` · `--text-3` · `--accent` · `--ok` · `--ok-soft` · `--danger`
+`--bg` · `--surface` · `--surface-2` · `--surface-3` · `--border` · `--border-strong` · `--text` · `--text-2` · `--text-3` · `--accent` · `--accent-soft` · `--ok` · `--ok-soft` · `--danger` · `--danger-soft` · `--radius-xl/lg/md/sm/pill` · `--shadow-soft` · `--shadow-float` · `--font` · `--mono` · `--font-size-base`
+
+**主题跟随（UI Standard v2）**：`ui.themeAware` 缺省 `true`，插件应通过 `enest.theme.getTokens()`（首屏/Canvas）与 `enest.ui.onThemeChange`（运行时）消费 Token。插件还 **SHOULD** 在设置中注册布尔项 `followShellTheme`（缺省 `true`，经 `enest.settings.register` 或 `contributes.settings`）：为 `true` 时跟随壳子主题；为 `false` 时由插件钉住自有 `preferredColorScheme` 并自行绘制。设计语言与检查清单见 [UI Standard v2](ui-standard.md#设计语言与样式规范插件-ui-standard-v2)。
 
 ---
 
@@ -284,6 +325,115 @@ await enest.theme.register({
 | `background` | | `{ type, value, opacity?, fit? }` | 可选壳子背景 |
 
 注册成功后主进程推送 `theme-packs-changed`，设置页 **即时刷新**，无需重启。
+
+?> **加固**：每插件最多注册 **8** 个主题包；只能覆盖 `source` 为自己的 pack（覆盖他人/内置 pack 会报错）；token 值经白名单校验（hex / rgb()/rgba() / 数值 / font-family 字符串，≤200 字符），含 `url(` / `expression(` / `javascript:` 等危险片段的键值对会被剔除并告警。
+
+---
+
+## hotkey — 全局热键
+
+### `hotkey.register(accelerator, opts?)`
+
+注册全局快捷键（Electron accelerator，如 `Control+Alt+P`）。
+
+| | |
+|--|--|
+| **权限** | `hotkey` |
+| **参数** | `accelerator: string`；`opts?: { label?: string }`（保留） |
+| **返回** | `Promise<{ ok: boolean; error?: string }>` — 冲突/失败 **不 reject**，用 `ok: false` 携带原因 |
+| **限制** | 每插件最多 4 个；与壳子 Quick 热键、系统/其它应用占用互斥 |
+
+```js
+const res = await enest.hotkey.register('Control+Alt+P')
+if (!res.ok) console.warn('注册失败', res.error)
+
+enest.hotkey.onHotkey(({ accelerator }) => {
+  if (accelerator === 'Control+Alt+P') togglePanel()
+})
+```
+
+### `hotkey.unregister(accelerator)` / `hotkey.onHotkey(cb)`
+
+注销热键（幂等，未注册也返回 `true`）；`onHotkey` 返回取消订阅函数。插件关闭时壳子自动批量注销其全部热键。
+
+---
+
+## i18n — 多语言
+
+### `i18n.getLocale()`
+
+| | |
+|--|--|
+| **权限** | 无 |
+| **返回** | `Promise<'zh-CN' \| 'en-US'>` — 当前壳子界面语言 |
+
+### `i18n.onLocaleChange(cb)`
+
+订阅语言变更（壳子设置页切换语言时推送）。
+
+| | |
+|--|--|
+| **权限** | 无 |
+| **参数** | `cb: (event: { locale: 'zh-CN' \| 'en-US' }) => void` |
+| **返回** | `() => void` |
+
+```js
+const locale = await enest.i18n.getLocale()
+const off = enest.i18n.onLocaleChange(({ locale }) => switchDict(locale))
+```
+
+---
+
+## contribute — 贡献点（Quick 搜索 provider）
+
+插槽化架构的运行时贡献入口：插件注册 Quick 搜索 provider 后，壳子搜索时把查询推给插件，插件回传结果项。**需在 `permissions` 声明 `contribute`。**
+
+声明式贡献（`plugin.json` 的 `contributes` 段：settings / homeCards / railEntries / themePacks）不走本命名空间，由壳子扫描 manifest 时入库——见 [plugin.json](manifest.md)。
+
+### `contribute.registerQuickProvider(meta)`
+
+| | |
+|--|--|
+| **权限** | `contribute` |
+| **参数** | `meta: { id: string; explain?: string; schemaVersion?: string }` |
+| **返回** | `Promise<{ ok: true } \| { ok: false; error?: string }>` — 失败不 reject |
+
+### `contribute.unregisterQuickProvider(providerId)`
+
+注销本插件的某个 provider（幂等）。插件关闭时壳子自动批量释放其全部 provider。
+
+### `contribute.onQuickQuery(cb)`
+
+订阅 Quick 搜索查询；等价 `enest.on('quick-query', cb)`。
+
+| | |
+|--|--|
+| **参数** | `cb: (event: { reqId: string; query: string }) => void` |
+| **返回** | `() => void` — 取消订阅 |
+
+### `contribute.respondQuickQuery(reqId, items)`
+
+回传查询结果。**`reqId` 来自 `onQuickQuery` 回调；超时（500ms）后回传被静默丢弃**，请在回调内尽快响应。
+
+| | |
+|--|--|
+| **权限** | `contribute` |
+| **参数** | `reqId: string`；`items: Array<{ id?; title?; subtitle?; explain?; code? }>` |
+| **返回** | `Promise<boolean>` |
+
+```js
+await enest.contribute.registerQuickProvider({ id: 'search', explain: '搜索我的笔记' })
+
+enest.contribute.onQuickQuery(async ({ reqId, query }) => {
+  const items = (await searchNotes(query)).map((n) => ({
+    id: n.id,
+    title: n.title,
+    subtitle: '笔记',
+    code: 'open-note' // 选中回车后 openPlugin 以该 code 进入插件
+  }))
+  await enest.contribute.respondQuickQuery(reqId, items)
+})
+```
 
 ---
 
@@ -491,11 +641,14 @@ enest.off('enter', onEnter)
 
 | 事件 | 触发 | 数据 |
 |------|------|------|
-| `enter` | 首次加载完成 / Tab 激活 | `{ tabId, code?, payload? }` |
-| `out` | 切到其它 Tab | `{ isKill: false }` |
+| `enter` | 首次加载完成 / Tab 激活 / 唤醒重建 | `{ tabId, code?, payload? }` |
+| `out` | 切到其它 Tab / Quick 退场 | `{ isKill: false }` |
 | `beforeClose` | 即将销毁 | `{ reason }` |
 | `destroy` | 关闭已开始 | `undefined` |
 | `theme-change` | 主题变更 | `{ mode, tokens }` |
+| `hotkey` | 插件注册的全局热键被按下 | `{ accelerator }` |
+| `locale-change` | 壳子界面语言变更 | `{ locale }` |
+| `quick-query` | Quick 搜索查询（已注册 provider 的插件） | `{ reqId, query }` |
 
 回调抛错会被捕获，**不会**影响其它监听器。
 
@@ -507,7 +660,7 @@ enest.off('enter', onEnter)
 
 ### `onEnter(cb)`
 
-进入插件：**首次加载完成后** + **每次 Tab 激活**。与 `onOut` 成对，可用来 pause / resume。
+进入插件：**首次加载完成后** + **每次 Tab 激活** + **休眠唤醒 / crash 重启的重建完成后**。与 `onOut` 成对，可用来 pause / resume；插件可能被销毁重建，初始化逻辑要可重入。
 
 | | |
 |--|--|
@@ -539,20 +692,21 @@ enest.onOut(() => {
 
 ### `onBeforeClose(cb)`
 
-即将销毁：Tab 关闭 / 卸载插件 / 应用退出。可在此 **同步** flush 草稿。
+即将销毁：Tab 关闭 / 卸载插件 / 应用退出。可在此 flush 草稿。
 
 | | |
 |--|--|
-| **参数** | `cb: (event: { reason: 'tab-close' \| 'uninstall' \| 'app-quit' }) => void` |
+| **参数** | `cb: (event: { reason: 'tab-close' \| 'uninstall' \| 'app-quit' }) => void \| Promise<unknown>` |
 | **返回** | `() => void` |
 
-- preload 在派发完监听器后 **自动** 回 ack。
-- 主进程最多等待 **300ms**；异步 flush 请自行在这段时间内完成，或优先写 `storage.session` / 同步路径。
+- 回调返回 **Promise** 时，preload 会等它 settle 后再回 ack（关闭流程随之等待）。
+- 纯同步回调 / 无监听器时，preload 延迟一小窗口（约 50ms，给同步 flush 留余量）再 ack。
+- 主进程最多等待约 1500ms 超时兜底；超长异步操作请自行拆分。
 
 ```js
-enest.onBeforeClose(({ reason }) => {
-  // 同步写本地（fire-and-forget 亦可）
-  enest.storage.session.set('last-close', reason)
+enest.onBeforeClose(async ({ reason }) => {
+  // 返回 Promise：壳子会等这里完成后再销毁
+  await flushDraftToStorage()
 })
 ```
 
@@ -597,16 +751,16 @@ const code = enest.getEnterCode()
 
 ## TypeScript
 
-完整 `window.enest` 接口声明见 [TypeScript 类型](api-types.md)。也可以直接从源码拷贝：
+完整 `window.enest` 接口声明见 [TypeScript 类型](api-types.md)（由 `scripts/generate-api-types.mjs` 自动生成，勿手改）。推荐安装 **`@enest/plugin-sdk`** 包（位于壳子仓库 `packages/plugin-sdk`，含 d.ts 与 manifest 校验 CLI），或将生成的 d.ts 拷入插件工程：
 
 ```text
-src/preload/pluginPreload.ts  →  export interface EnestPluginApi
+packages/plugin-sdk/src/enest-api.d.ts   ← 自动生成，与 preload 严格一致
 ```
 
 推荐插件内的安全用法：
 
 ```ts
-const api = (window as any).enest as EnestPluginApi | undefined
+const api = (window as { enest?: EnestPluginApi }).enest
 if (!api) {
   // 本地浏览器直开 / 未挂载壳子
   console.warn('eNest API 不可用')

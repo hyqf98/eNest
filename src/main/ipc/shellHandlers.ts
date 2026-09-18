@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { dialog, ipcMain, Notification } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
+import { toTabId } from '@shared/constants'
 import type { ThemeTokens } from '@shared/types/plugin'
 import { pickAndLoadDevPlugin } from '@main/dev/DevConsole'
 import { kvDelete, kvGet, kvSet } from '@main/db/sqliteService'
@@ -24,6 +25,8 @@ import {
   getInstallQueueState
 } from '@main/plugin/installQueue'
 import { uninstallPlugin } from '@main/plugin/PluginUninstaller'
+import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
+import { broadcastPluginLocale, getPluginCallTrace } from '@main/ipc/pluginHandlers'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { pluginSettingsBridge } from '@main/settings/PluginSettingsBridge'
 import {
@@ -47,12 +50,13 @@ import {
   setPluginLeftInset
 } from '@main/window/createShellWindow'
 import {
-  applyOrbOverlayVisibility,
+  applyOrbRailVisibility,
   getOrbRailState,
-  setOrbOverlayExpanded,
-  setOrbOverlayHit,
-  setOrbRailState
-} from '@main/window/orbOverlayWindow'
+  setOrbAnimationLevel,
+  setOrbRailExpandedView,
+  setOrbRailState,
+  setOrbTheme
+} from '@main/window/orbRailViews'
 
 /** shell:pick-file 支持的媒体过滤器 */
 const PICK_FILTERS: Record<'image' | 'video' | 'media' | 'font', { name: string; extensions: string[] }> = {
@@ -136,7 +140,7 @@ export function registerShellHandlers(): void {
 
   ipcMain.handle(IpcChannels.ShellSyncOrbState, (_e, state) => {
     setOrbRailState(state)
-    if (state?.tabStyle) applyOrbOverlayVisibility(state.tabStyle)
+    if (state?.tabStyle) applyOrbRailVisibility(state.tabStyle)
     return { ok: true }
   })
 
@@ -159,14 +163,9 @@ export function registerShellHandlers(): void {
     return { ok: true }
   })
 
-  ipcMain.handle(IpcChannels.ShellResizeOrbOverlay, (_e, expanded: boolean) => {
-    setOrbOverlayExpanded(expanded === true)
-    return { ok: true }
-  })
-
-  /** 悬浮窗命中切换：true=接收点击，false=透明穿透 */
-  ipcMain.handle(IpcChannels.ShellSetOrbOverlayHit, (_e, receive: boolean) => {
-    setOrbOverlayHit(receive === true)
+  /** 圆轨 rail 视图展开/收起：renderer CSS 动画先行，主进程跟进切换视图宽度 */
+  ipcMain.handle(IpcChannels.ShellSetOrbRailExpanded, (_e, expanded: boolean) => {
+    setOrbRailExpandedView(expanded === true)
     return { ok: true }
   })
 
@@ -180,6 +179,8 @@ export function registerShellHandlers(): void {
       if (!id) return { ok: false, error: 'plugin id required' }
       logInfo('ipc', `shell:uninstall-plugin ${id}`)
       const result = await uninstallPlugin(id)
+      // 卸载可能移除最后一个 clipboard.history 持有者，重算轮询
+      revalidateClipboardPolling()
       return result.ok ? { ok: true } : { ok: false, error: result.error }
     } catch (err) {
       logWarn('ipc', `shell:uninstall-plugin failed: ${(err as Error).message}`)
@@ -199,6 +200,8 @@ export function registerShellHandlers(): void {
         if (!id) return { ok: false, error: 'plugin id required' }
         logInfo('ipc', `shell:set-plugin-enabled ${id} → ${enabled !== false}`)
         const summary = await pluginRegistry.setPluginEnabled(id, enabled !== false)
+        // 启停可能增减 clipboard.history 持有者，重算轮询
+        revalidateClipboardPolling()
         return { ok: true, data: summary }
       } catch (err) {
         logWarn('ipc', `shell:set-plugin-enabled failed: ${(err as Error).message}`)
@@ -239,6 +242,8 @@ export function registerShellHandlers(): void {
               ok: true
             })
             sendShellEvent({ type: 'plugins-changed' })
+            // 新装插件可能持有 clipboard.history，重算轮询
+            revalidateClipboardPolling()
             return { ok: true, data: { ok: true, mode: 'sample', name: summary.name } }
           } catch (sampleErr) {
             logInfo(
@@ -286,6 +291,8 @@ export function registerShellHandlers(): void {
     const saved = await settingsStore.setTheme(theme)
     // 壳子主题变更后，向所有已打开的 themeAware 插件广播新 Token
     pluginHost.broadcastTheme()
+    // 圆轨/设置钮为独立视图，主题需单独推送
+    setOrbTheme()
     return saved
   })
 
@@ -293,7 +300,13 @@ export function registerShellHandlers(): void {
     try {
       const summary = await pickAndLoadDevPlugin(dirPath)
       if (!summary) return { ok: false, error: 'cancelled' }
+      // 已打开的同 id 插件先关掉：rootPath / development.main 可能已变，必须重建 View
+      if (pluginHost.isOpen(summary.id)) {
+        await pluginHost.closePlugin(toTabId(summary.id), 'tab-close')
+      }
       sendShellEvent({ type: 'plugins-changed' })
+      // dev 插件可能持有 clipboard.history，重算轮询
+      revalidateClipboardPolling()
       return { ok: true, data: summary }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -304,6 +317,9 @@ export function registerShellHandlers(): void {
     pluginHost.reloadPlugin(tabId)
     return { ok: true }
   })
+
+  /** plugin:call 调用跟踪环形缓冲读取（DevConsole「调用跟踪」面板轮询用） */
+  ipcMain.handle(IpcChannels.ShellGetPluginTrace, () => getPluginCallTrace())
 
   ipcMain.handle(IpcChannels.ShellOpenDevTools, (_e, tabId?: string) => {
     const target = tabId ?? pluginHost.getActive()
@@ -318,7 +334,24 @@ export function registerShellHandlers(): void {
   ipcMain.handle(IpcChannels.ShellGetSettings, () => settingsStore.getAll())
 
   ipcMain.handle(IpcChannels.ShellSetSettings, async (_e, partial) => {
-    return settingsStore.setAll(partial)
+    // locale 变更检测：变化时向所有已打开插件广播 locale-change
+    // （preload → enest.i18n.onLocaleChange）
+    const prevLocale = settingsStore.getAll().general.locale
+    const nextLocale = (
+      partial as { general?: { locale?: unknown } } | undefined
+    )?.general?.locale
+    const result = await settingsStore.setAll(partial)
+    if (
+      (nextLocale === 'zh-CN' || nextLocale === 'en-US') &&
+      nextLocale !== prevLocale
+    ) {
+      broadcastPluginLocale(nextLocale)
+    }
+    // 动画档位变更即时推给 orb 悬浮窗（独立文档，不随主壳 data-anim 联动）
+    const lvl = (partial as { general?: { animationLevel?: unknown } } | undefined)?.general
+      ?.animationLevel
+    if (lvl === 'low' || lvl === 'medium' || lvl === 'high') setOrbAnimationLevel(lvl)
+    return result
   })
 
   /** 设置页插件分组：已注册 section 列表 */

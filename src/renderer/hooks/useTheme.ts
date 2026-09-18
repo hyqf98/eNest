@@ -6,41 +6,14 @@
  */
 import { create } from 'zustand'
 import type { BackgroundConfig, ThemeMode, ThemePack, ThemeTokens } from '@shared/types/plugin'
+import { THEME_TOKEN_PRESETS } from '@shared/theme/presets'
 import { shellApi } from '@renderer/services/shellApi'
 import { toastStore } from '@renderer/hooks/useToast'
 
-/** light/dark 预设颜色 Token 与中文标签（system 不在此表，解析后套用对应预设） */
+/** light/dark 预设颜色 Token（取自 @shared 单一来源）+ 中文标签（system 解析后套用对应预设） */
 export const THEME_PRESETS = {
-  light: {
-    label: '浅色',
-    '--bg': '#f3f4f6',
-    '--surface': '#ffffff',
-    '--surface-2': '#f0f2f5',
-    '--surface-3': '#e8ebf0',
-    '--border': 'rgba(15,23,42,0.08)',
-    '--border-strong': 'rgba(15,23,42,0.14)',
-    '--text': '#0f1420',
-    '--text-2': '#5c6578',
-    '--text-3': '#8b93a5',
-    '--accent': '#1a1f2e',
-    '--ok': '#0d9f6e',
-    '--danger': '#e11d48',
-  },
-  dark: {
-    label: '深色',
-    '--bg': '#0d1118',
-    '--surface': '#161b24',
-    '--surface-2': '#1c2230',
-    '--surface-3': '#252d3d',
-    '--border': 'rgba(255,255,255,0.09)',
-    '--border-strong': 'rgba(255,255,255,0.16)',
-    '--text': '#f3f5f9',
-    '--text-2': '#b4bdcf',
-    '--text-3': '#7c879c',
-    '--accent': '#e8ecf4',
-    '--ok': '#3dd68c',
-    '--danger': '#ff7a8e',
-  },
+  light: { label: '浅色', ...THEME_TOKEN_PRESETS.light },
+  dark: { label: '深色', ...THEME_TOKEN_PRESETS.dark },
 } as const
 
 export type { ThemeMode }
@@ -110,7 +83,7 @@ export function normalizeHex(c: string): string {
     const [r, g, b] = c.slice(1)
     return `#${r}${r}${g}${g}${b}${b}`
   }
-  return '#1a1f2e'
+  return '#5e6ad2'
 }
 
 function presetTokens(resolved: ResolvedThemeMode): TokenMap {
@@ -131,7 +104,7 @@ function applyToDom(
   for (const [key, value] of Object.entries(tokens)) {
     if (value) root.style.setProperty(key, value)
   }
-  const ok = tokens['--ok'] || (resolved === 'light' ? '#0d9f6e' : '#3ecf8e')
+  const ok = tokens['--ok'] || (resolved === 'light' ? '#0d9f6e' : '#3dd68c')
   root.style.setProperty('--ok-soft', hexToRgba(ok, resolved === 'light' ? 0.1 : 0.12))
   return tokens
 }

@@ -29,6 +29,21 @@
           "permissions": { "type": "array", "items": { "type": "string" } },
           "featured": { "type": "boolean" },
           "installs": { "type": "number" },
+          "engines": {
+            "type": "object",
+            "properties": { "enest": { "type": "string" } }
+          },
+          "ui": {
+            "type": "object",
+            "description": "透传 plugin.json 的 ui 段；缺省等价 chrome=none / themeAware=true / background=opaque / preferredColorScheme=auto",
+            "properties": {
+              "chrome": { "enum": ["default", "minimal", "none"] },
+              "themeAware": { "type": "boolean" },
+              "background": { "enum": ["opaque", "transparent"] },
+              "preferredColorScheme": { "enum": ["auto", "light", "dark"] }
+            },
+            "additionalProperties": false
+          },
           "asset": {
             "type": "object",
             "required": ["name", "url"],

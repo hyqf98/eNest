@@ -14,18 +14,22 @@ import type {
   QuickSearchResult
 } from '@shared/types/quick'
 import type { QuickRecentEntry } from '@shared/types/plugin'
+import { resolvePluginForm } from '@shared/types/plugin'
 import {
   hideQuickWindow,
+  setQuickContentHeight,
   toggleQuickWindow
 } from '../window/createQuickWindow'
 import {
   applyQuickHotkeys,
-  getQuickHotkeyConfig
+  getQuickHotkeyConfig,
+  probeHotkey
 } from '../hotkey/quickHotkey'
 import { scanApplications } from '../launcher/appScanner'
 import { searchQuickCommands, QUICK_RECENT_MAX } from '../launcher/commandIndex'
 import { launchLocalApp } from '../launcher/appLauncher'
 import { pluginHost } from '../plugin/PluginHost'
+import { pluginRegistry } from '../plugin/PluginRegistry'
 import { settingsStore } from '../settings/SettingsStore'
 import { getMainWindow, sendShellEvent } from '../window/createShellWindow'
 import { logError, logInfo } from '../logs/logService'
@@ -42,7 +46,9 @@ function focusMainWindow(): void {
 function recentIdOf(req: QuickOpenRequest): string {
   if (req.kind === 'app') return `app:${req.path}`
   if (req.kind === 'plugin') return `plugin:${req.pluginId}:${req.code ?? ''}`
-  return `action:${req.action}`
+  if (req.kind === 'action') return `action:${req.action}`
+  // plugin-escape / plugin-pin 不计入最近使用（非终结动作）
+  return ''
 }
 
 /**
@@ -52,6 +58,7 @@ function recentIdOf(req: QuickOpenRequest): string {
 async function touchRecent(req: QuickOpenRequest): Promise<void> {
   try {
     const id = recentIdOf(req)
+    if (!id) return
     const general = settingsStore.getAll().general
     const ql = general.quickLauncher
     const prev: QuickRecentEntry[] = ql?.recent ?? []
@@ -89,13 +96,52 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
       return { ok: true }
     }
     if (req.kind === 'plugin') {
-      await pluginHost.openPlugin(req.pluginId, req.code ? { code: req.code } : undefined)
+      const enter = req.code ? { code: req.code } : undefined
+      // mini 插件内嵌 Quick 小窗（container=quick）；panel 插件进主窗 Tab（行为不变）。
+      // 渲染层未带 container 时按 manifest form 推导（mini → quick）。
+      const manifestForm = resolvePluginForm(
+        pluginRegistry.getManifest(req.pluginId)?.form ??
+          pluginRegistry.get(req.pluginId)?.form
+      )
+      const container =
+        req.container === 'quick' || req.container === 'shell'
+          ? req.container
+          : manifestForm === 'mini'
+            ? 'quick'
+            : 'shell'
+      if (container === 'quick') {
+        // Quick 小窗保持可见：插件 view 挂窗内（PluginHost 挂载 + 高度自适应 +
+        // quick-plugin-mode 推送渲染层切插件态）
+        const tabId = await pluginHost.openPlugin(req.pluginId, enter, { container: 'quick' })
+        logInfo('quick', `mini open ${req.pluginId} (quick)${req.code ? ` code=${req.code}` : ''}`)
+        void touchRecent(req)
+        return { ok: true, tabId }
+      }
+      await pluginHost.openPlugin(req.pluginId, enter, { container: 'shell' })
+      // 主窗路径同样先退场 quick 插件（openPlugin 的容器迁移已在 Host 内完成，
+      // 这里只兜底清掉残留的其它 quick 挂载）
       hideQuickWindow()
       focusMainWindow()
       sendShellEvent({ type: 'plugins-changed' })
       void touchRecent(req)
       return { ok: true }
     }
+    if (req.kind === 'plugin-escape') {
+      // 插件态 Esc：回列表（view 隐藏保留进程，走休眠策略）
+      pluginHost.dismissQuickPlugin(req.pluginId)
+      return { ok: true }
+    }
+    if (req.kind === 'plugin-pin') {
+      // ⌘Enter / 「固定到主窗」按钮：view 迁主窗 + Quick 收起 + 主窗前置
+      pluginHost.pinToShell(req.pluginId)
+      hideQuickWindow()
+      focusMainWindow()
+      sendShellEvent({ type: 'plugins-changed' })
+      return { ok: true }
+    }
+    // action / panel 打开前：若 quick 正处插件态，先退场回列表（保留进程）
+    const mounted = pluginHost.getQuickPlugin()
+    if (mounted) pluginHost.dismissQuickPlugin(mounted)
     // action
     hideQuickWindow()
     focusMainWindow()
@@ -154,32 +200,35 @@ export function registerQuickHandlers(): void {
     return getQuickHotkeyConfig()
   })
 
-  ipcMain.handle(
-    IpcChannels.QuickSetHotkeys,
-    async (_e, payload: { enabled?: boolean; hotkeys?: string[] }) => {
+  ipcMain.handle(IpcChannels.QuickProbeHotkey, (_e, payload: { acc?: string }) => {
+    const acc = String(payload?.acc ?? '')
+    if (!acc) return { acc: '', free: false, ours: false }
+    return probeHotkey(acc)
+  })
+
+  ipcMain.handle(IpcChannels.QuickSetHotkeys,
+    async (_e, payload: { enabled?: boolean; hotkeys?: string[]; activeHotkey?: string }) => {
       const applyResult = applyQuickHotkeys(payload)
-      // 只持久化「当前生效」集合：全失败时主进程已回滚到 lastGood，
-      // 若写入请求值会导致下次启动重复失败并丢失可用快捷键。
-      // 合并既有 quickLauncher，保留 recent 等扩展字段。
+      // 持久化槽位列表 + 当前生效键；生效以 registered/activeHotkey 为准
       const general = settingsStore.getAll().general
-      const persistHotkeys =
-        applyResult.enabled && applyResult.registered.length > 0
-          ? applyResult.registered
-          : applyResult.hotkeys
+      const persistHotkeys = applyResult.hotkeys
+      const persistActive = applyResult.activeHotkey ?? ''
       await settingsStore.setAll({
         general: {
           ...general,
           quickLauncher: {
             ...general.quickLauncher,
             enabled: applyResult.enabled,
-            hotkeys: persistHotkeys
+            hotkeys: persistHotkeys,
+            activeHotkey: persistActive
           }
         }
       })
       sendShellEvent({
         type: 'quick-config-changed',
         enabled: applyResult.enabled,
-        hotkeys: persistHotkeys
+        hotkeys: persistHotkeys,
+        activeHotkey: persistActive
       })
       const result: QuickHotkeyApplyResult = applyResult
       return result
@@ -189,6 +238,13 @@ export function registerQuickHandlers(): void {
   // Quick 渲染层请求隐藏（Esc）
   ipcMain.on(IpcChannels.QuickHideRequest, () => {
     hideQuickWindow()
+  })
+
+  // 内容撑开/收起
+  ipcMain.on(IpcChannels.QuickResize, (_e, payload: { height?: number; animate?: boolean }) => {
+    const h = Number(payload?.height)
+    if (!Number.isFinite(h) || h <= 0) return
+    setQuickContentHeight(h, payload?.animate !== false)
   })
 
   logInfo('quick', 'ipc handlers registered')

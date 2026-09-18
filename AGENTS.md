@@ -66,7 +66,7 @@ IPC 通道名只定义在 `@shared/types/ipc`，preload 与 main 共用。
 ## Tab 与插件层（易踩坑）
 
 - 插件内容是 **原生 `WebContentsView`**，叠在 shell 渲染层**之上**。渲染层 UI **不能**盖住插件区。
-- **classic**：Tab 在标题栏；**orb**：首页/设置用左侧 `FloatingTabRail`；**插件页 orb 用顶栏圆球**（`TitleBar` 内 `TitleBarOrbs`），插件内容全宽，禁止左侧白条通道。
+- **classic**：Tab 在标题栏；**orb**：左侧圆轨 = 主窗口内顶层 WebContentsView（`@main/window/orbRailViews`，rail 收起窄条 hover 展开 + 左下角 dock 设置钮），真实 DOM 鼠标事件，插件视图挂载后必须 `raiseOrbRailViews()` 保持置顶，插件内容全宽，禁止左侧白条通道。
 - 回首页/设置必须 `shellApi.hidePlugins()`，否则原生层挡住壳子。
 - 标题栏高度与 `TITLEBAR_HEIGHT`（`@shared/constants`）及 CSS `--titlebar-h` 必须一致（当前 36）。
 

@@ -7,8 +7,7 @@
  * 依赖：shellApi、toastStore、@shared/types/plugin。
  */
 import { create } from 'zustand'
-import type { CustomFontMeta, FontSizeScale } from '@shared/types/plugin'
-import { FONT_SIZE_SCALES } from '@shared/types/plugin'
+import type { CustomFontMeta } from '@shared/types/plugin'
 import { shellApi, isMockShell } from '@renderer/services/shellApi'
 import { toastStore } from '@renderer/hooks/useToast'
 import { t } from '@renderer/i18n'
@@ -29,12 +28,12 @@ const MOCK_FONT_KEY = 'enest.customFont.'
 /** 正文基准字号（px）；tokens.css / base.css 的 --font-size-base 缺省同值 */
 export const BASE_FONT_PX = 14
 
-/** 校验字号档是否合法 */
-function isFontSizeScale(v: unknown): v is FontSizeScale {
-  return typeof v === 'number' && (FONT_SIZE_SCALES as readonly number[]).includes(v)
+/** 校验字号缩放：连续区间 0.9–1.3（滑杆实时），兼容历史四档 */
+function isFontSizeScale(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0.9 && v <= 1.3
 }
 
-/** 将字号档写入 --font-size-base（与 --shell-scale 独立，作用于正文继承字号） */
+/** 将字号缩放写入 --font-size-base（与 --shell-scale 独立，作用于正文继承字号） */
 function applyFontSizeScale(scale: number): void {
   const s = isFontSizeScale(scale) ? scale : 1
   document.documentElement.style.setProperty(

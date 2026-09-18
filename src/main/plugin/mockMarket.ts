@@ -22,88 +22,112 @@ export interface MockMarketPlugin {
 
 export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
   {
-    id: 'com.enest.clipboard',
-    name: '剪贴板历史',
+    id: 'com.enest.screen-assistant',
+    name: '屏幕助手',
     author: 'eNest Labs',
-    description: '本地加密保存剪贴板历史，支持搜索、置顶与一键粘贴。',
-    version: '1.2.0',
+    description: '矩形截图、矩形录屏（可选声音）与截图贴到屏幕。',
+    version: '1.0.0',
+    installs: '9.6k',
+    category: '媒体',
+    color: '#38bdf8',
+    glyph: '▣',
+    permissions: [
+      'screen.capture',
+      'screen.record',
+      'pin.create',
+      'clipboard.writeImage',
+      'storage.local',
+      'ui.setTitle',
+      'ui.toast'
+    ]
+  },
+  {
+    id: 'com.enest.clipboard',
+    name: '粘贴板',
+    author: 'eNest Labs',
+    description: '剪贴板历史、图片回显与快速选中回写。',
+    version: '1.0.0',
     installs: '12.4k',
     category: '效率',
     color: '#5b8cff',
     glyph: 'C',
-    permissions: ['clipboard.read', 'clipboard.write', 'storage.local']
-  },
-  {
-    id: 'com.enest.json',
-    name: 'JSON 工坊',
-    author: 'Northwind',
-    description: '格式化、校验、路径查询与类型生成，开发者日常利器。',
-    version: '0.9.3',
-    installs: '8.1k',
-    category: '开发',
-    color: '#3ddc97',
-    glyph: '{ }',
-    permissions: ['clipboard.read', 'clipboard.write']
-  },
-  {
-    id: 'com.enest.color',
-    name: '取色器',
-    author: 'PixelNest',
-    description: '屏幕取色、调色板管理与设计 Token 导出。',
-    version: '2.0.1',
-    installs: '6.7k',
-    category: '设计',
-    color: '#a78bfa',
-    glyph: '◈',
-    permissions: ['storage.local']
+    permissions: [
+      'clipboard.read',
+      'clipboard.write',
+      'clipboard.readImage',
+      'clipboard.writeImage',
+      'clipboard.history',
+      'storage.local',
+      'ui.setTitle',
+      'ui.toast'
+    ]
   },
   {
     id: 'com.enest.translate',
-    name: '划词翻译',
+    name: '翻译',
     author: 'Lingua',
-    description: '多引擎划词与段落翻译，支持术语表与历史回看。',
-    version: '1.5.2',
+    description: '谷歌翻译引擎，自动检测语言，一键复制译文。',
+    version: '1.0.0',
     installs: '15.2k',
     category: '效率',
     color: '#f5a524',
     glyph: '文',
-    permissions: ['clipboard.read', 'notify']
+    permissions: [
+      'net.fetch',
+      'clipboard.read',
+      'clipboard.write',
+      'storage.local',
+      'ui.setTitle',
+      'ui.toast'
+    ]
   },
   {
-    id: 'com.enest.todo',
-    name: '轻清单',
-    author: 'DailyKit',
-    description: '全局快捷键唤起的极简待办，本地优先，支持插件设置注入。',
-    version: '1.0.4',
-    installs: '4.3k',
-    category: '效率',
-    color: '#ff5c7a',
-    glyph: '✓',
-    permissions: ['storage.local', 'notify', 'settings.register']
-  },
-  {
-    id: 'com.enest.snippet',
-    name: '代码片段库',
-    author: 'DevNest',
-    description: '跨语言片段管理、变量占位与快速插入。',
-    version: '0.8.0',
-    installs: '3.9k',
-    category: '开发',
-    color: '#38bdf8',
-    glyph: '/',
-    permissions: ['clipboard.write', 'storage.local']
-  },
-  {
-    id: 'com.enest.canvas-demo',
-    name: 'Canvas 动效演示',
-    author: 'eNest',
-    description: '演示统一 UI 标准：全幅 chrome=none、主题感知与透明背景 Canvas。',
+    id: 'com.enest.ssh',
+    name: 'SSH 管理',
+    author: 'eNest Labs',
+    description: '连接资产库、交互终端、命令补全、性能监控与最小 SFTP。',
     version: '1.0.0',
-    installs: '1.2k',
+    installs: 'local',
     category: '开发',
-    color: '#22d3ee',
-    glyph: '◎',
-    permissions: ['ui.setTitle']
+    color: '#34d399',
+    glyph: '❯',
+    permissions: [
+      'vault.write',
+      'ssh.session',
+      'ssh.exec',
+      'ssh.sftp',
+      'storage.local',
+      'ui.setTitle',
+      'ui.toast',
+      'notify',
+      'clipboard.write',
+      'shell.openExternal',
+      'settings.register'
+    ]
+  },
+  {
+    id: 'com.enest.database',
+    name: '数据库',
+    author: 'eNest Labs',
+    description: '桌面级 SQL 客户端：代码提示、结果集增删改批、控制台会话与导入导出。',
+    version: '1.0.0',
+    installs: 'local',
+    category: '开发',
+    color: '#60a5fa',
+    glyph: '▤',
+    permissions: [
+      'vault.write',
+      'db.connect',
+      'db.query',
+      'db.schema',
+      'storage.local',
+      'ui.setTitle',
+      'ui.toast',
+      'notify',
+      'clipboard.write',
+      'shell.openExternal',
+      'settings.register'
+    ]
   }
 ]
 

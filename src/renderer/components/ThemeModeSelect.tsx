@@ -6,6 +6,7 @@
  */
 import type { ThemeMode, ThemePack } from '@shared/types/plugin'
 import { THEME_MODE_LABELS } from '@renderer/hooks/useTheme'
+import { Select } from '@renderer/components/Select'
 
 interface Props {
   mode: ThemeMode
@@ -46,7 +47,7 @@ export function ThemeModeSelect({ mode, resolved, packs, packId, onSetMode, onAp
               {m === 'system' ? (
                 <>
                   <i style={{ background: '#f3f4f6' }} />
-                  <i style={{ background: '#0d1118' }} />
+                  <i style={{ background: '#121214' }} />
                 </>
               ) : (
                 (
@@ -54,8 +55,8 @@ export function ThemeModeSelect({ mode, resolved, packs, packId, onSetMode, onAp
                 ).map((k) => {
                   const preset =
                     m === 'light'
-                      ? { '--bg': '#f3f4f6', '--surface': '#ffffff', '--accent': '#1a1f2e', '--text': '#0f1420' }
-                      : { '--bg': '#0d1118', '--surface': '#161b24', '--accent': '#e8ecf4', '--text': '#f3f5f9' }
+                      ? { '--bg': '#f6f6f7', '--surface': '#ffffff', '--accent': '#5e6ad2', '--text': '#18181b' }
+                      : { '--bg': '#121214', '--surface': '#1a1a1e', '--accent': '#a5aeef', '--text': '#f4f4f5' }
                   return <i key={k} style={{ background: preset[k] }} />
                 })
               )}
@@ -73,19 +74,17 @@ export function ThemeModeSelect({ mode, resolved, packs, packId, onSetMode, onAp
             {hasPacks ? '由主题插件安装后出现在此处' : '暂无已安装主题包，可从市场安装主题插件'}
           </p>
         </div>
-        <select
-          aria-label="主题包"
-          value={packId ?? ''}
+        <Select
+          ariaLabel="主题包"
           disabled={!hasPacks}
-          onChange={(e) => onApplyPack(e.target.value || null)}
-        >
-          <option value="">默认配色</option>
-          {packs.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+          minWidth={180}
+          value={packId ?? ''}
+          onChange={(v) => onApplyPack(v || null)}
+          options={[
+            { value: '', label: '默认配色' },
+            ...packs.map((p) => ({ value: p.id, label: p.name }))
+          ]}
+        />
       </div>
     </div>
   )

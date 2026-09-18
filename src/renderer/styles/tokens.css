@@ -1,34 +1,36 @@
 /*
- * tokens — eNest 设计 Token（浅色优先的编辑器风格）
- * 使用方：壳子全部页面与组件（Market/Settings/Dev/PluginHost + layout/components）。
+ * tokens — eNest 设计 Token
+ * 风格：简约精致浅色 UI（参考 Tailwind zinc + Linear/Radix 类柔和鸢尾强调）
+ *  - 中性层用 zinc，略暖、低对比
+ *  - 强调色不用近黑/高饱和蓝，主按钮中等明度、可读
  * 契约：
- *   - --titlebar-h: 36px（标题栏高度，.app-chrome 网格行，固定不随窗口缩放）
- *   - --shell-scale: 0.85–1.1（内容密度，ResizeObserver 写入）
- *   - 圆角/阴影/字体与语义色（bg/surface/text/accent/ok/danger/link）
- *   - data-theme 始终为已解析的 light|dark（system 由 useTheme 解析后写入）
- *   - :root[data-theme="dark"] 覆盖深色 Token；useTheme 可再覆盖单个变量
+ *   - --titlebar-h: 36px；--shell-scale: 0.85–1.1
+ *   - data-theme 始终为已解析的 light|dark
  */
 :root {
   color-scheme: light;
 
-  --bg: #f3f4f6;
-  --bg-dot: rgba(15, 23, 42, 0.07);
+  /* 中性底（zinc 族，略去冷蓝） */
+  --bg: #f6f6f7;
+  --bg-dot: rgba(24, 24, 27, 0.055);
   --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --surface-3: #e8ebf0;
-  --border: rgba(15, 23, 42, 0.08);
-  --border-strong: rgba(15, 23, 42, 0.14);
-  --border-dashed: rgba(15, 23, 42, 0.16);
-  --text: #0f1420;
-  --text-2: #5c6578;
-  --text-3: #8b93a5;
-  --accent: #1a1f2e;
-  --accent-soft: rgba(26, 31, 46, 0.08);
-  --ok: #0d9f6e;
-  --ok-soft: rgba(13, 159, 110, 0.1);
-  --danger: #e11d48;
-  --danger-soft: rgba(225, 29, 72, 0.1);
-  --link: #3b63e0;
+  --surface-2: #f4f4f5;
+  --surface-3: #ebebee;
+  --border: rgba(24, 24, 27, 0.08);
+  --border-strong: rgba(24, 24, 27, 0.14);
+  --border-dashed: rgba(24, 24, 27, 0.16);
+  --text: #18181b;
+  --text-2: #52525b;
+  --text-3: #a1a1aa;
+
+  /* 柔和鸢尾紫：主按钮/强调（中等明度，非深色块） */
+  --accent: #5e6ad2;
+  --accent-soft: rgba(94, 106, 210, 0.12);
+  --ok: #2a9d76;
+  --ok-soft: rgba(42, 157, 118, 0.12);
+  --danger: #e2556b;
+  --danger-soft: rgba(226, 85, 107, 0.12);
+  --link: #7b86d4;
 
   --radius-xl: 24px;
   --radius-lg: 18px;
@@ -36,41 +38,63 @@
   --radius-sm: 10px;
   --radius-pill: 999px;
 
-  --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.05);
-  --shadow-float: 0 16px 40px rgba(15, 23, 42, 0.1);
+  /* Apple HIG：阴影极轻，避免塑料厚阴影 */
+  --shadow-soft: 0 0.5px 1px rgba(24, 24, 27, 0.03), 0 4px 12px rgba(24, 24, 27, 0.035);
+  --shadow-float: 0 8px 28px rgba(24, 24, 27, 0.08), 0 2px 6px rgba(24, 24, 27, 0.04);
 
   --font: "Inter", "SF Pro Display", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
-  /* 正文基准字号；useFont 按 fontSizeScale 写入 calc(14px * scale)，与 --shell-scale 独立 */
   --font-size-base: 14px;
 
   --titlebar-h: 36px;
-  /* ResizeObserver / 窗口宽度驱动的 UI 密度系数（0.85–1.1）；chrome 固定尺寸不参与 */
   --shell-scale: 1;
+
+  --page-pad: clamp(28px, 5vw, 72px);
+  --content-max: min(1200px, 100%);
+  --grid-min-col: clamp(200px, 16vw, 236px);
+  --grid-gap: clamp(10px, 1.4vw, 16px);
+  --search-max: clamp(400px, 48vw, 600px);
+  --chip-gap: clamp(6px, 0.8vw, 10px);
+
+  /* 光晕跟强调色；强度按 data-anim */
+  --glow-color: var(--accent);
+  --glow-strength: 0.35;
+}
+
+:root[data-anim="low"] {
+  --glow-strength: 0;
+}
+
+:root[data-anim="medium"] {
+  --glow-strength: 0.35;
+}
+
+:root[data-anim="high"] {
+  --glow-strength: 0.7;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  /* 略抬高底色与表面，避免纯黑吞掉层级 */
-  --bg: #0d1118;
-  --bg-dot: rgba(255, 255, 255, 0.075);
-  --surface: #161b24;
-  --surface-2: #1c2230;
-  --surface-3: #252d3d;
+  --bg: #121214;
+  --bg-dot: rgba(255, 255, 255, 0.06);
+  --surface: #1a1a1e;
+  --surface-2: #222226;
+  --surface-3: #2c2c32;
   --border: rgba(255, 255, 255, 0.09);
   --border-strong: rgba(255, 255, 255, 0.16);
   --border-dashed: rgba(255, 255, 255, 0.18);
-  /* 弱化文字对比度拉高，避免「看不见」 */
-  --text: #f3f5f9;
-  --text-2: #b4bdcf;
-  --text-3: #7c879c;
-  --accent: #e8ecf4;
-  --accent-soft: rgba(232, 236, 244, 0.1);
+  --text: #f4f4f5;
+  --text-2: #a1a1aa;
+  --text-3: #71717a;
+  /* 深色下强调抬亮，保证可读 */
+  --accent: #a5aeef;
+  --accent-soft: rgba(165, 174, 239, 0.14);
   --ok: #3dd68c;
-  --ok-soft: rgba(61, 214, 140, 0.14);
-  --danger: #ff7a8e;
-  --danger-soft: rgba(255, 122, 142, 0.14);
-  --link: #9bb6ff;
-  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 8px 28px rgba(0, 0, 0, 0.4);
-  --shadow-float: 0 16px 48px rgba(0, 0, 0, 0.55);
+  --ok-soft: rgba(61, 214, 142, 0.14);
+  --danger: #ff8a9a;
+  --danger-soft: rgba(255, 138, 154, 0.14);
+  --link: #9aa3e8;
+  --glow-color: #c5cbf5;
+  --shadow-soft: 0 0.5px 0 rgba(255, 255, 255, 0.04) inset, 0 4px 16px rgba(0, 0, 0, 0.28);
+  --shadow-float: 0 10px 32px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.2);
 }

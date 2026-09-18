@@ -1,31 +1,24 @@
 /**
  * PluginCard — 市场网格中的插件卡片
- * 图标为品牌色圆角方块 + 居中 glyph；展示名称、描述（2 行截断）、分类/安装量。
- * 整卡与底部主按钮：已安装 → onOpen 启动；未安装 → onDetail 详情（无 onDetail 时回落 onOpen 安装）。
- * 已安装时额外提供「启用/禁用」切换与「卸载」：禁用时打开按钮变灰；
- * 卸载二次确认后 shellApi.uninstallPlugin，列表经 uninstall-result 刷新。
- * 由 MarketPage 网格渲染；插件数据来自 shellStore.plugins。
- * 依赖：useI18n、shellApi。
+ * 头：图标 + 名称/分类小 tag；描述；底部操作。
+ * 已安装：启用开关 + 卸载（danger 软底）+ 打开。
  */
 import { useState } from 'react'
-import type { CSSProperties, MouseEvent } from 'react'
+import type { MouseEvent } from 'react'
 import type { PluginSummary } from '@shared/types/plugin'
+import { PLUGIN_ICON_DISPLAY_CARD } from '@shared/constants'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { shellApi } from '@renderer/services/shellApi'
+import { Trash2Icon } from '@renderer/components/icons'
+import { PluginIcon } from '@renderer/components/PluginIcon'
 
-/** 品牌色微渐变 + 柔和阴影（避免过重的粗渐变） */
-function iconStyle(p: PluginSummary): CSSProperties {
-  return {
-    background: `linear-gradient(160deg, color-mix(in srgb, ${p.color} 88%, #fff) 0%, ${p.color} 52%, color-mix(in srgb, ${p.color} 72%, #000) 100%)`,
-    boxShadow: `0 2px 8px color-mix(in srgb, ${p.color} 30%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent)`,
-  }
+function iconBackground(p: PluginSummary): string {
+  return `linear-gradient(160deg, color-mix(in srgb, ${p.color} 88%, #fff) 0%, ${p.color} 52%, color-mix(in srgb, ${p.color} 72%, #000) 100%)`
 }
 
 interface Props {
   plugin: PluginSummary
-  /** 已安装且启用时启动插件（整卡 / 按钮） */
   onOpen: (id: string) => void
-  /** 未安装时打开详情；未提供时整卡/按钮回落 onOpen */
   onDetail?: (id: string) => void
 }
 
@@ -34,8 +27,9 @@ export function PluginCard({ plugin, onOpen, onDetail }: Props) {
   const [uninstalling, setUninstalling] = useState(false)
   const [toggling, setToggling] = useState(false)
   const disabled = plugin.installed && plugin.enabled === false
+  const enabled = plugin.installed && !disabled
 
-  const act = () => {
+  const handleCard = () => {
     if (uninstalling || toggling) return
     if (plugin.installed) {
       if (disabled) return
@@ -46,14 +40,6 @@ export function PluginCard({ plugin, onOpen, onDetail }: Props) {
     else onOpen(plugin.id)
   }
 
-  const handleCard = () => act()
-
-  const handleAction = (e: MouseEvent) => {
-    e.stopPropagation()
-    act()
-  }
-
-  /** 二次确认后卸载；成功/失败 toast 与列表刷新由 uninstall-result 事件处理 */
   const handleUninstall = async (e: MouseEvent) => {
     e.stopPropagation()
     if (uninstalling || !shellApi.uninstallPlugin) return
@@ -62,11 +48,13 @@ export function PluginCard({ plugin, onOpen, onDetail }: Props) {
     try {
       await shellApi.uninstallPlugin(plugin.id)
     } catch {
+      /* 失败提示由 uninstall-result 事件覆盖 */
+    } finally {
+      // 成功后列表会刷新为未安装；必须复位，否则安装按钮一直 disabled 灰态
       setUninstalling(false)
     }
   }
 
-  /** 启用/禁用切换；成功后 plugins-changed 刷新列表 */
   const handleToggleEnabled = async (e: MouseEvent) => {
     e.stopPropagation()
     if (toggling || !shellApi.setPluginEnabled) return
@@ -74,7 +62,7 @@ export function PluginCard({ plugin, onOpen, onDetail }: Props) {
     try {
       await shellApi.setPluginEnabled(plugin.id, disabled)
     } catch {
-      /* 失败保持原状；toast 由调用方可扩展 */
+      /* keep */
     } finally {
       setToggling(false)
     }
@@ -84,69 +72,110 @@ export function PluginCard({ plugin, onOpen, onDetail }: Props) {
     ? disabled
       ? t('plugin.disabled')
       : t('plugin.open')
-    : onDetail
-      ? t('plugin.detail')
-      : t('plugin.install')
+    : t('plugin.install')
+
+  /** 主按钮：已安装打开插件；未安装与点卡片一致，打开详情 */
+  const handleAction = (e: MouseEvent) => {
+    e.stopPropagation()
+    if (disabled || uninstalling || toggling) return
+    if (plugin.installed) {
+      onOpen(plugin.id)
+      return
+    }
+    if (onDetail) onDetail(plugin.id)
+    else onOpen(plugin.id)
+  }
 
   return (
     <article
-      className="card"
+      className={`card${disabled ? ' is-disabled' : ''}`}
       onClick={handleCard}
-      style={disabled ? { opacity: 0.72 } : undefined}
     >
       {plugin.installed ? (
-        <span
-          className="badge-installed"
-          style={disabled ? { background: 'var(--chip-bg, rgba(128,128,128,.18))', color: 'var(--text-dim, #888)' } : undefined}
-        >
-          {disabled ? t('plugin.disabled') : t('plugin.installed')}
-        </span>
-      ) : null}
-      <div className={plugin.installed ? 'card-head has-badge' : 'card-head'}>
-        <div className="card-icon" style={iconStyle(plugin)} aria-hidden="true">
-          {plugin.glyph}
-        </div>
-        <h3>{plugin.name}</h3>
-        <span className="arrow" aria-hidden="true">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M7 17 17 7M9 7h8v8" />
-          </svg>
-        </span>
-      </div>
-      <p>{plugin.description}</p>
-      <div className="card-foot">
-        <span className="tag">{plugin.category}</span>
-        <span className="installs">{plugin.installs}</span>
-        {plugin.installed && (
-          <button
-            type="button"
-            className="tag"
-            style={{ cursor: toggling ? 'wait' : 'pointer', border: 'none' }}
-            disabled={toggling || uninstalling}
-            onClick={(e) => void handleToggleEnabled(e)}
-            title={disabled ? t('plugin.enable') : t('plugin.disable')}
-          >
-            {toggling ? '…' : disabled ? t('plugin.enable') : t('plugin.disable')}
-          </button>
-        )}
-        {plugin.installed && (
-          <button
-            type="button"
-            className="btn btn-sm btn-danger"
-            disabled={uninstalling}
-            onClick={(e) => void handleUninstall(e)}
-          >
-            {uninstalling ? t('plugin.uninstalling') : t('plugin.uninstall')}
-          </button>
-        )}
         <button
           type="button"
-          className={`btn btn-sm ${plugin.installed && !disabled ? 'btn-ghost' : 'btn-primary'}`}
-          disabled={uninstalling || toggling || disabled}
-          onClick={handleAction}
+          className="card-uninstall-corner"
+          disabled={uninstalling}
+          title={uninstalling ? t('plugin.uninstalling') : t('plugin.uninstall')}
+          aria-label={uninstalling ? t('plugin.uninstalling') : t('plugin.uninstall')}
+          onClick={(e) => void handleUninstall(e)}
         >
-          {actionLabel}
+          {uninstalling ? (
+            <span className="card-uninstall-dots" aria-hidden>…</span>
+          ) : (
+            <Trash2Icon size={13} />
+          )}
         </button>
+      ) : null}
+
+      <div className="card-body">
+        <div className="card-head">
+          <PluginIcon
+            className="card-icon"
+            src={plugin.icon}
+            glyph={plugin.glyph}
+            slot="card"
+            size={PLUGIN_ICON_DISPLAY_CARD}
+            alt={plugin.name}
+            style={{
+              background: iconBackground(plugin),
+              boxShadow: `0 2px 8px color-mix(in srgb, ${plugin.color} 30%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent)`,
+            }}
+          />
+          <div className="card-title">
+            <div className="card-title-row">
+              <h3 title={plugin.name}>{plugin.name}</h3>
+              <span className="tag tag-cat" title={plugin.category}>
+                {plugin.category}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <p>{plugin.description}</p>
+
+        <div className="card-actions">
+          {plugin.installed ? (
+            <>
+              <label
+                className="card-switch-wrap"
+                title={disabled ? t('plugin.enable') : t('plugin.disable')}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={enabled}
+                  aria-label={disabled ? t('plugin.enable') : t('plugin.disable')}
+                  className={`card-switch${enabled ? ' on' : ''}`}
+                  disabled={toggling || uninstalling}
+                  onClick={(e) => void handleToggleEnabled(e)}
+                />
+              </label>
+              <span className="card-actions-spacer" />
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                disabled={uninstalling || toggling || disabled}
+                onClick={handleAction}
+              >
+                {actionLabel}
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="card-actions-spacer" />
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                disabled={uninstalling || toggling}
+                onClick={handleAction}
+              >
+                {actionLabel}
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </article>
   )

@@ -94,7 +94,7 @@
   </div>
 
   <script>
-    const api = window.enest || window.zapi
+    const api = window.enest // zapi 为 @deprecated 别名，计划 v2 移除
     const KEY = 'todos'
     let todos = []
 
@@ -277,7 +277,7 @@
   </div>
 
   <script>
-    const api = window.enest || window.zapi
+    const api = window.enest // zapi 为 @deprecated 别名，计划 v2 移除
     const KEYS = [
       '--bg', '--surface', '--surface-2', '--surface-3',
       '--text', '--text-2', '--text-3',
@@ -412,7 +412,7 @@
   </div>
 
   <script>
-    const api = window.enest || window.zapi
+    const api = window.enest // zapi 为 @deprecated 别名，计划 v2 移除
     const canvas = document.getElementById('c')
     const ctx = canvas.getContext('2d')
 
@@ -585,7 +585,7 @@
   </div>
 
   <script>
-    const api = window.enest || window.zapi
+    const api = window.enest // zapi 为 @deprecated 别名，计划 v2 移除
     const $ = (id) => document.getElementById(id)
 
     api?.ui.setTitle('小工具箱')
@@ -697,6 +697,6 @@ cd my-plugin && zip -r ../my-plugin.enestplugin .
 
 ## 下一步
 
-- [zapi API](api.md) — 方法签名与权限
+- [enest API](api.md) — 方法签名与权限
 - [生命周期](lifecycle.md) — pause / flush 模式
-- [UI 集成标准](ui-standard.md) — chrome / 主题 / 透明
+- [UI 集成标准](ui-standard.md) — chrome / 主题 / 透明 / mini 小窗

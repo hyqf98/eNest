@@ -10,8 +10,10 @@ import { cp, mkdir, readdir, rm, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import type { PluginManifest, PluginSummary } from '@shared/types/plugin'
+import type { PluginContributes, PluginManifest, PluginSummary } from '@shared/types/plugin'
 import { resolvePluginForm, resolvePluginUi } from '@shared/types/plugin'
+import { pluginProtocolUrl } from '@shared/constants'
+import { collectManifestIssues } from '@main/plugin/PluginInstaller'
 import { getAppPaths } from '@main/paths/pathsService'
 import { MOCK_MARKET_PLUGINS, mockToSummary, shortNameOf } from '@main/plugin/mockMarket'
 import { installFromDirectory, installFromZip } from '@main/plugin/PluginInstaller'
@@ -25,6 +27,7 @@ import {
   loadDisabledIds,
   persistPluginEnabled
 } from '@main/plugin/pluginEnabledStore'
+import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { sendShellEvent } from '@main/window/createShellWindow'
 
@@ -42,6 +45,19 @@ function samplesRoot(): string {
   return join(app.getAppPath(), 'plugins-samples')
 }
 
+function monorepoPluginsRoot(): string {
+  return join(app.getAppPath(), 'eNest_plugin', 'plugins')
+}
+
+/** 解析本地示例安装源：优先 monorepo plugins/{id}，再回退 plugins-samples/{short} */
+function resolveSampleDir(id: string): string | null {
+  const mono = join(monorepoPluginsRoot(), id)
+  if (existsSync(mono)) return mono
+  const short = join(samplesRoot(), shortNameOf(id))
+  if (existsSync(short)) return short
+  return null
+}
+
 /**
  * 简易语义版本比较：点分数字段，缺段视为 0。
  * 返回 <0 / 0 / >0；预发布后缀忽略（市场包以稳定版为主）。
@@ -56,6 +72,14 @@ export function compareVersions(a: string, b: string): number {
     if (da !== db) return da < db ? -1 : 1
   }
   return 0
+}
+
+/** manifest.logo → enest:// 协议图标 URL（绝对/带协议的值原样保留；devUrl 场景由调用方覆盖） */
+function manifestIconUrl(manifest: PluginManifest): string | undefined {
+  const logo = manifest.logo
+  if (!logo) return undefined
+  if (/^(https?:|data:|enest:)/i.test(logo)) return logo
+  return pluginProtocolUrl(manifest.id, logo.replace(/^\.?\//, ''))
 }
 
 function manifestToSummary(
@@ -75,16 +99,38 @@ function manifestToSummary(
     installs: market?.installs ?? 'local',
     color: market?.color ?? '#5b8cff',
     glyph: market?.glyph ?? manifest.name.slice(0, 1),
+    icon: manifestIconUrl(manifest),
     permissions: manifest.permissions ?? [],
     installed: true,
     // 禁用时省略 rootPath：commandIndex 过滤 (installed && rootPath) 自动排除禁用项
     rootPath: enabled ? rootPath : undefined,
     enabled,
-    // UI 段归一：缺省 chrome=default / themeAware=true / background=opaque / preferredColorScheme=auto
+    // UI 段归一：缺省 chrome=none / themeAware=true / background=opaque / preferredColorScheme=auto
     ui: resolvePluginUi(manifest.ui),
     form: resolvePluginForm(manifest.form),
+    // 贡献点声明透传（渲染层消费 homeCards 等；ManifestContributes 归一见 normalizeContributes）
+    contributes: normalizeContributes(manifest.contributes),
     ...extras
   }
+}
+
+/**
+ * manifest.contributes 归一：剔掉运行时才注册的 quickProviders（manifest 不声明）
+ * 与 themePacks 里的 source 字段干扰，只透传可声明式消费的形状；异常输入返回 undefined。
+ */
+function normalizeContributes(
+  raw?: PluginManifest['contributes']
+): PluginContributes | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const out: PluginContributes = {}
+  if (Array.isArray(raw.settings) && raw.settings.length > 0) out.settings = raw.settings
+  if (Array.isArray(raw.homeCards) && raw.homeCards.length > 0) out.homeCards = raw.homeCards
+  if (Array.isArray(raw.railEntries) && raw.railEntries.length > 0) {
+    out.railEntries = raw.railEntries
+  }
+  const hasAny =
+    out.settings !== undefined || out.homeCards !== undefined || out.railEntries !== undefined
+  return hasAny ? out : undefined
 }
 
 /** 若远程存在更高版本，补 latestVersion（供市场 UI 显示「更新」） */
@@ -103,8 +149,26 @@ export class PluginRegistry {
   /** 远程 eNest_plugin 市场缓存；断网时沿用上次成功结果 */
   private remoteMarket: MarketPluginSummary[] = []
   private remoteFetchedAt = 0
+  /** 拉取失败后的冷却截止时间，避免 GitHub 不可达时反复 SSL 失败刷屏 */
+  private remoteFailUntil = 0
+  /** 进行中的远程市场请求，去重并发 scan 触发的多次 fetch */
+  private remoteFetchInFlight: Promise<void> | null = null
   /** ensureInstalled 进行中的远程下载，避免并发重复拉同一插件 */
   private installing = new Map<string, Promise<PluginSummary>>()
+
+/** manifest.contributes 声明入库（禁用插件除外；启用/安装路径同样调用） */
+private syncContributes(manifest: PluginManifest, enabled: boolean): void {
+  try {
+    if (enabled) {
+      contributionRegistry.registerManifestContributes(manifest.id, manifest.contributes)
+    } else {
+      // 禁用插件的声明式贡献不显示
+      contributionRegistry.unregisterBySource(manifest.id)
+    }
+  } catch (err) {
+    logWarn('registry', `contributes sync failed for ${manifest.id}: ${(err as Error).message}`)
+  }
+}
 
 /** 扫描 userData/plugins 下所有已安装插件，解析 manifest 并缓存到内存 */
   async scan(): Promise<void> {
@@ -136,8 +200,11 @@ export class PluginRegistry {
           rootPath: pluginDir,
           version: manifest.version
         })
-      } catch {
-        // skip invalid plugin dirs
+        // 贡献点声明入库（声明式注册不依赖插件运行；禁用插件除外）
+        this.syncContributes(manifest, isEnabledSync(manifest.id))
+      } catch (err) {
+        // 无效插件跳过但记录具体原因，不再静默
+        logWarn('registry', `scan skip ${id}: ${(err as Error).message}`)
       }
     }
     // 启动后异步拉取远程市场，不阻塞 scan
@@ -147,15 +214,32 @@ export class PluginRegistry {
   /** 拉取 eNest_plugin registry；成功则覆盖 remoteMarket */
   async refreshRemoteMarket(force = false): Promise<void> {
     const ttl = 5 * 60 * 1000
+    const failCooldownMs = 45 * 1000
     if (!force && Date.now() - this.remoteFetchedAt < ttl) return
-    const list = await fetchRemoteMarket()
-    this.remoteFetchedAt = Date.now()
-    if (list.length) {
-      this.remoteMarket = list
-      logInfo('registry', `remote market ok: ${list.length} plugins`)
-    } else {
-      logWarn('registry', 'remote market empty or unreachable, keep local/mock')
-    }
+    // GitHub/代理不可达时进入冷却，避免每次 scan 都打 SSL 握手失败
+    if (!force && Date.now() < this.remoteFailUntil) return
+    if (this.remoteFetchInFlight) return this.remoteFetchInFlight
+    this.remoteFetchInFlight = (async () => {
+      try {
+        const list = await fetchRemoteMarket()
+        this.remoteFetchedAt = Date.now()
+        if (list.length) {
+          this.remoteMarket = list
+          this.remoteFailUntil = 0
+          logInfo('registry', `remote market ok: ${list.length} plugins`)
+        } else {
+          this.remoteFailUntil = Date.now() + failCooldownMs
+          logWarn('registry', 'remote market empty or unreachable, keep local/mock')
+        }
+      } catch (err) {
+        this.remoteFetchedAt = Date.now()
+        this.remoteFailUntil = Date.now() + failCooldownMs
+        logWarn('registry', `remote market failed: ${(err as Error).message}`)
+      } finally {
+        this.remoteFetchInFlight = null
+      }
+    })()
+    return this.remoteFetchInFlight
   }
 
   getRemoteMarket(): MarketPluginSummary[] {
@@ -180,6 +264,7 @@ export class PluginRegistry {
         installs: remote.installs,
         color: remote.color,
         glyph: remote.glyph,
+        icon: remote.icon,
         permissions: remote.permissions,
         installed: this.installed.has(remote.id) || this.dev.has(remote.id),
         enabled: isEnabledSync(remote.id),
@@ -197,6 +282,7 @@ export class PluginRegistry {
       byId.set(summary.id, {
         ...summary,
         installed: true,
+        dev: true,
         enabled: isEnabledSync(summary.id)
       })
     }
@@ -207,11 +293,29 @@ export class PluginRegistry {
     const remote = this.getRemoteEntry(id)
     const dev = this.dev.get(id)
     if (dev) {
-      return withUpdateHint({ ...dev, installed: true, enabled: isEnabledSync(id) }, remote)
+      const devManifest = this.devManifests.get(id)
+      return withUpdateHint(
+        {
+          ...dev,
+          installed: true,
+          dev: true,
+          enabled: isEnabledSync(id),
+          ...(devManifest?.contributes
+            ? { contributes: normalizeContributes(devManifest.contributes) }
+            : {})
+        },
+        remote
+      )
     }
     const inst = this.installed.get(id)
     if (inst) {
-      return withUpdateHint(manifestToSummary(inst.manifest, inst.rootPath), remote)
+      return withUpdateHint(
+        {
+          ...manifestToSummary(inst.manifest, inst.rootPath),
+          contributes: normalizeContributes(inst.manifest.contributes)
+        },
+        remote
+      )
     }
     if (remote) {
       return {
@@ -224,6 +328,7 @@ export class PluginRegistry {
         installs: remote.installs,
         color: remote.color,
         glyph: remote.glyph,
+        icon: remote.icon,
         permissions: remote.permissions,
         installed: false,
         enabled: isEnabledSync(remote.id),
@@ -256,6 +361,9 @@ export class PluginRegistry {
     await persistPluginEnabled(id, enabled)
     // 禁用集合变更后 list/get 需立刻反映
     await loadDisabledIds()
+    // 贡献点：禁用即撤下声明式贡献，启用即按当前 manifest 重放
+    const manifest = this.getManifest(id)
+    if (manifest) this.syncContributes(manifest, enabled)
     logInfo('registry', `${id} ${enabled ? 'enabled' : 'disabled'}`)
     sendShellEvent({ type: 'plugins-changed' })
     const summary = this.get(id)
@@ -268,10 +376,9 @@ export class PluginRegistry {
     if (this.installed.has(id)) {
       return this.get(id)!
     }
-    const short = shortNameOf(id)
-    const src = join(samplesRoot(), short)
-    if (!existsSync(src)) {
-      throw new Error(`sample not found: ${src}`)
+    const src = resolveSampleDir(id)
+    if (!src) {
+      throw new Error(`sample not found for plugin: ${id}`)
     }
     const manifest = await installFromDirectory(src)
     const version = manifest.version || '0.0.0'
@@ -279,6 +386,7 @@ export class PluginRegistry {
     await mkdir(dest, { recursive: true })
     await cp(src, dest, { recursive: true })
     this.installed.set(manifest.id, { manifest, rootPath: dest, version })
+    this.syncContributes(manifest, true)
     return this.get(manifest.id)!
   }
 
@@ -319,6 +427,7 @@ export class PluginRegistry {
         rootPath: result.dest,
         version: result.manifest.version || '0.0.0'
       })
+      this.syncContributes(result.manifest, true)
       // 安装成功后清理同 id 下更旧的版本目录（保留刚写入的）
       await this.cleanupOldVersions(result.manifest.id, result.dest)
       onProgress?.(100, '安装完成')
@@ -348,12 +457,17 @@ export class PluginRegistry {
 /** 注册开发态插件（不落盘，仅内存） */
   addDevPlugin(summary: PluginSummary, manifest?: PluginManifest): void {
     this.dev.set(summary.id, summary)
-    if (manifest) this.devManifests.set(summary.id, manifest)
+    if (manifest) {
+      this.devManifests.set(summary.id, manifest)
+      this.syncContributes(manifest, true)
+    }
   }
 
   removeDevPlugin(id: string): void {
     this.dev.delete(id)
     this.devManifests.delete(id)
+    // 开发态卸载：撤下其声明式贡献
+    contributionRegistry.unregisterBySource(id)
   }
 
 /**
@@ -375,9 +489,7 @@ export class PluginRegistry {
 
     const task = (async (): Promise<PluginSummary> => {
       // sample 优先（离线可用、速度快）
-      const short = shortNameOf(id)
-      const sampleDir = join(samplesRoot(), short)
-      if (existsSync(sampleDir)) {
+      if (resolveSampleDir(id)) {
         return this.installFromSample(id)
       }
       // 远程下载

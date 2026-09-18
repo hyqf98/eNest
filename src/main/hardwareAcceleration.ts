@@ -1,6 +1,6 @@
 /**
  * hardwareAcceleration — GPU 硬件加速开关
- * 职责：在 app.ready 之前根据 ~/eNest/settings.json 同步读取偏好并决定是否
+ * 职责：在 app.ready 之前根据 ~/.eNest/settings.json 同步读取偏好并决定是否
  * app.disableHardwareAcceleration()；提供 IPC 读写（写后需重启生效）。
  * 被 index.ts（ready 前）与 shellHandlers 调用。
  * 关键依赖：electron app、pathsService（settings 路径）。
@@ -15,6 +15,7 @@ const DEFAULT_ENABLED = true
 /**
  * 同步读取硬件加速偏好。
  * settings 加载依赖 app ready，而 GPU 开关必须在 ready 前决策，故这里直接读文件。
+ * 只读设置页对应的数据根（~/.eNest），不回落旧目录。
  */
 export function readHardwareAccelPreferenceSync(): boolean {
   try {

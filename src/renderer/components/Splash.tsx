@@ -43,9 +43,33 @@ function applySplashTokens(root: HTMLElement, mode: 'brand' | 'theme'): void {
   root.style.setProperty('--splash-text', readCssVar('--text', BRAND.text))
 }
 
-/** 轻量气泡/光点：仅 high 档挂载，约 16 帧粒子，软上浮 */
+/** Splash 粒子 sprite 半径：spawn 上界（layer2 = 10 + 18 = 28）+ 呼吸 10% + 余量 */
+const SPLASH_SPRITE_RADIUS = 34
+
+/** 预渲染 accent 色径向渐变 sprite：离屏 canvas 画一次，每帧 drawImage（消除逐帧 createRadialGradient GC 压力） */
+function makeTintSprite(tint: string, dpr: number): HTMLCanvasElement {
+  const size = Math.ceil(SPLASH_SPRITE_RADIUS * 2 * dpr)
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const g = canvas.getContext('2d', { alpha: true })
+  if (g) {
+    // 与原逐帧渐变同构：高光偏左上，三段透明度（外圈 globalAlpha 控制呼吸）
+    const c = SPLASH_SPRITE_RADIUS * dpr
+    const grad = g.createRadialGradient(c - c * 0.35, c - c * 0.35, c * 0.08, c, c, c)
+    grad.addColorStop(0, `${tint}ff`)
+    grad.addColorStop(0.5, `${tint}8c`)
+    grad.addColorStop(1, 'transparent')
+    g.fillStyle = grad
+    g.fillRect(0, 0, size, size)
+  }
+  return canvas
+}
+
+/** 轻量气泡/光点：仅 high 档挂载；分层 + 两遍模糊加色发光；
+ *  渐变 sprite 预渲染 + 粒子池复用；document.hidden 暂停 */
 function startSplashParticles(canvas: HTMLCanvasElement, accent: string): () => void {
-  const ctx = canvas.getContext('2d')
+  const ctx = canvas.getContext('2d', { alpha: true })
   if (!ctx) return () => undefined
 
   const dpr = Math.min(window.devicePixelRatio || 1, 2)
@@ -53,18 +77,45 @@ function startSplashParticles(canvas: HTMLCanvasElement, accent: string): () => 
   let h = 0
   let raf = 0
   let alive = true
+  let running = true
 
-  type Dot = { x: number; y: number; r: number; vx: number; vy: number; a: number }
-  let dots: Dot[] = []
+  type Dot = {
+    x: number
+    y: number
+    r: number
+    vx: number
+    vy: number
+    a: number
+    layer: number
+    phase: number
+  }
+  /** 对象池：按上限 28 预分配，resize 只改 count + 重置字段 */
+  const POOL = 28
+  let count = 0
+  const dots: Dot[] = Array.from({ length: POOL }, () => ({
+    x: 0, y: 0, r: 0, vx: 0, vy: 0, a: 0, layer: 0, phase: 0,
+  }))
 
-  const spawn = (): Dot => ({
-    x: Math.random() * w,
-    y: Math.random() * h,
-    r: 3 + Math.random() * 14,
-    vx: (Math.random() - 0.5) * 0.22,
-    vy: -0.08 - Math.random() * 0.18,
-    a: 0.1 + Math.random() * 0.22,
-  })
+  const initDot = (d: Dot, layer: number): void => {
+    const sizeBase = layer === 0 ? 3 : layer === 1 ? 6 : 10
+    const sizeSpan = layer === 0 ? 8 : layer === 1 ? 12 : 18
+    const speed = layer === 0 ? 0.16 : layer === 1 ? 0.28 : 0.42
+    d.x = Math.random() * w
+    d.y = Math.random() * h
+    d.r = sizeBase + Math.random() * sizeSpan
+    d.vx = (Math.random() - 0.5) * speed
+    d.vy = -speed * 0.4 - Math.random() * speed * 0.5
+    d.a = (layer === 0 ? 0.1 : layer === 1 ? 0.16 : 0.24) + Math.random() * 0.1
+    d.layer = layer
+    d.phase = Math.random() * Math.PI * 2
+  }
+
+  const off = document.createElement('canvas')
+  const offCtx = off.getContext('2d', { alpha: true })
+
+  // 用品牌薄荷/主题 accent 做光点；解析失败退回 hsla
+  const tint = accent.startsWith('#') ? accent.slice(0, 7) : '#2dd4a8'
+  const sprite = makeTintSprite(tint, dpr)
 
   const resize = () => {
     w = window.innerWidth
@@ -74,17 +125,35 @@ function startSplashParticles(canvas: HTMLCanvasElement, accent: string): () => 
     canvas.style.width = `${w}px`
     canvas.style.height = `${h}px`
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    const count = Math.min(18, Math.max(8, Math.floor((w * h) / 90000)))
-    if (dots.length !== count) dots = Array.from({ length: count }, spawn)
+    if (offCtx) {
+      off.width = Math.floor(w * dpr)
+      off.height = Math.floor(h * dpr)
+      offCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    }
+    // 上限约 28，启动阶段足够热闹又不抢标
+    const next = Math.min(POOL, Math.max(12, Math.floor((w * h) / 52000)))
+    if (next > count) {
+      for (let i = count; i < next; i++) initDot(dots[i], i % 3)
+    }
+    count = next
   }
 
-  // 用品牌薄荷/主题 accent 做光点；解析失败退回 hsla
-  const tint = accent.startsWith('#') ? accent : '#2dd4a8'
+  /** drawImage 版绘制：sprite 缩放 + 呼吸透明度（上下文已按 dpr 缩放，尺寸用 CSS px） */
+  const paintDot = (g: CanvasRenderingContext2D, d: Dot, t: number) => {
+    const breath = 1 + Math.sin(t * 1.2 + d.phase) * 0.1
+    const r = d.r * breath
+    const alpha = d.a * (0.9 + Math.sin(t + d.phase) * 0.1)
+    const s = r * 2
+    g.globalAlpha = Math.min(1, alpha + 0.18)
+    g.drawImage(sprite, d.x - s / 2, d.y - s / 2, s, s)
+  }
 
+  let t = 0
   const step = () => {
-    if (!alive) return
-    ctx.clearRect(0, 0, w, h)
-    for (const d of dots) {
+    if (!alive || !running) return
+    t += 0.016
+    for (let i = 0; i < count; i++) {
+      const d = dots[i]
       d.x += d.vx
       d.y += d.vy
       if (d.x < -d.r) d.x = w + d.r
@@ -93,26 +162,60 @@ function startSplashParticles(canvas: HTMLCanvasElement, accent: string): () => 
         d.y = h + d.r
         d.x = Math.random() * w
       }
-      const g = ctx.createRadialGradient(d.x - d.r * 0.3, d.y - d.r * 0.3, d.r * 0.1, d.x, d.y, d.r)
-      g.addColorStop(0, `${tint}${Math.round((d.a + 0.14) * 255).toString(16).padStart(2, '0')}`)
-      g.addColorStop(0.55, `${tint}${Math.round(d.a * 0.55 * 255).toString(16).padStart(2, '0')}`)
-      g.addColorStop(1, 'transparent')
-      ctx.beginPath()
-      ctx.fillStyle = g
-      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2)
-      ctx.fill()
+    }
+
+    if (offCtx) {
+      offCtx.clearRect(0, 0, w, h)
+      offCtx.globalCompositeOperation = 'lighter'
+      for (let i = 0; i < count; i++) paintDot(offCtx, dots[i], t)
+      offCtx.globalAlpha = 1
+      offCtx.globalCompositeOperation = 'source-over'
+
+      ctx.clearRect(0, 0, w, h)
+      ctx.save()
+      ctx.filter = 'blur(12px)'
+      ctx.globalAlpha = 0.6
+      ctx.drawImage(off, 0, 0, w, h)
+      ctx.restore()
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.globalAlpha = 0.9
+      ctx.filter = 'blur(0.4px)'
+      ctx.drawImage(off, 0, 0, w, h)
+      ctx.restore()
+    } else {
+      ctx.clearRect(0, 0, w, h)
+      for (let i = 0; i < count; i++) paintDot(ctx, dots[i], t)
+      ctx.globalAlpha = 1
     }
     raf = requestAnimationFrame(step)
   }
 
+  const onVisibility = () => {
+    if (document.hidden) {
+      running = false
+      cancelAnimationFrame(raf)
+    } else if (alive && !running) {
+      running = true
+      raf = requestAnimationFrame(step)
+    }
+  }
+
   resize()
   window.addEventListener('resize', resize)
+  document.addEventListener('visibilitychange', onVisibility)
   raf = requestAnimationFrame(step)
 
   return () => {
     alive = false
+    running = false
     cancelAnimationFrame(raf)
     window.removeEventListener('resize', resize)
+    document.removeEventListener('visibilitychange', onVisibility)
+    off.width = 0
+    off.height = 0
+    sprite.width = 0
+    sprite.height = 0
   }
 }
 
@@ -137,6 +240,8 @@ export function Splash({ onDone }: { onDone: () => void }) {
       node: root.querySelector('.splash-node'),
       wordmark: root.querySelector('.splash-word'),
       ring: root.querySelector('.splash-ring'),
+      sub: root.querySelector('.splash-sub'),
+      stage: root.querySelector('.splash-stage'),
     }
     handlesRef.current = handles
     setReady(true)

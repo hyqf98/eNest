@@ -1,7 +1,7 @@
 /**
  * TitleBar — 顶部标题栏（macOS 风格）
- * 36px：红绿灯 + 中间拖拽区。classic 显示文字 Tab；orb 的 Tab 在左侧 FloatingTabRail
- * （含插件页，通过原生层左侧 inset 露出），顶栏不重复渲染圆球。
+ * 36px：红绿灯 + 中间拖拽区。classic 显示文字 Tab；orb 的 Tab 在左侧圆轨
+ * （主窗口内顶层 WebContentsView，悬浮于插件之上），顶栏不重复渲染圆球。
  * 依赖：shellApi、shellStore；子组件：TabStrip。
  */
 import { TabStrip } from '@renderer/layout/TabStrip'

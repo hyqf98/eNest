@@ -39,30 +39,36 @@
 | `name` | 是 | 显示名称 |
 | `version` | 是 | semver |
 | `main` | 是 | HTML 入口相对路径 |
-| `description` | 否 | 市场描述文案 |
+| `description` | 否 | 市场描述文案（插件仓库 schema 必填；壳子安装校验仅建议） |
 | `author` | 否 | 作者 |
-| `logo` | 否 | 图标路径 |
-| `preload` | 否 | 自定义预加载（一般不需要，壳子已注入 zapi） |
-| `settings` | 否 | 设置页 HTML |
-| `engines.enest` | 否 | 壳子版本约束 |
-| `permissions` | 否 | API 白名单，未声明则调用失败 |
+| `logo` | 否 | 图标文件相对路径（png/svg），市场卡片与大图头展示 |
+| `settings` | 否 | 设置页 HTML（保留/实验字段，壳子尚未消费） |
+| `engines.enest` | 否 | 壳子版本约束（`*` / `^x.y.z` / `>=x.y.z` / 精确；复杂范围拒绝安装） |
+| `permissions` | 否 | API 白名单（18 项，见 [权限](permissions.md)），未声明则调用失败 |
 | `window` | 否 | 建议窗口尺寸（minWidth / minHeight） |
 | `development.main` | 否 | 开发态 URL（Vite/Webpack） |
-| `features` | 否 | 可搜索指令（后续市场接入） |
-| `ui` | 否 | UI 集成：chrome / themeAware / background / preferredColorScheme，见 [UI 集成标准](ui-standard.md) |
+| `features` | 否 | 可搜索指令（Quick 命令面板，`{ code, explain?, cmds }`） |
+| `form` | 否 | 打开形态：`mini` 命令面板小窗优先 / `panel` 主窗 Tab（缺省） |
+| `ui` | 否 | UI 集成：chrome（缺省 `none`）/ themeAware / background / preferredColorScheme，见 [UI 集成标准](ui-standard.md) |
 
 > ⚠️ **`id` 安装后用于数据目录与 partition，改名会导致数据「丢失」（仍在旧目录）。**
 
 ## 校验规则
 
-壳子安装/加载本地目录时会校验：
+两层校验：
 
-1. 目录内存在可读的 `plugin.json`
-2. JSON 可解析
-3. 至少包含 `id` / `name` / `version` / `main`
+1. **插件仓库 CI**（eNest_plugin，ajv + `plugin-manifest.schema.json`）：`id` / `name` / `version` / `main` / `description` 必填，权限枚举、`features` / `window` / `form` / `development` / `settings` / `ui` / `logo` 结构化定义。
+2. **壳子安装/加载时**（程序化校验，见 `PluginInstaller.collectManifestIssues`）：
+   - 目录内存在可读的 `plugin.json` 且 JSON 可解析
+   - `id` 反向域名格式、`name` 非空、`version` semver、`main` 非空
+   - `description` 建议但不强制（与 schema required 的差异）
+   - `permissions` 每一项都在白名单 `PLUGIN_PERMISSIONS` 内
+   - `engines.enest` 版本范围满足当前壳子版本（不支持的范围语法拒绝安装）
+   - `main` 入口文件存在于插件根目录
+   - 全部错误一次性收集返回（消息带插件 id 与字段名）
 
 失败会抛出对应错误，见 [错误码](errors.md)。
 
 ## 下一步
 
-[zapi API →](api.md)
+[enest API →](api.md)

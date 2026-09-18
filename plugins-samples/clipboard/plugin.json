@@ -1,9 +1,0 @@
-{
-  "id": "com.enest.clipboard",
-  "name": "剪贴板历史",
-  "version": "1.0.0",
-  "description": "剪贴板历史（示例）",
-  "author": "eNest",
-  "main": "index.html",
-  "permissions": ["storage.local", "ui.setTitle"]
-}

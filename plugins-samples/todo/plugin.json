@@ -1,9 +1,0 @@
-{
-  "id": "com.enest.todo",
-  "name": "轻清单",
-  "version": "1.0.0",
-  "description": "轻清单（示例）",
-  "author": "eNest",
-  "main": "index.html",
-  "permissions": ["storage.local", "ui.setTitle"]
-}

@@ -7,7 +7,7 @@
   * [plugin.json](manifest.md)
 
 * **能力**
-  * [zapi API](api.md)
+  * [enest API](api.md)
   * [TypeScript 类型](api-types.md)
   * [UI 集成标准](ui-standard.md)
   * [生命周期](lifecycle.md)

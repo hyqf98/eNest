@@ -13,6 +13,7 @@ import { AnimationSettingsSection } from '@renderer/components/AnimationSettings
 import { DevConsoleSection } from '@renderer/components/DevConsoleSection'
 import { QuickSettingsSection } from '@renderer/components/QuickSettingsSection'
 import { LanguageSelect } from '@renderer/components/LanguageSelect'
+import { Select } from '@renderer/components/Select'
 import { useI18n } from '@renderer/hooks/useI18n'
 import type { Locale } from '@renderer/i18n'
 import { shellApi } from '@renderer/services/shellApi'
@@ -29,6 +30,10 @@ interface PluginSettingsItem {
   label: string
   default?: unknown
   options?: Array<{ label: string; value: unknown }>
+  /** type=slider：范围与步长 */
+  min?: number
+  max?: number
+  step?: number
 }
 
 interface PluginSettingsSection {
@@ -466,7 +471,7 @@ export function SettingsPage() {
   ] as const
 
   return (
-    <section className="page">
+    <section className="page page-settings">
       <div className="settings-shell">
         <div className="settings-header">
           <h1>{t('settings.title')}</h1>
@@ -519,26 +524,30 @@ export function SettingsPage() {
               </div>
             </Field>
             <Field label={t('settings.general.closeBehavior')} desc={t('settings.general.closeBehaviorDesc')}>
-              <select
+              <Select
                 value={closeBehavior}
-                onChange={(e) => handleCloseBehavior(e.target.value as CloseBehavior)}
-              >
-                <option value="minimize-tray">{t('settings.general.minimizeToTray')}</option>
-                <option value="quit">{t('settings.general.quitApp')}</option>
-              </select>
+                onChange={handleCloseBehavior}
+                minWidth={160}
+                options={[
+                  { value: 'minimize-tray', label: t('settings.general.minimizeToTray') },
+                  { value: 'quit', label: t('settings.general.quitApp') },
+                ]}
+              />
             </Field>
             <Field label={t('settings.general.proxy')} desc={t('settings.general.proxyDesc')}>
               <div className="proxy-row">
-                <select
+                <Select
                   value={proxyType}
-                  onChange={(e) => handleProxyType(e.target.value as ProxyType)}
-                  aria-label={t('settings.general.proxyType')}
-                >
-                  <option value="none">{t('settings.general.proxyNone')}</option>
-                  <option value="http">{t('settings.general.proxyHttp')}</option>
-                  <option value="socks5">{t('settings.general.proxySocks5')}</option>
-                  <option value="custom">{t('settings.general.proxyCustom')}</option>
-                </select>
+                  onChange={handleProxyType}
+                  minWidth={132}
+                  ariaLabel={t('settings.general.proxyType')}
+                  options={[
+                    { value: 'none', label: t('settings.general.proxyNone') },
+                    { value: 'http', label: t('settings.general.proxyHttp') },
+                    { value: 'socks5', label: t('settings.general.proxySocks5') },
+                    { value: 'custom', label: t('settings.general.proxyCustom') },
+                  ]}
+                />
                 {proxyType === 'http' || proxyType === 'socks5' ? (
                   <>
                     <input
@@ -683,19 +692,17 @@ export function SettingsPage() {
               }
               if (item.type === 'select' && Array.isArray(item.options) && item.options.length > 0) {
                 return (
-                  <select
+                  <Select
                     value={raw === undefined || raw === null ? '' : String(raw)}
-                    onChange={(e) => {
-                      const opt = item.options?.find((o) => String(o.value) === e.target.value)
-                      handlePluginSetting(id, item.key, opt ? opt.value : e.target.value)
+                    onChange={(v) => {
+                      const opt = item.options?.find((o) => String(o.value) === v)
+                      handlePluginSetting(id, item.key, opt ? opt.value : v)
                     }}
-                  >
-                    {item.options.map((o) => (
-                      <option key={String(o.value)} value={String(o.value)}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
+                    options={item.options.map((o) => ({
+                      value: String(o.value),
+                      label: o.label
+                    }))}
+                  />
                 )
               }
               if (item.type === 'number') {
@@ -710,7 +717,46 @@ export function SettingsPage() {
                   />
                 )
               }
-              // string / text / 默认
+              if (item.type === 'slider') {
+                const min = Number.isFinite(item.min) ? (item.min as number) : 0
+                const max = Number.isFinite(item.max) ? (item.max as number) : 100
+                const step = Number.isFinite(item.step) && item.step! > 0 ? item.step! : 1
+                const num = Number(raw)
+                const value = Number.isFinite(num) ? Math.min(max, Math.max(min, num)) : min
+                return (
+                  <div className="plugin-slider-row">
+                    <input
+                      type="range"
+                      min={min}
+                      max={max}
+                      step={step}
+                      value={value}
+                      aria-label={item.label}
+                      onChange={(e) => handlePluginSetting(id, item.key, Number(e.target.value))}
+                    />
+                    <span className="plugin-slider-value">{value}</span>
+                  </div>
+                )
+              }
+              if (item.type === 'color') {
+                const color = typeof raw === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(raw) ? raw : '#5b8cff'
+                return (
+                  <input
+                    type="color"
+                    value={color}
+                    aria-label={item.label}
+                    onChange={(e) => handlePluginSetting(id, item.key, e.target.value)}
+                  />
+                )
+              }
+              // string / text / 非法 type 回退 text（现状保留）+ dev 日志
+              if (
+                item.type !== 'text' &&
+                item.type !== 'string' &&
+                import.meta.env.DEV
+              ) {
+                console.warn('[settings] unknown item type, fallback to text:', item.type, item.key)
+              }
               return (
                 <input
                   type="text"

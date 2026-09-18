@@ -18,6 +18,13 @@ import { useI18n } from '@renderer/hooks/useI18n'
 const PERMISSION_LABELS: Partial<Record<PluginPermission, string>> = {
   'clipboard.read': '读取剪贴板',
   'clipboard.write': '写入剪贴板',
+  'clipboard.readImage': '读取剪贴板图片',
+  'clipboard.writeImage': '写入剪贴板图片',
+  'clipboard.history': '读取剪贴板历史',
+  'screen.capture': '屏幕截图',
+  'screen.record': '屏幕录制',
+  'pin.create': '创建贴图窗口',
+  'net.fetch': '发起网络请求',
   'shell.openExternal': '打开外部链接',
   'storage.local': '本地存储',
   notify: '系统通知',
@@ -27,6 +34,16 @@ const PERMISSION_LABELS: Partial<Record<PluginPermission, string>> = {
   'ui.resize': '调整窗口',
   'ui.toast': '应用内提示',
   'settings.register': '注册设置',
+  'settings.page': '自定义设置页',
+  hotkey: '全局快捷键',
+  contribute: '功能扩展贡献',
+  'vault.write': '保存连接密钥',
+  'ssh.session': 'SSH 会话',
+  'ssh.exec': 'SSH 命令与监控',
+  'ssh.sftp': 'SSH 文件传输',
+  'db.connect': '数据库连接',
+  'db.query': '执行 SQL 与变更',
+  'db.schema': '浏览库表与代码提示'
 }
 
 type ReadmeStatus = 'loading' | 'ok' | 'empty' | 'error'
@@ -54,6 +71,9 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
   const [actionError, setActionError] = useState<string | null>(null)
   /** 本地可变副本：启用切换后立刻反映，不必等父级刷新 */
   const [enabled, setEnabled] = useState(plugin.enabled !== false)
+  /** 图标加载失败时回退 glyph 色块 */
+  const [iconFailed, setIconFailed] = useState(false)
+  const showIcon = Boolean(plugin.icon) && !iconFailed
   const { t } = useI18n()
 
   const disabled = plugin.installed && !enabled
@@ -71,11 +91,12 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
     playModalIn(rootRef.current)
   }, [plugin.id])
 
-  // plugin 变更时同步 enabled
+  // plugin 变更时同步 enabled / 图标回退状态
   useEffect(() => {
     setEnabled(plugin.enabled !== false)
     setActionError(null)
-  }, [plugin.id, plugin.enabled])
+    setIconFailed(false)
+  }, [plugin.id, plugin.enabled, plugin.icon])
 
   // README 拉取
   useEffect(() => {
@@ -205,7 +226,8 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
       await shellApi.uninstallPlugin(plugin.id)
       requestClose()
     } catch {
-      /* 失败 toast 已由 uninstall-result 事件覆盖；恢复按钮可重试 */
+      /* 失败 toast 已由 uninstall-result 事件覆盖 */
+    } finally {
       setUninstalling(false)
     }
   }
@@ -231,7 +253,18 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
             data-detail-icon
             style={{ background: iconBackground(plugin), ...(disabled ? { opacity: 0.6 } : null) }}
           >
-            {plugin.glyph}
+            {showIcon ? (
+              <img
+                src={plugin.icon}
+                alt={plugin.name}
+                loading="lazy"
+                draggable={false}
+                onError={() => setIconFailed(true)}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }}
+              />
+            ) : (
+              plugin.glyph
+            )}
           </div>
           <div className="detail-meta" data-detail-meta>
             <h2 id="plugin-detail-title">{plugin.name}</h2>
@@ -241,7 +274,6 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
             </div>
             <div className="detail-chips" data-detail-chips>
               <span className="detail-chip">{plugin.category}</span>
-              <span className="detail-chip">★ {plugin.installs}</span>
               {plugin.installed ? (
                 <span className="detail-chip ok">
                   {disabled ? t('plugin.disabled') : t('plugin.installed')}

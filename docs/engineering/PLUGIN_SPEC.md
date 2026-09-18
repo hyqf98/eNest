@@ -7,8 +7,7 @@ my-plugin/
 ├── plugin.json      # 必选清单
 ├── logo.png         # 可选 512×512
 ├── index.html       # 主界面入口
-├── preload.js       # 可选（壳子会注入 enest API，一般无需自带）
-└── settings.html    # 可选设置面板
+└── settings.html    # 可选设置面板（保留/实验，壳子尚未消费）
 ```
 
 ## plugin.json
@@ -27,6 +26,13 @@ my-plugin/
   "permissions": [
     "clipboard.read",
     "clipboard.write",
+    "clipboard.readImage",
+    "clipboard.writeImage",
+    "clipboard.history",
+    "screen.capture",
+    "screen.record",
+    "pin.create",
+    "net.fetch",
     "shell.openExternal",
     "storage.local",
     "notify",
@@ -35,13 +41,36 @@ my-plugin/
     "ui.setBadge",
     "ui.resize",
     "ui.toast",
-    "settings.register"
+    "settings.register",
+    "settings.page",
+    "hotkey",
+    "contribute"
   ],
   "window": { "minWidth": 480, "minHeight": 320 },
   "features": [{ "code": "main", "cmds": ["hello"] }],
   "development": { "main": "http://127.0.0.1:5173/index.html" },
+  "contributes": {
+    "settings": [
+      {
+        "id": "hello.prefs",
+        "title": "Hello 工具",
+        "items": [{ "key": "name", "type": "text", "label": "称呼", "default": "朋友" }]
+      }
+    ],
+    "homeCards": [
+      {
+        "id": "hello-card",
+        "title": "Hello",
+        "glyph": "H",
+        "color": "#5b8cff",
+        "explain": "快速打招呼",
+        "openCode": "main"
+      }
+    ],
+    "railEntries": [{ "id": "hello-rail", "glyph": "H", "title": "Hello" }]
+  },
   "ui": {
-    "chrome": "default",
+    "chrome": "none",
     "themeAware": true,
     "background": "opaque",
     "preferredColorScheme": "auto"
@@ -55,9 +84,31 @@ my-plugin/
 | `name` | 是 | 显示名 |
 | `version` | 是 | semver |
 | `main` | 是 | HTML 入口相对路径 |
-| `permissions` | 否 | IPC 白名单，未声明的调用会被拒绝 |
+| `permissions` | 否 | IPC 白名单（**28 项**，含 vault/ssh/db），未声明的调用会被拒绝 |
+| `contributes` | 否 | 贡献点声明（声明式注册，见下节） |
 | `development.main` | 否 | 开发态 URL（Vite/Webpack） |
 | `ui` | 否 | UI 集成配置，见下节 |
+
+## 贡献点（contributes，插槽化架构）
+
+manifest `contributes` 段声明式注册：安装 / Registry 扫描时写入壳子 enest.db
+`contributions` 表，**重启即显示，不依赖插件运行**。`schemaVersion` 字段缺省视为
+当前版本（`'1'`），不匹配时整条拒绝；同 `(slot, id)` 后注册覆盖前者。
+
+| 插槽 | 字段 | 消费方 |
+|------|------|--------|
+| `settings` | `contributes.settings[]` | 设置页插件分组（等价运行时 `enest.settings.register`） |
+| `home-cards` | `contributes.homeCards[]` | 市场页（首页）「插件扩展」区块 |
+| `rail-entries` | `contributes.railEntries[]` | orb 模式左侧轨道（数据层已下发，渲染消费后续批次接线） |
+| `theme-packs` | `contributes.themePacks[]` | 主题包下拉（等价运行时 `enest.theme.register`） |
+| quick provider | 运行时 only | Quick 搜索管线（`enest.contribute.registerQuickProvider`，manifest 声明不生效） |
+
+设置 item `type` 支持：`text` / `string` / `switch` / `boolean` / `bool` /
+`select`（options）/ `number` / `slider`（min/max/step）/ `color` / `page`（预留，
+需 `settings.page` 权限，页面嵌入后续批次）。非法 type 渲染层回退 text。
+
+变更事件：注册 / 卸载 / 禁用后主进程广播 `shell:event`
+`contributions-changed { slot, source }`，渲染层据此刷新对应插槽消费。
 
 ## UI 集成标准
 
@@ -67,8 +118,9 @@ my-plugin/
 
 ```jsonc
 "ui": {
-  "chrome": "default" | "minimal" | "none",
-  // default: 标准插件条 48px；minimal: 细条 28px；none: 无条，内容全幅
+  "chrome": "none" | "minimal" | "default",
+  // none: 无条，内容全幅（缺省）；minimal: 细条 28px；
+  // default 已废弃：加载时归一为 none，仅兼容旧 manifest 保留枚举值
   "themeAware": true,
   // true: 壳子注入 CSS 变量并推送主题变更
   "background": "transparent" | "opaque",
@@ -78,7 +130,7 @@ my-plugin/
 }
 ```
 
-**缺省（整段或字段缺失）**：`chrome=default`，`themeAware=true`，`background=opaque`，`preferredColorScheme=auto`。
+**缺省（整段或字段缺失）**：`chrome=none`，`themeAware=true`，`background=opaque`，`preferredColorScheme=auto`。
 
 ### 主题 Token
 
@@ -105,9 +157,9 @@ const off = enest.ui.onThemeChange(({ mode, tokens }) => {
 
 | chrome | 插件条高 | 说明 |
 |--------|----------|------|
-| `default` | 48px | 标准条：名称 + 协议 URL |
+| `none`（缺省） | 0 | 不渲染插件条；内容区从标题栏下方开始，插件页完全自绘 |
 | `minimal` | 28px | 细条：仅名称 |
-| `none` | 0 | 不渲染插件条；内容区从标题栏下方开始 |
+| `default` | — | 已废弃：加载时归一为 `none`（不再渲染名称 + URL 标准条） |
 
 主进程 `getPluginContentBounds(chromeBarHeight)` 按当前插件 chrome 扣除标题栏 + 插件条；多插件打开时各自使用自身 chrome 高度布局。
 
@@ -116,6 +168,14 @@ const off = enest.ui.onThemeChange(({ mode, tokens }) => {
 - 壳子**不禁止**任何绘制技术；`background: transparent` 时请用 `clearRect` / `alpha: true` 的 WebGL 上下文，勿绘制不透明底色。
 - 颜色请优先读 `--accent` / `--text` 等 Token 或 `theme.getTokens()`，避免写死与壳子冲突的色值。
 - 示例：`plugins-samples/canvas-demo/`（`chrome=none` + 透明底 + 主题感知动画）。
+
+### 设计语言与主题跟随（UI Standard v2）
+
+视觉与主题的完整契约见站点文档 [UI 集成标准 → 设计语言与样式规范（插件 UI Standard v2）](../site/plugin/ui-standard.md#设计语言与样式规范插件-ui-standard-v2)。要点：
+
+- **`ui.themeAware` 缺省 `true`**：插件 MUST 消费壳子注入的 Token（`--bg` / `--surface*` / `--border*` / `--text*` / `--accent*` / `--ok*` / `--danger*` / `--radius-*` / `--shadow-*` / `--font` / `--mono` / `--font-size-base`，源：`src/renderer/styles/tokens.css`）。
+- **`followShellTheme` 设置约定**：插件 SHOULD 经 `enest.settings.register` 或 `contributes.settings` 暴露布尔项 `followShellTheme`，**缺省 `true`**（跟随壳子）；为 `false` 时插件钉住自有 `preferredColorScheme` 并自行绘制，不依赖壳子当前 mode。壳子不会代填该项；未实现时应视为始终跟随。
+- **设计语言**：简约现代化——少边框、多留白；层级用 surface/阴影；圆角 `--radius-sm/md`；主操作 FAB / ghost icon button；次级操作进右键菜单；避免工具栏按钮墙。
 
 ## 运行时 API
 
@@ -163,8 +223,13 @@ await enest.notify({ title: '完成', body: 'ok' }) // 系统通知，可后台�
 
 | API | 权限 |
 |-----|------|
-| `clipboard.readText` | `clipboard.read` |
-| `clipboard.writeText` | `clipboard.write` |
+| `clipboard.readText` / `clipboard.readImage` | `clipboard.read` / `clipboard.readImage` |
+| `clipboard.writeText` / `clipboard.writeImage` | `clipboard.write` / `clipboard.writeImage` |
+| `clipboard.history.*`（list/get） | `clipboard.history` |
+| `screen.capture*`（区域截图） | `screen.capture` |
+| `screen.record*`（区域录屏） | `screen.record` |
+| `pin.create`（贴图窗口） | `pin.create` |
+| `net.fetch` | `net.fetch` |
 | `shell.openExternal` | `shell.openExternal` |
 | `storage.*` / `storage.session.*` | `storage.local` |
 | `notify` | `notify` |
@@ -174,6 +239,28 @@ await enest.notify({ title: '完成', body: 'ok' }) // 系统通知，可后台�
 | `ui.resize` | `ui.resize` |
 | `ui.toast` | `ui.toast` |
 | `settings.register` | `settings.register` |
+| `contribute.*`（Quick provider 注册 / 查询回传） | `contribute` |
+| `settings.page` | `settings.page`（预留，自定义设置页嵌入） |
+
+> 完整白名单（**28 项**）权威源：`src/shared/types/plugin.ts` → `PLUGIN_PERMISSIONS`；schema 侧见 `eNest_plugin/docs/plugin-manifest.schema.json`。
+
+### Quick 搜索 provider（运行时贡献，需 `contribute` 权限）
+
+```ts
+// 注册 provider（插件运行中；插件关闭自动失效）
+await enest.contribute.registerQuickProvider({ id: 'emoji', explain: '表情搜索' })
+
+// 监听查询（500ms 内回传，超时丢弃）
+const off = enest.contribute.onQuickQuery(({ reqId, query }) => {
+  const items = mySearch(query).map((x) => ({
+    id: x.id, title: x.title, subtitle: x.sub, code: 'insert'
+  }))
+  enest.contribute.respondQuickQuery(reqId, items)
+})
+```
+
+回传项点击后经 `openPlugin(pluginId, { code })` 打开本插件（`code` 透传，
+插件侧 `onEnter` 收到）；与内置结果合并排序，provider 管线失败不阻塞内置搜索。
 
 ## 隔离模型
 

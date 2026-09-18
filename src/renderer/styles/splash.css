@@ -66,6 +66,12 @@
 
 .splash--high .splash-particles {
   display: block;
+  mix-blend-mode: screen;
+}
+
+:root[data-theme='dark'] .splash--high .splash-particles,
+.splash--high .splash-particles {
+  mix-blend-mode: screen;
 }
 
 .splash-stage {
@@ -116,6 +122,16 @@
   font-weight: 500;
   letter-spacing: 0.18em;
   color: color-mix(in srgb, var(--splash-accent, #2dd4a8) 62%, transparent);
+}
+
+/* high：字标轻微光晕，与粒子层呼应 */
+.splash--high .splash-word {
+  text-shadow: 0 0 18px color-mix(in srgb, var(--splash-accent, #2dd4a8) 28%, transparent);
+}
+
+/* high：舞台整体可用 filter 软光（不抢六边形描边） */
+.splash--high .splash-stage {
+  filter: drop-shadow(0 0 24px color-mix(in srgb, var(--splash-accent, #2dd4a8) 12%, transparent));
 }
 
 /* Splash 结束前壳子不透出、不抢焦点；ready 后淡入 */

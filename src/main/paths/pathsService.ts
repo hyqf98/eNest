@@ -1,6 +1,6 @@
 /**
  * pathsService — 应用数据根路径解析
- * 职责：统一解析 ~/eNest 数据目录结构（plugins / data / themes / settings.json / data/enest.db），
+ * 职责：统一解析 ~/.eNest 数据目录结构（plugins / data / themes / settings.json / data/enest.db），
  * 支持 settings.general.dataRoot 覆盖；提供 ensureAppDirs 做 mkdir -p。
  * 被 SettingsStore / PluginRegistry / sqliteService / themePacks / migrate / 各 IPC handler 引用。
  * 关键依赖：node:path、node:os、@shared/constants、@shared/types/plugin。
@@ -18,10 +18,10 @@ import {
 } from '@shared/constants'
 import type { AppPaths } from '@shared/types/plugin'
 
-/** 运行期数据根覆盖（来自 settings.general.dataRoot）；null 表示用默认 ~/eNest */
+/** 运行期数据根覆盖（来自 settings.general.dataRoot）；null 表示用默认 ~/.eNest */
 let effectiveRoot: string | null = null
 
-/** 默认数据根：~/eNest（跨平台，经 os.homedir + path.join） */
+/** 默认数据根：~/.eNest（跨平台隐藏目录） */
 export function defaultDataRoot(): string {
   return join(homedir(), DATA_DIR_NAME)
 }
@@ -53,7 +53,7 @@ export function getAppPaths(overrideRoot?: string): AppPaths {
 }
 
 /**
- * settings.json 固定路径：始终位于默认数据根 ~/eNest/settings.json。
+ * settings.json 固定路径：始终位于默认数据根 ~/.eNest/settings.json。
  * dataRoot 覆盖只影响 plugins/data/themes/database，避免设置自指迁移。
  */
 export function getDefaultSettingsPath(): string {

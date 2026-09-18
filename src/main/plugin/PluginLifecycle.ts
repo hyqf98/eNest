@@ -9,8 +9,11 @@
  * 状态机（与 docs/engineering/LIFECYCLE_REVIEW.md §4 对齐，按任务规格扩展）：
  *
  *   installed → opening → ready → active ⇄ background → closing → closed
- *                                 ↘ crash
- *   uninstall: any → clearing-storage → uninstalled
+ *                                 ↘ crash          ↓ hibernate
+ *   uninstall: any → clearing-storage → uninstalled  hibernated --open/reopen--> opening
+ *
+ * 休眠（hibernate）：后台空闲插件销毁渲染进程但保留逻辑 Tab 与 session 快照；
+ * 唤醒（open）复用现有冷启动路径（opening → ready → active）。
  *
  * 对标 uTools：
  * - active/background 对应面板显隐；enter/out 成对，插件可 pause/resume
@@ -24,6 +27,7 @@ export type PluginLifecycleState =
   | 'ready'
   | 'active'
   | 'background'
+  | 'hibernated'
   | 'closing'
   | 'closed'
   | 'crash'
@@ -41,6 +45,7 @@ export type PluginLifecycleAction =
   | 'close'
   | 'destroyed'
   | 'crash'
+  | 'hibernate'
   | 'uninstall'
   | 'uninstalled'
 
@@ -84,6 +89,15 @@ const TRANSITIONS: Record<
     activate: 'active',
     reload: 'opening',
     close: 'closing',
+    crash: 'crash',
+    hibernate: 'hibernated',
+    uninstall: 'clearing-storage'
+  },
+  hibernated: {
+    // 唤醒 = 冷启动语义，复用 open 路径（opening → ready → active）
+    open: 'opening',
+    reload: 'opening',
+    close: 'closed',
     crash: 'crash',
     uninstall: 'clearing-storage'
   },

@@ -1,81 +1,182 @@
-/* Quick 小窗：紧凑命令面板，复用主题 token */
+/* Quick 小窗 — 透明窗口；收起只见胶囊，展开列表从下方长出 */
+
+html:has(.quick-root),
+body:has(.quick-root) {
+  background: transparent !important;
+  background-color: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+
+#root:has(.quick-root) {
+  height: auto;
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
 .quick-root {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  background: var(--surface, #12151c);
-  color: var(--text, #e8ecf4);
+  height: auto;
+  min-height: 0;
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--text, #0f1420);
   font-family: var(--font, Inter, 'PingFang SC', sans-serif);
-  overflow: hidden;
   user-select: none;
+  /* 阴影留白压到最小，减少「整窗灰块」在灰壁纸上的可见面积 */
+  padding: 6px 8px 8px;
+  box-sizing: border-box;
 }
 
-.quick-drag {
-  height: 10px;
+/* 悬浮壳：收起=窄胶囊；展开=圆角面板 */
+.quick-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  background: var(--surface, #fff);
+  border-radius: 999px;
+  overflow: hidden;
+  /* 收起时阴影更轻，避免大范围半透明晕开像方形容器 */
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--border, rgba(15, 23, 42, 0.08)) 80%, transparent),
+    0 4px 16px rgba(15, 23, 42, 0.1);
+  transition:
+    border-radius 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.24s ease;
+}
+
+.quick-root[data-expanded='1'] .quick-shell {
+  border-radius: 20px;
+  box-shadow:
+    0 0 0 1px var(--border, rgba(15, 23, 42, 0.1)),
+    0 12px 40px rgba(15, 23, 42, 0.16),
+    0 2px 8px rgba(15, 23, 42, 0.06);
+}
+
+.quick-root.anim-low .quick-shell {
+  transition: none;
+}
+
+/* —— 搜索栏 —— */
+.quick-search {
   flex: 0 0 auto;
-  -webkit-app-region: drag;
+  padding: 4px 6px;
 }
 
-.quick-input-wrap {
+.quick-field {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 4px 12px 0;
-  padding: 12px 14px;
-  border: 1px solid var(--border, #1e2430);
-  border-radius: var(--radius-md, 14px);
-  background: var(--surface-2, #181c26);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  -webkit-app-region: no-drag;
+  padding: 12px 18px;
+  border-radius: 999px;
+  background: transparent;
+  border: none;
+  outline: none;
+  transition: background 0.18s ease;
 }
 
-.quick-input-wrap:focus-within {
-  border-color: color-mix(in srgb, var(--accent, #1a1f2e) 45%, transparent);
-  box-shadow:
-    0 0 0 3px var(--accent-soft, rgba(26, 31, 46, 0.08)),
-    var(--shadow-soft, 0 1px 2px rgba(15, 23, 42, 0.04));
+.quick-root[data-expanded='1'] .quick-field {
+  background: var(--surface-2, #f0f2f5);
+  margin: 4px 8px 0;
+  border-radius: 12px;
 }
 
-.quick-icon {
-  opacity: 0.55;
-  font-size: 15px;
-  line-height: 1;
+.quick-field:focus-within {
+  background: color-mix(in srgb, var(--surface-2, #f0f2f5) 55%, transparent);
+}
+
+.quick-root[data-expanded='1'] .quick-field:focus-within {
+  background: var(--surface, #fff);
+  box-shadow: inset 0 0 0 1px var(--border, rgba(15, 23, 42, 0.08));
+}
+
+.quick-search-glyph {
+  width: 18px;
+  height: 18px;
+  color: var(--text-3, #8b93a5);
   flex: 0 0 auto;
+}
+
+.quick-field:focus-within .quick-search-glyph {
+  color: var(--text-2, #5c6578);
 }
 
 .quick-input {
   flex: 1;
   min-width: 0;
   border: none;
-  outline: none;
+  outline: none !important;
   background: transparent;
   color: inherit;
   font-size: 17px;
-  line-height: 1.45;
-  padding: 2px 0;
+  line-height: 1.4;
+  padding: 0;
+  box-shadow: none !important;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.quick-input:focus,
+.quick-input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .quick-input::placeholder {
-  color: var(--text-3, #8b93a7);
-  opacity: 0.9;
+  color: var(--text-3, #8b93a5);
+  opacity: 0.8;
 }
 
-.quick-busy {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.quick-esc {
   flex: 0 0 auto;
-  color: var(--text-3, #8b93a7);
   font-size: 11px;
+  color: var(--text-3, #8b93a5);
+  border: 1px solid var(--border, rgba(15, 23, 42, 0.1));
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: var(--surface-2, #f0f2f5);
+  opacity: 0.95;
+  line-height: 1.2;
+}
+
+.quick-field:focus-within .quick-esc {
+  opacity: 0.45;
+}
+
+.quick-clear {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: var(--surface-3, #e8ebf0);
+  color: var(--text-2, #5c6578);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.quick-clear:hover {
+  background: color-mix(in srgb, var(--danger, #e11d48) 16%, var(--surface-3));
+  color: var(--danger, #e11d48);
 }
 
 .quick-spinner {
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--border, #1e2430);
-  border-top-color: var(--accent, #1a1f2e);
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border, rgba(15, 23, 42, 0.1));
+  border-top-color: var(--link, #3b63e0);
   border-radius: 50%;
   animation: quick-spin 0.7s linear infinite;
+}
+
+:root[data-anim='low'] .quick-spinner {
+  animation-duration: 0.7s !important;
+  animation-iteration-count: infinite !important;
 }
 
 @keyframes quick-spin {
@@ -84,41 +185,220 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .quick-spinner {
-    animation-duration: 1.6s;
-  }
+/* —— 内容面板：默认收起，is-open 撑开 —— */
+.quick-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.22s ease;
+  min-height: 0;
 }
 
-.quick-list {
-  flex: 1;
-  overflow: auto;
-  padding: 10px 8px 8px;
+.quick-panel.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.quick-root.anim-low .quick-panel {
+  transition: none;
+}
+
+.quick-root.anim-high .quick-panel {
+  transition:
+    grid-template-rows 0.42s cubic-bezier(0.16, 1.05, 0.3, 1),
+    opacity 0.28s ease;
+}
+
+/* 0fr/1fr 高度动画：子层必须 min-height:0 + overflow 才能真正裁切 */
+.quick-panel-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .quick-empty {
-  padding: 28px 24px;
-  text-align: center;
+  padding: 14px 18px 18px;
+  font-size: 12px;
   color: var(--text-3, #8b93a7);
-  font-size: 13px;
+  text-align: center;
 }
 
-.quick-section + .quick-section {
-  margin-top: 6px;
+.quick-home-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 18px 4px;
 }
 
-.quick-section-title {
-  padding: 8px 12px 4px;
-  font-size: 11px;
+.quick-home-title {
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  color: var(--text-3, #8b93a7);
-  text-transform: none;
+  color: var(--text-2, #8b93a7);
 }
 
-.quick-item {
+/* —— 首页网格 —— */
+.quick-grid {
   display: grid;
-  grid-template-columns: 32px 1fr auto;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px 2px;
+  padding: 6px 12px 14px;
+}
+
+.quick-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 6px 10px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.quick-root.is-entering .quick-panel.is-open .quick-tile,
+.quick-root.is-entering .quick-panel.is-open .quick-row {
+  animation: quick-tile-in 0.36s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+
+.quick-root.is-entering .quick-panel.is-open .quick-row {
+  animation-name: quick-row-in;
+  animation-duration: 0.28s;
+}
+
+.quick-root.anim-low.is-entering .quick-panel.is-open .quick-tile,
+.quick-root.anim-low.is-entering .quick-panel.is-open .quick-row {
+  animation: none;
+}
+
+.quick-root.anim-high.is-entering .quick-panel.is-open .quick-tile {
+  animation-duration: 0.48s;
+  animation-timing-function: cubic-bezier(0.16, 1.1, 0.3, 1);
+}
+
+@keyframes quick-tile-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.quick-tile:hover {
+  background: color-mix(in srgb, var(--link, #3b63e0) 8%, transparent);
+}
+
+.quick-tile.active {
+  background: color-mix(in srgb, var(--link, #3b63e0) 12%, transparent);
+}
+
+.quick-root.anim-high .quick-tile.active {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--link, #3b63e0) 35%, transparent);
+  transform: translateY(-2px);
+  transition:
+    transform 0.2s cubic-bezier(0.2, 0.9, 0.2, 1),
+    background 0.15s ease;
+}
+
+.quick-root.anim-high .quick-tile:hover:not(.active) {
+  transform: translateY(-1px);
+  transition: transform 0.18s ease, background 0.15s ease;
+}
+
+.quick-icon-tile {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex: 0 0 auto;
+  background: var(--surface-2, #f0f2f5);
+}
+
+.quick-icon-tile.size-lg {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+}
+
+.quick-icon-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.quick-icon-fallback {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-2, #8b93a7);
+  line-height: 1;
+}
+
+.quick-icon-tile.kind-app {
+  background: color-mix(in srgb, var(--link, #3b63e0) 14%, var(--surface-2, #f0f2f5));
+}
+.quick-icon-tile.kind-app .quick-icon-fallback {
+  color: var(--link, #3b63e0);
+}
+.quick-icon-tile.kind-plugin {
+  background: color-mix(in srgb, var(--ok, #0d9f6e) 12%, var(--surface-2, #f0f2f5));
+}
+.quick-icon-tile.kind-plugin .quick-icon-fallback {
+  color: var(--ok, #0d9f6e);
+}
+.quick-icon-tile.kind-action {
+  background: var(--accent-soft, rgba(26, 31, 46, 0.08));
+}
+.quick-icon-tile.kind-action .quick-icon-fallback {
+  color: var(--accent, #5e6ad2);
+}
+
+.quick-tile-label {
+  max-width: 100%;
+  font-size: 12px;
+  line-height: 1.25;
+  color: var(--text-2, #c5cbd8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+
+.quick-tile.active .quick-tile-label {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.quick-tile-dot {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok, #3ddc97);
+}
+
+/* —— 搜索列表 —— */
+.quick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 12px;
+}
+
+.quick-row {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
   column-gap: 12px;
   align-items: center;
   width: 100%;
@@ -126,73 +406,46 @@
   border: none;
   background: transparent;
   color: inherit;
-  border-radius: var(--radius-sm, 10px);
-  padding: 8px 12px;
+  border-radius: 12px;
+  padding: 10px 12px;
   cursor: pointer;
-  position: relative;
 }
 
-.quick-item.active {
-  background: var(--surface-2, #181c26);
-  box-shadow: inset 3px 0 0 var(--accent, #1a1f2e);
+@keyframes quick-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
-.quick-item-icon {
-  grid-column: 1;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  flex: 0 0 auto;
-  background: var(--surface-3, #e8ebf0);
+.quick-row.active {
+  background: color-mix(in srgb, var(--link, #3b63e0) 10%, transparent);
 }
 
-.quick-item-icon img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+.quick-root.anim-medium .quick-row.active,
+.quick-root.anim-high .quick-row.active {
+  box-shadow: inset 3px 0 0 var(--link, #3b63e0);
 }
 
-.quick-item-fallback {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-2, #5c6578);
-  line-height: 1;
+.quick-row.hit .quick-icon-tile {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok, #0d9f6e) 55%, transparent);
 }
 
-.quick-item-icon.kind-app {
-  background: color-mix(in srgb, var(--link, #3b63e0) 14%, var(--surface-2, #f0f2f5));
-}
-.quick-item-icon.kind-app .quick-item-fallback {
-  color: var(--link, #3b63e0);
-}
-
-.quick-item-icon.kind-plugin {
-  background: color-mix(in srgb, var(--ok, #0d9f6e) 14%, var(--surface-2, #f0f2f5));
-}
-.quick-item-icon.kind-plugin .quick-item-fallback {
-  color: var(--ok, #0d9f6e);
-}
-
-.quick-item-icon.kind-action {
-  background: var(--accent-soft, rgba(26, 31, 46, 0.08));
-}
-.quick-item-icon.kind-action .quick-item-fallback {
-  color: var(--accent, #1a1f2e);
-}
-
-.quick-item-body {
-  grid-column: 2;
+.quick-row-body {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
 
-.quick-item-title {
+.quick-row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 14px;
   font-weight: 500;
   white-space: nowrap;
@@ -200,11 +453,25 @@
   text-overflow: ellipsis;
 }
 
-.quick-item.active .quick-item-title {
-  color: var(--text, #e8ecf4);
+.quick-kw {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ok, #0d9f6e);
+  background: var(--ok-soft, rgba(13, 159, 110, 0.1));
+  border-radius: 999px;
+  padding: 1px 8px;
 }
 
-.quick-item-sub {
+.quick-kw-label {
+  opacity: 0.75;
+  font-size: 10px;
+}
+
+.quick-row-sub {
   font-size: 12px;
   color: var(--text-3, #8b93a7);
   white-space: nowrap;
@@ -212,26 +479,133 @@
   text-overflow: ellipsis;
 }
 
-.quick-item-kind {
-  grid-column: 3;
+.quick-row-kind {
   font-size: 11px;
   color: var(--text-3, #8b93a7);
   border: 1px solid var(--border, #1e2430);
-  border-radius: var(--radius-pill, 999px);
+  border-radius: 999px;
   padding: 2px 8px;
   white-space: nowrap;
 }
 
-.quick-item.active .quick-item-kind {
-  border-color: color-mix(in srgb, var(--accent, #1a1f2e) 35%, transparent);
-  color: var(--text-2, #5c6578);
-}
-
+/* —— 底栏 —— */
 .quick-footer {
   display: flex;
-  gap: 14px;
-  padding: 8px 16px 12px;
-  border-top: 1px solid var(--border, #1e2430);
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  padding: 8px 18px 10px;
+  border-top: 1px solid var(--border, rgba(15, 23, 42, 0.08));
   font-size: 11px;
-  color: var(--text-3, #8b93a7);
+  color: var(--text-3, #8b93a5);
+  animation: quick-footer-in 0.24s ease both;
+}
+
+.quick-root.anim-low .quick-footer {
+  animation: none;
+}
+
+@keyframes quick-footer-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.quick-brand {
+  margin-left: auto;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: color-mix(in srgb, var(--link, #3b63e0) 70%, var(--text-3));
+  text-transform: uppercase;
+}
+
+/* —— 插件态顶栏（mini 插件挂 Quick contentView，本层只绘此条）—— */
+
+/* 插件态：根高由组件 inline style 钉死为 QUICK_BAR_AREA_H（含内边距，box-sizing），
+   主进程按同值计算原生插件 view 起点 y。壳子只绘顶栏圆角条，下方全部由插件覆盖；
+   底部圆角留给插件自身（0 0 半径避免插件矩形内容叠出尖角） */
+.quick-root[data-mode='plugin'] {
+  padding: 6px 8px 0;
+}
+
+.quick-root[data-mode='plugin'] .quick-shell {
+  border-radius: 18px 18px 0 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.quick-plugin-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.quick-plugin-back,
+.quick-plugin-pin {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border, rgba(15, 23, 42, 0.1));
+  background: var(--surface-2, #f0f2f5);
+  color: var(--text-2, #5c6578);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.quick-plugin-back svg {
+  width: 14px;
+  height: 14px;
+}
+
+.quick-plugin-pin svg {
+  width: 14px;
+  height: 14px;
+}
+
+.quick-plugin-back:hover,
+.quick-plugin-pin:hover {
+  background: color-mix(in srgb, var(--link, #3b63e0) 10%, var(--surface-2, #f0f2f5));
+  color: var(--link, #3b63e0);
+  border-color: color-mix(in srgb, var(--link, #3b63e0) 35%, transparent);
+}
+
+.quick-plugin-pin {
+  color: var(--link, #3b63e0);
+  border-color: color-mix(in srgb, var(--link, #3b63e0) 30%, transparent);
+}
+
+.quick-plugin-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #0f1420);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+
+/* 动画档位：low 无动画 / high 微移弹入（GSAP 时间轴负责主要入场，这里补 hover 层次） */
+.quick-root.anim-low .quick-plugin-back,
+.quick-root.anim-low .quick-plugin-pin {
+  transition: none;
+}
+
+.quick-root.anim-high .quick-plugin-back:hover,
+.quick-root.anim-high .quick-plugin-pin:hover {
+  transform: translateY(-1px);
+  transition: transform 0.18s ease, background 0.16s ease, color 0.16s ease;
 }

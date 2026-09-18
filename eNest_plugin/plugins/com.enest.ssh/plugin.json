@@ -1,0 +1,48 @@
+{
+  "id": "com.enest.ssh",
+  "name": "SSH管理",
+  "version": "1.0.0",
+  "description": "生产级 SSH 客户端：连接资产库、交互终端、命令补全、历史片段、性能监控与最小 SFTP",
+  "author": "eNest Labs",
+  "main": "index.html",
+  "category": "开发",
+  "icon": "icon.svg",
+  "form": "panel",
+  "engines": {
+    "enest": ">=0.1.0"
+  },
+  "permissions": [
+    "vault.write",
+    "ssh.session",
+    "ssh.exec",
+    "ssh.sftp",
+    "storage.local",
+    "ui.setTitle",
+    "ui.toast",
+    "notify",
+    "clipboard.write",
+    "shell.openExternal",
+    "settings.register"
+  ],
+  "window": {
+    "minWidth": 960,
+    "minHeight": 600
+  },
+  "features": [
+    {
+      "code": "main",
+      "explain": "SSH 管理与远程终端",
+      "cmds": ["ssh", "终端", "服务器", "SSH管理", "ssh manager"]
+    }
+  ],
+  "ui": {
+    "chrome": "none",
+    "themeAware": true,
+    "background": "opaque",
+    "preferredColorScheme": "auto"
+  },
+  "market": {
+    "featured": true,
+    "tags": ["SSH", "终端", "运维", "开发", "SFTP"]
+  }
+}

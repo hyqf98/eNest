@@ -1,5 +1,5 @@
 # electron-builder 打包配置（YAML 会被自动发现，无需 --config）
-# 静态资源：assets/sql → Resources/sql，assets/icons → Resources/icons
+# 静态资源：assets/icons → Resources/icons（存储走 Node 内置 node:sqlite，无原生依赖）
 
 appId: com.enest.shell
 productName: eNest
@@ -21,13 +21,8 @@ files:
 
 asar: true
 extraResources:
-  - from: assets/sql
-    to: sql
   - from: assets/icons
     to: icons
-
-asarUnpack:
-  - "**/node_modules/better-sqlite3/**"
 
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 

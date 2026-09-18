@@ -1,22 +1,27 @@
 /**
- * orb-overlay — 左侧圆轨悬浮窗
- * 窗口宽度固定（不随展开 setBounds）；展开只切 .expanded class。
- * 默认透明穿透：mousemove forward 检测悬停，仅在把手/圆球/设置钮上收回命中。
- * 动画档位：URL query / 主进程 executeJavaScript / getSettings 同步到 root[data-anim]；
- * JS 计时与 CSS 动效均按 low|medium|high 缩放。
+ * orb-overlay — 左侧圆轨（主窗口内顶层 WebContentsView）
+ * ?part=rail：Tab 轨窄条，mouseenter 展开 / mouseleave 延迟收起（真实 DOM 事件，无穿透转发）；
+ * ?part=dock：左下角常驻设置钮。
+ * 动画档位 / 主题：URL query 首帧 + orb-state 载荷（主进程 settingsStore 为唯一事实来源）
+ * 同步到 root[data-anim] / root[data-theme] + token 变量；CSS 动效与配色按档位、主题缩放。
  */
 import type { AnimationLevel } from '@shared/types/plugin'
 import type { OrbRailState } from '@shared/types/ipc'
 import './orb-overlay.css'
 
 type OrbState = OrbRailState
+type Part = 'rail' | 'dock'
+type ThemeInfo = OrbState['theme']
 
-const COLLAPSE_DELAY_MS = 700
+const PART: Part = new URLSearchParams(window.location.search).get('part') === 'dock' ? 'dock' : 'rail'
+
+/** 鼠标离开后收起缓冲（hover intent），不随动画档位缩放 */
+const COLLAPSE_DELAY_MS = 260
+/** 收起 CSS 动画播完后再缩窄视图，避免圆球被右缘裁切（item 淡出 ~260ms 已不可见） */
+const NARROW_DELAY_MS = 280
 /** 展开错落 delay 基准：40 + i * 38（medium） */
 const STAGGER_BASE_MS = 40
 const STAGGER_STEP_MS = 38
-/** 设置变更无主进程 push 时的轻量轮询间隔 */
-const ANIM_POLL_MS = 3000
 
 function isAnimLevel(v: unknown): v is AnimationLevel {
   return v === 'low' || v === 'medium' || v === 'high'
@@ -43,12 +48,24 @@ function readUrlAnim(): AnimationLevel | null {
   }
 }
 
-/** 按档位缩放基准毫秒：low≈×0.2，high×1.25 */
-function scaleMs(base: number): number {
-  const lv = currentAnimLevel()
-  if (lv === 'low') return Math.round(base * 0.2)
-  if (lv === 'high') return Math.round(base * 1.25)
-  return base
+/** 应用主题：data-theme 切配色档，token 变量供 CSS 取色（与主壳/插件同源） */
+function applyTheme(theme: ThemeInfo): void {
+  const root = document.documentElement
+  const mode = theme?.mode === 'dark' ? 'dark' : 'light'
+  if (root.dataset.theme !== mode) root.dataset.theme = mode
+  for (const [key, value] of Object.entries(theme?.tokens ?? {})) {
+    if (key.startsWith('--') && value) root.style.setProperty(key, value)
+  }
+}
+
+/** 启动时用 URL query 立刻套主题档，避免首帧浅色闪变（完整 tokens 随状态载荷到达） */
+function readUrlTheme(): 'light' | 'dark' | null {
+  try {
+    const q = new URLSearchParams(window.location.search).get('theme')
+    return q === 'dark' || q === 'light' ? q : null
+  } catch {
+    return null
+  }
 }
 
 /** 展开 item 错落 delay：low 归零，high 略拉长 */
@@ -64,11 +81,17 @@ const rootEl = document.getElementById('orb-root')
 if (!rootEl) throw new Error('#orb-root missing')
 const root: HTMLElement = rootEl
 
-let state: OrbState = { view: 'home', tabStyle: 'orb', activeTabId: null, tabs: [] }
+let state: OrbState = {
+  view: 'home',
+  tabStyle: 'orb',
+  activeTabId: null,
+  animationLevel: 'medium',
+  theme: { mode: 'light', tokens: {} },
+  tabs: []
+}
 let expanded = false
 let closeTimer: number | null = null
-/** 当前是否已把命中交给窗口（true=可点） */
-let hitOn = false
+let narrowTimer: number | null = null
 
 function cancelClose(): void {
   if (closeTimer != null) {
@@ -79,42 +102,58 @@ function cancelClose(): void {
 
 function scheduleClose(): void {
   cancelClose()
-  closeTimer = window.setTimeout(() => {
-    if (expanded) {
-      expanded = false
-      applyExpanded()
-    }
-  }, scaleMs(COLLAPSE_DELAY_MS))
+  closeTimer = window.setTimeout(() => setExpanded(false), COLLAPSE_DELAY_MS)
+}
+
+function cancelNarrow(): void {
+  if (narrowTimer != null) {
+    window.clearTimeout(narrowTimer)
+    narrowTimer = null
+  }
 }
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function setHit(receive: boolean): void {
-  if (hitOn === receive) return
-  hitOn = receive
-  void shell?.setOrbOverlayHit?.(receive).catch(() => undefined)
-}
-
 function applyExpanded(): void {
   root.classList.toggle('expanded', expanded)
+  // 入列错落；收起不加 delay，整列一起退更跟手
   root.querySelectorAll<HTMLElement>('.orb-item').forEach((el, i) => {
     el.style.transitionDelay = expanded ? `${itemStaggerMs(i)}ms` : '0ms'
   })
-  // 兼容旧链路：主进程侧已固定宽度，调用无副作用
-  void shell?.resizeOrbOverlay?.(expanded).catch(() => undefined)
 }
 
 function setExpanded(v: boolean): void {
   if (expanded === v) return
-  if (v) cancelClose()
   expanded = v
-  applyExpanded()
+  if (v) {
+    cancelClose()
+    cancelNarrow()
+    applyExpanded()
+    // CSS 动画立即开始；主进程跟进拓宽视图（同进程 setBounds，约 1 帧）
+    void shell?.setOrbRailExpanded?.(true).catch(() => undefined)
+  } else {
+    applyExpanded()
+    // 等收起动画播完再缩窄视图，期间鼠标回到窄条内可无缝取消
+    cancelNarrow()
+    narrowTimer = window.setTimeout(() => {
+      narrowTimer = null
+      void shell?.setOrbRailExpanded?.(false).catch(() => undefined)
+    }, NARROW_DELAY_MS)
+  }
 }
 
+const SETTINGS_ICON = `
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>`
+
 function buildChrome(): void {
-  root.innerHTML = `
+  root.innerHTML =
+    PART === 'rail'
+      ? `
     <div class="orb-tabs-zone" id="orb-tabs-zone">
       <button type="button" class="orb-handle" id="orb-handle" aria-label="展开标签">
         <span class="orb-handle-grip"></span>
@@ -122,71 +161,72 @@ function buildChrome(): void {
       </button>
       <div class="orb-panel" id="orb-panel"></div>
     </div>
+  `
+      : `
     <div class="orb-dock" id="orb-dock">
       <button type="button" class="orb-face orb-settings" data-settings="1" title="设置" aria-label="设置">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 .4 1.1 1.7 1.7 0 0 0 1 .6 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.14.37.36.7.65.96.3.25.67.4 1.06.4H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51.64Z"/>
-        </svg>
+        ${SETTINGS_ICON}
       </button>
     </div>
   `
 }
 
 function syncPanel(): void {
-  const panel = document.getElementById('orb-panel')
-  const dots = document.getElementById('orb-dots')
-  if (!panel || !dots) return
+  if (PART === 'rail') {
+    const panel = document.getElementById('orb-panel')
+    const dots = document.getElementById('orb-dots')
+    if (!panel || !dots) return
 
-  const homeActive = state.view === 'home' || state.view === 'settings'
-  dots.innerHTML = `
-    <i style="background:${homeActive ? '#1a1f2e' : 'rgba(120,120,120,.5)'}"></i>
-    ${state.tabs.slice(0, 3).map((t) => `<i style="background:${t.color}"></i>`).join('')}
-  `
+    const homeActive = state.view === 'home' || state.view === 'settings'
+    dots.innerHTML = `
+      <i style="background:currentColor;opacity:${homeActive ? '0.95' : '0.4'}"></i>
+      ${state.tabs.slice(0, 3).map((t) => `<i style="background:${t.color}"></i>`).join('')}
+    `
 
-  const items: string[] = []
-  items.push(
-    `<div class="orb-item orb-home${homeActive ? ' active' : ''}">
-      <button type="button" class="orb-face" data-home="1" title="首页" aria-label="首页">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
-          <path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z"/>
-        </svg>
-      </button>
-    </div>`
-  )
-  for (const tab of state.tabs) {
-    const active = tab.id === state.activeTabId && state.view === 'plugin'
+    const items: string[] = []
     items.push(
-      `<div class="orb-item orb-tab${active ? ' active' : ''}">
-        <button type="button" class="orb-face" style="background:${tab.color}" title="${escapeHtml(tab.title)}" data-activate="${tab.id}">
-          <span class="orb-glyph">${escapeHtml(tab.glyph)}</span>
-        </button>
-        <button type="button" class="orb-close" data-close="${tab.id}" aria-label="关闭 ${escapeHtml(tab.title)}">
-          <svg width="7" height="7" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2L2 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      `<div class="orb-item orb-home${homeActive ? ' active' : ''}">
+        <button type="button" class="orb-face" data-home="1" title="首页" aria-label="首页">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/>
+            <path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          </svg>
         </button>
       </div>`
     )
-  }
-  panel.innerHTML = items.join('')
-  root.querySelector('[data-settings]')?.classList.toggle('active', state.view === 'settings')
-  applyExpanded()
-}
-
-/** 命中判定：把手 / 展开后的圆球区 / 设置钮；展开后 zone 矩形内也保持命中 */
-function isOverChrome(x: number, y: number): boolean {
-  const el = document.elementFromPoint(x, y)
-  if (el instanceof Element) {
-    if (el.closest('.orb-handle') || el.closest('.orb-dock')) return true
-    if (expanded && el.closest('.orb-panel, .orb-item, .orb-face, .orb-close')) return true
-  }
-  if (expanded) {
-    const zone = document.getElementById('orb-tabs-zone')
-    if (zone) {
-      const r = zone.getBoundingClientRect()
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return true
+    for (const tab of state.tabs) {
+      const active = tab.id === state.activeTabId && state.view === 'plugin'
+      items.push(
+        `<div class="orb-item orb-tab${active ? ' active' : ''}">
+          <button type="button" class="orb-face" style="background:${tab.color}" title="${escapeHtml(tab.title)}" data-activate="${tab.id}">
+            <span class="orb-glyph">${escapeHtml(tab.glyph)}</span>
+          </button>
+          <button type="button" class="orb-close" data-close="${tab.id}" aria-label="关闭 ${escapeHtml(tab.title)}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </div>`
+      )
     }
+    // rail-entries 插槽贡献（manifest.contributes.railEntries）：Tab 圆点之后、
+    // 分隔线下方渲染入口圆点；点击 openPlugin(pluginId, { code: openCode })
+    const contribs = state.contribEntries ?? []
+    if (contribs.length > 0) {
+      items.push('<div class="orb-item orb-contrib-sep" aria-hidden="true"><span></span></div>')
+      for (const entry of contribs) {
+        items.push(
+          `<div class="orb-item orb-contrib">
+            <button type="button" class="orb-face" style="background:${entry.color}" title="${escapeHtml(entry.title)}" data-contrib="${entry.pluginId}" data-open-code="${escapeHtml(entry.openCode ?? '')}">
+              <span class="orb-glyph">${escapeHtml(entry.glyph.charAt(0) || '·')}</span>
+            </button>
+          </div>`
+        )
+      }
+    }
+    panel.innerHTML = items.join('')
+    applyExpanded()
+  } else {
+    root.querySelector('[data-settings]')?.classList.toggle('active', state.view === 'settings')
   }
-  return false
 }
 
 function bindEvents(): void {
@@ -208,85 +248,88 @@ function bindEvents(): void {
       void shell?.closePlugin(close.dataset.close)
       return
     }
+    // rail-entries 贡献入口：openPlugin(pluginId, { code: openCode })，
+    // openCode 为空则不带 enter（插件默认入口）
+    const contrib = t.closest('[data-contrib]') as HTMLElement | null
+    if (contrib?.dataset.contrib) {
+      const code = contrib.dataset.openCode || ''
+      void shell?.openPlugin(contrib.dataset.contrib, code ? { code } : undefined)?.catch(
+        () => undefined
+      )
+      setExpanded(false)
+      return
+    }
     if (t.closest('[data-settings]')) {
       void shell?.setShellView?.('settings')
       setExpanded(false)
     }
   }
 
-  // forward 模式下 mousemove 可达；用它驱动展开/收起与命中穿透
-  document.addEventListener(
+  if (PART !== 'rail') return
+
+  // 真实 DOM 事件，但触发区限定在把手/圆球 zone（垂直居中矩形）：
+  // 沿左缘扫过条带顶部/底部（如去点设置钮）不应弹开 Tab 轨
+  const overChrome = (y: number): boolean => {
+    const zone = document.getElementById('orb-tabs-zone')
+    if (!zone) return false
+    const r = zone.getBoundingClientRect()
+    return y >= r.top && y <= r.bottom
+  }
+  document.documentElement.addEventListener(
     'mousemove',
     (e) => {
-      const over = isOverChrome(e.clientX, e.clientY)
-      setHit(over)
-      if (over) {
+      if (overChrome(e.clientY)) {
         cancelClose()
-        // 把手悬停 → 展开；展开后在 panel 内保持
-        if (!expanded && (e.target as Element | null)?.closest?.('.orb-handle')) {
-          setExpanded(true)
-        }
+        if (!expanded) setExpanded(true)
       } else if (expanded) {
         scheduleClose()
       }
     },
     { passive: true }
   )
-
-  document.addEventListener(
+  document.documentElement.addEventListener(
     'mouseleave',
     () => {
-      setHit(false)
       if (expanded) scheduleClose()
     },
     { passive: true }
   )
 }
 
-/** 从 settings 拉当前 animationLevel（主进程 executeJavaScript 之外的兜底） */
-async function hydrateAnimLevel(): Promise<void> {
-  if (!shell?.getSettings) return
-  try {
-    const settings = await shell.getSettings()
-    const raw = settings?.general?.animationLevel
-    if (isAnimLevel(raw)) applyAnimLevel(raw)
-  } catch {
-    /* ignore */
-  }
+/** orb-state 载荷携带档位与主题（主进程 settingsStore 为唯一事实来源），到达即应用 */
+function applyState(next: OrbState): void {
+  state = next
+  if (isAnimLevel(next.animationLevel)) applyAnimLevel(next.animationLevel)
+  if (next.theme) applyTheme(next.theme)
+  syncPanel()
 }
 
 async function boot(): Promise<void> {
-  // URL query 优先，settings 再校正
+  // URL query 优先：首帧即正确档位/主题；随后 orb-state 载荷持续校正
   const urlLevel = readUrlAnim()
   if (urlLevel) applyAnimLevel(urlLevel)
+  const urlTheme = readUrlTheme()
+  if (urlTheme) document.documentElement.dataset.theme = urlTheme
 
   root.className = 'orb-rail'
   buildChrome()
   bindEvents()
-  // 初始穿透
-  setHit(false)
-
-  void hydrateAnimLevel()
-  // 轻量轮询：设置页改档无事件推送时，保证可见期间也能对齐
-  window.setInterval(() => {
-    void hydrateAnimLevel()
-  }, ANIM_POLL_MS)
 
   shell?.onOrbEvent?.((payload) => {
-    if (payload?.state) {
-      state = payload.state
-      syncPanel()
-    }
+    if (payload?.state) applyState(payload.state)
   })
   if (shell?.getOrbState) {
     try {
       const s = await shell.getOrbState()
-      state = {
+      applyState({
         view: s.view as OrbState['view'],
         tabStyle: s.tabStyle as OrbState['tabStyle'],
         activeTabId: s.activeTabId,
-        tabs: (s.tabs as OrbState['tabs']) ?? []
-      }
+        animationLevel: isAnimLevel(s.animationLevel) ? s.animationLevel : 'medium',
+        theme: (s.theme as OrbState['theme']) ?? { mode: 'light', tokens: {} },
+        tabs: (s.tabs as OrbState['tabs']) ?? [],
+        contribEntries: (s.contribEntries as OrbState['contribEntries']) ?? []
+      })
     } catch {
       /* ignore */
     }

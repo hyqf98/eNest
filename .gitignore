@@ -50,3 +50,11 @@ e2e-artifacts/
 
 # iconutil 中间产物
 assets/icons/AppIcon.iconset/
+
+# 本地插件 UI 预览页（非构建入口；renderer 入口在 src/renderer/index.html）
+/index.html
+/preview.css
+/preview.js
+
+# agent 本地笔记
+.zcode/

@@ -8,40 +8,9 @@
  */
 import { nativeTheme } from 'electron'
 import type { PluginPreferredColorScheme } from '@shared/types/plugin'
+import { THEME_TOKEN_PRESETS } from '@shared/theme/presets'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { themePackRegistry } from '@main/theme/themePacks'
-
-/** 与壳子 useTheme THEME_PRESETS 对齐的内置 Token（主进程侧副本，避免 renderer 依赖） */
-export const THEME_TOKEN_PRESETS: Record<'light' | 'dark', Record<string, string>> = {
-  light: {
-    '--bg': '#f4f5f7',
-    '--surface': '#ffffff',
-    '--surface-2': '#f0f2f5',
-    '--surface-3': '#e8ebf0',
-    '--border': 'rgba(15,23,42,0.08)',
-    '--border-strong': 'rgba(15,23,42,0.14)',
-    '--text': '#0f1420',
-    '--text-2': '#5c6578',
-    '--text-3': '#8b93a5',
-    '--accent': '#1a1f2e',
-    '--ok': '#0d9f6e',
-    '--danger': '#e11d48'
-  },
-  dark: {
-    '--bg': '#0a0c10',
-    '--surface': '#12151c',
-    '--surface-2': '#171b24',
-    '--surface-3': '#1e2430',
-    '--border': 'rgba(255,255,255,0.06)',
-    '--border-strong': 'rgba(255,255,255,0.12)',
-    '--text': '#f2f4f8',
-    '--text-2': '#9aa3b5',
-    '--text-3': '#5e677a',
-    '--accent': '#f2f4f8',
-    '--ok': '#3ecf8e',
-    '--danger': '#ff6b81'
-  }
-}
 
 function hexToRgba(hex: string, alpha: number): string {
   if (!hex.startsWith('#')) return hex

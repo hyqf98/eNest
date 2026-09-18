@@ -19,6 +19,7 @@ import { getAppPaths } from '@main/paths/pathsService'
 import { installFromZip, installPluginFromPath } from '@main/plugin/PluginInstaller'
 import { downloadPluginPackage } from '@main/plugin/marketClient'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
 import { sendShellEvent } from '@main/window/createShellWindow'
 
 /** 并行安装上限：见文件头「为什么需要队列」 */
@@ -126,6 +127,8 @@ async function runJob(job: InstallJob): Promise<void> {
       ok: true
     })
     sendShellEvent({ type: 'plugins-changed' })
+    // 远程安装完成可能引入 clipboard.history 持有者，重算轮询
+    revalidateClipboardPolling()
   } catch (err) {
     job.status = 'failed'
     const message = (err as Error).message || String(err)

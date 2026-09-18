@@ -14,7 +14,7 @@ import {
   type Rectangle,
   type WebContents
 } from 'electron'
-import { SHELL_PARTITION, TITLEBAR_HEIGHT, PLUGIN_BAR_HEIGHT, ORB_RAIL_INSET_CLASSIC, pluginChromeBarHeight } from '@shared/constants'
+import { SHELL_PARTITION, TITLEBAR_HEIGHT, PLUGIN_BAR_HEIGHT, pluginChromeBarHeight } from '@shared/constants'
 import { IpcChannels, type ShellEventPayload } from '@shared/types/ipc'
 
 let mainWindow: BaseWindow | null = null
@@ -157,7 +157,7 @@ export function getShellBounds(): Rectangle {
  * 插件内容区左侧 inset：orb 模式为圆轨留通道，classic 为 0。
  * 由 shell:set-plugin-inset 在 tabStyle 切换 / 圆轨展开时更新。
  */
-let pluginLeftInset = ORB_RAIL_INSET_CLASSIC
+let pluginLeftInset = 0
 
 export function setPluginLeftInset(px: number): void {
   pluginLeftInset = Math.max(0, Math.round(px))
@@ -190,9 +190,31 @@ export function getPluginContentBoundsForChrome(
   return getPluginContentBounds(pluginChromeBarHeight(chrome))
 }
 
-/** 向壳子渲染进程推送 shell:event 事件，窗口已销毁时静默忽略 */
+/**
+ * Quick 表面事件转发钩子：Quick 小窗是独立 WebContents（独立 ipcRenderer），
+ * quick-plugin-mode 等事件若只发主壳 wc，Quick 页面永远收不到（mini 插件态
+ * 顶栏不渲染）。由 createQuickWindow 注入，避免本模块反向 import 成环。
+ */
+let quickEventSink: ((payload: ShellEventPayload) => void) | null = null
+
+/** 注册/清除 Quick 表面事件接收器（createQuickWindow 模块初始化时调用） */
+export function setQuickEventSink(fn: ((payload: ShellEventPayload) => void) | null): void {
+  quickEventSink = fn
+}
+
+/**
+ * 向壳子渲染进程推送 shell:event 事件，窗口已销毁时静默忽略。
+ * Quick 表面事件（quick-plugin-mode）额外转发给 Quick 小窗 wc。
+ */
 export function sendShellEvent(payload: ShellEventPayload): void {
   const wc = getShellWebContents()
   if (!wc || wc.isDestroyed()) return
   wc.send(IpcChannels.ShellEvent, payload)
+  if (payload.type === 'quick-plugin-mode') {
+    try {
+      quickEventSink?.(payload)
+    } catch {
+      /* Quick wc 可能正在销毁 */
+    }
+  }
 }

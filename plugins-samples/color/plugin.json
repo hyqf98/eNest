@@ -1,9 +1,0 @@
-{
-  "id": "com.enest.color",
-  "name": "取色器",
-  "version": "1.0.0",
-  "description": "取色器（示例）",
-  "author": "eNest",
-  "main": "index.html",
-  "permissions": ["storage.local", "ui.setTitle"]
-}

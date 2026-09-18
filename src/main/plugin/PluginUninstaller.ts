@@ -1,7 +1,8 @@
 /**
  * PluginUninstaller — 插件卸载器
  * 职责：完整卸载一个已安装插件——关闭运行中 Tab → 清空 partition storage
- *       → 删除插件目录与 storage JSON → GC 其注册的主题包 → 重扫注册表 → 推送壳子事件。
+ *       → 删除插件目录与 storage.local（SQLite 行 + 旧 JSON 残留）→ GC 其注册的主题包
+ *       → 重扫注册表 → 推送壳子事件。
  * 为什么独立：卸载横跨 Host（视图）、session（分区数据）、文件系统、Registry、
  *       主题包与设置，放在任一现有模块都会造成循环依赖或职责膨胀。
  * 被 shellHandlers（ShellUninstallPlugin）调用。
@@ -13,15 +14,18 @@ import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pluginPartition } from '@shared/constants'
+import { clearPluginStorage } from '@main/db/pluginStorage'
 import { logError, logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, pluginStorageFile } from '@main/paths/pathsService'
 import { sendShellEvent } from '@main/window/createShellWindow'
-import { clearPluginSession } from '@main/plugin/PluginSessionStore'
+import { clearPluginSession, deleteSessionSnapshot } from '@main/plugin/PluginSessionStore'
 import { clearPluginDisabled } from '@main/plugin/pluginEnabledStore'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { forgetDevPlugin } from '@main/dev/DevConsole'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { themePackRegistry } from '@main/theme/themePacks'
+import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 
 export interface UninstallResult {
   ok: boolean
@@ -94,12 +98,28 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
     logError('uninstall', `${id} ${msg}`)
   }
 
-  // 6) 删除 storage.local JSON（与 partition 是两套数据）
+  // 6) 清空 storage.local（enest.db plugin_storage 行）+ 会话快照；兼容删除旧 JSON 与迁移残留
   try {
-    const storageJson = pluginStorageFile(id)
-    if (existsSync(storageJson)) {
-      await rm(storageJson, { force: true })
-      logInfo('uninstall', `removed storage json ${storageJson}`)
+    clearPluginStorage(id)
+    logInfo('uninstall', `cleared plugin storage ${id}`)
+  } catch (err) {
+    const msg = `clear plugin storage failed: ${(err as Error).message}`
+    errors.push(msg)
+    logWarn('uninstall', `${id} ${msg}`)
+  }
+  try {
+    deleteSessionSnapshot(id)
+  } catch (err) {
+    logWarn('uninstall', `${id} session snapshot delete failed: ${(err as Error).message}`)
+  }
+  try {
+    // 旧版整文件 JSON（若从未被迁移）与迁移后保留的 {id}.json.migrated 一并清理
+    const legacy = pluginStorageFile(id)
+    for (const file of [legacy, `${legacy}.migrated`]) {
+      if (existsSync(file)) {
+        await rm(file, { force: true })
+        logInfo('uninstall', `removed legacy storage file ${file}`)
+      }
     }
   } catch (err) {
     const msg = `remove storage json failed: ${(err as Error).message}`
@@ -112,6 +132,12 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
     pluginRegistry.removeDevPlugin(id)
   } catch {
     // 非开发态时无副作用
+  }
+  try {
+    // 同步删掉 dev.json 里的路径，避免重启又把已移除的开发插件挂回来
+    await forgetDevPlugin(id)
+  } catch {
+    // ignore
   }
   try {
     await clearPluginDisabled(id)
@@ -146,6 +172,14 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
     const msg = `remove theme packs failed: ${(err as Error).message}`
     errors.push(msg)
     logWarn('uninstall', `${id} ${msg}`)
+  }
+
+  // 8c) GC 该插件的全部贡献点（设置 section / 首页卡片 / 轨道入口等）；
+  //     目录已删除，重扫不会重放，必须在此显式清除
+  try {
+    contributionRegistry.unregisterBySource(id)
+  } catch (err) {
+    logWarn('uninstall', `${id} remove contributions failed: ${(err as Error).message}`)
   }
 
   // 9) 生命周期：clearing-storage → uninstalled

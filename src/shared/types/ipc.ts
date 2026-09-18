@@ -4,6 +4,10 @@
  * 被 shellPreload、pluginPreload、主进程各 handler 共同引用。
  * 关键依赖：无（纯类型定义）。
  */
+import type { AnimationLevel } from './plugin'
+import type { QuickPluginModeInfo } from './quick'
+import type { SshPluginEvent } from './ssh-db'
+
 /**
  * IPC 通道常量 — 主进程 / preload / 渲染进程共用。
  * 约定：全部为 request-response（invoke），事件推送走 `shell:event`。
@@ -28,10 +32,8 @@ export const IpcChannels = {
   ShellGoHome: 'shell:go-home',
   /** 悬浮窗/壳子：切换主壳视图 */
   ShellSetView: 'shell:set-view',
-  /** 悬浮窗展开/收起时按内容调整自身宽度（固定宽度后为 no-op，保留兼容） */
-  ShellResizeOrbOverlay: 'shell:resize-orb-overlay',
-  /** 悬浮窗是否接收鼠标（透明区穿透，交互区收回） */
-  ShellSetOrbOverlayHit: 'shell:set-orb-overlay-hit',
+  /** 圆轨 rail 视图展开/收起：主进程切换 WebContentsView 宽度 */
+  ShellSetOrbRailExpanded: 'shell:set-orb-rail-expanded',
   ShellGetBounds: 'shell:get-bounds',
   ShellSetContentBounds: 'shell:set-content-bounds',
   ShellGetTheme: 'shell:get-theme',
@@ -96,6 +98,10 @@ export const IpcChannels = {
   QuickScanApps: 'quick:scan-apps',
   QuickGetConfig: 'quick:get-config',
   QuickSetHotkeys: 'quick:set-hotkeys',
+  /** 探测组合键是否可被本进程注册（用于录制时发现系统/他应用占用） */
+  QuickProbeHotkey: 'quick:probe-hotkey',
+  /** 渲染层测量内容高度后请求调整小窗高度（内容撑开/收起） */
+  QuickResize: 'quick:resize',
 
   WindowMinimize: 'window:minimize',
   WindowMaximize: 'window:maximize',
@@ -104,6 +110,9 @@ export const IpcChannels = {
   /** 插件 preload → 主进程（经 permission 校验） */
   PluginCall: 'plugin:call',
   PluginEvent: 'plugin:event',
+
+  /** 壳子 → 主进程：读取 plugin:call 调用跟踪环形缓冲（DevConsole） */
+  ShellGetPluginTrace: 'shell:get-plugin-trace',
 
   /** 主进程 → 插件 webContents 生命周期推送（enter/out/beforeClose/destroy） */
   PluginLifecycle: 'plugin:lifecycle',
@@ -152,22 +161,55 @@ export type ShellEventPayload =
   | { type: 'set-view'; view: 'home' | 'settings' | 'plugin' | 'dev' }
   /** 快捷键注册失败（至少部分占用） */
   | { type: 'quick-hotkey-failed'; failed: string[]; registered: string[] }
+  | { type: 'quick-hotkey-used'; acc: string }
   /** 快捷启动配置变更 */
-  | { type: 'quick-config-changed'; enabled: boolean; hotkeys: string[] }
+  | { type: 'quick-config-changed'; enabled: boolean; hotkeys: string[]; activeHotkey?: string }
   /** 命令面要求壳子切换视图 */
   | { type: 'quick-open-view'; view: 'home' | 'settings' | 'dev' }
+  /**
+   * Quick 小窗插件态切换（主进程 → Quick 渲染层，经通用 shell:event 下发）：
+   * 挂载 mini 插件 = { pluginId, title }；Esc 固定/收起回列表态 = null。
+   * 注意：该事件对主壳渲染层无意义（payload 事件桥过滤），仅 Quick 表面消费。
+   */
+  | { type: 'quick-plugin-mode'; mode: QuickPluginModeInfo | null }
+  /**
+   * 插件贡献点变更（注册/卸载/覆盖）：渲染层据此刷新对应插槽消费
+   * （home-cards 区块、rail-entries、settings sections 等）。
+   */
+  | { type: 'contributions-changed'; slot: string; source: string }
 
 /** orb 悬浮窗同步的 Tab 状态（壳子 renderer → main → overlay） */
 export interface OrbRailState {
   view: 'home' | 'settings' | 'dev' | 'plugin'
   tabStyle: 'classic' | 'orb'
   activeTabId: string | null
+  /** 动画档位：overlay 独立文档不读主壳 DOM，档位随状态下发 */
+  animationLevel: AnimationLevel
+  /** 已解析主题（含 tokens）：圆轨/设置钮配色跟随设置页主题 */
+  theme: {
+    mode: 'light' | 'dark'
+    tokens: Record<string, string>
+  }
   tabs: Array<{
     id: string
     pluginId: string
     title: string
     color: string
     glyph: string
+  }>
+  /**
+   * rail-entries 插槽贡献（插件贡献点，声明式）：orb 模式左侧轨道底部入口。
+   * 点击经 shellApi.openPlugin(pluginId, { code: openCode }) 打开来源插件。
+   * 本期仅数据层（主进程下发）；渲染消费由 orb-overlay 后续批次接线。
+   * 可选字段：overlay/壳子同步路径尚未携带时不影响既有消费方。
+   */
+  contribEntries?: Array<{
+    id: string
+    pluginId: string
+    glyph: string
+    color: string
+    title: string
+    openCode?: string
   }>
 }
 
@@ -201,6 +243,28 @@ export type PluginEventPayload =
       mode: 'light' | 'dark'
       tokens: Record<string, string>
     }
+  /** 插件注册的全局热键被按下（enest.hotkey.register 的回调触发） */
+  | {
+      type: 'hotkey'
+      accelerator: string
+    }
+  /** 壳子界面语言变更（settings.general.locale 变化时广播） */
+  | {
+      type: 'locale-change'
+      locale: 'zh-CN' | 'en-US'
+    }
+  /**
+   * Quick 搜索查询（主进程 → 注册了 quick provider 的插件）：
+   * 插件经 enest.contribute.onQuickQuery 监听，计算结果后用
+   * enest.contribute.respondQuickQuery(reqId, items) 回传（500ms 超时丢弃）。
+   */
+  | {
+      type: 'quick-query'
+      reqId: string
+      query: string
+    }
+  /** SSH 会话数据/退出/错误/指标（com.enest.ssh） */
+  | SshPluginEvent
 
 /** 安装队列任务对外视图（active / waiting 列表项） */
 export interface InstallJobInfo {
@@ -220,5 +284,19 @@ export interface PluginCallRequest {
 export interface PluginCallResult {
   ok: boolean
   data?: unknown
+  error?: string
+}
+
+/**
+ * plugin:call 调用跟踪条目（主进程环形缓冲最近 200 条，
+ * DevConsole「调用跟踪」面板经 shell:get-plugin-trace 读取）。
+ */
+export interface PluginCallTraceEntry {
+  /** 调用时刻（epoch ms） */
+  ts: number
+  pluginId: string
+  method: string
+  ok: boolean
+  durationMs: number
   error?: string
 }

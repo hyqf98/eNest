@@ -1,14 +1,20 @@
 /**
- * BackgroundPicker — 壳子背景选择器
- * none / color（含预设渐变色卡）/ image / video；不透明度与 cover|contain。
- * 渐变作为 CSS background 写入 color.value，由 AppBackground 直接铺底。
- * 依赖：useTheme（setBackground）、shellApi.pickFile、@shared/types/plugin。
+ * BackgroundPicker — 壳子背景 + 启动画面（合并卡片）
+ * 壳子背景：none / color（预设渐变）/ image / video；不透明度与 cover|contain。
+ * 启动画面：品牌色 / 主题色 / 自定义图片，写入 settings.general.splashBackground。
+ * 依赖：useTheme（setBackground）、shellApi、resolveMediaSrc、@shared/types/plugin。
  */
-import { useRef, useState } from 'react'
-import type { BackgroundConfig, BackgroundType } from '@shared/types/plugin'
+import { useEffect, useRef, useState } from 'react'
+import type {
+  BackgroundConfig,
+  BackgroundType,
+  SplashBackgroundConfig,
+  SplashBackgroundType
+} from '@shared/types/plugin'
 import { resolveMediaSrc, useThemeStore } from '@renderer/hooks/useTheme'
 import { shellApi } from '@renderer/services/shellApi'
 import { toastStore } from '@renderer/hooks/useToast'
+import { useI18n } from '@renderer/hooks/useI18n'
 
 const TYPE_OPTIONS: { id: BackgroundType; label: string }[] = [
   { id: 'none', label: '无' },
@@ -79,6 +85,17 @@ const DEFAULT_BG: BackgroundConfig = {
   fit: 'cover',
 }
 
+const SPLASH_DEFAULT: SplashBackgroundConfig = {
+  type: 'brand',
+  opacity: 0.55,
+}
+
+const SPLASH_TYPES: { id: SplashBackgroundType; labelKey: string; descKey: string }[] = [
+  { id: 'brand', labelKey: 'settings.splash.typeBrand', descKey: 'settings.splash.typeBrandDesc' },
+  { id: 'none', labelKey: 'settings.splash.typeNone', descKey: 'settings.splash.typeNoneDesc' },
+  { id: 'image', labelKey: 'settings.splash.typeImage', descKey: 'settings.splash.typeImageDesc' },
+]
+
 function isGif(path: string): boolean {
   return /\.gif(\?|#|$)/i.test(path)
 }
@@ -98,8 +115,87 @@ function matchGradientId(value: string): string | null {
 export function BackgroundPicker() {
   const background = useThemeStore((s) => s.background)
   const setBackground = useThemeStore((s) => s.setBackground)
+  const { t } = useI18n()
   const [picking, setPicking] = useState(false)
   const colorInputRef = useRef<HTMLInputElement>(null)
+
+  /** 启动画面（并入本卡片） */
+  const [splash, setSplash] = useState<SplashBackgroundConfig>(SPLASH_DEFAULT)
+  const [splashPicking, setSplashPicking] = useState(false)
+  const splashSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const settings = await shellApi.getSettings()
+        if (cancelled) return
+        const raw = settings.general?.splashBackground
+        if (raw && typeof raw === 'object' && raw.type) {
+          setSplash({
+            type: raw.type,
+            value: raw.value ?? '',
+            opacity: typeof raw.opacity === 'number' ? raw.opacity : SPLASH_DEFAULT.opacity,
+          })
+        }
+      } catch {
+        /* 默认 brand */
+      }
+    })()
+    return () => {
+      cancelled = true
+      if (splashSaveTimer.current) clearTimeout(splashSaveTimer.current)
+    }
+  }, [])
+
+  const persistSplash = (next: SplashBackgroundConfig) => {
+    setSplash(next)
+    if (splashSaveTimer.current) clearTimeout(splashSaveTimer.current)
+    splashSaveTimer.current = setTimeout(() => {
+      void shellApi
+        .setSettings({ general: { splashBackground: next } })
+        .then(() => toastStore.getState().push(t('settings.splash.saved')))
+        .catch(() => undefined)
+    }, 300)
+  }
+
+  const setSplashType = (type: SplashBackgroundType) => {
+    if (type === 'image') {
+      const keep = splash.type === 'image' ? splash : SPLASH_DEFAULT
+      persistSplash({
+        ...keep,
+        type: 'image',
+        value: splash.value ?? '',
+        opacity: splash.opacity ?? SPLASH_DEFAULT.opacity,
+      })
+      if (!splash.value) void pickSplashImage()
+      return
+    }
+    persistSplash({ type, opacity: splash.opacity })
+  }
+
+  async function pickSplashImage() {
+    if (splashPicking) return
+    setSplashPicking(true)
+    try {
+      const path = await shellApi.pickFile({ filters: 'image' })
+      if (!path) return
+      persistSplash({
+        type: 'image',
+        value: path,
+        opacity: splash.opacity ?? SPLASH_DEFAULT.opacity,
+      })
+    } catch {
+      toastStore.getState().push(t('settings.splash.pickFailed'))
+    } finally {
+      setSplashPicking(false)
+    }
+  }
+
+  const splashActive = SPLASH_TYPES.find((o) => o.id === splash.type) ?? SPLASH_TYPES[0]
+  const splashPhoto =
+    splash.type === 'image' && splash.value ? resolveMediaSrc(splash.value) : null
+  const splashPhotoOk = !!splashPhoto?.playable && !!splashPhoto.src
 
   const cfg: BackgroundConfig = background ?? DEFAULT_BG
 
@@ -168,7 +264,12 @@ export function BackgroundPicker() {
   return (
     <div className="s-card">
       <h2>背景</h2>
-      <p className="hint">预设氛围渐变，或用图片 / 循环视频；可调不透明度</p>
+      <p className="hint">壳子背景与启动画面统一在此配置</p>
+
+      <div className="bg-section-label">壳子背景</div>
+      <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
+        预设氛围渐变，或图片 / 循环视频；可调不透明度
+      </p>
 
       <div className="bg-type-row" role="radiogroup" aria-label="背景类型">
         {TYPE_OPTIONS.map((t) => (
@@ -301,6 +402,101 @@ export function BackgroundPicker() {
         <p className="hint" style={{ margin: '8px 0 0' }}>
           本地路径已保存。Electron 下将由主进程以 enest://media 提供；浏览器预览暂无法加载{' '}
           <code>{shortName(cfg.value)}</code>
+        </p>
+      )}
+
+      {/* —— 启动画面：与壳子背景同卡片 —— */}
+      <div className="bg-merge-divider" />
+      <div className="bg-section-label">{t('settings.splash.title')}</div>
+      <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
+        {t('settings.splash.hint')}
+      </p>
+
+      <div className="field" style={{ borderTop: 'none', paddingTop: 0 }}>
+        <div>
+          <div className="label">{t('settings.splash.type')}</div>
+          <p className="desc">{t(splashActive.descKey)}</p>
+        </div>
+        <div
+          className="bg-type-row"
+          role="radiogroup"
+          aria-label={t('settings.splash.type')}
+          style={{ margin: 0 }}
+        >
+          {SPLASH_TYPES.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              role="radio"
+              aria-checked={splash.type === opt.id}
+              className={`chip${splash.type === opt.id ? ' active' : ''}`}
+              onClick={() => setSplashType(opt.id)}
+            >
+              {t(opt.labelKey)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {splash.type === 'image' && (
+        <>
+          <div className="field">
+            <div>
+              <div className="label">{t('settings.splash.image')}</div>
+              <p className="desc">
+                {splash.value
+                  ? t('settings.splash.imageDesc', { name: shortName(splash.value) })
+                  : t('settings.splash.imageEmpty')}
+              </p>
+            </div>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              disabled={splashPicking}
+              onClick={() => void pickSplashImage()}
+            >
+              {splash.value ? t('settings.splash.change') : t('settings.splash.pick')}
+            </button>
+          </div>
+          <div className="field">
+            <div>
+              <div className="label">{t('settings.splash.opacity')}</div>
+              <p className="desc">
+                {t('settings.splash.opacityDesc', {
+                  value: String(
+                    Math.round(((splash.opacity ?? SPLASH_DEFAULT.opacity) as number) * 100)
+                  ),
+                })}
+              </p>
+            </div>
+            <input
+              type="range"
+              min={0.15}
+              max={1}
+              step={0.05}
+              value={splash.opacity ?? SPLASH_DEFAULT.opacity}
+              aria-label={t('settings.splash.opacity')}
+              onChange={(e) =>
+                persistSplash({
+                  ...splash,
+                  type: 'image',
+                  value: splash.value ?? '',
+                  opacity: Number(e.target.value),
+                })
+              }
+            />
+          </div>
+        </>
+      )}
+
+      {splashPhotoOk && splashPhoto && (
+        <div className="bg-preview splash-bg-preview">
+          <img src={splashPhoto.src} alt="" />
+        </div>
+      )}
+      {splash.type === 'image' && splash.value && !splashPhotoOk && (
+        <p className="hint" style={{ margin: '8px 0 0' }}>
+          {t('settings.splash.localOnly')} <code>{shortName(splash.value)}</code>
         </p>
       )}
     </div>

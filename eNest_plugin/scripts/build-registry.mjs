@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // build-registry — 扫描 plugins/<id>/plugin.json 生成 registry.json
 // 约定：目录名 === id；category 必须在枚举内；version 为 semver。
+// 聚合前先跑 validate-manifests 的 schema 校验（失败直接抛错，不产出过期 registry）。
 import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { validateAllManifests } from './validate-manifests.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = join(__dirname, '..')
@@ -15,6 +17,13 @@ const SCHEMA_VERSION = 1
 function fail(msg) {
   console.error(`[registry] ${msg}`)
   process.exitCode = 1
+}
+
+// schema 校验（ajv）：任何 manifest 不合法直接终止
+const schemaErrors = validateAllManifests()
+if (schemaErrors.length) {
+  for (const line of schemaErrors) console.error(`[registry] manifest invalid: ${line}`)
+  throw new Error(`manifest validation failed (${schemaErrors.length} error(s)); registry not built`)
 }
 
 const plugins = []

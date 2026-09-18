@@ -56,6 +56,8 @@ export interface MarketPluginSummary {
   installs: string
   color: string
   glyph: string
+  /** 图标 URL（registry.icon；release 流程会重写为 Release 绝对地址） */
+  icon?: string
   permissions: PluginPermission[]
   ui: PluginUiConfig
   featured: boolean
@@ -99,6 +101,21 @@ function resolveAssetSha256(p: RemoteRegistryPlugin): string | null {
   return /^[0-9a-f]{64}$/.test(raw) ? raw : null
 }
 
+/**
+ * 归一图标 URL：release 流程通常已重写为绝对地址；
+ * 相对路径（icons/xxx.svg）按 registry 来源解析 raw main 分支路径兜底。
+ */
+function resolveIconUrl(p: RemoteRegistryPlugin, registryUrl: string): string | undefined {
+  const raw = (p.icon ?? '').trim()
+  if (!raw) return undefined
+  if (/^https?:\/\//i.test(raw)) return raw
+  if (/^https?:\/\/[^/]+\/[^/]+\/[^/]+\/raw\/[^/]+\//.test(registryUrl)) {
+    // raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}
+    return `${registryUrl.replace(/\/[^/]*$/, '')}/${raw.replace(/^\.?\//, '')}`
+  }
+  return undefined
+}
+
 async function fetchJson(url: string): Promise<RemoteRegistry | null> {
   try {
     const res = await net.fetch(url, { method: 'GET' })
@@ -127,6 +144,7 @@ export async function fetchRemoteMarket(): Promise<MarketPluginSummary[]> {
       installs: formatInstalls(p.installs),
       color: colorFromId(p.id),
       glyph: glyphFromName(p.name),
+      icon: resolveIconUrl(p, url),
       permissions: (p.permissions ?? []) as PluginPermission[],
       ui: resolvePluginUi(p.ui ?? DEFAULT_PLUGIN_UI),
       featured: Boolean(p.featured),

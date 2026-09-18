@@ -1,9 +1,6 @@
 /**
  * FontSettingsSection — 设置页「字体」整块
- * 结构：字号四档 → 英文字体槽 → 中文字体槽 → 自定义上传列表。
- * 中英双槽：有英文栈时 --font = en + cjk（Latin 优先）；无英文栈时行为与旧版一致。
- * 供 SettingsPage 外观标签挂载；内部读 useFont / useI18n，无需透传 props。
- * 依赖：useFont、useI18n、toastStore。
+ * 结构：字号滑杆 → 英文字体槽 → 中文字体槽 → 自定义上传列表。
  */
 import { useCallback, useEffect, useRef } from 'react'
 import {
@@ -12,18 +9,10 @@ import {
   FONT_PRESETS_CJK,
   MAX_FONT_BYTES,
 } from '@renderer/hooks/useFont'
-import { FONT_SIZE_SCALES } from '@shared/types/plugin'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { toastStore } from '@renderer/hooks/useToast'
 
-/** 预览样例：中英数混排，便于观察字形 */
 const PREVIEW_TEXT = '永 Aa 字体'
-
-/** 字号档展示（短硬编码，i18n 无对应 key） */
-const SIZE_OPTIONS: { value: number; label: string }[] = FONT_SIZE_SCALES.map((s) => ({
-  value: s,
-  label: `${Math.round(s * 100)}%`,
-}))
 
 export function FontSettingsSection() {
   const {
@@ -79,23 +68,27 @@ export function FontSettingsSection() {
       <h2>{t('settings.font.title')}</h2>
       <p className="hint">{t('settings.font.hint')}</p>
 
-      {/* 字号档：与 --shell-scale 独立，写 --font-size-base */}
+      {/* 字号：滑杆实时渲染，写 --font-size-base */}
       <div className="field" style={{ borderTop: 'none', paddingBottom: 8 }}>
         <div>
           <div className="label">字号</div>
-          <p className="desc">调整正文与界面文字大小，即时生效</p>
+          <p className="desc">
+            {fontSizeScale.toFixed(2)}× · 调整正文与界面文字大小，拖动即时生效
+          </p>
         </div>
-        <div className="segmented font-size-seg" role="group" aria-label="字号">
-          {SIZE_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              className={fontSizeScale === opt.value ? 'active' : ''}
-              onClick={() => void setFontSizeScale(opt.value)}
-            >
-              {opt.label}
-            </button>
-          ))}
+        <div className="font-size-slider-row">
+          <span className="font-size-end">0.90×</span>
+          <input
+            type="range"
+            className="font-size-slider"
+            min={0.9}
+            max={1.3}
+            step={0.05}
+            value={fontSizeScale}
+            aria-label="字号"
+            onChange={(e) => void setFontSizeScale(Number(e.target.value))}
+          />
+          <span className="font-size-end">1.30×</span>
         </div>
       </div>
 

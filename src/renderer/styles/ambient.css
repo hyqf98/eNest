@@ -1,0 +1,35 @@
+/*
+ * ambient — AmbientParticles 专属样式
+ * 基础定位在 app.css；本文件补充 high 档混合模式、滤镜与低强度兜底。
+ * 使用方：AmbientParticles.tsx（import）。
+ */
+
+.ambient-particles {
+  will-change: opacity;
+}
+
+/* 浅色主题：screen 叠加柔光；避免盖住内容层 */
+:root[data-theme='light'] .ambient-particles {
+  opacity: 0.85;
+  mix-blend-mode: screen;
+}
+
+/* 深色主题：plus-lighter 加色，更接近发光体 */
+:root[data-theme='dark'] .ambient-particles {
+  opacity: 0.72;
+  mix-blend-mode: plus-lighter;
+}
+
+/* 系统主题按媒体查询兜底（data-theme 可能仍是 system） */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .ambient-particles {
+    opacity: 0.72;
+    mix-blend-mode: plus-lighter;
+  }
+}
+
+/* low/medium 不挂载组件；双保险隐藏 */
+:root[data-anim='low'] .ambient-particles,
+:root[data-anim='medium'] .ambient-particles {
+  display: none !important;
+}

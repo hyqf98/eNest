@@ -1,0 +1,1042 @@
+/*
+ * featured — 精选插件 coverflow
+ * 同一插件节点随 ring 变化做 transform 过渡（只动 transform/opacity，避免 left/width 抖动）
+ * 左右对称：中心大卡 + 两侧等量待选（约一半大小）
+ * 悬停：原地放大 + 柔光，不改 left/right，不会盖到对侧
+ */
+.featured-coverflow {
+  --featured-item-w: clamp(220px, 26vw, 300px);
+  --featured-item-h: clamp(240px, 30vw, 320px);
+  /* 对齐 PLUGIN_ICON_DISPLAY_FEATURED=64（中心图标） */
+  --featured-icon: 64px;
+  /* 丝滑偏「先快后缓」的长尾缓动；时长按动画档在下方覆盖 */
+  --featured-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --featured-dur: 0.95s;
+  --drag-x: 0px;
+  /* 侧卡贴中心一点：center origin 放大向两侧张开，travel 略收 */
+  --side-tx: calc(var(--featured-item-w) * 0.88 + 16px);
+  --side-tx2: calc(var(--featured-item-w) * 1.34 + 26px);
+  --side-tx3: calc(var(--featured-item-w) * 1.78 + 36px);
+  --side-ty: calc(var(--featured-item-h) * 0.16);
+  --side-ty2: calc(var(--featured-item-h) * 0.22);
+  --side-ty3: calc(var(--featured-item-h) * 0.26);
+  --side-rot: 16deg;
+}
+
+/* 动画档：high 稍慢；medium 偏「滚动」节奏；low 由全局压制 */
+:root[data-anim='high'] .featured-coverflow {
+  --featured-dur: 0.92s;
+  --side-rot: 20deg;
+}
+
+:root[data-anim='medium'] .featured-coverflow {
+  --featured-dur: 0.78s;
+}
+
+.featured-coverflow {
+  overflow: visible;
+}
+
+.featured-coverflow .carousel-viewport {
+  position: relative;
+  z-index: 1;
+  display: block;
+  overflow: visible;
+  border-radius: 0;
+  height: var(--featured-item-h);
+  margin: 0;
+  padding: 6px 0 10px;
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  /* 景深：侧卡 rotateY 时有真实透视，切换更「立体」 */
+  perspective: 1400px;
+  perspective-origin: 50% 42%;
+}
+
+:root[data-anim='high'] .featured-coverflow .carousel-viewport {
+  padding: 6px 0 10px;
+  margin: 0;
+  height: var(--featured-item-h);
+}
+
+.featured-coverflow .carousel-viewport.is-dragging {
+  cursor: grabbing;
+}
+
+.featured-coverflow .carousel-track {
+  position: relative;
+  display: block !important;
+  width: 100%;
+  height: 100%;
+  gap: 0 !important;
+  transform: none !important;
+}
+
+/*
+ * 全部卡片同一几何盒子（中心尺寸），用 transform 缩放/平移/轻微 rotateY 区分 ring。
+ * opacity/filter 略滞后 transform，避免「整卡一起糊」的生硬感。
+ */
+.featured-coverflow .carousel-item {
+  position: absolute !important;
+  left: 50%;
+  top: 50%;
+  width: var(--featured-item-w);
+  height: var(--featured-item-h);
+  margin-left: calc(var(--featured-item-w) * -0.5);
+  margin-top: calc(var(--featured-item-h) * -0.5);
+  display: flex;
+  flex: none !important;
+  box-sizing: border-box;
+  cursor: pointer;
+  border-radius: var(--card-radius, 18px);
+  overflow: hidden;
+  isolation: isolate;
+  background: transparent;
+  transform-origin: center center;
+  transform-style: preserve-3d;
+  will-change: transform, opacity;
+  transition:
+    transform var(--featured-dur) var(--featured-ease),
+    transform-origin var(--featured-dur) var(--featured-ease),
+    opacity calc(var(--featured-dur) * 0.72) ease calc(var(--featured-dur) * 0.06),
+    filter calc(var(--featured-dur) * 0.65) ease;
+}
+
+/* —— 中心大卡：始终置顶，侧卡放大也不挡 —— */
+.featured-coverflow .carousel-item[data-ring='0'] {
+  --card-icon: var(--featured-icon, 64px);
+  --card-name: clamp(16px, 1.55vw, 19px);
+  --card-pad-y: clamp(18px, 2.4vw, 28px);
+  --card-pad-x: clamp(14px, 2vw, 22px);
+  --card-gap: 12px;
+  --card-radius: 18px;
+  --desc-vis: 1;
+  --desc-h: 3.2em;
+  --foot-vis: 1;
+  --foot-h: 56px;
+  --meta-flex: 1 1 auto;
+  --meta-justify: flex-start;
+  transform: translate3d(calc(var(--push, 0px) + var(--drag-x, 0px)), 0, 0) rotateY(0deg) scale(1);
+  z-index: 30;
+  opacity: 1;
+  filter: none;
+}
+
+/* —— 两侧待选：缩得更小、压得更低，对比拉大 —— */
+.featured-coverflow .carousel-item:not([data-ring='0']) {
+  --card-icon: 84px;
+  --card-name: 22px;
+  --card-pad-y: 22px;
+  --card-pad-x: 18px;
+  --card-gap: 10px;
+  --card-radius: 20px;
+  --desc-vis: 0;
+  --desc-h: 0px;
+  --foot-vis: 0;
+  --foot-h: 0px;
+  --meta-flex: 0 0 auto;
+  --meta-justify: center;
+}
+
+/* 近侧：center origin，放大不会单侧顶开 */
+.featured-coverflow .carousel-item[data-ring='-1'] {
+  transform: translate3d(
+      calc(var(--side-tx) * -1 + var(--push, 0px) + var(--drag-x, 0px)),
+      var(--side-ty),
+      0
+    )
+    rotateY(var(--side-rot)) scale(0.52);
+  transform-origin: center center;
+  z-index: 12;
+  opacity: 0.82;
+  filter: saturate(0.88) brightness(0.98);
+}
+
+.featured-coverflow .carousel-item[data-ring='1'] {
+  transform: translate3d(
+      calc(var(--side-tx) + var(--push, 0px) + var(--drag-x, 0px)),
+      var(--side-ty),
+      0
+    )
+    rotateY(calc(var(--side-rot) * -1)) scale(0.52);
+  transform-origin: center center;
+  z-index: 12;
+  opacity: 0.82;
+  filter: saturate(0.88) brightness(0.98);
+}
+
+/* 远侧：同样 center origin */
+.featured-coverflow .carousel-item[data-ring='-2'] {
+  transform: translate3d(
+      calc(var(--side-tx2) * -1 + var(--push, 0px) + var(--drag-x, 0px)),
+      var(--side-ty2),
+      0
+    )
+    rotateY(calc(var(--side-rot) * 1.1)) scale(0.38);
+  transform-origin: center center;
+  z-index: 6;
+  opacity: 0.46;
+  filter: saturate(0.7) brightness(0.96);
+}
+
+.featured-coverflow .carousel-item[data-ring='2'] {
+  transform: translate3d(
+      calc(var(--side-tx2) + var(--push, 0px) + var(--drag-x, 0px)),
+      var(--side-ty2),
+      0
+    )
+    rotateY(calc(var(--side-rot) * -1.1)) scale(0.38);
+  transform-origin: center center;
+  z-index: 6;
+  opacity: 0.46;
+  filter: saturate(0.7) brightness(0.96);
+}
+
+/* 缓冲环 ±3：屏外接棒，切换时从边缘滑入/滑出，避免「直接变过去」 */
+.featured-coverflow .carousel-item[data-ring='-3'] {
+  transform: translate3d(
+      calc(var(--side-tx3) * -1 + var(--push, 0px) + var(--drag-x, 0px)),
+      var(--side-ty3),
+      0
+    )
+    rotateY(var(--side-rot)) scale(0.28);
+  transform-origin: center center;
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  filter: saturate(0.5) brightness(0.95);
+}
+
+.featured-coverflow .carousel-item[data-ring='3'] {
+  transform: translate3d(
+      calc(var(--side-tx3) + var(--push, 0px) + var(--drag-x, 0px)),
+      var(--side-ty3),
+      0
+    )
+    rotateY(calc(var(--side-rot) * -1)) scale(0.28);
+  transform-origin: center center;
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  filter: saturate(0.5) brightness(0.95);
+}
+
+/* 悬停侧卡：居中放大（origin=center，向两侧张开）+ 邻卡 --push 对称挤让。 */
+.featured-coverflow .carousel-item.is-hover-side {
+  transform-origin: center center !important;
+  pointer-events: auto;
+}
+
+.featured-coverflow .carousel-item.is-hover-side[data-ring='-1'] {
+  transform: translate3d(
+      calc(var(--side-tx) * -1 + var(--push, 0px) + var(--drag-x, 0px)),
+      calc(var(--side-ty) - 10px),
+      0
+    )
+    rotateY(calc(var(--side-rot) * 0.35)) scale(0.68);
+  --card-icon: 72px;
+  --card-name: 20px;
+  --desc-vis: 1;
+  --desc-h: 3.2em;
+  --foot-vis: 1;
+  --foot-h: 56px;
+  --meta-flex: 1 1 auto;
+  --meta-justify: flex-start;
+  z-index: 24;
+  opacity: 0.96;
+  filter: saturate(1) brightness(1.02);
+  transition-duration: 0.42s;
+}
+
+.featured-coverflow .carousel-item.is-hover-side[data-ring='1'] {
+  transform: translate3d(
+      calc(var(--side-tx) + var(--push, 0px) + var(--drag-x, 0px)),
+      calc(var(--side-ty) - 10px),
+      0
+    )
+    rotateY(calc(var(--side-rot) * -0.35)) scale(0.68);
+  --card-icon: 72px;
+  --card-name: 20px;
+  --desc-vis: 1;
+  --desc-h: 3.2em;
+  --foot-vis: 1;
+  --foot-h: 56px;
+  --meta-flex: 1 1 auto;
+  --meta-justify: flex-start;
+  z-index: 24;
+  opacity: 0.96;
+  filter: saturate(1) brightness(1.02);
+  transition-duration: 0.42s;
+}
+
+.featured-coverflow .carousel-item.is-hover-side[data-ring='-2'] {
+  transform: translate3d(
+      calc(var(--side-tx2) * -1 + var(--push, 0px) + var(--drag-x, 0px)),
+      calc(var(--side-ty2) - 8px),
+      0
+    )
+    rotateY(calc(var(--side-rot) * 0.4)) scale(0.52);
+  --card-icon: 68px;
+  --card-name: 18px;
+  --desc-vis: 1;
+  --desc-h: 3.2em;
+  --foot-vis: 1;
+  --foot-h: 52px;
+  --meta-flex: 1 1 auto;
+  --meta-justify: flex-start;
+  z-index: 22;
+  opacity: 0.9;
+  filter: saturate(0.96) brightness(1.01);
+  transition-duration: 0.42s;
+}
+
+.featured-coverflow .carousel-item.is-hover-side[data-ring='2'] {
+  transform: translate3d(
+      calc(var(--side-tx2) + var(--push, 0px) + var(--drag-x, 0px)),
+      calc(var(--side-ty2) - 8px),
+      0
+    )
+    rotateY(calc(var(--side-rot) * -0.4)) scale(0.52);
+  --card-icon: 68px;
+  --card-name: 18px;
+  --desc-vis: 1;
+  --desc-h: 3.2em;
+  --foot-vis: 1;
+  --foot-h: 52px;
+  --meta-flex: 1 1 auto;
+  --meta-justify: flex-start;
+  z-index: 22;
+  opacity: 0.9;
+  filter: saturate(0.96) brightness(1.01);
+  transition-duration: 0.42s;
+}
+
+.featured-coverflow .carousel-item[data-ring='0']:hover {
+  transform: translate3d(calc(var(--push, 0px) + var(--drag-x, 0px)), -8px, 0) rotateY(0deg)
+    scale(1.035);
+  z-index: 30;
+}
+
+/* 缓冲环不可点、不参与悬停挤让视觉 */
+.featured-coverflow .carousel-item.is-buffer {
+  pointer-events: none;
+}
+
+/* 靠边待选：朝外侧渐变隐藏（不是整卡一下没了） */
+.featured-coverflow .carousel-item[data-ring='-1'],
+.featured-coverflow .carousel-item[data-ring='-2'] {
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 42%, #000 100%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 42%, #000 100%);
+}
+
+.featured-coverflow .carousel-item[data-ring='1'],
+.featured-coverflow .carousel-item[data-ring='2'] {
+  -webkit-mask-image: linear-gradient(to left, transparent 0%, #000 42%, #000 100%);
+  mask-image: linear-gradient(to left, transparent 0%, #000 42%, #000 100%);
+}
+
+.featured-coverflow .carousel-item[data-ring='-2'] {
+  -webkit-mask-image: linear-gradient(to right, transparent 8%, #000 55%, #000 100%);
+  mask-image: linear-gradient(to right, transparent 8%, #000 55%, #000 100%);
+}
+
+.featured-coverflow .carousel-item[data-ring='2'] {
+  -webkit-mask-image: linear-gradient(to left, transparent 8%, #000 55%, #000 100%);
+  mask-image: linear-gradient(to left, transparent 8%, #000 55%, #000 100%);
+}
+
+.featured-coverflow .carousel-item.is-hover-side {
+  -webkit-mask-image: linear-gradient(#000 0 0);
+  mask-image: linear-gradient(#000 0 0);
+}
+
+.featured-coverflow .carousel-item[data-ring]:not([data-ring='0']) .featured-tile {
+  transition:
+    border-color 0.32s var(--featured-ease),
+    box-shadow 0.32s var(--featured-ease),
+    background 0.32s ease,
+    padding var(--featured-dur) var(--featured-ease),
+    gap var(--featured-dur) var(--featured-ease),
+    border-radius var(--featured-dur) var(--featured-ease);
+}
+
+.featured-coverflow .carousel-item[data-ring]:not([data-ring='0']):hover .featured-tile {
+  border-color: color-mix(in srgb, var(--pc, #3b63e0) 42%, color-mix(in srgb, var(--border) 50%, transparent));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--pc, #3b63e0) 8%, color-mix(in srgb, var(--surface) 70%, transparent)) 0%,
+      color-mix(in srgb, var(--surface) 55%, transparent) 100%
+    );
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--pc, #3b63e0) 18%, transparent),
+    0 0 24px color-mix(in srgb, var(--pc, #3b63e0) 14%, transparent),
+    0 12px 32px color-mix(in srgb, var(--pc, #3b63e0) 8%, transparent),
+    0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.featured-coverflow .carousel-item[data-ring]:not([data-ring='0']):hover .featured-icon {
+  box-shadow:
+    0 8px 20px color-mix(in srgb, var(--pc, #3b63e0) 30%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 30%, transparent);
+}
+
+.featured-coverflow .carousel-viewport.is-dragging .carousel-item {
+  transition:
+    transform 0.08s linear,
+    opacity 0.2s ease,
+    filter 0.2s ease;
+}
+
+/* —— 卡片内部：尺寸/可见性全部走 CSS 变量 + 与切换同拍的 transition —— */
+.featured-coverflow .carousel-item .featured-tile {
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  max-height: none;
+  padding: var(--card-pad-y, 22px) var(--card-pad-x, 18px);
+  gap: var(--card-gap, 10px);
+  border-radius: var(--card-radius, 18px);
+  justify-content: var(--meta-justify, flex-start);
+  align-items: center;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.featured-coverflow .carousel-item .featured-meta {
+  flex: var(--meta-flex, 0 0 auto);
+  min-height: 0;
+  gap: 6px;
+  width: 100%;
+  justify-content: var(--meta-justify, center);
+  align-items: center;
+  transition:
+    flex var(--featured-dur) var(--featured-ease),
+    gap var(--featured-dur) var(--featured-ease);
+}
+
+.featured-coverflow .carousel-item .featured-icon {
+  width: var(--card-icon, 72px);
+  height: var(--card-icon, 72px);
+  border-radius: calc(var(--card-icon, 72px) * 0.28);
+  flex-shrink: 0;
+  transition:
+    width var(--featured-dur) var(--featured-ease),
+    height var(--featured-dur) var(--featured-ease),
+    border-radius var(--featured-dur) var(--featured-ease),
+    box-shadow 0.35s ease;
+}
+
+.featured-coverflow .carousel-item .featured-glyph,
+.featured-coverflow .carousel-item .plugin-icon-glyph {
+  font-size: calc(var(--card-icon, 72px) * 0.42);
+  transition: font-size var(--featured-dur) var(--featured-ease);
+}
+
+.featured-coverflow .carousel-item .featured-name {
+  font-size: var(--card-name, 20px);
+  font-weight: 700;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  letter-spacing: -0.02em;
+  transition: font-size var(--featured-dur) var(--featured-ease);
+}
+
+/* 描述：高度+透明度过渡，升到中心时自然长出，而不是突然出现 */
+.featured-coverflow .carousel-item .featured-desc {
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+  width: 100%;
+  max-width: 28ch;
+  text-align: center;
+  word-break: break-word;
+  overflow: hidden;
+  opacity: var(--desc-vis, 0);
+  max-height: var(--desc-h, 0px);
+  transition:
+    opacity calc(var(--featured-dur) * 0.7) ease,
+    max-height var(--featured-dur) var(--featured-ease),
+    margin var(--featured-dur) var(--featured-ease);
+  margin: 0;
+}
+
+/* 操作行：同样淡入 + 高度过渡 */
+.featured-coverflow .carousel-item .featured-foot {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  opacity: var(--foot-vis, 0);
+  max-height: var(--foot-h, 0px);
+  overflow: hidden;
+  padding-top: 0;
+  margin-top: 0;
+  pointer-events: none;
+  transition:
+    opacity calc(var(--featured-dur) * 0.7) ease,
+    max-height var(--featured-dur) var(--featured-ease),
+    margin var(--featured-dur) var(--featured-ease),
+    padding var(--featured-dur) var(--featured-ease);
+}
+
+.featured-coverflow .carousel-item[data-ring='0'] .featured-foot,
+.featured-coverflow .carousel-item:not([data-ring='0']):hover .featured-foot {
+  margin-top: auto;
+  padding-top: 8px;
+  pointer-events: auto;
+}
+
+.featured-coverflow .carousel-item .featured-cat {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-2) 80%, transparent);
+  border-radius: 6px;
+  padding: 2px 7px;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* CTA：与 .btn-primary 同一套 Apple 语言；卡片内保持紧凑 */
+.featured-coverflow .carousel-item .featured-cta,
+.featured-cta {
+  appearance: none;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffffff;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent, #5e6ad2) 94%, #fff) 0%,
+    var(--accent, #5e6ad2) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--accent, #5e6ad2) 86%, transparent);
+  border-radius: 99px;
+  padding: 3px 10px;
+  line-height: 1.25;
+  box-shadow:
+    inset 0 0.5px 0 color-mix(in srgb, #fff 26%, transparent),
+    0 0.5px 1px color-mix(in srgb, var(--accent, #5e6ad2) 16%, transparent);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 0.15s ease,
+    filter 0.12s ease,
+    transform 0.08s ease,
+    box-shadow 0.15s ease;
+}
+
+.featured-coverflow .carousel-item .featured-cta:hover,
+.featured-cta:hover {
+  filter: brightness(1.03);
+}
+
+.featured-coverflow .carousel-item .featured-cta:active,
+.featured-cta:active {
+  filter: brightness(0.94);
+  transform: scale(0.97);
+}
+
+.featured-coverflow .carousel-item .featured-cta:focus-visible,
+.featured-cta:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 0.5px 0 color-mix(in srgb, #fff 26%, transparent),
+    0 0 0 2.5px color-mix(in srgb, var(--accent, #5e6ad2) 30%, transparent);
+}
+
+:root[data-theme='dark'] .featured-coverflow .carousel-item .featured-cta,
+:root[data-theme='dark'] .featured-cta {
+  color: #1a1a1e;
+  border-color: color-mix(in srgb, var(--accent, #a5aeef) 55%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent, #a5aeef) 86%, #fff) 0%,
+    var(--accent, #a5aeef) 100%
+  );
+  box-shadow:
+    inset 0 0.5px 0 color-mix(in srgb, #fff 40%, transparent),
+    0 0.5px 1px color-mix(in srgb, #000 22%, transparent);
+}
+
+:root[data-theme='dark'] .featured-coverflow .carousel-item .featured-cta:focus-visible,
+:root[data-theme='dark'] .featured-cta:focus-visible {
+  box-shadow:
+    inset 0 0.5px 0 color-mix(in srgb, #fff 40%, transparent),
+    0 0 0 2.5px color-mix(in srgb, var(--accent, #a5aeef) 32%, transparent);
+}
+
+.featured-coverflow .carousel-item:not([data-ring='0']) .featured-glow {
+  opacity: 0.55;
+  height: 42%;
+}
+
+/* —— 卡片本体：半透明；blur 放 ::before，圆角 inherit，避免圆角灰尖角 —— */
+.featured-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: clamp(18px, 2.4vw, 28px) clamp(14px, 2vw, 22px) 16px;
+  border-radius: inherit;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 72%, transparent) 0%,
+      color-mix(in srgb, var(--surface) 58%, transparent) 100%
+    );
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 22px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+  text-align: center;
+  isolation: isolate;
+  transform: translateZ(0);
+}
+
+.featured-tile::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: 0;
+  pointer-events: none;
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  background: color-mix(in srgb, var(--surface) 10%, transparent);
+}
+
+.featured-tile > * {
+  position: relative;
+  z-index: 1;
+}
+
+:root[data-theme='dark'] .featured-tile {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 62%, transparent) 0%,
+      color-mix(in srgb, var(--surface) 48%, transparent) 100%
+    );
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+:root[data-theme='dark'] .featured-tile::before {
+  backdrop-filter: blur(16px) saturate(1.25);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+}
+
+/* 侧卡：若隐若现的轻底，不与中心抢视觉 */
+.featured-coverflow .carousel-item:not([data-ring='0']) .featured-tile {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 32%, transparent) 0%,
+      color-mix(in srgb, var(--surface) 20%, transparent) 100%
+    );
+  border-color: color-mix(in srgb, var(--border) 35%, transparent);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.02),
+    0 4px 12px rgba(15, 23, 42, 0.03);
+}
+
+.featured-coverflow .carousel-item:not([data-ring='0']) .featured-tile::before {
+  backdrop-filter: blur(8px) saturate(1.05);
+  -webkit-backdrop-filter: blur(8px) saturate(1.05);
+  background: color-mix(in srgb, var(--surface) 6%, transparent);
+}
+
+:root[data-theme='dark'] .featured-coverflow .carousel-item:not([data-ring='0']) .featured-tile {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 28%, transparent) 0%,
+      color-mix(in srgb, var(--surface) 18%, transparent) 100%
+    );
+}
+
+/* 中心卡略实，保证可读、压得住两侧 */
+.featured-coverflow .carousel-item[data-ring='0'] .featured-tile {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 88%, transparent) 0%,
+      color-mix(in srgb, var(--surface) 74%, transparent) 100%
+    );
+  border-color: color-mix(in srgb, var(--pc, #3b63e0) 40%, color-mix(in srgb, var(--border) 70%, transparent));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--pc, #3b63e0) 18%, transparent),
+    0 0 28px color-mix(in srgb, var(--pc, #3b63e0) 14%, transparent),
+    0 0 56px color-mix(in srgb, var(--pc, #3b63e0) 7%, transparent),
+    0 16px 40px rgba(15, 23, 42, 0.08);
+}
+
+.featured-coverflow .carousel-item[data-ring='0'] .featured-tile::before {
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  background: color-mix(in srgb, var(--surface) 12%, transparent);
+}
+
+/* 侧卡悬停：略提亮，但仍弱于中心 */
+.featured-coverflow .carousel-item.is-hover-side .featured-tile {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--pc, #3b63e0) 6%, color-mix(in srgb, var(--surface) 62%, transparent)) 0%,
+      color-mix(in srgb, var(--surface) 48%, transparent) 100%
+    );
+  border-color: color-mix(in srgb, var(--pc, #3b63e0) 32%, color-mix(in srgb, var(--border) 40%, transparent));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--pc, #3b63e0) 12%, transparent),
+    0 0 18px color-mix(in srgb, var(--pc, #3b63e0) 10%, transparent),
+    0 8px 22px rgba(15, 23, 42, 0.05);
+}
+
+.featured-coverflow .carousel-item.is-hover-side .featured-tile::before {
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+}
+
+/* 氛围光叠在玻璃上，略增强层次 */
+.featured-glow {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 42%;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--pc, #3b63e0) 16%, transparent) 0%,
+    transparent 100%
+  );
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.featured-coverflow .carousel-item[data-ring='0'] .featured-glow {
+  height: 56%;
+  opacity: 1;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--pc, #3b63e0) 28%, transparent) 0%,
+    color-mix(in srgb, var(--pc, #3b63e0) 6%, transparent) 55%,
+    transparent 100%
+  );
+}
+
+.featured-coverflow .carousel-item[data-ring='0'] .featured-icon {
+  box-shadow:
+    0 10px 28px color-mix(in srgb, var(--pc, #3b63e0) 30%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--pc, #3b63e0) 14%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 35%, transparent);
+}
+
+.featured-edge {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 3;
+  background: conic-gradient(
+    from var(--edge-angle, 0deg),
+    transparent 0%,
+    color-mix(in srgb, var(--pc, #3b63e0) 70%, #fff) 12%,
+    color-mix(in srgb, var(--pc, #3b63e0) 16%, transparent) 24%,
+    transparent 40%,
+    transparent 60%,
+    color-mix(in srgb, var(--pc, #3b63e0) 48%, #fff) 78%,
+    transparent 92%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  padding: 1.5px;
+}
+
+@property --edge-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+:root[data-anim='medium'] .featured-coverflow .carousel-item[data-ring='0'] .featured-edge,
+:root[data-anim='high'] .featured-coverflow .carousel-item[data-ring='0'] .featured-edge {
+  opacity: 0.85;
+}
+
+:root[data-anim='high'] .featured-coverflow .carousel-item[data-ring='0'] .featured-edge {
+  animation: featured-edge-spin 3.8s linear infinite;
+}
+
+:root[data-anim='medium'] .featured-coverflow .carousel-item[data-ring='0'] .featured-edge {
+  animation: featured-edge-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes featured-edge-spin {
+  to {
+    --edge-angle: 360deg;
+  }
+}
+
+@keyframes featured-edge-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.featured-particles {
+  display: none;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: 0;
+  z-index: 4;
+}
+
+:root[data-anim='high'] .featured-particles {
+  display: block;
+}
+
+:root[data-anim='high'] .featured-coverflow .carousel-item[data-ring='0'] .featured-particles {
+  opacity: 1;
+}
+
+.featured-particles i {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--pc, #3b63e0);
+  opacity: 0;
+}
+
+.featured-particles i:nth-child(1) { left: 10%; top: 30%; animation-delay: 0s; }
+.featured-particles i:nth-child(2) { left: 26%; top: 16%; width: 3px; height: 3px; animation-delay: 0.4s; }
+.featured-particles i:nth-child(3) { left: 74%; top: 20%; animation-delay: 0.8s; }
+.featured-particles i:nth-child(4) { left: 88%; top: 38%; width: 3px; height: 3px; animation-delay: 1.2s; }
+.featured-particles i:nth-child(5) { left: 42%; top: 10%; width: 2px; height: 2px; animation-delay: 1.6s; }
+.featured-particles i:nth-child(6) { left: 62%; top: 28%; width: 3px; height: 3px; animation-delay: 2s; }
+
+:root[data-anim='high'] .featured-particles i {
+  animation: featured-float-high 2.4s ease-in-out infinite;
+  box-shadow:
+    0 0 6px color-mix(in srgb, var(--pc, #3b63e0) 70%, transparent),
+    0 0 12px color-mix(in srgb, var(--pc, #3b63e0) 35%, transparent);
+}
+
+@keyframes featured-float-high {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.5);
+  }
+  30% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-36px) scale(1.2);
+  }
+}
+
+/* 基础节点样式；具体尺寸由 .featured-coverflow .carousel-item 下的 --card-* 覆盖 */
+.featured-icon,
+.plugin-icon-featured {
+  position: relative;
+  display: grid;
+  place-items: center;
+  box-shadow:
+    0 8px 24px color-mix(in srgb, #000 16%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 28%, transparent);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+/* 位图：cover 裁切 + 容器 28% 圆角；失败由 PluginIcon 回退 glyph */
+.plugin-icon-featured img,
+.featured-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  user-select: none;
+}
+
+.featured-glyph,
+.plugin-icon-featured .plugin-icon-glyph {
+  color: #fff;
+  font-weight: 750;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  user-select: none;
+}
+
+.featured-meta {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+  z-index: 1;
+}
+
+.featured-name {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.featured-desc {
+  color: var(--text-2);
+  overflow: hidden;
+  width: 100%;
+  word-break: break-word;
+}
+
+.featured-foot {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.featured-cat {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 6px;
+  padding: 2px 7px;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.featured-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 12px;
+  margin-bottom: 4px;
+  min-height: 12px;
+}
+
+.featured-dots .featured-dot {
+  appearance: none;
+  border: none;
+  padding: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--text-3, #8b93a5) 45%, transparent);
+  cursor: pointer;
+  transition: width 0.22s var(--featured-ease), background 0.18s ease;
+}
+
+.featured-dots .featured-dot.is-active {
+  width: 18px;
+  background: var(--accent, #5e6ad2);
+}
+
+:root[data-anim='high'] .featured-tile::after {
+  content: '';
+  position: absolute;
+  inset: -20% -40%;
+  background: linear-gradient(
+    115deg,
+    transparent 38%,
+    color-mix(in srgb, #fff 12%, transparent) 46%,
+    color-mix(in srgb, #fff 22%, transparent) 50%,
+    color-mix(in srgb, var(--pc, #3b63e0) 10%, transparent) 54%,
+    transparent 62%
+  );
+  transform: translateX(-110%) skewX(-16deg);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+:root[data-anim='high'] .featured-coverflow .carousel-item[data-ring='0'] .featured-tile::after {
+  animation: featured-sheen 1.2s var(--featured-ease) infinite;
+}
+
+@keyframes featured-sheen {
+  0% {
+    opacity: 0;
+    transform: translateX(-110%) skewX(-16deg);
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(110%) skewX(-16deg);
+  }
+}
+
+:root[data-anim='low'] .featured-coverflow .carousel-item {
+  transition: none;
+}
+
+:root[data-anim='low'] .featured-edge,
+:root[data-anim='low'] .featured-particles,
+:root[data-anim='medium'] .featured-particles {
+  animation: none !important;
+  display: none !important;
+  opacity: 0 !important;
+}
+
+@media (max-width: 900px) {
+  .featured-coverflow {
+    --featured-item-w: clamp(200px, 46vw, 260px);
+    --featured-item-h: clamp(220px, 48vw, 280px);
+    /* 小窗略缩：仍接近 PLUGIN_ICON_DISPLAY_FEATURED 下限 */
+    --featured-icon: 52px;
+  }
+}
+
+@media (max-width: 520px) {
+  .featured-coverflow {
+    --featured-item-w: min(240px, 72vw);
+    --featured-item-h: 240px;
+  }
+}

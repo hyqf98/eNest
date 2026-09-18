@@ -1,97 +1,36 @@
 /**
- * sqliteService — 壳子共享 KV 存储（真 SQLite）
- * 职责：在 ~/eNest/data/enest.db 上提供同步式 KV API。
- * 实现：Electron 主进程使用 sql.js（SQLite 官方 WASM 编译），
- *      避免 better-sqlite3 原生 ABI 与 Electron 不一致导致的 SIGSEGV。
- * 持久化：每次写入后将内存库 export 为二进制写回 enest.db。
- * 被 index.ts（启动 init）、shellHandlers（shell:query-db）调用。
- * 插件 storage.local 不走本库，文件在 data/plugin-storage/{id}.json。
+ * sqliteService — 壳子共享 KV 存储（Node 内置 node:sqlite）
+ * 职责：在 {dataRoot}/data/enest.db 上提供同步式 KV API。
+ * 实现：Electron ≥35（Node ≥22.13）内置 node:sqlite 的 DatabaseSync，
+ *      零第三方原生依赖，无 ABI 重建问题。
+ * 持久化：WAL + synchronous=NORMAL，写操作直接走增量 SQL，不再整库导出。
+ * 兼容：旧 enest.db 是 sql.js 导出的标准 SQLite 文件，可直接打开，KV 数据无需迁移。
+ * 被 index.ts（启动 init / before-quit close）、shellHandlers（shell:query-db）调用。
+ * 插件 storage.local 走同库 plugin_storage 表，见 @main/db/pluginStorage。
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { getAppPaths } from '@main/paths/pathsService'
 
 type Backend = 'sqlite' | 'none'
 
-/** sql.js Database 最小面 */
-interface SqlJsDatabase {
-  run(sql: string, params?: unknown[]): void
-  exec(sql: string): unknown
-  prepare(sql: string): {
-    bind(params?: unknown[]): void
-    step(): boolean
-    getAsObject(): Record<string, unknown>
-    free(): void
-  }
-  export(): Uint8Array
-  close(): void
-}
-
-type SqlJsStatic = {
-  Database: new (data?: ArrayLike<number> | null) => SqlJsDatabase
-}
-
-const nodeRequire = createRequire(import.meta.url)
-
-/** 定位打包进 resources 的 wasm（dev 与 asar 内路径不同） */
-function resolveWasmPath(): string {
-  const candidates: string[] = []
-  // electron-vite / 源码运行：项目根 assets/sql
-  try {
-    const here = dirname(fileURLToPathSafe())
-    candidates.push(join(here, '../../assets/sql/sql-wasm.wasm'))
-    candidates.push(join(process.cwd(), 'assets/sql/sql-wasm.wasm'))
-  } catch {
-    /* ignore */
-  }
-  // 安装包：extraResources → process.resourcesPath/sql
-  if (process.resourcesPath) {
-    candidates.push(join(process.resourcesPath, 'sql/sql-wasm.wasm'))
-  }
-  for (const p of candidates) {
-    if (p && existsSync(p)) return p
-  }
-  // 回退到 node_modules（开发期）
-  try {
-    const pkg = nodeRequire.resolve('sql.js/package.json')
-    return join(dirname(pkg), 'dist', 'sql-wasm.wasm')
-  } catch {
-    return 'sql-wasm.wasm'
-  }
-}
-
-function fileURLToPathSafe(): string {
-  // main bundle 里 __dirname 可能不存在；用 import.meta 若可用
-  try {
-    return nodeRequire('url').fileURLToPath(import.meta.url)
-  } catch {
-    return join(process.cwd(), 'out/main')
-  }
-}
-
-async function loadSqlJs(): Promise<SqlJsStatic> {
-  const initSqlJs = nodeRequire('sql.js') as (cfg?: {
-    locateFile?: (f: string) => string
-  }) => Promise<SqlJsStatic>
-  const wasm = resolveWasmPath()
-  return initSqlJs({
-    locateFile: (file: string) => (file.endsWith('.wasm') ? wasm : file)
-  })
-}
-
 export class EnestKvStore {
   private backend: Backend = 'none'
-  private db: SqlJsDatabase | null = null
-  private dbPath = ''
+  private db: DatabaseSync | null = null
   private ready = false
   private initPromise: Promise<Backend> | null = null
+
+  /** 底层连接（仅供 @main/db/pluginStorage 等同进程模块复用；外部勿直接持有） */
+  getDatabase(): DatabaseSync | null {
+    return this.backend === 'sqlite' ? this.db : null
+  }
 
   getBackend(): Backend {
     return this.backend
   }
 
-  /** 异步初始化；重复调用返回同一 Promise */
+  /** 初始化；重复调用返回同一 Promise（幂等签名与旧版一致） */
   initDatabase(path: string = getAppPaths().database): Promise<Backend> {
     if (this.initPromise) return this.initPromise
     this.initPromise = this.doInit(path)
@@ -99,21 +38,25 @@ export class EnestKvStore {
   }
 
   private async doInit(path: string): Promise<Backend> {
-    this.dbPath = path
-    mkdirSync(dirname(path), { recursive: true })
     try {
-      const SQL = await loadSqlJs()
-      const buf = existsSync(path) ? readFileSync(path) : null
-      this.db = new SQL.Database(buf && buf.length ? new Uint8Array(buf) : null)
-      this.db.run(
-        'CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)'
-      )
-      this.persist()
+      mkdirSync(dirname(path), { recursive: true })
+      // 旧库为 sql.js 导出的标准 SQLite 格式，直接打开即可
+      this.db = new DatabaseSync(path)
+      this.db.exec('PRAGMA journal_mode = WAL')
+      this.db.exec('PRAGMA synchronous = NORMAL')
+      this.db.exec('CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
       this.backend = 'sqlite'
       this.ready = true
       return this.backend
     } catch (err) {
       console.error('[enest] sqlite init failed', err)
+      // 兜底：初始化失败时 backend='none'，后续读写抛错由调用方兜底
+      try {
+        this.db?.close()
+      } catch {
+        /* ignore */
+      }
+      this.db = null
       this.backend = 'none'
       this.ready = true
       return this.backend
@@ -126,64 +69,40 @@ export class EnestKvStore {
     }
   }
 
-  private persist(): void {
-    if (!this.db) return
-    const data = this.db.export()
-    mkdirSync(dirname(this.dbPath), { recursive: true })
-    writeFileSync(this.dbPath, Buffer.from(data))
-  }
-
   kvGet(key: string): string | null {
     this.ensureReady()
-    const stmt = this.db!.prepare('SELECT value FROM kv WHERE key = ?')
-    stmt.bind([key])
-    try {
-      if (!stmt.step()) return null
-      const row = stmt.getAsObject()
-      return typeof row.value === 'string' ? row.value : null
-    } finally {
-      stmt.free()
-    }
+    const row = this.db!.prepare('SELECT value FROM kv WHERE key = ?').get(key) as
+      | { value: string }
+      | undefined
+    return row ? row.value : null
   }
 
   kvSet(key: string, value: string): void {
     this.ensureReady()
-    this.db!.run('INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [
-      key,
-      value
-    ])
-    this.persist()
+    this.db!
+      .prepare(
+        'INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+      )
+      .run(key, value)
   }
 
   kvDelete(key: string): void {
     this.ensureReady()
-    this.db!.run('DELETE FROM kv WHERE key = ?', [key])
-    this.persist()
+    this.db!.prepare('DELETE FROM kv WHERE key = ?').run(key)
   }
 
   kvKeys(prefix = ''): string[] {
     this.ensureReady()
-    const stmt = this.db!.prepare(
+    const rows = (
       prefix
-        ? 'SELECT key FROM kv WHERE key LIKE ? ORDER BY key'
-        : 'SELECT key FROM kv ORDER BY key'
-    )
-    stmt.bind(prefix ? [`${prefix}%`] : [])
-    const out: string[] = []
-    try {
-      while (stmt.step()) {
-        const row = stmt.getAsObject()
-        if (typeof row.key === 'string') out.push(row.key)
-      }
-    } finally {
-      stmt.free()
-    }
-    return out
+        ? this.db!.prepare('SELECT key FROM kv WHERE key LIKE ? ORDER BY key').all(`${prefix}%`)
+        : this.db!.prepare('SELECT key FROM kv ORDER BY key').all()
+    ) as Array<{ key: string }>
+    return rows.map((r) => r.key)
   }
 
   close(): void {
     try {
-      this.persist()
       this.db?.close()
     } catch {
       /* ignore */
@@ -191,6 +110,27 @@ export class EnestKvStore {
     this.db = null
     this.ready = false
     this.initPromise = null
+    this.backend = 'none'
+  }
+}
+
+/**
+ * 手动事务包裹（node:sqlite 无 better-sqlite3 的 db.transaction 语法糖）。
+ * fn 内抛错自动 ROLLBACK 并向上抛出。
+ */
+export function runInTransaction<T>(db: DatabaseSync, fn: () => T): T {
+  db.exec('BEGIN')
+  try {
+    const result = fn()
+    db.exec('COMMIT')
+    return result
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK')
+    } catch {
+      /* 连接可能已坏 */
+    }
+    throw err
   }
 }
 

@@ -1,9 +1,0 @@
-{
-  "id": "com.enest.snippet",
-  "name": "代码片段库",
-  "version": "1.0.0",
-  "description": "代码片段库（示例）",
-  "author": "eNest",
-  "main": "index.html",
-  "permissions": ["storage.local", "ui.setTitle"]
-}

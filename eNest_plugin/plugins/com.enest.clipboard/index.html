@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>粘贴板</title>
+    <style>
+      :root {
+        --bg: #0f1419;
+        --surface: #161b22;
+        --surface-2: #1c2330;
+        --border: rgba(255, 255, 255, 0.08);
+        --text: #e8eef7;
+        --text-2: #9aa7b8;
+        --text-3: #6b7789;
+        --accent: #5b8cff;
+        --ok: #3dd68c;
+        --danger: #ff6b7a;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      .app {
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        height: 100%;
+        min-height: 0;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+      }
+      h1 { margin: 0; font-size: 15px; font-weight: 600; }
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+      }
+      input[type="search"] {
+        flex: 1;
+        min-width: 0;
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 13px;
+        outline: none;
+      }
+      input[type="search"]:focus { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+      .btn {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        color: var(--text);
+        padding: 7px 12px;
+        border-radius: 10px;
+        font-size: 12px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .btn:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+      .btn.danger { color: var(--danger); }
+      .list {
+        overflow: auto;
+        padding: 10px 12px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-height: 0;
+      }
+      .item {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: center;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        border-radius: 12px;
+        padding: 10px 12px;
+        cursor: pointer;
+      }
+      .item:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+      .item.pinned { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+      .body { min-width: 0; }
+      .type {
+        font-size: 11px;
+        color: var(--text-3);
+        margin-bottom: 4px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .pin-flag { color: var(--ok); }
+      .text {
+        font-size: 13px;
+        color: var(--text);
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 3.6em;
+        overflow: hidden;
+      }
+      .imgwrap {
+        width: 100%;
+        max-height: 120px;
+        overflow: hidden;
+        border-radius: 8px;
+        background: #000;
+      }
+      .imgwrap img { width: 100%; max-height: 120px; object-fit: contain; display: block; }
+      .meta { font-size: 11px; color: var(--text-3); margin-top: 6px; }
+      .actions { display: flex; flex-direction: column; gap: 6px; }
+      .empty {
+        color: var(--text-3);
+        text-align: center;
+        padding: 48px 16px;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>粘贴板</h1>
+        <div class="meta" id="count">0 条</div>
+      </header>
+      <div class="toolbar">
+        <input id="q" type="search" placeholder="搜索历史…" />
+        <button class="btn" id="btn-refresh">刷新</button>
+        <button class="btn" id="btn-current">当前剪贴板</button>
+        <button class="btn danger" id="btn-clear">清空</button>
+      </div>
+      <div class="list" id="list"><div class="empty">加载中…</div></div>
+    </div>
+    <script>
+      const api = window.enest || window.zapi
+      let items = []
+      const $ = (id) => document.getElementById(id)
+      const isPerm = (err) => String(err?.message || err).includes('permission denied')
+      const toast = async (message, type = 'info') => {
+        try { await api?.ui?.toast?.({ message, type }) } catch {}
+      }
+
+      function fmtTime(ts) {
+        const d = new Date(ts)
+        return d.toLocaleString()
+      }
+
+      async function copyEntry(entry) {
+        if (entry.type === 'text') {
+          await api.clipboard.writeText(entry.text || '')
+          toast('已复制文本', 'success')
+          return
+        }
+        const full = await api.clipboard.history.get(entry.id)
+        if (!full?.dataUrl) {
+          toast('图片数据不可用', 'error')
+          return
+        }
+        await api.clipboard.writeImage(full.dataUrl)
+        toast('已复制图片', 'success')
+      }
+
+      async function load() {
+        if (!api?.clipboard?.history) {
+          $('list').innerHTML = '<div class="empty">eNest API 不可用</div>'
+          return
+        }
+        try {
+          const q = $('q').value.trim().toLowerCase()
+          items = await api.clipboard.history.list({ limit: 100 })
+          const filtered = q
+            ? items.filter((e) => (e.text || e.preview || '').toLowerCase().includes(q))
+            : items
+          render(filtered)
+          $('count').textContent = `${filtered.length} 条`
+        } catch (e) {
+          if (isPerm(e)) {
+            $('list').innerHTML = '<div class="empty">缺少 clipboard.history 权限，请重新安装插件并授权</div>'
+          } else {
+            $('list').innerHTML = '<div class="empty">加载失败：' + String(e.message || e) + '</div>'
+          }
+        }
+      }
+
+      function render(list) {
+        const root = $('list')
+        root.innerHTML = ''
+        if (!list.length) {
+          root.innerHTML = '<div class="empty">暂无历史。复制文本或图片后会自动出现在这里。</div>'
+          return
+        }
+        for (const entry of list) {
+          const el = document.createElement('div')
+          el.className = 'item' + (entry.pinned ? ' pinned' : '')
+          const typeLabel = entry.type === 'image' ? '图片' : '文本'
+          const pin = entry.pinned ? '<span class="pin-flag">已置顶</span>' : ''
+          let bodyHtml = ''
+          if (entry.type === 'image') {
+            bodyHtml = '<div class="imgwrap"><img alt="图片"/></div>'
+          } else {
+            bodyHtml = '<div class="text"></div>'
+          }
+          el.innerHTML =
+            '<div class="body">' +
+            '<div class="type"><span>' + typeLabel + '</span>' + pin + '</div>' +
+            bodyHtml +
+            '<div class="meta">' + fmtTime(entry.ts) + (entry.bytes ? ' · ' + Math.round(entry.bytes / 1024) + ' KB' : '') + '</div>' +
+            '</div>' +
+            '<div class="actions">' +
+            '<button class="btn" data-act="copy">复制</button>' +
+            '<button class="btn" data-act="pin">' + (entry.pinned ? '取消置顶' : '置顶') + '</button>' +
+            '<button class="btn danger" data-act="del">删除</button>' +
+            '</div>'
+          if (entry.type === 'text') {
+            el.querySelector('.text').textContent = entry.text || entry.preview || ''
+          } else {
+            const img = el.querySelector('img')
+            // 列表先用 preview；悬停/展开时再 get 完整图
+            api.clipboard.history.get(entry.id).then((full) => {
+              if (full?.dataUrl) img.src = full.dataUrl
+            }).catch(() => {})
+          }
+          el.addEventListener('click', async (ev) => {
+            const act = ev.target?.dataset?.act
+            if (act === 'copy') {
+              ev.stopPropagation()
+              await copyEntry(entry).catch((e) => toast(String(e.message || e), 'error'))
+              return
+            }
+            if (act === 'pin') {
+              ev.stopPropagation()
+              try {
+                await api.clipboard.history.togglePin(entry.id)
+                await load()
+              } catch (e) {
+                toast(String(e.message || e), 'error')
+              }
+              return
+            }
+            if (act === 'del') {
+              ev.stopPropagation()
+              try {
+                await api.clipboard.history.remove(entry.id)
+                await load()
+              } catch (e) {
+                toast(String(e.message || e), 'error')
+              }
+              return
+            }
+            // 点击主体 = 快速选中并回写剪贴板
+            await copyEntry(entry).catch((e) => toast(String(e.message || e), 'error'))
+          })
+          root.appendChild(el)
+        }
+      }
+
+      $('q').addEventListener('input', () => load())
+      $('btn-refresh').onclick = () => load()
+      $('btn-clear').onclick = async () => {
+        if (!confirm('确定清空未置顶历史？置顶项会保留。')) return
+        try {
+          await api.clipboard.history.clear()
+          await load()
+          toast('已清空', 'success')
+        } catch (e) {
+          toast(String(e.message || e), 'error')
+        }
+      }
+      $('btn-current').onclick = async () => {
+        try {
+          const img = await api.clipboard.readImage()
+          if (img?.dataUrl) {
+            await api.clipboard.writeImage(img.dataUrl)
+            toast('已回写当前图片', 'success')
+          } else {
+            const text = await api.clipboard.readText()
+            await api.clipboard.writeText(text || '')
+            toast(text ? '已回写当前文本' : '剪贴板为空', text ? 'success' : 'warn')
+          }
+          await load()
+        } catch (e) {
+          toast(isPerm(e) ? '缺少剪贴板权限' : String(e.message || e), 'error')
+        }
+      }
+
+      api?.onEnter?.(() => load())
+      api?.ui?.setTitle?.('粘贴板')
+      load()
+    </script>
+  </body>
+</html>

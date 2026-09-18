@@ -6,29 +6,39 @@
  * 关键依赖：hardwareAcceleration、pathsService、migrate、sqliteService、themePacks、
  * PluginRegistry、PluginHost、SettingsStore、createShellWindow。
  */
-import { app, BaseWindow } from 'electron'
+import { app, BaseWindow, globalShortcut } from 'electron'
 import { registerSchemesAsPrivileged, initPluginProtocol } from '@main/plugin/pluginProtocol'
 import { applyHardwareAccelerationBeforeReady } from '@main/hardwareAcceleration'
 import { ensureAppDirs } from '@main/paths/pathsService'
 import { migrateToDataRoot } from '@main/paths/migrate'
 import { initLogService, logError, logInfo } from '@main/logs/logService'
 import { kvStore } from '@main/db/sqliteService'
+import { flushAll } from '@main/db/pluginStorage'
 import { themePackRegistry } from '@main/theme/themePacks'
 import { createShellWindow } from '@main/window/createShellWindow'
 import {
-  destroyOrbOverlay
-} from '@main/window/orbOverlayWindow'
+  destroyOrbRailViews,
+  layoutOrbRailViews
+} from '@main/window/orbRailViews'
 import { destroyQuickWindow } from '@main/window/createQuickWindow'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { applyProxyFromSettings } from '@main/proxy/proxyService'
+import { restoreDevPlugins } from '@main/dev/DevConsole'
 import { registerShellHandlers } from '@main/ipc/shellHandlers'
 import { registerPluginHandlers } from '@main/ipc/pluginHandlers'
 import { registerQuickHandlers } from '@main/ipc/quickHandlers'
 import { initQuickHotkeys, disposeQuickHotkeys } from '@main/hotkey/quickHotkey'
+import { stopAllPluginWatchers } from '@main/plugin/pluginHotReload'
 import { scanApplications } from '@main/launcher/appScanner'
 import { initUpdateService } from '@main/update/updateService'
+import {
+  revalidateClipboardPolling,
+  stopClipboardHistory
+} from '@main/clipboard/clipboardHistory'
+import { disposeScreenService } from '@main/screen/screenService'
+import { disposePinService } from '@main/pin/pinService'
 
 registerSchemesAsPrivileged()
 
@@ -60,19 +70,54 @@ void app.whenReady().then(async () => {
     logInfo('main', 'theme packs ok')
     await pluginRegistry.scan()
     logInfo('main', 'registry ok')
+    // 恢复上次加载过的开发态插件（dev.json → 源码目录仍存在则重新挂进 registry）
+    await restoreDevPlugins()
+    logInfo('main', 'dev plugins restored')
     initPluginProtocol()
     logInfo('main', 'protocol ok')
 
     const win: BaseWindow = createShellWindow()
     logInfo('main', 'window ok')
-    win.on('resize', () => pluginHost.layoutAll())
-    win.on('closed', () => {
-      pluginHost.destroyAll()
-      destroyOrbOverlay()
+    win.on('resize', () => {
+      pluginHost.layoutAll()
+      layoutOrbRailViews()
     })
 
-    // 圆轨悬浮窗：不在冷启动/ Splash 阶段显示；
-    // 由壳子 splash 结束后 syncOrbState(tabStyle) 再 applyOrbOverlayVisibility
+    /**
+     * 关闭行为（settings.general.closeBehavior）：
+     * - minimize-tray（默认）：窗口隐藏、进程保留；全局热键仍可用（后台呼出 mini）
+     * - quit：真正退出，before-quit 里 unregisterAll，Alt+Space 不再响应
+     * macOS 上关窗不会自动 quit，必须在此显式分支，否则「以为退出了」热键仍在。
+     */
+    let appQuitting = false
+    win.on('close', (e) => {
+      if (appQuitting) return
+      const behavior = settingsStore.getAll().general?.closeBehavior ?? 'minimize-tray'
+      if (behavior === 'minimize-tray') {
+        e.preventDefault()
+        try {
+          win.hide()
+        } catch {
+          /* already gone */
+        }
+        logInfo('main', 'close → hide (closeBehavior=minimize-tray)，热键仍可用')
+        return
+      }
+      // quit：放行 close；closed 后 app.quit()
+      logInfo('main', 'close → quit (closeBehavior=quit)')
+    })
+    win.on('closed', () => {
+      pluginHost.destroyAll()
+      destroyOrbRailViews()
+      const behavior = settingsStore.getAll().general?.closeBehavior ?? 'minimize-tray'
+      if (behavior === 'quit') {
+        appQuitting = true
+        app.quit()
+      }
+    })
+
+    // 圆轨/设置钮视图：不在冷启动/ Splash 阶段显示；
+    // 由壳子 splash 结束后 syncOrbState(tabStyle) → applyOrbRailVisibility 懒创建
 
     registerShellHandlers()
     registerPluginHandlers()
@@ -84,7 +129,9 @@ void app.whenReady().then(async () => {
     void scanApplications(false)
     logInfo('main', 'quick launcher ok')
 
-    // GitHub Release 自动更新（仅打包环境真正启用）
+    revalidateClipboardPolling()
+    logInfo('main', 'clipboard history ok')
+
     initUpdateService()
     logInfo('main', 'update service ok')
 
@@ -97,7 +144,17 @@ void app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
+  // macOS：窗口全关≠退出；是否退出由 closeBehavior / before-quit 决定
   if (process.platform !== 'darwin') app.quit()
+})
+
+// Electron 文档推荐：退出前注销全部全局快捷键
+app.on('will-quit', () => {
+  try {
+    globalShortcut.unregisterAll()
+  } catch {
+    /* ignore */
+  }
 })
 
 let quitting = false
@@ -106,11 +163,27 @@ app.on('before-quit', (event) => {
   quitting = true
   event.preventDefault()
   disposeQuickHotkeys()
+  try {
+    globalShortcut.unregisterAll()
+  } catch {
+    /* ignore */
+  }
+  stopAllPluginWatchers()
   destroyQuickWindow()
+  stopClipboardHistory()
+  disposeScreenService()
+  disposePinService()
   void pluginHost
     .destroyAll()
     .catch(() => {})
     .finally(() => {
+      // 落盘顺序：插件存储与设置防抖写队列先 flush，再关 SQLite 连接
+      try {
+        flushAll()
+        settingsStore.flushNow()
+      } catch {
+        /* 退出路径尽力而为 */
+      }
       kvStore.close()
       app.quit()
     })

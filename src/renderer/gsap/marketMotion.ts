@@ -18,7 +18,8 @@ export function getAnimLevel(): AnimationLevel {
 
 /**
  * 应用动画强度：更新模块状态与 GSAP 全局默认值。
- * low：极短时长 + 弱缓动；high：更长 + 弹性 back；medium：既有默认。
+ * low：极短时长 + 弱缓动；high：更长 + 弹性 back；
+ * medium：略长于历史默认，位移/stagger 见 d/dy/st 的 medium 分支（仍明显低于 high）。
  */
 export function applyLevelToDefaults(level: AnimationLevel): void {
   animLevel = level
@@ -27,7 +28,7 @@ export function applyLevelToDefaults(level: AnimationLevel): void {
   } else if (level === 'high') {
     gsap.defaults({ ease: 'back.out(1.5)', duration: 0.55 })
   } else {
-    gsap.defaults({ ease: 'power2.out', duration: 0.35 })
+    gsap.defaults({ ease: 'power2.out', duration: 0.4 })
   }
 }
 
@@ -36,32 +37,36 @@ export function initMotion(): void {
   applyLevelToDefaults(animLevel)
 }
 
-/** 按 level 缩放基准时长 */
-function d(base: number): number {
+/** 按 level 缩放基准时长（导出供 Quick 小窗等独立表面复用同一档位规范） */
+export function d(base: number): number {
   if (animLevel === 'low') return Math.min(0.08, base * 0.22)
   if (animLevel === 'high') return base * 1.4
-  return base
+  // medium：略拉长节奏，仍明显短于 high
+  return base * 1.1
 }
 
-/** 按 level 缩放位移（low 几乎不位移，high 加大幅度） */
-function dy(base: number): number {
+/** 按 level 缩放位移（low 几乎不位移；medium 略加强；high 更大） */
+export function dy(base: number): number {
   if (animLevel === 'low') return Math.sign(base) * Math.min(Math.abs(base), 2)
   if (animLevel === 'high') return base * 1.5
-  return base
+  // medium：入场/位移略增强，保持克制
+  return base * 1.15
 }
 
-/** 按 level 缩放 stagger（low 几乎齐播，high 更错落） */
+/** 按 level 缩放 stagger（low 几乎齐播；medium 网格入场更可感；high 更错落） */
 function st(base: number): number {
   if (animLevel === 'low') return 0.01
   if (animLevel === 'high') return base * 1.8
-  return base
+  // medium：市场 grid / chips  stagger 略增强（animateCards 0.045→~0.058）
+  return base * 1.3
 }
 
-/** 按 level 选择缓动：low 线性近似，high 弹性，medium 保持传入值 */
-function ease(fallback: string): string {
+/** 按 level 选择缓动：low 线性近似，high 弹性，medium 略偏 power2/out 以外的传入值 */
+export function ease(fallback: string): string {
   if (animLevel === 'low') return 'none'
   if (animLevel === 'high') return 'back.out(1.6)'
-  return fallback
+  // medium：保持调用方意图；仅当未指定更丰富缓动时给 power2.out（与 gsap.defaults 一致）
+  return fallback || 'power2.out'
 }
 
 /** MarketPage Hero 依次入场：统计胶囊 → 标题 → 简介 → 搜索 → 分类 → 工具栏 → 轮播 → 网格头 */
@@ -82,9 +87,11 @@ export function playHeroIn(root: HTMLElement | null): void {
 /** 插件卡片网格 stagger 入场；clearProps 避免残留 transform 影响后续 hover */
 export function animateCards(nodes: Element[]): void {
   if (!nodes.length) return
+  // medium 略加强入场缩放差；high 更明显；low 几乎不变
+  const scaleFrom = animLevel === 'high' ? 0.95 : animLevel === 'medium' ? 0.96 : 0.98
   gsap.fromTo(
     nodes,
-    { autoAlpha: 0, y: dy(16), scale: 0.98 },
+    { autoAlpha: 0, y: dy(16), scale: scaleFrom },
     {
       autoAlpha: 1,
       y: 0,
@@ -231,7 +238,8 @@ export function playModalIn(root: HTMLElement | null): void {
     0.04
   ).fromTo(
     parts,
-    { autoAlpha: 0, y: dy(10) },
+    // medium：内容块略加强位移（dy/st 已按档缩放；low 自动收敛）
+    { autoAlpha: 0, y: dy(12) },
     { autoAlpha: 1, y: 0, duration: d(0.32), stagger: st(0.05), clearProps: 'transform' },
     0.12
   )

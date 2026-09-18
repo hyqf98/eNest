@@ -3,8 +3,8 @@
  * pack-plugin — 将 plugins/<id> 打成 {id}@{version}.enestplugin（zip）
  * 用法: node scripts/pack-plugin.mjs <pluginId> [outdir]
  */
-import { createWriteStream, existsSync, readFileSync, mkdirSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { existsSync, readFileSync, mkdirSync } from 'node:fs'
+import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { pipeline } from 'node:stream/promises'
@@ -31,7 +31,8 @@ if (!existsSync(manifestPath)) {
 
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'))
 const version = manifest.version
-const outDir = process.argv[3] || join(root, 'dist')
+// outDir/outPath 必须是绝对路径：zip 以 src 为 cwd，相对路径会写到插件目录下
+const outDir = resolve(root, process.argv[3] || join(root, 'dist'))
 mkdirSync(outDir, { recursive: true })
 
 const outName = `${id}@${version}.enestplugin`
