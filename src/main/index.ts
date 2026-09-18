@@ -11,7 +11,7 @@ import { registerSchemesAsPrivileged, initPluginProtocol } from '@main/plugin/pl
 import { applyHardwareAccelerationBeforeReady } from '@main/hardwareAcceleration'
 import { ensureAppDirs } from '@main/paths/pathsService'
 import { migrateToDataRoot } from '@main/paths/migrate'
-import { initLogService, logError, logInfo } from '@main/logs/logService'
+import { initLogService, logError, logInfo, logWarn } from '@main/logs/logService'
 import { kvStore } from '@main/db/sqliteService'
 import { flushAll } from '@main/db/pluginStorage'
 import { themePackRegistry } from '@main/theme/themePacks'
@@ -51,12 +51,103 @@ if (remoteDebug && /^\d+$/.test(remoteDebug)) {
   app.commandLine.appendSwitch('remote-debugging-port', remoteDebug)
 }
 
+/** 同步注销全部全局快捷键（信号退出 / 进程 exit 必调，避免 npm run dev 退出后 Alt+Space 仍生效） */
+function releaseAllGlobalShortcutsSync(): void {
+  try {
+    globalShortcut.unregisterAll()
+  } catch {
+    /* 进程已在退出中 */
+  }
+}
+
+/**
+ * 退出中标记：一旦置位，窗口 close 不得再走「最小化到后台」分支。
+ * Ctrl+C / SIGTERM 时 electron-vite 会尝试关窗，若被 minimize-tray 拦截
+ * 会 hide 窗口并把进程留在后台，热键继续生效——这就是「控制台退出没退干净」。
+ */
+let shuttingDown = false
+
+function beginShutdown(reason: string): void {
+  if (!shuttingDown) {
+    shuttingDown = true
+    logInfo('main', `shutdown begin (${reason})`)
+  }
+  // 无论是否重复触发，都立刻释放热键
+  releaseAllGlobalShortcutsSync()
+}
+
+/**
+ * 终端 Ctrl+C / kill（electron-vite dev）：
+ * 1) 置 shuttingDown，禁止 close→hide
+ * 2) 同步注销热键
+ * 3) app.exit 立即退出（不走 before-quit 异步清理，避免被 hide/挂起）
+ */
+function handleFatalSignal(sig: NodeJS.Signals | string): void {
+  beginShutdown(String(sig))
+  try {
+    disposeQuickHotkeys()
+  } catch {
+    /* ignore */
+  }
+  try {
+    flushAll()
+    settingsStore.flushNow()
+  } catch {
+    /* 尽力落盘 */
+  }
+  try {
+    stopAllPluginWatchers()
+  } catch {
+    /* ignore */
+  }
+  try {
+    destroyQuickWindow()
+  } catch {
+    /* ignore */
+  }
+  logInfo('main', `${sig} → shortcuts released, app.exit(0)`)
+  app.exit(0)
+}
+
+process.once('SIGINT', () => handleFatalSignal('SIGINT'))
+process.once('SIGTERM', () => handleFatalSignal('SIGTERM'))
+process.once('SIGHUP', () => handleFatalSignal('SIGHUP'))
+process.once('exit', () => {
+  releaseAllGlobalShortcutsSync()
+})
+
+/** 开发态：父进程（electron-vite）死亡时子 Electron 必须退出，防止孤儿进程占着热键 */
+function watchDevParentProcess(): void {
+  if (app.isPackaged) return
+  const ppid = process.ppid
+  if (!ppid || ppid <= 1) return
+  const timer = setInterval(() => {
+    try {
+      process.kill(ppid, 0)
+    } catch {
+      clearInterval(timer)
+      handleFatalSignal(`parent-exit:ppid=${ppid}`)
+    }
+  }, 800)
+  timer.unref?.()
+}
+
+// 单实例：避免多次 npm run dev / 重复启动叠热键与窗口
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  logInfo('main', 'another instance holds the lock → quit')
+  beginShutdown('second-instance')
+  app.quit()
+}
+
 void app.whenReady().then(async () => {
+  if (!gotLock) return
   try {
     ensureAppDirs()
     // 日志服务在数据目录就绪后立刻初始化，后续 boot / install 全部落盘
     initLogService()
     logInfo('main', 'ready')
+    watchDevParentProcess()
     await migrateToDataRoot()
     logInfo('main', 'migrate ok')
     await settingsStore.load()
@@ -85,13 +176,16 @@ void app.whenReady().then(async () => {
 
     /**
      * 关闭行为（settings.general.closeBehavior）：
-     * - minimize-tray（默认）：窗口隐藏、进程保留；全局热键仍可用（后台呼出 mini）
-     * - quit：真正退出，before-quit 里 unregisterAll，Alt+Space 不再响应
-     * macOS 上关窗不会自动 quit，必须在此显式分支，否则「以为退出了」热键仍在。
+     * - minimize-tray（默认）：仅「用户点关闭」时隐藏窗口，进程保留、热键可用
+     * - quit / 退出中（Ctrl+C、SIGTERM、before-quit）：放行 close 并真正退出
      */
     let appQuitting = false
     win.on('close', (e) => {
-      if (appQuitting) return
+      // 退出路径（控制台 Ctrl+C / 信号 / quit）绝不允许 hide 拦截
+      if (shuttingDown || appQuitting || quitting) {
+        logInfo('main', 'close → allow (shutting down)')
+        return
+      }
       const behavior = settingsStore.getAll().general?.closeBehavior ?? 'minimize-tray'
       if (behavior === 'minimize-tray') {
         e.preventDefault()
@@ -103,12 +197,12 @@ void app.whenReady().then(async () => {
         logInfo('main', 'close → hide (closeBehavior=minimize-tray)，热键仍可用')
         return
       }
-      // quit：放行 close；closed 后 app.quit()
       logInfo('main', 'close → quit (closeBehavior=quit)')
     })
     win.on('closed', () => {
       pluginHost.destroyAll()
       destroyOrbRailViews()
+      if (shuttingDown || quitting) return
       const behavior = settingsStore.getAll().general?.closeBehavior ?? 'minimize-tray'
       if (behavior === 'quit') {
         appQuitting = true
@@ -136,6 +230,7 @@ void app.whenReady().then(async () => {
     logInfo('main', 'update service ok')
 
     app.on('activate', () => {
+      if (shuttingDown || quitting) return
       if (!win.isDestroyed()) win.show()
     })
   } catch (err) {
@@ -144,30 +239,35 @@ void app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
+  if (shuttingDown || quitting) {
+    app.quit()
+    return
+  }
   // macOS：窗口全关≠退出；是否退出由 closeBehavior / before-quit 决定
   if (process.platform !== 'darwin') app.quit()
 })
 
 // Electron 文档推荐：退出前注销全部全局快捷键
 app.on('will-quit', () => {
-  try {
-    globalShortcut.unregisterAll()
-  } catch {
-    /* ignore */
-  }
+  releaseAllGlobalShortcutsSync()
 })
 
 let quitting = false
 app.on('before-quit', (event) => {
+  beginShutdown('before-quit')
   if (quitting) return
   quitting = true
   event.preventDefault()
+  // 异步清理最长 2s，超时强制退出并注销热键
+  const forceTimer = setTimeout(() => {
+    logWarn('main', 'before-quit cleanup timeout → force exit')
+    releaseAllGlobalShortcutsSync()
+    app.exit(0)
+  }, 2000)
+  forceTimer.unref?.()
+
   disposeQuickHotkeys()
-  try {
-    globalShortcut.unregisterAll()
-  } catch {
-    /* ignore */
-  }
+  releaseAllGlobalShortcutsSync()
   stopAllPluginWatchers()
   destroyQuickWindow()
   stopClipboardHistory()
@@ -177,14 +277,19 @@ app.on('before-quit', (event) => {
     .destroyAll()
     .catch(() => {})
     .finally(() => {
-      // 落盘顺序：插件存储与设置防抖写队列先 flush，再关 SQLite 连接
+      clearTimeout(forceTimer)
       try {
         flushAll()
         settingsStore.flushNow()
       } catch {
         /* 退出路径尽力而为 */
       }
-      kvStore.close()
+      try {
+        kvStore.close()
+      } catch {
+        /* ignore */
+      }
+      releaseAllGlobalShortcutsSync()
       app.quit()
     })
 })

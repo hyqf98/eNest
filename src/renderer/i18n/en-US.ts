@@ -80,8 +80,9 @@ const enUS: EnDict = {
       openFolder: 'Open folder',
       copyPath: 'Copy path',
       closeBehavior: 'On close',
-      closeBehaviorDesc: 'Minimize to tray or quit when the window closes',
-      minimizeToTray: 'Minimize to tray',
+      closeBehaviorDesc:
+        'Minimize: keep running so global hotkeys still work. Quit: release hotkeys and exit.',
+      minimizeToTray: 'Minimize to background',
       quitApp: 'Quit app',
       tabStyle: 'Tab bar style',
       tabStyleDesc: 'Classic top strip or a floating left orb rail — applies instantly',

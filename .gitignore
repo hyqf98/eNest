@@ -45,6 +45,9 @@ coverage/
 # Worktrees
 .worktrees/
 
+# 独立插件仓库（勿纳入壳子 git；本地 monorepo 路径开发用）
+/eNest_plugin/
+
 # e2e screenshots
 e2e-artifacts/
 
