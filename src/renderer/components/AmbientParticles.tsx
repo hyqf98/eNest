@@ -1,162 +1,171 @@
 /**
- * AmbientParticles — 高动画强度下的背景粒子层
- * 仅 data-anim="high" 挂载；pointer-events: none。
- *
- * 视觉：深度分层 + 指针视差漂移 + 软弹性圆碰撞 + 两遍模糊加色发光。
- * 性能：
- *   - 粒子上限 40、dpr≤2、document.hidden 时暂停 RAF、O(n²) 碰撞可承受；
- *   - 渐变 sprite 预渲染：radial gradient 只在启动/resize 时按色相桶绘制到离屏
- *     canvas，每帧 drawImage，消除逐帧 createRadialGradient 的 GC 压力；
- *   - 粒子对象池：按最大数量预分配，resize 增减只复用/重置字段，不重建数组。
- * 依赖：useAnimationLevelStore、ambient.css。
+ * AmbientParticles — AmbientField 环境场层（文件名保留以免破坏 import）
+ * 结构性空间感：极光色带 + 三层深度星尘 + 稀疏流星 + 指针星座联动，颜色跟随主题 token。
+ * 分档：high = canvas 环境场；medium = ambient.css 极轻 CSS 结构光（尘埃漂移 + 光带）；low = 无。
+ * 性能：sprite 预渲染（无逐帧渐变/blur）、分层对象池 / dpr≤2 / document.hidden 暂停；pointer-events: none。
+ * 依赖：useAnimationLevelStore、useThemeStore（token 变化热更新调色板）、ambient.css。
  */
 import { useEffect, useRef } from 'react'
 import { useAnimationLevelStore } from '@renderer/hooks/useAnimationLevel'
+import { useThemeStore } from '@renderer/hooks/useTheme'
 import '@renderer/styles/ambient.css'
 
-/** 硬上限：视口再大也不超过 40 个粒子 */
-const MAX_PARTICLES = 40
+/** 极光带 sprite 尺寸（逻辑 px，绘制时再缩放） */
+const AURORA_W = 520
+const AURORA_H = 260
+/** 光斑/光晕 sprite 半径 */
+const HALO_R = 150
+/** 流星尾迹 sprite */
+const METEOR_LEN = 220
+const METEOR_H = 3
 
-/** 对象池固定按上限预分配 */
-const POOL_SIZE = MAX_PARTICLES
-
-/** 深度层：0 远景小而慢，2 近景大而快 */
-const LAYER_COUNT = 3
-
-/** 渐变 sprite：按色相桶缓存（离屏 canvas，绘制一次反复 drawImage） */
-interface HueSprite {
-  canvas: HTMLCanvasElement
-  /** sprite 逻辑半径（css px），drawImage 时按粒子半径缩放 */
-  radius: number
+interface RGB {
+  r: number
+  g: number
+  b: number
 }
 
-/** 最大气泡半径（spawn 上界：layer2 = 14 + 22 = 36，呼吸 +8%）再加安全余量 */
-const SPRITE_RADIUS = 42
+interface Palette {
+  accent: RGB
+  link: RGB
+  ok: RGB
+}
 
-/** 色相桶宽：140° 色域切成 8 桶，视觉无差且 sprite 数量可控 */
-const HUE_BUCKETS = 8
-const HUE_MIN = 160
-const HUE_SPAN = 140
+const FALLBACK_PALETTE: Palette = {
+  accent: { r: 94, g: 106, b: 210 },
+  link: { r: 123, g: 134, b: 212 },
+  ok: { r: 42, g: 157, b: 118 },
+}
 
-/** 预渲染一个色相桶的径向渐变 sprite（中心高亮 → 边缘透明） */
-function makeHueSprite(hue: number, dpr: number): HueSprite {
-  const size = Math.ceil(SPRITE_RADIUS * 2 * dpr)
+interface Star {
+  x: number
+  y: number
+  /** 0 远 … 1 近 */
+  z: number
+  r: number
+  /** 闪烁相位 / 速度 */
+  tw: number
+  tws: number
+  /** 漂移速度 px/s */
+  vx: number
+  vy: number
+  /** 少数亮星带尺寸脉冲 */
+  sparkle: boolean
+}
+
+interface Meteor {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  born: number
+  life: number
+}
+
+function hexToRgb(hex: string): RGB | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return null
+  const n = parseInt(m[1], 16)
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
+}
+
+function cssVarRgb(name: string, fallback: RGB): RGB {
+  if (typeof window === 'undefined') return fallback
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name)
+  return hexToRgb(raw) ?? fallback
+}
+
+function rgba(c: RGB, a: number): string {
+  return `rgba(${c.r},${c.g},${c.b},${a})`
+}
+
+function mixTint(a: RGB, b: RGB, k: number): RGB {
+  return {
+    r: Math.round(a.r + (b.r - a.r) * k),
+    g: Math.round(a.g + (b.g - a.g) * k),
+    b: Math.round(a.b + (b.b - a.b) * k),
+  }
+}
+
+/** 预渲染椭圆软光带 sprite（极光用；一次离屏，逐帧仅 drawImage） */
+function makeAuroraSprite(tint: RGB, dpr: number): HTMLCanvasElement {
+  const w = Math.ceil(AURORA_W * dpr)
+  const h = Math.ceil(AURORA_H * dpr)
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const g = canvas.getContext('2d', { alpha: true })
+  if (g) {
+    g.scale(dpr, dpr)
+    const cx = AURORA_W / 2
+    const cy = AURORA_H / 2
+    const grad = g.createRadialGradient(cx, cy, AURORA_H * 0.06, cx, cy, AURORA_H / 2)
+    grad.addColorStop(0, rgba(tint, 0.5))
+    grad.addColorStop(0.42, rgba(tint, 0.22))
+    grad.addColorStop(1, rgba(tint, 0))
+    g.fillStyle = grad
+    g.save()
+    g.translate(cx, cy)
+    g.scale(1, AURORA_H / AURORA_W)
+    g.beginPath()
+    g.arc(0, 0, AURORA_W / 2, 0, Math.PI * 2)
+    g.fill()
+    g.restore()
+  }
+  return canvas
+}
+
+/** 预渲染径向光 sprite（指针光晕 / 光斑用） */
+function makeHaloSprite(tint: RGB, dpr: number): HTMLCanvasElement {
+  const size = Math.ceil(HALO_R * 2 * dpr)
   const canvas = document.createElement('canvas')
   canvas.width = size
   canvas.height = size
   const g = canvas.getContext('2d', { alpha: true })
   if (g) {
-    // 与逐帧渐变同构：高光偏左上（-0.35r），三段色阶
-    const cx = SPRITE_RADIUS * dpr
-    const cy = SPRITE_RADIUS * dpr
-    const r = SPRITE_RADIUS * dpr
-    const grad = g.createRadialGradient(
-      cx - r * 0.35,
-      cy - r * 0.35,
-      r * 0.08,
-      cx,
-      cy,
-      r,
-    )
-    // alpha 峰值 1（粒子 alpha 通过 globalAlpha 控制叠加）
-    grad.addColorStop(0, `hsla(${hue}, 85%, 78%, 1)`)
-    grad.addColorStop(0.45, `hsla(${hue}, 72%, 62%, 0.65)`)
-    grad.addColorStop(1, `hsla(${hue}, 60%, 50%, 0)`)
+    const c = HALO_R * dpr
+    const grad = g.createRadialGradient(c, c, c * 0.05, c, c, c)
+    grad.addColorStop(0, rgba(tint, 0.4))
+    grad.addColorStop(0.4, rgba(tint, 0.14))
+    grad.addColorStop(1, rgba(tint, 0))
     g.fillStyle = grad
     g.fillRect(0, 0, size, size)
   }
-  return { canvas, radius: SPRITE_RADIUS }
+  return canvas
 }
 
-interface Particle {
-  x: number
-  y: number
-  r: number
-  vx: number
-  vy: number
-  hue: number
-  /** 色相桶索引（sprite 查表用） */
-  hueBucket: number
-  alpha: number
-  /** 0 | 1 | 2 */
-  layer: number
-  /** 相位，驱动轻微呼吸 */
-  phase: number
-  /** 呼吸速度 */
-  pulse: number
-}
-
-function layerOf(i: number): number {
-  // 按序轮询三层，保证每层约 n/3
-  return i % LAYER_COUNT
-}
-
-/** 就地（重）初始化一个池内粒子 */
-function initParticle(p: Particle, w: number, h: number, layer: number): void {
-  // 远景更小更慢更淡；近景更大更快
-  const sizeBase = layer === 0 ? 4 : layer === 1 ? 8 : 14
-  const sizeSpan = layer === 0 ? 10 : layer === 1 ? 16 : 22
-  const speed = layer === 0 ? 0.18 : layer === 1 ? 0.32 : 0.48
-  const hue = HUE_MIN + Math.random() * HUE_SPAN
-  p.x = Math.random() * w
-  p.y = Math.random() * h
-  p.r = sizeBase + Math.random() * sizeSpan
-  p.vx = (Math.random() - 0.5) * speed
-  p.vy = -speed * 0.35 - Math.random() * speed * 0.55
-  p.hue = hue
-  p.hueBucket = Math.min(HUE_BUCKETS - 1, Math.floor(((hue - HUE_MIN) / HUE_SPAN) * HUE_BUCKETS))
-  p.alpha = (layer === 0 ? 0.1 : layer === 1 ? 0.16 : 0.22) + Math.random() * 0.12
-  p.layer = layer
-  p.phase = Math.random() * Math.PI * 2
-  p.pulse = 0.4 + Math.random() * 0.8
-}
-
-/** 软弹性碰撞：重叠推开 + 速度交换（低恢复系数，避免弹飞）；只算激活粒子 */
-function resolveCollisions(list: Particle[], count: number): void {
-  for (let i = 0; i < count; i++) {
-    const a = list[i]
-    for (let j = i + 1; j < count; j++) {
-      const b = list[j]
-      // 远近层可碰撞，制造空间层次
-      const dx = b.x - a.x
-      const dy = b.y - a.y
-      const min = a.r + b.r
-      const dist2 = dx * dx + dy * dy
-      if (dist2 <= 0 || dist2 >= min * min) continue
-      const dist = Math.sqrt(dist2)
-      const nx = dx / dist
-      const ny = dy / dist
-      // 软分离：按质量（半径）加权推开
-      const total = a.r + b.r
-      const push = (min - dist) * 0.12
-      a.x -= nx * push * (b.r / total)
-      a.y -= ny * push * (b.r / total)
-      b.x += nx * push * (a.r / total)
-      b.y += ny * push * (a.r / total)
-      // 弹性速度交换：沿法线，恢复系数 ~0.72
-      const dvx = a.vx - b.vx
-      const dvy = a.vy - b.vy
-      const impact = dvx * nx + dvy * ny
-      if (impact <= 0) continue
-      const ma = a.r * a.r
-      const mb = b.r * b.r
-      const inv = 1 / (ma + mb)
-      const impulse = (2 * impact * 0.72) * inv
-      a.vx -= impulse * mb * nx
-      a.vy -= impulse * mb * ny
-      b.vx += impulse * ma * nx
-      b.vy += impulse * ma * ny
-    }
+/** 预渲染流星尾迹 sprite（线性渐变横条，绘制时旋转） */
+function makeMeteorSprite(tint: RGB, dpr: number): HTMLCanvasElement {
+  const w = Math.ceil(METEOR_LEN * dpr)
+  const h = Math.ceil(METEOR_H * dpr)
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const g = canvas.getContext('2d', { alpha: true })
+  if (g) {
+    const bright = mixTint(tint, { r: 235, g: 242, b: 255 }, 0.7)
+    const grad = g.createLinearGradient(0, 0, w, 0)
+    grad.addColorStop(0, rgba(bright, 0))
+    grad.addColorStop(0.72, rgba(bright, 0.35))
+    grad.addColorStop(1, rgba(bright, 0.95))
+    g.fillStyle = grad
+    g.fillRect(0, 0, w, h)
   }
+  return canvas
+}
+
+function rand(min: number, max: number): number {
+  return min + Math.random() * (max - min)
 }
 
 export function AmbientParticles() {
   const level = useAnimationLevelStore((s) => s.level)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const enabled = level === 'high'
+  const showCanvas = level === 'high'
+  const showCss = level === 'medium'
 
   useEffect(() => {
-    if (!enabled) return
+    if (!showCanvas) return
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d', { alpha: true })
@@ -168,168 +177,290 @@ export function AmbientParticles() {
     let h = 0
     let last = 0
     let time = 0
-    /** 当前激活粒子数（对象池前 count 个槽位生效） */
-    let count = 0
-
-    // 对象池：按硬上限一次性预分配，resize 只改 count + 重置槽位字段
-    const particles: Particle[] = Array.from({ length: POOL_SIZE }, () => ({
-      x: 0, y: 0, r: 0, vx: 0, vy: 0,
-      hue: 0, hueBucket: 0, alpha: 0,
-      layer: 0, phase: 0, pulse: 0,
-    }))
-
-    // 指针视差：目标与当前（lerp 平滑）
-    let ptrX = 0.5
-    let ptrY = 0.5
-    let curX = 0.5
-    let curY = 0.5
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
 
-    // 两遍模糊：离屏缓冲，先 blur 再 lighter 叠 sharp
-    const off = document.createElement('canvas')
-    const offCtx = off.getContext('2d', { alpha: true })
+    // —— 调色板：初始读取 + 订阅主题 store 热更新（不重建循环） ——
+    let palette: Palette = { ...FALLBACK_PALETTE }
+    const readPalette = (): Palette => {
+      palette = {
+        accent: cssVarRgb('--accent', FALLBACK_PALETTE.accent),
+        link: cssVarRgb('--link', FALLBACK_PALETTE.link),
+        ok: cssVarRgb('--ok', FALLBACK_PALETTE.ok),
+      }
+      return palette
+    }
+    readPalette()
 
-    // 渐变 sprite 预渲染：HUE_BUCKETS 个色相桶，绘制一次反复 drawImage
-    const sprites: HueSprite[] = []
-    for (let b = 0; b < HUE_BUCKETS; b++) {
-      sprites.push(makeHueSprite(HUE_MIN + ((b + 0.5) / HUE_BUCKETS) * HUE_SPAN, dpr))
+    let auroraA = makeAuroraSprite(palette.accent, dpr)
+    let auroraB = makeAuroraSprite(mixTint(palette.link, palette.ok, 0.4), dpr)
+    let halo = makeHaloSprite(palette.accent, dpr)
+    let meteorSprite = makeMeteorSprite(palette.accent, dpr)
+    const disposeSprites = () => {
+      for (const s of [auroraA, auroraB, halo, meteorSprite]) {
+        s.width = 0
+        s.height = 0
+      }
+    }
+    const rebuildSprites = () => {
+      disposeSprites()
+      auroraA = makeAuroraSprite(palette.accent, dpr)
+      auroraB = makeAuroraSprite(mixTint(palette.link, palette.ok, 0.4), dpr)
+      halo = makeHaloSprite(palette.accent, dpr)
+      meteorSprite = makeMeteorSprite(palette.accent, dpr)
     }
 
-    const resize = () => {
+    // —— 星尘：三层深度场（远密小 / 中 / 近疏大），个体漂移 + 独立相位闪烁 ——
+    const stars: Star[] = []
+    const buildStars = () => {
+      stars.length = 0
+      const area = (w * h) / 1_000_000
+      const layers: { count: number; zBase: number; rMin: number; rMax: number; vMax: number }[] = [
+        { count: Math.round(rand(78, 104) * Math.min(1.4, Math.max(0.7, area))), zBase: 0.12, rMin: 0.5, rMax: 1.05, vMax: 2.2 },
+        { count: Math.round(rand(38, 54) * Math.min(1.4, Math.max(0.7, area))), zBase: 0.5, rMin: 0.85, rMax: 1.7, vMax: 5 },
+        { count: Math.round(rand(16, 24) * Math.min(1.4, Math.max(0.7, area))), zBase: 0.88, rMin: 1.3, rMax: 2.3, vMax: 9 },
+      ]
+      for (const L of layers) {
+        for (let i = 0; i < L.count; i++) {
+          stars.push({
+            x: Math.random() * w,
+            y: Math.random() * h,
+            z: L.zBase + rand(-0.08, 0.1),
+            r: rand(L.rMin, L.rMax),
+            tw: Math.random() * Math.PI * 2,
+            tws: rand(0.4, 1.7),
+            vx: rand(-L.vMax, L.vMax),
+            vy: rand(-L.vMax * 0.6, L.vMax * 0.6),
+            sparkle: Math.random() < 0.07,
+          })
+        }
+      }
+    }
+
+    // —— 流星：稀疏随机 ——
+    const meteors: Meteor[] = []
+    let nextMeteorAt = rand(3, 8)
+    const spawnMeteor = (now: number) => {
+      const fromLeft = Math.random() < 0.5
+      const speed = rand(680, 980)
+      const ang = rand(0.38, 0.62) // 与水平夹角（rad）
+      meteors.push({
+        x: fromLeft ? rand(-0.1, 0.35) * w : rand(0.65, 1.1) * w,
+        y: rand(0.02, 0.3) * h,
+        vx: (fromLeft ? 1 : -1) * speed * Math.cos(ang),
+        vy: speed * Math.sin(ang),
+        born: now,
+        life: rand(0.75, 1.05),
+      })
+    }
+
+    // —— 指针：平滑跟随（帧率无关）+ 近邻星座连线 ——
+    let ptrX = -1
+    let ptrY = -1
+    let curX = -1
+    let curY = -1
+    const POINTER_R = 150
+    const LINK_R = 96
+    const MAX_LINKS = 26
+
+    const layout = () => {
+      const prevW = w
+      const prevH = h
       w = window.innerWidth
       h = window.innerHeight
-      const pw = Math.floor(w * dpr)
-      const ph = Math.floor(h * dpr)
-      canvas.width = pw
-      canvas.height = ph
+      canvas.width = Math.floor(w * dpr)
+      canvas.height = Math.floor(h * dpr)
       canvas.style.width = `${w}px`
       canvas.style.height = `${h}px`
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      if (offCtx) {
-        off.width = pw
-        off.height = ph
-        offCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      }
-      // 面积启发 + 硬上限 40
-      const next = Math.min(MAX_PARTICLES, Math.max(16, Math.floor((w * h) / 36000)))
-      if (next > count) {
-        // 扩容：只重置新启用的槽位
-        for (let i = count; i < next; i++) initParticle(particles[i], w, h, layerOf(i))
-      }
-      count = next
+      if (prevW !== w || prevH !== h) buildStars()
     }
 
-    /** drawImage 版粒子绘制：sprite 缩放 + 呼吸 + 透明度（代替逐帧 createRadialGradient） */
-    const drawParticle = (
-      g: CanvasRenderingContext2D,
-      p: Particle,
-      ox: number,
-      oy: number,
-      t: number,
-    ) => {
-      const breath = 1 + Math.sin(t * p.pulse + p.phase) * 0.08
-      const r = p.r * breath
-      const x = p.x + ox
-      const y = p.y + oy
-      const a = p.alpha * (0.92 + Math.sin(t * p.pulse * 0.7 + p.phase) * 0.08)
-      const sprite = sprites[p.hueBucket]
-      if (!sprite) return
-      // 上下文已按 dpr 缩放，绘制尺寸用 CSS px：sprite 覆盖半径 sprite.radius 的圆
-      const s = r * 2
-      g.globalAlpha = Math.min(1, a + 0.16)
-      g.drawImage(sprite.canvas, x - s / 2, y - s / 2, s, s)
+    // —— 星尘绘制缓冲（按星数分配，帧间复用避免 GC） ——
+    let pxArr = new Float32Array(0)
+    let pyArr = new Float32Array(0)
+    let alphaArr = new Float32Array(0)
+    let radiusArr = new Float32Array(0)
+    const ensureBuffers = () => {
+      if (pxArr.length !== stars.length) {
+        pxArr = new Float32Array(stars.length)
+        pyArr = new Float32Array(stars.length)
+        alphaArr = new Float32Array(stars.length)
+        radiusArr = new Float32Array(stars.length)
+      }
     }
 
     const step = (ts: number) => {
       if (!running) return
       if (!last) last = ts
-      // clamp dt，后台回来不会跳帧
-      const dt = Math.min(32, ts - last) / 16.67
+      const dt = Math.min(48, ts - last) / 1000
       last = ts
-      time += 0.016 * dt
+      time += dt
 
-      // 视差 lerp
-      curX += (ptrX - curX) * 0.035 * dt
-      curY += (ptrY - curY) * 0.035 * dt
-      const parX = (curX - 0.5) * 28
-      const parY = (curY - 0.5) * 20
+      ctx.clearRect(0, 0, w, h)
 
-      for (let i = 0; i < count; i++) {
-        const p = particles[i]
-        // 深度层速度缩放（近景更敏感）
-        const depthScale = 0.55 + p.layer * 0.25
-        p.x += p.vx * depthScale * dt
-        p.y += p.vy * depthScale * dt
+      // —— 极光带：两条斜置软光带，缓慢漂移 + 呼吸（lighter 叠加） ——
+      ctx.globalCompositeOperation = 'lighter'
+      const bandA = {
+        x: w * 0.42 + Math.sin(time * 0.05) * w * 0.16,
+        y: h * 0.3 + Math.cos(time * 0.041) * h * 0.08,
+        rot: -0.3 + Math.sin(time * 0.03) * 0.05,
+        a: 0.075 + Math.sin(time * 0.11) * 0.028,
       }
-
-      resolveCollisions(particles, count)
-
-      for (let i = 0; i < count; i++) {
-        const p = particles[i]
-        if (p.x < p.r) {
-          p.x = p.r
-          p.vx = Math.abs(p.vx)
-        } else if (p.x > w - p.r) {
-          p.x = w - p.r
-          p.vx = -Math.abs(p.vx)
-        }
-        // 上浮回收
-        if (p.y < -p.r * 2.2) {
-          p.y = h + p.r
-          p.x = Math.random() * w
-          const speed = p.layer === 0 ? 0.18 : p.layer === 1 ? 0.32 : 0.48
-          p.vy = -speed * 0.35 - Math.random() * speed * 0.55
-          p.vx = (Math.random() - 0.5) * speed
-        }
-        if (p.y > h + p.r * 2.2) p.y = -p.r
+      const bandB = {
+        x: w * 0.6 + Math.cos(time * 0.037 + 2) * w * 0.15,
+        y: h * 0.66 + Math.sin(time * 0.048 + 1) * h * 0.09,
+        rot: 0.24 + Math.cos(time * 0.026 + 1) * 0.05,
+        a: 0.062 + Math.sin(time * 0.09 + 2.4) * 0.024,
       }
-
-      // —— 渲染：离屏 → blur pass + additive sharp pass ——
-      if (offCtx) {
-        offCtx.clearRect(0, 0, w, h)
-        offCtx.globalCompositeOperation = 'lighter'
-        for (let i = 0; i < count; i++) {
-          const p = particles[i]
-          // 远景视差弱、近景强
-          const k = 0.35 + p.layer * 0.35
-          drawParticle(offCtx, p, parX * k, parY * k, time)
-        }
-        offCtx.globalAlpha = 1
-        offCtx.globalCompositeOperation = 'source-over'
-
-        ctx.clearRect(0, 0, w, h)
-        // pass 1: 大半径柔光
+      const drawBand = (
+        b: { x: number; y: number; rot: number; a: number },
+        sprite: HTMLCanvasElement,
+        scale: number,
+      ) => {
         ctx.save()
-        ctx.filter = `blur(${10 + Math.min(6, w / 400)}px)`
-        ctx.globalAlpha = 0.55
-        ctx.drawImage(off, 0, 0, w, h)
+        ctx.translate(b.x, b.y)
+        ctx.rotate(b.rot)
+        const bw = w * scale
+        const bh = bw * (AURORA_H / AURORA_W)
+        ctx.globalAlpha = b.a
+        ctx.drawImage(sprite, -bw / 2, -bh / 2, bw, bh)
         ctx.restore()
-        // pass 2: 加色叠清晰核
-        ctx.save()
-        ctx.globalCompositeOperation = 'lighter'
-        ctx.globalAlpha = 0.85
-        ctx.filter = 'blur(0.5px)'
-        ctx.drawImage(off, 0, 0, w, h)
-        ctx.restore()
-      } else {
-        // 回退：直接画
-        ctx.clearRect(0, 0, w, h)
-        for (let i = 0; i < count; i++) {
-          const p = particles[i]
-          const k = 0.35 + p.layer * 0.35
-          drawParticle(ctx, p, parX * k, parY * k, time)
+      }
+      drawBand(bandA, auroraA, 1.15)
+      drawBand(bandB, auroraB, 0.95)
+
+      // —— 指针光晕（平滑趋近，稳态滞后可接受） ——
+      if (ptrX >= 0) {
+        if (curX < 0) {
+          curX = ptrX
+          curY = ptrY
+        } else {
+          const k = 1 - Math.exp(-6 * dt)
+          curX += (ptrX - curX) * k
+          curY += (ptrY - curY) * k
         }
-        ctx.globalAlpha = 1
+        const haloSize = HALO_R * 2 * (0.94 + Math.sin(time * 1.3) * 0.06)
+        ctx.globalAlpha = 0.1
+        ctx.drawImage(halo, curX - haloSize / 2, curY - haloSize / 2, haloSize, haloSize)
       }
 
+      // —— 星尘：漂移 + 独立闪烁 + 深度视差 + 指针抬升 ——
+      ensureBuffers()
+      const parX = ptrX >= 0 ? (curX / w - 0.5) : 0
+      const parY = ptrY >= 0 ? (curY / h - 0.5) : 0
+      // 按色相分组暂存索引，减少 fillStyle 切换
+      const groups: number[][] = [[], [], []]
+      for (let i = 0; i < stars.length; i++) {
+        const s = stars[i]
+        s.x += s.vx * dt
+        s.y += s.vy * dt
+        if (s.x < -8) s.x += w + 16
+        else if (s.x > w + 8) s.x -= w + 16
+        if (s.y < -8) s.y += h + 16
+        else if (s.y > h + 8) s.y -= h + 16
+
+        const twk = 0.55 + 0.45 * Math.sin(time * s.tws + s.tw)
+        const px = s.x + parX * 18 * s.z
+        let py = s.y + parY * 12 * s.z
+
+        let bright = 0
+        if (ptrX >= 0) {
+          const dx = curX - px
+          const dyy = curY - py
+          const d2 = dx * dx + dyy * dyy
+          if (d2 < POINTER_R * POINTER_R) {
+            const sq = 1 - d2 / (POINTER_R * POINTER_R)
+            bright = sq * sq * 0.5
+            py -= sq * sq * 10
+          }
+        }
+        const lift = s.sparkle ? 1 + 0.5 * twk : 1
+        pxArr[i] = px
+        pyArr[i] = py
+        alphaArr[i] = Math.min(0.85, (0.1 + s.z * 0.3) * twk + bright)
+        radiusArr[i] = (s.r + bright * 1.3) * lift
+        groups[i % 3].push(i)
+      }
+      const tints: RGB[] = [palette.accent, palette.link, palette.ok]
+      for (let gi = 0; gi < 3; gi++) {
+        ctx.fillStyle = rgba(tints[gi], 1)
+        for (const idx of groups[gi]) {
+          ctx.globalAlpha = alphaArr[idx]
+          ctx.beginPath()
+          ctx.arc(pxArr[idx], pyArr[idx], radiusArr[idx], 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+
+      // —— 指针星座连线：光晕内的星彼此稀疏连线 ——
+      if (ptrX >= 0) {
+        const near: number[] = []
+        for (let i = 0; i < stars.length && near.length < 40; i++) {
+          const dx = curX - pxArr[i]
+          const dy2 = curY - pyArr[i]
+          if (dx * dx + dy2 * dy2 < POINTER_R * POINTER_R) near.push(i)
+        }
+        ctx.strokeStyle = rgba(palette.link, 1)
+        ctx.lineWidth = 0.6
+        let links = 0
+        for (let a = 0; a < near.length && links < MAX_LINKS; a++) {
+          for (let b = a + 1; b < near.length && links < MAX_LINKS; b++) {
+            const dx = pxArr[near[b]] - pxArr[near[a]]
+            const dy3 = pyArr[near[b]] - pyArr[near[a]]
+            const d2 = dx * dx + dy3 * dy3
+            if (d2 > LINK_R * LINK_R) continue
+            const t = 1 - Math.sqrt(d2) / LINK_R
+            ctx.globalAlpha = t * 0.2
+            ctx.beginPath()
+            ctx.moveTo(pxArr[near[a]], pyArr[near[a]])
+            ctx.lineTo(pxArr[near[b]], pyArr[near[b]])
+            ctx.stroke()
+            links++
+          }
+        }
+      }
+
+      // —— 流星：稀疏划过，正弦包络淡入淡出 ——
+      if (time >= nextMeteorAt) {
+        spawnMeteor(time)
+        nextMeteorAt = time + rand(7, 15)
+      }
+      for (let i = meteors.length - 1; i >= 0; i--) {
+        const m = meteors[i]
+        const age = time - m.born
+        if (age > m.life) {
+          meteors.splice(i, 1)
+          continue
+        }
+        m.x += m.vx * dt
+        m.y += m.vy * dt
+        const p = age / m.life
+        const envelope = Math.sin(Math.PI * Math.min(1, p))
+        const ang = Math.atan2(m.vy, m.vx)
+        ctx.save()
+        ctx.translate(m.x, m.y)
+        ctx.rotate(ang)
+        ctx.globalAlpha = 0.55 * envelope
+        const mw = METEOR_LEN * (0.7 + 0.3 * envelope)
+        ctx.drawImage(meteorSprite, -mw, -METEOR_H / 2, mw, METEOR_H)
+        ctx.restore()
+      }
+
+      ctx.globalAlpha = 1
+      ctx.globalCompositeOperation = 'source-over'
       raf = requestAnimationFrame(step)
     }
 
     const onPointerMove = (e: PointerEvent) => {
-      if (!w || !h) return
-      ptrX = e.clientX / w
-      ptrY = e.clientY / h
+      ptrX = e.clientX
+      ptrY = e.clientY
+    }
+    const onPointerLeave = () => {
+      ptrX = -1
+      ptrY = -1
+      curX = -1
+      curY = -1
     }
 
     const onVisibility = () => {
@@ -344,29 +475,57 @@ export function AmbientParticles() {
       }
     }
 
-    resize()
-    window.addEventListener('resize', resize)
+    // 主题 token 变化：仅热更新调色板与 sprite，不打断循环
+    let unsubTheme: (() => void) | undefined
+    try {
+      unsubTheme = useThemeStore.subscribe(() => {
+        const prev = palette
+        const next = readPalette()
+        const changed =
+          next.accent.r !== prev.accent.r || next.accent.g !== prev.accent.g || next.accent.b !== prev.accent.b ||
+          next.link.r !== prev.link.r || next.link.g !== prev.link.g || next.link.b !== prev.link.b ||
+          next.ok.r !== prev.ok.r || next.ok.g !== prev.ok.g || next.ok.b !== prev.ok.b
+        if (changed) rebuildSprites()
+      })
+    } catch {
+      /* store 未就绪时跳过热更新 */
+    }
+
+    layout()
+    window.addEventListener('resize', layout)
     window.addEventListener('pointermove', onPointerMove, { passive: true })
+    document.addEventListener('pointerleave', onPointerLeave)
     document.addEventListener('visibilitychange', onVisibility)
     raf = requestAnimationFrame(step)
 
     return () => {
       running = false
       cancelAnimationFrame(raf)
-      window.removeEventListener('resize', resize)
+      unsubTheme?.()
+      window.removeEventListener('resize', layout)
       window.removeEventListener('pointermove', onPointerMove)
+      document.removeEventListener('pointerleave', onPointerLeave)
       document.removeEventListener('visibilitychange', onVisibility)
-      // 释放离屏缓冲与渐变 sprite
-      off.width = 0
-      off.height = 0
-      for (const s of sprites) {
-        s.canvas.width = 0
-        s.canvas.height = 0
-      }
+      disposeSprites()
     }
-  }, [enabled])
+  }, [showCanvas])
 
-  if (!enabled) return null
+  if (showCanvas) {
+    return <canvas ref={canvasRef} className="ambient-particles ambient-field-canvas" aria-hidden />
+  }
 
-  return <canvas ref={canvasRef} className="ambient-particles" aria-hidden />
+  if (showCss) {
+    return (
+      <div className="ambient-particles ambient-field-css" aria-hidden>
+        <span className="ambient-ribbon ambient-ribbon-a" />
+        <span className="ambient-ribbon ambient-ribbon-b" />
+        <span className="ambient-dust" />
+        <span className="ambient-field-orb ambient-field-orb-a" />
+        <span className="ambient-field-orb ambient-field-orb-b" />
+        <span className="ambient-field-orb ambient-field-orb-c" />
+      </div>
+    )
+  }
+
+  return null
 }

@@ -2,7 +2,8 @@
  * FeaturedCarousel — 精选插件 coverflow
  * 每个插件一个 DOM 节点，按相对中心的 ring 过渡位置/尺寸，切换时丝滑放大缩小。
  * 中心 data-ring=0 大卡；±1/±2 在左下/右下待选。
- * 悬停暂停轮播；点侧卡转到中心，点中心/CTA 打开或看详情。
+ * 悬停侧卡：原地放大（不跳中），其余卡缩小并按环序聚拢成紧凑队列（间距随卡宽等比），
+ * 几何由 CSS 按 data-focus 分侧定义；点侧卡转到中心，点中心/CTA 打开或看详情。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
@@ -31,23 +32,11 @@ interface Props {
 
 const MAX_RING = 2
 
-function ringStyle(ring: number, pushPx: number): CSSProperties {
+function ringStyle(ring: number, focus: number | null): CSSProperties {
   return {
     ['--ring' as string]: String(ring),
-    ['--push' as string]: `${pushPx}px`,
+    ['--focus' as string]: focus == null ? '0' : String(focus),
   }
-}
-
-/**
- * 悬停放大时的水平挤让（px）——绕悬停卡向两侧手风琴展开：
- * - ring === hover：不平移，只原地放大
- * - 更左 / 更右：按相对距离对称外推，间距不塌缩
- * 例：hover=-1 时 center→+u，ring1→+2u，ring2→+3u，ring-2→-u
- */
-function cardPush(hover: number | null, ring: number): number {
-  if (hover == null || hover === 0 || ring === hover) return 0
-  const unit = Math.abs(hover) === 1 ? 22 : 18
-  return (ring - hover) * unit
 }
 
 /**
@@ -75,7 +64,7 @@ function buildScrollSlots(items: PluginSummary[], index: number, len: number) {
 export function FeaturedCarousel({ items, onOpen, onDetail }: Props) {
   const [index, setIndex] = useState(0)
   const [dragging, setDragging] = useState(false)
-  /** 悬停中的 ring：用于邻卡挤让，避免放大盖住中心 */
+  /** 悬停中的 ring：侧卡放大 + 其余卡缩小 + 同侧挤让 */
   const [hoverRing, setHoverRing] = useState<number | null>(null)
   const pausedRef = useRef(false)
   /** 用户点过箭头/圆点/拖拽后：不再自动轮播 */
@@ -257,9 +246,13 @@ export function FeaturedCarousel({ items, onOpen, onDetail }: Props) {
     background: `linear-gradient(160deg, color-mix(in srgb, ${p.color} 90%, #fff) 0%, ${p.color} 48%, color-mix(in srgb, ${p.color} 70%, #000) 100%)`,
   })
 
+  /** 侧卡聚焦态：悬停 ring ≠ 0 时其余卡缩小聚拢 */
+  const sideFocus = hoverRing != null && hoverRing !== 0
+
   return (
     <div
-      className="carousel-block featured-coverflow"
+      className={`carousel-block featured-coverflow${sideFocus ? ' is-side-focus' : ''}`}
+      data-focus={hoverRing ?? 0}
       ref={rootRef}
       onMouseEnter={pause}
       onMouseLeave={resume}
@@ -291,25 +284,25 @@ export function FeaturedCarousel({ items, onOpen, onDetail }: Props) {
         <div className="carousel-track">
           {laidOut.map(({ plugin: p, logical, ring }) => {
             const isActive = ring === 0
-            const push = cardPush(hoverRing, ring)
             const cta = p.installed ? (p.enabled === false ? '已禁用' : '打开') : '安装'
             return (
               <div
                 key={p.id}
-                className={`carousel-item${isActive ? ' is-active' : ''}${Math.abs(ring) === 1 ? ' is-near' : ''}${Math.abs(ring) >= 3 ? ' is-buffer' : ''}${hoverRing === ring && ring !== 0 ? ' is-hover-side' : ''}`}
+                className={`carousel-item${isActive ? ' is-active' : ''}${Math.abs(ring) === 1 ? ' is-near' : ''}${Math.abs(ring) >= 3 ? ' is-buffer' : ''}`}
                 data-ring={ring}
                 data-logical={logical}
+                data-hover={hoverRing === ring ? 'self' : sideFocus ? 'other' : undefined}
                 aria-label={p.name}
                 aria-current={isActive ? 'true' : undefined}
-                style={ringStyle(ring, push)}
+                style={ringStyle(ring, hoverRing)}
                 onClick={(e) => onItemClick(e, logical, ring)}
                 onMouseEnter={() => setHoverRing(ring)}
                 onMouseLeave={() => setHoverRing((cur) => (cur === ring ? null : cur))}
               >
                 <div className="featured-tile" style={{ ['--pc' as string]: p.color }}>
                   <div className="featured-glow" aria-hidden />
-                  <div className="featured-particles" aria-hidden>
-                    <i /><i /><i /><i /><i /><i />
+                  <div className="featured-energy" aria-hidden>
+                    <span className="featured-energy-sweep" />
                   </div>
                   <div className="featured-edge" aria-hidden />
                   <PluginIcon

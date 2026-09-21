@@ -1,7 +1,7 @@
 /**
  * Splash — 冷启动全屏动画
  * 职责：首次进入时展示与应用图标同构的六边形「巢」动画，结束后卸载。
- * 动画强度：low 极短淡入 / medium 默认 / high 加长描边弹簧 + 背景粒子。
+ * 动画强度：low 极短淡入 / medium 默认 / high 加长描边弹簧 + 结构性环境场。
  * 启动背景：settings.general.splashBackground（brand / none 主题色 / image 自定义图）。
  * 主题色：none 时读 CSS 变量 --bg/--accent/--text，缺失回落品牌墨绿/薄荷/琥珀。
  * 依赖：gsap、splashMotion、useTheme、useAnimationLevel、shellApi。
@@ -43,10 +43,10 @@ function applySplashTokens(root: HTMLElement, mode: 'brand' | 'theme'): void {
   root.style.setProperty('--splash-text', readCssVar('--text', BRAND.text))
 }
 
-/** Splash 粒子 sprite 半径：spawn 上界（layer2 = 10 + 18 = 28）+ 呼吸 10% + 余量 */
-const SPLASH_SPRITE_RADIUS = 34
+/** 环境场光斑 sprite 半径（大软光） */
+const SPLASH_SPRITE_RADIUS = 120
 
-/** 预渲染 accent 色径向渐变 sprite：离屏 canvas 画一次，每帧 drawImage（消除逐帧 createRadialGradient GC 压力） */
+/** 预渲染 accent 色径向渐变 sprite：离屏画一次，每帧 drawImage */
 function makeTintSprite(tint: string, dpr: number): HTMLCanvasElement {
   const size = Math.ceil(SPLASH_SPRITE_RADIUS * 2 * dpr)
   const canvas = document.createElement('canvas')
@@ -54,11 +54,10 @@ function makeTintSprite(tint: string, dpr: number): HTMLCanvasElement {
   canvas.height = size
   const g = canvas.getContext('2d', { alpha: true })
   if (g) {
-    // 与原逐帧渐变同构：高光偏左上，三段透明度（外圈 globalAlpha 控制呼吸）
     const c = SPLASH_SPRITE_RADIUS * dpr
-    const grad = g.createRadialGradient(c - c * 0.35, c - c * 0.35, c * 0.08, c, c, c)
-    grad.addColorStop(0, `${tint}ff`)
-    grad.addColorStop(0.5, `${tint}8c`)
+    const grad = g.createRadialGradient(c - c * 0.2, c - c * 0.2, c * 0.04, c, c, c)
+    grad.addColorStop(0, `${tint}c8`)
+    grad.addColorStop(0.4, `${tint}55`)
     grad.addColorStop(1, 'transparent')
     g.fillStyle = grad
     g.fillRect(0, 0, size, size)
@@ -66,9 +65,12 @@ function makeTintSprite(tint: string, dpr: number): HTMLCanvasElement {
   return canvas
 }
 
-/** 轻量气泡/光点：仅 high 档挂载；分层 + 两遍模糊加色发光；
- *  渐变 sprite 预渲染 + 粒子池复用；document.hidden 暂停 */
-function startSplashParticles(canvas: HTMLCanvasElement, accent: string): () => void {
+/**
+ * 结构性环境场（high）：accent 软光斑 + 中心点阵 + 同心涟漪环波场。
+ * 光斑缓慢漂移呼吸；点阵按极坐标铺开、相位错拍脉冲；涟漪自六边形中心周期荡开、
+ * 随半径淡出，呼应「巢」意象。全部 sprite 化，无逐帧 blur。
+ */
+function startSplashField(canvas: HTMLCanvasElement, accent: string): () => void {
   const ctx = canvas.getContext('2d', { alpha: true })
   if (!ctx) return () => undefined
 
@@ -78,44 +80,59 @@ function startSplashParticles(canvas: HTMLCanvasElement, accent: string): () => 
   let raf = 0
   let alive = true
   let running = true
+  let t = 0
 
-  type Dot = {
-    x: number
-    y: number
-    r: number
-    vx: number
-    vy: number
-    a: number
-    layer: number
-    phase: number
-  }
-  /** 对象池：按上限 28 预分配，resize 只改 count + 重置字段 */
-  const POOL = 28
-  let count = 0
-  const dots: Dot[] = Array.from({ length: POOL }, () => ({
-    x: 0, y: 0, r: 0, vx: 0, vy: 0, a: 0, layer: 0, phase: 0,
-  }))
-
-  const initDot = (d: Dot, layer: number): void => {
-    const sizeBase = layer === 0 ? 3 : layer === 1 ? 6 : 10
-    const sizeSpan = layer === 0 ? 8 : layer === 1 ? 12 : 18
-    const speed = layer === 0 ? 0.16 : layer === 1 ? 0.28 : 0.42
-    d.x = Math.random() * w
-    d.y = Math.random() * h
-    d.r = sizeBase + Math.random() * sizeSpan
-    d.vx = (Math.random() - 0.5) * speed
-    d.vy = -speed * 0.4 - Math.random() * speed * 0.5
-    d.a = (layer === 0 ? 0.1 : layer === 1 ? 0.16 : 0.24) + Math.random() * 0.1
-    d.layer = layer
-    d.phase = Math.random() * Math.PI * 2
-  }
-
-  const off = document.createElement('canvas')
-  const offCtx = off.getContext('2d', { alpha: true })
-
-  // 用品牌薄荷/主题 accent 做光点；解析失败退回 hsla
   const tint = accent.startsWith('#') ? accent.slice(0, 7) : '#2dd4a8'
   const sprite = makeTintSprite(tint, dpr)
+
+  type Orb = { ox: number; oy: number; r: number; phase: number; amp: number }
+  const orbs: Orb[] = [
+    { ox: 0.28, oy: 0.32, r: 0.42, phase: 0.0, amp: 18 },
+    { ox: 0.72, oy: 0.58, r: 0.36, phase: 1.7, amp: 22 },
+    { ox: 0.5, oy: 0.72, r: 0.28, phase: 3.1, amp: 14 },
+  ]
+
+  type Ripple = { born: number; dur: number }
+  const RIPPLE_INTERVAL = 2.2
+  const RIPPLE_COUNT = 3 // 同时在场环数
+  const ripples: Ripple[] = []
+  const spawnRipples = () => {
+    // 三道错拍涟漪：出生点在时间轴上均匀分布
+    ripples.length = 0
+    for (let i = 0; i < RIPPLE_COUNT; i++) {
+      ripples.push({ born: (i / RIPPLE_COUNT) * RIPPLE_INTERVAL, dur: 3.4 })
+    }
+  }
+  spawnRipples()
+
+  type Lattice = { x: number; y: number; a: number; phase: number; size: number; ringK: number; ang: number }
+  let lattice: Lattice[] = []
+
+  const buildLattice = () => {
+    const cx = w * 0.5
+    const cy = h * 0.45
+    const maxR = Math.min(w, h) * 0.48
+    const pts: Lattice[] = []
+    const rings = 7
+    for (let ring = 1; ring <= rings; ring++) {
+      const rr = (ring / rings) * maxR
+      const count = 6 + ring * 6
+      for (let i = 0; i < count; i++) {
+        const ang = (i / count) * Math.PI * 2 + ring * 0.18
+        const fade = 1 - ring / (rings + 1)
+        pts.push({
+          x: cx + Math.cos(ang) * rr,
+          y: cy + Math.sin(ang) * rr * 0.86,
+          a: 0.08 + fade * 0.22,
+          phase: ring * 0.45 + i * 0.12,
+          size: 1.2 + fade * 2.4,
+          ringK: ring / rings,
+          ang,
+        })
+      }
+    }
+    lattice = pts
+  }
 
   const resize = () => {
     w = window.innerWidth
@@ -125,69 +142,67 @@ function startSplashParticles(canvas: HTMLCanvasElement, accent: string): () => 
     canvas.style.width = `${w}px`
     canvas.style.height = `${h}px`
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    if (offCtx) {
-      off.width = Math.floor(w * dpr)
-      off.height = Math.floor(h * dpr)
-      offCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    }
-    // 上限约 28，启动阶段足够热闹又不抢标
-    const next = Math.min(POOL, Math.max(12, Math.floor((w * h) / 52000)))
-    if (next > count) {
-      for (let i = count; i < next; i++) initDot(dots[i], i % 3)
-    }
-    count = next
+    buildLattice()
   }
 
-  /** drawImage 版绘制：sprite 缩放 + 呼吸透明度（上下文已按 dpr 缩放，尺寸用 CSS px） */
-  const paintDot = (g: CanvasRenderingContext2D, d: Dot, t: number) => {
-    const breath = 1 + Math.sin(t * 1.2 + d.phase) * 0.1
-    const r = d.r * breath
-    const alpha = d.a * (0.9 + Math.sin(t + d.phase) * 0.1)
-    const s = r * 2
-    g.globalAlpha = Math.min(1, alpha + 0.18)
-    g.drawImage(sprite, d.x - s / 2, d.y - s / 2, s, s)
-  }
-
-  let t = 0
   const step = () => {
     if (!alive || !running) return
     t += 0.016
-    for (let i = 0; i < count; i++) {
-      const d = dots[i]
-      d.x += d.vx
-      d.y += d.vy
-      if (d.x < -d.r) d.x = w + d.r
-      if (d.x > w + d.r) d.x = -d.r
-      if (d.y < -d.r * 2) {
-        d.y = h + d.r
-        d.x = Math.random() * w
+    ctx.clearRect(0, 0, w, h)
+
+    const cx = w * 0.5
+    const cy = h * 0.45
+    const maxR = Math.min(w, h) * 0.48
+
+    ctx.globalCompositeOperation = 'lighter'
+
+    // 软光斑
+    for (const o of orbs) {
+      const driftX = Math.sin(t * 0.35 + o.phase) * o.amp
+      const driftY = Math.cos(t * 0.28 + o.phase * 0.7) * o.amp * 0.6
+      const breath = 0.72 + Math.sin(t * 0.9 + o.phase) * 0.18
+      const radius = Math.min(w, h) * o.r
+      const s = radius * 2
+      ctx.globalAlpha = 0.22 * breath
+      ctx.drawImage(sprite, w * o.ox + driftX - s / 2, h * o.oy + driftY - s / 2, s, s)
+    }
+
+    // 涟漪环：自中心周期荡开的细环，随半径淡出（描边而非 sprite，半径连续）
+    for (const rp of ripples) {
+      const local = ((t - rp.born) % RIPPLE_INTERVAL + RIPPLE_INTERVAL) % RIPPLE_INTERVAL
+      const p = local / rp.dur
+      if (p >= 1) continue
+      const rr = p * maxR * 1.06
+      const fade = (1 - p) * (1 - p)
+      ctx.globalAlpha = 0.16 * fade
+      ctx.strokeStyle = tint
+      ctx.lineWidth = 1 + (1 - p) * 1.2
+      ctx.beginPath()
+      // 与点阵一致的椭圆压扁，视觉同构
+      ctx.ellipse(cx, cy, rr, rr * 0.86, 0, 0, Math.PI * 2)
+      ctx.stroke()
+    }
+
+    // 点阵：脉冲 + 受最近涟漪波前轻微加亮（波前经过时呼吸更明显）
+    for (const p of lattice) {
+      const pulse = 0.65 + Math.sin(t * 1.4 + p.phase) * 0.35
+      let waveGlow = 0
+      for (const rp of ripples) {
+        const local = ((t - rp.born) % RIPPLE_INTERVAL + RIPPLE_INTERVAL) % RIPPLE_INTERVAL
+        const pr = local / rp.dur
+        if (pr >= 1) continue
+        const front = pr * maxR * 1.06
+        const dist = Math.abs(Math.hypot(p.x - cx, (p.y - cy) / 0.86) - front)
+        if (dist < 46) waveGlow = Math.max(waveGlow, (1 - dist / 46) * 0.3)
       }
+      ctx.globalAlpha = Math.min(0.9, p.a * pulse + waveGlow)
+      ctx.fillStyle = tint
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, p.size * (0.85 + pulse * 0.2) + waveGlow * 1.6, 0, Math.PI * 2)
+      ctx.fill()
     }
-
-    if (offCtx) {
-      offCtx.clearRect(0, 0, w, h)
-      offCtx.globalCompositeOperation = 'lighter'
-      for (let i = 0; i < count; i++) paintDot(offCtx, dots[i], t)
-      offCtx.globalAlpha = 1
-      offCtx.globalCompositeOperation = 'source-over'
-
-      ctx.clearRect(0, 0, w, h)
-      ctx.save()
-      ctx.filter = 'blur(12px)'
-      ctx.globalAlpha = 0.6
-      ctx.drawImage(off, 0, 0, w, h)
-      ctx.restore()
-      ctx.save()
-      ctx.globalCompositeOperation = 'lighter'
-      ctx.globalAlpha = 0.9
-      ctx.filter = 'blur(0.4px)'
-      ctx.drawImage(off, 0, 0, w, h)
-      ctx.restore()
-    } else {
-      ctx.clearRect(0, 0, w, h)
-      for (let i = 0; i < count; i++) paintDot(ctx, dots[i], t)
-      ctx.globalAlpha = 1
-    }
+    ctx.globalAlpha = 1
+    ctx.globalCompositeOperation = 'source-over'
     raf = requestAnimationFrame(step)
   }
 
@@ -212,8 +227,8 @@ function startSplashParticles(canvas: HTMLCanvasElement, accent: string): () => 
     cancelAnimationFrame(raf)
     window.removeEventListener('resize', resize)
     document.removeEventListener('visibilitychange', onVisibility)
-    off.width = 0
-    off.height = 0
+    lattice = []
+    ripples.length = 0
     sprite.width = 0
     sprite.height = 0
   }
@@ -239,6 +254,8 @@ export function Splash({ onDone }: { onDone: () => void }) {
       tileR: root.querySelector('.splash-tile-r'),
       node: root.querySelector('.splash-node'),
       wordmark: root.querySelector('.splash-word'),
+      wordChars: Array.from(root.querySelectorAll('.splash-word-char')),
+      mark: root.querySelector('.splash-mark'),
       ring: root.querySelector('.splash-ring'),
       sub: root.querySelector('.splash-sub'),
       stage: root.querySelector('.splash-stage'),
@@ -292,15 +309,14 @@ export function Splash({ onDone }: { onDone: () => void }) {
     applySplashTokens(root, mode)
   }, [settingsReady, splashBg.type])
 
-  // high 档：背景粒子（仅 splash 阶段）
+  // high 档：结构性环境场（仅 splash 阶段）
   useEffect(() => {
     if (!settingsReady || level !== 'high') return
     const canvas = canvasRef.current
     if (!canvas) return
-    // 主题模式用 --accent；品牌/图片模式固定薄荷，避免被主题 accent 染色
     const accent =
       splashBg.type === 'none' ? readCssVar('--accent', BRAND.accent) : BRAND.accent
-    return startSplashParticles(canvas, accent)
+    return startSplashField(canvas, accent)
   }, [settingsReady, level, splashBg.type])
 
   // 播放时间轴
@@ -337,7 +353,7 @@ export function Splash({ onDone }: { onDone: () => void }) {
           }}
         />
       )}
-      <canvas ref={canvasRef} className="splash-particles" aria-hidden />
+      <canvas ref={canvasRef} className="splash-field" aria-hidden />
       <div className="splash-stage">
         <svg className="splash-mark" viewBox="0 0 200 200" width="168" height="168">
           {/* 开口六边形巢 */}
@@ -375,7 +391,13 @@ export function Splash({ onDone }: { onDone: () => void }) {
           {/* 中心智能节点 */}
           <circle className="splash-node" cx="100" cy="100" r="7" fill="#F5A524" />
         </svg>
-        <div className="splash-word">eNest</div>
+        <div className="splash-word">
+          {'eNest'.split('').map((c, i) => (
+            <span className="splash-word-char" key={i}>
+              {c}
+            </span>
+          ))}
+        </div>
         <div className="splash-sub">可组合的桌面工作台</div>
       </div>
     </div>

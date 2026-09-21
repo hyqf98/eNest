@@ -1,12 +1,12 @@
 /**
- * splashMotion — 启动动画时间轴
- * 职责：驱动 Splash 组件的六边形描边、插件块入场、节点脉冲与收尾淡出。
- * 按动画强度三档缩放时长与弹簧：low 极短淡入 / medium 默认 / high 加长更弹。
- * 被 Splash 组件在 mount 后调用；尊重 prefers-reduced-motion 由调用方处理。
- * 依赖：gsap、@shared/types/plugin（AnimationLevel）。
+ * splashMotion — 启动时间轴（Tactile Marketplace 三档叙事）
+ * low 闪现 / medium 六边形描边→双 tile→node 脉冲→wordmark 逐字 / high 舞台缩放+字距收束+二次光环
+ * 保持阶段 mark 轻呼吸（medium/high）；退出为结构化收束：hex 回描 + 舞台升格淡出 + 底色渐隐。
+ * 时长与 ease 来自 motionTokens；Splash.tsx 句柄契约保持不变（新增 wordChars/mark 可选项）。
  */
 import gsap from 'gsap'
 import type { AnimationLevel } from '@shared/types/plugin'
+import { getMotionTokens, msToSec, type MotionLevelTokens } from '@renderer/gsap/motionTokens'
 
 export interface SplashHandles {
   root: HTMLElement
@@ -15,44 +15,39 @@ export interface SplashHandles {
   tileR: Element | null
   node: Element | null
   wordmark: Element | null
+  /** wordmark 逐字 span（新增；缺省回落整词动画） */
+  wordChars?: Element[] | null
+  /** svg mark 整体（新增；用于保持阶段呼吸） */
+  mark?: Element | null
   ring: Element | null
-  /** 副标题；high 档参与入场（可选，旧句柄兼容） */
   sub?: Element | null
-  /** 标题容器；high 档整体缩放入场（可选） */
   stage?: Element | null
 }
 
-/** 档位时长缩放系数 */
-function speed(level: AnimationLevel): number {
-  if (level === 'high') return 1.35
-  return 1
+function sec(t: MotionLevelTokens, key: keyof MotionLevelTokens['duration']): number {
+  return msToSec(t.duration[key])
 }
 
-/** 插件块/节点弹簧：high 更明显 */
-function backEase(level: AnimationLevel): string {
-  return level === 'high' ? 'back.out(2.4)' : 'back.out(1.6)'
-}
-
-/** 播放完整启动序列，结束后 onDone */
 export function playSplash(
   h: SplashHandles,
   onDone: () => void,
   level: AnimationLevel = 'medium',
 ): void {
-  // low：几乎直接结束——极短淡入后立刻淡出（prefers-reduced-motion 由调用方直接 onDone）
+  const t = getMotionTokens(level)
+
   if (level === 'low') {
     gsap.fromTo(
       h.root,
       { autoAlpha: 0 },
       {
         autoAlpha: 1,
-        duration: 0.1,
-        ease: 'none',
+        duration: sec(t, 'instant'),
+        ease: t.ease.enter,
         onComplete: () => {
           gsap.to(h.root, {
             autoAlpha: 0,
-            duration: 0.12,
-            ease: 'power1.in',
+            duration: sec(t, 'fast'),
+            ease: t.ease.exit,
             onComplete: onDone,
           })
         },
@@ -61,26 +56,78 @@ export function playSplash(
     return
   }
 
-  const m = speed(level)
-  const easeBack = backEase(level)
   const isHigh = level === 'high'
+  const tileEase = t.spring.confirm.gsap
+  const enterEase = t.ease.enter
+  const softEase = t.ease.soft
+  const hexDur = isHigh ? sec(t, 'slow') : sec(t, 'medium') * 1.2
+  const tileDur = isHigh ? sec(t, 'medium') : sec(t, 'standard') * 1.1
+  const nodeDur = isHigh ? sec(t, 'standard') * 0.95 : sec(t, 'standard')
+  const wordDur = isHigh ? sec(t, 'medium') : sec(t, 'standard') * 1.1
+  const ringDur = isHigh ? sec(t, 'medium') : sec(t, 'standard') * 1.3
+  const pulseDur = isHigh ? 0.28 : 0.24
+  const pulseRepeat = isHigh ? 2 : 1
+  const pulseScale = isHigh ? 1.45 : 1.2
+  const ringPeak = isHigh ? 0.55 : 0.35
+  const ringScale = isHigh ? 1.14 : 1.08
+  const hold = isHigh ? 0.34 : 0.22
+
+  // 结构化退出：hex 回描收束 + 舞台升格淡出 + 整层渐隐（呼吸随之杀死）
+  const exitDur = isHigh ? sec(t, 'medium') * 0.6 : sec(t, 'standard') * 0.66
+  const breathers: gsap.core.Tween[] = []
+  const exitTl = gsap.timeline({
+    paused: true,
+    onComplete: () => {
+      breathers.forEach((tw) => tw.kill())
+      onDone()
+    },
+  })
+  exitTl.to(h.hex, { strokeDashoffset: 1, duration: exitDur * 1.15, ease: 'power2.in' }, 0)
+  if (h.stage) {
+    exitTl.to(
+      h.stage,
+      { autoAlpha: 0, scale: isHigh ? 1.045 : 1.03, duration: exitDur, ease: 'power2.in' },
+      0,
+    )
+  }
+  exitTl.to(h.root, { autoAlpha: 0, duration: exitDur, ease: 'power1.inOut' }, exitDur * 0.3)
 
   const tl = gsap.timeline({
-    defaults: { ease: 'power3.out' },
+    defaults: { ease: softEase },
     onComplete: () => {
-      // 淡出后立刻 onDone，避免二次跳帧
-      gsap.to(h.root, {
-        autoAlpha: 0,
-        duration: isHigh ? 0.42 : 0.32,
-        ease: 'power2.inOut',
-        onComplete: onDone,
-      })
+      // 保持阶段的轻呼吸（wordmark 已就位后启动；退出时 kill 防泄漏）
+      if (h.mark) {
+        breathers.push(
+          gsap.to(h.mark, {
+            scale: 1.02,
+            transformOrigin: '50% 50%',
+            duration: isHigh ? 1.1 : 0.9,
+            yoyo: true,
+            repeat: -1,
+            ease: 'sine.inOut',
+          }),
+          gsap.to(h.mark, {
+            opacity: 0.88,
+            duration: isHigh ? 1.1 : 0.9,
+            yoyo: true,
+            repeat: -1,
+            ease: 'sine.inOut',
+          }),
+        )
+      }
+      window.setTimeout(() => exitTl.play(), isHigh ? 620 : 380)
     },
   })
 
   gsap.set([h.tileL, h.tileR], { autoAlpha: 0, scale: isHigh ? 0.5 : 0.6 })
   gsap.set(h.node, { scale: 0, transformOrigin: '50% 50%' })
-  gsap.set(h.wordmark, { autoAlpha: 0, y: isHigh ? 18 : 12 })
+  const chars = h.wordChars?.length ? h.wordChars : null
+  if (chars) {
+    gsap.set(chars, { autoAlpha: 0, y: isHigh ? 16 : 11 })
+    gsap.set(h.wordmark, { autoAlpha: 1 })
+  } else {
+    gsap.set(h.wordmark, { autoAlpha: 0, y: isHigh ? 18 : 12 })
+  }
   gsap.set(h.hex, {
     strokeDasharray: 1,
     strokeDashoffset: 1,
@@ -90,68 +137,120 @@ export function playSplash(
   gsap.set(h.ring, { autoAlpha: 0, scale: 0.92 })
   if (isHigh && h.stage) {
     gsap.set(h.stage, { scale: 0.94, transformOrigin: '50% 50%' })
-    if (h.sub) gsap.set(h.sub, { autoAlpha: 0, y: 10, letterSpacing: '0.32em' })
+  }
+  if (isHigh && h.sub) {
+    gsap.set(h.sub, { autoAlpha: 0, y: 10, letterSpacing: '0.32em' })
   }
 
-  tl.to(h.hex, { strokeDashoffset: 0, duration: 0.8 * m, ease: 'power2.inOut' }, 0.08 * m)
+  const t0 = isHigh ? 0.08 : 0.06
+  tl.to(h.hex, { strokeDashoffset: 0, duration: hexDur, ease: 'power2.inOut' }, t0)
     .to(
       h.ring,
       {
-        autoAlpha: isHigh ? 0.55 : 0.35,
-        scale: isHigh ? 1.14 : 1.08,
-        duration: 0.65 * m,
+        autoAlpha: ringPeak,
+        scale: ringScale,
+        duration: ringDur * 0.85,
         transformOrigin: '50% 50%',
       },
-      0.32 * m,
+      t0 + hexDur * 0.35,
     )
     .to(
       h.tileL,
-      { autoAlpha: 1, scale: 1, duration: 0.42 * m, ease: easeBack },
-      0.5 * m,
+      { autoAlpha: 1, scale: 1, duration: tileDur, ease: tileEase },
+      t0 + hexDur * 0.55,
     )
     .to(
       h.tileR,
-      { autoAlpha: 1, scale: 1, duration: 0.42 * m, ease: easeBack },
-      0.62 * m,
+      { autoAlpha: 1, scale: 1, duration: tileDur, ease: tileEase },
+      t0 + hexDur * 0.7,
     )
-    .to(h.node, { scale: 1, duration: 0.38 * m, ease: easeBack }, 0.8 * m)
+    .to(
+      h.node,
+      { scale: 1, duration: nodeDur, ease: tileEase },
+      t0 + hexDur * 0.95,
+    )
     .to(
       h.node,
       {
-        scale: isHigh ? 1.45 : 1.2,
-        duration: 0.26 * m,
+        scale: pulseScale,
+        duration: pulseDur,
         yoyo: true,
-        repeat: isHigh ? 2 : 1,
+        repeat: pulseRepeat,
         ease: 'sine.inOut',
       },
-      1.05 * m,
+      t0 + hexDur + nodeDur * 0.45,
     )
-    .to(
-      h.wordmark,
-      { autoAlpha: 1, y: 0, duration: 0.38 * m, ease: isHigh ? 'back.out(1.4)' : 'power3.out' },
-      1.0 * m,
-    )
-    .to(h.ring, { autoAlpha: 0, scale: isHigh ? 1.48 : 1.22, duration: 0.45 * m }, 1.25 * m)
 
-  if (isHigh) {
-    // 高档：舞台整体回弹 + 副标题字距收束 + 二次光环
-    if (h.stage) {
-      tl.to(h.stage, { scale: 1, duration: 0.55 * m, ease: 'back.out(1.6)' }, 0.05 * m)
-    }
-    if (h.sub) {
-      tl.to(
-        h.sub,
-        { autoAlpha: 1, y: 0, letterSpacing: '0.18em', duration: 0.45 * m, ease: 'power2.out' },
-        1.15 * m,
-      )
-    }
-    tl.fromTo(
-      h.ring,
-      { autoAlpha: 0, scale: 0.85 },
-      { autoAlpha: 0.28, scale: 1.25, duration: 0.35 * m, ease: 'power1.out' },
-      1.55 * m,
-    ).to(h.ring, { autoAlpha: 0, scale: 1.55, duration: 0.4 * m }, 1.9 * m)
+  // wordmark：逐字升格（无 chars 时回落整词）
+  const wordStart = t0 + hexDur + nodeDur * 0.35
+  if (chars) {
+    tl.to(
+      chars,
+      {
+        autoAlpha: 1,
+        y: 0,
+        duration: wordDur * 0.8,
+        ease: isHigh ? enterEase : softEase,
+        stagger: isHigh ? 0.055 : 0.04,
+      },
+      wordStart,
+    )
+  } else {
+    tl.to(
+      h.wordmark,
+      { autoAlpha: 1, y: 0, duration: wordDur, ease: isHigh ? enterEase : softEase },
+      wordStart,
+    )
   }
 
-  tl.to({}, { duration: (isHigh ? 0.28 : 0.18) * m })
+  tl.to(
+    h.ring,
+    { autoAlpha: 0, scale: isHigh ? 1.48 : 1.22, duration: ringDur },
+    t0 + hexDur + nodeDur + pulseDur * (pulseRepeat + 1) * 0.4,
+  )
+
+  if (isHigh) {
+    if (h.stage) {
+      tl.to(h.stage, { scale: 1, duration: sec(t, 'medium'), ease: enterEase }, t0)
+    }
+    if (h.sub) {
+      const subStart = t0 + hexDur + nodeDur * 0.7
+      tl.to(
+        h.sub,
+        {
+          autoAlpha: 1,
+          y: 0,
+          letterSpacing: '0.18em',
+          duration: wordDur,
+          ease: softEase,
+        },
+        subStart,
+      )
+      tl.fromTo(
+        h.ring,
+        { autoAlpha: 0, scale: 0.85 },
+        {
+          autoAlpha: 0.28,
+          scale: 1.25,
+          duration: sec(t, 'standard') * 0.9,
+          ease: 'power1.out',
+        },
+        subStart + wordDur * 0.35,
+      ).to(
+        h.ring,
+        { autoAlpha: 0, scale: 1.55, duration: sec(t, 'medium') * 0.8 },
+        subStart + wordDur * 0.35 + sec(t, 'standard'),
+      )
+    }
+  } else if (h.sub) {
+    // medium：sub 也轻淡入，不再整场静止（先 set 0 再 tl 内 to）
+    gsap.set(h.sub, { autoAlpha: 0 })
+    tl.to(
+      h.sub,
+      { autoAlpha: 1, duration: sec(t, 'standard') * 0.9, ease: softEase },
+      wordStart + wordDur * 0.5,
+    )
+  }
+
+  tl.to({}, { duration: hold })
 }

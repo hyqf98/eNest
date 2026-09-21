@@ -1,4 +1,8 @@
-/* Quick 小窗 — 透明窗口；收起只见胶囊，展开列表从下方长出 */
+/* Quick 小窗 — 透明窗口；壳子铺满窗体，窗高 = 实测内容高。
+ * 视觉复刻参考稿：大号输入条 + 右上黑色品牌圆标 + 分组标题（最近使用 /
+ * 最佳搜索结果 / 匹配推荐）+ 九列图标网格；选中项浅蓝高亮、命中词橙色。
+ * 输入框固定；结果过长时 panel 限高滚动。
+ */
 
 html:has(.quick-root),
 body:has(.quick-root) {
@@ -6,102 +10,220 @@ body:has(.quick-root) {
   background-color: transparent !important;
   border-radius: 0 !important;
   box-shadow: none !important;
-  overflow: visible !important;
+  overflow: hidden !important;
 }
 
 #root:has(.quick-root) {
   height: auto;
+  min-height: 0;
   background: transparent !important;
   background-color: transparent !important;
 }
 
+/*
+ * Quick 小窗 — 透明窗口；壳子铺满窗体，窗高 = 实测内容高。
+ * 视觉：伪毛玻璃壳（半透明渐变 + 噪点纹理，主题 token 联动；不用 backdrop-filter，
+ *   否则透明窗口角部露出合成器灰色方形底）、固定输入条（高度恒定，窗高变化不影响）、
+ *   内容面板下拉展开动画、中/高档轻尘点（low 档关闭；与市场页 AmbientField 结构环境场无关）。
+ *   动画全部走 :root[data-anim] 分档。
+ */
+
+/* —— 输入条固定高度契约：与展开状态无关，窗高 tween 只作用于下方 panel —— */
 .quick-root {
+  --quick-bar-h: 72px;
+  --quick-glass-border: color-mix(in srgb, var(--text, #18181b) 10%, transparent);
   display: flex;
   flex-direction: column;
   height: auto;
   min-height: 0;
+  padding: 0;
   background: transparent !important;
-  background-color: transparent !important;
   color: var(--text, #0f1420);
   font-family: var(--font, Inter, 'PingFang SC', sans-serif);
   user-select: none;
-  /* 阴影留白压到最小，减少「整窗灰块」在灰壁纸上的可见面积 */
-  padding: 6px 8px 8px;
   box-sizing: border-box;
 }
 
-/* 悬浮壳：收起=窄胶囊；展开=圆角面板 */
 .quick-shell {
   display: flex;
   flex-direction: column;
+  flex: 0 0 auto;
   width: 100%;
   max-width: 100%;
-  background: var(--surface, #fff);
-  border-radius: 999px;
+  position: relative;
+  isolation: isolate;
+  /* 玻璃拟态（伪毛玻璃）：透明窗口内 backdrop-filter 会破坏逐像素 alpha、
+     露出合成器灰色方形底（角部可见），且窗口内无内容可 blur——
+     故用「半透明渐变 + 噪点纹理」伪造磨砂质感，跨平台一致。
+     噪点：feTurbulence 灰阶 5% 平铺，模拟毛玻璃颗粒。 */
+  --quick-noise: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='120' height='120' filter='url(%23n)' opacity='0.05'/></svg>");
+  background-image:
+    var(--quick-noise),
+    linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--surface, #fff) 84%, transparent),
+      color-mix(in srgb, var(--surface, #fff) 66%, transparent) 46%,
+      color-mix(in srgb, var(--surface, #fff) 78%, transparent)
+    );
+  border-radius: 16px;
   overflow: hidden;
-  /* 收起时阴影更轻，避免大范围半透明晕开像方形容器 */
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--border, rgba(15, 23, 42, 0.08)) 80%, transparent),
-    0 4px 16px rgba(15, 23, 42, 0.1);
-  transition:
-    border-radius 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.24s ease;
+    inset 0 0 0 1px var(--quick-glass-border),
+    inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent),
+    0 8px 32px rgba(0, 0, 0, 0.18);
 }
 
-.quick-root[data-expanded='1'] .quick-shell {
-  border-radius: 20px;
-  box-shadow:
-    0 0 0 1px var(--border, rgba(15, 23, 42, 0.1)),
-    0 12px 40px rgba(15, 23, 42, 0.16),
-    0 2px 8px rgba(15, 23, 42, 0.06);
+/* 深色主题：玻璃底转暗、亮线减弱、噪点更淡 */
+:root[data-theme='dark'] .quick-root {
+  --quick-glass-border: color-mix(in srgb, #fff 12%, transparent);
 }
 
+:root[data-theme='dark'] .quick-shell {
+  --quick-noise: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='120' height='120' filter='url(%23n)' opacity='0.035'/></svg>");
+  background-image:
+    var(--quick-noise),
+    linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--surface, #1a1a1e) 88%, transparent),
+      color-mix(in srgb, var(--surface, #1a1a1e) 74%, transparent) 46%,
+      color-mix(in srgb, var(--surface, #1a1a1e) 84%, transparent)
+    );
+  box-shadow:
+    inset 0 0 0 1px var(--quick-glass-border),
+    inset 0 1px 0 color-mix(in srgb, #fff 7%, transparent),
+    0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+/* 动画低档：关掉模糊饱和动画过渡（静态玻璃保留） */
 .quick-root.anim-low .quick-shell {
   transition: none;
 }
 
-/* —— 搜索栏 —— */
+/* —— 结构性背景场（中/高档）：点阵 + 软光斑，内容之下 —— */
+.quick-particles {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.quick-field-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(28px);
+  opacity: 0.35;
+  animation: quick-orb-breathe 7s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.quick-field-orb-a {
+  width: 42%;
+  height: 70%;
+  left: -8%;
+  top: 10%;
+  background: color-mix(in srgb, var(--link, #7b86d4) 40%, transparent);
+}
+
+.quick-field-orb-b {
+  width: 36%;
+  height: 60%;
+  right: -6%;
+  bottom: 0;
+  background: color-mix(in srgb, var(--ok, #2a9d76) 32%, transparent);
+  animation-delay: -3.2s;
+}
+
+.quick-field-dot {
+  position: absolute;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--link, #7b86d4) 55%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--link, #7b86d4) 40%, transparent);
+  transform: translate(-50%, -50%);
+  animation: quick-dot-pulse 3.6s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* 点阵旋转容器：绕面板中心极缓慢自转（中心即百分比定位原点） */
+.quick-field-spin {
+  position: absolute;
+  inset: 0;
+}
+
+.quick-root.anim-high .quick-field-spin {
+  animation: quick-field-rotate 120s linear infinite;
+  will-change: transform;
+}
+
+@keyframes quick-field-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.quick-field-dot.hue-ok {
+  background: color-mix(in srgb, var(--ok, #2a9d76) 50%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--ok, #2a9d76) 38%, transparent);
+}
+
+.quick-root.anim-high .quick-field-orb {
+  opacity: 0.48;
+}
+
+.quick-root.anim-high .quick-field-dot {
+  --field-dot-max: 0.85;
+}
+
+.quick-root.anim-low .quick-particles {
+  display: none;
+}
+
+@keyframes quick-orb-breathe {
+  0%,
+  100% {
+    transform: scale(1) translate(0, 0);
+    opacity: 0.28;
+  }
+  50% {
+    transform: scale(1.08) translate(2%, -1%);
+    opacity: 0.42;
+  }
+}
+
+@keyframes quick-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: translate(-50%, -50%) scale(0.85);
+  }
+  50% {
+    opacity: var(--field-dot-max, 0.65);
+    transform: translate(-50%, -50%) scale(1.15);
+  }
+}
+
+/* —— 输入条（固定）：高度钉死 --quick-bar-h，展开/收起绝不改变 —— */
 .quick-search {
-  flex: 0 0 auto;
-  padding: 4px 6px;
+  flex: 0 0 var(--quick-bar-h);
+  height: var(--quick-bar-h);
+  display: flex;
+  align-items: center;
+  padding: 0 14px 0 16px;
+  position: relative;
+  z-index: 2;
+  background: transparent;
 }
 
 .quick-field {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
-  border-radius: 999px;
-  background: transparent;
-  border: none;
-  outline: none;
-  transition: background 0.18s ease;
-}
-
-.quick-root[data-expanded='1'] .quick-field {
-  background: var(--surface-2, #f0f2f5);
-  margin: 4px 8px 0;
-  border-radius: 12px;
-}
-
-.quick-field:focus-within {
-  background: color-mix(in srgb, var(--surface-2, #f0f2f5) 55%, transparent);
-}
-
-.quick-root[data-expanded='1'] .quick-field:focus-within {
-  background: var(--surface, #fff);
-  box-shadow: inset 0 0 0 1px var(--border, rgba(15, 23, 42, 0.08));
-}
-
-.quick-search-glyph {
-  width: 18px;
-  height: 18px;
-  color: var(--text-3, #8b93a5);
-  flex: 0 0 auto;
-}
-
-.quick-field:focus-within .quick-search-glyph {
-  color: var(--text-2, #5c6578);
+  gap: 12px;
+  width: 100%;
+  min-height: 40px;
 }
 
 .quick-input {
@@ -110,9 +232,10 @@ body:has(.quick-root) {
   border: none;
   outline: none !important;
   background: transparent;
-  color: inherit;
-  font-size: 17px;
-  line-height: 1.4;
+  color: var(--text, #17181c);
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 1.3;
   padding: 0;
   box-shadow: none !important;
   -webkit-appearance: none;
@@ -126,50 +249,62 @@ body:has(.quick-root) {
 }
 
 .quick-input::placeholder {
-  color: var(--text-3, #8b93a5);
-  opacity: 0.8;
+  color: var(--text-3, #c2c3c8);
+  opacity: 0.85;
+  font-weight: 400;
 }
 
-.quick-esc {
+/* 搜索态右侧「切换选中 Tab」提示 */
+.quick-hint {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-3, #a3a4aa);
+  white-space: nowrap;
+}
+
+.quick-hint-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text, #17181c) 8%, transparent);
+  color: var(--text-2, #7a7b81);
   font-size: 11px;
-  color: var(--text-3, #8b93a5);
-  border: 1px solid var(--border, rgba(15, 23, 42, 0.1));
-  border-radius: 999px;
-  padding: 3px 9px;
-  background: var(--surface-2, #f0f2f5);
-  opacity: 0.95;
-  line-height: 1.2;
-}
-
-.quick-field:focus-within .quick-esc {
-  opacity: 0.45;
-}
-
-.quick-clear {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: none;
-  background: var(--surface-3, #e8ebf0);
-  color: var(--text-2, #5c6578);
-  font-size: 14px;
+  font-weight: 600;
   line-height: 1;
-  cursor: pointer;
 }
 
-.quick-clear:hover {
-  background: color-mix(in srgb, var(--danger, #e11d48) 16%, var(--surface-3));
-  color: var(--danger, #e11d48);
+/* 右侧品牌圆标：黑底白描线 + 品牌绿块（对齐参考稿右上角） */
+.quick-brand-orb {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #0b0c0f;
+  overflow: hidden;
+}
+
+.quick-brand-orb svg {
+  width: 24px;
+  height: 24px;
+  display: block;
 }
 
 .quick-spinner {
   flex: 0 0 auto;
   width: 14px;
   height: 14px;
-  border: 2px solid var(--border, rgba(15, 23, 42, 0.1));
-  border-top-color: var(--link, #3b63e0);
+  border: 2px solid var(--border, rgba(24, 24, 27, 0.1));
+  border-top-color: var(--link, #7b86d4);
   border-radius: 50%;
   animation: quick-spin 0.7s linear infinite;
 }
@@ -185,65 +320,126 @@ body:has(.quick-root) {
   }
 }
 
-/* —— 内容面板：默认收起，is-open 撑开 —— */
+/* —— 内容面板：下拉展开（从输入条下缘滑出）；本层限高滚动 —— */
 .quick-panel {
-  display: grid;
-  grid-template-rows: 0fr;
-  opacity: 0;
-  transition:
-    grid-template-rows 0.3s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.22s ease;
+  flex: 0 0 0;
   min-height: 0;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: relative;
+  z-index: 1;
+  transform: translateY(-14px);
+  transition:
+    opacity 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .quick-panel.is-open {
-  grid-template-rows: 1fr;
+  flex: 0 0 auto;
+  /* 窗口上限 QUICK_MAX_HEIGHT(520) 减输入条约 66，超出走本层滚动 */
+  max-height: 440px;
   opacity: 1;
+  transform: translateY(0);
+  overflow-x: hidden;
+  overflow-y: auto;
+  pointer-events: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-3, #a1a1aa) 40%, transparent) transparent;
+  overscroll-behavior: contain;
+  padding-bottom: 4px;
+}
+
+.quick-panel.is-open::-webkit-scrollbar {
+  width: 8px;
+}
+
+.quick-panel.is-open::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.quick-panel.is-open::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-3, #a1a1aa) 40%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
 .quick-root.anim-low .quick-panel {
   transition: none;
+  transform: none;
+}
+
+.quick-root.anim-medium .quick-panel {
+  transform: translateY(-10px);
+  transition:
+    opacity 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .quick-root.anim-high .quick-panel {
+  transform: translateY(-18px) scale(0.995);
   transition:
-    grid-template-rows 0.42s cubic-bezier(0.16, 1.05, 0.3, 1),
-    opacity 0.28s ease;
+    opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.36s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* 0fr/1fr 高度动画：子层必须 min-height:0 + overflow 才能真正裁切 */
+.quick-root.anim-high .quick-panel.is-open {
+  transform: translateY(0) scale(1);
+}
+
 .quick-panel-inner {
   min-height: 0;
-  overflow: hidden;
 }
 
 .quick-empty {
-  padding: 14px 18px 18px;
-  font-size: 12px;
-  color: var(--text-3, #8b93a7);
+  padding: 28px 18px 32px;
+  font-size: 13px;
+  color: var(--text-3, #a1a1aa);
   text-align: center;
 }
 
-.quick-home-head {
+/* —— 分区头：最近使用 / 最佳搜索结果 / 匹配推荐 + 展开(N) —— */
+.quick-section + .quick-section {
+  margin-top: 4px;
+}
+
+.quick-section-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  padding: 12px 18px 4px;
+  padding: 4px 16px 4px;
+  min-height: 26px;
 }
 
-.quick-home-title {
-  font-size: 12px;
+.quick-section-title {
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--text-2, #8b93a7);
+  color: var(--text, #17181c);
+  letter-spacing: 0.01em;
 }
 
-/* —— 首页网格 —— */
+.quick-expand {
+  border: none;
+  background: transparent;
+  color: var(--text-3, #9a9ba1);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 2px;
+  line-height: 1.2;
+}
+
+.quick-expand:hover {
+  color: var(--link, #7b86d4);
+}
+
+/* —— 图标网格：九列，图标在上、名称在下 —— */
 .quick-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 4px 2px;
-  padding: 6px 12px 14px;
+  grid-template-columns: repeat(var(--quick-cols, 9), minmax(0, 1fr));
+  gap: 2px 0;
+  padding: 2px 10px 6px;
 }
 
 .quick-tile {
@@ -251,39 +447,35 @@ body:has(.quick-root) {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 12px 6px 10px;
+  gap: 7px;
+  padding: 12px 4px 10px;
   border: none;
-  border-radius: 14px;
+  border-radius: 12px;
   background: transparent;
   color: inherit;
   cursor: pointer;
+  min-width: 0;
+  transition: background 0.15s ease;
 }
 
-.quick-root.is-entering .quick-panel.is-open .quick-tile,
-.quick-root.is-entering .quick-panel.is-open .quick-row {
-  animation: quick-tile-in 0.36s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+/* 入场：网格块淡入 + 轻微上移；逐块延迟由 JSX 内联 animationDelay 控制（对齐动画档位） */
+.quick-panel.is-open .quick-tile {
+  animation: quick-tile-in 0.32s cubic-bezier(0.2, 0.8, 0.25, 1) both;
 }
 
-.quick-root.is-entering .quick-panel.is-open .quick-row {
-  animation-name: quick-row-in;
-  animation-duration: 0.28s;
-}
-
-.quick-root.anim-low.is-entering .quick-panel.is-open .quick-tile,
-.quick-root.anim-low.is-entering .quick-panel.is-open .quick-row {
+.quick-root.anim-low .quick-panel.is-open .quick-tile {
   animation: none;
 }
 
-.quick-root.anim-high.is-entering .quick-panel.is-open .quick-tile {
-  animation-duration: 0.48s;
-  animation-timing-function: cubic-bezier(0.16, 1.1, 0.3, 1);
+.quick-root.anim-high .quick-panel.is-open .quick-tile {
+  animation-duration: 0.42s;
+  animation-timing-function: cubic-bezier(0.16, 1.08, 0.28, 1);
 }
 
 @keyframes quick-tile-in {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.92);
+    transform: translateY(8px) scale(0.95);
   }
   to {
     opacity: 1;
@@ -291,248 +483,100 @@ body:has(.quick-root) {
   }
 }
 
+/* 选中项：参考稿浅蓝底（无 hover 位移）；底色走 --link 混合，随主题色变化 */
 .quick-tile:hover {
-  background: color-mix(in srgb, var(--link, #3b63e0) 8%, transparent);
+  background: color-mix(in srgb, var(--link, #5ebfbe) 16%, transparent);
 }
 
 .quick-tile.active {
-  background: color-mix(in srgb, var(--link, #3b63e0) 12%, transparent);
+  background: color-mix(in srgb, var(--link, #5ebfbe) 24%, transparent);
 }
 
-.quick-root.anim-high .quick-tile.active {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--link, #3b63e0) 35%, transparent);
-  transform: translateY(-2px);
-  transition:
-    transform 0.2s cubic-bezier(0.2, 0.9, 0.2, 1),
-    background 0.15s ease;
-}
-
-.quick-root.anim-high .quick-tile:hover:not(.active) {
-  transform: translateY(-1px);
-  transition: transform 0.18s ease, background 0.15s ease;
-}
-
+/* —— 图标 —— */
 .quick-icon-tile {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   flex: 0 0 auto;
-  background: var(--surface-2, #f0f2f5);
+  background: var(--surface-2, #ececee);
 }
 
-.quick-icon-tile.size-lg {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
+/* 有真实图标时透明底板，应用图标本体直接呈现（参考稿无底板） */
+.quick-icon-tile.has-icon {
+  background: transparent;
 }
 
 .quick-icon-tile img {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  pointer-events: none;
 }
 
 .quick-icon-fallback {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
-  color: var(--text-2, #8b93a7);
+  color: var(--text-2, #52525b);
   line-height: 1;
 }
 
-.quick-icon-tile.kind-app {
-  background: color-mix(in srgb, var(--link, #3b63e0) 14%, var(--surface-2, #f0f2f5));
+.quick-icon-tile.kind-app:not(.has-icon) {
+  background: color-mix(in srgb, var(--link, #7b86d4) 16%, var(--surface-2, #f4f4f5));
 }
-.quick-icon-tile.kind-app .quick-icon-fallback {
-  color: var(--link, #3b63e0);
+.quick-icon-tile.kind-app:not(.has-icon) .quick-icon-fallback {
+  color: var(--link, #7b86d4);
 }
-.quick-icon-tile.kind-plugin {
-  background: color-mix(in srgb, var(--ok, #0d9f6e) 12%, var(--surface-2, #f0f2f5));
+.quick-icon-tile.kind-plugin:not(.has-icon) {
+  background: color-mix(in srgb, var(--ok, #2a9d76) 14%, var(--surface-2, #f4f4f5));
 }
-.quick-icon-tile.kind-plugin .quick-icon-fallback {
-  color: var(--ok, #0d9f6e);
+.quick-icon-tile.kind-plugin:not(.has-icon) .quick-icon-fallback {
+  color: var(--ok, #2a9d76);
 }
-.quick-icon-tile.kind-action {
-  background: var(--accent-soft, rgba(26, 31, 46, 0.08));
+.quick-icon-tile.kind-action:not(.has-icon) {
+  background: var(--accent-soft, rgba(94, 106, 210, 0.12));
 }
-.quick-icon-tile.kind-action .quick-icon-fallback {
+.quick-icon-tile.kind-action:not(.has-icon) .quick-icon-fallback {
   color: var(--accent, #5e6ad2);
 }
 
 .quick-tile-label {
   max-width: 100%;
   font-size: 12px;
-  line-height: 1.25;
-  color: var(--text-2, #c5cbd8);
+  line-height: 1.3;
+  color: var(--text, #17181c);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: center;
 }
 
-.quick-tile.active .quick-tile-label {
-  color: var(--text);
-  font-weight: 500;
+/* 搜索命中片段：参考稿橙色高亮（仅搜索态最佳结果标题） */
+.quick-hit-text {
+  color: #e8743a;
 }
 
+/* 小插件绿点 */
 .quick-tile-dot {
   position: absolute;
-  top: 10px;
-  right: 12px;
+  top: 8px;
+  right: 10px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--ok, #3ddc97);
+  background: var(--ok, #2a9d76);
 }
 
-/* —— 搜索列表 —— */
-.quick-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px 12px;
-}
-
-.quick-row {
-  display: grid;
-  grid-template-columns: 40px 1fr auto;
-  column-gap: 12px;
-  align-items: center;
-  width: 100%;
-  text-align: left;
-  border: none;
-  background: transparent;
-  color: inherit;
-  border-radius: 12px;
-  padding: 10px 12px;
-  cursor: pointer;
-}
-
-@keyframes quick-row-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.quick-row.active {
-  background: color-mix(in srgb, var(--link, #3b63e0) 10%, transparent);
-}
-
-.quick-root.anim-medium .quick-row.active,
-.quick-root.anim-high .quick-row.active {
-  box-shadow: inset 3px 0 0 var(--link, #3b63e0);
-}
-
-.quick-row.hit .quick-icon-tile {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok, #0d9f6e) 55%, transparent);
-}
-
-.quick-row-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.quick-row-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.quick-kw {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--ok, #0d9f6e);
-  background: var(--ok-soft, rgba(13, 159, 110, 0.1));
-  border-radius: 999px;
-  padding: 1px 8px;
-}
-
-.quick-kw-label {
-  opacity: 0.75;
-  font-size: 10px;
-}
-
-.quick-row-sub {
-  font-size: 12px;
-  color: var(--text-3, #8b93a7);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.quick-row-kind {
-  font-size: 11px;
-  color: var(--text-3, #8b93a7);
-  border: 1px solid var(--border, #1e2430);
-  border-radius: 999px;
-  padding: 2px 8px;
-  white-space: nowrap;
-}
-
-/* —— 底栏 —— */
-.quick-footer {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 0 0 auto;
-  padding: 8px 18px 10px;
-  border-top: 1px solid var(--border, rgba(15, 23, 42, 0.08));
-  font-size: 11px;
-  color: var(--text-3, #8b93a5);
-  animation: quick-footer-in 0.24s ease both;
-}
-
-.quick-root.anim-low .quick-footer {
-  animation: none;
-}
-
-@keyframes quick-footer-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.quick-brand {
-  margin-left: auto;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: color-mix(in srgb, var(--link, #3b63e0) 70%, var(--text-3));
-  text-transform: uppercase;
-}
-
-/* —— 插件态顶栏（mini 插件挂 Quick contentView，本层只绘此条）—— */
-
-/* 插件态：根高由组件 inline style 钉死为 QUICK_BAR_AREA_H（含内边距，box-sizing），
-   主进程按同值计算原生插件 view 起点 y。壳子只绘顶栏圆角条，下方全部由插件覆盖；
-   底部圆角留给插件自身（0 0 半径避免插件矩形内容叠出尖角） */
+/* —— 插件态顶栏 —— */
 .quick-root[data-mode='plugin'] {
-  padding: 6px 8px 0;
+  padding: 0;
 }
 
 .quick-root[data-mode='plugin'] .quick-shell {
-  border-radius: 18px 18px 0 0;
+  border-radius: 16px 16px 0 0;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -553,9 +597,9 @@ body:has(.quick-root) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--border, rgba(15, 23, 42, 0.1));
-  background: var(--surface-2, #f0f2f5);
-  color: var(--text-2, #5c6578);
+  border: 1px solid var(--border, rgba(24, 24, 27, 0.1));
+  background: var(--surface-2, #f4f4f5);
+  color: var(--text-2, #52525b);
   border-radius: 999px;
   padding: 5px 12px;
   font-size: 12px;
@@ -564,11 +608,7 @@ body:has(.quick-root) {
   transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
 }
 
-.quick-plugin-back svg {
-  width: 14px;
-  height: 14px;
-}
-
+.quick-plugin-back svg,
 .quick-plugin-pin svg {
   width: 14px;
   height: 14px;
@@ -576,14 +616,13 @@ body:has(.quick-root) {
 
 .quick-plugin-back:hover,
 .quick-plugin-pin:hover {
-  background: color-mix(in srgb, var(--link, #3b63e0) 10%, var(--surface-2, #f0f2f5));
-  color: var(--link, #3b63e0);
-  border-color: color-mix(in srgb, var(--link, #3b63e0) 35%, transparent);
+  background: color-mix(in srgb, var(--link, #7b86d4) 10%, var(--surface-2, #f4f4f5));
+  color: var(--link, #7b86d4);
 }
 
 .quick-plugin-pin {
-  color: var(--link, #3b63e0);
-  border-color: color-mix(in srgb, var(--link, #3b63e0) 30%, transparent);
+  color: var(--link, #7b86d4);
+  border-color: color-mix(in srgb, var(--link, #7b86d4) 30%, transparent);
 }
 
 .quick-plugin-title {
@@ -591,14 +630,13 @@ body:has(.quick-root) {
   min-width: 0;
   font-size: 13px;
   font-weight: 600;
-  color: var(--text, #0f1420);
+  color: var(--text, #18181b);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: center;
 }
 
-/* 动画档位：low 无动画 / high 微移弹入（GSAP 时间轴负责主要入场，这里补 hover 层次） */
 .quick-root.anim-low .quick-plugin-back,
 .quick-root.anim-low .quick-plugin-pin {
   transition: none;

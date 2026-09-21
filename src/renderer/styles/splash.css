@@ -54,8 +54,8 @@
   pointer-events: none;
 }
 
-/* high 档粒子层 */
-.splash-particles {
+/* high 档结构性环境场（光斑 + 点阵） */
+.splash-field {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -64,14 +64,10 @@
   display: none;
 }
 
-.splash--high .splash-particles {
+.splash--high .splash-field {
   display: block;
   mix-blend-mode: screen;
-}
-
-:root[data-theme='dark'] .splash--high .splash-particles,
-.splash--high .splash-particles {
-  mix-blend-mode: screen;
+  opacity: 0.85;
 }
 
 .splash-stage {
@@ -86,6 +82,9 @@
 .splash-mark {
   color: var(--splash-accent, #2dd4a8);
   overflow: visible;
+  /* 保持阶段 GSAP 呼吸以自身中心缩放 */
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
 /* high：描边更醒目 */
@@ -114,6 +113,12 @@
   font-weight: 700;
   letter-spacing: -0.04em;
   color: var(--splash-text, #e8fff6);
+}
+
+/* 逐字入场：inline-block 才能被 GSAP 独立 transform */
+.splash-word-char {
+  display: inline-block;
+  will-change: transform, opacity;
 }
 
 .splash-sub {
