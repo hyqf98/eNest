@@ -4,13 +4,12 @@
  *       提供 .enestplugin 资产下载（https + 可选 sha256 校验），走 Electron net
  *       以继承 defaultSession 代理配置。
  * 数据源优先级：Release latest → raw main 分支。
- * 关键依赖：net.fetch（Electron）、mockMarket 的类型对齐、logService。
+ * 关键依赖：Node undici fetch（避开 Chromium c-ares）、mockMarket 的类型对齐、logService。
  */
 import { createHash } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { net } from 'electron'
 import type { PluginPermission, PluginUiConfig } from '@shared/types/plugin'
 import { DEFAULT_PLUGIN_UI, resolvePluginUi } from '@shared/types/plugin'
 import { logInfo, logWarn } from '@main/logs/logService'
@@ -118,7 +117,9 @@ function resolveIconUrl(p: RemoteRegistryPlugin, registryUrl: string): string | 
 
 async function fetchJson(url: string): Promise<RemoteRegistry | null> {
   try {
-    const res = await net.fetch(url, { method: 'GET' })
+    // Node undici fetch（不走 Chromium net/c-ares）：主进程外部请求须避开内置解析器，
+    // 见 index.ts host-resolver-rules 注释；代理经 proxyService 设置的 HTTP(S)_PROXY 生效
+    const res = await fetch(url, { method: 'GET' })
     if (!res.ok) return null
     return (await res.json()) as RemoteRegistry
   } catch {
@@ -225,7 +226,8 @@ export async function downloadPluginPackage(
 
   try {
     logInfo('market', `download ← ${url}`)
-    const res = await net.fetch(url, {
+    // 同 fetchJson：Node undici fetch，避开 Chromium c-ares（见 index.ts host-resolver-rules）
+    const res = await fetch(url, {
       method: 'GET',
       signal: controller.signal,
       redirect: 'follow'

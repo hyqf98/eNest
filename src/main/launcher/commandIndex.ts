@@ -196,7 +196,9 @@ export function buildAppCommands(): QuickCommand[] {
     title: app.name,
     subtitle: app.path,
     path: app.path,
-    icon: app.icon
+    icon: app.icon,
+    /** linux：Icon= 原始值，提图时由 appLauncher 解析（mac/win 忽略） */
+    iconName: app.iconName
   }))
 }
 
@@ -205,7 +207,7 @@ async function attachAppIcons(items: QuickCommand[]): Promise<void> {
   await Promise.all(
     items.map(async (item) => {
       if (item.kind === 'app' && item.path && !item.icon) {
-        item.icon = await getAppIconDataUrl(item.path)
+        item.icon = await getAppIconDataUrl(item.path, item.iconName)
       }
     })
   )

@@ -220,6 +220,8 @@ const zhCN = {
     removeConfirm: '从开发列表移除「{name}」？（不会删除源码目录）',
     view: '查看',
     reload: '热重载',
+    killOnHide: '退出即杀',
+    killOnHideHint: '对齐 uTools「退出到后台立即结束运行」：退后台立即结束进程，再次进入加载最新代码',
     logs: '日志',
     logsHint: 'console + IPC',
     trace: '调用跟踪',

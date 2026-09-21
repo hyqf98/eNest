@@ -23,7 +23,6 @@ docs/
       index.html        # Docsify shell（CDN）
       README.md
       _sidebar.md
-      _navbar.md
       getting-started.md
       structure.md
       manifest.md

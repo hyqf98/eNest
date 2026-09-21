@@ -189,7 +189,7 @@ export type PluginOutEvent = { isKill: false }
 /** beforeClose 事件载荷 */
 export type PluginBeforeCloseEvent = { reason: PluginCloseReason }
 
-/** 主题 Token 集合（壳子解析后的 CSS 自定义属性值） */
+/** 主题变量集合（壳子解析后的 CSS 自定义属性值） */
 export type PluginThemeTokens = Record<string, string>
 
 /** 主题变更事件（enest.ui.onThemeChange） */
@@ -230,6 +230,18 @@ export type PluginQuickProviderMeta = {
   schemaVersion?: string
 }
 
+/** SFTP 传输进度事件（enest.ssh.onSshTransfer / enest.on('ssh.transfer')） */
+export type SshTransferEvent = {
+  sessionId: string
+  direction: 'upload' | 'download'
+  path: string
+  transferred: number
+  /** 0 表示未知（预取大小失败） */
+  total: number
+  done?: boolean
+  error?: string
+}
+
 /** hotkey.register 结果：ok=false 时 error 携带冲突/失败原因 */
 export type PluginHotkeyRegisterResult = {
   ok: boolean
@@ -256,7 +268,7 @@ export interface EnestPluginApi {
     setHeight(height: number): Promise<boolean>
     /** 由壳子 Toast 统一渲染的轻提示；与 notify（系统通知）分工 */
     toast(payload: { message: string; type?: PluginToastType }): Promise<boolean>
-    /** 读取当前主题 Token（themeAware 插件可主动拉取） */
+    /** 读取当前主题变量（themeAware 插件可主动拉取） */
     getThemeTokens(): Promise<{ mode: 'light' | 'dark'; tokens: PluginThemeTokens }>
     /** 订阅主题变更；壳子 setTheme / OS 主题切换时推送 */
     onThemeChange(cb: (event: PluginThemeChangeEvent) => void): Unsubscribe
@@ -439,7 +451,13 @@ export interface EnestPluginApi {
       list(input: SftpListInput): Promise<SftpEntry[]>
       download(input: SftpDownloadInput): Promise<SftpTransferResult>
       upload(input: SftpUploadInput): Promise<SftpTransferResult>
+      mkdir(sessionId: string, path: string): Promise<boolean>
+      rename(sessionId: string, path: string, newPath: string): Promise<boolean>
+      delete(sessionId: string, path: string, recursive?: boolean): Promise<boolean>
+      chmod(sessionId: string, path: string, mode: number | string): Promise<boolean>
     }
+    /** 订阅 SFTP 传输进度（download/upload 过程推送）；等价 enest.on('ssh.transfer') */
+    onSshTransfer(cb: (event: SshTransferEvent) => void): Unsubscribe
     pickLocalFile(opts?: {
       properties?: Array<'openFile' | 'openDirectory'>
       /** 插件兼容别名：file / dir|directory|folder */
@@ -688,10 +706,36 @@ const api: EnestPluginApi = {
     sftp: {
       list: (input: SftpListInput) => call<SftpEntry[]>('ssh.sftp.list', [input]),
       download: (input: SftpDownloadInput) => call<SftpTransferResult>('ssh.sftp.download', [input]),
-      upload: (input: SftpUploadInput) => call<SftpTransferResult>('ssh.sftp.upload', [input])
+      upload: (input: SftpUploadInput) => call<SftpTransferResult>('ssh.sftp.upload', [input]),
+      mkdir: (sessionId: string, path: string) =>
+        call<boolean>('ssh.sftp.mkdir', [sessionId, path]),
+      rename: (sessionId: string, path: string, newPath: string) =>
+        call<boolean>('ssh.sftp.rename', [sessionId, path, newPath]),
+      delete: (sessionId: string, path: string, recursive?: boolean) =>
+        call<boolean>('ssh.sftp.delete', [sessionId, path, recursive]),
+      chmod: (sessionId: string, path: string, mode: number | string) =>
+        call<boolean>('ssh.sftp.chmod', [sessionId, path, mode])
     },
-    pickLocalFile: (opts?: { properties?: Array<'openFile' | 'openDirectory'> }) =>
-      call<string | null>('ssh.pickLocalFile', [opts])
+    onSshTransfer(cb) {
+      const handler: Listener = (data) => {
+        const p = data as SshTransferEvent
+        if (
+          p &&
+          typeof p === 'object' &&
+          typeof p.sessionId === 'string' &&
+          (p.direction === 'upload' || p.direction === 'download')
+        ) {
+          cb(p)
+        }
+      }
+      api.on('ssh.transfer', handler)
+      return () => api.off('ssh.transfer', handler)
+    },
+    pickLocalFile: (opts?: {
+      properties?: Array<'openFile' | 'openDirectory'>
+      /** 插件兼容别名：file / dir|directory|folder */
+      mode?: 'file' | 'dir' | 'directory' | 'folder'
+    }) => call<string | null>('ssh.pickLocalFile', [opts])
   },
   db: {
     test: (config: DbConnectionConfig) => call<DbTestResult>('db.test', [config]),
@@ -833,6 +877,17 @@ ipcRenderer.on(IpcChannels.PluginEvent, (_e, payload: PluginEventPayload) => {
   ) {
     // SSH 会话事件：enest.on('ssh.data'|'ssh.exit'|'ssh.error'|'ssh.metrics')
     emit(payload.type, payload)
+  } else if (payload.type === 'ssh.transfer') {
+    // SFTP 传输进度：enest.ssh.onSshTransfer / enest.on('ssh.transfer')
+    emit('ssh.transfer', {
+      sessionId: payload.sessionId,
+      direction: payload.direction,
+      path: payload.path,
+      transferred: payload.transferred,
+      total: payload.total,
+      ...(payload.done !== undefined ? { done: payload.done } : {}),
+      ...(payload.error !== undefined ? { error: payload.error } : {})
+    } satisfies SshTransferEvent)
   }
 })
 

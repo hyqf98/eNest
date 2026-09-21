@@ -30,6 +30,8 @@ export interface QuickCommand {
   action?: QuickActionId
   /** 可显示图标：data URL 或 enest:// 资源；无则 UI 用 kind 色点/首字母 */
   icon?: string
+  /** kind=app：linux .desktop Icon= 原始值；appLauncher 提图时解析，其他平台忽略 */
+  iconName?: string
   /** 最近使用时间戳（ms）；有值时 UI 可归入「最近」分区 */
   lastUsedTs?: number
   /** 累计使用次数（来自 settings recent） */
@@ -84,6 +86,8 @@ export interface LocalApp {
   /** 次要名（包名 / 显示名） */
   alias?: string
   icon?: string
+  /** linux .desktop Icon= 原始值（绝对路径或主题名，如 firefox）；提图时解析 */
+  iconName?: string
 }
 
 export interface ApplicationScanResult {

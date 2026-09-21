@@ -15,7 +15,7 @@ const SQL_COMMON_KW = [
   'BEGIN','COMMIT','ROLLBACK','TRANSACTION'
 ]
 
-const MYSQL_KW = [...SQL_COMMON_KW, 'REPLACE','DUPLICATE','KEY','ENGINE','CHARSET','COLLATE','AUTO_INCREMENT','IFNULL','NOW','SHOW','PROCESSLIST','KILL']
+const MYSQL_KW = [...SQL_COMMON_KW, 'WITH','REPLACE','DUPLICATE','KEY','ENGINE','CHARSET','COLLATE','AUTO_INCREMENT','IFNULL','NOW','SHOW','PROCESSLIST','KILL','WINDOW','OVER','PARTITION','CTE','RECURSIVE']
 
 const SQLITE_KW = [...SQL_COMMON_KW, 'PRAGMA','GLOB','ATTACH','DETACH','VACUUM','WITHOUT','ROWID','AUTOINCREMENT','IF','NULLS','FIRST','LAST']
 
@@ -50,19 +50,44 @@ export const DIALECT_INFO: Record<DbDriverId, DbDialectInfo> = {
     keywords: MYSQL_KW,
     functions: [
       AGG('COUNT'), AGG('SUM'), AGG('AVG'), AGG('MIN'), AGG('MAX'),
+      AGG('GROUP_CONCAT'),
       FN('CONCAT', 'CONCAT(a, b, ...)', '字符串拼接'),
+      FN('CONCAT_WS', 'CONCAT_WS(sep, a, b, ...)', '带分隔符拼接'),
+      FN('SUBSTRING', 'SUBSTRING(s, pos, len)', '子串'),
+      FN('LEFT', 'LEFT(s, n)', '左 n 字符'),
+      FN('RIGHT', 'RIGHT(s, n)', '右 n 字符'),
+      FN('LENGTH', 'LENGTH(s)', '字节长度'),
+      FN('CHAR_LENGTH', 'CHAR_LENGTH(s)', '字符长度'),
+      FN('TRIM', 'TRIM(s)', '去首尾空白'),
+      FN('REPLACE', 'REPLACE(s, from, to)', '字符串替换'),
+      FN('UPPER', 'UPPER(s)', '转大写'),
+      FN('LOWER', 'LOWER(s)', '转小写'),
       FN('IFNULL', 'IFNULL(expr, alt)', '空值替换'),
-      FN('DATE_FORMAT', "DATE_FORMAT(date, fmt)", '日期格式化'),
-      FN('NOW', 'NOW()', '当前时间'),
-      FN('JSON_EXTRACT', 'JSON_EXTRACT(json, path)', 'JSON 提取'),
+      FN('NULLIF', 'NULLIF(a, b)', '相等返回 NULL'),
       FN('COALESCE', 'COALESCE(a, b, ...)', '首个非空'),
+      FN('DATE_FORMAT', "DATE_FORMAT(date, fmt)", '日期格式化'),
+      FN('DATE_ADD', 'DATE_ADD(date, INTERVAL n unit)', '日期加'),
+      FN('DATE_SUB', 'DATE_SUB(date, INTERVAL n unit)', '日期减'),
+      FN('DATEDIFF', 'DATEDIFF(d1, d2)', '日期差（天）'),
+      FN('NOW', 'NOW()', '当前时间'),
+      FN('CURDATE', 'CURDATE()', '当前日期'),
+      FN('UNIX_TIMESTAMP', 'UNIX_TIMESTAMP(date)', '纪元秒'),
+      FN('FROM_UNIXTIME', 'FROM_UNIXTIME(ts)', '纪元转时间'),
+      FN('JSON_EXTRACT', 'JSON_EXTRACT(json, path)', 'JSON 提取'),
+      FN('JSON_UNQUOTE', 'JSON_UNQUOTE(val)', 'JSON 去引号'),
+      FN('CAST', 'CAST(expr AS type)', '类型转换'),
+      FN('ROW_NUMBER', 'ROW_NUMBER() OVER (...)', '行号窗口'),
       FN('IF', 'IF(cond, a, b)', '条件表达式')
     ],
     snippets: [
       { prefix: 'sel', body: 'SELECT * FROM ${table} WHERE 1=1 LIMIT 200;', detail: '查询样例' },
-      { prefix: 'ins', body: 'INSERT INTO ${table} (${cols}) VALUES ();', detail: '插入' },
+      { prefix: 'ins', body: 'INSERT INTO ${table} (${cols})\nVALUES ();', detail: '插入' },
+      { prefix: 'ups', body: 'INSERT INTO ${table} (${cols})\nVALUES ()\nON DUPLICATE KEY UPDATE ;', detail: 'UPSERT' },
       { prefix: 'join', body: 'JOIN ${table} AS ${alias} ON ${alias}.${col} = ${lhs}', detail: 'JOIN' },
-      { prefix: 'cnt', body: 'SELECT COUNT(*) FROM ${table};', detail: '计数' }
+      { prefix: 'lj', body: 'LEFT JOIN ${table} AS ${alias} ON ${alias}.${col} = ${lhs}', detail: 'LEFT JOIN' },
+      { prefix: 'cnt', body: 'SELECT COUNT(*) FROM ${table};', detail: '计数' },
+      { prefix: 'cte', body: 'WITH ${name} AS (\n  SELECT \n  FROM ${table}\n)\nSELECT *\nFROM ${name};', detail: 'CTE 查询' },
+      { prefix: 'pg', body: 'SELECT *\nFROM ${table}\nWHERE ${col} > ${val}\nORDER BY ${col} DESC\nLIMIT 200;', detail: '分页查询' }
     ]
   },
   sqlite: {
@@ -92,15 +117,32 @@ export const DIALECT_INFO: Record<DbDriverId, DbDialectInfo> = {
     keywords: PG_KW,
     functions: [
       AGG('COUNT'), AGG('SUM'), AGG('AVG'), AGG('MIN'), AGG('MAX'),
+      AGG('STRING_AGG'),
       FN('time_bucket', 'time_bucket(width, time)', 'Timescale 时间桶'),
       FN('date_trunc', "date_trunc(field, ts)", '时间截断'),
+      FN('date_part', "date_part(field, ts)", '时间部分'),
+      FN('age', 'age(ts1, ts2)', '时间差间隔'),
       FN('now', 'now()', '当前时间'),
       FN('generate_series', 'generate_series(start, stop, step)', '序列生成'),
-      FN('COALESCE', 'COALESCE(a, b, ...)', '首个非空')
+      FN('COALESCE', 'COALESCE(a, b, ...)', '首个非空'),
+      FN('NULLIF', 'NULLIF(a, b)', '相等返回 NULL'),
+      FN('concat', 'concat(a, b, ...)', '字符串拼接'),
+      FN('substring', 'substring(s, from, for)', '子串'),
+      FN('split_part', 'split_part(s, sep, n)', '分段取值'),
+      FN('regexp_replace', 'regexp_replace(s, re, repl)', '正则替换'),
+      FN('to_char', 'to_char(ts, fmt)', '格式化'),
+      FN('to_timestamp', 'to_timestamp(ts)', '纪元转时间'),
+      FN('extract', "extract(field FROM ts)", '提取时间字段'),
+      FN('row_number', 'row_number() OVER (...)', '行号窗口'),
+      FN('jsonb_build_object', 'jsonb_build_object(k, v, ...)', '构造 JSON'),
+      FN('cast', 'cast(expr AS type)', '类型转换')
     ],
     snippets: [
       { prefix: 'sel', body: 'SELECT * FROM ${table} LIMIT 200;', detail: '查询样例' },
-      { prefix: 'bucket', body: "SELECT time_bucket('1 hour', time) AS bucket, avg(value) FROM ${table} GROUP BY bucket;", detail: '时间桶聚合' }
+      { prefix: 'bucket', body: "SELECT time_bucket('1 hour', time) AS bucket, avg(value) FROM ${table} GROUP BY bucket;", detail: '时间桶聚合' },
+      { prefix: 'ups', body: 'INSERT INTO ${table} (${cols})\nVALUES ()\nON CONFLICT (id) DO UPDATE SET ;', detail: 'UPSERT' },
+      { prefix: 'cte', body: 'WITH ${name} AS (\n  SELECT \n  FROM ${table}\n)\nSELECT *\nFROM ${name};', detail: 'CTE 查询' },
+      { prefix: 'pg', body: 'SELECT *\nFROM ${table}\nWHERE ${col} > ${val}\nORDER BY ${col} DESC\nLIMIT 200 OFFSET 0;', detail: '分页查询' }
     ]
   },
   influxdb: {

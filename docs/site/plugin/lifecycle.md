@@ -49,8 +49,6 @@ ASCII 等价视图：
 | `Hibernated` | 后台空闲被休眠：渲染进程已销毁，逻辑 Tab + session 快照保留 | 无（轻量记录） |
 | `Destroyed` | 显式关闭 / 卸载 / 应用退出 | 已释放 |
 
-> 源码位置：`src/main/plugin/PluginHost.ts` · `src/main/plugin/PluginLifecycle.ts` · `src/main/plugin/PluginSessionStore.ts` · `src/main/ipc/pluginHandlers.ts` · `src/preload/pluginPreload.ts`  
-> 深度评审：`docs/engineering/LIFECYCLE_REVIEW.md`
 
 ---
 
@@ -192,7 +190,7 @@ off()
 
 ## Handler 侧实现参考
 
-### PluginHost：打开与激活（概念节选）
+### 打开与激活（流程概念）
 
 ```ts
 // openPlugin — 幂等：已存在则激活；hibernated 则快照恢复重建
@@ -217,7 +215,7 @@ async openPlugin(pluginId: string, enter?: PluginEnterPayload, container?: 'shel
   // 1. partition 隔离
   const ses = session.fromPartition(`persist:plugin-${pluginId}`)
   // 2. 注册 enest://plugin/{id} 协议
-  // 3. new WebContentsView({ webPreferences: { preload: pluginPreloadPath, ... } })
+  // 3. 创建独立渲染视图并注入统一 preload
   // 4. loadURL(development.main ?? enest://plugin/{id}/{main}?pid=..&code=..)
   // 5. did-finish-load 后 setBounds + setVisible(true) + 广播 enter
   // 6. quick 容器：hookQuickInput（Esc 回列表 / ⌘Enter 固定主窗）+ 高度自适应
@@ -314,18 +312,18 @@ api?.onBeforeClose(() => {
 
 触发：市场卡片、已安装列表、开发者加载本地目录、Quick 命令（`form: 'mini'` 插件）。
 
-主进程 `PluginHost` 步骤（container：`shell` 主窗 Tab / `quick` 小窗内嵌）：
+主进程步骤（container：`shell` 主窗 Tab / `quick` 小窗内嵌）：
 
 1. 解析安装路径；未安装则从示例 / 目录安装
 2. 唤醒检查：若该插件 hibernated，先 `loadSessionSnapshot` 回填 `storage.session`（自动覆盖）
 3. `session.fromPartition('persist:plugin-' + id)` 创建隔离会话
 4. 为该 session 注册 `enest://plugin/{id}` 协议映射
-5. `new WebContentsView`，注入统一 `pluginPreload`（暴露 `window.enest`；`zapi` 为 deprecated 别名）
+5. 创建独立渲染视图，注入统一 preload（暴露 `window.enest`；`zapi` 为兼容别名）
 6. 加载 URL：优先 `development.main`（开发态），否则 `enest://plugin/{id}/{main}`
    - query 携带 `pid` 与可选 `code`，便于 preload 同步解析
 7. `setBounds`：shell 容器铺到内容区（标题栏 + 插件条之下）；quick 容器从输入条之下铺满（见 [UI 标准 → mini 插件](ui-standard.md)）
 8. 推送 `shell:event` → `plugins-changed`，壳子出现 Tab
-9. `did-finish-load` 后注入主题 Token（`themeAware`）并广播 `enter`
+9. `did-finish-load` 后注入主题变量（`themeAware`）并广播 `enter`
 
 加载失败推送 `plugin-error`（见 [错误码](errors.md)）。
 

@@ -20,7 +20,7 @@
 
 - eNest 面向**桌面多窗口工作台**：顶部多 Tab，不是全局呼出搜索框为主。
 - 默认**进程 / 会话隔离**，关闭 Tab 立即回收。
-- 第一期市场为本地 Mock + 示例包；后续可接远端市场 API。
+- 当前市场内置官方示例插件，后续将接入远端市场。
 
 ## 文档结构
 
@@ -31,7 +31,7 @@
 | [plugin.json](manifest.md) | 清单字段与完整示例 |
 | [enest API](api.md) | 完整方法参考：UI / 主题 / 设置 / 存储 / 剪贴板 / 通知 / 生命周期 |
 | [TypeScript 类型](api-types.md) | `window.enest` 接口声明与使用建议 |
-| [UI 集成标准](ui-standard.md) | chrome / 主题 Token / 透明底 / Canvas |
+| [UI 集成标准](ui-standard.md) | chrome / 主题变量 / 透明底 / Canvas |
 | [权限说明](permissions.md) | 权限键与 API 对照表 |
 | [调试与热更新](debug.md) | 开发者控制台、Vite HMR、DevTools |
 | [生命周期](lifecycle.md) | 状态机、事件时间线、handler 示例 |

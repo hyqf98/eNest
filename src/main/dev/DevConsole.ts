@@ -90,10 +90,12 @@ export async function pickAndLoadDevPlugin(dirPath?: string): Promise<PluginSumm
 /**
  * 启动时恢复：读 dev.json，目录仍在则重新 load 进 registry。
  * 目录不存在的记录会从列表里清掉，避免脏数据堆积。
+ * 同时恢复「退出即杀」开关到 PluginHost 内存（主进程重启后集合为空）。
  */
 export async function restoreDevPlugins(): Promise<void> {
   const records = await readDevPluginRecords()
   if (!records.length) return
+  const { pluginHost } = await import('@main/plugin/PluginHost')
   const alive: typeof records = []
   for (const rec of records) {
     if (!existsSync(rec.path)) {
@@ -102,6 +104,7 @@ export async function restoreDevPlugins(): Promise<void> {
     }
     try {
       await loadDevPlugin(rec.path)
+      if (rec.killOnHide) pluginHost.setKillOnHide(rec.id, true)
       alive.push(rec)
     } catch (err) {
       logWarn('dev', `restore ${rec.id} failed: ${(err as Error).message}`)

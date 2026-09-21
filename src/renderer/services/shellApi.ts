@@ -110,6 +110,8 @@ export interface ShellApi {
   ): Promise<void>
   loadDevPlugin(dirPath: string): Promise<PluginSummary>
   reloadPlugin(pluginId: string): Promise<void>
+  /** 开发者控制台：切换/查询 dev 插件「退出到后台立即结束运行」（mock 恒 false） */
+  setDevKillOnHide(pluginId: string, enabled?: boolean): Promise<boolean>
   openDevTools(pluginId: string): Promise<void>
   /** plugin:call 调用跟踪（Electron；mock 返回空数组） */
   getPluginCallTrace?(): Promise<PluginCallTraceEntry[]>
@@ -182,7 +184,7 @@ export interface ShellApi {
   // —— 快捷启动 Quick（Electron preload 提供；mock 可省略）——
   quickToggle?(): Promise<void>
   quickHide?(): void
-  quickSearch?(query: string, limit?: number): Promise<{ items: QuickCommand[] }>
+  quickSearch?(query: string, limit?: number): Promise<{ items: QuickCommand[]; total?: number }>
   quickOpen?(req: QuickOpenRequest): Promise<{ ok: boolean; error?: string }>
   quickScanApps?(force?: boolean): Promise<ApplicationScanResult>
   quickGetConfig?(): Promise<QuickHotkeyConfig>
@@ -356,7 +358,7 @@ function createMockApi(): ShellApi {
         permissions: [],
         installed: true,
         rootPath: path,
-        devUrl: 'http://127.0.0.1:5173',
+        devUrl: 'http://127.0.0.1:27319',
         dev: true,
         ui: { chrome: 'default', themeAware: true, background: 'opaque', preferredColorScheme: 'auto' },
       }
@@ -365,7 +367,9 @@ function createMockApi(): ShellApi {
     async reloadPlugin() {
       /* mock no-op */
     },
-    async openDevTools() {
+    async setDevKillOnHide() {
+      return false
+    },    async openDevTools() {
       /* mock no-op */
     },
     async getPluginCallTrace() {

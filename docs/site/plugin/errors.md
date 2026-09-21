@@ -11,13 +11,13 @@
 
 ## 运行时 API 错误（plugin:call）
 
-以下错误来自 `pluginPreload`（`call()`）与主进程 `pluginHandlers` / `PluginPermissions`。
+以下错误来自插件 API 调用链（插件页 → 主进程权限断言）。
 
 | 消息 | 触发 | 处理 |
 |------|------|------|
 | `permission denied: <perm>` | 未在 `plugin.json` → `permissions` 声明该能力 | 增加对应权限键；`<perm>` 取值见 [权限说明](permissions.md) |
 | `unknown method: <method>` | 调用了不存在的 method，或主进程映射表未收录 | 核对 [API 参考](api.md) 方法名；升级壳子 |
-| `unauthorized sender` | 发起调用的 WebContents 不属于 PluginHost | 正常插件不会出现；检查是否在非插件环境误用 API |
+| `unauthorized sender` | 发起调用的页面不属于壳子管理的插件 | 正常插件不会出现；检查是否在非插件环境误用 API |
 | `plugin id mismatch` | `request.pluginId` 与发送者实际插件 id 不一致 | 不要手动构造 IPC；使用 `window.enest`（`zapi` 为 deprecated 别名） |
 | `manifest not found` | 发送者在 Host 中无对应 manifest | 重新打开插件；开发者控制台重新加载 |
 | `toast message required` | `ui.toast({ message: '' })` 或缺 message | 传入非空 `message` |
@@ -49,7 +49,7 @@ try {
 
 ## 安装 / 清单错误
 
-来自 `PluginInstaller` / `PluginRegistry` / `PluginHost`。
+来自安装与运行流程。
 
 | 消息 | 触发 | 处理 |
 |------|------|------|
@@ -119,7 +119,7 @@ window.addEventListener('unhandledrejection', (e) => {
   console.error('API 失败:', e.reason?.message || e.reason)
 })
 
-// 4. 主题 Token 是否到位
+// 4. 主题变量 是否到位
 window.enest?.theme.getTokens().then(console.log)
 ```
 

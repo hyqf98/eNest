@@ -6,7 +6,7 @@
  * 被 pluginHandlers 分发调用（method 以 ssh.* 开头）。
  * 关键依赖：ssh2、@main/vault/secretVault、@main/ssh/commandDict、PluginHost 事件通道。
  */
-import { createWriteStream, createReadStream, existsSync, readFileSync } from 'node:fs'
+import { createWriteStream, createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -840,6 +840,71 @@ async function getSftp(session: SshSession): Promise<SFTPWrapper> {
   })
 }
 
+/**
+ * 传输进度推送（Spec SSH-G）：data 事件累计字节，按时间（200ms）/字节（64KB）
+ * 双阈值节流经 plugin:event 推 `ssh.transfer`；finish/error 推终态（不受节流约束）。
+ */
+const TRANSFER_THROTTLE_MS = 200
+const TRANSFER_THROTTLE_BYTES = 64 * 1024
+
+function createTransferProgress(
+  pluginId: string,
+  sessionId: string,
+  direction: 'upload' | 'download',
+  path: string,
+  total: number
+) {
+  let transferred = 0
+  let lastTs = 0
+  let lastBytes = 0
+  let finished = false
+  const push = (done: boolean, error?: string): void => {
+    if (finished && !done) return
+    emitToPlugin(pluginId, {
+      type: 'ssh.transfer',
+      sessionId,
+      direction,
+      path,
+      transferred,
+      total,
+      ...(done ? { done: true } : {}),
+      ...(error !== undefined ? { error } : {})
+    })
+  }
+  return {
+    /** data 事件累计字节；超阈值（时间或字节任一）时推送中间进度 */
+    add(bytes: number): void {
+      if (bytes <= 0 || finished) return
+      transferred += bytes
+      const now = Date.now()
+      if (
+        now - lastTs >= TRANSFER_THROTTLE_MS ||
+        transferred - lastBytes >= TRANSFER_THROTTLE_BYTES
+      ) {
+        lastTs = now
+        lastBytes = transferred
+        push(false)
+      }
+    },
+    /** 终态：成功（done=true，transferred 为最终值） */
+    finish(): void {
+      if (finished) return
+      finished = true
+      push(true)
+    },
+    /** 终态：失败（done=true + error） */
+    error(message: string): void {
+      if (finished) return
+      finished = true
+      push(true, message)
+    },
+    /** 已累计字节数（终态后不再变化） */
+    get transferred(): number {
+      return transferred
+    }
+  }
+}
+
 export async function sshSftpList(
   pluginId: string,
   input: SftpListInput
@@ -888,21 +953,30 @@ export async function sshSftpDownload(
   if (!localPath) {
     localPath = join(homedir(), 'Downloads', basename(remotePath))
   }
+  // 预取远端文件大小（进度 total；失败则 total=0 表示未知）
+  const total = await new Promise<number>((resolve) => {
+    sftp.stat(remotePath, (err, stats) => resolve(err ? 0 : stats.size))
+  })
   return new Promise((resolve) => {
     const readStream = sftp.createReadStream(remotePath)
     const writeStream = createWriteStream(localPath!)
-    let bytes = 0
+    const progress = createTransferProgress(pluginId, s.sessionId, 'download', remotePath, total)
     readStream.on('data', (chunk: string | Buffer) => {
-      bytes += typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length
+      progress.add(
+        typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length
+      )
     })
     readStream.on('error', (err: Error) => {
+      progress.error(err.message)
       resolve({ ok: false, remotePath, error: err.message })
     })
     writeStream.on('error', (err: Error) => {
+      progress.error(err.message)
       resolve({ ok: false, remotePath, localPath, error: err.message })
     })
     writeStream.on('close', () => {
-      resolve({ ok: true, remotePath, localPath, bytes })
+      progress.finish()
+      resolve({ ok: true, remotePath, localPath, bytes: progress.transferred })
     })
     readStream.pipe(writeStream)
   })
@@ -919,24 +993,200 @@ export async function sshSftpUpload(
   const remotePath = String(input.remotePath ?? '')
   if (!localPath || !remotePath) throw new Error('localPath and remotePath required')
   if (!existsSync(localPath)) throw new Error(`local file not found: ${localPath}`)
+  const total = statSync(localPath).size
   return new Promise((resolve) => {
     const readStream = createReadStream(localPath)
     const writeStream = sftp.createWriteStream(remotePath)
-    let bytes = 0
+    const progress = createTransferProgress(pluginId, s.sessionId, 'upload', remotePath, total)
     readStream.on('data', (chunk: string | Buffer) => {
-      bytes += typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length
+      progress.add(
+        typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length
+      )
     })
     readStream.on('error', (err: Error) => {
+      progress.error(err.message)
       resolve({ ok: false, localPath, error: err.message })
     })
     writeStream.on('error', (err: Error) => {
+      progress.error(err.message)
       resolve({ ok: false, localPath, remotePath, error: err.message })
     })
     writeStream.on('close', () => {
-      resolve({ ok: true, localPath, remotePath, bytes })
+      progress.finish()
+      resolve({ ok: true, localPath, remotePath, bytes: progress.transferred })
     })
     readStream.pipe(writeStream)
   })
+}
+
+/** 会话归属校验 + 取 sftp 通道（mkdir/rename/delete/chmod 共用入口） */
+async function requireSftpSession(
+  pluginId: string,
+  sessionId: string | undefined | null
+): Promise<{ session: SshSession; sftp: SFTPWrapper }> {
+  const s = requireSession(sessionId)
+  if (s.pluginId !== pluginId) throw new Error('session does not belong to this plugin')
+  const sftp = await getSftp(s)
+  return { session: s, sftp }
+}
+
+/** sftp.stat 包装 */
+function sftpStat(sftp: SFTPWrapper, path: string): Promise<{ isDir: boolean; size: number }> {
+  return new Promise((resolve, reject) => {
+    sftp.stat(path, (err, stats) => {
+      if (err) return reject(err)
+      resolve({ isDir: stats.isDirectory(), size: stats.size })
+    })
+  })
+}
+
+/** sftp.readdir 包装：仅返回子项路径（供递归删除遍历） */
+function sftpReaddirPaths(sftp: SFTPWrapper, dir: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    sftp.readdir(dir, (err, list) => {
+      if (err) return reject(err)
+      const prefix = dir.endsWith('/') ? dir : `${dir}/`
+      resolve((list ?? []).map((item) => `${prefix}${item.filename}`))
+    })
+  })
+}
+
+export async function sshSftpMkdir(
+  pluginId: string,
+  sessionId: string,
+  path: string
+): Promise<boolean> {
+  const dir = String(path ?? '')
+  if (!dir) throw new Error('path required')
+  const { sftp } = await requireSftpSession(pluginId, sessionId)
+  return new Promise((resolve, reject) => {
+    sftp.mkdir(dir, (err) => {
+      if (err) return reject(new Error(`sftp mkdir failed: ${err.message}`))
+      logInfo('ssh', `sftp mkdir ${dir}`)
+      resolve(true)
+    })
+  })
+}
+
+export async function sshSftpRename(
+  pluginId: string,
+  sessionId: string,
+  path: string,
+  newPath: string
+): Promise<boolean> {
+  const from = String(path ?? '')
+  const to = String(newPath ?? '')
+  if (!from || !to) throw new Error('path and newPath required')
+  const { sftp } = await requireSftpSession(pluginId, sessionId)
+  return new Promise((resolve, reject) => {
+    sftp.rename(from, to, (err) => {
+      if (err) {
+        // 目录 rename 在部分 SFTP 服务器上失败（不支持或目标存在）——stat 确认后给出明确错误
+        sftp.stat(from, (statErr, stats) => {
+          if (!statErr && stats.isDirectory()) {
+            return reject(
+              new Error(`sftp rename directory failed: ${err.message}`)
+            )
+          }
+          return reject(new Error(`sftp rename failed: ${err.message}`))
+        })
+        return
+      }
+      logInfo('ssh', `sftp rename ${from} -> ${to}`)
+      resolve(true)
+    })
+  })
+}
+
+export async function sshSftpDelete(
+  pluginId: string,
+  sessionId: string,
+  path: string,
+  recursive?: boolean
+): Promise<boolean> {
+  const target = String(path ?? '')
+  if (!target) throw new Error('path required')
+  const { sftp } = await requireSftpSession(pluginId, sessionId)
+  const stats = await sftpStat(sftp, target)
+
+  const unlinkOne = (p: string) =>
+    new Promise<void>((resolve, reject) => {
+      sftp.unlink(p, (err) => (err ? reject(err) : resolve()))
+    })
+  const rmdirOne = (p: string) =>
+    new Promise<void>((resolve, reject) => {
+      sftp.rmdir(p, (err) => (err ? reject(err) : resolve()))
+    })
+
+  if (!stats.isDir) {
+    await unlinkOne(target)
+    logInfo('ssh', `sftp delete file ${target}`)
+    return true
+  }
+  if (!recursive) {
+    // 非递归目录删除：先确认目录为空，再给出比裸 rmdir 报错更明确的提示
+    const children = await sftpReaddirPaths(sftp, target)
+    if (children.length > 0) {
+      throw new Error(`directory not empty (use recursive): ${target}`)
+    }
+    await rmdirOne(target)
+    logInfo('ssh', `sftp delete dir ${target}`)
+    return true
+  }
+  // 递归删除：先深度收集（子文件在前、父目录在后），再逐项删除
+  const files: string[] = []
+  const dirs: string[] = [target]
+  const walk = async (dir: string): Promise<void> => {
+    const children = await sftpReaddirPaths(sftp, dir)
+    for (const child of children) {
+      const st = await sftpStat(sftp, child)
+      if (st.isDir) {
+        dirs.push(child)
+        await walk(child)
+      } else {
+        files.push(child)
+      }
+    }
+  }
+  await walk(target)
+  for (const f of files) await unlinkOne(f)
+  // 目录从深到浅删除
+  for (const d of dirs.sort((a, b) => b.length - a.length)) await rmdirOne(d)
+  logInfo('ssh', `sftp delete recursive ${target} (${files.length + dirs.length} entries)`)
+  return true
+}
+
+export async function sshSftpChmod(
+  pluginId: string,
+  sessionId: string,
+  path: string,
+  mode: number | string
+): Promise<boolean> {
+  const target = String(path ?? '')
+  if (!target) throw new Error('path required')
+  const { sftp } = await requireSftpSession(pluginId, sessionId)
+  const numMode = parseSftpMode(mode)
+  return new Promise((resolve, reject) => {
+    sftp.chmod(target, numMode, (err) => {
+      if (err) return reject(new Error(`sftp chmod failed: ${err.message}`))
+      logInfo('ssh', `sftp chmod ${target} ${mode}`)
+      resolve(true)
+    })
+  })
+}
+
+/** mode 归一：number 直取；'0644'/'644' 等字符串按八进制/十进制解析 */
+function parseSftpMode(mode: number | string): number {
+  if (typeof mode === 'number') return mode
+  const str = String(mode ?? '').trim()
+  if (!str) throw new Error('mode required')
+  const value = str.startsWith('0') && /^0[0-7]+$/.test(str)
+    ? parseInt(str, 8)
+    : Number(str)
+  if (!Number.isFinite(value) || value < 0 || value > 0o7777) {
+    throw new Error(`invalid mode: ${mode}`)
+  }
+  return value
 }
 
 /**

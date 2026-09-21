@@ -8,6 +8,32 @@
  *           指纹未变则跳过 toPNG 全量 + sha1。
  */
 import { clipboard, nativeImage } from 'electron'
+
+/** Electron 44 clipboard Web 化后的图片读取：read() → ClipboardItem(image/*) → Blob → PNG buffer。
+ *  无图片或读取失败返回 null。 */
+async function readClipboardImage(): Promise<Electron.NativeImage | null> {
+  try {
+    const items = await clipboard.read()
+    for (const item of items) {
+      const type = item.types.find((t) => t.startsWith('image/'))
+      if (!type) continue
+      const blob = (await item.getType(type)) as Blob
+      const buf = Buffer.from(await blob.arrayBuffer())
+      const img = nativeImage.createFromBuffer(buf)
+      return img.isEmpty() ? null : img
+    }
+  } catch {
+    /* 非图片内容 */
+  }
+  return null
+}
+
+/** Electron 44：写图片经 clipboard.write([ClipboardItem])（Blob 构造） */
+async function writeClipboardImage(img: Electron.NativeImage): Promise<void> {
+  const png = img.toPNG()
+  const blob = new Blob([new Uint8Array(png)], { type: 'image/png' })
+  await clipboard.write([new Electron.ClipboardItem({ 'image/png': blob })])
+}
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
@@ -214,20 +240,18 @@ async function trimAndPersist(): Promise<void> {
 async function pollOnce(): Promise<void> {
   await ensureLoaded()
   try {
-    const hasImage = clipboard.availableFormats().some((f) => f.includes('image'))
-    if (hasImage) {
-      const img = clipboard.readImage()
-      if (!img.isEmpty()) {
-        // 廉价指纹优先：剪贴板持续是同一张图时，避免每轮 toPNG 全量 + sha1
-        const fp = imageFingerprint(img)
-        if (fp !== lastImageFingerprint || lastTextHash) {
-          await pushImage(img, fp)
-          logInfo('clipboard', 'history captured image')
-        }
-        return
+    // Electron 44：clipboard 图片走 Web 化 read() → ClipboardItem(Blob)，不再有 readImage()
+    const img = await readClipboardImage()
+    if (img && !img.isEmpty()) {
+      // 廉价指纹优先：剪贴板持续是同一张图时，避免每轮 toPNG 全量 + sha1
+      const fp = imageFingerprint(img)
+      if (fp !== lastImageFingerprint || lastTextHash) {
+        await pushImage(img, fp)
+        logInfo('clipboard', 'history captured image')
       }
+      return
     }
-    const text = clipboard.readText()
+    const text = await clipboard.readText()
     if (text && textHash(text) !== lastTextHash) {
       await pushText(text)
       logInfo('clipboard', `history captured text (${text.length})`)
@@ -276,13 +300,15 @@ export function startClipboardHistory(): void {
   void ensureLoaded()
   // 启动（含停后重启）时对齐当前剪贴板，避免把启动前/停轮询期间的内容整段灌入
   try {
-    const t = clipboard.readText()
-    if (t) lastTextHash = textHash(t)
-    const img = clipboard.readImage()
-    if (!img.isEmpty()) {
-      lastImageHash = imageHash(img.toPNG())
-      lastImageFingerprint = imageFingerprint(img)
-    }
+    void (async () => {
+      const t = await clipboard.readText()
+      if (t) lastTextHash = textHash(t)
+      const img = await readClipboardImage()
+      if (img && !img.isEmpty()) {
+        lastImageHash = imageHash(img.toPNG())
+        lastImageFingerprint = imageFingerprint(img)
+      }
+    })()
   } catch {
     // ignore
   }

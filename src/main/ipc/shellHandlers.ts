@@ -14,6 +14,7 @@ import { IpcChannels } from '@shared/types/ipc'
 import { toTabId } from '@shared/constants'
 import type { ThemeTokens } from '@shared/types/plugin'
 import { pickAndLoadDevPlugin } from '@main/dev/DevConsole'
+import { setDevPluginKillOnHide } from '@main/dev/devPluginsStore'
 import { kvDelete, kvGet, kvSet } from '@main/db/sqliteService'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, getAppPathsRoot } from '@main/paths/pathsService'
@@ -316,6 +317,20 @@ export function registerShellHandlers(): void {
   ipcMain.handle(IpcChannels.ShellReloadPlugin, (_e, tabId: string) => {
     pluginHost.reloadPlugin(tabId)
     return { ok: true }
+  })
+
+  /** dev 插件「退出即杀」开关：内存生效 + 持久化 dev.json；enabled 省略时仅查询当前状态 */
+  ipcMain.handle(IpcChannels.ShellSetDevKillOnHide, (_e, pluginId: string, enabled?: boolean) => {
+    try {
+      if (typeof pluginId !== 'string' || !pluginId) return { ok: false, error: 'pluginId required' }
+      if (enabled !== undefined) {
+        pluginHost.setKillOnHide(pluginId, enabled === true)
+        void setDevPluginKillOnHide(pluginId, enabled === true)
+      }
+      return { ok: true, data: pluginHost.getKillOnHide(pluginId) }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
   })
 
   /** plugin:call 调用跟踪环形缓冲读取（DevConsole「调用跟踪」面板轮询用） */

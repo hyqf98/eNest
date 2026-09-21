@@ -10,7 +10,7 @@ permission denied: <perm>
 
 ## 权限键全表（当前 28 项）
 
-权威源：`src/shared/types/plugin.ts` → `PluginPermission` / `PLUGIN_PERMISSIONS`（运行时 manifest 校验同源）。权限列表随壳子演进动态增加——新增贡献点类权限以「插槽化 / 贡献点」相关文档为准。
+权限列表随版本演进逐步增加，新增贡献点类权限以更新说明为准。
 
 | 权限键 | 覆盖的 API | 说明 | 敏感度 |
 |--------|-----------|------|--------|
@@ -32,7 +32,7 @@ permission denied: <perm>
 | `ui.resize` | `enest.ui.resize(size)`<br>`enest.ui.setHeight(height)`<br>别名 `enest.resize` | 建议内容尺寸 / Quick 高度上报 | 低 |
 | `ui.toast` | `enest.ui.toast({ message, type? })` | 壳子应用内 Toast | 低 |
 | `settings.register` | `enest.settings.register(section)` | 向壳子设置页注入插件设置分组 | 中 |
-| `settings.page` | （预留） | 自定义设置页嵌入（页面嵌入后续批次接线；设置 item `type: "page"` 需此项） | 中 |
+| `settings.page` | （预留） | 自定义设置页嵌入（当前版本暂未启用；设置 item `type: "page"` 需此项） | 中 |
 | `hotkey` | `enest.hotkey.register(acc, opts?)`<br>`enest.hotkey.unregister(acc)` | 注册/注销全局快捷键（每插件上限 4 个；与壳子 Quick 热键、系统/其它应用占用互斥） | 高 |
 | `contribute` | `enest.contribute.registerQuickProvider(meta)`<br>`enest.contribute.unregisterQuickProvider(id)`<br>`enest.contribute.respondQuickQuery(reqId, items)` | 贡献点（Quick 搜索 provider 注册与查询回传）；声明式 `contributes` 段无需此权限 | 中 |
 | `vault.write` | `enest.vault.set(key, secret)`<br>`enest.vault.has(keyOrRef)`<br>`enest.vault.remove(keyOrRef)` | 插件密钥保险库写入/存在/删除；`set` 返回 `secretRef`，无明文 get | 高 |
@@ -64,7 +64,7 @@ permission denied: <perm>
 
 ## method → 权限映射（与主进程一致）
 
-主进程 `pluginHandlers.ts` 中的 `METHOD_PERMISSION`：
+壳子内置的方法到权限映射：
 
 | method | 所需权限 |
 |--------|----------|
@@ -103,6 +103,7 @@ permission denied: <perm>
 | `pin.closeAll` | `pin.create` |
 | `pin.list` | `pin.create` |
 | `net.fetch` | `net.fetch` |
+| `shell.saveTextFile` | `shell.openExternal` |
 | `shell.openExternal` | `shell.openExternal` |
 | `notify` | `notify` |
 | `theme.register` | — （无需） |
@@ -136,6 +137,7 @@ permission denied: <perm>
 | `db.close` | `db.connect` |
 | `db.listSessions` | `db.connect` |
 | `db.pickSqliteFile` | `db.connect` |
+| `db.pickImportFile` | `db.connect` |
 | `db.execute` | `db.query` |
 | `db.explain` | `db.query` |
 | `db.cancel` | `db.query` |

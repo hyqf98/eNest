@@ -338,6 +338,8 @@ export interface CompletionCatalog {
     type?: string
     columns: Array<{ name: string; type?: string; comment?: string; pk?: boolean }>
     comment?: string
+    /** FK 元数据（可选，driver 提供时用于 JOIN ON 条件建议） */
+    fks?: Array<{ column: string; refTable: string; refColumn: string }>
   }>
   functions?: Array<{ name: string; signature?: string; doc?: string; kind?: string }>
   keywords?: string[]
@@ -365,6 +367,8 @@ export interface CompletionItem {
   sortText: string
   filterText?: string
   owner?: string
+  /** 前缀/子序列匹配的区间（label 内 0-based，字符下标数组），供前端高亮 */
+  matchRanges?: number[]
 }
 
 export interface CompletionResponse {

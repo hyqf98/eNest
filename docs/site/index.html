@@ -40,34 +40,30 @@
   </header>
 
   <main>
-    <!-- 全宽 Hero：巨字差值 + 壳子压字 -->
-    <section class="hero-x diff-block">
+    <!-- 全宽 Hero：逐行揭示 + 差值巨字 + 光标聚光 -->
+    <section class="hero-x diff-block" id="hero">
       <div class="diff-glow" aria-hidden="true"></div>
-      <div class="hero-bubbles" aria-hidden="true">
-        <span></span><span></span><span></span><span></span><span></span>
-        <span></span><span></span><span></span><span></span><span></span>
-        <span></span><span></span><span></span><span></span>
-      </div>
+      <div class="spotlight" aria-hidden="true"></div>
       <div class="wrap hero-x-top">
-        <div class="pill"><i></i> OPEN SOURCE · DESKTOP SHELL</div>
+        <div class="pill reveal-fade" data-fade="1"><i></i> OPEN SOURCE · DESKTOP SHELL</div>
         <h1 class="hero-x-title">
-          <span class="diff-type">一个壳子</span>
-          <span class="diff-type hero-x-em">按需组合</span>
-          <span class="diff-type">桌面工具</span>
+          <span class="diff-type hero-line"><span>一个壳子</span></span>
+          <span class="diff-type hero-x-em hero-line"><span>按需组合</span></span>
+          <span class="diff-type hero-line"><span>桌面工具</span></span>
         </h1>
       </div>
 
       <div class="wrap hero-x-mid">
-        <p class="hero-x-lead">
+        <p class="hero-x-lead reveal-fade" data-fade="2">
           统一管理你的桌面工具。打开就是插件市场，装上就能用；
           热键呼出小窗，多开 Tab 并行，互不打扰。
         </p>
         <div class="hero-x-cta">
-          <div class="hero-actions">
-            <a class="btn btn-primary btn-lg" href="download.html">下载 eNest</a>
+          <div class="hero-actions reveal-fade" data-fade="3">
+            <a class="btn btn-primary btn-lg btn-magnetic" href="download.html"><span class="btn-label">下载 eNest</span></a>
             <a class="btn btn-ghost btn-lg" href="#features">看看能做什么</a>
           </div>
-          <div class="hero-meta">
+          <div class="hero-meta reveal-fade" data-fade="4">
             <span>macOS / Windows / Linux</span>
             <span>数据留在本机</span>
             <span>权限可管可控</span>
@@ -75,8 +71,8 @@
         </div>
       </div>
 
-      <div class="wrap hero-x-stage">
-        <div class="app-shot reveal">
+      <div class="wrap hero-x-stage reveal-fade" data-fade="5">
+        <div class="app-shot">
           <div class="app-glow" aria-hidden="true"></div>
           <div class="app-window" id="hero-app">
             <div class="app-titlebar">
@@ -144,7 +140,7 @@
 
     <!-- 产品横滑瀑布展 -->
     <section class="product-rail" id="product-rail" aria-label="产品界面预览">
-      <div class="wrap product-rail-head reveal">
+      <div class="wrap product-rail-head drift-up">
         <div>
           <div class="eyebrow">Product</div>
           <h2>产品长这样</h2>
@@ -278,33 +274,13 @@
       </div>
     </section>
 
-    <!-- 跑马灯 -->
-    <section class="trust" aria-label="产品要点">
-      <div class="marquee">
-        <div class="marquee-track">
-          <div class="marquee-item"><strong>首页即市场</strong><span class="sep"></span>找到就能用</div>
-          <div class="marquee-item"><strong>快捷小窗</strong><span class="sep"></span>⌥Space 一按即出</div>
-          <div class="marquee-item"><strong>多 Tab 并行</strong><span class="sep"></span>工具互不干扰</div>
-          <div class="marquee-item"><strong>主题一体</strong><span class="sep"></span>深浅色跟着变</div>
-          <div class="marquee-item"><strong>本地优先</strong><span class="sep"></span>数据不离开电脑</div>
-          <div class="marquee-item"><strong>权限可控</strong><span class="sep"></span>只开声明过的能力</div>
-          <div class="marquee-item"><strong>首页即市场</strong><span class="sep"></span>找到就能用</div>
-          <div class="marquee-item"><strong>快捷小窗</strong><span class="sep"></span>⌥Space 一按即出</div>
-          <div class="marquee-item"><strong>多 Tab 并行</strong><span class="sep"></span>工具互不干扰</div>
-          <div class="marquee-item"><strong>主题一体</strong><span class="sep"></span>深浅色跟着变</div>
-          <div class="marquee-item"><strong>本地优先</strong><span class="sep"></span>数据不离开电脑</div>
-          <div class="marquee-item"><strong>权限可控</strong><span class="sep"></span>只开声明过的能力</div>
-        </div>
-      </div>
-    </section>
-
     <!-- 剧场：上舞台 + 下滚场景条 -->
     <section class="section theater-x" id="features">
       <div class="wrap">
         <div class="section-head left reveal" style="margin-bottom:28px">
           <div class="eyebrow">Theater</div>
           <h2>一个壳，随任务切换</h2>
-          <p>舞台钉住，场景往下走。市场、并行、小窗、主题——同一层壳，不同用法。</p>
+          <p>市场、多标签、快捷小窗、主题——同一个壳，按当前任务切换用法。</p>
         </div>
 
         <div class="theater-x-pin">
@@ -379,7 +355,7 @@
               <h3>打开就是市场</h3>
               <p>首页负责发现与安装。分类、搜索、安装进度都在同一层壳里完成，不用另开应用商店。</p>
               <ul class="feature-list">
-                <li>市场一键安装，本地插件拖入即用</li>
+                <li>市场点开即装，本地插件拖入即用</li>
                 <li>校验清单可见，不会静默失败</li>
               </ul>
             </div>
@@ -413,7 +389,7 @@
             <div class="band-num">04</div>
             <div class="band-copy">
               <h3>主题一体，插件跟着变</h3>
-              <p>浅色、深色、跟随系统一键切换。壁纸与颜色可调，支持主题的插件会一起换装。</p>
+              <p>浅色、深色、跟随系统三种模式。壁纸与颜色可调，支持主题的插件会一起换装。</p>
               <ul class="feature-list">
                 <li>深浅色实时切换，无需重启</li>
                 <li>支持背景图与视频氛围</li>
@@ -445,7 +421,7 @@
                   <div><h3>剪贴板历史</h3><div class="cat">效率</div></div>
                 </div>
                 <p>本地保存剪贴板历史，搜索、置顶、一键粘贴。</p>
-                <div class="meta"><span>12.4k 安装</span><span class="state">已安装</span></div>
+                <div class="meta"><span>效率</span><span class="state">已安装</span></div>
               </article>
               <article class="wf-card" data-delay="40">
                 <div class="wf-card-head">
@@ -453,7 +429,7 @@
                   <div><h3>划词翻译</h3><div class="cat">效率</div></div>
                 </div>
                 <p>多引擎划词与段落翻译，术语表与历史回看。</p>
-                <div class="meta"><span>15.2k 安装</span><span>安装</span></div>
+                <div class="meta"><span>效率</span><span>安装</span></div>
               </article>
               <article class="wf-card" data-delay="80">
                 <div class="wf-card-head">
@@ -461,7 +437,7 @@
                   <div><h3>轻清单</h3><div class="cat">效率</div></div>
                 </div>
                 <p>快捷键唤起的极简待办，数据只在本机。</p>
-                <div class="meta"><span>4.3k 安装</span><span>安装</span></div>
+                <div class="meta"><span>开发</span><span>安装</span></div>
               </article>
             </div>
             <div class="wf-col">
@@ -471,7 +447,7 @@
                   <div><h3>JSON 工坊</h3><div class="cat">开发</div></div>
                 </div>
                 <p>格式化、校验、路径查询，开发日常够用。</p>
-                <div class="meta"><span>8.1k 安装</span><span class="state">已安装</span></div>
+                <div class="meta"><span>开发</span><span class="state">已安装</span></div>
               </article>
               <article class="wf-card" data-delay="60">
                 <div class="wf-card-head">
@@ -479,7 +455,7 @@
                   <div><h3>代码片段库</h3><div class="cat">开发</div></div>
                 </div>
                 <p>常用片段集中管理，变量占位快速插入。</p>
-                <div class="meta"><span>3.9k 安装</span><span>安装</span></div>
+                <div class="meta"><span>设计</span><span>安装</span></div>
               </article>
               <article class="wf-card" data-delay="100">
                 <div class="wf-card-head">
@@ -487,7 +463,7 @@
                   <div><h3>全幅画布</h3><div class="cat">创作</div></div>
                 </div>
                 <p>沉浸式画布工具，可透出桌面壁纸。</p>
-                <div class="meta"><span>1.2k 安装</span><span>安装</span></div>
+                <div class="meta"><span>媒体</span><span>安装</span></div>
               </article>
             </div>
             <div class="wf-col">
@@ -497,7 +473,7 @@
                   <div><h3>取色器</h3><div class="cat">设计</div></div>
                 </div>
                 <p>屏幕取色、调色板管理，导出设计色板。</p>
-                <div class="meta"><span>6.7k 安装</span><span>安装</span></div>
+                <div class="meta"><span>其它</span><span>安装</span></div>
               </article>
               <article class="wf-card" data-delay="70">
                 <div class="wf-card-head">
@@ -505,7 +481,7 @@
                   <div><h3>快捷指令</h3><div class="cat">效率</div></div>
                 </div>
                 <p>把常用动作挂到全局热键，一步唤起。</p>
-                <div class="meta"><span>2.1k 安装</span><span>安装</span></div>
+                <div class="meta"><span>效率</span><span>安装</span></div>
               </article>
               <article class="wf-card" data-delay="90">
                 <div class="wf-card-head">
@@ -522,16 +498,16 @@
                   <span class="wf-icon" style="background:linear-gradient(160deg,#fcd34d,#f59e0b)">▣</span>
                   <div><h3>截图标注</h3><div class="cat">设计</div></div>
                 </div>
-                <p>区域截图、箭头标注，一键复制分享。</p>
-                <div class="meta"><span>5.6k 安装</span><span>安装</span></div>
+                <p>区域截图、箭头标注，复制或保存都只要一步。</p>
+                <div class="meta"><span>开发</span><span>安装</span></div>
               </article>
               <article class="wf-card" data-delay="110">
                 <div class="wf-card-head">
                   <span class="wf-icon" style="background:linear-gradient(160deg,#f9a8d4,#ec4899)">◌</span>
                   <div><h3>窗口整理</h3><div class="cat">效率</div></div>
                 </div>
-                <p>一键收纳杂乱窗口，保存常用布局。</p>
-                <div class="meta"><span>2.8k 安装</span><span>安装</span></div>
+                <p>把杂乱窗口收进布局，常用组合一键恢复。</p>
+                <div class="meta"><span>设计</span><span>安装</span></div>
               </article>
               <article class="wf-card" data-delay="130">
                 <div class="wf-card-head">
@@ -539,7 +515,7 @@
                   <div><h3>接口探针</h3><div class="cat">开发</div></div>
                 </div>
                 <p>本地保存请求记录，对比响应差异。</p>
-                <div class="meta"><span>1.6k 安装</span><span>安装</span></div>
+                <div class="meta"><span>媒体</span><span>安装</span></div>
               </article>
             </div>
           </div>
@@ -561,7 +537,7 @@
           <h2>两个工具，两层壳</h2>
           <p>需要并行时多开 Tab，需要专注时只留一个。工作台随任务组合，而不是被固定布局锁死。</p>
         </div>
-        <div class="iso-stage reveal">
+        <div class="iso-stage drift-up">
           <div class="iso-canvas" id="iso-canvas">
             <div class="iso-note">PARALLEL</div>
             <div class="iso-grid">
@@ -603,27 +579,37 @@
       </div>
     </section>
 
-    <!-- 步骤 + Why 合并带 -->
+    <!-- 步骤：sticky 堆叠卡（滚动推进，前卡被压扁） -->
     <section class="section section-tight" id="how">
       <div class="wrap">
+        <div class="section-head left reveal" style="margin-bottom:24px">
+          <div class="eyebrow">Steps</div>
+          <h2>三步开始</h2>
+        </div>
         <div class="steps">
-          <article class="step reveal">
-            <div class="step-num">01</div>
-            <h3>安装 eNest</h3>
-            <p>选择 macOS、Windows 或 Linux 安装包，打开即是市场首页。</p>
-            <pre><code>下载 → 安装 → 打开</code></pre>
+          <article class="step">
+            <div class="step__content">
+              <div class="step-num">01</div>
+              <h3>安装 eNest</h3>
+              <p>选择 macOS、Windows 或 Linux 安装包，打开即是市场首页。</p>
+              <pre><code>下载 → 安装 → 打开</code></pre>
+            </div>
           </article>
-          <article class="step reveal reveal-delay-1">
-            <div class="step-num">02</div>
-            <h3>装几个常用工具</h3>
-            <p>市场里挑剪贴板、翻译等；也可以热键呼出小窗直接搜。</p>
-            <pre><code>市场安装 · 或 ⌥Space 搜索</code></pre>
+          <article class="step">
+            <div class="step__content">
+              <div class="step-num">02</div>
+              <h3>装几个常用工具</h3>
+              <p>市场里挑剪贴板、翻译等；也可以热键呼出小窗直接搜。</p>
+              <pre><code>市场安装 · 或 ⌥Space 搜索</code></pre>
+            </div>
           </article>
-          <article class="step reveal reveal-delay-2">
-            <div class="step-num">03</div>
-            <h3>按需组合</h3>
-            <p>多开 Tab 并行，切换主题，把工作台调成你的样子。</p>
-            <pre><code>并行工作 · 随时关掉</code></pre>
+          <article class="step">
+            <div class="step__content">
+              <div class="step-num">03</div>
+              <h3>按需组合</h3>
+              <p>多开 Tab 并行，切换主题，把工作台调成你的样子。</p>
+              <pre><code>并行工作 · 随时关掉</code></pre>
+            </div>
           </article>
         </div>
       </div>

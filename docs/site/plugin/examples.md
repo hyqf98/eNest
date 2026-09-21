@@ -179,7 +179,7 @@
 
 ## 2. 主题感知面板（theme + 主题包注册）
 
-演示：读 Token、跟随主题、注册主题包到壳子设置。
+演示：读主题变量、跟随主题、注册主题包到壳子设置。
 
 **plugin.json**
 
@@ -209,7 +209,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>主题实验室</title>
   <style>
-    /* 兜底 Token；壳子 themeAware 注入后会被覆盖 */
+    /* 兜底色值；壳子 themeAware 注入后会被覆盖 */
     :root {
       --bg: #f4f5f7; --surface: #fff; --surface-2: #f0f2f5;
       --text: #0f1420; --text-2: #5c6578;
@@ -270,7 +270,7 @@
 
     <p>
       <button id="pack">注册「薄荷森林」主题包</button>
-      <button id="read" style="background:transparent;color:var(--text-2);border:1px solid var(--border)">刷新 Token</button>
+      <button id="read" style="background:transparent;color:var(--text-2);border:1px solid var(--border)">刷新主题</button>
     </p>
 
     <pre id="dump">loading…</pre>

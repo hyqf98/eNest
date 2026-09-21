@@ -74,7 +74,7 @@ my-hello/
 ## 4. README 与市场详情
 
 插件根目录提供 `README.md` 后，市场卡片点击进入详情会渲染该文档
-（壳子调用 `shell:get-plugin-readme`）。
+。
 
 ## 下一步
 

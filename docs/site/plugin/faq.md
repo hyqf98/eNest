@@ -34,18 +34,10 @@ A：不能跨 View 访问。协议仅映射自身根目录，并防路径穿越�
 ## 发布
 
 **Q：怎么打包插件？**
-A：规范扩展名为 `.enestplugin`（zip，内含 `plugin.json`）。当前 zip 安装为 stub，发布链路完善前请用目录分发 + 开发者加载。
+A：规范扩展名为 `.enestplugin`（zip，内含 `plugin.json`），可直接拖入壳子安装。
 
 **Q：要提交 node_modules 吗？**
 A：不要。只提交编译后的静态文件。
 
 **Q：市场审核 / 权限展示？**
-A：路线图项。现阶段本地 Mock 市场；生产请主动最小权限。
-
-## 文档站
-
-**Q：为何用 Docsify？**
-A：零构建、单 `index.html` + Markdown，与 `docs/site` 静态托管（GitHub Pages）匹配。选型说明见仓库 `docs/evaluation-docs.md`。
-
-**Q：CDN 挂了怎么办？**
-A：可将 `docsify.min.js` / 主题 CSS 放到 `vendor/` 并改 `index.html` 引用（文件内有注释说明）。
+A：当前版本提供内置示例市场；安装时按需授权，建议只勾选用到的权限。

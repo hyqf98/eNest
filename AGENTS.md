@@ -11,7 +11,7 @@ npm run build        # electron-vite build
 npm run lint         # eslint（若配置存在）
 ```
 
-本地工具脚本与 `packages/plugin-sdk` **不入壳子仓库**（见 `.gitignore`）；打包图标只认 `assets/icons/icon.{icns,ico,png}`。
+本地工具脚本与 `packages/plugin-sdk` **不入壳子仓库**（见 `.gitignore`）；打包图标只认 `build/icon.{icns,ico,png}`（electron-builder buildResources）。`assets/icons/` 仅存运行时图标（`enest-icon-256.png` 窗口 / `dock-runtime.png` Dock），经 extraResources 打进 Resources/icons。
 
 主进程/preload 变更需重启 `npm run dev`；纯 renderer 可依赖 HMR。
 

@@ -3,7 +3,7 @@
 eNest 插件可以使用任意前端技术（HTML / CSS / Canvas / WebGL / 任意框架）绘制界面。壳子通过 `plugin.json` 的 `ui` 段统一管理：
 
 - **插件条 chrome** — 标题栏下的工具条高度与形态
-- **主题 Token** — CSS 变量注入 + 运行时推送
+- **主题变量** — CSS 变量注入 + 运行时推送
 - **背景透明** — 透出壳子壁纸 / 动效背景
 - **配色偏好** — 强制 light/dark 或跟随壳子
 
@@ -62,7 +62,7 @@ eNest 插件可以使用任意前端技术（HTML / CSS / Canvas / WebGL / 任�
 | `minimal` | 28px | 需要更多纵向空间的界面：仅细条 + 名称 |
 | `default` | — | **已废弃**：加载时被归一为 `none`（不再渲染名称 + URL 标准条），仅为兼容旧 manifest 保留枚举值 |
 
-壳子在 `PluginHost.getPluginContentBounds(chromeBarHeight)` 布局时读取 `manifest.ui.chrome`，为 **每个已打开插件单独** 计算内容区边界。多插件并存时各自使用自身 chrome 高度。
+壳子布局插件区时会读取 `manifest.ui.chrome`，为 **每个已打开插件单独** 计算内容区边界。多插件并存时各自使用自身 chrome 高度。
 
 ### 沉浸式布局检查清单
 
@@ -76,7 +76,7 @@ eNest 插件可以使用任意前端技术（HTML / CSS / Canvas / WebGL / 任�
 
 ## mini 插件（Quick 小窗）
 
-`plugin.json` 声明 `"form": "mini"` 的插件优先在 **Quick 命令面板小窗** 内嵌打开（骨架阶段未就绪时仍进主窗 Tab，布局规则同 panel）。mini 插件内容是叠在 Quick 渲染层之上的原生 WebContentsView：
+`plugin.json` 声明 `"form": "mini"` 的插件优先在 **Quick 命令面板小窗** 内嵌打开（小窗不可用时自动改用主窗 Tab，布局规则同 panel）。mini 插件内容是叠在 Quick 渲染层之上的原生 WebContentsView：
 
 ```text
 ┌────────────────────────────────┐
@@ -99,7 +99,7 @@ eNest 插件可以使用任意前端技术（HTML / CSS / Canvas / WebGL / 任�
 
 ### 内容高度自适应（优先级）
 
-壳子按以下顺序决定插件区高度（`PluginHost.startQuickHeightWatch`）：
+壳子按以下顺序决定插件区高度：
 
 ```text
 enest.ui.setHeight(px) 上报  >  body scrollHeight 探测  >  manifest window.minHeight  >  默认 300
@@ -151,7 +151,7 @@ window.addEventListener('load', reportHeight)
 
 ---
 
-## 主题 Token
+## 主题变量
 
 ### 注入方式（三种）
 
@@ -178,7 +178,7 @@ const off = enest.ui.onThemeChange(({ mode, tokens }) => {
 })
 ```
 
-### Token 完整列表
+### 主题变量完整列表
 
 | 变量 | 含义 | light 预设 | dark 预设 |
 |------|------|-----------|-----------|
@@ -350,7 +350,7 @@ html, body {
 ### 必须遵守
 
 1. **透明底**：`background: transparent` 时，Canvas 用每帧 `clearRect`，WebGL 创建上下文时 `alpha: true`，勿绘制不透明底色。
-2. **取色走 Token**：优先读 `--accent` / `--text` 等变量或 `theme.getTokens()`，避免写死与壳子冲突的色值。
+2. **取色走主题变量**：优先读 `--accent` / `--text` 等变量或 `theme.getTokens()`，避免写死与壳子冲突的色值。
 3. **主题变更重绘**：`onThemeChange` 时更新 uniform / 重画一帧。
 4. **性能自控**：壳子不会替你降帧；不可见时在 `onOut` / `visibilitychange` 里暂停 rAF。
 
@@ -518,11 +518,11 @@ gl.clear(gl.COLOR_BUFFER_BIT)
 
 ---
 
-## 设计语言与样式规范（插件 UI Standard v2）
+## 设计语言与样式规范（插件 UI 集成标准）
 
-本节是插件作者的 **视觉与主题契约**。与前文「能注入哪些 Token」互补：这里规定 **必须消费哪些 Token、如何排版层级、主题如何跟随壳子**。权威 Token 源见 `src/renderer/styles/tokens.css`。
+本节是插件作者的 **视觉与主题契约**。与前文「能注入哪些主题变量」互补：这里规定 **必须使用哪些主题变量、如何排版层级、主题如何跟随壳子**。
 
-### MUST 消费的壳子 Token（`themeAware: true` 时）
+### 必须使用的壳子主题变量（`themeAware: true` 时）
 
 `themeAware: true`（缺省）时，壳子在 `did-finish-load` 后向 `document.documentElement` 注入 CSS 变量，并在主题变更时推送；插件 UI **必须** 优先读这些变量，而不是写死与壳子冲突的色值/字号。
 
@@ -536,9 +536,9 @@ gl.clear(gl.COLOR_BUFFER_BIT)
 | 阴影 | `--shadow-soft` `--shadow-float` |
 | 字体与字号 | `--font` `--mono` `--font-size-base` |
 
-> 壳子侧同源定义：`src/renderer/styles/tokens.css`（浅色优先 + `:root[data-theme="dark"]` 覆盖）。注入时还会设置 `document.documentElement.dataset.theme` 与 `color-scheme`。
+> 注入时还会同步设置 `document.documentElement.dataset.theme` 与 `color-scheme`，便于第三方样式库自适应。
 
-运行时动态取色（Canvas / WebGL / 无 CSS 变量环境）走 `enest.theme.getTokens()` 与 `enest.ui.onThemeChange`，Token 键名与上表一致（含 `var(--xxx)` 形式的键）。
+运行时动态取色（Canvas / WebGL / 无 CSS 变量环境）走 `enest.theme.getTokens()` 与 `enest.ui.onThemeChange`，变量名与上表一致（含 `var(--xxx)` 形式的键）。
 
 ### 设计语言：简约现代化
 
@@ -559,7 +559,7 @@ gl.clear(gl.COLOR_BUFFER_BIT)
 |------|------|
 | `plugin.json` → `ui.themeAware` | **缺省 `true`**（`DEFAULT_PLUGIN_UI` / `resolvePluginUi()`）。一般插件 **不要** 显式写 `false` |
 | 设置项 `followShellTheme` | 插件 **SHOULD** 在设置中暴露布尔项 `followShellTheme`，**缺省 `true`**，经 `enest.settings.register` 或 `contributes.settings` 注册 |
-| `followShellTheme: true` | 跟随壳子：消费注入 Token + 响应 `onThemeChange` |
+| `followShellTheme: true` | 跟随壳子：消费注入主题变量 + 响应 `onThemeChange` |
 | `followShellTheme: false` | 插件 **自行钉住** 偏好配色：读取本地设置的 `preferredColorScheme`（light/dark），UI 按该配色绘制；不依赖壳子当前 mode。manifest 的 `ui.preferredColorScheme` 仍表示壳子注入时的强制配色，二者应在文档与设置文案中对用户说清 |
 
 > `followShellTheme` 是 **插件侧设置约定**，壳子不会自动代填；未实现该项时，应等价于始终跟随壳子（与 `themeAware: true` 行为一致）。
@@ -575,9 +575,9 @@ gl.clear(gl.COLOR_BUFFER_BIT)
 }
 ```
 
-### Token 缺失时的兜底调色板
+### 无主题注入时的默认色板
 
-壳子未注入（`themeAware: false`、首屏竞态、独立预览）时，页面应自带兜底，**与 `tokens.css` 预设对齐**，注入后被覆盖即可。
+壳子未注入（`themeAware: false`、首屏竞态、独立预览）时，页面应自带兜底色板，注入后由主题变量覆盖即可。
 
 | Token | light 兜底 | dark 兜底 |
 |-------|------------|-----------|
@@ -597,7 +597,7 @@ gl.clear(gl.COLOR_BUFFER_BIT)
 | `--danger` | `#e11d48` | `#ff7a8e` |
 | `--danger-soft` | `rgba(225,29,72,0.1)` | `rgba(255,122,142,0.14)` |
 
-结构 Token（两套主题共用）：
+结构与字体变量（两套主题共用）：
 
 | Token | 兜底 |
 |-------|------|
@@ -640,7 +640,7 @@ gl.clear(gl.COLOR_BUFFER_BIT)
 ### 插件作者检查清单
 
 - [ ] `plugin.json` 未无故关闭 `ui.themeAware`（缺省已是 `true`）
-- [ ] 颜色、圆角、阴影、字体全部读上表 Token；本地仅保留与 `tokens.css` 对齐的兜底
+- [ ] 颜色、圆角、阴影、字体全部读上表主题变量；本地仅保留对齐默认主题的兜底色板
 - [ ] 设置中提供 `followShellTheme`（boolean，缺省 `true`）；`false` 时钉住 `preferredColorScheme` 并自行绘制
 - [ ] 主题变更：`onThemeChange` 更新 CSS 变量消费者 / Canvas uniform / 自绘控件
 - [ ] 层级用 surface + 阴影，而非密集描边

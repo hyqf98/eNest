@@ -64,6 +64,25 @@ export function DevConsoleSection() {
   const devPlugins = plugins.filter((p) => p.dev === true)
   const openIds = new Set(tabs.map((t) => t.pluginId))
 
+  /** 「退出即杀」开关状态（对齐 uTools）：挂载后逐插件查询主进程（内存 + dev.json 持久化） */
+  const [killOnHide, setKillOnHide] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    for (const p of devPlugins) {
+      if (killOnHide[p.id] !== undefined) continue
+      void shellApi.setDevKillOnHide(p.id).then((on) => {
+        setKillOnHide((cur) => ({ ...cur, [p.id]: on === true }))
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在 dev 插件集合变化时补查缺失项
+  }, [devPlugins.map((p) => p.id).join(',')])
+
+  const toggleKillOnHide = async (id: string) => {
+    const next = !(killOnHide[id] === true)
+    setKillOnHide((cur) => ({ ...cur, [id]: next }))
+    const confirmed = await shellApi.setDevKillOnHide(id, next)
+    setKillOnHide((cur) => ({ ...cur, [id]: confirmed === true }))
+  }
+
   const load = async (path?: string) => {
     if (loading) return
     setLoading(true)
@@ -207,6 +226,15 @@ export function DevConsoleSection() {
                       {t('devConsole.remove')}
                     </button>
                     {p.devUrl ? <span className="tag">HMR</span> : null}
+                    <button
+                      className={`btn btn-ghost btn-sm${killOnHide[p.id] ? ' active' : ''}`}
+                      type="button"
+                      aria-pressed={killOnHide[p.id] === true}
+                      title={t('devConsole.killOnHideHint')}
+                      onClick={() => void toggleKillOnHide(p.id)}
+                    >
+                      {t('devConsole.killOnHide')}
+                    </button>
                   </div>
                 </div>
               )

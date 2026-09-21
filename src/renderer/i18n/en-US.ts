@@ -231,6 +231,8 @@ const enUS: EnDict = {
     removeConfirm: 'Remove “{name}” from the dev list? (source folder is kept)',
     view: 'View',
     reload: 'Hot reload',
+    killOnHide: 'Kill on hide',
+    killOnHideHint: 'Like uTools "exit on hide": plugin process ends immediately when hidden; next open loads fresh code',
     logs: 'Logs',
     logsHint: 'console + IPC',
     trace: 'Call trace',

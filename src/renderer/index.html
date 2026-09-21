@@ -4,10 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>eNest</title>
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
+    <!-- 不外链 Google Fonts：桌面端离线优先（tokens.css font-stack 已含 SF Pro/苹方兜底）；
+         且外链域名在新渲染进程 JIT 高峰期触发 c-ares DNS，曾在 macOS 27 + Electron 36 上
+         引发 V8 MAP_JIT 写保护原生崩溃（electron/electron#51351 同指纹），勿加回。 -->
   </head>
   <body>
     <div id="root"></div>

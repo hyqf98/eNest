@@ -66,7 +66,7 @@
 
       loadSidebar: true,
       loadNavbar: false,
-      subMaxLevel: 3,
+      subMaxLevel: 2,
       maxLevel: 4,
       auto2top: true,
       relativePath: false,
@@ -95,6 +95,17 @@
             document.title = (h1 ? h1.innerText.trim() : '插件开发') + ' — eNest 插件文档';
           });
         },
+        /* 侧栏 active 项滚动跟随：路由切换后把当前项滚进可视区 */
+        function (hook) {
+          hook.doneEach(function () {
+            var el = document.querySelector('.sidebar-nav li.active > a');
+            if (!el) return;
+            var bar = document.querySelector('.sidebar');
+            if (!bar) return;
+            var top = el.offsetTop - bar.clientHeight * 0.38;
+            if (top > 0 || bar.scrollTop > 0) bar.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+          });
+        },
         function (hook) {
           var bar = document.createElement('div');
           bar.style.cssText =
@@ -112,6 +123,228 @@
               bar.style.opacity = '0';
               setTimeout(function () { bar.style.width = '0'; }, 280);
             }, 160);
+          });
+        },
+        /* 窄屏侧栏开关：汉堡切换、点链接与遮罩收起 */
+        function (hook) {
+          hook.ready(function () {
+            var overlay = document.createElement('div');
+            overlay.className = 'sidebar-overlay';
+            document.body.appendChild(overlay);
+            overlay.addEventListener('click', function () {
+              document.body.classList.remove('sidebar-open');
+            });
+          });
+          hook.doneEach(function () {
+            var links = document.querySelectorAll('.sidebar-nav a');
+            links.forEach(function (a) {
+              a.addEventListener('click', function () {
+                if (window.innerWidth <= 900) document.body.classList.remove('sidebar-open');
+              });
+            });
+          });
+        },
+        /* ══════════════════════════════════════════════════════════════
+         * API 参考增强（仅 api.md，markdown 源零侵入）
+         * afterEach：h2「xx — 标题」切段打 data-ns → h3 签名拆解
+         *   （ns./name/(args)）→ 空表头两列表打 .api-meta、权限行升为
+         *   h3 尾部 chip、参数行 `name: type` 类型着色 → 方法索引大表
+         *   打 .api-index + 首列命名空间色点。
+         * doneEach：按 h3[data-ns] 顺序构建右侧方法 TOC + scroll-spy，
+         *   离开 api 路由时清理。特征串 + data-ns 双保险，幂等可重入。
+         * ══════════════════════════════════════════════════════════════ */
+        function (hook) {
+          var NS_SET = ['ui', 'theme', 'hotkey', 'i18n', 'contribute', 'settings',
+            'storage', 'clipboard', 'screen', 'pin', 'net', 'shell', 'vault', 'ssh', 'db'];
+          var NS_ALIAS = { notify: 'core' }; // notify 无独立命名空间，归 core
+          var API_MARK = 'ui — 界面集成';     // api.md 独有特征串
+
+          function esc(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          }
+
+          /* —— 签名拆解：`ns.method(args)` / `method(args)` / `ns.m / m2` —— */
+          function splitSig(code) {
+            var t = code.textContent;
+            var m = t.match(/^([a-z][\w.]*?\.)(\w+)(\([\s\S]*)$/)   // ui.setTitle(title)
+                 || t.match(/^(\w+)(\([\s\S]*)$/)                    // on(event, cb)
+                 || t.match(/^([a-z][\w.]*?\.)(\w+)(\s\/[\s\S]*)$/); // storage.session.get / set …
+            if (!m) return; // 形如纯文本说明的 code 保持原样
+            code.innerHTML = m.length === 4
+              ? '<span class="api-ns">' + esc(m[1]) + '</span>' +
+                '<span class="api-name">' + esc(m[2]) + '</span>' +
+                '<span class="api-args">' + esc(m[3]) + '</span>'
+              : '<span class="api-name">' + esc(m[1]) + '</span>' +
+                '<span class="api-args">' + esc(m[2]) + '</span>';
+          }
+
+          /* —— 权限 chip：表行信息升到 h3 尾部，原行仅隐藏不删 —— */
+          function attachPermChip(h, cell) {
+            if (h.querySelector('.chip')) return;
+            var text = cell.textContent.replace(/\s+/g, ' ').trim();
+            var isNone = text.indexOf('无') === 0;
+            /* 混排单元格（如 `ui.resize`（复用）/ 无（…；`source` …））一律按整格文本判断 */
+            var perm = isNone ? '' : text.replace(/[（(][^）)]*[）)]/g, '').trim() || text;
+            var a = document.createElement('a');
+            a.className = 'chip' + (isNone ? ' chip-ok' : '');
+            a.href = '#/permissions';
+            a.title = isNone ? '无需在 plugin.json 声明权限' : '需要权限：' + perm;
+            a.textContent = isNone ? '无需权限' : perm;
+            var last = h.lastElementChild; // anchor 在尾则插其前，否则追加
+            if (last && last.tagName === 'A' && last.classList.contains('anchor')) h.insertBefore(a, last);
+            else h.appendChild(a);
+          }
+
+          /* —— 方法属性表：h3 之后、下一标题之前的首个「两列空表头」表 —— */
+          function processMetaTable(h) {
+            var el = h.nextElementSibling, table = null;
+            while (el && !/^(H2|H3)$/.test(el.tagName)) {
+              if (!table && el.tagName === 'TABLE') table = el;
+              el = el.nextElementSibling;
+            }
+            if (!table) return;
+            var th = table.querySelectorAll('thead th');
+            if (th.length !== 2) return;
+            for (var i = 0; i < th.length; i++) if (th[i].textContent.trim()) return;
+            table.classList.add('api-meta');
+            table.querySelectorAll('tbody tr').forEach(function (tr) {
+              var label = tr.cells[0] ? tr.cells[0].textContent : '';
+              var cell = tr.cells[1];
+              if (!cell) return;
+              if (label.indexOf('权限') !== -1) {
+                tr.classList.add('api-row-perm');
+                attachPermChip(h, cell);
+              } else if (label.indexOf('参数') !== -1 || label.indexOf('返回') !== -1) {
+                cell.querySelectorAll('code').forEach(function (c) {
+                  var m = c.textContent.match(/^([A-Za-z_$][\w$]*\??)\s*:\s*([\s\S]+)$/);
+                  if (m) c.innerHTML = esc(m[1]) + '<span class="chip-type">: ' + esc(m[2]) + '</span>';
+                });
+              }
+            });
+          }
+
+          hook.afterEach(function (html) {
+            if (html.indexOf('data-ns=') !== -1) return html; // 幂等：已处理过直接放行
+            if (html.indexOf(API_MARK) === -1) return html;   // 非 api 页不碰
+            if (!window.DOMParser) return html;               // 极老环境走纯 CSS 兜底
+
+            var doc = new DOMParser().parseFromString(html, 'text/html');
+            var body = doc.body;
+
+            /* 1. 按 h2 切段打 ns：`ui — 界面集成` → ui；无破折号章节 → core */
+            var current = 'core';
+            var h3s = [];
+            body.querySelectorAll('h2, h3').forEach(function (el) {
+              if (el.tagName === 'H2') {
+                var t = el.textContent.split('—')[0].trim().toLowerCase();
+                current = NS_SET.indexOf(t) !== -1 ? (NS_ALIAS[t] || t) : 'core';
+              } else {
+                el.setAttribute('data-ns', current);
+                h3s.push(el);
+              }
+            });
+
+            /* 2. h3 内 code 签名拆解 */
+            h3s.forEach(function (h) {
+              h.querySelectorAll('code').forEach(splitSig);
+            });
+
+            /* 3. 属性表打标 + 权限 chip + 类型着色 */
+            h3s.forEach(processMetaTable);
+
+            /* 4. 方法索引大表（真表头）首列色点 */
+            body.querySelectorAll('table').forEach(function (tb) {
+              var th = tb.querySelectorAll('thead th');
+              if (th.length < 4 || th[0].textContent.trim() !== '命名空间') return;
+              tb.classList.add('api-index');
+              tb.querySelectorAll('tbody tr').forEach(function (tr) {
+                var td = tr.cells[0];
+                if (!td) return;
+                var ns = td.textContent.trim();
+                ns = !ns || ns === '—' ? 'core' : ns.split('.')[0];
+                if (NS_SET.indexOf(ns) === -1) ns = 'core';
+                td.setAttribute('data-ns', ns);
+                td.insertAdjacentHTML('afterbegin', '<span class="ns-dot"></span>');
+                /* 方法列长签名：在 / 与参数逗号后插 <wbr>，词内不断（keep-all） */
+                var sig = tr.cells[1];
+                if (sig) {
+                  sig.querySelectorAll('code').forEach(function (c) {
+                    c.innerHTML = c.textContent
+                      .replace(/\//g, '/<wbr>')
+                      .replace(/,\s*/g, ',<wbr>')
+                      .replace(/\(/g, '(<wbr>');
+                  });
+                }
+              });
+            });
+
+            return body.innerHTML;
+          });
+
+          /* —— 右侧方法 TOC：按 h3 顺序索引（不依赖 slug），IO scroll-spy —— */
+          var toc = null, io = null;
+          hook.doneEach(function () {
+            if (io) { io.disconnect(); io = null; }
+            if (toc) { toc.remove(); toc = null; }
+            var heads = Array.prototype.slice.call(
+              document.querySelectorAll('.markdown-section h3[data-ns]'));
+            if (!heads.length) return; // 离开 api 路由：只清理不构建
+
+            var routeBase = (location.hash.split('?')[0] || '#/api');
+            var html = '<p class="title">方法导航</p>';
+            var lastNs = null;
+            heads.forEach(function (h, i) {
+              var ns = h.getAttribute('data-ns');
+              if (ns !== lastNs) {
+                var nsVar = ns === 'ssh' ? 'ns-net' : 'ns-' + ns;
+                html += (lastNs === null ? '' : '</ul></div>') +
+                  '<div class="toc-group" style="--toc-ns-c: var(--' + nsVar + ', var(--ns-core))">' +
+                  '<p class="toc-ns-label">' + esc(ns) + '</p><ul>';
+                lastNs = ns;
+              }
+              var nameEl = h.querySelector('.api-name');
+              var name = nameEl ? nameEl.textContent
+                : (h.querySelector('code') || h).textContent.split(/[(\s\/]/)[0];
+              var href = h.id ? routeBase + '?id=' + encodeURIComponent(h.id) : routeBase;
+              html += '<li' + (i === 0 ? ' class="active"' : '') + '><a href="' + href + '">' +
+                esc(name) + '</a></li>';
+            });
+            html += '</ul></div>';
+
+            toc = document.createElement('nav');
+            toc.className = 'toc-nav api-toc';
+            toc.innerHTML = html;
+            document.body.appendChild(toc);
+            var lis = Array.prototype.slice.call(toc.querySelectorAll('li'));
+
+            var setActive = function (i) {
+              var el = lis[i];
+              if (!el || el.classList.contains('active')) return;
+              lis.forEach(function (li) { li.classList.remove('active'); });
+              el.classList.add('active');
+              if (el.offsetTop < toc.scrollTop || el.offsetTop > toc.scrollTop + toc.clientHeight - 24)
+                toc.scrollTo({ top: el.offsetTop - toc.clientHeight / 2 });
+            };
+
+            var visible = {};
+            var recompute = function () {
+              var best = -1;
+              heads.forEach(function (h, i) { if (visible[i]) best = i; });
+              if (best !== -1) setActive(best);
+            };
+            io = new IntersectionObserver(function (entries) {
+              entries.forEach(function (e) {
+                var i = heads.indexOf(e.target);
+                if (i !== -1) visible[i] = e.isIntersecting;
+              });
+              recompute();
+            }, { root: document.querySelector('.content'), rootMargin: '0px 0px -70% 0px', threshold: 0 });
+            heads.forEach(function (h) { io.observe(h); });
+
+            /* 初始定位（带 ?id= 直达时） */
+            var init = -1;
+            heads.forEach(function (h, i) { if (h.getBoundingClientRect().top < 140) init = i; });
+            setActive(init === -1 ? 0 : init);
           });
         }
       ]

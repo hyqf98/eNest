@@ -38,7 +38,8 @@
  *   最久未激活的 background 插件立即休眠（active / quick 挂载中 / dev 白名单除外）
  * - crash 自愈：render-process-gone 清理 entry 后首次自动重启（reopen 一次）；
  *   连续第二次 crash 保留逻辑 Tab 但不再自动重启（渲染层经 plugin-error 显示崩溃态）
- * - dev 插件（summary.dev === true）永不休眠 / 不参与 LRU 驱逐
+ * - dev 插件（summary.dev === true）默认永不休眠 / 不参与 LRU 驱逐；
+ *   开「退出即杀」开关者除外（killOnHidePlugins）
  *
  * 向插件推送的事件（通道 plugin:lifecycle）：
  *   enter       — 首次 did-finish-load 后 + 每次 activate（与 out 成对，便于 pause/resume）
@@ -109,11 +110,6 @@ import {
   registerPluginProtocolForSession,
   invalidatePluginFileCache
 } from '@main/plugin/pluginProtocol'
-import {
-  setPluginHotReloadHandler,
-  stopWatchingPlugin,
-  watchPluginForHotReload
-} from '@main/plugin/pluginHotReload'
 import { getPluginDesiredHeight, releasePluginHotkeys, releasePluginContribs } from '@main/ipc/pluginHandlers'
 import { releaseSshSessions } from '@main/ssh/sshSessionManager'
 import { releaseDbSessions } from '@main/database/dbSessionManager'
@@ -193,6 +189,28 @@ export class PluginHost {
   private hibernateTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** crash 后自动重启次数：仅首次自动 reopen，连续第二次 crash 停止 */
   private restartAttempts = new Map<string, number>()
+  /** dev 插件「退出即杀」开关（对齐 uTools）：开启后退后台立即休眠，下次进入冷启动读最新代码 */
+  private killOnHidePlugins = new Set<string>()
+
+  /**
+   * 设置 dev 插件「退出即杀」开关（DevConsole 切换时调用）。
+   * 已在后台的插件立即休眠，让开关即刻生效而非等下次退场。
+   */
+  setKillOnHide(pluginId: string, enabled: boolean): void {
+    if (enabled) {
+      this.killOnHidePlugins.add(pluginId)
+      // 插件当前不在前台：立即休眠（后台/休眠中一律对齐 uTools「立即结束运行」）
+      if (this.entries.has(pluginId) && this.activeTabId !== pluginId && this.quickPluginId !== pluginId) {
+        this.hibernatePlugin(pluginId)
+      }
+    } else {
+      this.killOnHidePlugins.delete(pluginId)
+    }
+  }
+
+  getKillOnHide(pluginId: string): boolean {
+    return this.killOnHidePlugins.has(pluginId)
+  }
 
   getActive(): string | null {
     return this.activeTabId
@@ -244,12 +262,20 @@ export class PluginHost {
   /**
    * quick 呼出时恢复插件挂载：清休眠计时、刷新 LRU 时间、重推 quick-plugin-mode
    * （渲染层切回插件 UI）。返回目标窗高（无挂载返回 null，列表态）。
+   * onQuickHidden 已清 quickPluginId（允许隐藏期间休眠）；休眠到期后这里为 null 走列表态，
+   * 未到期重新呼出时若 entry 已被休眠摘除，由 quickHandlers 的 openPlugin 冷启动兜底。
    */
   notifyQuickRestore(): number | null {
-    const pid = this.quickPluginId
+    // 隐藏期间未休眠的插件：entry 仍在 quick 容器，直接恢复挂载语义
+    let pid = this.quickPluginId
+    if (!pid) {
+      const candidate = [...this.entries.values()].find((e) => e.container === 'quick')
+      pid = candidate?.pluginId ?? null
+    }
     if (!pid) return null
     const entry = this.entries.get(pid)
     if (!entry || entry.container !== 'quick') return null
+    this.quickPluginId = pid
     this.clearHibernateTimer(pid)
     entry.lastActivatedAt = Date.now()
     // enter 不重放（呼出 ≠ 新进入）；但 active 语义需要维持——若中途被退 background 则重激活
@@ -289,6 +315,10 @@ export class PluginHost {
       this.sendToPlugin(entry.view.webContents, { event: 'out', isKill: false })
       this.applyTransition(pid, 'deactivate')
     }
+    // 窗口已整体不可见，挂载语义不再阻止休眠：先清 quickPluginId 再计时，
+    // 否则 scheduleHibernate 的 quickPluginId 守卫会让渲染进程常驻直到下次呼出
+    this.quickPluginId = null
+    this.stopQuickHeightWatch()
     this.scheduleHibernate(pid)
   }
 
@@ -426,6 +456,9 @@ export class PluginHost {
       this.pendingEnter.set(pluginId, enter)
     }
 
+    // 全新 view 首载本无 HTTP 缓存；但 hibernated→open 的冷启动复用同一 partition，
+    // Chromium 会用上一次会话缓存的 CSS/JS 子资源（enest:// 响应无缓存头），
+    // 导致「退出即杀」冷启动仍读到旧样式。首载完成后强制忽略缓存重拉一次。
     void view.webContents.loadURL(url).catch((err: Error) => {
       this.applyTransition(pluginId, 'load-fail')
       sendShellEvent({
@@ -433,6 +466,9 @@ export class PluginHost {
         pluginId,
         message: err.message
       })
+    })
+    view.webContents.once('did-finish-load', () => {
+      view.webContents.reloadIgnoringCache()
     })
 
     view.webContents.on('render-process-gone', (_e, details) => {
@@ -484,11 +520,6 @@ export class PluginHost {
     this.entries.set(pluginId, entry)
     this.byWcId.set(view.webContents.id, pluginId)
 
-    // 文件型插件：监视 rootPath，变更自动热重载（dev / 已安装本地目录）
-    if (rootPath) {
-      watchPluginForHotReload(pluginId, rootPath)
-    }
-
     if (container === 'quick') {
       // Quick 小窗懒创建：呼出 mini 插件时确保容器存在再挂载
       const quickWin = getQuickWindow() ?? ensureQuickWindow()
@@ -529,7 +560,6 @@ export class PluginHost {
     const pluginId = toPluginId(tabId)
     this.clearHibernateTimer(pluginId)
     this.restartAttempts.delete(pluginId)
-    stopWatchingPlugin(pluginId)
 
     // 休眠插件关闭：无渲染进程可通知，直接摘记录、落 closed
     if (this.hibernated.has(pluginId)) {
@@ -771,7 +801,9 @@ export class PluginHost {
         // protocol rebind 失败仍尝试 reload
       }
     }
-    entry.view.webContents.reload()
+    // reload() 会让 CSS/JS 子资源吃 Chromium 磁盘缓存（enest:// 响应无缓存头，普通 reload 不重新校验），
+    // 开发者改样式后壳内看不到变化；强制忽略缓存重新拉全部资源
+    entry.view.webContents.reloadIgnoringCache()
   }
 
   openDevTools(tabId: string, mode: 'detach' | 'right' = 'detach'): void {
@@ -1189,19 +1221,27 @@ export class PluginHost {
 
   // —— 内部：休眠 / LRU / crash 自愈 ——
 
-  /** dev 插件白名单：开发调试中的插件永不休眠、不参与 LRU 驱逐 */
+  /**
+   * dev 插件休眠守卫：默认永不休眠 / 不参与 LRU 驱逐（保 HMR 稳定）；
+   * 开了「退出即杀」（对齐 uTools）的 dev 插件除外——退后台立即休眠。
+   */
   private isDevPlugin(pluginId: string): boolean {
-    return pluginRegistry.get(pluginId)?.dev === true
+    return pluginRegistry.get(pluginId)?.dev === true && !this.killOnHidePlugins.has(pluginId)
   }
 
   /** 启动（或重置）空闲休眠计时；active/dev/quick 挂载中插件不计时 */
   private scheduleHibernate(pluginId: string): void {
     this.clearHibernateTimer(pluginId)
-    if (this.isDevPlugin(pluginId)) return
     if (this.activeTabId === pluginId) return
     // quick 可见（挂载中）的插件不得休眠
     if (this.quickPluginId === pluginId) return
     if (!this.entries.has(pluginId)) return
+    // 「退出即杀」（对齐 uTools「退出到后台立即结束运行」）：不计时，退后台立即休眠
+    if (this.killOnHidePlugins.has(pluginId)) {
+      this.hibernatePlugin(pluginId)
+      return
+    }
+    if (this.isDevPlugin(pluginId)) return
     const timer = setTimeout(() => {
       this.hibernateTimers.delete(pluginId)
       this.hibernatePlugin(pluginId)
@@ -1226,6 +1266,8 @@ export class PluginHost {
    * plugins-changed；独立 plugin-hibernated 事件待 ipc.ts 扩展，见任务报告）。
    */
   private hibernatePlugin(pluginId: string): void {
+    // 休眠文案区分「退出即杀」与「空闲到期」，避免日志误导排查
+    const idleDetail = this.killOnHidePlugins.has(pluginId) ? 'kill-on-hide' : `idle ${PLUGIN_HIBERNATE_DELAY_MS}ms`
     const entry = this.entries.get(pluginId)
     if (!entry) return
     // 仅 background 态可休眠：opening（尚未加载完）/ active / crash 的一律不动，
@@ -1243,8 +1285,6 @@ export class PluginHost {
     if (this.isDevPlugin(pluginId)) return
 
     this.clearHibernateTimer(pluginId)
-    // 无渲染进程：停掉文件监视；唤醒 openPlugin 会重新挂上
-    stopWatchingPlugin(pluginId)
 
     const info: HibernatedInfo = {
       pluginId,
@@ -1273,7 +1313,7 @@ export class PluginHost {
     this.hibernated.set(pluginId, info)
 
     sendShellEvent({ type: 'plugins-changed' })
-    logInfo('lifecycle', `${pluginId}: background → hibernated (idle ${PLUGIN_HIBERNATE_DELAY_MS}ms)`)
+    logInfo('lifecycle', `${pluginId}: background → hibernated (${idleDetail})`)
   }
 
   /**
@@ -1393,11 +1433,6 @@ function withCode(url: string, code: string): string {
 }
 
 export const pluginHost = new PluginHost()
-
-// 文件变更 → 自动热重载（开发者无需手点）；回调注入避免 pluginHotReload ↔ Host 环依赖
-setPluginHotReloadHandler((pluginId) => {
-  pluginHost.reloadPlugin(pluginId)
-})
 
 // —— createQuickWindow 联动注入（直接 import 会成模块环：Host → quickWindow → Host）——
 

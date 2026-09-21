@@ -142,6 +142,8 @@ export interface EnestShellApi {
   ): Promise<void>
   loadDevPlugin(dirPath: string): Promise<PluginSummary>
   reloadPlugin(pluginId: string): Promise<void>
+  /** 开发者控制台：切换/查询 dev 插件「退出到后台立即结束运行」（enabled 省略为查询） */
+  setDevKillOnHide(pluginId: string, enabled?: boolean): Promise<boolean>
   openDevTools(pluginId: string): Promise<void>
   /** plugin:call 调用跟踪（最近 200 条环形缓冲，DevConsole 面板轮询） */
   getPluginCallTrace(): Promise<PluginCallTraceEntry[]>
@@ -294,6 +296,9 @@ const api: EnestShellApi = {
 
   reloadPlugin: (pluginId: string) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellReloadPlugin, pluginId)),
+
+  setDevKillOnHide: (pluginId: string, enabled?: boolean) =>
+    unwrapOk<boolean>(ipcRenderer.invoke(IpcChannels.ShellSetDevKillOnHide, pluginId, enabled)),
 
   openDevTools: (pluginId: string) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellOpenDevTools, pluginId)),

@@ -17,6 +17,9 @@ const sharedAlias = {
   '@shared': r('src/shared')
 }
 
+/** 开发态 Vite 端口：避开 5173 等常用端口，减少与其它 vite/工具冲突 */
+const DEV_RENDERER_PORT = 27319
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
@@ -51,6 +54,11 @@ export default defineConfig({
       alias: sharedAlias
     },
     root: r('src/renderer'),
+    server: {
+      port: DEV_RENDERER_PORT,
+      strictPort: true,
+      host: '127.0.0.1'
+    },
     build: {
       rollupOptions: {
         input: {

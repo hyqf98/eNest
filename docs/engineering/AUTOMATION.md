@@ -22,15 +22,15 @@ npm run e2e:smoke
 启动时加：
 
 ```bash
-npx electron . --remote-debugging-port=9222
+npx electron . --remote-debugging-port=9331
 # 或
-ENEST_REMOTE_DEBUG=9222 npm run dev
+ENEST_REMOTE_DEBUG=9331 npm run dev
 ```
 
 主进程已识别 `ENEST_REMOTE_DEBUG`。之后 CDP 地址为：
 
 ```
-http://127.0.0.1:9222
+http://127.0.0.1:9331
 ```
 
 ---
@@ -53,7 +53,7 @@ MiMo **不能**在本会话里热加载新 MCP。请在桌面端：
 }
 ```
 
-连已在跑的 eNest（先 `ENEST_REMOTE_DEBUG=9222 npm run dev`）：
+连已在跑的 eNest（先 `ENEST_REMOTE_DEBUG=9331 npm run dev`）：
 
 ```json
 {
@@ -63,7 +63,7 @@ MiMo **不能**在本会话里热加载新 MCP。请在桌面端：
       "npx",
       "@playwright/mcp@latest",
       "--cdp-endpoint",
-      "http://127.0.0.1:9222"
+      "http://127.0.0.1:9331"
     ],
     "enabled": true
   }

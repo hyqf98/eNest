@@ -245,7 +245,7 @@ R = Shell Renderer，P = Plugin Renderer，M = Main。
 见 [AUTOMATION.md](AUTOMATION.md)。
 
 - 项目内：`playwright-core` + `scripts/e2e-smoke.mjs`
-- CDP：`ENEST_REMOTE_DEBUG=9222` 或 `npm run dev:debug`
+- CDP：`ENEST_REMOTE_DEBUG=9331` 或 `npm run dev:debug`
 - MiMo Desktop：设置 → MCP 添加 `@playwright/mcp`，可选 `--cdp-endpoint`
 
 ---

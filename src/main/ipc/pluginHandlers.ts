@@ -79,6 +79,10 @@ import {
   sshSftpList,
   sshSftpDownload,
   sshSftpUpload,
+  sshSftpMkdir,
+  sshSftpRename,
+  sshSftpDelete,
+  sshSftpChmod,
   sshPickLocalFile
 } from '@main/ssh/sshSessionManager'
 import {
@@ -186,6 +190,10 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'ssh.sftp.list': 'ssh.sftp',
   'ssh.sftp.download': 'ssh.sftp',
   'ssh.sftp.upload': 'ssh.sftp',
+  'ssh.sftp.mkdir': 'ssh.sftp',
+  'ssh.sftp.rename': 'ssh.sftp',
+  'ssh.sftp.delete': 'ssh.sftp',
+  'ssh.sftp.chmod': 'ssh.sftp',
   'ssh.pickLocalFile': 'ssh.sftp',
   'db.test': 'db.connect',
   'db.open': 'db.connect',
@@ -554,26 +562,33 @@ async function dispatch(
       return clipboard.readText()
     }
     case 'clipboard.writeText': {
-      clipboard.writeText(String(args[0] ?? ''))
-      noteExternalText(String(args[0] ?? ''))
+      const txt = String(args[0] ?? '')
+      await clipboard.writeText(txt)
+      noteExternalText(txt)
       return true
     }
     case 'clipboard.readImage': {
-      const img = clipboard.readImage()
-      if (img.isEmpty()) return null
-      const size = img.getSize()
-      return {
-        dataUrl: img.toDataURL(),
-        width: size.width,
-        height: size.height
+      // Electron 44：readImage 移除，经 read() → ClipboardItem(Blob) 重建
+      const items = await clipboard.read()
+      for (const item of items) {
+        const type = item.types.find((t) => t.startsWith('image/'))
+        if (!type) continue
+        const blob = (await item.getType(type)) as Blob
+        const img = nativeImage.createFromBuffer(Buffer.from(await blob.arrayBuffer()))
+        if (img.isEmpty()) return null
+        const size = img.getSize()
+        return { dataUrl: img.toDataURL(), width: size.width, height: size.height }
       }
+      return null
     }
     case 'clipboard.writeImage': {
       const dataUrl = String(args[0] ?? '')
       if (!/^data:image\//i.test(dataUrl)) throw new Error('invalid image dataUrl')
       const img = nativeImage.createFromDataURL(dataUrl)
       if (img.isEmpty()) throw new Error('invalid image data')
-      clipboard.writeImage(img)
+      // Electron 44：writeImage 移除，经 write([ClipboardItem])（Blob）写图
+      const blob = new Blob([new Uint8Array(img.toPNG())], { type: 'image/png' })
+      await clipboard.write([new Electron.ClipboardItem({ 'image/png': blob })])
       noteExternalImage(img)
       return true
     }
@@ -887,6 +902,45 @@ async function dispatch(
             } as SftpUploadInput)
       return sshSftpUpload(pluginId, input)
     }
+    case 'ssh.sftp.mkdir': {
+      // 兼容对象形 { sessionId, path } 与位置参数 (sessionId, path)
+      const o = asObj(args)
+      return sshSftpMkdir(
+        pluginId,
+        o.sessionId != null ? String(o.sessionId) : String(args[0] ?? ''),
+        o.path != null ? String(o.path) : String(args[1] ?? '')
+      )
+    }
+    case 'ssh.sftp.rename': {
+      // 兼容对象形 { sessionId, path, newPath } 与位置参数 (sessionId, path, newPath)
+      const o = asObj(args)
+      return sshSftpRename(
+        pluginId,
+        o.sessionId != null ? String(o.sessionId) : String(args[0] ?? ''),
+        o.path != null ? String(o.path) : String(args[1] ?? ''),
+        o.newPath != null ? String(o.newPath) : String(args[2] ?? '')
+      )
+    }
+    case 'ssh.sftp.delete': {
+      // 兼容对象形 { sessionId, path, recursive } 与位置参数 (sessionId, path, recursive)
+      const o = asObj(args)
+      return sshSftpDelete(
+        pluginId,
+        o.sessionId != null ? String(o.sessionId) : String(args[0] ?? ''),
+        o.path != null ? String(o.path) : String(args[1] ?? ''),
+        o.recursive != null ? Boolean(o.recursive) : Boolean(args[2])
+      )
+    }
+    case 'ssh.sftp.chmod': {
+      // 兼容对象形 { sessionId, path, mode } 与位置参数 (sessionId, path, mode)
+      const o = asObj(args)
+      return sshSftpChmod(
+        pluginId,
+        o.sessionId != null ? String(o.sessionId) : String(args[0] ?? ''),
+        o.path != null ? String(o.path) : String(args[1] ?? ''),
+        (o.mode != null ? o.mode : args[2]) as number | string
+      )
+    }
     case 'ssh.pickLocalFile': {
       return sshPickLocalFile(pluginId, args[0] as { properties?: Array<'openFile' | 'openDirectory'> } | undefined)
     }
@@ -960,7 +1014,7 @@ async function dispatch(
 
 /**
  * 注册 plugin:call IPC 处理器：校验 sender 身份、pluginId 匹配与权限后分发；
- * 另注册 plugin:lifecycle-ack，供插件确认 beforeClose（可选，Host 侧 300ms 超时兜底）。
+ * 另注册 plugin:lifecycle-ack，供插件确认 beforeClose（可选，Host 侧 1500ms 超时兜底）。
  */
 export function registerPluginHandlers(): void {
   // storage.local 底座：建表 + 一次性迁移旧 plugin-storage/*.json（幂等）

@@ -1,10 +1,10 @@
 # enest API 完整参考
 
-eNest 通过统一 preload（`pluginPreload`）向插件页注入 **`window.enest`**，同时暴露别名 **`window.zapi`**（两者是同一个对象）。
+eNest 在每个插件页注入 **`window.enest`**，同时暴露别名 **`window.zapi`**（两者是同一个对象）。
 
 > **`zapi` 为 `@deprecated` 历史别名**：保留兼容，计划 v2 移除。新代码统一使用 `enest.*`；本地调试需要双名兜底时写 `window.enest`（壳子环境必有）。
 
-所有能力调用经 IPC 通道 `plugin:call` 进入主进程 `pluginHandlers`，完成 **发送者身份校验 → pluginId 匹配 → 权限断言 → 方法分发**。
+所有能力调用统一进入主进程，完成 **发送者身份校验 → pluginId 匹配 → 权限断言 → 方法分发** 四步。
 
 ```js
 const api = window.enest
@@ -49,9 +49,9 @@ resolve({ ok: true, data })
 | `ui` | `resize(size)` | `ui.resize` | 建议/设置主窗最小尺寸 |
 | `ui` | `setHeight(height)` | `ui.resize` | 期望内容高度（Quick 内嵌消费） |
 | `ui` | `toast({ message, type? })` | `ui.toast` | 壳子应用内 Toast |
-| `ui` | `getThemeTokens()` | 无 | 读主题 Token（别名） |
+| `ui` | `getThemeTokens()` | 无 | 读主题变量（别名） |
 | `ui` | `onThemeChange(cb)` | 无 | 订阅主题变更 |
-| `theme` | `getTokens()` | 无 | 读当前主题 Token |
+| `theme` | `getTokens()` | 无 | 读当前主题变量 |
 | `theme` | `register(pack)` | 无 | 注册主题包（≤8 个/插件） |
 | `hotkey` | `register(acc, opts?)` | `hotkey` | 注册全局热键 |
 | `hotkey` | `unregister(acc)` | `hotkey` | 注销全局热键 |
@@ -78,6 +78,24 @@ resolve({ ok: true, data })
 | `pin` | `open/close/list/closeAll` | `pin.create` | 贴图窗口 |
 | `net` | `fetch({ url, method?, headers?, body?, timeoutMs? })` | `net.fetch` | 受控 HTTPS |
 | `shell` | `openExternal(url)` | `shell.openExternal` | 系统浏览器打开 |
+| `shell` | `saveTextFile(payload)` | `shell.openExternal` | 另存文本文件 |
+| `vault` | `set(key, secret)` | `vault.write` | 存密钥，返回引用 |
+| `vault` | `has(keyOrRef)` | `vault.write` | 判断密钥是否存在 |
+| `vault` | `remove(keyOrRef)` | `vault.write` | 删除密钥 |
+| `ssh` | `connect(input)` / `disconnect(id)` / `listSessions()` | `ssh` | 连接管理 |
+| `ssh` | `write(id, data)` / `resize(id, cols, rows)` | `ssh` | 交互终端 |
+| `ssh` | `exec(input)` | `ssh` | 执行命令取结果 |
+| `ssh` | `metrics.start/stop/latest` | `ssh` | 服务器指标采样 |
+| `ssh` | `completion.suggest(input)` | `ssh` | 命令补全 |
+| `ssh` | `sftp.list/download/upload` | `ssh` | 文件传输 |
+| `ssh` | `pickLocalFile(opts?)` | `ssh` | 选择本地文件/目录 |
+| `db` | `test(config)` / `open(input)` / `close(key)` / `listSessions()` | `db` | 连接管理 |
+| `db` | `execute(input)` / `explain(input)` / `cancel(key)` | `db` | 查询执行 |
+| `db` | `applyChanges(input)` | `db` | 表格化编辑回写 |
+| `db` | `importPreview(input)` / `importRun(input)` | `db` | CSV 导入 |
+| `db` | `schema.tree/describe/ddl` | `db` | 库表结构 |
+| `db` | `completion(input)` / `dialects.list()` | `db` | SQL 补全 / 方言 |
+| `db` | `pickSqliteFile()` / `pickImportFile()` | `db` | 选择数据库文件 |
 | — | `notify({ title?, body? })` | `notify` | 系统通知 |
 | — | `on(event, cb)` / `off(event, cb)` | 无 | 通用事件 |
 | — | `onEnter / onOut / onBeforeClose / onDestroy` | 无 | 生命周期 |
@@ -104,7 +122,7 @@ resolve({ ok: true, data })
 await enest.ui.setTitle('待办 · 3 项')
 ```
 
-内部发送 `shell:event` → `{ type: 'plugin-title', tabId, title }`，由壳子渲染层更新。
+
 
 ---
 
@@ -173,7 +191,7 @@ await enest.ui.resize({ width: 960, height: 640 })
 | **返回** | `Promise<boolean>` |
 | **错误** | `invalid height`（非正数） |
 
-?> **现状**：主进程记录该高度（`getPluginDesiredHeight`）；Quick 内嵌容器接入后据此调整小窗高度。主窗 Tab 场景仅记录不动作。
+?> Quick 内嵌场景下，壳子据此自动调整小窗高度；主窗 Tab 场景仅记录不动作。
 
 ```js
 await enest.ui.setHeight(420)
@@ -210,7 +228,7 @@ await enest.ui.toast({ message: '网络异常', type: 'error' })
 
 ### `ui.getThemeTokens()`
 
-读取壳子解析后的主题 Token。**规范入口是 `enest.theme.getTokens()`**，此方法为兼容别名，行为完全一致。
+读取壳子当前生效的主题变量。**规范入口是 `enest.theme.getTokens()`**，此方法为兼容别名，行为完全一致。
 
 | | |
 |--|--|
@@ -256,7 +274,7 @@ enest.off('theme-change', handler)
 
 ### `theme.getTokens()`
 
-按插件 `manifest.ui.preferredColorScheme` 解析 **最终生效** 的 Token。
+按插件 `manifest.ui.preferredColorScheme` 解析 **最终生效** 的主题变量。
 
 | | |
 |--|--|
@@ -269,11 +287,11 @@ enest.off('theme-change', handler)
 const { mode, tokens } = await enest.theme.getTokens()
 ```
 
-内置预设 Token 名（完整语义与兜底调色板见 [UI 集成标准](ui-standard.md)）：
+内置主题变量名（完整语义与默认色板见 [UI 集成标准](ui-standard.md)）：
 
 `--bg` · `--surface` · `--surface-2` · `--surface-3` · `--border` · `--border-strong` · `--text` · `--text-2` · `--text-3` · `--accent` · `--accent-soft` · `--ok` · `--ok-soft` · `--danger` · `--danger-soft` · `--radius-xl/lg/md/sm/pill` · `--shadow-soft` · `--shadow-float` · `--font` · `--mono` · `--font-size-base`
 
-**主题跟随（UI Standard v2）**：`ui.themeAware` 缺省 `true`，插件应通过 `enest.theme.getTokens()`（首屏/Canvas）与 `enest.ui.onThemeChange`（运行时）消费 Token。插件还 **SHOULD** 在设置中注册布尔项 `followShellTheme`（缺省 `true`，经 `enest.settings.register` 或 `contributes.settings`）：为 `true` 时跟随壳子主题；为 `false` 时由插件钉住自有 `preferredColorScheme` 并自行绘制。设计语言与检查清单见 [UI Standard v2](ui-standard.md#设计语言与样式规范插件-ui-standard-v2)。
+**主题跟随**：`ui.themeAware` 缺省 `true`，插件应通过 `enest.theme.getTokens()`（首屏/Canvas）与 `enest.ui.onThemeChange`（运行时）读取主题变量。插件还 **建议** 在设置中注册布尔项 `followShellTheme`（缺省 `true`，经 `enest.settings.register` 或 `contributes.settings`）：为 `true` 时跟随壳子主题；为 `false` 时由插件钉住自有 `preferredColorScheme` 并自行绘制。设计规范与检查清单见 [UI 集成标准](ui-standard.md)。
 
 ---
 
@@ -326,7 +344,7 @@ await enest.theme.register({
 
 注册成功后主进程推送 `theme-packs-changed`，设置页 **即时刷新**，无需重启。
 
-?> **加固**：每插件最多注册 **8** 个主题包；只能覆盖 `source` 为自己的 pack（覆盖他人/内置 pack 会报错）；token 值经白名单校验（hex / rgb()/rgba() / 数值 / font-family 字符串，≤200 字符），含 `url(` / `expression(` / `javascript:` 等危险片段的键值对会被剔除并告警。
+?> 每个插件最多注册 **8** 个主题包；只能修改自己注册的包；主题包取值会做安全校验，非法值会被忽略。
 
 ---
 
@@ -386,7 +404,7 @@ const off = enest.i18n.onLocaleChange(({ locale }) => switchDict(locale))
 
 ## contribute — 贡献点（Quick 搜索 provider）
 
-插槽化架构的运行时贡献入口：插件注册 Quick 搜索 provider 后，壳子搜索时把查询推给插件，插件回传结果项。**需在 `permissions` 声明 `contribute`。**
+贡献点机制的运行时入口：插件注册 Quick 搜索 provider 后，壳子搜索时把查询推给插件，插件回传结果项。**需在 `permissions` 声明 `contribute`。**
 
 声明式贡献（`plugin.json` 的 `contributes` 段：settings / homeCards / railEntries / themePacks）不走本命名空间，由壳子扫描 manifest 时入库——见 [plugin.json](manifest.md)。
 
@@ -598,6 +616,210 @@ await enest.clipboard.writeText('已复制的内容')
 await enest.shell.openExternal('https://github.com')
 ```
 
+### `shell.saveTextFile(payload)`
+
+弹出系统保存对话框，把文本内容写入用户选择的路径。
+
+| | |
+|--|--|
+| **权限** | `shell.openExternal`（与打开链接共用同一权限） |
+| **参数** | `payload: { defaultName?: string; filename?: string; content: string }` |
+| **返回** | `Promise<{ ok: boolean; path: string } \| null>` — 用户取消时返回 `null` |
+
+```js
+const saved = await enest.shell.saveTextFile({
+  defaultName: 'report.md',
+  content: markdownText
+})
+if (saved) enest.ui.toast({ message: `已保存到 ${saved.path}` })
+```
+
+---
+
+## vault — 密钥保险库
+
+保存连接口令、API token 等敏感信息。**只写不读**：存入后返回一个 `secretRef` 引用，之后把引用传给 SSH / 数据库连接参数，明文不会回到插件页。
+
+### `vault.set(key, secret)`
+
+| | |
+|--|--|
+| **权限** | `vault.write` |
+| **参数** | `key: string`（插件内唯一的标识，如 `prod-db`）；`secret: string` |
+| **返回** | `Promise<{ secretRef: string }>` |
+
+### `vault.has(keyOrRef)` / `vault.remove(keyOrRef)`
+
+| | |
+|--|--|
+| **权限** | `vault.write` |
+| **参数** | `keyOrRef: string` — 存入时的 key 或返回的 secretRef 均可 |
+| **返回** | `Promise<boolean>` |
+
+```js
+const { secretRef } = await enest.vault.set('prod-db', password)
+// 之后连接时只传引用，不再持有明文
+await enest.db.open({ config: { driver: 'mysql', host, username, secretRef } })
+```
+
+---
+
+## ssh — 远程服务器
+
+交互式终端、命令执行、指标采集与文件传输。密钥认证支持 `secretRef`（来自 vault）或一次性明文。
+
+### `ssh.connect(input)`
+
+| | |
+|--|--|
+| **权限** | `ssh` |
+| **参数** | `input: SshConnectInput`（见下） |
+| **返回** | `Promise<SshSessionInfo>`（含 `sessionId`） |
+
+`SshConnectInput` 主要字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `host` | `string` | 必填 |
+| `username` | `string` | 必填 |
+| `port` | `number?` | 缺省 22 |
+| `authType` | `'password' \| 'key' \| 'agent'?` | 认证方式 |
+| `secretRef` | `string?` | vault 引用（推荐） |
+| `password` | `string?` | 一次性口令（不落盘） |
+| `privateKeyPath` | `string?` | 本地私钥路径 |
+| `jump` | `SshJumpConfig?` | 跳板机（字段同上，`host`/`username` 必填） |
+| `cols` / `rows` / `term` | | 终端初始尺寸与类型 |
+| `timeoutMs` / `keepAliveSec` | | 连接超时与保活 |
+
+### `ssh.write(sessionId, data)` / `ssh.resize(sessionId, cols, rows)`
+
+向交互终端写入输入（含 `\r` 回车）或同步终端尺寸。返回 `Promise<boolean>`。终端输出经 `ssh.data` 事件推送（见事件总线）。
+
+### `ssh.exec(input)`
+
+一次性执行命令并等待结果，适合脚本化操作（不需要交互终端）。
+
+| | |
+|--|--|
+| **参数** | `input: { sessionId?, command? \| cmd?, timeoutMs?, host?, username?, ... }` — 已有会话传 `sessionId`，否则可用连接字段直接执行（自动建连） |
+| **返回** | `Promise<{ stdout: string; stderr: string; exitCode: number \| null; durationMs: number }>` |
+
+```js
+const r = await enest.ssh.exec({ sessionId, command: 'df -h' })
+console.log(r.exitCode, r.stdout)
+```
+
+### `ssh.metrics.start(sessionId, intervalMs?)` / `stop` / `latest`
+
+采样 CPU / 内存 / 磁盘 / 网卡 / 进程 Top。`start` 返回 `{ ok, intervalMs }`；采样数据经 `ssh.metrics` 事件推送，`latest()` 随时取最近一份。
+
+### `ssh.completion.suggest(input)`
+
+给自建终端 UI 做命令补全。入参 `{ sessionId, line, cursor?, history?, snippets? }`，返回 `{ items: Array<{ label, kind, insertText, dangerous? }>, danger? }`（`dangerous` 非空时建议在 UI 上标红确认）。
+
+### `ssh.sftp.list / download / upload`
+
+| 方法 | 参数 | 返回 |
+|------|------|------|
+| `list` | `{ sessionId?, path? }`（或直接传连接字段） | `Promise<SftpEntry[]>` — `name/type/size/mtime` |
+| `download` | `{ sessionId?, remotePath?, localPath? }` | `Promise<SftpTransferResult>` |
+| `upload` | `{ sessionId?, localPath?, remotePath? }` | `Promise<SftpTransferResult>` |
+
+### `ssh.disconnect(sessionId)` / `ssh.listSessions()`
+
+断开会话 / 列出当前会话。插件关闭或休眠时壳子会自动回收它的全部 SSH 会话，无需手动处理。
+
+### `ssh.pickLocalFile(opts?)`
+
+弹出系统文件选择框。
+
+| | |
+|--|--|
+| **参数** | `opts?: { properties?: Array<'openFile' \| 'openDirectory'>; mode?: 'file' \| 'dir' }` |
+| **返回** | `Promise<string \| null>` — 用户取消时 `null` |
+
+---
+
+## db — 数据库
+
+支持 MySQL / SQLite / InfluxDB / Timescale / TDengine。凭据与 vault 集成，插件关闭时自动回收连接。
+
+### `db.test(config)` / `db.open(input)` / `db.close(sessionKey)`
+
+| | |
+|--|--|
+| `test` | 参数 `DbConnectionConfig`，返回 `{ ok, message, version?, latencyMs? }`，只验连不建会话 |
+| `open` | 参数 `{ config, sessionKey? }` 或直接 `config`，返回 `DbSessionInfo`（后续调用都用 `sessionKey`） |
+| `close` | 参数 `sessionKey`，返回 `Promise<boolean>` |
+
+`DbConnectionConfig` 常用字段：
+
+| 字段 | 说明 |
+|------|------|
+| `driver` | 必填：`mysql` / `sqlite` / `influxdb` / `timescale` / `tdengine` |
+| `host` / `port` / `database` / `username` | 连接信息 |
+| `secretRef` / `ephemeralSecret` | vault 引用（推荐）或一次性口令 |
+| `filePath` / `createIfMissing` | SQLite 本地库文件 |
+| `org` / `bucket` | InfluxDB v2 |
+| `readOnly` | 只读连接（推荐查询类插件开启） |
+
+### `db.execute(input)`
+
+| | |
+|--|--|
+| **参数** | `input: { sessionKey, sql, params?, maxRows?, timeoutMs?, confirmed? }` |
+| **返回** | `Promise<QueryResult>` — `{ columns, rows, rowCount, durationMs, truncated? ... }` |
+
+- `params` 支持 `?` 位置占位与 `:name` 命名占位，请始终用参数化查询拼接用户输入。
+- 生产 / 受保护连接执行写操作时需 `confirmed: true`（对应错误见 [错误码](errors.md)）。
+- `truncated: true` 表示命中 `maxRows` 上限被截断。
+
+```js
+const info = await enest.db.open({
+  config: { driver: 'mysql', host, username, secretRef, database: 'app' }
+})
+const { rows, columns } = await enest.db.execute({
+  sessionKey: info.sessionKey,
+  sql: 'SELECT id, name FROM users WHERE status = ? LIMIT 50',
+  params: ['active']
+})
+```
+
+### `db.explain(input)` / `db.cancel(sessionKey)`
+
+`explain` 取执行计划（`{ sessionKey, sql }` → `QueryResult`）；`cancel` 中断该会话上正在执行的查询。
+
+### `db.applyChanges(input)`
+
+把表格化编辑（用户在结果网格里改的值）合成为 SQL 批量回写。
+
+| | |
+|--|--|
+| **参数** | `input: { sessionKey, changes: RowChange[], mode?: 'stop-on-error' \| 'continue', confirmed? }` |
+| **返回** | `Promise<BatchResult>` — 每条变更一个 `{ index, ok, affected?, error? }` |
+
+`RowChange` 三种形态：`update`（`table + key + set`）、`insert`（`table + values`）、`delete`（`table + key`）。
+
+### `db.importPreview(input)` / `db.importRun(input)`
+
+CSV 导入两步流：先 `importPreview` 看列映射与 SQL 预览（`{ columns, sampleRows, mappedColumns, sqlPreview }`），确认后 `importRun` 执行（`{ ok, inserted, failed, errors? }`）。数据源传 `csvText`，或先 `pickImportFile()` 选文件后传 `filePath`。`conflict` 策略支持 `insert / upsert / skip`。
+
+### `db.schema.tree / describe / ddl`
+
+| 方法 | 参数 | 返回 |
+|------|------|------|
+| `tree` | `{ sessionKey, database?, schema?, table?, filter? }` | `SchemaObject[]` — 库/表/列树 |
+| `describe` | `{ sessionKey, table, database?, schema? }` | `TableDetail` — 列、主键、索引 |
+| `ddl` | 同上 | `Promise<string>` — 建表语句 |
+
+### `db.completion(input)` / `db.dialects.list()`
+
+`completion` 给 SQL 编辑器做补全：入参 `{ sessionKey, sql, cursor? }`，返回 `{ replace: { from, to }, items }`，直接对接编辑器替换区间。`dialects.list()` 返回各驱动方言信息（关键字、函数、代码片段）。
+
+### `db.pickSqliteFile()` / `db.pickImportFile()`
+
+系统文件选择框：前者限定 SQLite 库文件，后者限定 CSV 等导入文件。只允许使用选择器返回的路径。
+
 ---
 
 ## notify — 系统通知
@@ -649,6 +871,10 @@ enest.off('enter', onEnter)
 | `hotkey` | 插件注册的全局热键被按下 | `{ accelerator }` |
 | `locale-change` | 壳子界面语言变更 | `{ locale }` |
 | `quick-query` | Quick 搜索查询（已注册 provider 的插件） | `{ reqId, query }` |
+| `ssh.data` | SSH 终端有新输出 | `{ sessionId, data }` |
+| `ssh.exit` | SSH 交互终端退出 | `{ sessionId, code?, signal? }` |
+| `ssh.error` | SSH 会话错误 / 断开 | `{ sessionId?, message }` |
+| `ssh.metrics` | 指标采样推送（`metrics.start` 后） | `{ sessionId?, profileId?, sample }` |
 
 回调抛错会被捕获，**不会**影响其它监听器。
 
@@ -773,7 +999,7 @@ if (!api) {
 
 1. **无 Node**：插件页不能 `require('electron')`，不能访问任意文件系统。
 2. **权限门禁**：未在 `plugin.json` 的 `permissions` 声明的调用被拒绝。
-3. **身份绑定**：IPC 仅接受 PluginHost 管理的 WebContents；伪造 `pluginId` 返回 `plugin id mismatch`。
+3. **身份绑定**：调用仅接受壳子管理的插件页面；伪造 `pluginId` 返回 `plugin id mismatch`。
 4. **协议隔离**：`enest://plugin/{id}/...` 只映射该插件根目录，路径穿越会被拒。
 5. **partition 隔离**：每个插件独立 `persist:plugin-{id}`，cookie / localStorage 互不可见。
 

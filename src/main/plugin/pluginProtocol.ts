@@ -101,7 +101,8 @@ async function fileResponse(abs: string, isDev: boolean): Promise<Response> {
 // 为什么：enest:// 每请求 readFile，插件页反复重载/资源反复拉取时主进程 IO 放大；
 //       只缓存文件 Buffer，MIME 与 CSP 头仍按请求动态生成（媒体端点不缓存）。
 // 失效：key 含 rootPath，reload/升级用新 rootPath 重绑 session 时自然 miss；
-//       开发态插件文件变更依赖 devUrl/重启，不在本缓存处理范围。
+//       手动热重载/重载路径调用 invalidatePluginFileCache(rootPath) 清本缓存，
+//       渲染层侧再用 reloadIgnoringCache 绕过 Chromium 对子资源的 HTTP 缓存。
 // ---------------------------------------------------------------------------
 /** 单文件缓存上限：超过则直读不缓存 */
 const CACHE_MAX_FILE_BYTES = 512 * 1024

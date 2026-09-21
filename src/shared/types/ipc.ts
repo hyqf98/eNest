@@ -39,6 +39,8 @@ export const IpcChannels = {
   ShellGetTheme: 'shell:get-theme',
   ShellSetTheme: 'shell:set-theme',
   ShellLoadDevPlugin: 'shell:load-dev-plugin',
+  /** 开发者控制台：切换 dev 插件「退出到后台立即结束运行」（对齐 uTools） */
+  ShellSetDevKillOnHide: 'shell:set-dev-kill-on-hide',
   ShellReloadPlugin: 'shell:reload-plugin',
   ShellOpenDevTools: 'shell:open-devtools',
   ShellGetSettings: 'shell:get-settings',
@@ -116,7 +118,7 @@ export const IpcChannels = {
 
   /** 主进程 → 插件 webContents 生命周期推送（enter/out/beforeClose/destroy） */
   PluginLifecycle: 'plugin:lifecycle',
-  /** 插件 preload → 主进程：beforeClose 确认（可选，超时 300ms 兜底） */
+  /** 插件 preload → 主进程：beforeClose 确认（可选，超时 1500ms 兜底） */
   PluginLifecycleAck: 'plugin:lifecycle-ack',
 
   /** 主进程 → 壳子渲染进程推送 */
@@ -265,6 +267,21 @@ export type PluginEventPayload =
     }
   /** SSH 会话数据/退出/错误/指标（com.enest.ssh） */
   | SshPluginEvent
+  /**
+   * SFTP 传输进度（ssh.sftp.download / ssh.sftp.upload 过程推送）：
+   * 主进程按 200ms / 64KB 双阈值节流；终态 done=true，失败附 error。
+   * path 为远端路径；total 为 0 表示未知（预取大小失败时）。
+   */
+  | {
+      type: 'ssh.transfer'
+      sessionId: string
+      direction: 'upload' | 'download'
+      path: string
+      transferred: number
+      total: number
+      done?: boolean
+      error?: string
+    }
 
 /** 安装队列任务对外视图（active / waiting 列表项） */
 export interface InstallJobInfo {

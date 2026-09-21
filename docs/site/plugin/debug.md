@@ -12,7 +12,7 @@
 5. **DevTools**：打开当前插件的 Chromium 调试器
 6. 「开发中」列表点击条目可再次打开；带 `HMR` 标签表示配置了 `development.main`
 
-对应 IPC：`shell:load-dev-plugin` / `shell:reload-plugin` / `shell:open-devtools`。
+开发调试能力均从开发者页面触达，无需额外配置。
 
 ## Vite 热更新
 
@@ -36,13 +36,17 @@ npm run dev   # 例如 http://127.0.0.1:5173
 
 无 `development.main` 时，从插件目录原地读取 `index.html`（不复制到 `~/eNest/plugins`）。改文件后点「热重载」即可。
 
-> 开发者控制台加载的 dev 插件 **永不休眠、不参与 LRU 驱逐**（保 HMR 稳定）；正式安装的插件后台空闲 3 分钟会被休眠（session 快照恢复，见 [生命周期](lifecycle.md)），调试长驻行为时注意区分。
+## 退出到后台立即结束运行（静态插件改码刷新）
+
+对齐 uTools 的同名开关：开发者控制台「开发中」列表每个插件带「退出即杀」按钮。开启后插件**退后台立即结束进程**，再次进入时冷启动加载最新代码——静态插件（无 Vite/webpack）改码后无需手点热重载的替代手段。开关按插件持久化（dev.json），重启保持。
+
+> 开发者控制台加载的 dev 插件默认**永不休眠、不参与 LRU 驱逐**（保 HMR 稳定）；开启「退出即杀」的除外。正式安装的插件后台空闲 3 分钟会被休眠（session 快照恢复，见 [生命周期](lifecycle.md)），调试长驻行为时注意区分。
 
 ## CDP 自动化（可选）
 
 ```bash
-ENEST_REMOTE_DEBUG=9222 npm run dev
-# Playwright MCP --cdp-endpoint http://127.0.0.1:9222
+ENEST_REMOTE_DEBUG=9331 npm run dev
+# Playwright MCP --cdp-endpoint http://127.0.0.1:9331
 ```
 
 ## 常见问题

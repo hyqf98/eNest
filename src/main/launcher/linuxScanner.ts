@@ -1,5 +1,6 @@
 /**
  * linuxScanner — 扫描 XDG .desktop 文件
+ * path 存 Exec 命令串（启动用），iconName 存 Icon= 原始值（提图用）。
  */
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -15,12 +16,13 @@ function desktopDirs(): string[] {
   ]
 }
 
-function parseDesktop(content: string): { name: string; exec: string; noDisplay: boolean } | null {
+function parseDesktop(content: string): { name: string; nameZh: string; exec: string; iconName: string; usable: boolean } | null {
   const lines = content.split(/\r?\n/)
   let inDesktopEntry = false
   let name = ''
   let nameZh = ''
   let exec = ''
+  let iconName = ''
   let noDisplay = false
   let hidden = false
   let terminal = false
@@ -38,12 +40,13 @@ function parseDesktop(content: string): { name: string; exec: string; noDisplay:
     if (key === 'Name') name = value
     else if (key === 'Name[zh_CN]' || key === 'Name[zh]') nameZh = value
     else if (key === 'Exec') exec = value
+    else if (key === 'Icon') iconName = value
     else if (key === 'NoDisplay') noDisplay = value === 'true'
     else if (key === 'Hidden') hidden = value === 'true'
     else if (key === 'Terminal') terminal = value === 'true'
   }
   if (noDisplay || hidden || terminal || !exec || !name) return null
-  return { name: nameZh || name, exec, noDisplay }
+  return { name, nameZh, exec, iconName, usable: true }
 }
 
 export async function scanApplications(): Promise<ApplicationScanResult> {
@@ -68,7 +71,12 @@ export async function scanApplications(): Promise<ApplicationScanResult> {
         const key = parsed.name.toLowerCase()
         if (seen.has(key)) continue
         seen.add(key)
-        apps.push({ name: parsed.name, path: parsed.exec, alias: full })
+        apps.push({
+          name: parsed.nameZh || parsed.name,
+          path: parsed.exec,
+          alias: full,
+          iconName: parsed.iconName || undefined
+        })
       } catch (err) {
         errors.push(`${full}: ${(err as Error).message}`)
       }

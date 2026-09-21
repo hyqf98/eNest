@@ -30,7 +30,6 @@ import { registerShellHandlers } from '@main/ipc/shellHandlers'
 import { registerPluginHandlers } from '@main/ipc/pluginHandlers'
 import { registerQuickHandlers } from '@main/ipc/quickHandlers'
 import { initQuickHotkeys, disposeQuickHotkeys } from '@main/hotkey/quickHotkey'
-import { stopAllPluginWatchers } from '@main/plugin/pluginHotReload'
 import { scanApplications } from '@main/launcher/appScanner'
 import { initUpdateService } from '@main/update/updateService'
 import {
@@ -45,11 +44,12 @@ registerSchemesAsPrivileged()
 // 硬件加速必须在 app ready 之前根据 settings.json 决策
 applyHardwareAccelerationBeforeReady()
 
-// 自动化：ENEST_REMOTE_DEBUG=9222 时开启 CDP
+// 自动化：ENEST_REMOTE_DEBUG=9331 时开启 CDP
 const remoteDebug = process.env.ENEST_REMOTE_DEBUG
 if (remoteDebug && /^\d+$/.test(remoteDebug)) {
   app.commandLine.appendSwitch('remote-debugging-port', remoteDebug)
 }
+
 
 /** 同步注销全部全局快捷键（信号退出 / 进程 exit 必调，避免 npm run dev 退出后 Alt+Space 仍生效） */
 function releaseAllGlobalShortcutsSync(): void {
@@ -96,11 +96,6 @@ function handleFatalSignal(sig: NodeJS.Signals | string): void {
     /* 尽力落盘 */
   }
   try {
-    stopAllPluginWatchers()
-  } catch {
-    /* ignore */
-  }
-  try {
     destroyQuickWindow()
   } catch {
     /* ignore */
@@ -114,6 +109,31 @@ process.once('SIGTERM', () => handleFatalSignal('SIGTERM'))
 process.once('SIGHUP', () => handleFatalSignal('SIGHUP'))
 process.once('exit', () => {
   releaseAllGlobalShortcutsSync()
+})
+
+// 未捕获异常：必须落盘+stderr，否则热键路径硬崩时「整包退出且无日志」
+process.on('uncaughtException', (err) => {
+  const stack = (err as Error)?.stack || String(err)
+  try {
+    logError('main', `uncaughtException: ${stack}`)
+  } catch {
+    console.error('[main] uncaughtException (log failed):', stack)
+  }
+  console.error('[main] uncaughtException:', stack)
+  try {
+    settingsStore.flushNow()
+  } catch {
+    /* ignore */
+  }
+})
+process.on('unhandledRejection', (reason) => {
+  const msg = reason instanceof Error ? (reason.stack || reason.message) : String(reason)
+  try {
+    logError('main', `unhandledRejection: ${msg}`)
+  } catch {
+    console.error('[main] unhandledRejection (log failed):', msg)
+  }
+  console.error('[main] unhandledRejection:', msg)
 })
 
 /** 开发态：父进程（electron-vite）死亡时子 Electron 必须退出，防止孤儿进程占着热键 */
@@ -219,6 +239,8 @@ void app.whenReady().then(async () => {
     logInfo('main', 'ipc ok')
 
     // 快捷启动：注册全局热键 + 后台扫描；小窗懒创建（首次呼出时）
+    // 不要在这里 ensureQuickWindow()：boot 阶段创建透明 BaseWindow/WebContentsView
+    // 会在部分环境直接原生崩溃，表现为「启动即退出」
     initQuickHotkeys()
     void scanApplications(false)
     logInfo('main', 'quick launcher ok')
@@ -268,7 +290,6 @@ app.on('before-quit', (event) => {
 
   disposeQuickHotkeys()
   releaseAllGlobalShortcutsSync()
-  stopAllPluginWatchers()
   destroyQuickWindow()
   stopClipboardHistory()
   disposeScreenService()
