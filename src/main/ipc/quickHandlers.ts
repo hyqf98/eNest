@@ -11,6 +11,7 @@ import type {
   QuickHotkeyApplyResult,
   QuickOpenRequest,
   QuickOpenResult,
+  QuickSearchRequest,
   QuickSearchResult
 } from '@shared/types/quick'
 import type { QuickRecentEntry } from '@shared/types/plugin'
@@ -19,20 +20,20 @@ import {
   hideQuickWindow,
   setQuickContentHeight,
   toggleQuickWindow
-} from '../window/createQuickWindow'
+} from '@main/window/createQuickWindow'
 import {
   applyQuickHotkeys,
   getQuickHotkeyConfig,
   probeHotkey
-} from '../hotkey/quickHotkey'
-import { scanApplications } from '../launcher/appScanner'
-import { searchQuickCommands, QUICK_RECENT_MAX } from '../launcher/commandIndex'
-import { launchLocalApp } from '../launcher/appLauncher'
-import { pluginHost } from '../plugin/PluginHost'
-import { pluginRegistry } from '../plugin/PluginRegistry'
-import { settingsStore } from '../settings/SettingsStore'
-import { getMainWindow, sendShellEvent } from '../window/createShellWindow'
-import { logError, logInfo } from '../logs/logService'
+} from '@main/hotkey/quickHotkey'
+import { scanApplications } from '@main/launcher/appScanner'
+import { searchQuickCommands, QUICK_RECENT_MAX } from '@main/launcher/commandIndex'
+import { launchLocalApp } from '@main/launcher/appLauncher'
+import { pluginHost } from '@main/plugin/PluginHost'
+import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { settingsStore } from '@main/settings/SettingsStore'
+import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
+import { logError, logInfo } from '@main/logs/logService'
 
 function focusMainWindow(): void {
   const win = getMainWindow()
@@ -139,17 +140,17 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
       sendShellEvent({ type: 'plugins-changed' })
       return { ok: true }
     }
+    if (req.kind === 'action' && req.action === 'refresh-apps') {
+      const result = await scanApplications(true)
+      if (result.complete) void touchRecent(req)
+      return { ok: result.complete, error: result.errors[0] }
+    }
     // action / panel 打开前：若 quick 正处插件态，先退场回列表（保留进程）
     const mounted = pluginHost.getQuickPlugin()
     if (mounted) pluginHost.dismissQuickPlugin(mounted)
     // action
     hideQuickWindow()
     focusMainWindow()
-    if (req.action === 'refresh-apps') {
-      const result = await scanApplications(true)
-      if (result.complete) void touchRecent(req)
-      return { ok: result.complete, error: result.errors[0] }
-    }
     if (req.action === 'open-settings') {
       sendShellEvent({ type: 'quick-open-view', view: 'settings' })
       void touchRecent(req)
@@ -178,11 +179,12 @@ export function registerQuickHandlers(): void {
     return { ok: true }
   })
 
-  ipcMain.handle(IpcChannels.QuickSearch, async (_e, payload: { query?: string; limit?: number }) => {
+  ipcMain.handle(IpcChannels.QuickSearch, async (_e, payload: QuickSearchRequest) => {
     const items = await searchQuickCommands(
       String(payload?.query ?? ''),
       payload?.limit ?? 20,
-      readRecent()
+      readRecent(),
+      payload?.kind === 'app' || payload?.kind === 'plugin' || payload?.kind === 'action' ? payload.kind : undefined
     )
     const result: QuickSearchResult = { items }
     return result
@@ -242,9 +244,11 @@ export function registerQuickHandlers(): void {
 
   // 内容撑开/收起
   ipcMain.on(IpcChannels.QuickResize, (_e, payload: { height?: number; animate?: boolean }) => {
+    // 列表上一帧的测量可能晚于插件挂载到达；插件态由 Host 管理尺寸。
+    if (pluginHost.getQuickPlugin()) return
     const h = Number(payload?.height)
     if (!Number.isFinite(h) || h <= 0) return
-    setQuickContentHeight(h, payload?.animate !== false)
+    setQuickContentHeight(h)
   })
 
   logInfo('quick', 'ipc handlers registered')

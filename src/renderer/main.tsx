@@ -6,11 +6,12 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from '@renderer/App'
-import './styles/tokens.css'
-import './styles/base.css'
-import './styles/app.css'
-import './styles/detail.css'
-import './styles/splash.css'
+import '@renderer/styles/tokens.css'
+import '@renderer/styles/base.css'
+import '@renderer/styles/app.css'
+import '@renderer/styles/detail.css'
+import '@renderer/styles/splash.css'
+import '@renderer/styles/market.css'
 
 const container = document.getElementById('root')
 if (!container) throw new Error('#root not found')

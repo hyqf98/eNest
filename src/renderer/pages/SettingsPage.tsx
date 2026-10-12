@@ -14,6 +14,7 @@ import { DevConsoleSection } from '@renderer/components/DevConsoleSection'
 import { QuickSettingsSection } from '@renderer/components/QuickSettingsSection'
 import { LanguageSelect } from '@renderer/components/LanguageSelect'
 import { Select } from '@renderer/components/Select'
+import { SettingsTabs } from '@renderer/components/SettingsTabs'
 import { useI18n } from '@renderer/hooks/useI18n'
 import type { Locale } from '@renderer/i18n'
 import { shellApi } from '@renderer/services/shellApi'
@@ -147,6 +148,23 @@ export function SettingsPage() {
   /** 插件 settings.register 注入的 section 与持久化值 */
   const [pluginSections, setPluginSections] = useState<PluginSettingsSection[]>([])
   const [pluginSettings, setPluginSettings] = useState<Record<string, Record<string, unknown>>>({})
+
+  /** 设置页只展示注册了设置项的插件（manifest 声明或运行时 register） */
+  const settingsPlugins = installed.filter(
+    (p) =>
+      (p.contributes?.settings?.length ?? 0) > 0 ||
+      pluginSections.some((s) => s.pluginId === p.id)
+  )
+
+  /** 当前 tab 指向已无设置项的插件时回落通用，避免空面板 */
+  useEffect(() => {
+    if (
+      settingsTab.startsWith('p:') &&
+      !settingsPlugins.some((p) => `p:${p.id}` === settingsTab)
+    ) {
+      setSettingsTab('general')
+    }
+  }, [settingsTab, settingsPlugins, setSettingsTab])
 
   /** 读取通用设置 + 硬件加速 + 数据根路径 */
   useEffect(() => {
@@ -470,6 +488,11 @@ export function SettingsPage() {
     { id: 'dev', label: t('settings.tabs.dev') },
   ] as const
 
+  const allTabs = [
+    ...TABS.map((x) => ({ id: x.id as string, label: x.label })),
+    ...settingsPlugins.map((p) => ({ id: `p:${p.id}`, label: p.name })),
+  ]
+
   return (
     <section className="page page-settings">
       <div className="settings-shell">
@@ -477,28 +500,12 @@ export function SettingsPage() {
           <h1>{t('settings.title')}</h1>
           <p>{t('settings.subtitle')}</p>
         </div>
-        <div className="settings-tabs">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              className={settingsTab === tab.id ? 'active' : ''}
-              onClick={() => setSettingsTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-          {installed.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className={settingsTab === `p:${p.id}` ? 'active' : ''}
-              onClick={() => setSettingsTab(`p:${p.id}`)}
-            >
-              {p.name}
-            </button>
-          ))}
-        </div>
+        <SettingsTabs
+          tabs={allTabs}
+          active={settingsTab}
+          moreLabel={t('settings.tabs.more')}
+          onChange={setSettingsTab}
+        />
 
         {settingsTab === 'general' && (
           <Card title={t('settings.general.title')} hint={t('settings.general.hint')}>
@@ -766,7 +773,7 @@ export function SettingsPage() {
               )
             }
             return (
-              <Card title={p.name} hint={t('settings.pluginSection.hint')}>
+              <Card title={p.name}>
                 {sections.length === 0 ? (
                   <p className="desc">{t('settings.pluginSection.empty')}</p>
                 ) : (

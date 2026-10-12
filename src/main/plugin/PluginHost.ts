@@ -20,8 +20,8 @@
  *   crash 自动重启 / 唤醒路径据此回到原容器
  * - 输入拦截：quick 容器 view 注册 before-input-event，插件态 Esc 回列表、
  *   ⌘/Ctrl+Enter 固定到主窗（插件区域持焦时渲染层收不到键盘事件，必须主进程拦截）
- * - 高度自适应：quick 挂载后优先 enest.ui.setHeight 上报（pluginHandlers 记录），
- *   无上报则前几轮 executeJavaScript 量 body scrollHeight 兜底；窗高 = 输入条 + 钳制后的插件高度
+ * - 尺寸自适应：manifest.window 提供起始建议，ui.resize/setHeight 即时更新 Quick 容器；
+ *   插件自身响应 viewport resize，不测量/改写它的 DOM 或内部布局
  *
  * 生命周期（见 PluginLifecycle.ts 头注释）：
  *   installed → opening → ready → active ⇄ background --hibernate--> hibernated
@@ -61,7 +61,9 @@ import {
   PLUGIN_HIBERNATE_DELAY_MS,
   PLUGIN_ALIVE_LIMIT,
   QUICK_BAR_AREA_H,
-  QUICK_MAX_HEIGHT,
+  QUICK_BORDER_WIDTH,
+  QUICK_CORNER_RADIUS,
+  QUICK_WIDTH,
   QUICK_PLUGIN_DEFAULT_HEIGHT,
   QUICK_PLUGIN_MIN_HEIGHT
 } from '@shared/constants'
@@ -82,10 +84,11 @@ import {
   getQuickPluginBounds,
   getQuickWebContents,
   getQuickWindow,
-  setQuickContentHeight,
+  setQuickContentSize,
+  hideQuickWindow,
   setQuickPluginHiddenHook,
   setQuickPluginRelayout,
-  setQuickPluginRestoreHook
+  setQuickPluginResetHook
 } from '@main/window/createQuickWindow'
 import { raiseOrbRailViews } from '@main/window/orbRailViews'
 import { logInfo, logWarn } from '@main/logs/logService'
@@ -110,7 +113,7 @@ import {
   registerPluginProtocolForSession,
   invalidatePluginFileCache
 } from '@main/plugin/pluginProtocol'
-import { getPluginDesiredHeight, releasePluginHotkeys, releasePluginContribs } from '@main/ipc/pluginHandlers'
+import { releasePluginHotkeys, releasePluginContribs } from '@main/ipc/pluginHandlers'
 import { releaseSshSessions } from '@main/ssh/sshSessionManager'
 import { releaseDbSessions } from '@main/database/dbSessionManager'
 import { resolveThemeTokens, themeTokensToInjectScript } from '@main/theme/resolveThemeCss'
@@ -120,18 +123,6 @@ const BEFORE_CLOSE_ACK_TIMEOUT_MS = 1500
 
 /** crash 自动重启计数重置的稳定窗口：加载完成后存活超过该时长才视为“已恢复” */
 const CRASH_RECOVERY_STABLE_MS = 10 * 1000
-
-/** quick 高度自适应观察窗：挂载后持续检查 setHeight 迟到上报的总时长 */
-const QUICK_HEIGHT_WATCH_MS = 3000
-/** scrollHeight 兜底探测窗口（spec：max 300ms 轮询几次） */
-const QUICK_HEIGHT_PROBE_MS = 1200
-/** 观察轮询间隔 */
-const QUICK_HEIGHT_TICK_MS = 300
-
-/** 量插件文档内容高度的表达式（body 与 documentElement 取大） */
-const QUICK_SCROLL_PROBE_EXPR =
-  '(function(){var b=document.body,d=document.documentElement;' +
-  'return Math.ceil(Math.max(b?b.scrollHeight:0,d?d.scrollHeight:0))})()'
 
 /** 插件所在容器：shell 主窗 Tab / quick Quick 小窗内嵌（mini） */
 export type PluginContainer = 'shell' | 'quick'
@@ -167,8 +158,8 @@ export class PluginHost {
   private activeTabId: string | null = null
   /** quick 容器当前挂载的 mini 插件 id（挂载即激活语义，无值 = 列表态） */
   private quickPluginId: string | null = null
-  /** quick 高度自适应轮询句柄（切插件/退出 quick 插件态时清除） */
-  private quickHeightTimer: ReturnType<typeof setInterval> | null = null
+  /** 插件主动上报的视口建议；桌面保持用户窗体尺寸，Quick 按建议调整。 */
+  private desiredSizes = new Map<string, { width?: number; height?: number }>()
   /** 插件上次（或期望）所在容器；crash 重启 / 唤醒路径据此回原容器 */
   private containers = new Map<string, PluginContainer>()
   /** nativeTheme 监听是否已挂载（system 模式下 OS 主题切换时广播） */
@@ -246,7 +237,7 @@ export class PluginHost {
     return this.entries.get(pluginId)?.container ?? this.containers.get(pluginId) ?? 'shell'
   }
 
-  /** 联动布局：把 quick 容器挂载中的插件 view bounds 对齐当前 quick 窗（tween/resize 每帧调用） */
+  /** 联动布局：把 quick 容器挂载中的插件 view bounds 对齐当前 quick 窗（尺寸变化时调用） */
   layoutQuickPlugins(): void {
     const pid = this.quickPluginId
     if (!pid) return
@@ -259,66 +250,32 @@ export class PluginHost {
     }
   }
 
-  /**
-   * quick 呼出时恢复插件挂载：清休眠计时、刷新 LRU 时间、重推 quick-plugin-mode
-   * （渲染层切回插件 UI）。返回目标窗高（无挂载返回 null，列表态）。
-   * onQuickHidden 已清 quickPluginId（允许隐藏期间休眠）；休眠到期后这里为 null 走列表态，
-   * 未到期重新呼出时若 entry 已被休眠摘除，由 quickHandlers 的 openPlugin 冷启动兜底。
-   */
-  notifyQuickRestore(): number | null {
-    // 隐藏期间未休眠的插件：entry 仍在 quick 容器，直接恢复挂载语义
-    let pid = this.quickPluginId
-    if (!pid) {
-      const candidate = [...this.entries.values()].find((e) => e.container === 'quick')
-      pid = candidate?.pluginId ?? null
+  /** 每次呼出只显示搜索栏，保留后台插件进程供下次显式打开。 */
+  resetQuickSession(): void {
+    this.onQuickHidden()
+    for (const entry of this.entries.values()) {
+      if (entry.container === 'quick') entry.view.setVisible(false)
     }
-    if (!pid) return null
-    const entry = this.entries.get(pid)
-    if (!entry || entry.container !== 'quick') return null
-    this.quickPluginId = pid
-    this.clearHibernateTimer(pid)
-    entry.lastActivatedAt = Date.now()
-    // enter 不重放（呼出 ≠ 新进入）；但 active 语义需要维持——若中途被退 background 则重激活
-    if (this.getState(pid) === 'background') {
-      this.sendEnter(pid)
-    }
-    sendShellEvent({
-      type: 'quick-plugin-mode',
-      mode: {
-        pluginId: pid,
-        title: pluginRegistry.getManifest(pid)?.name ?? pid
-      }
-    })
-    const reported = getPluginDesiredHeight(pid)
-    const maxPluginH = QUICK_MAX_HEIGHT - QUICK_BAR_AREA_H
-    const clamped = Math.min(
-      maxPluginH,
-      Math.max(
-        QUICK_PLUGIN_MIN_HEIGHT,
-        Math.round(reported ?? QUICK_PLUGIN_DEFAULT_HEIGHT)
-      )
-    )
-    return QUICK_BAR_AREA_H + clamped
+    sendShellEvent({ type: 'quick-plugin-mode', mode: null })
   }
 
   /**
    * quick 小窗隐藏（失焦/热键收起）时：挂载中的插件退 background + 启动休眠计时。
-   * view 保持挂在 quick contentView（窗口整体不可见即插件不可见），不摘除不销毁；
-   * 休眠到期后正常走 hibernatePlugin（快照 + 销毁），再次呼出经 openPlugin 冷启动恢复。
+   * view 隐藏但保持挂载，不摘除不销毁；再次搜索打开时复用，休眠仍遵循资源策略。
    */
   onQuickHidden(): void {
     const pid = this.quickPluginId
     if (!pid) return
+    this.quickPluginId = null
     const entry = this.entries.get(pid)
     if (!entry) return
+    entry.view.setVisible(false)
     if (this.getState(pid) === 'active') {
       this.sendToPlugin(entry.view.webContents, { event: 'out', isKill: false })
       this.applyTransition(pid, 'deactivate')
     }
     // 窗口已整体不可见，挂载语义不再阻止休眠：先清 quickPluginId 再计时，
     // 否则 scheduleHibernate 的 quickPluginId 守卫会让渲染进程常驻直到下次呼出
-    this.quickPluginId = null
-    this.stopQuickHeightWatch()
     this.scheduleHibernate(pid)
   }
 
@@ -347,9 +304,9 @@ export class PluginHost {
     this.hibernated.delete(pluginId)
     this.restartAttempts.delete(pluginId)
     this.containers.delete(pluginId)
+    this.desiredSizes.delete(pluginId)
     if (this.quickPluginId === pluginId) {
       this.quickPluginId = null
-      this.stopQuickHeightWatch()
     }
     this.clearHibernateTimer(pluginId)
   }
@@ -376,8 +333,8 @@ export class PluginHost {
     const existing = this.entries.get(pluginId)
     if (existing) {
       // 容器切换（quick ↔ shell）：显式指定即迁移（同 webContents 不重载）。
-      // 缺省 opts 时维持现有容器——主窗打开已在 quick 的 mini 插件 = 呼出语义。
-      const target: PluginContainer = opts?.container ?? existing.container
+      // 主窗入口缺省进入 shell；Quick 入口显式指定，避免激活隐藏的小窗。
+      const target: PluginContainer = opts?.container ?? 'shell'
       if (target !== existing.container) {
         this.migrateContainer(pluginId, target)
       }
@@ -416,8 +373,8 @@ export class PluginHost {
     const manifest = pluginRegistry.getManifest(pluginId)
     const ui = resolvePluginUi(manifest?.ui ?? summary.ui)
 
-    // 容器决策：显式指定 > 上次容器（唤醒/crash 重启回落）> shell
-    const container: PluginContainer = opts?.container ?? this.containers.get(pluginId) ?? 'shell'
+    // 用户入口默认桌面；Quick 与内部恢复明确传入目标容器。
+    const container: PluginContainer = opts?.container ?? 'shell'
     this.containers.set(pluginId, container)
 
     const partition = pluginPartition(pluginId) // 每插件独立 partition，隔离 cookie/storage
@@ -437,6 +394,8 @@ export class PluginHost {
         sandbox: false // preload 需要访问 ipcRenderer，故不启用沙箱
       }
     })
+
+    view.setBorderRadius(container === 'quick' ? QUICK_CORNER_RADIUS - QUICK_BORDER_WIDTH : 0)
 
     // background=transparent：View 底色透明，透出壳子背景（Canvas/WebGL 场景）
     // 注意：setBackgroundColor 挂在 View 上（非 webContents），hex 含 alpha 用 AARRGGBB
@@ -476,9 +435,7 @@ export class PluginHost {
     })
 
     // quick 容器：拦截插件区域键盘事件（插件持焦时渲染层收不到 Esc/⌘Enter）
-    if (container === 'quick') {
-      this.hookQuickInput(pluginId, view.webContents)
-    }
+    this.hookQuickInput(pluginId, view.webContents)
 
     // 加载完成后注入主题 Token（themeAware 时）；透明背景在 load 后再设一次确保生效；
     // 同时推进状态机 ready → （若 active）enter
@@ -537,7 +494,7 @@ export class PluginHost {
 
     this.hookNativeTheme()
     if (container === 'quick') {
-      // quick 挂载即激活语义：立即可见 + 状态机推进 + 高度自适应启动
+      // quick 挂载即激活语义：立即可见、状态机推进并应用建议尺寸
       this.showQuickPlugin(pluginId)
     } else {
       // 立即激活视图（显示）；enter 事件等 did-finish-load 后再发，避免插件尚未就绪
@@ -577,6 +534,7 @@ export class PluginHost {
       this.enterSent.delete(pluginId)
       this.pendingEnter.delete(pluginId)
       this.containers.delete(pluginId)
+      this.desiredSizes.delete(pluginId)
       if (this.activeTabId === pluginId) {
         this.activeTabId = null
         const next = this.firstShellEntryId()
@@ -601,7 +559,6 @@ export class PluginHost {
     // quick 挂载中的插件被关闭：先退场（quick 渲染层回列表态）再走销毁
     if (this.quickPluginId === pluginId) {
       this.quickPluginId = null
-      this.stopQuickHeightWatch()
       sendShellEvent({ type: 'quick-plugin-mode', mode: null })
     }
 
@@ -636,6 +593,7 @@ export class PluginHost {
     this.pendingEnter.delete(pluginId)
     this.states.delete(pluginId)
     this.containers.delete(pluginId)
+    this.desiredSizes.delete(pluginId)
 
     if (this.activeTabId === pluginId) {
       this.activeTabId = null
@@ -679,6 +637,7 @@ export class PluginHost {
       return
     }
 
+    if (entry.container === 'quick') this.migrateContainer(pluginId, 'shell')
     this.clearHibernateTimer(pluginId)
     entry.lastActivatedAt = Date.now()
 
@@ -775,7 +734,7 @@ export class PluginHost {
     if (!entry) {
       // 休眠中的插件 reload = 唤醒重建
       if (this.hibernated.has(pluginId)) {
-        void this.openPlugin(pluginId).catch((err: Error) => {
+        void this.openPlugin(pluginId, undefined, { container: this.getContainer(pluginId) }).catch((err: Error) => {
           sendShellEvent({ type: 'plugin-error', pluginId, message: err.message })
         })
       }
@@ -819,7 +778,7 @@ export class PluginHost {
    * 在 Quick 小窗挂载 mini 插件（挂载即激活语义）：
    * 若另一插件正占用 quick 容器，先让它退场（out + background + 休眠计时）；
    * 随后显示目标 view、置顶（叠在 quick 渲染层之上）、推 plugin-active，
-   * 并启动高度自适应（setHeight 上报 > scrollHeight 探测 > manifest/缺省）。
+   * 并按插件主动上报或 manifest 建议调整容器尺寸。
    */
   showQuickPlugin(pluginId: string, enter?: PluginEnterPayload): void {
     const entry = this.entries.get(pluginId)
@@ -835,7 +794,9 @@ export class PluginHost {
     this.containers.set(pluginId, 'quick')
     entry.lastActivatedAt = Date.now()
 
-    entry.view.setVisible(true)
+    for (const candidate of this.entries.values()) {
+      if (candidate.container === 'quick') candidate.view.setVisible(candidate.pluginId === pluginId)
+    }
     // 置顶：摘下重挂到 quick contentView 顶端（叠在 quick 渲染层 view 之上）
     const quickWin = getQuickWindow()
     if (quickWin) {
@@ -862,7 +823,7 @@ export class PluginHost {
     // 插件页是原生 view，抢焦点后渲染层收不到 Esc——激活后把焦点还给 quick 渲染层输入框
     this.focusQuickShell()
 
-    this.startQuickHeightWatch(pluginId)
+    setQuickContentSize(this.getQuickPluginSize(pluginId))
     sendShellEvent({
       type: 'quick-plugin-mode',
       mode: {
@@ -889,7 +850,7 @@ export class PluginHost {
     if (!entry) return
     if (this.quickPluginId !== pluginId) return
     this.quickPluginId = null
-    this.stopQuickHeightWatch()
+    setQuickContentSize({ width: QUICK_WIDTH })
 
     try {
       entry.view.setVisible(false)
@@ -912,44 +873,20 @@ export class PluginHost {
   /**
    * 固定到主窗（⌘Enter / UI 按钮）：quick 插件 view 同 webContents 摘下重挂主窗
    * （不重载、不丢状态），Quick 回列表态并收起，主窗前置并激活该插件 Tab。
-   * 主窗 Tab 同步：plugin-active 事件由 activatePlugin 发出，shellStore 事件桥据此
-   * 清崩溃态；Tab 列表本身由渲染层在收到 plugin-active 时未感知（设计如此——
-   * 主壳打开插件的唯一路径会补 Tab；quick 打开不补，固定后主窗若没有该 Tab，
-   * 用户从市场/圆轨点开即可；sessionTabs 持久化在主壳渲染层自身打开时维护）。
+   * 主窗 Tab 由 plugin-active 事件桥同步；迁移保留原 webContents 与页面状态。
    */
   pinToShell(pluginId: string): void {
     const entry = this.entries.get(pluginId)
-    if (!entry) return
-    // 仅 quick 容器在挂载中的插件可固定；shell 容器插件已在主窗（幂等 no-op）
-    if (entry.container !== 'quick') return
-
-    const wasQuickActive = this.quickPluginId === pluginId
-    this.quickPluginId = null
-    this.stopQuickHeightWatch()
-
-    const win = getMainWindow()
-    const quickWin = getQuickWindow()
-    if (quickWin) {
-      try {
-        quickWin.contentView.removeChildView(entry.view)
-      } catch {
-        /* 已不在 */
-      }
-    }
-    entry.container = 'shell'
-    this.containers.set(pluginId, 'shell')
-    if (win) {
-      win.contentView.addChildView(entry.view)
-      entry.view.setBounds(getPluginContentBounds(pluginChromeBarHeight(entry.ui.chrome)))
-      entry.view.setVisible(true)
-      raiseOrbRailViews()
-    }
-
-    if (wasQuickActive) {
-      sendShellEvent({ type: 'quick-plugin-mode', mode: null })
-    }
-    // shell 激活语义（含 plugin-active 事件、enter 补发）
+    if (!entry || entry.container !== 'quick') return
+    this.migrateContainer(pluginId, 'shell')
     this.activatePlugin(pluginId)
+    hideQuickWindow()
+    const win = getMainWindow()
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+    }
     logInfo('lifecycle', `${pluginId}: pinned quick → shell`)
   }
 
@@ -957,7 +894,7 @@ export class PluginHost {
   private migrateContainer(pluginId: string, container: PluginContainer): void {
     const entry = this.entries.get(pluginId)
     if (!entry || entry.container === container) return
-    const quickWin = getQuickWindow()
+    const quickWin = container === 'quick' ? ensureQuickWindow() : getQuickWindow()
     const win = getMainWindow()
     try {
       if (entry.container === 'quick') {
@@ -968,13 +905,17 @@ export class PluginHost {
     } catch {
       /* 已不在父视图 */
     }
-    // 离开 quick 容器：挂载态复位（高度观察停止 + 渲染层回列表态）
+    // 离开 quick 容器：挂载态复位，渲染层回列表态
     const wasQuickMounted = this.quickPluginId === pluginId && entry.container === 'quick'
     entry.container = container
+    entry.view.setBorderRadius(container === 'quick' ? QUICK_CORNER_RADIUS - QUICK_BORDER_WIDTH : 0)
     this.containers.set(pluginId, container)
+    if (container === 'quick' && this.activeTabId === pluginId) {
+      this.activeTabId = null
+      sendShellEvent({ type: 'plugin-active', tabId: null })
+    }
     if (wasQuickMounted) {
       this.quickPluginId = null
-      this.stopQuickHeightWatch()
       sendShellEvent({ type: 'quick-plugin-mode', mode: null })
     }
     if (container === 'quick') {
@@ -994,9 +935,13 @@ export class PluginHost {
    */
   private hookQuickInput(pluginId: string, wc: WebContents): void {
     wc.on('before-input-event', (_e, input) => {
-      if (input.type !== 'keyDown') return
+      if (input.type !== 'keyDown' || input.isComposing) return
       if (this.quickPluginId !== pluginId) return
-      if (input.key === 'Escape') {
+      if (input.key.toLowerCase() === 'k' && (input.control || input.meta)) {
+        _e.preventDefault()
+        this.focusQuickShell()
+        sendShellEvent({ type: 'quick-focus-search' })
+      } else if (input.key === 'Escape') {
         _e.preventDefault()
         this.dismissQuickPlugin(pluginId)
       } else if (input.key === 'Enter' && (input.control || input.meta)) {
@@ -1018,63 +963,34 @@ export class PluginHost {
     }
   }
 
-  /**
-   * Quick 高度自适应观察：
-   * - 每 tick 读 enest.ui.setHeight 上报值（pluginHandlers 记录），
-   *   观察窗前 QUICK_HEIGHT_PROBE_MS 内还做 executeJavaScript scrollHeight 兜底
-   * - 高度优先级：setHeight 上报 > scrollHeight > manifest.window.minHeight > 默认 300
-   * - 窗高 = QUICK_BAR_AREA_H + 钳制(插件高度)，setQuickContentHeight tween 生效
-   */
-  private startQuickHeightWatch(pluginId: string): void {
-    this.stopQuickHeightWatch()
-    const manifestMin = pluginRegistry.getManifest(pluginId)?.window?.minHeight
-    const fallback =
-      Number.isFinite(manifestMin) && (manifestMin as number) > 0
-        ? (manifestMin as number)
-        : QUICK_PLUGIN_DEFAULT_HEIGHT
-    const startAt = Date.now()
-    this.quickHeightTimer = setInterval(() => {
-      const entry = this.entries.get(pluginId)
-      // 挂载已切换 / entry 没了：停表
-      if (this.quickPluginId !== pluginId || !entry) {
-        this.stopQuickHeightWatch()
-        return
-      }
-      const reported = getPluginDesiredHeight(pluginId)
-      if (reported && reported > 0) {
-        this.applyQuickHeight(reported)
-        // 已知期望高度后仍保留观察窗（插件内容可变，setHeight 会再触发）；
-        // 但 probe 阶段无需再执行 JS
-        return
-      }
-      if (Date.now() - startAt <= QUICK_HEIGHT_PROBE_MS) {
-        void entry.view.webContents
-          .executeJavaScript(QUICK_SCROLL_PROBE_EXPR, true)
-          .then((h: unknown) => {
-            if (this.quickPluginId !== pluginId) return
-            const n = Number(h)
-            if (Number.isFinite(n) && n > 0) this.applyQuickHeight(n)
-          })
-          .catch(() => undefined)
-      }
-    }, QUICK_HEIGHT_TICK_MS)
-  }
-
-  private stopQuickHeightWatch(): void {
-    if (this.quickHeightTimer) {
-      clearInterval(this.quickHeightTimer)
-      this.quickHeightTimer = null
-    }
-  }
-
-  /** 应用插件期望高度：钳制到 [QUICK_PLUGIN_MIN_HEIGHT, 窗高上限内可容纳范围] 并 tween 窗高 */
-  private applyQuickHeight(pluginHeight: number): void {
-    const maxPluginH = QUICK_MAX_HEIGHT - QUICK_BAR_AREA_H
-    const clamped = Math.min(
-      maxPluginH,
-      Math.max(QUICK_PLUGIN_MIN_HEIGHT, Math.round(pluginHeight))
+  /** 插件请求的是内容视口尺寸；输入条和外边框由壳子补齐。 */
+  private getQuickPluginSize(pluginId: string): { width: number; height: number } {
+    const window = pluginRegistry.getManifest(pluginId)?.window
+    const desired = this.desiredSizes.get(pluginId)
+    const positive = (value: number | null | undefined, fallback: number): number =>
+      Number.isFinite(value) && value! > 0 ? Math.round(value!) : fallback
+    const width = Math.max(
+      positive(window?.minWidth, 0),
+      positive(desired?.width, positive(window?.width, QUICK_WIDTH - QUICK_BORDER_WIDTH * 2))
     )
-    setQuickContentHeight(QUICK_BAR_AREA_H + clamped, true)
+    const height = Math.max(
+      QUICK_PLUGIN_MIN_HEIGHT,
+      positive(window?.minHeight, 0),
+      positive(desired?.height, positive(window?.height, positive(window?.minHeight, QUICK_PLUGIN_DEFAULT_HEIGHT)))
+    )
+    return { width: width + QUICK_BORDER_WIDTH * 2, height: height + QUICK_BAR_AREA_H + QUICK_BORDER_WIDTH }
+  }
+
+  /** ui.resize/setHeight 事件驱动，无轮询和 DOM 高度探测；桌面视口由用户调整。 */
+  resizePlugin(pluginId: string, size: { width?: number; height?: number }): void {
+    const previous = this.desiredSizes.get(pluginId) ?? {}
+    const next = { ...previous }
+    if (Number.isFinite(size.width) && size.width! > 0) next.width = Math.round(size.width!)
+    if (Number.isFinite(size.height) && size.height! > 0) next.height = Math.round(size.height!)
+    this.desiredSizes.set(pluginId, next)
+    if (this.entries.get(pluginId)?.container === 'quick' && this.quickPluginId === pluginId) {
+      setQuickContentSize(this.getQuickPluginSize(pluginId))
+    }
   }
 
   /** 是否已有打开的插件 View（开发加载前判断是否需要强制重建） */
@@ -1136,7 +1052,7 @@ export class PluginHost {
   async destroyAll(reason: PluginCloseReason = 'app-quit'): Promise<void> {
     this.activeTabId = null
     this.quickPluginId = null
-    this.stopQuickHeightWatch()
+    this.desiredSizes.clear()
     this.containers.clear()
     // 清掉全部休眠计时器（含后台插件）
     for (const pluginId of [...this.hibernateTimers.keys()]) {
@@ -1361,7 +1277,6 @@ export class PluginHost {
     // quick 容器 crash：挂载态复位，quick 渲染层回列表态
     if (wasQuickMounted) {
       this.quickPluginId = null
-      this.stopQuickHeightWatch()
       sendShellEvent({ type: 'quick-plugin-mode', mode: null })
     }
     this.applyTransition(pluginId, 'crash', reason)
@@ -1380,7 +1295,7 @@ export class PluginHost {
     logInfo('lifecycle', `${pluginId}: auto restart after crash (${reason})`)
     // 自动重启 = openPlugin 重建（containers 记录带回原容器；quick 容器在
     // openPlugin 尾部已重新挂载）；稳定存活后重置额度
-    void this.openPlugin(pluginId).catch((err: Error) => {
+    void this.openPlugin(pluginId, undefined, { container: this.getContainer(pluginId) }).catch((err: Error) => {
       sendShellEvent({ type: 'plugin-error', pluginId, message: err.message })
     })
   }
@@ -1436,14 +1351,13 @@ export const pluginHost = new PluginHost()
 
 // —— createQuickWindow 联动注入（直接 import 会成模块环：Host → quickWindow → Host）——
 
-/** quick 窗高 tween/resize 时联动布局 quick 容器中的插件 view */
+/** quick 尺寸变化时联动布局 quick 容器中的插件 view */
 setQuickPluginRelayout(() => pluginHost.layoutQuickPlugins())
 
 /** quick 小窗隐藏：挂载插件退 background + 休眠计时（view 留在不可见 contentView） */
 setQuickPluginHiddenHook(() => pluginHost.onQuickHidden())
 
 /**
- * quick 呼出时恢复挂载中的插件态：重推 quick-plugin-mode（渲染层切插件 UI）、
- * 返回目标窗高（输入条 + 插件期望高度）；无挂载返回 null（列表态）。
+ * quick 呼出前隐藏原生插件视图，renderer 回到空搜索栏。
  */
-setQuickPluginRestoreHook(() => pluginHost.notifyQuickRestore())
+setQuickPluginResetHook(() => pluginHost.resetQuickSession())

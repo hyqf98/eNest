@@ -7,9 +7,15 @@ import { useTheme } from '@renderer/hooks/useTheme'
 import { ThemeModeSelect } from '@renderer/components/ThemeModeSelect'
 import { BackgroundPicker } from '@renderer/components/BackgroundPicker'
 import { ThemeTokenEditor } from '@renderer/components/ThemeTokenEditor'
+import { resolveThemePalette } from '@shared/theme/presets'
 
 export function ThemeSettingsSection() {
   const theme = useTheme()
+  const pack = theme.packs.find((item) => item.id === theme.packId)
+  const palettes = {
+    light: resolveThemePalette('light', theme.overrides.light, pack?.tokens),
+    dark: resolveThemePalette('dark', theme.overrides.dark, pack?.tokens),
+  }
 
   return (
     <>
@@ -18,6 +24,7 @@ export function ThemeSettingsSection() {
         resolved={theme.resolved}
         packs={theme.packs}
         packId={theme.packId}
+        palettes={palettes}
         onSetMode={(m) => void theme.setMode(m)}
         onApplyPack={(id) => void theme.applyPack(id)}
       />

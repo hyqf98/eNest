@@ -246,6 +246,8 @@ interface FontState {
   hydrating: boolean
   uploading: boolean
   hydrate: () => Promise<void>
+  /** 外部窗口设置变更后重读并应用，不回写设置。 */
+  refresh: () => Promise<void>
   /** 应用组合预设（清空英文槽，整栈写入 CJK 槽） */
   setPreset: (presetId: string) => Promise<void>
   /** 英文槽：id 为空串/传 null 表示「默认」（清除 fontFamilyEn） */
@@ -258,8 +260,11 @@ interface FontState {
   removeCustomFont: (fontId: string) => Promise<void>
 }
 
-/** 从 settings 读取并应用字体与字号（hydrate / 外部刷新共用） */
-async function loadAndApplyFromSettings(): Promise<{
+const customFontLoads = new Map<string, Promise<void>>()
+let fontReadVersion = 0
+
+/** 从 settings 读取字体与字号，异步字体注册完成后由调用方应用最新一次结果。 */
+async function loadFromSettings(): Promise<{
   fontFamily: string
   fontFamilyEn: string
   presetId: string | null
@@ -282,17 +287,26 @@ async function loadAndApplyFromSettings(): Promise<{
   // 预注册全部自定义字体（失败忽略，不阻塞启动）
   await Promise.all(
     customFonts.map(async (meta) => {
+      const key = `${meta.id}:${meta.fileName}:${meta.family}`
       try {
-        if (isMockShell) {
-          const dataUrl = localStorage.getItem(MOCK_FONT_KEY + meta.id)
-          if (dataUrl) await registerFontFace(meta.family, `url(${dataUrl})`)
-        } else if (shellApi.readCustomFont) {
-          const result = await shellApi.readCustomFont(meta.fileName)
-          if (result.ok && result.dataBase64) {
-            await registerFontFace(meta.family, base64ToArrayBuffer(result.dataBase64))
-          }
+        let loading = customFontLoads.get(key)
+        if (!loading) {
+          loading = (async () => {
+            if (isMockShell) {
+              const dataUrl = localStorage.getItem(MOCK_FONT_KEY + meta.id)
+              if (!dataUrl) throw new Error('font data unavailable')
+              await registerFontFace(meta.family, `url(${dataUrl})`)
+            } else {
+              const result = await shellApi.readCustomFont?.(meta.fileName)
+              if (!result?.ok || !result.dataBase64) throw new Error('font data unavailable')
+              await registerFontFace(meta.family, base64ToArrayBuffer(result.dataBase64))
+            }
+          })()
+          customFontLoads.set(key, loading)
         }
+        await loading
       } catch {
+        customFontLoads.delete(key)
         /* 单个字体失败不影响其它 */
       }
     })
@@ -317,8 +331,6 @@ async function loadAndApplyFromSettings(): Promise<{
     }
   }
 
-  applyFontToDom(fontFamilyEn, fontFamily)
-  applyFontSizeScale(fontSizeScale)
   return {
     fontFamily,
     fontFamilyEn,
@@ -355,11 +367,24 @@ export const useFontStore = create<FontState>((set, get) => ({
 
   hydrate: async () => {
     if (get().hydrated || get().hydrating) return
+    await get().refresh()
+  },
+
+  refresh: async () => {
+    const version = ++fontReadVersion
     set({ hydrating: true })
     try {
-      const next = await loadAndApplyFromSettings()
+      const next = await loadFromSettings()
+      if (version !== fontReadVersion) return
+      applyFontToDom(next.fontFamilyEn, next.fontFamily)
+      applyFontSizeScale(next.fontSizeScale)
       set({ ...next, hydrated: true, hydrating: false })
     } catch {
+      if (version !== fontReadVersion) return
+      if (get().hydrated) {
+        set({ hydrating: false })
+        return
+      }
       applyFontToDom('', '')
       applyFontSizeScale(1)
       set({
@@ -380,6 +405,8 @@ export const useFontStore = create<FontState>((set, get) => ({
   setPreset: async (presetId) => {
     const preset = FONT_PRESETS.find((p) => p.id === presetId)
     if (!preset) return
+    fontReadVersion++
+    set({ hydrating: false })
     // 组合预设：清空英文槽，整栈写入 CJK/默认槽
     applyFontToDom('', preset.css)
     set({
@@ -402,6 +429,8 @@ export const useFontStore = create<FontState>((set, get) => ({
     const id = presetId || null
     const preset = id ? FONT_PRESETS_EN.find((p) => p.id === id) : null
     if (id && !preset) return
+    fontReadVersion++
+    set({ hydrating: false })
     const en = preset?.css ?? ''
     const { fontFamily } = get()
     applyFontToDom(en, fontFamily)
@@ -422,6 +451,8 @@ export const useFontStore = create<FontState>((set, get) => ({
     const id = presetId || null
     const preset = id ? FONT_PRESETS_CJK.find((p) => p.id === id) : null
     if (id && !preset) return
+    fontReadVersion++
+    set({ hydrating: false })
     const cjk = preset?.css ?? ''
     const { fontFamilyEn } = get()
     applyFontToDom(fontFamilyEn, cjk)
@@ -440,6 +471,8 @@ export const useFontStore = create<FontState>((set, get) => ({
   },
 
   setFontSizeScale: async (scale) => {
+    fontReadVersion++
+    set({ hydrating: false })
     const next = isFontSizeScale(scale) ? scale : 1
     applyFontSizeScale(next)
     set({ fontSizeScale: next })
@@ -453,6 +486,8 @@ export const useFontStore = create<FontState>((set, get) => ({
   applyCustom: async (fontId) => {
     const meta = get().customFonts.find((c) => c.id === fontId)
     if (!meta) return
+    fontReadVersion++
+    set({ hydrating: false })
     // 确保 FontFace 已注册（hydrate 失败或冷启动重试）
     try {
       if (isMockShell) {
@@ -494,7 +529,8 @@ export const useFontStore = create<FontState>((set, get) => ({
       toastStore.getState().push(t('settings.font.tooLarge'), 'error')
       return
     }
-    set({ uploading: true })
+    fontReadVersion++
+    set({ uploading: true, hydrating: false })
     try {
       const { name, family } = deriveNames(file.name)
       const id = makeId()
@@ -557,6 +593,9 @@ export const useFontStore = create<FontState>((set, get) => ({
     const state = get()
     const meta = state.customFonts.find((c) => c.id === fontId)
     if (!meta) return
+    fontReadVersion++
+    set({ hydrating: false })
+    customFontLoads.delete(`${meta.id}:${meta.fileName}:${meta.family}`)
     const customFonts = state.customFonts.filter((c) => c.id !== fontId)
 
     try {

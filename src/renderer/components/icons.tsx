@@ -49,16 +49,6 @@ export function ChevronRightIcon(props: IconProps) {
   )
 }
 
-/** Lucide arrow-right（link-more / 查看更多） */
-export function ArrowRightIcon(props: IconProps) {
-  return (
-    <svg {...baseProps(props)}>
-      <path d="M5 12h14" />
-      <path d="m12 5 7 7-7 7" />
-    </svg>
-  )
-}
-
 /** Lucide search */
 export function SearchIcon(props: IconProps) {
   return (

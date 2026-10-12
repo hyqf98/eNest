@@ -23,60 +23,59 @@ const TYPE_OPTIONS: { id: BackgroundType; label: string }[] = [
   { id: 'video', label: '视频' },
 ]
 
-/** 预设氛围背景：柔和多层渐变，避免生硬纯色 */
+/** 低饱和氛围色；「随主题」直接引用 Token，颜色微调后立即同步。 */
 export const BG_GRADIENTS: { id: string; name: string; css: string; swatch: string }[] = [
+  {
+    id: 'theme',
+    name: '随主题',
+    css: 'radial-gradient(ellipse 90% 65% at 12% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 68%), linear-gradient(165deg, var(--bg), var(--surface-2))',
+    swatch: 'linear-gradient(135deg, var(--accent-soft), var(--surface-2))',
+  },
   {
     id: 'dawn',
     name: '晨曦',
-    css: 'radial-gradient(ellipse 90% 70% at 15% 0%, #fde68a 0%, transparent 55%), radial-gradient(ellipse 70% 60% at 85% 10%, #fda4af 0%, transparent 50%), linear-gradient(165deg, #fef3c7 0%, #e0e7ff 45%, #fce7f3 100%)',
-    swatch: 'linear-gradient(135deg,#fde68a,#fda4af,#c7d2fe)',
+    css: 'radial-gradient(ellipse 90% 70% at 15% 0%, #e8c9b1 0%, transparent 65%), linear-gradient(165deg, #faf4eb 0%, #f2ebe1 55%, #e8ded2 100%)',
+    swatch: 'linear-gradient(135deg,#e8c9b1,#f2ebe1)',
   },
   {
     id: 'mint',
     name: '薄荷',
-    css: 'radial-gradient(ellipse 80% 55% at 10% 0%, #6ee7b7 0%, transparent 50%), radial-gradient(ellipse 60% 50% at 90% 80%, #67e8f9 0%, transparent 50%), linear-gradient(160deg, #ecfdf5 0%, #e0f2fe 50%, #f0fdfa 100%)',
-    swatch: 'linear-gradient(135deg,#6ee7b7,#67e8f9)',
+    css: 'radial-gradient(ellipse 80% 55% at 10% 0%, #bdd5c8 0%, transparent 60%), linear-gradient(160deg, #f0f4ee 0%, #dce8df 55%, #e9efea 100%)',
+    swatch: 'linear-gradient(135deg,#bdd5c8,#e9efea)',
   },
   {
-    id: 'lavender',
-    name: '薰衣草',
-    css: 'radial-gradient(ellipse 75% 55% at 20% 0%, #c4b5fd 0%, transparent 50%), radial-gradient(ellipse 65% 50% at 85% 70%, #f0abfc 0%, transparent 48%), linear-gradient(155deg, #f5f3ff 0%, #ede9fe 40%, #fae8ff 100%)',
-    swatch: 'linear-gradient(135deg,#c4b5fd,#f0abfc)',
+    id: 'linen',
+    name: '亚麻',
+    css: 'radial-gradient(ellipse 75% 55% at 20% 0%, #e5ddce 0%, transparent 65%), linear-gradient(155deg, #f7f5ef 0%, #ece8df 55%, #e4e1d8 100%)',
+    swatch: 'linear-gradient(135deg,#e5ddce,#f7f5ef)',
   },
   {
     id: 'peach',
-    name: '蜜桃',
-    css: 'radial-gradient(ellipse 80% 60% at 0% 0%, #fdba74 0%, transparent 52%), radial-gradient(ellipse 70% 50% at 100% 30%, #f9a8d4 0%, transparent 50%), linear-gradient(170deg, #fff7ed 0%, #ffedd5 45%, #fce7f3 100%)',
-    swatch: 'linear-gradient(135deg,#fdba74,#f9a8d4)',
+    name: '陶土',
+    css: 'radial-gradient(ellipse 80% 60% at 0% 0%, #d9b3a0 0%, transparent 62%), linear-gradient(170deg, #f6eee6 0%, #edddd0 55%, #e4cbb9 100%)',
+    swatch: 'linear-gradient(135deg,#d9b3a0,#f6eee6)',
   },
   {
     id: 'ocean',
     name: '深海',
-    css: 'radial-gradient(ellipse 85% 60% at 15% 0%, #38bdf8 0%, transparent 50%), radial-gradient(ellipse 70% 55% at 85% 80%, #818cf8 0%, transparent 48%), linear-gradient(160deg, #0c4a6e 0%, #1e1b4b 50%, #0f172a 100%)',
-    swatch: 'linear-gradient(135deg,#38bdf8,#818cf8,#0f172a)',
+    css: 'radial-gradient(ellipse 85% 60% at 15% 0%, #39585e 0%, transparent 65%), linear-gradient(160deg, #233d43 0%, #1b2e34 55%, #192629 100%)',
+    swatch: 'linear-gradient(135deg,#39585e,#192629)',
   },
   {
-    id: 'aurora',
-    name: '极光',
-    css: 'radial-gradient(ellipse 70% 50% at 20% 10%, #34d399 0%, transparent 50%), radial-gradient(ellipse 65% 45% at 80% 0%, #22d3ee 0%, transparent 48%), radial-gradient(ellipse 55% 40% at 60% 90%, #a78bfa 0%, transparent 45%), linear-gradient(180deg, #022c22 0%, #0f172a 55%, #1e1b4b 100%)',
-    swatch: 'linear-gradient(135deg,#34d399,#22d3ee,#a78bfa)',
+    id: 'forest',
+    name: '松林',
+    css: 'radial-gradient(ellipse 70% 50% at 20% 10%, #486354 0%, transparent 62%), linear-gradient(180deg, #2a4034 0%, #21332c 55%, #1a2924 100%)',
+    swatch: 'linear-gradient(135deg,#486354,#1a2924)',
   },
   {
     id: 'ink',
-    name: '墨色',
-    css: 'radial-gradient(ellipse 70% 50% at 0% 0%, rgba(148,163,184,0.35) 0%, transparent 55%), radial-gradient(ellipse 50% 40% at 100% 100%, rgba(99,102,241,0.25) 0%, transparent 50%), linear-gradient(155deg, #1e293b 0%, #0f172a 50%, #020617 100%)',
-    swatch: 'linear-gradient(135deg,#475569,#1e293b,#020617)',
-  },
-  {
-    id: 'sand',
-    name: '暖沙',
-    css: 'radial-gradient(ellipse 80% 55% at 10% 0%, #fcd34d 0%, transparent 50%), radial-gradient(ellipse 60% 45% at 90% 60%, #fb923c 0%, transparent 45%), linear-gradient(165deg, #fffbeb 0%, #fef3c7 40%, #ffedd5 100%)',
-    swatch: 'linear-gradient(135deg,#fcd34d,#fb923c)',
+    name: '石墨',
+    css: 'radial-gradient(ellipse 70% 50% at 0% 0%, #464740 0%, transparent 65%), linear-gradient(155deg, #32332e 0%, #252622 55%, #1c1d1a 100%)',
+    swatch: 'linear-gradient(135deg,#464740,#1c1d1a)',
   },
 ]
 
-/** 默认选中「薰衣草」——柔和不抢内容 */
-const DEFAULT_GRADIENT = BG_GRADIENTS[2]
+const DEFAULT_GRADIENT = BG_GRADIENTS[0]
 
 const DEFAULT_BG: BackgroundConfig = {
   type: 'none',
@@ -314,11 +313,11 @@ export function BackgroundPicker() {
               <p className="desc">仍可选用单色铺底</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span className="swatch" style={{ background: customSolid ? cfg.value : '#e2e8f0' }} />
+              <span className="swatch" style={{ background: customSolid ? cfg.value : 'var(--surface-3)' }} />
               <input
                 ref={colorInputRef}
                 type="color"
-                value={customSolid ? cfg.value : '#64748b'}
+                value={customSolid ? cfg.value : '#d6cfc2'}
                 aria-label="自定义背景颜色"
                 onChange={(e) => patch({ value: e.target.value })}
               />

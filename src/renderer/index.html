@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Quick 的窗口画布从首帧起保持透明，不能等 React 挂载后再移除主窗底色。
+      if (new URLSearchParams(window.location.search).get('surface') === 'quick') {
+        document.documentElement.dataset.surface = 'quick'
+      }
+    </script>
+    <style>
+      html[data-surface='quick'], html[data-surface='quick'] body { background: transparent; }
+    </style>
     <title>eNest</title>
     <!-- 不外链 Google Fonts：桌面端离线优先（tokens.css font-stack 已含 SF Pro/苹方兜底）；
          且外链域名在新渲染进程 JIT 高峰期触发 c-ares DNS，曾在 macOS 27 + Electron 36 上

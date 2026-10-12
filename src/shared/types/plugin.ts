@@ -158,7 +158,7 @@ export function resolvePluginUi(ui?: Partial<PluginUiConfig> | null): PluginUiCo
 
 /**
  * 插件呈现形态：
- * - mini：命令面板（Quick 小窗）优先；骨架阶段打开时仍进主窗 Tab
+ * - mini：从快捷启动打开时内嵌输入框下方，也可固定到主窗 Tab
  * - panel：主壳子大插件 Tab（终端/数据库等），缺省
  */
 export type PluginForm = 'mini' | 'panel'
@@ -277,11 +277,23 @@ export interface PluginManifest {
   description?: string
   author?: string
   logo?: string
+  /** 兼容插件仓库的旧图标字段；logo 优先 */
+  icon?: string
+  /** 市场分类；与插件仓库 registry.json 的 category 一致 */
+  category?: string
+  /** 插件仓库生成市场索引时使用的展示元数据 */
+  market?: {
+    featured?: boolean
+    tags?: string[]
+    /** 有序截图，最多 8 张；插件根相对路径或 HTTPS URL，首张为首页封面 */
+    screenshots?: string[]
+  }
   main: string
   settings?: string
   engines?: { enest?: string }
   permissions?: PluginPermission[]
-  window?: { minWidth?: number; minHeight?: number }
+  /** 插件内容区尺寸建议（CSS px）；Quick 按屏幕工作区限制，主窗由用户控制。 */
+  window?: { width?: number; height?: number; minWidth?: number; minHeight?: number }
   features?: PluginFeature[]
   development?: { main?: string }
   /** UI 集成配置；缺省等价 DEFAULT_PLUGIN_UI */
@@ -310,6 +322,10 @@ export interface PluginSummary {
   glyph: string
   /** 图标 URL：已安装插件为 enest://plugin/{id}/{logo}，远程市场为 registry 条目的 icon URL；缺省回退 glyph 色块 */
   icon?: string
+  /** 已解析的有序截图 URL；首张为首页封面，旧插件缺省无截图 */
+  screenshots?: string[]
+  /** 插件市场推荐标记 */
+  featured?: boolean
   permissions: PluginPermission[]
   installed: boolean
   /** 是否启用；缺省/undefined 视为 true。禁用时 openPlugin 拒绝，Quick 索引排除 */

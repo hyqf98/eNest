@@ -269,11 +269,13 @@ async function handleEnestProtocol(request: Request): Promise<Response> {
     })
   }
   const summary = pluginRegistry.get(parsed.pluginId)
-  if (!summary?.rootPath) return new Response('plugin not found', { status: 404 })
-  const abs = safeResolve(summary.rootPath, parsed.filePath)
+  // 禁用只影响插件执行；图标、截图仍可通过真实安装/开发目录读取。
+  const rootPath = pluginRegistry.getRootPath(parsed.pluginId)
+  if (!rootPath) return new Response('plugin not found', { status: 404 })
+  const abs = safeResolve(rootPath, parsed.filePath)
   if (!abs) return new Response('forbidden', { status: 403 })
   try {
-    return await fileResponseCached(summary.rootPath, abs, Boolean(summary.devUrl))
+    return await fileResponseCached(rootPath, abs, Boolean(summary?.devUrl))
   } catch {
     return new Response('not found', { status: 404 })
   }

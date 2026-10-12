@@ -32,6 +32,7 @@ export function AnimationSettingsSection() {
             <button
               key={opt.value}
               type="button"
+              aria-pressed={level === opt.value}
               className={level === opt.value ? 'active' : ''}
               onClick={() => void setLevel(opt.value)}
             >

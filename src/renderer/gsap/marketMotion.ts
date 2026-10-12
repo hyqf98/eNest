@@ -1,14 +1,12 @@
 /**
- * marketMotion — Tactile Marketplace GSAP 编排
- * Hero cold-open / 卡片 staccato；三档读 motionTokens（性格差异，非单一系数）。
- * API 供 MarketPage、TabStrip、FeaturedCarousel、useToast/notify、PluginDetailModal 复用。
+ * marketMotion — 首页、卡片、Tab、通知与详情的 GSAP 编排。
+ * 三档参数统一由 motionTokens 提供，尊重系统减少动态效果设置。
  */
 import gsap from 'gsap'
 import type { AnimationLevel } from '@shared/types/plugin'
 import {
   getMotionTokens,
   msToSec,
-  setMotionLevel,
   type MotionLevelTokens,
 } from '@renderer/gsap/motionTokens'
 
@@ -32,7 +30,6 @@ export function getAnimLevel(): AnimationLevel {
 
 export function applyLevelToDefaults(level: AnimationLevel): void {
   animLevel = level
-  setMotionLevel(level)
   const t = getMotionTokens(level)
   gsap.defaults({ ease: t.ease.enter, duration: msToSec(t.duration.standard) })
 }
@@ -41,52 +38,44 @@ export function initMotion(): void {
   applyLevelToDefaults(animLevel)
 }
 
-/** 按档位性格映射时长：low 收敛 0.08–0.15；medium 入标准带；high 拉长供弹簧 settle */
+/** 按档位性格映射时长：low 保留 0.16–0.24 秒轻量过渡；medium 入标准带；high 细腻但不拖慢操作 */
 export function d(base: number): number {
+  if (prefersReducedMotion()) return 0
   const t = tokens()
   const [min, max] = t.dClamp
   if (t.level === 'low') {
     return Math.min(max, Math.max(min, min + base * 0.08))
   }
   if (t.level === 'high') {
-    return Math.min(max, Math.max(min, base * 1.35))
+    return Math.min(max, Math.max(min, base * 1.15))
   }
   return Math.min(max, Math.max(min, base * 1.1))
 }
 
-/** 位移预算：low ≤2px；medium 真实位移；high 更深但封顶 */
+/** 位移预算：low ≤6px；medium 真实位移；high 更深但封顶 */
 export function dy(base: number): number {
+  if (prefersReducedMotion()) return 0
   const t = tokens()
   if (t.level === 'low') return Math.sign(base) * Math.min(Math.abs(base), t.displacement.max)
   if (t.level === 'high') {
-    return Math.sign(base) * Math.min(Math.abs(base) * 1.6, t.displacement.max)
+    return Math.sign(base) * Math.min(Math.abs(base) * 1.1, t.displacement.max)
   }
-  return Math.sign(base) * Math.min(Math.abs(base) * 1.25, t.displacement.max)
+  return Math.sign(base) * Math.min(Math.abs(base), t.displacement.max)
 }
 
-/** stagger：low≈0；medium tight-grid→standard-list；high 更错落 */
-export function st(base: number): number {
-  const t = tokens()
-  if (t.level === 'low') return t.stagger.none
-  if (t.level === 'high') {
-    return Math.min(t.stagger.dramatic, Math.max(t.stagger.tightGrid, base * 1.6))
-  }
-  return Math.min(t.stagger.standardList, Math.max(t.stagger.tightGrid, base * 1.35))
-}
-
-/** 缓动性格：low 线性；medium expo/power3；high 入场弹簧。overshoot 仅确认/表演场景回落 */
+/** 缓动性格：low 轻缓出；medium expo/power3；high 入场弹簧。overshoot 仅确认/表演场景回落 */
 export function ease(fallback: string): string {
   const t = tokens()
-  if (t.level === 'low') return t.ease.linear
+  if (t.level === 'low') return t.ease.soft
   const weak = !fallback || fallback === 'power2.out' || fallback === 'power1.out' || fallback === 'power3.out'
   if (fallback.startsWith('elastic.')) {
-    return t.level === 'high' ? t.ease.spring : t.level === 'medium' ? t.ease.overshoot : t.ease.linear
+    return t.level === 'high' ? t.ease.spring : t.ease.overshoot
   }
   if (fallback.startsWith('back.')) {
-    return t.level === 'high' ? t.ease.overshoot : t.level === 'medium' ? t.ease.overshoot : t.ease.linear
+    return t.ease.overshoot
   }
   if (weak) {
-    return t.level === 'high' ? t.ease.enter : t.ease.enter
+    return t.ease.enter
   }
   return fallback
 }
@@ -96,128 +85,33 @@ function exitDuration(enterDur: number): number {
   return Math.max(msToSec(t.duration.fast) * t.exitRatio, enterDur * t.exitRatio)
 }
 
-/** Market Hero — cold-open：stats 静场 → h1 结构展开 → search/chips/carousel 错拍 */
+/** Reveal the marketplace in reading order without masking or rotating its content. */
 export function playHeroIn(root: HTMLElement | null): void {
   if (!root) return
   const t = tokens()
   const q = gsap.utils.selector(root)
-  const stats = q('.stats-pill')
-  const h1 = q('.hero h1')
-  const lead = q('.hero .lead')
-  const search = q('.search-wrap')
-  const chips = q('.chip')
-  const toolbar = q('.home-toolbar')
-  const carousel = q('.carousel-block')
-  const gridHeads = q('.grid-head')
-
-  if (t.level === 'low') {
-    const all = [...stats, ...h1, ...lead, ...search, ...chips, ...toolbar, ...carousel, ...gridHeads]
-    if (!all.length) return
-    gsap.fromTo(
-      all,
-      { autoAlpha: 0, y: 2 },
+  const groups = [
+    q('.search-wrap'),
+    q('.carousel-block'),
+    q('.home-toolbar'),
+    q('.chip'),
+  ].filter((group) => group.length > 0)
+  const tl = gsap.timeline({ defaults: { ease: ease('power3.out') } })
+  groups.forEach((nodes, index) => {
+    tl.fromTo(
+      nodes,
+      { autoAlpha: 0, y: dy(t.level === 'high' ? 14 : 9) },
       {
         autoAlpha: 1,
         y: 0,
-        duration: d(0.12),
-        ease: t.ease.enter,
-        stagger: t.stagger.none,
+        duration: d(t.level === 'high' ? 0.38 : 0.28),
+        stagger: t.stagger.tightGrid,
+        clearProps: 'transform',
         overwrite: true,
       },
+      index * t.stagger.standardList,
     )
-    return
-  }
-
-  if (t.level === 'medium') {
-    const tl = gsap.timeline({ defaults: { ease: t.ease.soft } })
-    tl.fromTo(stats, { autoAlpha: 0, y: dy(-8), scale: 0.98 }, { autoAlpha: 1, y: 0, scale: 1, duration: d(0.3) }, 0)
-      .fromTo(h1, { autoAlpha: 0, y: dy(28), scale: 0.97 }, { autoAlpha: 1, y: 0, scale: 1, duration: d(0.42) }, 0.12)
-      .fromTo(lead, { autoAlpha: 0, y: dy(16) }, { autoAlpha: 1, y: 0, duration: d(0.34) }, 0.26)
-      .fromTo(search, { autoAlpha: 0, y: dy(18), scale: 0.97 }, { autoAlpha: 1, y: 0, scale: 1, duration: d(0.36) }, 0.34)
-      .fromTo(
-        chips,
-        { autoAlpha: 0, y: dy(10), scale: 0.96 },
-        {
-          autoAlpha: 1,
-          y: 0,
-          scale: 1,
-          duration: d(0.28),
-          stagger: { each: t.stagger.tightGrid, from: 'start' },
-        },
-        0.46,
-      )
-      .fromTo(toolbar, { autoAlpha: 0, y: dy(10) }, { autoAlpha: 1, y: 0, duration: d(0.3) }, 0.52)
-      .fromTo(carousel, { autoAlpha: 0, y: dy(20), scale: 0.98 }, { autoAlpha: 1, y: 0, scale: 1, duration: d(0.4) }, 0.58)
-      .fromTo(
-        gridHeads,
-        { autoAlpha: 0, y: dy(8) },
-        { autoAlpha: 1, y: 0, duration: d(0.28), stagger: t.stagger.tightGrid },
-        0.68,
-      )
-    return
-  }
-
-  const tl = gsap.timeline({ defaults: { ease: t.ease.soft } })
-  tl.fromTo(
-    stats,
-    { autoAlpha: 0, y: dy(-10), scale: 0.94 },
-    { autoAlpha: 1, y: 0, scale: 1, duration: d(0.4), ease: t.ease.enter },
-    0,
-  )
-  if (h1.length) {
-    tl.fromTo(
-      h1,
-      { autoAlpha: 0, y: dy(36), clipPath: 'inset(0 0 100% 0)' },
-      {
-        autoAlpha: 1,
-        y: 0,
-        clipPath: 'inset(0 0 0% 0)',
-        duration: d(0.52),
-        ease: t.ease.enter,
-        clearProps: 'clipPath',
-      },
-      0.18,
-    )
-  }
-  tl.fromTo(lead, { autoAlpha: 0, y: dy(20) }, { autoAlpha: 1, y: 0, duration: d(0.4) }, 0.42)
-    .fromTo(
-      search,
-      { autoAlpha: 0, y: dy(24), scale: 0.94 },
-      { autoAlpha: 1, y: 0, scale: 1, duration: d(0.45), ease: t.ease.overshoot },
-      0.55,
-    )
-    .fromTo(
-      chips,
-      { autoAlpha: 0, y: dy(14), rotate: -t.cardRotate },
-      {
-        autoAlpha: 1,
-        y: 0,
-        rotate: 0,
-        duration: d(0.35),
-        ease: t.ease.enter,
-        stagger: { each: t.stagger.tightGrid * 1.2, from: 'center' },
-        clearProps: 'transform',
-      },
-      0.7,
-    )
-    .fromTo(toolbar, { autoAlpha: 0, y: dy(12) }, { autoAlpha: 1, y: 0, duration: d(0.32) }, 0.78)
-    .fromTo(
-      carousel,
-      { autoAlpha: 0, y: dy(28), scale: 0.96 },
-      { autoAlpha: 1, y: 0, scale: 1, duration: d(0.5), ease: t.ease.enter },
-      0.86,
-    )
-    .fromTo(
-      gridHeads,
-      { autoAlpha: 0, y: dy(10) },
-      {
-        autoAlpha: 1,
-        y: 0,
-        duration: d(0.32),
-        stagger: { each: t.stagger.standardList * 0.55, from: 'start' },
-      },
-      1.0,
-    )
+  })
 }
 
 /** 插件卡片 — staccato：系统化网格 stagger，非装饰漂浮 */
@@ -228,81 +122,33 @@ export function animateCards(nodes: Element[]): void {
   if (t.level === 'low') {
     gsap.fromTo(
       nodes,
-      { autoAlpha: 0 },
-      {
-        autoAlpha: 1,
-        duration: msToSec(t.duration.standard),
-        ease: t.ease.enter,
-        stagger: t.stagger.none,
-        overwrite: true,
-        clearProps: 'opacity,visibility',
-      },
-    )
-    return
-  }
-
-  if (t.level === 'medium') {
-    const rot = t.cardRotate
-    gsap.fromTo(
-      nodes,
-      (i: number) => ({
-        autoAlpha: 0,
-        y: dy(18),
-        scale: t.scaleFrom,
-        rotate: i % 2 === 0 ? -rot : rot,
-      }),
+      { autoAlpha: 0, y: dy(6) },
       {
         autoAlpha: 1,
         y: 0,
-        scale: 1,
-        rotate: 0,
-        duration: d(0.34),
-        ease: t.ease.soft,
-        stagger: { each: t.stagger.tightGrid, from: 'center' },
+        duration: msToSec(t.duration.standard),
+        ease: t.ease.enter,
+        stagger: t.stagger.tightGrid,
         overwrite: true,
-        clearProps: 'transform',
+        clearProps: 'transform,opacity,visibility',
       },
     )
     return
   }
 
-  const rot = t.cardRotate
+  const high = t.level === 'high'
   gsap.fromTo(
     nodes,
-    (i: number) => ({
-      autoAlpha: 0,
-      y: dy(28),
-      scale: t.scaleFrom,
-      rotate: i % 2 === 0 ? -rot : rot,
-      filter: 'blur(4px)',
-    }),
+    { autoAlpha: 0, y: dy(high ? 28 : 18), scale: t.scaleFrom },
     {
       autoAlpha: 1,
       y: 0,
       scale: 1,
-      rotate: 0,
-      filter: 'blur(0px)',
-      duration: d(0.45),
-      ease: t.ease.enter,
-      stagger: { each: 0.07, from: 'edges' },
+      duration: d(high ? 0.45 : 0.34),
+      ease: high ? t.ease.enter : t.ease.soft,
+      stagger: { each: t.stagger.tightGrid, from: high ? 'start' : 'center' },
       overwrite: true,
-      clearProps: 'transform,filter',
-    },
-  )
-}
-
-export function animatePageIn(el: HTMLElement | null): void {
-  if (!el) return
-  const t = tokens()
-  gsap.fromTo(
-    el,
-    { autoAlpha: 0, y: dy(10) },
-    {
-      autoAlpha: 1,
-      y: 0,
-      duration: d(0.28),
-      ease: t.level === 'low' ? t.ease.enter : t.ease.soft,
-      overwrite: true,
+      clearProps: 'transform,opacity,visibility',
     },
   )
 }
@@ -335,26 +181,6 @@ export function animateTabIn(el: HTMLElement | null): void {
     { scale: 0.94, opacity: 0 },
     { scale: 1, opacity: 1, duration: d(0.28), ease: t.ease.enter, clearProps: 'transform' },
   )
-}
-
-export function setCarouselX(track: HTMLElement | null, x: number, immediate = false): void {
-  if (!track) return
-  if (immediate) {
-    gsap.set(track, { x })
-    return
-  }
-  const t = tokens()
-  const dur =
-    t.level === 'low'
-      ? msToSec(t.duration.fast)
-      : t.level === 'high'
-        ? msToSec(t.duration.medium)
-        : msToSec(t.duration.standard)
-  gsap.to(track, {
-    x,
-    duration: dur,
-    ease: t.level === 'low' ? t.ease.linear : t.level === 'high' ? t.ease.enter : t.ease.soft,
-  })
 }
 
 export function toastIn(el: HTMLElement): void {
@@ -467,19 +293,14 @@ export function playModalIn(root: HTMLElement | null): void {
       modal,
       {
         autoAlpha: 0,
-        scale: 0.82,
-        y: dy(32),
-        rotateX: 22,
-        rotateY: -14,
-        transformPerspective: 1000,
+        scale: 0.98,
+        y: dy(16),
         transformOrigin: '50% 40%',
       },
       {
         autoAlpha: 1,
         scale: 1,
         y: 0,
-        rotateX: 0,
-        rotateY: 0,
         duration: msToSec(t.duration.slow) * 0.95,
         ease: t.ease.overshoot,
         clearProps: 'transform',
@@ -541,11 +362,8 @@ export function playModalOut(root: HTMLElement | null): Promise<void> {
         modal,
         {
           autoAlpha: 0,
-          scale: 0.9,
-          y: dy(16),
-          rotateX: 12,
-          rotateY: 8,
-          transformPerspective: 1000,
+          scale: 0.985,
+          y: dy(8),
           duration: msToSec(t.duration.fast) * 1.3,
           ease: t.ease.exit,
         },

@@ -21,7 +21,8 @@ export function ThemeTokenEditor({ tokens, onSetToken, onReset }: Props) {
       <div className="token-grid">
         {EDITABLE_TOKENS.map((t) => {
           const raw = tokens[t.key]
-          const v = normalizeHex(typeof raw === 'string' && raw.startsWith('#') ? raw : '#64748b')
+          const v = normalizeHex(raw ?? '')
+          const alpha = raw?.match(/^rgba\([^)]*,\s*([\d.]+)\s*\)$/i)?.[1]
           return (
             <div className="token-box" key={t.key}>
               <div className="token-meta">
@@ -33,7 +34,12 @@ export function ThemeTokenEditor({ tokens, onSetToken, onReset }: Props) {
                 <ColorPickerField
                   value={v}
                   label={t.label}
-                  onChange={(hex) => onSetToken(t.key, hex)}
+                  onChange={(hex) => {
+                    const color = alpha
+                      ? `rgba(${[1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16)).join(', ')}, ${alpha})`
+                      : hex
+                    onSetToken(t.key, color)
+                  }}
                 />
               </div>
             </div>

@@ -43,6 +43,8 @@ export interface QuickCommand {
 export interface QuickSearchRequest {
   query: string
   limit?: number
+  /** 缺省搜索全部类型；先过滤再排序/截断。 */
+  kind?: QuickCommandKind
 }
 
 export interface QuickSearchResult {

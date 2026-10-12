@@ -339,11 +339,6 @@ export function releasePluginHotkeys(pluginId: string): void {
   pluginHotkeys.delete(pluginId)
 }
 
-/**
- * 插件期望内容高度（ui.setHeight 记录；Quick 内嵌容器在批次 2.5 消费）
- */
-const pluginDesiredHeights = new Map<string, number>()
-
 /** 调用跟踪环形缓冲上限（最近 N 条，超长丢弃最旧） */
 const PLUGIN_CALL_TRACE_LIMIT = 200
 
@@ -363,11 +358,6 @@ export function getPluginCallTrace(): PluginCallTraceEntry[] {
 function recordPluginCall(entry: PluginCallTraceEntry): void {
   pluginCallTrace.push(entry)
   if (pluginCallTrace.length > PLUGIN_CALL_TRACE_LIMIT) pluginCallTrace.shift()
-}
-
-/** 读取插件经 ui.setHeight 上报的期望高度；未上报返回 null */
-export function getPluginDesiredHeight(pluginId: string): number | null {
-  return pluginDesiredHeights.get(pluginId) ?? null
 }
 
 /**
@@ -445,25 +435,20 @@ async function dispatch(
       return true
     }
     case 'ui.resize': {
-      // 依据 manifest.window 的 minWidth/minHeight 对主窗设置最小尺寸（幂等）；
-      // 插件传入的 width/height 仅作建议，不直接改窗（避免插件互相踩）
-      const manifest = pluginRegistry.getManifest(pluginId)
-      const minW = manifest?.window?.minWidth
-      const minH = manifest?.window?.minHeight
-      const win = getMainWindow()
-      if (win && (Number.isFinite(minW) || Number.isFinite(minH))) {
-        const current = win.getMinimumSize()
-        const nextW = Number.isFinite(minW) ? Math.max(minW as number, 0) : current[0]
-        const nextH = Number.isFinite(minH) ? Math.max(minH as number, 0) : current[1]
-        win.setMinimumSize(nextW, nextH)
+      const size = args[0] as { width?: number; height?: number } | undefined
+      if (!size || typeof size !== 'object') throw new Error('invalid size')
+      for (const value of [size.width, size.height]) {
+        if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)) {
+          throw new Error('invalid size')
+        }
       }
+      pluginHost.resizePlugin(pluginId, size)
       return true
     }
     case 'ui.setHeight': {
-      // 记录期望高度，供 Quick 内嵌容器（批次 2.5）消费；主窗场景暂不动作
       const raw = Number(args[0])
       if (!Number.isFinite(raw) || raw <= 0) throw new Error('invalid height')
-      pluginDesiredHeights.set(pluginId, Math.round(raw))
+      pluginHost.resizePlugin(pluginId, { height: raw })
       return true
     }
     case 'ui.toast': {

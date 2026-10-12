@@ -1,212 +1,100 @@
 ---
 feature: quick-launcher
 status: delivered
-updated: 2026-09-16
-branch: feat/quick-launcher
-commits: a8cdb2b..HEAD
+updated: 2026-10-12
 ---
 
-# Quick Launcher（ztools 式小窗启动器骨架）
+# Quick Launcher
 
-## Report
+Quick 是独立于桌面主窗口的快捷启动面板。顶部搜索框沿用首页的搜索语言与主题，支持系统应用、已安装插件和壳子操作；底部可显示结果或承载 mini 插件。
 
-**What was built** — eNest 增加独立于主壳子的快捷启动小窗（`?surface=quick` 的 `BaseWindow`）：全局热键默认 `Alt+Space`（多 accelerator 任一触发，失败回滚并 toast），设置页可录制/启用热键并重新扫描本地应用。命令面聚合内置操作、已安装插件 `features.cmds`（含别名检索）与三平台本地应用扫描（macOS `.app` / Windows 开始菜单 `.lnk` / Linux `.desktop`）。`plugin.json` 支持 `form: mini|panel`（缺省 panel）；骨架阶段 mini/panel 均打开主窗 Tab。`quick:open` 启动本地应用前必须命中扫描缓存白名单，阻断渲染层任意路径 `spawn`。
+## 打开行为
 
-**Verification** — `npm run typecheck` PASS；`npm run build` PASS；`npm run e2e:smoke` PASS。运行时：`quickGetConfig` → `Alt+Space` enabled；扫描 72 个应用 complete；空查询返回 actions；`quickOpen` 注入 `/usr/bin/touch`、`open -a Calculator`、未知 `.app` 均被拒绝。
+| 目标 | 行为 |
+|------|------|
+| 系统应用 | 通过系统打开扫描结果中的应用，成功后隐藏 Quick；失败保留窗口并提示 |
+| `form: panel` 插件 | 打开主窗 Tab，主窗前置，Quick 收起 |
+| `form: mini` 插件 | 在 Quick 输入条下方挂载插件的原生 WebContentsView |
+| mini 固定到主窗 | 同一 WebContentsView 迁移，保留插件运行状态 |
+| 从首页打开插件 | 使用主窗 Tab，即使该插件之前在 Quick 打开 |
+| 重新扫描应用 | 刷新应用索引，保留 Quick 供继续搜索 |
 
-**Journey log** — 首轮 `ensureQuickWindow` 预创建与 Playwright `firstWindow` 抢占冲突，改为热键懒创建；`electron-updater` 具名导入在 ESM 下启动即挂（既有问题），改为 default 解构；审查指出 `quick:open` 路径未校验可 RCE、失败热键被持久化，已修（白名单 + 只持久化 `registered`）。
+插件 form 缺省为 `panel`。未安装或禁用的插件不进入可执行搜索结果。
 
-## [S1] Problem
+## 搜索
 
-eNest 目前只有主壳子大窗口（市场 + 多 Tab 插件）。用户需要：
+`src/main/launcher/commandIndex.ts` 聚合内置操作、安装插件指令、应用、剪贴板与插件注册的 Quick providers。
 
-1. 全局快捷键呼出一个独立小窗命令面板（Spotlight / ztools / uTools 形态）；
-2. 在输入框中搜索并启动：本地已安装应用、已安装插件的 `features.cmds` 指令；
-3. 插件可声明形态：小窗命令（`mini`）与主窗大插件（`panel`），两种都可从命令面触发；
-4. 设置页可录制全局快捷键，处理 mac / Windows / Linux 冲突与权限。
+- 首次搜索等待初次应用扫描，避免刚打开时误报没有应用。
+- 每次呼出默认只有 72px 搜索条。非空关键词才请求并显示结果，清空或仅输入空格会收回面板。
+- 结果按常用软件（有使用记录）、其它软件、插件、系统操作分组，无结果的分组隐藏；上下键与 Enter 遵循分组后的可见顺序。
+- 右侧分类默认隐藏，由搜索框内的开关展开；搜索框同步收短，低 / 中 / 高档都有过渡。单独展开或选择分类不会显示空查询面板。
+- 类别过滤（应用 / 插件 / 操作）发生在排序截断前；默认搜索全部类型。
+- 首页和 Quick 使用 `@shared/search` 统一 NFKC、大小写、前后及连续空白。多词可分别命中名字、描述和 id。
+- 插件 `features[].cmds` 支持精确、前缀与模糊命中；本地应用同时检索系统显示名和应用包别名。
+- 应用图标只为返回结果提取并缓存；macOS 通过 NSWorkspace 合批获取真实应用图标。
+- 最近使用写入 `general.quickLauncher.recent`（最多 20 项），保留已设置的快捷键和开关。
 
-本轮交付**骨架**：小窗 + 快捷键 + 应用扫描启动 + 插件 form 字段 + cmds 搜索。  
-**不做**：内置计算器/翻译 mini 工具、小窗内嵌插件 WebContentsView、拼音搜索、剪贴板历史、双击修饰键。
+`quickSearch(query, limit?, kind?)` 中 `kind` 可为 `app | plugin | action`，不传表示全部。最多返回 100 条，渲染层可选择更小的上限。
 
-## [S2] Design
+## 本地应用
 
-### 2.1 产品分层
+| 平台 | 扫描与启动 |
+|------|------------|
+| macOS | `/Applications`、`/System/Applications`、`~/Applications`，含 Utilities 与 Finder；支持 XML / 二进制 Info.plist；通过系统打开 `.app` |
+| Windows | 用户和公共开始菜单 / 桌面；保留 `.lnk` 启动以保留快捷方式参数与工作目录 |
+| Linux | XDG 应用目录的 `.desktop`；检索英文名与本地化名；按 Exec 参数启动 |
 
-| 形态 | 宿主 | 触发 | 本轮行为 |
-|------|------|------|----------|
-| Quick Window | 独立 `BaseWindow`（无边框、置顶、居中） | 全局快捷键（默认 `Alt+Space`） | 完整实现 |
-| panel 插件 | 主壳子 Tab（现有 PluginHost） | 命令面 Enter / 主窗市场 | 命令面列出并 `openPlugin` |
-| mini 插件 | 未来小窗内嵌 View | 命令面 Enter | 本轮仍 `openPlugin` 到主窗（占位，manifest 已可声明 `form: "mini"`） |
-| 本地应用 | OS 原生 | 命令面 Enter | 扫描 + 启动 |
+主进程只允许打开扫描缓存内的应用路径。启动失败不会写入最近使用；Linux 等待进程 spawn 成功，macOS 的 open 回退等待退出状态。
 
-### 2.2 窗口拓扑
+## 窗口与圆角
 
-```
-BaseWindow 主壳子（现有）
-└── Shell WebContentsView
+Quick 使用透明无框 `BrowserWindow` 直接承载搜索页面，不再为搜索页额外挂载带有不透明底色的 `WebContentsView`。HTML 在加载时标记 Quick 表面，让页面画布从首帧起透明；只有搜索及结果容器绘制主题底色，因此圆角外露出的是桌面。窗口保留系统阴影。
 
-BaseWindow Quick（新建，独立）
-└── Quick WebContentsView   # ?surface=quick 仅渲染命令面板
-```
+默认 72px 搜索条只有一层胶囊轮廓（36px 圆角），输入区域不再叠加底板、内边框或焦点光圈；分类按钮在同一胶囊内展开。结果或 mini 展开后统一使用 20px 圆角。Mini 插件仍使用独立原生 `WebContentsView`，需要对自身裁切，不能依赖父页面的 CSS。
 
-Quick 窗口参数：
+窗口相对当前光标所在屏幕定位，宽高受显示器工作区限制。原生窗口尺寸变更后立刻布局插件区域，渲染层按低 / 中 / 高动画设置提供显隐、选择和交互反馈。
 
-- `frame: false` · `resizable: false` · `skipTaskbar: true`
-- `alwaysOnTop: true` · macOS `setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })`
-- 默认尺寸 720×420；显示时相对光标屏幕居中（上 1/3 偏上）
-- **懒创建**：启动只注册热键；首次呼出时 `ensureQuickWindow()`
-- 失焦自动 `hide()`（不销毁）；Esc 隐藏；Enter 执行后隐藏
-- 预加载复用 `shellPreload`（同一 API 面）；URL `?surface=quick`
+主题、字体、主题包和动画设置沿用主壳子的持久化设置并接收即时更新。
 
-### 2.3 全局快捷键
+## 插件布局与尺寸
 
-设置持久化（`~/eNest/settings.json` → `general`）：
-
-```ts
-general.quickLauncher = {
-  enabled: boolean          // 默认 true
-  hotkeys: string[]         // Electron accelerator，默认平台相关
-}
-```
-
-默认热键（可注册多个，任一触发 toggle）：
-
-| 平台 | 默认 hotkeys |
-|------|----------------|
-| darwin | `Alt+Space`（即 Option+Space） |
-| win32 | `Alt+Space`，再尝试 `Ctrl+Space` |
-| linux | `Alt+Space`，再尝试 `Ctrl+Space` |
-
-注册策略（`src/main/hotkey/quickHotkey.ts`）：
-
-1. 先 `unregister` 旧集合；
-2. 对每个目标 accelerator `globalShortcut.register`；`register()` 返回 `false` 记入 `failed`；
-3. 至少一个成功即启用；全部失败 → `enabled` 保持但发送事件提示「快捷键被占用」；
-4. 设置页修改后立即 re-register；失败回滚到上一成功集合并 `toast`。
-5. **不引入** `uiohook-napi` 等原生监听（避免 macOS 辅助功能/输入监控权限与打包体积）。
-6. macOS 注意：`Ctrl+Space` 常被输入法占用；Windows 上 `Alt+Space` 在前台窗口有系统菜单语义，全局注册仍可用，失败则靠第二快捷键。
-
-### 2.4 快捷键录制（设置页）
-
-- 组件 `HotkeyRecorder.tsx`：点击进入录制，监听 `keydown`，映射 `KeyboardEvent.code` → Electron accelerator；
-- 修饰键：`Meta`→`Command`(mac)/`Super`(win/linux)、`Control`→`Control`、`Alt`→`Alt`、`Shift`→`Shift`；
-- 至少一个非修饰键；拒绝单独修饰键；
-- 保存走 `quick:set-hotkeys`，主进程应用并返回 `{ ok, hotkeys, failed, registered }`。
-
-### 2.5 本地应用扫描
-
-```
-src/main/launcher/
-  types.ts          # LocalApp / ApplicationScanResult
-  appScanner.ts     # 平台分发 + 内存缓存
-  macScanner.ts
-  windowsScanner.ts
-  linuxScanner.ts
-  appLauncher.ts    # shell.openPath / open / xdg-open
-```
-
-扫描源（骨架，无原生模块）：
-
-| 平台 | 源 |
-|------|-----|
-| macOS | `/Applications`、`/System/Applications`、`~/Applications` 下 `*.app`（一层 + 子目录有限下钻）；`Info.plist` 读 `CFBundleDisplayName` / `CFBundleName`；icon 走 `app.getFileIcon` 延迟填充 |
-| Windows | 开始菜单 `*.lnk` + 桌面快捷方式（用户/公共）；`shell.readShortcutLink`；跳过卸载/帮助类名称 |
-| Linux | `~/.local/share/applications`、`/usr/share/applications`、`/var/lib/snapd/desktop/applications` 的 `*.desktop`；解析 `Name`/`Exec`/`NoDisplay`/`Hidden`/`Terminal` |
-
-- 启动后异步全量扫描一次，结果缓存；`quick:scan-apps` 可强制刷新；
-- 启动：mac `open -a` / `shell.openPath`；win `shell.openPath` 或 `spawn` 目标；linux 解析 `Exec` 字段后 `spawn`（`%U`/`%F` 剥离）。
-
-### 2.6 命令索引与搜索
-
-`src/main/launcher/commandIndex.ts`：
-
-```ts
-type QuickCommand =
-  | { kind: 'app'; id: string; title: string; subtitle: string; path: string; icon?: string }
-  | { kind: 'plugin'; id: string; title: string; subtitle: string; pluginId: string; code?: string; form: 'mini' | 'panel' }
-  | { kind: 'action'; id: string; title: string; subtitle: string; action: 'open-settings' | 'open-market' | 'refresh-apps' }
-```
-
-- 插件条目：已安装插件的 `features[].cmds`（字符串字面量指令）+ 无 feature 时用插件名作为默认指令；
-- `form` 来自 manifest，缺省 `panel`；
-- 搜索：大小写不敏感；`title` 前缀 > 包含 > `subtitle` 包含；空查询显示推荐（最近/内置 action）；
-- 打开插件：调用现有 `pluginHost`/`shell:open-plugin` 等价主进程逻辑，并 focus 主窗。
-
-### 2.7 插件 manifest 扩展
+壳子只分配插件内容区，插件控制自己内部的布局、滚动、搜索和用户尺寸偏好。禁止依赖固定 720px 宽度；桌面与 Quick 都应按实际 viewport 响应式渲染。
 
 ```jsonc
 {
-  "form": "mini" | "panel",   // 可选，缺省 panel
-  "features": [
-    { "code": "main", "explain": "…", "cmds": ["翻译", "fy"] }
-  ]
+  "form": "mini",
+  "window": { "width": 760, "height": 400, "minWidth": 480, "minHeight": 240 },
+  "permissions": ["ui.resize"]
 }
 ```
 
-- `panel`：主窗 Tab（现状）。
-- `mini`：本轮命令面仍打开主窗；类型与索引已就绪，后续可在 Quick 窗内嵌 View。
+- `width` / `height`：内容区初始尺寸建议；`minWidth` / `minHeight`：下限建议。
+- `enest.ui.resize({ width?, height? })`、`enest.ui.setHeight(height)`：Quick 即时调整，主窗只记录建议，不强制改变用户的窗口。
+- 实际尺寸同时受壳子上限与当前屏幕工作区限制；超出内容由插件内部滚动。
+- 尺寸不再由 `body.scrollHeight` 轮询撑大，避免百分比根布局反复增高。
+- Mini 固定到主窗或主窗缩放时无需重载，插件可通过 CSS 断点 / ResizeObserver 响应。
 
-### 2.8 IPC 契约
+更多示例见 [插件 UI 标准](../../site/plugin/ui-standard.md)。独立插件仓库的 manifest schema 同步支持这些字段。
 
-新增通道（`IpcChannels`）：
+## 键盘与焦点
 
-| 通道 | 方向 | 说明 |
-|------|------|------|
-| `quick:toggle` | R→M | 显示/隐藏 Quick 窗（快捷键主入口） |
-| `quick:hide` | R→M | 主动隐藏 |
-| `quick:search` | R→M | `{ query }` → `{ items: QuickCommand[] }` |
-| `quick:open` | R→M | `{ kind, id, pluginId?, code?, path? }` 执行 |
-| `quick:scan-apps` | R→M | `{ force?: boolean }` → `{ apps, complete, errors }` |
-| `quick:get-config` | R→M | `{ enabled, hotkeys, platform }` |
-| `quick:set-hotkeys` | R→M | `{ enabled?, hotkeys }` → 应用结果 |
+- `↑↓` 跨分组选择，`Enter` 打开，输入法组合期间不误触发打开；空输入不会打开隐藏的旧结果。
+- 搜索态 `Esc` 依次清空搜索词、收起分类按钮、取消分类、隐藏 Quick；插件态 `Esc` 返回搜索条。
+- `⌘K` / `Ctrl+K` 聚焦顶部搜索框，在原生插件内容获得焦点时也有效。
+- `⌘Enter` / `Ctrl+Enter` 将当前 mini 固定到主窗。
+- 插件获得焦点时，由主进程拦截退出与固定快捷键。
+- 顶部输入新关键词退出嵌入态并搜索全局；插件内搜索由插件页面自己实现。
+- 失焦隐藏而不销毁窗口，再呼出重置为空搜索条；mini 不自动展开，再次显式打开时可复用保留的页面状态。
 
-`shell:event` 增加：`{ type: 'quick-hotkey-failed'; failed: string[]; registered: string[] }`  
-`{ type: 'quick-config-changed'; enabled: boolean; hotkeys: string[] }`
+## 全局快捷键
 
-### 2.9 渲染（Quick UI）
+持久化在 `general.quickLauncher`：`enabled`、候选 `hotkeys`、唯一 `activeHotkey`。设置页可录制、探测占用并选择生效键。运行时只注册一枚选中快捷键，失败尝试候选并返回真实注册结果；界面不能把失败注册显示为成功。
 
-- 路由：`App.tsx` 检测 `?surface=quick`，渲染 `QuickLauncherApp`（不走 Splash/市场）。
-- 布局：顶部搜索框 + 结果列表；无边框拖拽区（`-webkit-app-region: drag` 仅顶 12px）。
-- 样式复用 `tokens.css` 主题；圆角、阴影由窗口提供。
-- 键盘：`↑↓` 选择、`Enter` 打开、`Esc` 隐藏、`⌘/Ctrl+Enter` 在主窗打开 panel 插件。
+## 验证
 
-### 2.10 设置页
-
-「设置 → 快捷启动」：
-
-- 启用开关；
-- 快捷键列表 + 录制/删除；
-- 本地应用扫描「重新扫描」按钮 + 计数；
-- 说明：mini/panel 形态与冲突提示。
-
-### 2.11 样本插件
-
-- `plugins-samples/translate`、`json` 增加 `"form": "mini"` 与 `features.cmds`（仅元数据，便于命令面命中）；
-- 不改插件运行时逻辑。
-
-### 2.12 错误行为
-
-- 快捷键全失败：设置页红字 + toast；主窗仍可通过设置操作。
-- 应用扫描失败：返回 `errors`，UI 显示部分结果。
-- 插件未安装：搜索不出现；打开时主进程再校验。
-- Quick 窗首次显示前未加载完成：`show()` 等 `did-finish-load`。
-
-## [S3] Out of Scope
-
-- 内置计算器 / 翻译 / JSON 等内核小工具；
-- Quick 窗内嵌插件 `WebContentsView`（mini 宿主）；
-- 拼音 / 首字母搜索；使用频次排序持久化；
-- 剪贴板历史、划词、超级面板、双击修饰键、悬浮球；
-- 原生模块应用扫描（Windows MUI/lnk 原生、mac accessibility）；
-- 多显示器高级定位策略（骨架：光标所在屏居中）。
-
-## Tasks
-
-- [x] T1: shared 契约 — form 字段、Quick 类型、IPC 通道与事件 — acceptance: `npm run typecheck` 通过且类型可被 main/renderer 引用（covers: S2.3, S2.5–S2.8）
-- [x] T2: 主进程 Quick 窗口 + 全局快捷键 — acceptance: 启动后可注册默认热键；toggle 显示/隐藏；失败有事件（covers: S2.2, S2.3; depends: T1）
-- [x] T3: 应用扫描与启动 — acceptance: 当前平台 `quick:scan-apps` 返回非空列表（本机有应用时）；`quick:open` kind=app 能启动（covers: S2.5; depends: T1）
-- [x] T4: 命令索引与搜索 IPC — acceptance: `quick:search` 能返回插件指令与应用；空 query 返回 action 推荐（covers: S2.6; depends: T1, T3）
-- [x] T5: preload + Quick 渲染 UI — acceptance: `?surface=quick` 打开命令面板；键盘导航与 Esc/Enter 行为正确（covers: S2.9; depends: T2, T4）
-- [x] T6: 设置页快捷键录制与扫描刷新 — acceptance: 可录制新热键并生效；重新扫描按钮工作（covers: S2.4, S2.10; depends: T2, T3）
-- [x] T7: 样本插件 form/cmds 元数据 — acceptance: translate/json 声明 mini 且 cmds 可被搜索命中（covers: S2.7, S2.11; depends: T4）
-- [x] T8: 验证 typecheck + 冒烟 — acceptance: `npm run typecheck` 与可行的 e2e/smoke 通过（covers: S2; depends: T1–T7）
+- `node --test src/main/launcher/quickSearch.test.mjs`：初次扫描、统一检索、分类、最近使用、mini / panel 分流与失败行为。
+- `npm run typecheck`：主进程 / preload / renderer 的共享契约。
+- `npm run build`：应用构建。
+- Quick 透明边缘需用真实 Electron 窗口核验：浅色、深色、结果展开与清空后，圆角外的像素 alpha 应为 0，主体应可见。仅 CSS 预览或 `setBorderRadius` 调用成功不能证明原生底板已透明。
+- 圆角、原生插件嵌入、跨宿主迁移和快捷键焦点需在真实 Electron 验证。

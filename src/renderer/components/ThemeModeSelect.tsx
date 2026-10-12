@@ -13,6 +13,7 @@ interface Props {
   resolved: 'light' | 'dark'
   packs: ThemePack[]
   packId: string | null
+  palettes: Record<'light' | 'dark', Record<string, string>>
   onSetMode: (m: ThemeMode) => void
   onApplyPack: (packId: string | null) => void
 }
@@ -25,14 +26,14 @@ const MODE_HINTS: Record<ThemeMode, string> = {
   system: '随系统自动切换',
 }
 
-export function ThemeModeSelect({ mode, resolved, packs, packId, onSetMode, onApplyPack }: Props) {
+export function ThemeModeSelect({ mode, resolved, packs, packId, palettes, onSetMode, onApplyPack }: Props) {
   const hasPacks = packs.length > 0
 
   return (
     <div className="s-card">
       <h2>主题模式</h2>
       <p className="hint">
-        跟随系统时当前生效
+        当前生效
         <strong style={{ marginLeft: 4 }}>{resolved === 'dark' ? '深色' : '浅色'}</strong>
       </p>
       <div className="theme-row">
@@ -41,24 +42,19 @@ export function ThemeModeSelect({ mode, resolved, packs, packId, onSetMode, onAp
             key={m}
             type="button"
             className={`theme-card${mode === m ? ' active' : ''}`}
+            aria-pressed={mode === m}
             onClick={() => onSetMode(m)}
           >
             <div className="sw">
               {m === 'system' ? (
                 <>
-                  <i style={{ background: '#f3f4f6' }} />
-                  <i style={{ background: '#121214' }} />
+                  <i style={{ background: palettes.light['--bg'] }} />
+                  <i style={{ background: palettes.dark['--bg'] }} />
                 </>
               ) : (
                 (
                   ['--bg', '--surface', '--accent', '--text'] as const
-                ).map((k) => {
-                  const preset =
-                    m === 'light'
-                      ? { '--bg': '#f6f6f7', '--surface': '#ffffff', '--accent': '#5e6ad2', '--text': '#18181b' }
-                      : { '--bg': '#121214', '--surface': '#1a1a1e', '--accent': '#a5aeef', '--text': '#f4f4f5' }
-                  return <i key={k} style={{ background: preset[k] }} />
-                })
+                ).map((k) => <i key={k} style={{ background: palettes[m][k] }} />)
               )}
             </div>
             <strong>{THEME_MODE_LABELS[m]}</strong>

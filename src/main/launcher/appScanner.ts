@@ -2,7 +2,7 @@
  * appScanner — 平台分发 + 内存缓存
  */
 import type { ApplicationScanResult } from '@shared/types/quick'
-import { logInfo, logWarn } from '../logs/logService'
+import { logInfo, logWarn } from '@main/logs/logService'
 
 let cache: ApplicationScanResult | null = null
 let scanning: Promise<ApplicationScanResult> | null = null

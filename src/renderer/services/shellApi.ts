@@ -24,6 +24,7 @@ import type {
 import type {
   ApplicationScanResult,
   QuickCommand,
+  QuickCommandKind,
   QuickHotkeyApplyResult,
   QuickHotkeyConfig,
   QuickOpenRequest
@@ -184,7 +185,7 @@ export interface ShellApi {
   // —— 快捷启动 Quick（Electron preload 提供；mock 可省略）——
   quickToggle?(): Promise<void>
   quickHide?(): void
-  quickSearch?(query: string, limit?: number): Promise<{ items: QuickCommand[]; total?: number }>
+  quickSearch?(query: string, limit?: number, kind?: QuickCommandKind): Promise<{ items: QuickCommand[]; total?: number }>
   quickOpen?(req: QuickOpenRequest): Promise<{ ok: boolean; error?: string }>
   quickScanApps?(force?: boolean): Promise<ApplicationScanResult>
   quickGetConfig?(): Promise<QuickHotkeyConfig>
@@ -401,6 +402,8 @@ function createMockApi(): ShellApi {
           : settings.plugins,
       }
       writeMockSettings(settings)
+      const generalKeys = Object.keys(partial.general ?? {})
+      if (generalKeys.length) emit({ type: 'settings-changed', generalKeys })
     },
     async getSettingsSections() {
       return []

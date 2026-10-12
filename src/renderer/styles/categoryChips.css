@@ -1,0 +1,75 @@
+.category-filter {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  --category-transition: 160ms;
+}
+.category-filter[data-overflow="true"] {
+  grid-template-columns: 26px minmax(0, 1fr) 26px;
+  gap: 2px;
+}
+.category-viewport {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  scroll-behavior: auto;
+  touch-action: pan-x pan-y;
+}
+.category-viewport::-webkit-scrollbar { display: none; }
+.category-filter .chip-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  margin-left: auto;
+  padding: 4px;
+}
+.category-filter .chip {
+  flex: 0 0 auto;
+  max-width: min(160px, calc(100cqi - 64px));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.category-viewport[data-left="true"] {
+  mask-image: linear-gradient(to right, transparent, #000 10px);
+}
+.category-viewport[data-right="true"] {
+  mask-image: linear-gradient(to left, transparent, #000 10px);
+}
+.category-viewport[data-left="true"][data-right="true"] {
+  mask-image: linear-gradient(to right, transparent, #000 10px, #000 calc(100% - 10px), transparent);
+}
+.category-scroll {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: color var(--category-transition), background var(--category-transition), opacity var(--category-transition);
+}
+.category-scroll svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.category-scroll:not(:disabled):hover { color: var(--text); background: var(--surface-2); }
+.category-scroll:disabled { opacity: 0.25; cursor: default; }
+.category-scroll:focus-visible,
+.category-filter .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+:root[data-anim="low"] .category-filter { --category-transition: 160ms; }
+:root[data-anim="medium"] .category-filter { --category-transition: 160ms; }
+:root[data-anim="high"] .category-filter { --category-transition: 220ms; }
+@media (prefers-reduced-motion: reduce) {
+  :root .category-filter { --category-transition: 0ms; }
+  :root .category-filter .chip,
+  :root .category-filter .chip:hover { transition: none; transform: none; }
+}

@@ -1,7 +1,7 @@
 /**
  * AppBackground — 固定底层背景媒体层
  * color 直接铺色（含 CSS 渐变）；image/video 按 opacity + object-fit 渲染。
- * 高动画档附加 AmbientParticles 气泡层；并挂载 useFpsGuard（high 档 FPS 采样自动降级）。
+ * 三档动画均附加 AmbientParticles 流光层；并挂载 useFpsGuard（high 档 FPS 采样自动降级）。
  * pointer-events: none；z-index: 0；内容层在 ShellLayout 中 z-index: 1。
  * 依赖：useTheme（background）、resolveMediaSrc、AmbientParticles、useFpsGuard。
  */

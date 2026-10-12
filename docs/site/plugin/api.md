@@ -46,7 +46,7 @@ resolve({ ok: true, data })
 | `ui` | `setTitle(title)` | `ui.setTitle` | 设置 Tab 标题 |
 | `ui` | `setIcon(icon)` | `ui.setIcon` | 设置 Tab 图标 |
 | `ui` | `setBadge(badge)` | `ui.setBadge` | 设置角标 |
-| `ui` | `resize(size)` | `ui.resize` | 建议/设置主窗最小尺寸 |
+| `ui` | `resize(size)` | `ui.resize` | 声明内容尺寸，Quick 即时适配 |
 | `ui` | `setHeight(height)` | `ui.resize` | 期望内容高度（Quick 内嵌消费） |
 | `ui` | `toast({ message, type? })` | `ui.toast` | 壳子应用内 Toast |
 | `ui` | `getThemeTokens()` | 无 | 读主题变量（别名） |
@@ -172,7 +172,7 @@ await enest.ui.setBadge('') // 清除
 | **参数** | `size: { width?: number; height?: number }` |
 | **返回** | `Promise<boolean>` |
 
-?> **现状**：主进程读取 `plugin.json` 的 `window.minWidth` / `minHeight` 对主窗口应用 `setMinimumSize`（幂等，重复调用无害）。`size` 参数本身暂不改变布局。
+Quick 内嵌时按内容尺寸调整小窗，并受 `window.minWidth` / `minHeight` 与显示器工作区限制。主窗 Tab 中仅记录建议，不改变用户窗口大小。插件始终应按实际 viewport 响应式布局，超出部分内部滚动；width / height 必须是正有限数。
 
 ```js
 await enest.ui.resize({ width: 960, height: 640 })

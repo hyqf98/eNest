@@ -1,9 +1,4 @@
-/*
- * splash — 启动全屏层
- * 使用方：App 首次挂载时的 Splash 组件。
- * 品牌兜底配色与应用图标一致：墨绿 #011517 / 薄荷 #2DD4A8 / 琥珀 #F5A524。
- * 主题色模式经 --splash-* 局部变量注入（见 Splash.applySplashTokens）。
- */
+/* Launch colors follow the selected background mode; particles inherit local tokens. */
 .splash {
   position: fixed;
   inset: 0;
@@ -11,27 +6,16 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  /* 优先主题 accent，缺失回落品牌薄荷 */
-  color: var(--splash-accent, #2dd4a8);
-  /* 首帧即不透明，避免透出底层主题色造成闪烁 */
+  color: var(--splash-accent, #8ec7b6);
   opacity: 1;
-  will-change: opacity;
 }
 
 .splash-bg {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(
-      ellipse 60% 50% at 50% 45%,
-      color-mix(in srgb, var(--splash-accent, #2dd4a8) 12%, transparent),
-      transparent 60%
-    ),
-    radial-gradient(ellipse 40% 35% at 50% 55%, rgba(245, 165, 36, 0.06), transparent 55%),
-    var(--splash-bg, #011517);
+  background: var(--splash-bg, #122420);
 }
 
-/* 自定义启动背景图：cover 铺底 */
 .splash-photo {
   position: absolute;
   inset: 0;
@@ -41,55 +25,39 @@
   pointer-events: none;
 }
 
-/* 自定义图之上压一层暗角，保证标识可读 */
 .splash--photo::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(
-    ellipse 55% 45% at 50% 45%,
-    rgba(1, 21, 23, 0.18),
-    rgba(1, 21, 23, 0.55)
-  );
+  background: rgba(12, 28, 24, 0.4);
   pointer-events: none;
 }
 
-/* high 档结构性环境场（光斑 + 点阵） */
 .splash-field {
   position: absolute;
   inset: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   pointer-events: none;
-  display: none;
-}
-
-.splash--high .splash-field {
-  display: block;
-  mix-blend-mode: screen;
+  color: color-mix(in srgb, var(--splash-text, #e8f3ed) 82%, var(--splash-accent, #8ec7b6));
   opacity: 0.85;
 }
 
 .splash-stage {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
+  gap: 14px;
 }
 
 .splash-mark {
-  color: var(--splash-accent, #2dd4a8);
+  color: var(--splash-accent, #8ec7b6);
   overflow: visible;
-  /* 保持阶段 GSAP 呼吸以自身中心缩放 */
   transform-box: fill-box;
   transform-origin: center;
-}
-
-/* high：描边更醒目 */
-.splash--high .splash-mark {
-  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--splash-accent, #2dd4a8) 35%, transparent));
 }
 
 .splash-hex {
@@ -97,57 +65,62 @@
 }
 
 .splash-tile-l,
-.splash-tile-r {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
+.splash-tile-r,
 .splash-node {
   transform-box: fill-box;
   transform-origin: center;
 }
 
-.splash-word {
-  font-family: var(--font, Inter, system-ui, sans-serif);
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  color: var(--splash-text, #e8fff6);
+.splash-node {
+  color: var(--splash-text, #e8f3ed);
 }
 
-/* 逐字入场：inline-block 才能被 GSAP 独立 transform */
+.splash-word {
+  font-family: var(--font, system-ui, sans-serif);
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.045em;
+  color: var(--splash-text, #e8f3ed);
+}
+
 .splash-word-char {
   display: inline-block;
-  will-change: transform, opacity;
 }
 
 .splash-sub {
-  margin-top: -8px;
-  font-size: 12.5px;
-  font-weight: 500;
-  letter-spacing: 0.18em;
-  color: color-mix(in srgb, var(--splash-accent, #2dd4a8) 62%, transparent);
+  margin-top: -3px;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  color: color-mix(in srgb, var(--splash-text, #e8f3ed) 64%, transparent);
 }
 
-/* high：字标轻微光晕，与粒子层呼应 */
-.splash--high .splash-word {
-  text-shadow: 0 0 18px color-mix(in srgb, var(--splash-accent, #2dd4a8) 28%, transparent);
-}
-
-/* high：舞台整体可用 filter 软光（不抢六边形描边） */
-.splash--high .splash-stage {
-  filter: drop-shadow(0 0 24px color-mix(in srgb, var(--splash-accent, #2dd4a8) 12%, transparent));
-}
-
-/* Splash 结束前壳子不透出、不抢焦点；ready 后淡入 */
 .app-boot {
   height: 100%;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.28s ease;
+  transition: opacity 0.24s ease;
 }
 
 .app-boot.ready {
   opacity: 1;
   pointer-events: auto;
+}
+
+:root[data-anim='low'] .app-boot {
+  transition-duration: 0.2s;
+}
+
+:root[data-anim='high'] .app-boot {
+  transition-duration: 0.32s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-boot {
+    transition: none;
+  }
+
+  .splash-field {
+    display: none;
+  }
 }

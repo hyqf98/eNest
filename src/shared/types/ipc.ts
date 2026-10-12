@@ -142,6 +142,8 @@ export type ShellEventPayload =
   | { type: 'plugin-error'; pluginId: string; message: string }
   | { type: 'settings-sections'; sections: unknown[] }
   | { type: 'theme-changed'; mode: 'light' | 'dark' | 'system' }
+  /** 独立窗口按变更键重读设置，不携带插件私有设置或重复触发持久化。 */
+  | { type: 'settings-changed'; generalKeys: string[] }
   | { type: 'locale-changed'; locale: 'zh-CN' | 'en-US' }
   | { type: 'theme-packs-changed' }
   | { type: 'plugin-active'; tabId: string | null }
@@ -174,6 +176,7 @@ export type ShellEventPayload =
    * 注意：该事件对主壳渲染层无意义（payload 事件桥过滤），仅 Quick 表面消费。
    */
   | { type: 'quick-plugin-mode'; mode: QuickPluginModeInfo | null }
+  | { type: 'quick-focus-search' }
   /**
    * 插件贡献点变更（注册/卸载/覆盖）：渲染层据此刷新对应插槽消费
    * （home-cards 区块、rail-entries、settings sections 等）。

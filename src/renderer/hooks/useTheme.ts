@@ -6,7 +6,7 @@
  */
 import { create } from 'zustand'
 import type { BackgroundConfig, ThemeMode, ThemePack, ThemeTokens } from '@shared/types/plugin'
-import { THEME_TOKEN_PRESETS } from '@shared/theme/presets'
+import { resolveThemePalette, THEME_TOKEN_PRESETS } from '@shared/theme/presets'
 import { shellApi } from '@renderer/services/shellApi'
 import { toastStore } from '@renderer/hooks/useToast'
 
@@ -64,32 +64,27 @@ export function resolveThemeMode(mode: ThemeMode): ResolvedThemeMode {
   return mode
 }
 
-function hexToRgba(hex: string, alpha: number): string {
-  if (!hex.startsWith('#')) return hex
-  const h = hex.replace('#', '')
-  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
-  if (full.length < 6) return hex
-  const n = parseInt(full, 16)
-  const r = (n >> 16) & 255
-  const g = (n >> 8) & 255
-  const b = n & 255
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
-}
-
-/** 将 #RGB/#RRGGBB 归一化为 6 位 hex，非法值回退默认深色 */
+/** 色卡需要 6 位 hex；透明边框仍展示实际 RGB 色，不使用无关占位色。 */
 export function normalizeHex(c: string): string {
   if (/^#[0-9a-fA-F]{6}$/.test(c)) return c
   if (/^#[0-9a-fA-F]{3}$/.test(c)) {
     const [r, g, b] = c.slice(1)
     return `#${r}${r}${g}${g}${b}${b}`
   }
-  return '#5e6ad2'
+  const rgb = c.match(/^rgba?\(\s*(\d+(?:\.\d+)?)[,\s]+(\d+(?:\.\d+)?)[,\s]+(\d+(?:\.\d+)?)/i)
+  if (rgb) {
+    return '#' + rgb.slice(1, 4).map((value) =>
+      Math.round(Math.max(0, Math.min(255, Number(value)))).toString(16).padStart(2, '0')
+    ).join('')
+  }
+  return THEME_TOKEN_PRESETS.light['--accent']
 }
 
 function presetTokens(resolved: ResolvedThemeMode): TokenMap {
-  const { label: _label, ...rest } = THEME_PRESETS[resolved]
-  return { ...rest } as TokenMap
+  return resolveThemePalette(resolved)
 }
+
+let appliedTokenKeys = new Set<string>()
 
 /** 将 resolved 模式 + 覆盖 + 可选主题包 tokens 写入 documentElement */
 function applyToDom(
@@ -100,12 +95,15 @@ function applyToDom(
   const root = document.documentElement
   // data-theme 始终是已解析的 light|dark（system 已在调用前 resolve）
   root.dataset.theme = resolved
-  const tokens = { ...presetTokens(resolved), ...(packTokens ?? {}), ...overrides }
+  const tokens = resolveThemePalette(resolved, overrides, packTokens)
+  // 切换/卸载主题包后移除它独有的变量，避免上一主题的颜色遗留。
+  for (const key of appliedTokenKeys) {
+    if (!(key in tokens)) root.style.removeProperty(key)
+  }
   for (const [key, value] of Object.entries(tokens)) {
     if (value) root.style.setProperty(key, value)
   }
-  const ok = tokens['--ok'] || (resolved === 'light' ? '#0d9f6e' : '#3dd68c')
-  root.style.setProperty('--ok-soft', hexToRgba(ok, resolved === 'light' ? 0.1 : 0.12))
+  appliedTokenKeys = new Set(Object.keys(tokens))
   return tokens
 }
 
@@ -140,6 +138,8 @@ interface ThemeState {
   background: BackgroundConfig | null
   hydrated: boolean
   hydrate: () => Promise<void>
+  /** 重新读取持久化外观，不触发写入或 Toast（独立窗口同步）。 */
+  refresh: () => Promise<void>
   refreshPacks: () => Promise<void>
   setMode: (mode: ThemeMode) => Promise<void>
   setToken: (key: string, value: string) => void
@@ -164,6 +164,7 @@ async function persistTheme(state: {
 }
 
 let mqListenerAttached = false
+let themeReadVersion = 0
 
 function attachSystemListener(get: () => ThemeState, set: (p: Partial<ThemeState>) => void): void {
   const mq = matchMediaDark()
@@ -194,9 +195,15 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
   hydrate: async () => {
     if (get().hydrated) return
+    await get().refresh()
+  },
+
+  refresh: async () => {
+    const version = ++themeReadVersion
     attachSystemListener(get, set)
     try {
       const t = (await shellApi.getTheme()) as ThemeTokens & { packs?: ThemePack[] }
+      if (version !== themeReadVersion) return
       const mode: ThemeMode =
         t.mode === 'dark' || t.mode === 'system' || t.mode === 'light' ? t.mode : 'light'
       const resolved = resolveThemeMode(mode)
@@ -217,6 +224,8 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
         hydrated: true,
       })
     } catch {
+      // 刷新失败保留当前外观；仅首次启动使用默认值。
+      if (version !== themeReadVersion || get().hydrated) return
       const resolved = resolveThemeMode('light')
       const tokens = applyToDom(resolved, {})
       set({ mode: 'light', resolved, tokens, packs: [], hydrated: true })
@@ -227,13 +236,18 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   refreshPacks: async () => {
     try {
       const t = (await shellApi.getTheme()) as ThemeTokens & { packs?: ThemePack[] }
-      set({ packs: t.packs ?? [] })
+      const packs = t.packs ?? []
+      const s = get()
+      const pack = s.packId ? packs.find((p) => p.id === s.packId) : undefined
+      const tokens = applyToDom(s.resolved, s.overrides[s.resolved] ?? {}, pack?.tokens)
+      set({ packs, tokens })
     } catch {
       /* ignore */
     }
   },
 
   setMode: async (mode) => {
+    themeReadVersion++
     const { overrides, packs, packId, background } = get()
     const resolved = resolveThemeMode(mode)
     const pack = packId ? packs.find((p) => p.id === packId) : undefined
@@ -249,6 +263,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
 
   setToken: (key, value) => {
+    themeReadVersion++
     const { mode, overrides, packs, packId, background } = get()
     const resolved = resolveThemeMode(mode)
     const modeOverrides = { ...(overrides[resolved] ?? {}), [key]: value }
@@ -260,6 +275,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
 
   resetMode: async () => {
+    themeReadVersion++
     const { mode, overrides, packs, packId, background } = get()
     const resolved = resolveThemeMode(mode)
     const next: OverridesMap = { ...overrides, [resolved]: {} }
@@ -271,6 +287,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
 
   applyPack: async (packId) => {
+    themeReadVersion++
     const { mode, overrides, packs, background } = get()
     const resolved = resolveThemeMode(mode)
     const pack = packId ? packs.find((p) => p.id === packId) : undefined
@@ -282,6 +299,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
 
   setBackground: async (bg) => {
+    themeReadVersion++
     const { mode, overrides, packId } = get()
     // 先同步 DOM 与 store，保证切换即时可见（不受 IPC 延迟影响）
     const active = !!bg && bg.type !== 'none' && !!bg.value
@@ -300,6 +318,7 @@ export function useTheme() {
   const mode = useThemeStore((s) => s.mode)
   const resolved = useThemeStore((s) => s.resolved)
   const tokens = useThemeStore((s) => s.tokens)
+  const overrides = useThemeStore((s) => s.overrides)
   const packs = useThemeStore((s) => s.packs)
   const packId = useThemeStore((s) => s.packId)
   const background = useThemeStore((s) => s.background)
@@ -313,6 +332,7 @@ export function useTheme() {
     mode,
     resolved,
     tokens,
+    overrides,
     packs,
     packId,
     background,

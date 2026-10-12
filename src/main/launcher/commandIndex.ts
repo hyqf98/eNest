@@ -2,17 +2,17 @@
  * commandIndex — 快捷启动命令索引（provider 管线）
  * 职责：聚合内置 provider（actions / 插件命令 / 本地应用 / 剪贴板历史）与
  *       插件运行时 quick provider，提供统一搜索排序。
- * 兼容承诺：无外部 provider 时搜索结果与旧版完全一致（provider 仅追加）。
  * 被 quickHandlers 调用。
  */
-import type { QuickActionId, QuickCommand } from '@shared/types/quick'
+import type { QuickActionId, QuickCommand, QuickCommandKind } from '@shared/types/quick'
 import type { PluginManifest, QuickRecentEntry } from '@shared/types/plugin'
 import { resolvePluginForm } from '@shared/types/plugin'
 import { pluginProtocolUrl } from '@shared/constants'
-import { pluginRegistry } from '../plugin/PluginRegistry'
+import { matchesSearchTerms, normalizeSearchText } from '@shared/search'
+import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { getCachedApps, scanApplications } from './appScanner'
 import { getAppIconDataUrl } from './appLauncher'
-import { searchHistory } from '../clipboard/clipboardHistory'
+import { searchHistory } from '@main/clipboard/clipboardHistory'
 import { queryQuickProviders } from './quickProviders'
 
 const BUILTIN_ACTIONS: QuickCommand[] = [
@@ -88,14 +88,14 @@ function fuzzySubsequenceScore(text: string, query: string): number {
  */
 function scoreCommand(item: QuickCommand, query: string): { score: number; keywordHit?: string } {
   if (!query) return { score: 1 }
-  const q = query.toLowerCase()
-  const t = (item.title || '').toLowerCase()
-  const s = (item.subtitle || '').toLowerCase()
+  const q = normalizeSearchText(query)
+  const t = normalizeSearchText(item.title || '')
+  const s = normalizeSearchText(item.subtitle || '')
   const aliases = item.aliases ?? []
 
   // 触发词优先：键入 cmds/别名直接命中插件
   for (const raw of aliases) {
-    const a = raw.toLowerCase()
+    const a = normalizeSearchText(raw)
     if (!a) continue
     if (a === q) return { score: 120, keywordHit: raw }
     if (q.length >= 1 && a.startsWith(q)) return { score: 110, keywordHit: raw }
@@ -104,14 +104,15 @@ function scoreCommand(item: QuickCommand, query: string): { score: number; keywo
   if (t.startsWith(q)) return { score: 80 }
   if (t.includes(q)) return { score: 60 }
   for (const raw of aliases) {
-    const a = raw.toLowerCase()
+    const a = normalizeSearchText(raw)
     if (a.includes(q)) return { score: 55, keywordHit: raw }
   }
+  if (q.includes(' ') && matchesSearchTerms([t, s, ...aliases].join(' '), q)) return { score: 50 }
   if (s.includes(q)) return { score: 30 }
   const titleFuzzy = fuzzySubsequenceScore(t, q)
   if (titleFuzzy > 0) return { score: 20 + Math.floor(titleFuzzy * 0.5) }
   for (const raw of aliases) {
-    const af = fuzzySubsequenceScore(raw.toLowerCase(), q)
+    const af = fuzzySubsequenceScore(normalizeSearchText(raw), q)
     if (af > 0) return { score: 16 + Math.floor(af * 0.4), keywordHit: raw }
   }
   const descFuzzy = fuzzySubsequenceScore(s, q)
@@ -132,7 +133,7 @@ function recentRank(entry: QuickRecentEntry): number {
 function installedManifests(): PluginManifest[] {
   return pluginRegistry
     .list()
-    .filter((s) => s.installed && s.rootPath)
+    .filter((s) => s.installed && s.enabled !== false && s.rootPath)
     .map((s) => pluginRegistry.getManifest(s.id))
     .filter((m): m is PluginManifest => !!m)
 }
@@ -161,7 +162,7 @@ export function buildPluginCommands(): QuickCommand[] {
         pluginId,
         form,
         icon,
-        aliases: [m.name]
+        aliases: [m.name, m.id, m.description ?? '']
       })
       continue
     }
@@ -179,7 +180,7 @@ export function buildPluginCommands(): QuickCommand[] {
         pluginId,
         code: feature.code,
         form,
-        aliases: cmds,
+        aliases: [...cmds, m.id, m.description ?? ''],
         icon
       })
     }
@@ -197,6 +198,7 @@ export function buildAppCommands(): QuickCommand[] {
     subtitle: app.path,
     path: app.path,
     icon: app.icon,
+    aliases: app.alias ? [app.alias] : undefined,
     /** linux：Icon= 原始值，提图时由 appLauncher 解析（mac/win 忽略） */
     iconName: app.iconName
   }))
@@ -288,28 +290,31 @@ function providerCommands(
 
 /**
  * 搜索命令（provider 管线）。
- * - 空 query（首页网格）：最近使用的应用/插件 + 已安装小窗插件；不倾倒全部本地应用
+ * - 空 query：首页显示最近使用，再补已安装插件、应用和操作
  * - 有 query：内置 pool（actions/插件命令/应用/剪贴板）触发词 > 标题 > fuzzy；
  *   并发追加插件 quick provider 结果（每路 try/catch，超时 500ms 丢弃，不阻塞内置）
  */
 export async function searchQuickCommands(
   query: string,
   limit = 20,
-  recent: QuickRecentEntry[] = []
+  recent: QuickRecentEntry[] = [],
+  kind?: QuickCommandKind
 ): Promise<QuickCommand[]> {
   if (!getCachedApps()) {
-    void scanApplications(false)
+    await scanApplications(false)
   }
 
-  const q = (query || '').trim()
-  const pool: QuickCommand[] = [
+  const q = normalizeSearchText(query || '')
+  const resultLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 20
+  const acceptsKind = (item: QuickCommand): boolean => !kind || item.kind === kind
+  const pool = ([
     ...BUILTIN_ACTIONS,
     ...buildPluginCommands(),
     ...buildAppCommands()
-  ]
+  ] as QuickCommand[]).filter(acceptsKind)
 
   // 内置剪贴板 provider：壳子自身能力，有数据即可搜（失败不阻塞）
-  if (q) {
+  if (q && (!kind || kind === 'plugin')) {
     try {
       pool.push(...clipboardCommands(await searchHistory(q, 6)))
     } catch {
@@ -328,10 +333,13 @@ export async function searchQuickCommands(
       })
       .sort((a, b) => b.score - a.score)
       .map((s) => s.item)
-    // 2) 已安装小窗插件补位（未在最近里）
+    // 未使用过的插件、应用和操作也可直接发现；各类切换在截断前生效。
     const recentIds = new Set(withRecent.map((i) => i.id))
-    const miniRest = pool.filter((i) => i.kind === 'plugin' && i.form === 'mini' && !recentIds.has(i.id))
-    const top = [...withRecent, ...miniRest].slice(0, limit)
+    const remaining = pool.filter((item) => !recentIds.has(item.id)).sort((a, b) => {
+      const order = { plugin: 0, app: 1, action: 2 }
+      return order[a.kind] - order[b.kind] || a.title.localeCompare(b.title, 'zh-CN')
+    })
+    const top = [...withRecent, ...remaining].slice(0, resultLimit)
     await attachAppIcons(top)
     return top
   }
@@ -348,13 +356,13 @@ export async function searchQuickCommands(
     .sort((a, b) => b.score - a.score || a.item.title.localeCompare(b.item.title, 'zh-CN'))
 
   let top = applyRecentMeta(
-    scored.slice(0, limit).map((s) => s.item),
+    scored.slice(0, resultLimit).map((s) => s.item),
     recent
   )
 
   // 插件 quick provider：并发查询，失败/超时不阻塞内置结果
   try {
-    const providerItems = providerCommands(await queryQuickProviders(q))
+    const providerItems = !kind || kind === 'plugin' ? providerCommands(await queryQuickProviders(q)) : []
     if (providerItems.length > 0) {
       // provider 项给中段分数（低于触发词/标题精确命中，高于 fuzzy 弱命中），
       // 与内置结果合并重排后仍受 limit 约束
@@ -364,7 +372,7 @@ export async function searchQuickCommands(
       ]
         .sort((a, b) => b.score - a.score || a.item.title.localeCompare(b.item.title, 'zh-CN'))
         .map((s) => s.item)
-      top = applyRecentMeta(merged.slice(0, limit), recent)
+      top = applyRecentMeta(merged.slice(0, resultLimit), recent)
     }
   } catch {
     /* provider 管线失败不影响内置搜索 */

@@ -18,6 +18,8 @@ export interface MockMarketPlugin {
   color: string
   glyph: string
   permissions: PluginPermission[]
+  /** mini = Quick 面板优先；缺省 panel（主窗 Tab）——须与插件 manifest 的 form 一致 */
+  form?: 'mini' | 'panel'
 }
 
 export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
@@ -25,8 +27,8 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     id: 'com.enest.screen-assistant',
     name: '屏幕助手',
     author: 'eNest Labs',
-    description: '矩形截图、矩形录屏（可选声音）与截图贴到屏幕。',
-    version: '1.0.0',
+    description: '矩形截图、矩形录屏（可选声音）、贴图三入口（截图/剪贴板/本地图片）与贴图管理。',
+    version: '1.1.0',
     installs: '9.6k',
     category: '媒体',
     color: '#38bdf8',
@@ -35,6 +37,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
       'screen.capture',
       'screen.record',
       'pin.create',
+      'clipboard.readImage',
       'clipboard.writeImage',
       'storage.local',
       'ui.setTitle',
@@ -64,10 +67,11 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
   },
   {
     id: 'com.enest.translate',
+    form: 'mini',
     name: '翻译',
     author: 'Lingua',
-    description: '谷歌翻译引擎，自动检测语言，一键复制译文。',
-    version: '1.0.0',
+    description: '多引擎翻译（Google/MyMemory 自动切换），自动检测语言，一键复制译文。',
+    version: '1.1.0',
     installs: '15.2k',
     category: '效率',
     color: '#f5a524',
@@ -128,6 +132,131 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
       'shell.openExternal',
       'settings.register'
     ]
+  },
+  {
+    id: 'com.enest.sticky-notes',
+    name: '备忘录',
+    author: 'eNest Labs',
+    description: '多张便签随手记：彩色标签、置顶、自动保存，重开不丢。',
+    version: '1.0.0',
+    installs: '8.1k',
+    category: '效率',
+    color: '#5b8cff',
+    glyph: '✎',
+    permissions: ['storage.local', 'ui.setTitle', 'ui.toast']
+  },
+  {
+    id: 'com.enest.timestamp',
+    form: 'mini',
+    name: '时间戳',
+    author: 'eNest Labs',
+    description: '当前秒/毫秒实时刷新一键复制，时间戳与时间互转，ISO 等常用格式。',
+    version: '1.0.0',
+    installs: '6.4k',
+    category: '开发',
+    color: '#3ddc97',
+    glyph: '⏱',
+    permissions: ['clipboard.write', 'ui.setTitle', 'ui.toast']
+  },
+  {
+    id: 'com.enest.json-tools',
+    name: 'JSON 工具',
+    author: 'eNest Labs',
+    description: 'JSON 格式化、压缩、校验定位与转义反转义。',
+    version: '1.0.0',
+    installs: '7.2k',
+    category: '开发',
+    color: '#3ddc97',
+    glyph: '{}',
+    permissions: ['clipboard.read', 'clipboard.write', 'ui.setTitle', 'ui.toast']
+  },
+  {
+    id: 'com.enest.codec',
+    name: '编解码',
+    author: 'eNest Labs',
+    description: 'Base64 / URL / Hex / Unicode 编码解码，中文安全，双栏互换。',
+    version: '1.0.0',
+    installs: '5.8k',
+    category: '开发',
+    color: '#3ddc97',
+    glyph: '⇄',
+    permissions: ['clipboard.read', 'clipboard.write', 'ui.setTitle', 'ui.toast']
+  },
+  {
+    id: 'com.enest.qrcode',
+    name: '二维码',
+    author: 'eNest Labs',
+    description: '文本/URL 生成二维码（尺寸与纠错可调），剪贴板或本地图片解码。',
+    version: '1.0.0',
+    installs: '6.9k',
+    category: '效率',
+    color: '#5b8cff',
+    glyph: '▦',
+    permissions: ['clipboard.read', 'clipboard.write', 'clipboard.readImage', 'clipboard.writeImage', 'ui.setTitle', 'ui.toast']
+  },
+  {
+    id: 'com.enest.pomodoro',
+    form: 'mini',
+    name: '番茄钟',
+    author: 'eNest Labs',
+    description: '专注 25 分钟休息 5 分钟（可调），到点系统通知，今日完成统计。',
+    version: '1.0.0',
+    installs: '4.9k',
+    category: '效率',
+    color: '#5b8cff',
+    glyph: '◷',
+    permissions: ['notify', 'storage.local', 'ui.setTitle', 'ui.toast']
+  },
+  {
+    id: 'com.enest.todos',
+    name: '待办清单',
+    author: 'eNest Labs',
+    description: '轻量待办：添加、勾选、置顶、编辑，完成情况自动保存。',
+    version: '1.0.0',
+    installs: '7.7k',
+    category: '效率',
+    color: '#5b8cff',
+    glyph: '☑',
+    permissions: ['storage.local', 'ui.setTitle', 'ui.toast']
+  },
+  {
+    id: 'com.enest.calculator',
+    form: 'mini',
+    name: '计算器',
+    author: 'eNest Labs',
+    description: '四则运算与括号百分比，键盘即输即算，附历史记录。',
+    version: '1.0.0',
+    installs: '5.5k',
+    category: '效率',
+    color: '#5b8cff',
+    glyph: '=',
+    permissions: ['clipboard.write', 'ui.setTitle', 'ui.toast']
+  },
+  {
+    id: 'com.enest.password-kit',
+    form: 'mini',
+    name: '密码工具箱',
+    author: 'eNest Labs',
+    description: '随机密码生成（长度/字符集可调、强度提示）与 UUID v4 批量生成。',
+    version: '1.0.0',
+    installs: '5.1k',
+    category: '效率',
+    color: '#5b8cff',
+    glyph: '✱',
+    permissions: ['clipboard.write', 'ui.setTitle', 'ui.toast']
+  },
+  {
+    id: 'com.enest.color-picker',
+    form: 'mini',
+    name: '取色器',
+    author: 'eNest Labs',
+    description: '屏幕取色：放大镜精准取点，HEX/RGB/HSL 一键复制，附历史色板。',
+    version: '1.0.0',
+    installs: '5.2k',
+    category: '设计',
+    color: '#a78bfa',
+    glyph: '◉',
+    permissions: ['screen.capture', 'clipboard.write', 'storage.local', 'ui.setTitle', 'ui.toast']
   }
 ]
 
@@ -145,6 +274,7 @@ export function mockToSummary(installed: boolean): PluginSummary[] {
     glyph: p.glyph,
     permissions: p.permissions,
     installed,
+    form: p.form ?? 'panel',
     // 市场 mock 尚无 manifest，统一用默认 UI 配置；安装后由 PluginRegistry 覆盖
     ui: { ...DEFAULT_PLUGIN_UI }
   }))

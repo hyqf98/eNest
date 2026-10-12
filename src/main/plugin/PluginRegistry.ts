@@ -13,7 +13,6 @@ import { app } from 'electron'
 import type { PluginContributes, PluginManifest, PluginSummary } from '@shared/types/plugin'
 import { resolvePluginForm, resolvePluginUi } from '@shared/types/plugin'
 import { pluginProtocolUrl } from '@shared/constants'
-import { collectManifestIssues } from '@main/plugin/PluginInstaller'
 import { getAppPaths } from '@main/paths/pathsService'
 import { MOCK_MARKET_PLUGINS, mockToSummary, shortNameOf } from '@main/plugin/mockMarket'
 import { installFromDirectory, installFromZip } from '@main/plugin/PluginInstaller'
@@ -30,6 +29,12 @@ import {
 import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { sendShellEvent } from '@main/window/createShellWindow'
+import {
+  manifestCategory,
+  manifestScreenshots,
+  mergeMarketMetadata,
+  remoteToSummary
+} from '@main/plugin/marketMetadata'
 
 export interface InstalledPlugin {
   manifest: PluginManifest
@@ -74,18 +79,18 @@ export function compareVersions(a: string, b: string): number {
   return 0
 }
 
-/** manifest.logo → enest:// 协议图标 URL（绝对/带协议的值原样保留；devUrl 场景由调用方覆盖） */
+/** logo 优先、icon 兜底；manifest 本地路径按磁盘原名编码，不受 devUrl 影响。 */
 function manifestIconUrl(manifest: PluginManifest): string | undefined {
-  const logo = manifest.logo
-  if (!logo) return undefined
+  const logo = manifest.logo || manifest.icon
+  if (typeof logo !== 'string' || !logo) return undefined
   if (/^(https?:|data:|enest:)/i.test(logo)) return logo
-  return pluginProtocolUrl(manifest.id, logo.replace(/^\.?\//, ''))
+  const path = logo.replace(/^\.?\//, '').split('/').map(encodeURIComponent).join('/')
+  return pluginProtocolUrl(manifest.id, path)
 }
 
 function manifestToSummary(
   manifest: PluginManifest,
-  rootPath: string,
-  extras?: Partial<PluginSummary>
+  rootPath: string
 ): PluginSummary {
   const market = MOCK_MARKET_PLUGINS.find((m) => m.id === manifest.id)
   const enabled = isEnabledSync(manifest.id)
@@ -95,11 +100,13 @@ function manifestToSummary(
     version: manifest.version,
     description: manifest.description ?? market?.description ?? '',
     author: manifest.author ?? market?.author ?? '',
-    category: market?.category ?? '效率',
+    category: manifestCategory(manifest) ?? market?.category ?? '其它',
     installs: market?.installs ?? 'local',
     color: market?.color ?? '#5b8cff',
     glyph: market?.glyph ?? manifest.name.slice(0, 1),
     icon: manifestIconUrl(manifest),
+    screenshots: manifestScreenshots(manifest),
+    featured: typeof manifest.market?.featured === 'boolean' ? manifest.market.featured : undefined,
     permissions: manifest.permissions ?? [],
     installed: true,
     // 禁用时省略 rootPath：commandIndex 过滤 (installed && rootPath) 自动排除禁用项
@@ -109,8 +116,7 @@ function manifestToSummary(
     ui: resolvePluginUi(manifest.ui),
     form: resolvePluginForm(manifest.form),
     // 贡献点声明透传（渲染层消费 homeCards 等；ManifestContributes 归一见 normalizeContributes）
-    contributes: normalizeContributes(manifest.contributes),
-    ...extras
+    contributes: normalizeContributes(manifest.contributes)
   }
 }
 
@@ -250,92 +256,49 @@ private syncContributes(manifest: PluginManifest, enabled: boolean): void {
     return this.remoteMarket.find((s) => s.id === id)
   }
 
-/** 返回合并后的插件列表：远程市场 → mock → 已安装 → 开发态（后者覆盖前者） */
+  /** 统一 list/get 的合并顺序，安装与开发态不会丢失市场展示元数据。 */
   list(): PluginSummary[] {
-    const byId = new Map<string, PluginSummary>()
-    for (const remote of this.remoteMarket) {
-      byId.set(remote.id, {
-        id: remote.id,
-        name: remote.name,
-        version: remote.version,
-        description: remote.description,
-        author: remote.author,
-        category: remote.category,
-        installs: remote.installs,
-        color: remote.color,
-        glyph: remote.glyph,
-        icon: remote.icon,
-        permissions: remote.permissions,
-        installed: this.installed.has(remote.id) || this.dev.has(remote.id),
-        enabled: isEnabledSync(remote.id),
-        ui: remote.ui
-      })
-    }
-    for (const mock of mockToSummary(false)) {
-      if (!byId.has(mock.id)) byId.set(mock.id, mock)
-    }
-    for (const item of this.installed.values()) {
-      const summary = manifestToSummary(item.manifest, item.rootPath)
-      byId.set(item.manifest.id, withUpdateHint(summary, this.getRemoteEntry(item.manifest.id)))
-    }
-    for (const summary of this.dev.values()) {
-      byId.set(summary.id, {
-        ...summary,
-        installed: true,
-        dev: true,
-        enabled: isEnabledSync(summary.id)
-      })
-    }
-    return [...byId.values()]
+    const ids = new Set([
+      ...this.remoteMarket.map((entry) => entry.id),
+      ...MOCK_MARKET_PLUGINS.map((entry) => entry.id),
+      ...this.installed.keys(),
+      ...this.dev.keys()
+    ])
+    return [...ids].flatMap((id) => {
+      const summary = this.get(id)
+      return summary ? [summary] : []
+    })
   }
 
   get(id: string): PluginSummary | null {
     const remote = this.getRemoteEntry(id)
     const dev = this.dev.get(id)
     if (dev) {
-      const devManifest = this.devManifests.get(id)
-      return withUpdateHint(
-        {
-          ...dev,
-          installed: true,
-          dev: true,
-          enabled: isEnabledSync(id),
-          ...(devManifest?.contributes
-            ? { contributes: normalizeContributes(devManifest.contributes) }
-            : {})
-        },
-        remote
-      )
-    }
-    const inst = this.installed.get(id)
-    if (inst) {
-      return withUpdateHint(
-        {
-          ...manifestToSummary(inst.manifest, inst.rootPath),
-          contributes: normalizeContributes(inst.manifest.contributes)
-        },
-        remote
-      )
-    }
-    if (remote) {
-      return {
-        id: remote.id,
-        name: remote.name,
-        version: remote.version,
-        description: remote.description,
-        author: remote.author,
-        category: remote.category,
-        installs: remote.installs,
-        color: remote.color,
-        glyph: remote.glyph,
-        icon: remote.icon,
-        permissions: remote.permissions,
-        installed: false,
-        enabled: isEnabledSync(remote.id),
-        ui: remote.ui
+      const manifest = this.devManifests.get(id)
+      const enabled = isEnabledSync(id)
+      const summary: PluginSummary = {
+        ...dev,
+        installed: true,
+        dev: true,
+        enabled,
+        rootPath: enabled ? dev.rootPath : undefined,
+        ...(manifest ? {
+          category: manifestCategory(manifest) ?? dev.category,
+          icon: manifestIconUrl(manifest) ?? dev.icon,
+          screenshots: manifestScreenshots(manifest),
+          featured: typeof manifest.market?.featured === 'boolean' ? manifest.market.featured : undefined,
+          contributes: normalizeContributes(manifest.contributes)
+        } : {})
       }
+      return withUpdateHint(mergeMarketMetadata(summary, remote), remote)
     }
-    return mockToSummary(false).find((s) => s.id === id) ?? null
+    const installed = this.installed.get(id)
+    if (installed) {
+      const summary = manifestToSummary(installed.manifest, installed.rootPath)
+      return withUpdateHint(mergeMarketMetadata(summary, remote), remote)
+    }
+    if (remote) return remoteToSummary(remote, isEnabledSync(id))
+    return mockToSummary(false).find((summary) => summary.id === id) ?? null
   }
 
   getManifest(id: string): PluginManifest | null {
@@ -455,12 +418,13 @@ private syncContributes(manifest: PluginManifest, enabled: boolean): void {
   }
 
 /** 注册开发态插件（不落盘，仅内存） */
-  addDevPlugin(summary: PluginSummary, manifest?: PluginManifest): void {
+  addDevPlugin(summary: PluginSummary, manifest?: PluginManifest): PluginSummary {
     this.dev.set(summary.id, summary)
     if (manifest) {
       this.devManifests.set(summary.id, manifest)
       this.syncContributes(manifest, true)
     }
+    return this.get(summary.id)!
   }
 
   removeDevPlugin(id: string): void {

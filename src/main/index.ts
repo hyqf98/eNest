@@ -239,8 +239,7 @@ void app.whenReady().then(async () => {
     logInfo('main', 'ipc ok')
 
     // 快捷启动：注册全局热键 + 后台扫描；小窗懒创建（首次呼出时）
-    // 不要在这里 ensureQuickWindow()：boot 阶段创建透明 BaseWindow/WebContentsView
-    // 会在部分环境直接原生崩溃，表现为「启动即退出」
+    // 不要在这里 ensureQuickWindow()：透明小窗按需创建，避免启动阶段并发初始化原生窗口。
     initQuickHotkeys()
     void scanApplications(false)
     logInfo('main', 'quick launcher ok')

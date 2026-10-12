@@ -74,80 +74,69 @@ eNest 插件可以使用任意前端技术（HTML / CSS / Canvas / WebGL / 任�
 
 ---
 
-## mini 插件（Quick 小窗）
+## 双宿主与响应式布局
 
-`plugin.json` 声明 `"form": "mini"` 的插件优先在 **Quick 命令面板小窗** 内嵌打开（小窗不可用时自动改用主窗 Tab，布局规则同 panel）。mini 插件内容是叠在 Quick 渲染层之上的原生 WebContentsView：
+`form` 只决定从快捷启动打开时使用哪个宿主：`panel` 进入主窗口 Tab，`mini` 加载在 Quick 输入条下方。从首页打开的插件使用主窗口；Quick 内的 mini 也可以固定到主窗，迁移时保留同一个 WebContentsView 与运行状态。
 
-```text
-┌────────────────────────────────┐
-│  Quick 输入条（渲染层）  64px   │  ← QUICK_BAR_AREA_H，插件不要覆盖
-├────────────────────────────────┤
-│                                │
-│  插件内容（WebContentsView）    │  ← 高度自适应，见下
-│  宽 720（QUICK_WIDTH）          │
-│                                │
-└────────────────────────────────┘
-```
+壳子负责原生窗口、输入条和插件内容区边界。插件拥有自己的页面、搜索、滚动区域、断点和宽高设置；壳子不注入插件内部布局，也不会缩放整张页面。
 
-| 约束 | 值 | 说明 |
-|------|-----|------|
-| 宽度 | **720**（`QUICK_WIDTH`） | 固定，勿做横向自适应到其它宽度的假设 |
-| 顶部 | **64px** 输入条（`QUICK_BAR_AREA_H`） | 插件 view 从 y=64 铺满剩余高度 |
-| 内容高度 | 自适应，见下方优先级 | 上限内滚动，超出裁切 |
-| 高度下限 | 120（`QUICK_PLUGIN_MIN_HEIGHT`） | 钳制 |
-| 高度上限 | 窗高 520（`QUICK_MAX_HEIGHT`）内可容纳范围 | 超出部分插件内部滚动 |
-
-### 内容高度自适应（优先级）
-
-壳子按以下顺序决定插件区高度：
-
-```text
-enest.ui.setHeight(px) 上报  >  body scrollHeight 探测  >  manifest window.minHeight  >  默认 300
-```
-
-- **主动上报（推荐）**：内容尺寸变化时调 `enest.ui.setHeight(height)`（需 `ui.resize` 权限；主窗 Tab 场景该调用仅记录不动作）。壳子持续观察，可多次上报。
-- 未上报时壳子前几轮用 `executeJavaScript` 量 `body.scrollHeight` 兜底。
-- 最终高度被钳制到 `[120, 520 − 64]`，窗高 = 64 + 钳制后高度（tween 过渡）。
-
-### 键盘约定（主进程拦截）
-
-mini 插件区域持焦时，渲染层收不到键盘事件，由主进程 `before-input-event` 拦截：
-
-| 按键 | 行为 |
-|------|------|
-| `Esc` | 退出插件态，返回 Quick 列表（插件退 background 并开始休眠计时） |
-| `⌘Enter` / `Ctrl+Enter` | **固定到主窗**：同一 webContents 迁移到主窗 Tab，不重载、状态保留 |
-
-插件内自定义快捷键请避开这两个组合。
-
-### mini 插件布局检查清单
-
-- [ ] 按宽 720 设计；根元素 `margin: 0`、`width: 100%`
-- [ ] 不渲染顶部输入条（那是 Quick 渲染层；你的内容从 64px 之下开始）
-- [ ] 内容高度变化时上报 `enest.ui.setHeight(px)`；同时设 `manifest.window.minHeight` 作为兜底
-- [ ] 超过 456px（520−64）的内容自己滚动，不依赖窗口撑高
-- [ ] Esc / ⌘Enter 被壳子占用，勿绑定
-- [ ] `onEnter` 可重入（Esc 退场后再次呼出可能走冷启动 + session 快照恢复）
+### 内容区尺寸
 
 ```jsonc
-// plugin.json
 {
-  "id": "com.example.calc",
   "form": "mini",
-  "window": { "minHeight": 320 },
-  "permissions": ["ui.resize", "ui.setTitle"]
+  "window": {
+    "width": 760,
+    "height": 400,
+    "minWidth": 480,
+    "minHeight": 240
+  },
+  "permissions": ["ui.resize"]
 }
 ```
 
-```js
-// index.html — 高度上报示例
-const api = window.enest
-function reportHeight() {
-  api?.ui.setHeight(Math.ceil(document.body.scrollHeight))
+`width` / `height` 是 Quick 初次挂载的**内容区**尺寸建议，`minWidth` / `minHeight` 是下限建议。未声明时使用壳子默认宽度与内容高度。实际尺寸受当前显示器可用工作区限制，顶部输入条和边框由壳子另行计算，插件不要把它们加进内容高度。
+
+- `await enest.ui.resize({ width, height })`：Quick 中即时更新尺寸建议，支持只传其中一项；主窗中仅记录，不改变用户主窗口大小。
+- `await enest.ui.setHeight(height)`：只更新内容高度，与 `resize({ height })` 等价。
+- 两个接口需要 `ui.resize` 权限，单位均为 CSS px，参数必须是正有限数。
+- 显示器空间不足时，插件应响应实际 viewport 大小并自行滚动。不要假定 Quick 永远是 720px 宽，也不要假定 mini 只能在小窗运行。
+- 壳子不根据 `body.scrollHeight` 循环撑大窗口。内容很长时应使用内部滚动；需要用户自定宽高时，可在插件设置中保存偏好后调用 `resize`。
+
+### 可在两种宿主运行的布局
+
+```css
+html, body, #app { width: 100%; height: 100%; margin: 0; }
+* { box-sizing: border-box; }
+#app { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.content { min-width: 0; min-height: 0; overflow: auto; }
+.items { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); }
+@media (max-width: 640px) {
+  .optional-sidebar { display: none; }
 }
-window.addEventListener('resize', reportHeight)
-window.addEventListener('load', reportHeight)
 ```
+
+Canvas / 图表可监听 `ResizeObserver` 或 `window.resize`，使用实际内容区宽高重绘。主窗口放大、Quick 调整尺寸或固定到主窗都会改变 viewport，无需重新加载插件。
+
+```js
+// 尺寸是插件自己的用户偏好，不要把占满视口的根节点高度反复回传。
+async function applyPreferredSize({ width = 760, height = 400 }) {
+  await enest.ui.resize({ width, height })
+}
+```
+
+### Quick 交互与键盘
+
+输入条始终属于壳子。嵌入插件后，在顶部输入新的全局关键词会先退回搜索结果；插件自身的内容搜索应放在插件页面里。
+
+| 操作 | 行为 |
+|------|------|
+| `Esc` | 退出插件，回 Quick 列表；再次按下隐藏 Quick |
+| `⌘Enter` / `Ctrl+Enter` | 固定到主窗，同一 WebContentsView 迁移，状态保留 |
+| `⌘K` / `Ctrl+K` | 回到顶部全局搜索框并选中已有搜索词 |
+| 点击输入条返回按钮 | 回到 Quick 列表 |
+
+插件内容获得焦点时，以上键盘约定由主进程拦截。插件自定义快捷键应避开这些组合。插件在 `onOut` 中暂停动画、轮询，在可重入的 `onEnter` 中恢复。
 
 ---
 

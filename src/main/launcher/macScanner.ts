@@ -2,6 +2,8 @@
  * macScanner — 扫描 macOS .app 包
  * 源：/Applications、/System/Applications、~/Applications（一层 + 有限子目录）。
  */
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { readdir, readFile, stat } from 'node:fs/promises'
@@ -11,7 +13,7 @@ function roots(): string[] {
   return ['/Applications', '/System/Applications', join(homedir(), 'Applications')]
 }
 
-const SKIP_DIR = new Set(['Utilities', 'Utilities.localized'])
+const execFileAsync = promisify(execFile)
 
 /** 从 Info.plist 文本中粗提 CFBundleDisplayName / CFBundleName */
 function extractPlistName(xml: string): string | null {
@@ -24,8 +26,11 @@ function extractPlistName(xml: string): string | null {
 
 async function readAppName(appPath: string): Promise<string | null> {
   try {
-    const plist = await readFile(join(appPath, 'Contents', 'Info.plist'), 'utf-8')
-    return extractPlistName(plist)
+    const path = join(appPath, 'Contents', 'Info.plist')
+    const plist = await readFile(path, 'utf-8')
+    if (!plist.startsWith('bplist')) return extractPlistName(plist)
+    const { stdout } = await execFileAsync('/usr/bin/plutil', ['-convert', 'xml1', '-o', '-', path], { timeout: 1500 })
+    return extractPlistName(stdout)
   } catch {
     return null
   }
@@ -48,10 +53,10 @@ async function scanDir(dir: string, depth: number, out: LocalApp[]): Promise<voi
       continue
     }
     if (st.isDirectory()) {
-      if (entry.endsWith('.app')) {
+      if (/\.app$/i.test(entry)) {
         const name = (await readAppName(full)) || entry.replace(/\.app$/i, '')
-        out.push({ name, path: full })
-      } else if (depth < 2 && !SKIP_DIR.has(entry) && !entry.endsWith('.app')) {
+        out.push({ name, path: full, alias: entry.replace(/\.app$/i, '') })
+      } else if (depth < 2) {
         await scanDir(full, depth + 1, out)
       }
     }
@@ -67,6 +72,11 @@ export async function scanApplications(): Promise<ApplicationScanResult> {
     } catch (err) {
       errors.push(`${root}: ${(err as Error).message}`)
     }
+  }
+  // Finder 不在 /Applications 内，仍是用户可启动的系统应用。
+  const finder = '/System/Library/CoreServices/Finder.app'
+  if (await stat(finder).then((entry) => entry.isDirectory()).catch(() => false)) {
+    apps.push({ name: '访达', alias: 'Finder', path: finder })
   }
   // 去重（同 path）
   const seen = new Set<string>()

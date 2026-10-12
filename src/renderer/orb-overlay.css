@@ -17,8 +17,13 @@ body {
      阴影同样按 data-theme 分档，与壳子 --shadow-soft/--shadow-float 同强度量级 */
   --orb-face-bg: color-mix(in srgb, var(--surface, #ffffff) 94%, transparent);
   --orb-face-border: var(--border-strong, rgba(15, 23, 42, 0.16));
-  --orb-face-ring: rgba(255, 255, 255, 0.8);
-  --orb-face-ring-2: rgba(26, 31, 46, 0.22);
+  --orb-face-ring: color-mix(in srgb, var(--surface, #ffffff) 92%, transparent);
+  --orb-face-ring-2: color-mix(in srgb, var(--text-2, #666c70) 46%, transparent);
+  --orb-selected-scale: 1.06;
+  --orb-hover-scale: 1.12;
+  --orb-hover-x: 3px;
+  --orb-press-scale: 1.02;
+  --orb-feedback-duration: 200ms;
   --orb-close-bg: rgba(255, 255, 255, 0.95);
   --orb-close-border: rgba(15, 23, 42, 0.1);
   --orb-shadow:
@@ -42,8 +47,6 @@ body {
   --orb-face-bg: color-mix(in srgb, var(--surface, #161b24) 96%, transparent);
   /* token 的深色 border-strong(0.16) 在深底上过淡，圆球描边用更亮的固定值 */
   --orb-face-border: rgba(255, 255, 255, 0.22);
-  --orb-face-ring: rgba(255, 255, 255, 0.5);
-  --orb-face-ring-2: rgba(0, 0, 0, 0.45);
   --orb-close-bg: rgba(30, 36, 48, 0.96);
   --orb-close-border: rgba(255, 255, 255, 0.2);
   --orb-shadow:
@@ -180,6 +183,11 @@ body {
   pointer-events: auto;
 }
 
+/* 相邻圆球有重叠；当前交互项的外圈不能被后面的插件盖住。 */
+.orb-item.active { z-index: 1; }
+.orb-item:hover,
+.orb-item:focus-within { z-index: 2; }
+
 .orb-face {
   width: 44px;
   height: 44px;
@@ -192,14 +200,14 @@ body {
   cursor: pointer;
   box-shadow: var(--orb-shadow);
   transition:
-    transform 0.22s cubic-bezier(0.22, 1.4, 0.36, 1),
-    box-shadow 0.2s ease;
+    transform var(--orb-feedback-duration) cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow var(--orb-feedback-duration) ease;
   padding: 0;
   margin-left: 4px;
 }
 
 .orb-face:hover {
-  transform: scale(1.12) translateX(3px);
+  transform: scale(var(--orb-hover-scale)) translateX(var(--orb-hover-x));
   box-shadow: var(--orb-shadow-hover);
 }
 
@@ -209,16 +217,24 @@ body {
 }
 
 .orb-face:active {
-  transform: scale(1.02) translateX(2px);
+  transform: scale(var(--orb-press-scale));
 }
 
-.orb-item.active .orb-face {
+/* 首页和插件共用选中、悬停、键盘聚焦的双层外圈，与动画档位无关。 */
+.orb-item.active .orb-face,
+.orb-item > .orb-face:hover,
+.orb-item > .orb-face:focus-visible {
   box-shadow:
     0 0 0 3px var(--orb-face-ring),
     0 0 0 5px var(--orb-face-ring-2),
     var(--orb-shadow);
-  transform: scale(1.08);
 }
+.orb-item.active .orb-face { transform: scale(var(--orb-selected-scale)); }
+.orb-item > .orb-face:hover,
+.orb-item > .orb-face:focus-visible {
+  transform: scale(var(--orb-hover-scale)) translateX(var(--orb-hover-x));
+}
+.orb-item > .orb-face:active { transform: scale(var(--orb-press-scale)); }
 
 .orb-glyph {
   font-size: 13px;
@@ -254,6 +270,11 @@ body {
 }
 
 .orb-item:hover .orb-close {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+.orb-item:focus-within .orb-close {
   opacity: 1;
   transform: scale(1);
   pointer-events: auto;
@@ -315,7 +336,7 @@ body {
   box-shadow: var(--orb-shadow);
 }
 
-/* 独立小视图未重置 UA 默认蓝色 focus 框，点击后残留蓝色外圈——统一去掉 */
+/* 用统一的外圈替代 UA focus 框；非圆轨入口仍保留键盘焦点提示。 */
 .orb-face:focus,
 .orb-face:focus-visible,
 .orb-handle:focus,
@@ -324,30 +345,43 @@ body {
 .orb-dock .orb-face:focus-visible {
   outline: none;
 }
+.orb-handle:focus-visible,
+.orb-close:focus-visible,
+.orb-dock .orb-face:focus-visible {
+  outline: 2px solid var(--accent, #bd542b);
+  outline-offset: 2px;
+}
 
 /* ========== Animation intensity (data-anim) ========== */
-/* low：压短 transition、弹簧改线性、取消 hover 大位移；与主壳 app.css 策略一致 */
-:root[data-anim="low"] *,
-:root[data-anim="low"] *::before,
-:root[data-anim="low"] *::after {
-  transition-duration: 0.08s !important;
-  transition-delay: 0s !important;
-  transition-timing-function: linear !important;
+/* low 减少幅度和时长，保留外圈、轻微缩放与展开过渡。 */
+:root[data-anim="low"] .orb-rail {
+  --orb-selected-scale: 1.02;
+  --orb-hover-scale: 1.045;
+  --orb-hover-x: 1px;
+  --orb-press-scale: 0.985;
+  --orb-feedback-duration: 160ms;
 }
-
-:root[data-anim="low"] .orb-face:hover,
-:root[data-anim="low"] .orb-face:active,
-:root[data-anim="low"] .orb-item.active .orb-face,
+:root[data-anim="low"] .orb-handle,
+:root[data-anim="low"] .orb-panel,
+:root[data-anim="low"] .orb-item,
+:root[data-anim="low"] .orb-close {
+  transition-duration: 180ms;
+  transition-timing-function: ease-out;
+}
 :root[data-anim="low"] .orb-dock .orb-face:hover {
-  transform: none;
+  transform: scale(1.035);
 }
-
-/* low：展开 item 不做缩放弹入，仅快速淡入 */
 :root[data-anim="low"] .orb-item {
-  transform: translateX(0) scale(1);
+  transform: translateX(-3px) scale(0.98);
 }
+:root[data-anim="low"] .orb-rail.expanded .orb-item { transform: none; }
 
-/* high：略增强弹开与圆球放大（对齐主壳 app.css 的 high orb 段，幅度克制） */
+/* high 增强展开和悬停；状态外圈仍与其它档一致。 */
+:root[data-anim="high"] .orb-rail {
+  --orb-hover-scale: 1.18;
+  --orb-hover-x: 6px;
+  --orb-feedback-duration: 260ms;
+}
 :root[data-anim="high"] .orb-panel {
   transition:
     opacity 0.36s cubic-bezier(0.22, 1, 0.36, 1),
@@ -360,10 +394,20 @@ body {
     transform 0.52s cubic-bezier(0.22, 1.4, 0.36, 1);
 }
 
-:root[data-anim="high"] .orb-face:hover {
-  transform: scale(1.18) translateX(6px);
-}
-
 :root[data-anim="high"] .orb-dock .orb-face:hover {
   transform: scale(1.16);
+}
+
+/* 系统减少动态只取消运动，选中/悬停的外圈始终保留。 */
+@media (prefers-reduced-motion: reduce) {
+  .orb-rail *, .orb-rail *::before, .orb-rail *::after {
+    transition: none !important;
+  }
+  .orb-panel, .orb-item,
+  .orb-rail .orb-face:hover,
+  .orb-rail .orb-face:active,
+  .orb-rail .orb-face:focus-visible,
+  .orb-rail .orb-item.active .orb-face {
+    transform: none !important;
+  }
 }

@@ -2,7 +2,7 @@
 
 !> **本文件由 `scripts/generate-api-types.mjs` 生成，勿手改。**
 > 上游源：`src/preload/pluginPreload.ts`（`EnestPluginApi` 及其本地类型）+ `src/shared/types/plugin.ts` / `src/shared/types/ssh-db.ts`（共享类型）。
-> 生成时间：**2026-09-21 02:13:01 UTC** · 重新生成：`node scripts/generate-api-types.mjs`
+> 生成时间：**2026-10-12 03:06:07 UTC** · 重新生成：`node scripts/generate-api-types.mjs`
 >
 > 推荐直接安装 [`@enest/plugin-sdk`](../../../packages/plugin-sdk/README.md)（含本 d.ts + manifest 校验 CLI）；
 > 也可将下方声明保存为项目内 `enest-api.d.ts`，经 `/// <reference path="./enest-api.d.ts" />` 引入。
@@ -15,7 +15,7 @@
 /**
  * eNest 插件运行时 API 类型 —— 自动生成，勿手改。
  * 由 scripts/generate-api-types.mjs 从 src/preload/pluginPreload.ts 提取。
- * 生成时间：2026-09-21 02:13:01 UTC
+ * 生成时间：2026-10-12 03:06:07 UTC
  * 重新生成：node scripts/generate-api-types.mjs
  */
 
@@ -33,6 +33,7 @@ export interface EnestPluginApi {
         setTitle(title: string): Promise<boolean>;
         setIcon(icon: string): Promise<boolean>;
         setBadge(badge: string | number): Promise<boolean>;
+        /** 内容区尺寸建议（CSS px）；Quick 即时调整，主窗仅记录并保持用户窗口尺寸。需 ui.resize 权限。 */
         resize(size: {
             width?: number;
             height?: number;

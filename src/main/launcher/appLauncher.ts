@@ -10,7 +10,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, nativeImage, shell } from 'electron'
 import { getCachedApps } from './appScanner'
-import { logError, logInfo, logWarn } from '../logs/logService'
+import { logError, logInfo, logWarn } from '@main/logs/logService'
 
 /** 将 Linux Exec 字符串拆成 [cmd, ...args] */
 export function parseExecString(exec: string): [string, string[]] {
@@ -75,8 +75,9 @@ function run(argv) {
   return JSON.stringify(out)
 }`
 
-/** JXA 批量提取的内存缓存（进程生命周期内一次） */
-let macIconBatch: Promise<Map<string, string | null>> | null = null
+const pendingMacIcons = new Map<string, { promise: Promise<string | undefined>; resolve: (value: string | undefined) => void }>()
+const queuedMacIcons = new Set<string>()
+let macIconFlush: ReturnType<typeof setTimeout> | null = null
 
 /** XDG 图标主题查找目录（绝对路径 Icon= 之外的名称在这几处兜底） */
 const LINUX_ICON_DIRS = [
@@ -122,35 +123,41 @@ async function linuxDesktopIconUrl(iconName: string): Promise<string | undefined
 
 /**
  * darwin 图标提取：app.getFileIcon 在新系统返回通用占位图，
- * 改走 NSWorkspace iconForFile（JXA 一次子进程批量取全部已扫应用）。
- * 失败回退空 map，上层继续走 getFileIcon 兜底。
+ * 改走 NSWorkspace iconForFile（JXA 合批提取当前搜索结果中的应用）。
+ * 失败后上层继续走 getFileIcon 兜底。
  */
-async function macIconMap(): Promise<Map<string, string | null>> {
-  if (!macIconBatch) {
-    macIconBatch = (async () => {
-      const map = new Map<string, string | null>()
+function macIconData(path: string): Promise<string | undefined> {
+  const active = pendingMacIcons.get(path)
+  if (active) return active.promise
+  let finish!: (value: string | undefined) => void
+  const promise = new Promise<string | undefined>((resolve) => { finish = resolve })
+  pendingMacIcons.set(path, { promise, resolve: finish })
+  queuedMacIcons.add(path)
+  if (!macIconFlush) {
+    // 同一轮可见搜索结果合批；不再为一个结果等待整机全部应用提图。
+    macIconFlush = setTimeout(async () => {
+      macIconFlush = null
+      const batch = [...queuedMacIcons].map((path) => [path, pendingMacIcons.get(path)!] as const)
+      queuedMacIcons.clear()
+      let icons: Record<string, string | null> = {}
       try {
         const { execFile } = await import('node:child_process')
-        const cached = getCachedApps()
-        if (!cached || cached.apps.length === 0) return map
-        const paths = cached.apps.map((a) => a.path)
-        const out = await new Promise<string>((resolve, reject) => {
-          execFile(
-            '/usr/bin/osascript',
-            ['-l', 'JavaScript', '-e', MAC_ICON_SCRIPT, ...paths],
-            { maxBuffer: 64 * 1024 * 1024, timeout: 30_000 },
-            (err, stdout) => (err ? reject(err) : resolve(stdout))
-          )
+        const output = await new Promise<string>((resolve, reject) => {
+          execFile('/usr/bin/osascript', ['-l', 'JavaScript', '-e', MAC_ICON_SCRIPT, ...batch.map(([path]) => path)],
+            { maxBuffer: 16 * 1024 * 1024, timeout: 5000 },
+            (error, stdout) => error ? reject(error) : resolve(stdout))
         })
-        const parsed = JSON.parse(out) as Record<string, string | null>
-        for (const [k, v] of Object.entries(parsed)) map.set(k, v)
-      } catch (err) {
-        logWarn('quick', `mac icon batch failed: ${(err as Error).message}`)
+        icons = JSON.parse(output)
+      } catch (error) {
+        logWarn('quick', `mac icon batch failed: ${(error as Error).message}`)
       }
-      return map
-    })()
+      for (const [path, request] of batch) {
+        pendingMacIcons.delete(path)
+        request.resolve(icons[path] ? `data:image/png;base64,${icons[path]}` : undefined)
+      }
+    }, 0)
   }
-  return macIconBatch
+  return promise
 }
 
 /**
@@ -167,16 +174,10 @@ export async function getAppIconDataUrl(path: string, iconName?: string): Promis
   if (hit !== undefined) return hit || undefined
   // darwin：优先 NSWorkspace 批量结果（真实应用图标）
   if (process.platform === 'darwin') {
-    const map = await macIconMap()
-    const b64 = map.get(path)
-    if (b64) {
-      const url = `data:image/png;base64,${b64}`
+    const url = await macIconData(path)
+    if (url) {
       iconCache.set(path, url)
       return url
-    }
-    // 批量里没有该路径（新装应用等）→ 记负缓存防抖，仍可走 getFileIcon 兜底
-    if (!map.has(path)) {
-      logWarn('quick', `icon not in scan batch, fallback: ${path}`)
     }
   }
   // linux：.desktop Icon= 解析
@@ -214,9 +215,8 @@ export async function launchLocalApp(path: string): Promise<void> {
     if (!cmd) throw new Error('empty Exec')
     return new Promise((resolve, reject) => {
       const child = spawn(cmd, args, { detached: true, stdio: 'ignore' })
-      child.on('error', reject)
-      child.unref()
-      resolve()
+      child.once('error', reject)
+      child.once('spawn', () => { child.unref(); resolve() })
     })
   }
 
@@ -225,8 +225,9 @@ export async function launchLocalApp(path: string): Promise<void> {
   if (err) {
     if (platform === 'darwin') {
       return new Promise((resolve, reject) => {
-        spawn('open', ['-a', path], { detached: true, stdio: 'ignore' }).on('error', reject)
-        resolve()
+        const child = spawn('/usr/bin/open', ['-a', path], { stdio: 'ignore' })
+        child.once('error', reject)
+        child.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`应用启动失败（${code}）`)))
       })
     }
     logError('quick', `launch failed: ${path} — ${err}`)

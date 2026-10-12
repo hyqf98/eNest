@@ -8,21 +8,9 @@
  */
 import { nativeTheme } from 'electron'
 import type { PluginPreferredColorScheme } from '@shared/types/plugin'
-import { THEME_TOKEN_PRESETS } from '@shared/theme/presets'
+import { resolveThemePalette } from '@shared/theme/presets'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { themePackRegistry } from '@main/theme/themePacks'
-
-function hexToRgba(hex: string, alpha: number): string {
-  if (!hex.startsWith('#')) return hex
-  const h = hex.replace('#', '')
-  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
-  if (full.length < 6) return hex
-  const n = parseInt(full, 16)
-  const r = (n >> 16) & 255
-  const g = (n >> 8) & 255
-  const b = n & 255
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
-}
 
 /** 解析壳子当前 mode（system 走 nativeTheme）为 light/dark */
 export function resolveShellColorScheme(): 'light' | 'dark' {
@@ -50,13 +38,7 @@ export function resolveThemeTokens(
 
   const pack = theme.packId ? themePackRegistry.get(theme.packId) : null
   const overrides = (theme.overrides?.[mode] ?? {}) as Record<string, string>
-  const tokens: Record<string, string> = {
-    ...THEME_TOKEN_PRESETS[mode],
-    ...(pack?.tokens ?? {}),
-    ...overrides
-  }
-  const ok = tokens['--ok'] || THEME_TOKEN_PRESETS[mode]['--ok']
-  tokens['--ok-soft'] = hexToRgba(ok, mode === 'light' ? 0.1 : 0.12)
+  const tokens = resolveThemePalette(mode, overrides, pack?.tokens)
   return { mode, tokens }
 }
 

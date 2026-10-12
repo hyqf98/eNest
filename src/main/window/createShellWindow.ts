@@ -204,13 +204,20 @@ export function setQuickEventSink(fn: ((payload: ShellEventPayload) => void) | n
 
 /**
  * 向壳子渲染进程推送 shell:event 事件，窗口已销毁时静默忽略。
- * Quick 表面事件（quick-plugin-mode）额外转发给 Quick 小窗 wc。
+ * Quick 插件态、目录与共享外观额外转发给 Quick 小窗 wc。
  */
 export function sendShellEvent(payload: ShellEventPayload): void {
   const wc = getShellWebContents()
-  if (!wc || wc.isDestroyed()) return
-  wc.send(IpcChannels.ShellEvent, payload)
-  if (payload.type === 'quick-plugin-mode') {
+  if (wc && !wc.isDestroyed()) wc.send(IpcChannels.ShellEvent, payload)
+  // Quick 是独立文档，只同步自身插件态、目录与共享外观；不转发主窗口的 Tab 状态。
+  if (
+    payload.type === 'quick-plugin-mode' ||
+    payload.type === 'quick-focus-search' ||
+    payload.type === 'plugins-changed' ||
+    payload.type === 'theme-changed' ||
+    payload.type === 'theme-packs-changed' ||
+    payload.type === 'settings-changed'
+  ) {
     try {
       quickEventSink?.(payload)
     } catch {

@@ -2,13 +2,13 @@
  * app — 壳子与业务组件样式
  * 使用方：
  *   layout: ShellLayout(.app/.app-chrome/.stage)、TitleBar、TabStrip、BottomBar
- *   pages:  MarketPage(.page-home/.hero/.grid)、SettingsPage、DevConsolePage、PluginHostChrome
- *   components: StatsPill/SearchBox/CategoryChips/SegmentTabs/FeaturedCarousel/PluginCard/Toast/ThemeTokenEditor/PluginDetailModal/ThemeModeSelect/BackgroundPicker/AppBackground
+ *   pages:  SettingsPage、DevConsolePage、PluginHostChrome
+ *   components: Toast/ThemeTokenEditor/PluginDetailModal/ThemeModeSelect/BackgroundPicker/AppBackground
  * 布局契约：
  *   - 标题栏高度 --titlebar-h: 36px（.app-chrome 两行网格，固定不缩放）
  *   - 插件宿主 plugin-bar 高度 48px（.plugin-view 顶部）
  *   - AppBackground 固定 z-index 0，内容 .app-chrome z-index 1
- *   - --shell-scale（0.85–1.1）微调内容密度；流式 token 见 tokens.css（--page-pad/--content-max/--grid-*）
+ *   - --shell-scale（0.85–1.1）微调内容密度；流式 token 见 tokens.css（--page-pad）
  *   - 响应式断点 1440+ / 1200 / 960 / 720 / 520 / 400
  */
 /* ========== Frame ========== */
@@ -22,13 +22,8 @@
 }
 
 /* 背景媒体激活时，内容壳透明以露出底层；内容区加毛玻璃/浅色遮罩保证可读 */
-:root.has-bg-media .app,
-:root.has-bg-media .page-home {
+:root.has-bg-media .app {
   background: transparent;
-}
-
-:root.has-bg-media .dot-grid {
-  opacity: 0.25;
 }
 
 :root.has-bg-media .titlebar {
@@ -37,45 +32,11 @@
   -webkit-backdrop-filter: blur(20px) saturate(1.5);
 }
 
-/* 首页内容：不再叠灰色半透明垫层，直接用页面底色 */
-:root.has-bg-media .home-scroll {
-  background: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  box-shadow: none;
-  margin-top: 0;
-  border-radius: 0;
-}
-
-:root.has-bg-media .hero h1,
-:root.has-bg-media .hero .lead,
-:root.has-bg-media .section-head,
-:root.has-bg-media .home-toolbar {
-  color: var(--text);
-}
-
-:root.has-bg-media .hero .lead {
-  color: var(--text-2);
-}
-
 /* 卡片在有背景时抬高表面不透明度 —— 不要覆盖 chip/segmented 的激活态；搜索框保持透明 */
-:root.has-bg-media .card,
-:root.has-bg-media .s-card,
-:root.has-bg-media .stats-pill,
-:root.has-bg-media .link-more {
+:root.has-bg-media .s-card {
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-}
-
-/* 搜索条：任何时候都不铺白底 */
-:root.has-bg-media .search-wrap,
-.search-wrap,
-.search-box {
-  background: transparent !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  box-shadow: none !important;
 }
 
 /* 分类 / 背景类型 chip：仅未激活时加毛玻璃底，激活态交回 .chip.active */
@@ -111,13 +72,10 @@
    用同一套 Apple 软 accent + 高对比字，氛围背景下依旧可读。 */
 
 :root.has-bg-media .empty strong,
-:root.has-bg-media .empty span,
-:root.has-bg-media .card h3,
-:root.has-bg-media .card p {
+:root.has-bg-media .empty span {
   color: var(--text);
 }
 
-:root.has-bg-media .card p,
 :root.has-bg-media .empty span {
   color: var(--text-2);
 }
@@ -141,21 +99,6 @@
   backdrop-filter: blur(14px) saturate(1.2);
   -webkit-backdrop-filter: blur(14px) saturate(1.2);
   border-radius: var(--radius-xl);
-}
-
-/* 高动画强度：背景气泡粒子层 */
-.ambient-particles {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.9;
-  mix-blend-mode: screen;
-}
-
-:root[data-theme="dark"] .ambient-particles {
-  opacity: 0.75;
-  mix-blend-mode: plus-lighter;
 }
 
 .app-chrome {
@@ -450,224 +393,10 @@
   overflow: auto;
 }
 
-/* ========== HOME / MARKET ========== */
-.page-home {
-  background: transparent;
-}
-
-.dot-grid {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image: radial-gradient(var(--bg-dot) 1px, transparent 1px);
-  background-size: 22px 22px;
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 42%);
-  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 42%);
-}
-
-.home-scroll {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: clamp(18px, 3vh, 28px) var(--page-pad) clamp(96px, 12vh, 140px);
-}
-
 /* orb 轨道：给左侧把手/圆球留出安全边距，避免正文被永久遮挡 */
-.tab-orb .home-scroll,
 .tab-orb .settings-shell,
 .tab-orb .dev-shell {
   padding-left: max(var(--page-pad), 28px);
-}
-
-/* Hero */
-.hero {
-  text-align: center;
-  padding: clamp(24px, calc(40px * var(--shell-scale, 1)), 44px) 0 clamp(6px, 1.2vh, 12px);
-}
-
-.stats-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  height: 32px;
-  padding: 0 14px;
-  border-radius: var(--radius-pill);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-soft);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-2);
-  margin-bottom: 22px;
-}
-
-.stats-pill .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 0 3px var(--ok-soft);
-}
-
-.stats-pill .sep {
-  width: 1px;
-  height: 12px;
-  background: var(--border-strong);
-}
-
-.hero h1 {
-  margin: 0;
-  font-size: clamp(26px, min(7.2vw, calc(56px * var(--shell-scale, 1))), 56px);
-  font-weight: 700;
-  letter-spacing: -0.045em;
-  line-height: 1.12;
-  color: var(--text);
-  overflow-wrap: anywhere;
-}
-
-/* 标题流光底座：仅 medium/high 启用 background-clip 扫光（见 data-anim 段） */
-:root[data-anim="medium"] .hero h1,
-:root[data-anim="high"] .hero h1 {
-  background-image: linear-gradient(
-    100deg,
-    var(--text) 0%,
-    var(--text) 36%,
-    color-mix(in srgb, var(--link) 78%, var(--text)) 50%,
-    var(--text) 64%,
-    var(--text) 100%
-  );
-  background-size: 220% 100%;
-  background-repeat: no-repeat;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-}
-
-:root[data-anim="medium"] .hero h1 {
-  animation: hero-shimmer 7s ease-in-out infinite;
-}
-
-:root[data-anim="high"] .hero h1 {
-  background-image: linear-gradient(
-    100deg,
-    var(--text) 0%,
-    var(--text) 32%,
-    color-mix(in srgb, var(--link) 90%, #fff) 50%,
-    var(--text) 68%,
-    var(--text) 100%
-  );
-  animation: hero-shimmer 2.6s linear infinite;
-}
-
-@keyframes hero-shimmer {
-  0% {
-    background-position: 120% 50%;
-  }
-  100% {
-    background-position: -20% 50%;
-  }
-}
-
-/* 背景媒体激活时不要用 solid color 覆盖流光（后写规则） */
-:root.has-bg-media[data-anim="medium"] .hero h1,
-:root.has-bg-media[data-anim="high"] .hero h1 {
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-}
-
-.hero h1 .type-wrap {
-  display: inline-block;
-  min-width: 0.6em;
-}
-
-.caret {
-  display: inline-block;
-  width: 3px;
-  height: 0.85em;
-  margin-left: 2px;
-  vertical-align: -0.05em;
-  background: var(--text);
-  border-radius: 1px;
-  animation: blink 1s steps(1) infinite;
-}
-
-@keyframes blink {
-  50% { opacity: 0; }
-}
-
-.hero .lead {
-  margin: clamp(12px, 1.6vh, 18px) auto 0;
-  max-width: clamp(360px, 48vw, 540px);
-  color: var(--text-2);
-  font-size: clamp(13px, calc(15px * var(--shell-scale, 1)), 16px);
-  line-height: 1.65;
-}
-
-/* Search：无白底容器，透明输入条 */
-.search-wrap {
-  margin: clamp(24px, 3.6vh, 40px) auto 0;
-  max-width: var(--search-max);
-  background: transparent;
-}
-
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: clamp(44px, calc(52px * var(--shell-scale, 1)), 56px);
-  padding: 0 clamp(12px, 2vw, 16px);
-  border-radius: 999px;
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--text-3) 40%, transparent);
-  box-shadow: none;
-  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
-}
-
-.search-box:hover {
-  border-color: color-mix(in srgb, var(--text-3) 50%, var(--border));
-}
-
-.search-box:focus-within {
-  border-color: color-mix(in srgb, var(--link) 45%, var(--border));
-  background: color-mix(in srgb, var(--surface) 40%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--link) 12%, transparent);
-}
-
-.search-box svg {
-  flex-shrink: 0;
-  color: var(--text-3);
-}
-
-.search-box input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-  font-size: 15px;
-}
-
-.search-box input::-webkit-search-cancel-button {
-  -webkit-appearance: none;
-}
-
-.search-box input::placeholder {
-  color: var(--text-3);
-}
-
-/* Chips */
-.chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--chip-gap);
-  margin-top: clamp(24px, 3.6vh, 40px);
 }
 
 .chip {
@@ -691,7 +420,7 @@
 /* 激活 chip：与主按钮同一套软 accent 语言（可读、极轻阴影） */
 .chip.active {
   background: var(--accent);
-  color: #ffffff;
+  color: var(--accent-contrast);
   border-color: transparent;
   box-shadow:
     inset 0 0.5px 0 color-mix(in srgb, #fff 24%, transparent),
@@ -699,18 +428,7 @@
 }
 
 :root[data-theme="dark"] .chip.active {
-  color: #1a1a1e;
-}
-
-/* Segments under hero */
-.home-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: clamp(12px, 1.6vw, 18px);
-  margin-top: clamp(28px, 4.2vh, 44px);
-  margin-bottom: 8px;
-  flex-wrap: wrap;
+  color: var(--accent-contrast);
 }
 
 /* 分段控件：跟随主题 token，不写死白底 */
@@ -803,120 +521,6 @@
   opacity: 0.4;
 }
 
-.link-more {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-2);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 8px 12px;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  transition: color 0.15s, border-color 0.15s, transform 0.15s;
-}
-
-.link-more:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
-  transform: translateX(2px);
-}
-
-/* ========== Carousel ========== */
-/* 与 toolbar 下网格标题同一上间距，避免「精选 / 已安装」标题离分段控件远近不一 */
-.carousel-block {
-  margin: 22px 0 28px;
-}
-
-.section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-/* 网格标题与精选标题同一上边距节奏 */
-.section-head.grid-head {
-  margin-top: 22px;
-  margin-bottom: 16px;
-}
-
-/* 分类分组：组间距统一 */
-.category-group + .category-group {
-  margin-top: 8px;
-}
-
-.category-group .section-head.grid-head {
-  margin-top: 20px;
-}
-
-.section-head h2 {
-  margin: 0;
-  font-size: clamp(20px, calc(26px * var(--shell-scale, 1)), 26px);
-  font-weight: 700;
-  letter-spacing: -0.035em;
-}
-
-.section-count {
-  color: var(--text-3);
-  font-size: 12px;
-  font-weight: 550;
-}
-
-.carousel-ctrls {
-  display: flex;
-  gap: 6px;
-}
-
-.carousel-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text-2);
-  display: grid;
-  place-items: center;
-  transition: all 0.15s;
-}
-
-.carousel-btn:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-soft);
-}
-
-/* 轮播视口：padding 撑开裁切缓冲 + 负 margin 抵消占位，
-   避免 slide hover 上移（translateY/scale）被 overflow:hidden 切掉顶边 */
-.carousel-viewport {
-  overflow: hidden;
-  border-radius: var(--radius-xl);
-  padding: 14px 10px 12px;
-  margin: -14px -10px -12px;
-}
-
-.carousel-track {
-  display: flex;
-  gap: 16px;
-  will-change: transform;
-  align-items: stretch;
-}
-
-/* 精选项与市场网格共用 PluginCard */
-.carousel-item {
-  flex: 0 0 min(260px, min(78vw, 100%));
-  display: flex;
-}
-
-.carousel-item .card {
-  width: 100%;
-  height: 100%;
-  min-height: 168px;
-}
-
 .tag {
   height: 22px;
   padding: 0 8px;
@@ -932,156 +536,7 @@
   align-items: center;
 }
 
-/* ========== Card grid ========== */
-/* auto-fill + 流式 min：窗口变宽自动加列，变窄用 min(…, 100%) 防溢出 */
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(var(--grid-min-col), 100%), 1fr));
-  gap: var(--grid-gap);
-}
-
-/* ========== Card ========== */
-/* motion-web 基线：材质磁贴 — 边缘高光 / 深度阴影 / 弹簧 handfeel。
-   分档细则见文件末尾 data-anim 段；high 用 CSS 变量 tilt，不引入粒子扫光。 */
-.card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  background: var(--surface);
-  cursor: pointer;
-  min-height: 0;
-  height: 100%;
-  /* 容器查询：按卡片自身宽度适配（网格列宽随侧栏/列数变化，不能只看视口） */
-  container-type: inline-size;
-  /* medium/low：overflow hidden 裁圆角内容；high 覆盖为 visible（tilt 阴影/icon 深度层） */
-  overflow: hidden;
-  /* 插件主色：JS 写在 article style；供 border accent / 指针高光 color-mix */
-  --pc: var(--link);
-  /* motion-web 缓动：out-with-settle / 轻微过冲弹簧；时长按档覆盖 */
-  --pc-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --pc-ease-spring: cubic-bezier(0.22, 1.15, 0.36, 1);
-  --pc-ease-press: cubic-bezier(0.22, 1, 0.28, 1);
-  --pc-dur: 0.2s;
-  --pc-dur-icon: 0.26s;
-  --pc-shadow-0: 0 0.5px 1px rgba(24, 24, 27, 0.03), 0 4px 12px rgba(24, 24, 27, 0.035);
-  transition:
-    transform var(--pc-dur) var(--pc-ease),
-    box-shadow var(--pc-dur) var(--pc-ease),
-    border-color var(--pc-dur) ease,
-    opacity 0.16s ease;
-}
-
-/* 材质边缘高光：顶部 1px 级内亮，静态；不参与 low 动画 */
-.card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 0;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, #fff 12%, transparent) 0%,
-    transparent 26%
-  );
-  opacity: 0.7;
-}
-
-/* 动效层：medium 静态 accent 斜向微光；high 指针径向高光（--mx/--my） */
-.card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 3;
-  opacity: 0;
-  background: radial-gradient(
-    400px circle at var(--mx, 50%) var(--my, 50%),
-    color-mix(in srgb, var(--pc, var(--link)) 18%, transparent),
-    transparent 55%
-  );
-  transition: opacity var(--pc-dur) ease;
-}
-
-/* 内容层：承载内距/纵向节奏，便于 @container 按卡片宽度调整（container 不能样式化自身） */
-.card-body {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  gap: clamp(6px, calc(8px * var(--shell-scale, 1)), 10px);
-  padding: clamp(12px, calc(15px * var(--shell-scale, 1)), 18px);
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-}
-
-/* 默认（无 data-anim 或 medium 前）：克制 hover；分档在 data-anim 段覆盖 */
-.card:hover:not(.is-disabled) {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--pc, var(--link)) 35%, var(--border));
-  box-shadow: var(--pc-shadow-0);
-}
-
-/* 键盘可达：卡片 focus-visible / 操作控件 focus-within 环（按钮另有 btn:focus-visible） */
-.card:focus-visible,
-.card:focus-within:not(.is-disabled) {
-  outline: none;
-  border-color: color-mix(in srgb, var(--pc, var(--link)) 48%, var(--border));
-  box-shadow:
-    var(--pc-shadow-0),
-    0 0 0 3px color-mix(in srgb, var(--pc, var(--link)) 28%, transparent);
-}
-
-/* 按压：磁贴压缩；disabled 无 */
-.card:active:not(.is-disabled) {
-  transform: translateY(-1px) scale(0.98);
-  transition-duration: 0.08s;
-  transition-timing-function: var(--pc-ease-press);
-}
-
-/* 禁用卡：无抬升 / 无 tilt / 无高光误触 */
-.card.is-disabled {
-  opacity: 0.72;
-  cursor: not-allowed;
-  transform: none !important;
-  box-shadow: none !important;
-  border-color: var(--border) !important;
-}
-
-.card.is-disabled::after {
-  opacity: 0 !important;
-}
-
-.card.is-disabled .card-icon-rail,
-.card.is-disabled .card-icon {
-  transform: none !important;
-}
-
-.card-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  min-width: 0;
-}
-
-/* 图标深度层：high 反向 parallax / medium scale 的变换宿主 */
-.card-icon-rail {
-  flex-shrink: 0;
-  width: var(--plugin-icon-card, 48px);
-  height: var(--plugin-icon-card, 48px);
-  display: grid;
-  place-items: center;
-  transform-style: preserve-3d;
-  transition: transform var(--pc-dur-icon) var(--pc-ease-spring);
-}
-
-.card-icon,
 .plugin-icon-card {
-  /* 对齐 PLUGIN_ICON_DISPLAY_CARD=48；圆角 = 边长 * PLUGIN_ICON_RADIUS_RATIO(0.28) */
   width: var(--plugin-icon-card, 48px);
   height: var(--plugin-icon-card, 48px);
   border-radius: calc(var(--plugin-icon-card, 48px) * 0.28);
@@ -1094,15 +549,6 @@
   flex-shrink: 0;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.12);
   overflow: hidden;
-  /* 立体感：阴影由 --pc 推导；hover 分档加深（不在 inline style 写死，便于 CSS 覆盖） */
-  box-shadow:
-    0 2px 8px color-mix(in srgb, var(--pc, var(--link)) 30%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent);
-  transition:
-    transform var(--pc-dur-icon) var(--pc-ease-spring),
-    box-shadow var(--pc-dur-icon) var(--pc-ease),
-    filter var(--pc-dur-icon) ease;
-  transform: translateZ(0);
 }
 
 /* 插件位图图标统一：object-fit cover + 失败回退 glyph（见 PluginIcon.tsx） */
@@ -1133,251 +579,6 @@
 .plugin-icon-tab {
   border-radius: calc(var(--plugin-icon-tab, 20px) * 0.28);
   font-size: 9px;
-}
-
-.card-title {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-top: 1px;
-}
-
-/* 标题与分类 tag 同行紧贴；名称按内容宽度，过长可截断 */
-.card-title-row {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: flex-start;
-  gap: 6px;
-  min-width: 0;
-}
-
-/* 名称明显大于分类 tag，形成层级；不 flex-grow，tag 跟在标题旁 */
-.card-title-row h3 {
-  margin: 0;
-  font-size: clamp(15px, calc(16px * var(--shell-scale, 1)), 18px);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  min-width: 0;
-  flex: 0 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.25;
-  padding-top: 0;
-}
-
-/* 标题后的分类小 tag：明显更小、紧贴名称 */
-.card-title-row .tag {
-  height: 16px;
-  padding: 0 5px;
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  border-radius: 4px;
-  flex-shrink: 0;
-  margin-top: 2px;
-  align-self: flex-start;
-  line-height: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tag-cat {
-  background: var(--accent-soft, color-mix(in srgb, var(--accent) 10%, var(--surface-2)));
-  color: color-mix(in srgb, var(--accent) 85%, var(--text));
-  border-color: transparent;
-}
-
-.card-title-row .tag-ok {
-  background: var(--ok-soft);
-  color: var(--ok);
-  border-color: transparent;
-}
-
-.card-title-row .tag-off {
-  background: var(--surface-3);
-  color: var(--text-3);
-  border-color: transparent;
-}
-
-.card p {
-  margin: 0;
-  color: var(--text-2);
-  font-size: clamp(11.5px, calc(12px * var(--shell-scale, 1)), 13px);
-  line-height: 1.5;
-  flex: 1;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* 操作行贴底，同一行卡片按钮底部对齐；nowrap 防溢出，窄卡走容器查询收紧 */
-.card-actions {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 6px;
-  margin-top: auto;
-  min-height: 28px;
-  min-width: 0;
-}
-
-/* 操作区触觉：按钮 / 开关 focus-visible 环清晰；press 在分档加强 */
-.card-actions .btn:focus-visible,
-.card-switch:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, var(--link)) 36%, transparent);
-}
-
-.card-actions .btn-primary:focus-visible {
-  box-shadow:
-    inset 0 0.5px 0 color-mix(in srgb, #fff 26%, transparent),
-    0 0 0 3px color-mix(in srgb, var(--accent, var(--link)) 40%, transparent);
-}
-
-.card-actions-spacer {
-  flex: 1;
-  min-width: 0;
-}
-
-.card-switch-wrap {
-  display: inline-flex;
-  align-items: center;
-  cursor: pointer;
-  user-select: none;
-  flex-shrink: 0;
-}
-
-.card-switch {
-  width: 34px;
-  height: 20px;
-  border-radius: 99px;
-  background: var(--surface-3);
-  border: 1px solid var(--border);
-  position: relative;
-  padding: 0;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-  flex-shrink: 0;
-}
-
-.card-switch::after {
-  content: '';
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  transition: transform 0.15s ease;
-}
-
-.card-switch.on {
-  background: var(--ok, #0d9f6e);
-  border-color: transparent;
-}
-
-.card-switch.on::after {
-  transform: translateX(14px);
-}
-
-.card-switch:disabled {
-  opacity: 0.55;
-  cursor: wait;
-}
-
-.card-actions .btn-sm {
-  height: 24px;
-  padding: 0 10px;
-  font-size: 11px;
-  flex-shrink: 0;
-  max-width: 100%;
-}
-
-/* 右上角卸载图标钮 */
-.card-uninstall-corner {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 2;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-3);
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  padding: 0;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.card-uninstall-corner:hover:not(:disabled) {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
-.card-uninstall-corner:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
-
-.card-uninstall-dots {
-  font-size: 12px;
-  line-height: 1;
-}
-
-/* 标题行给右上角按钮留位 */
-.card-head {
-  padding-right: 28px;
-}
-
-/* —— 窄卡（≤250px）：标题仍尽量跟 tag 同行，仅操作收紧 —— */
-@container (max-width: 250px) {
-  .card-actions {
-    gap: 4px;
-  }
-
-  .card-actions .btn-sm,
-  .card-actions .btn-primary {
-    padding: 0 8px;
-  }
-}
-
-/* —— 宽卡（≥320px）：沿用 shell-scale token 略增内距/操作，避免大片空白发飘 —— */
-@container (min-width: 320px) {
-  .card-body {
-    padding: clamp(14px, calc(17px * var(--shell-scale, 1)), 20px);
-    gap: clamp(8px, calc(10px * var(--shell-scale, 1)), 12px);
-  }
-}
-
-/* 很宽的卡片：描述限宽，避免一行字拉满产生空旷感 */
-@container (min-width: 400px) {
-  .card p {
-    max-width: 48ch;
-  }
-
-  .card-actions .btn-sm,
-  .card-actions .btn-primary {
-    height: 25px;
-    padding: 0 11px;
-    font-size: 11px;
-  }
-}
-
-/* 去掉绝对定位徽章，分类/已安装已进标题区 */
-.badge-installed {
-  display: none;
 }
 
 /* ========== Buttons — Apple HIG / macOS Sonoma ==========
@@ -1418,14 +619,14 @@
   box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
-/* 主按钮：柔和鸢尾软填充（极浅上亮梯度），字清晰；阴影几乎不可见 */
+/* 主按钮：柔和强调色填充（极浅上亮梯度），字清晰；阴影几乎不可见 */
 .btn-primary {
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--accent) 94%, #fff) 0%,
     var(--accent) 100%
   );
-  color: #ffffff;
+  color: var(--accent-contrast);
   border-color: color-mix(in srgb, var(--accent) 86%, transparent);
   box-shadow:
     inset 0 0.5px 0 color-mix(in srgb, #fff 26%, transparent),
@@ -1455,7 +656,7 @@
     color-mix(in srgb, var(--accent) 86%, #fff) 0%,
     var(--accent) 100%
   );
-  color: #1a1a1e;
+  color: var(--accent-contrast);
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   box-shadow:
     inset 0 0.5px 0 color-mix(in srgb, #fff 40%, transparent),
@@ -1466,16 +667,6 @@
   box-shadow:
     inset 0 0.5px 0 color-mix(in srgb, #fff 40%, transparent),
     0 0 0 2.5px color-mix(in srgb, var(--accent) 32%, transparent);
-}
-
-/* 卡片内主操作：紧凑 pill，避免在网格里显得过大 */
-.card-actions .btn-primary {
-  border-radius: 999px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  height: 24px;
-  padding: 0 12px;
-  font-size: 11px;
 }
 
 /* 次要：表面 + 细边框，hover 微亮 */
@@ -1802,23 +993,19 @@
   display: flex;
   gap: 3px;
   padding: 3px;
-  border-radius: 999px;
+  border-radius: var(--radius-md);
   background: var(--surface-2);
   border: 1px solid var(--border);
   width: fit-content;
   max-width: 100%;
   margin-bottom: 16px;
-  flex-wrap: wrap;
-  overflow-x: auto;
-  scrollbar-width: none;
+  position: relative;
 }
-
-.settings-tabs::-webkit-scrollbar { display: none; }
 
 .settings-tabs button {
   height: 30px;
   padding: 0 13px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   color: var(--text-2);
   font-size: 12px;
   font-weight: 550;
@@ -1831,6 +1018,36 @@
   background: var(--surface);
   color: var(--text);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+/* 「更多」下拉：收起放不下的 tab */
+.settings-tabs .tabs-more {
+  position: relative;
+  display: flex;
+}
+.settings-tabs .tabs-more > button .caret {
+  margin-left: 5px;
+  font-size: 10px;
+  color: var(--text-3);
+}
+.settings-tabs .tabs-more-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  min-width: 148px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+}
+.settings-tabs .tabs-more-pop button {
+  text-align: left;
+  height: 30px;
 }
 
 .s-card {
@@ -3271,9 +2488,7 @@
 /* —— ≥1440：宽屏仍收在内容列，两侧留白更足（设置页更宽避免大片空白） —— */
 @media (min-width: 1440px) {
   :root {
-    --content-max: min(1200px, 100%);
     --page-pad: clamp(48px, 5vw, 80px);
-    --grid-min-col: 228px;
   }
 
   .settings-shell,
@@ -3282,26 +2497,8 @@
   }
 }
 
-/* —— ≤1200：中宽收紧垂直节奏 —— */
-@media (max-width: 1200px) {
-  .hero {
-    padding-top: clamp(20px, calc(30px * var(--shell-scale, 1)), 30px);
-  }
-
-  .carousel-block {
-    margin: 22px 0 28px;
-  }
-
-  .home-toolbar {
-    margin-top: clamp(24px, 3.6vh, 34px);
-  }
-}
-
-/* —— ≤960：3–4 列、边距收窄、dev/iso 单列 —— */
+/* —— ≤960：设置与开发者区域收窄 —— */
 @media (max-width: 960px) {
-  :root {
-    --grid-min-col: clamp(180px, 22vw, 210px);
-  }
 
   .theme-row {
     flex-wrap: wrap;
@@ -3312,12 +2509,6 @@
     min-width: 120px;
   }
 
-  .home-scroll {
-    padding-left: clamp(14px, 2.2vw, 20px);
-    padding-right: clamp(14px, 2.2vw, 20px);
-  }
-
-  .tab-orb .home-scroll,
   .tab-orb .settings-shell,
   .tab-orb .dev-shell {
     padding-left: max(clamp(14px, 2.2vw, 20px), 28px);
@@ -3333,16 +2524,8 @@
   }
 }
 
-/* —— ≤720：双列卡片、设置 tabs 横向滚动、字段纵向 —— */
+/* —— ≤720：设置 tabs 横向滚动、字段纵向 —— */
 @media (max-width: 720px) {
-  .grid {
-    grid-template-columns: 1fr 1fr;
-    gap: clamp(8px, 1.6vw, 12px);
-  }
-
-  .card {
-    min-height: 150px;
-  }
 
   .token-grid,
   .iso-grid,
@@ -3362,17 +2545,9 @@
     padding-left: 24px;
   }
 
-  /* 设置 tabs：横向滚动代替换行堆叠 */
+  /* 设置 tabs：窄屏同样单行 + 「更多」收纳（见 SettingsTabs 组件） */
   .settings-tabs {
-    flex-wrap: nowrap;
-    overflow-x: auto;
     width: 100%;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .settings-tabs::-webkit-scrollbar {
-    display: none;
   }
 
   .titlebar {
@@ -3380,23 +2555,10 @@
     padding: 0 8px 0 10px;
   }
 
-  .home-toolbar {
-    margin-top: clamp(20px, 3vh, 28px);
-    gap: 12px;
-  }
-
   .segmented button {
     height: 30px;
     padding: 0 12px;
     font-size: 12px;
-  }
-
-  .search-wrap {
-    margin-top: clamp(18px, 2.8vh, 24px);
-  }
-
-  .chip-row {
-    margin-top: clamp(18px, 2.8vh, 24px);
   }
 
   .field {
@@ -3428,14 +2590,6 @@
   .theme-card {
     width: calc(50% - 5px);
     min-width: 0;
-  }
-
-  .carousel-item {
-    flex-basis: min(240px, 85vw);
-  }
-
-  .carousel-track {
-    gap: 12px;
   }
 
   .plugin-bar {
@@ -3479,57 +2633,8 @@
   }
 }
 
-/* —— ≤520：市场网格单列 —— */
+/* —— ≤520：标题栏与安装面板收窄 —— */
 @media (max-width: 520px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
-
-  .card {
-    min-height: 140px;
-  }
-
-  .hero {
-    padding-top: 20px;
-  }
-
-  .hero .lead {
-    font-size: clamp(13px, 3.6vw, 13.5px);
-    line-height: 1.55;
-  }
-
-  .stats-pill {
-    height: 28px;
-    font-size: 11px;
-    margin-bottom: 16px;
-  }
-
-  .search-box {
-    height: clamp(40px, calc(48px * var(--shell-scale, 1)), 52px);
-    border-radius: 18px;
-    gap: 8px;
-  }
-
-  .search-box input {
-    font-size: 14px;
-  }
-
-  .home-toolbar {
-    margin-top: 22px;
-  }
-
-  .link-more {
-    font-size: 12px;
-    padding: 6px 10px;
-  }
-
-  .section-head {
-    flex-wrap: wrap;
-  }
-
-  .carousel-item {
-    flex-basis: min(220px, 88vw);
-  }
 
   .titlebar {
     grid-template-columns: 64px 1fr 88px;
@@ -3549,32 +2654,15 @@
 
 /* —— ≤400：极限窄屏 —— */
 @media (max-width: 400px) {
-  .home-scroll,
   .settings-shell,
   .dev-shell {
     padding-left: 12px;
     padding-right: 12px;
   }
 
-  .tab-orb .home-scroll,
   .tab-orb .settings-shell,
   .tab-orb .dev-shell {
     padding-left: 22px;
-  }
-
-  .chip-row {
-    justify-content: flex-start;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    scrollbar-width: none;
-    margin-left: -12px;
-    margin-right: -12px;
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-
-  .chip-row::-webkit-scrollbar {
-    display: none;
   }
 
   .chip {
@@ -3592,28 +2680,12 @@
 }
 
 /* ========== Animation intensity (data-anim) ========== */
-/* low：压短全局 transition/animation，禁用大面积 CSS 动效 */
-:root[data-anim="low"] *,
-:root[data-anim="low"] *::before,
-:root[data-anim="low"] *::after {
-  transition-duration: 0.05s !important;
-  transition-delay: 0s !important;
-  animation-duration: 0.05s !important;
-  animation-delay: 0s !important;
-  animation-iteration-count: 1 !important;
-  scroll-behavior: auto !important;
-}
-
-/* low：功能向无限 spinner / 进度指示白名单——加载态必须可读，不受 iteration-count:1 误伤 */
-:root[data-anim="low"] .detail-spinner {
-  animation-duration: 0.7s !important;
-  animation-iteration-count: infinite !important;
-}
-
-/* low：占位 Tab 骨架呼吸降为静态半透明（可读性优先，不做无限动画） */
-:root[data-anim="low"] .tab.lazy .ico {
-  animation: none !important;
-  opacity: 0.55;
+/* 低档保留轻量反馈；不能全局改写轮播计时、加载动画或组件的分档时长。 */
+:root[data-anim="low"] .btn,
+:root[data-anim="low"] .chip,
+:root[data-anim="low"] .float-btn,
+:root[data-anim="low"] .color-swatch-btn {
+  transition-duration: 0.16s;
 }
 
 /* low：设置页整页毛玻璃垫层禁用（大面积 backdrop-filter 是低档机的主要掉帧源）；
@@ -3625,134 +2697,16 @@
   background: color-mix(in srgb, var(--bg) 88%, transparent);
 }
 
-/* ========== medium：适度增强（仍明显低于 high；禁止大面积 backdrop-filter / 粒子） ========== */
-
-/* —— PluginCard / medium：depth + edge + handfeel —— */
-:root[data-anim="medium"] .card {
-  --pc-dur: 0.26s;
-  --pc-dur-icon: 0.3s;
-  transition:
-    transform 0.26s cubic-bezier(0.22, 1.15, 0.36, 1),
-    box-shadow 0.26s cubic-bezier(0.22, 1.15, 0.36, 1),
-    border-color 0.2s ease,
-    opacity 0.18s ease;
-}
-
-:root[data-anim="medium"] .card:hover:not(.is-disabled) {
-  transform: translateY(-3px);
-  border-color: color-mix(in srgb, var(--pc, var(--link)) 40%, var(--border));
-  box-shadow:
-    0 1px 2px rgba(24, 24, 27, 0.04),
-    0 8px 20px rgba(24, 24, 27, 0.07),
-    0 0 0 1px color-mix(in srgb, var(--pc, var(--link)) 12%, transparent);
-}
-
-/* medium：focus-visible / focus-within 抬升 + 清晰环（与 hover 同 depth 语言） */
-:root[data-anim="medium"] .card:focus-visible:not(.is-disabled),
-:root[data-anim="medium"] .card:focus-within:not(.is-disabled) {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--pc, var(--link)) 48%, var(--border));
-  box-shadow:
-    0 2px 6px rgba(24, 24, 27, 0.05),
-    0 10px 24px rgba(24, 24, 27, 0.06),
-    0 0 0 3px color-mix(in srgb, var(--pc, var(--link)) 30%, transparent);
-}
-
-/* medium：按压压缩（handfeel）；disabled 不抬升不压缩 */
-:root[data-anim="medium"] .card:active:not(.is-disabled) {
-  transform: translateY(-1px) scale(0.98);
-  transition-duration: 0.08s;
-  transition-timing-function: var(--pc-ease-press);
-}
-
-/* medium：::after 为静态斜向 accent 微光（非 high 扫光 keyframes） */
-:root[data-anim="medium"] .card::after {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--pc, var(--link)) 10%, transparent) 0%,
-    transparent 42%
-  );
-  transition: opacity 0.24s ease;
-}
-
-:root[data-anim="medium"] .card:hover:not(.is-disabled)::after,
-:root[data-anim="medium"] .card:focus-visible:not(.is-disabled)::after,
-:root[data-anim="medium"] .card:focus-within:not(.is-disabled)::after {
-  opacity: 1;
-}
-
-/* medium：图标 secondary motion — 独立稍慢 scale + 阴影加深；描述文字不位移 */
-:root[data-anim="medium"] .card:hover:not(.is-disabled) .card-icon,
-:root[data-anim="medium"] .card:focus-visible:not(.is-disabled) .card-icon,
-:root[data-anim="medium"] .card:focus-within:not(.is-disabled) .card-icon {
-  transform: scale(1.04);
-  box-shadow:
-    0 6px 16px color-mix(in srgb, var(--pc, var(--link)) 42%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 28%, transparent);
-}
-
-:root[data-anim="medium"] .card:hover:not(.is-disabled) .card-icon-rail,
-:root[data-anim="medium"] .card:focus-visible:not(.is-disabled) .card-icon-rail {
-  transform: none;
-}
-
-/* medium：已安装 hover 边框略稳；未安装更 accent（可安装暗示） */
-:root[data-anim="medium"] .card[data-installed="false"]:hover:not(.is-disabled) {
-  border-color: color-mix(in srgb, var(--pc, var(--link)) 48%, var(--border));
-}
-
-:root[data-anim="medium"] .card.is-disabled:hover,
-:root[data-anim="medium"] .card.is-disabled:focus-visible,
-:root[data-anim="medium"] .card.is-disabled:focus-within {
-  transform: none !important;
-  box-shadow: none !important;
-  border-color: var(--border) !important;
-}
-
-:root[data-anim="medium"] .card.is-disabled:hover .card-icon,
-:root[data-anim="medium"] .card.is-disabled::after {
-  transform: none !important;
-  opacity: 0 !important;
-}
-
-/* medium：操作按钮 focus-visible 清晰 ring（触觉反馈） */
-:root[data-anim="medium"] .card-actions .btn:focus-visible,
-:root[data-anim="medium"] .card-switch:focus-visible {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, var(--link)) 40%, transparent);
-}
-
-:root[data-anim="medium"] .card-actions .btn:active:not(:disabled) {
-  transform: scale(0.96);
-}
-
-/* medium：轮播箭头 / 底部悬浮钮 hover 轻抬升 */
-:root[data-anim="medium"] .carousel-btn,
+/* medium：底部悬浮钮 hover 轻抬升 */
 :root[data-anim="medium"] .float-btn {
   transition: transform 0.2s cubic-bezier(0.22, 1.2, 0.36, 1), box-shadow 0.2s ease, border-color 0.18s,
     color 0.18s, background 0.18s;
-}
-
-:root[data-anim="medium"] .carousel-btn:hover,
-:root[data-anim="medium"] .carousel-btn:focus-visible {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-soft);
 }
 
 :root[data-anim="medium"] .float-btn:hover,
 :root[data-anim="medium"] .float-btn:focus-visible {
   transform: translateY(-2px);
   box-shadow: var(--shadow-float);
-}
-
-/* medium：搜索框 focus 轻 accent ring（--accent / #5e6ad2，非亮蓝）；low 保持 base，high 不另加重 */
-:root[data-anim="medium"] .search-box {
-  transition: border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
-}
-
-:root[data-anim="medium"] .search-box:focus-within {
-  border-color: color-mix(in srgb, var(--accent, #5e6ad2) 48%, var(--border));
-  background: color-mix(in srgb, var(--surface) 48%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #5e6ad2) 14%, transparent);
 }
 
 /* medium：设置/字体/开发者列表卡 hover 轻抬升（high 仍更强） */
@@ -3783,71 +2737,16 @@
   transition: box-shadow 0.24s ease, filter 0.18s ease, transform 0.08s ease;
 }
 
-/* —— PluginCard / low：无 transform 位移；仅 border-color / opacity 微反馈；≤80ms ——
-   全局 low 已压到 0.05s !important；此处显式声明卡片语义，保证本体可读、禁 sheen/3D。 */
-:root[data-anim="low"] .card {
-  transform: none !important;
-  transition:
-    border-color 0.08s linear,
-    opacity 0.08s linear,
-    background-color 0.08s linear,
-    box-shadow 0.08s linear !important;
-}
-
-:root[data-anim="low"] .card:hover:not(.is-disabled),
-:root[data-anim="low"] .card:focus-visible:not(.is-disabled),
-:root[data-anim="low"] .card:focus-within:not(.is-disabled),
-:root[data-anim="low"] .card:active:not(.is-disabled) {
-  transform: none !important;
-  box-shadow: none !important;
-}
-
-:root[data-anim="low"] .card:hover:not(.is-disabled) {
-  border-color: color-mix(in srgb, var(--pc, var(--link)) 30%, var(--border));
-  opacity: 0.94;
-}
-
-:root[data-anim="low"] .card:focus-visible:not(.is-disabled),
-:root[data-anim="low"] .card:focus-within:not(.is-disabled) {
-  border-color: color-mix(in srgb, var(--pc, var(--link)) 40%, var(--border));
-  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--pc, var(--link)) 26%, transparent) !important;
-}
-
-/* low：禁 sheen / 3D / 伪元素动画；图标与深度层不动 */
-:root[data-anim="low"] .card::after,
-:root[data-anim="low"] .card::before {
-  display: none !important;
-  opacity: 0 !important;
-  animation: none !important;
-}
-
-:root[data-anim="low"] .card-icon,
-:root[data-anim="low"] .card-icon-rail,
-:root[data-anim="low"] .card:hover .card-icon,
-:root[data-anim="low"] .card:hover .card-icon-rail {
-  transform: none !important;
-}
-
-:root[data-anim="low"] .card.is-disabled:hover {
-  opacity: 0.72;
-  border-color: var(--border) !important;
-}
-
-/* low：其它表面卡同样取消位移（保留 bg-grad 规则） */
+/* low：其它表面卡缩小反馈幅度。 */
 :root[data-anim="low"] .bg-grad-card:hover .bg-grad-face {
-  transform: none;
+  transform: translateY(-1px);
 }
 
 :root[data-anim="low"] .btn:active,
 :root[data-anim="low"] .chip:active,
 :root[data-anim="low"] .float-btn:active,
 :root[data-anim="low"] .color-swatch-btn:hover {
-  transform: none;
-}
-
-:root[data-anim="low"] .card-actions .btn:active:not(:disabled),
-:root[data-anim="low"] .card-switch:active:not(:disabled) {
-  transform: none !important;
+  transform: scale(0.985);
 }
 
 /* high：通知卡片更弹的位移 */
@@ -3878,155 +2777,6 @@
 
 :root[data-anim="high"] .switch::after {
   transition: transform 0.24s cubic-bezier(0.22, 1.4, 0.36, 1);
-}
-
-/* —— PluginCard / high：perspective + pointer tilt + 动态径向高光 + 深度分层 ——
-   overflow:visible：tilt 外阴影与 icon 反向 parallax 不被裁切。
-   圆角由 border-radius + 伪元素 inherit 保证；图标自身仍 overflow:hidden。
-   禁止：无限粒子、大面积 blur、layout 属性动画；进入动画由 GSAP animateCards 负责。 */
-:root[data-anim="high"] .card {
-  overflow: visible;
-  transform-style: preserve-3d;
-  --pc-dur: 0.32s;
-  --pc-dur-icon: 0.28s;
-  --sh-x: 0px;
-  --sh-y: 6px;
-  --rxn: 0;
-  --ryn: 0;
-  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg))
-    translateY(var(--ty, 0px));
-  transition:
-    transform 0.32s cubic-bezier(0.22, 1.15, 0.36, 1),
-    box-shadow 0.32s cubic-bezier(0.22, 1.15, 0.36, 1),
-    border-color 0.24s ease,
-    opacity 0.2s ease;
-  will-change: transform;
-}
-
-/* pointer 跟踪中：更快跟手；离开后走上面弹簧 settle */
-:root[data-anim="high"] .card[data-tilt="on"]:not(.is-disabled) {
-  transition:
-    transform 0.12s linear,
-    box-shadow 0.14s ease,
-    border-color 0.2s ease,
-    opacity 0.2s ease;
-}
-
-:root[data-anim="high"] .card:hover:not(.is-disabled),
-:root[data-anim="high"] .card:focus-visible:not(.is-disabled),
-:root[data-anim="high"] .card:focus-within:not(.is-disabled) {
-  --ty: -4px;
-  border-color: color-mix(in srgb, var(--pc, var(--link)) 45%, var(--border));
-  /* 阴影随 tilt 偏移（光源左上）：JS 写 --sh-x/--sh-y */
-  box-shadow:
-    var(--sh-x, 0px) var(--sh-y, 8px) 22px rgba(15, 23, 42, 0.1),
-    calc(var(--sh-x, 0px) * 0.4) calc(var(--sh-y, 8px) * 0.35) 6px rgba(15, 23, 42, 0.06),
-    0 0 0 1px color-mix(in srgb, var(--pc, var(--link)) 20%, transparent);
-}
-
-:root[data-anim="high"] .card:focus-visible:not(.is-disabled),
-:root[data-anim="high"] .card:focus-within:not(.is-disabled) {
-  box-shadow:
-    var(--sh-x, 0px) var(--sh-y, 8px) 22px rgba(15, 23, 42, 0.08),
-    0 0 0 3px color-mix(in srgb, var(--pc, var(--link)) 32%, transparent);
-}
-
-/* high：active 更明显压下 + 快速回弹 */
-:root[data-anim="high"] .card:active:not(.is-disabled) {
-  --ty: 0px;
-  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(1px)
-    scale(0.97);
-  transition-duration: 0.08s;
-  transition-timing-function: var(--pc-ease-press);
-}
-
-/* high：::after = 指针径向高光（--mx/--my），不是扫光粒子 */
-:root[data-anim="high"] .card::after {
-  background: radial-gradient(
-    400px circle at var(--mx, 50%) var(--my, 50%),
-    color-mix(in srgb, var(--pc, var(--link)) 18%, transparent),
-    transparent 55%
-  );
-  transition: opacity 0.28s ease;
-}
-
-:root[data-anim="high"] .card:hover:not(.is-disabled)::after,
-:root[data-anim="high"] .card:focus-within:not(.is-disabled)::after {
-  opacity: 1;
-}
-
-/* high：图标反向 parallax（深度分层）— 比卡片略大反向 tilt，边框光随角度变化 */
-:root[data-anim="high"] .card-icon-rail {
-  transform: translate3d(calc(var(--ryn, 0) * -1.4px), calc(var(--rxn, 0) * 1.4px), 0)
-    rotateX(calc(var(--rx, 0deg) * -0.9)) rotateY(calc(var(--ry, 0deg) * -0.9));
-  transition: transform 0.16s ease-out;
-}
-
-:root[data-anim="high"] .card:hover:not(.is-disabled) .card-icon-rail,
-:root[data-anim="high"] .card:focus-within:not(.is-disabled) .card-icon-rail {
-  transform: translate3d(calc(var(--ryn, 0) * -1.6px), calc(var(--rxn, 0) * 1.6px), 0)
-    rotateX(calc(var(--rx, 0deg) * -0.95)) rotateY(calc(var(--ry, 0deg) * -0.95)) scale(1.05);
-}
-
-:root[data-anim="high"] .card[data-tilt="on"] .card-icon-rail {
-  transition: transform 0.1s linear;
-}
-
-:root[data-anim="high"] .card:hover:not(.is-disabled) .card-icon {
-  box-shadow:
-    calc(var(--ryn, 0) * 0.45px) calc(4px + var(--rxn, 0) * -0.25px) 14px
-      color-mix(in srgb, var(--pc, var(--link)) 40%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 30%, transparent),
-    inset calc(var(--ryn, 0) * 0.35px) calc(var(--rxn, 0) * 0.25px) 8px
-      color-mix(in srgb, var(--pc, var(--link)) 22%, transparent);
-}
-
-/* high：未安装更亮的 accent 边（邀请安装）；已安装保持材质稳重 */
-:root[data-anim="high"] .card[data-installed="false"]:hover:not(.is-disabled) {
-  border-color: color-mix(in srgb, var(--pc, var(--link)) 55%, var(--border));
-}
-
-/* high：禁用卡无抬升 / 无 tilt / 无高光 */
-:root[data-anim="high"] .card.is-disabled {
-  transform: none !important;
-  box-shadow: none !important;
-  border-color: var(--border) !important;
-}
-
-:root[data-anim="high"] .card.is-disabled:hover,
-:root[data-anim="high"] .card.is-disabled:focus-visible,
-:root[data-anim="high"] .card.is-disabled:focus-within {
-  --ty: 0px;
-}
-
-:root[data-anim="high"] .card.is-disabled::after {
-  opacity: 0 !important;
-}
-
-:root[data-anim="high"] .card.is-disabled .card-icon-rail,
-:root[data-anim="high"] .card.is-disabled .card-icon {
-  transform: none !important;
-}
-
-/* high：操作区触觉 — 更清晰 ring + 更强按压 */
-:root[data-anim="high"] .card-actions .btn:focus-visible,
-:root[data-anim="high"] .card-switch:focus-visible {
-  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--accent, var(--link)) 44%, transparent);
-}
-
-:root[data-anim="high"] .card-actions .btn:active:not(:disabled) {
-  transform: scale(0.94);
-  transition-duration: 0.07s;
-}
-
-:root[data-anim="high"] .card-switch:active:not(:disabled) {
-  transform: scale(0.96);
-}
-
-/* high：轮播 viewport 扩边（配合 tilt 阴影，避免视觉裁切） */
-:root[data-anim="high"] .carousel-viewport {
-  padding: 18px 14px 14px;
-  margin: -18px -14px -14px;
 }
 
 /* high：按钮点击 scale 反馈（略深于默认 active，仍克制） */
@@ -4061,15 +2811,13 @@
    光晕仅 hover/focus 出现；low 档 --glow-strength:0 自然失效。
    Apple 基线下光晕应更收敛，避免塑料发光。 */
 
-/* 主 CTA：btn-primary / featured-cta — 极轻外沿光（非厚阴影） */
-:root[data-anim="high"] .btn-primary:not(:disabled),
-:root[data-anim="high"] .featured-cta {
+/* 主 CTA：极轻外沿光 */
+:root[data-anim="high"] .btn-primary:not(:disabled) {
   transition: box-shadow 0.26s ease, transform 0.22s cubic-bezier(0.22, 1.3, 0.36, 1), filter 0.2s;
 }
 
 :root[data-anim="high"] .btn-primary:not(:disabled):hover,
-:root[data-anim="high"] .btn-primary:not(:disabled):focus-visible,
-:root[data-anim="high"] .carousel-item:hover .featured-cta {
+:root[data-anim="high"] .btn-primary:not(:disabled):focus-visible {
   transform: translateZ(0);
   box-shadow:
     inset 0 0.5px 0 color-mix(in srgb, #fff 26%, transparent),
@@ -4078,11 +2826,10 @@
       color-mix(in srgb, var(--glow-color) calc(var(--glow-strength) * 22%), transparent);
 }
 
-/* ghost / success / danger 按钮 + 轮播圆钮 + 底部悬浮钮：聚焦型轻光晕（贴边 + 小外扩） */
+/* ghost / success / danger 按钮 + 底部悬浮钮：聚焦型轻光晕（贴边 + 小外扩） */
 :root[data-anim="high"] .btn-ghost,
 :root[data-anim="high"] .btn-success,
 :root[data-anim="high"] .btn-danger,
-:root[data-anim="high"] .carousel-btn,
 :root[data-anim="high"] .float-btn {
   transition: box-shadow 0.24s ease, transform 0.22s cubic-bezier(0.22, 1.3, 0.36, 1);
 }
@@ -4093,8 +2840,6 @@
 :root[data-anim="high"] .btn-success:focus-visible,
 :root[data-anim="high"] .btn-danger:hover:not(:disabled),
 :root[data-anim="high"] .btn-danger:focus-visible:not(:disabled),
-:root[data-anim="high"] .carousel-btn:hover,
-:root[data-anim="high"] .carousel-btn:focus-visible,
 :root[data-anim="high"] .float-btn:hover,
 :root[data-anim="high"] .float-btn:focus-visible {
   transform: translateZ(0);
@@ -4157,62 +2902,6 @@
   word-break: break-all;
 }
 
-/* ========== 首页「插件扩展」卡片（manifest.contributes.homeCards） ========== */
-.contrib-grid {
-  margin-bottom: var(--grid-gap, 18px);
-}
-
-.contrib-card {
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 12px;
-  padding: clamp(12px, calc(15px * var(--shell-scale, 1)), 16px);
-  text-align: left;
-  font: inherit;
-  color: inherit;
-}
-
-.contrib-glyph {
-  flex: none;
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  color: #fff;
-  font-weight: 700;
-  font-size: 16px;
-}
-
-.contrib-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.contrib-title {
-  font-size: 14px;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.contrib-explain {
-  font-size: 12px;
-  color: var(--text-2);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.contrib-source {
-  font-size: 11px;
-  color: var(--text-3);
-}
-
 /* 插件设置项：slider 行（type=slider）与取值展示 */
 .plugin-slider-row {
   display: flex;
@@ -4232,4 +2921,14 @@
   font-size: 12px;
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
+}
+
+/* 系统减少动态与应用的低档分开处理。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
 }

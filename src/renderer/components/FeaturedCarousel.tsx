@@ -1,360 +1,163 @@
-/**
- * FeaturedCarousel — 精选插件 coverflow
- * 每个插件一个 DOM 节点，按相对中心的 ring 过渡位置/尺寸，切换时丝滑放大缩小。
- * 中心 data-ring=0 大卡；±1/±2 在左下/右下待选。
- * 悬停侧卡：原地放大（不跳中），其余卡缩小并按环序聚拢成紧凑队列（间距随卡宽等比），
- * 几何由 CSS 按 data-focus 分侧定义；点侧卡转到中心，点中心/CTA 打开或看详情。
- */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
+/** 首页产品横幅：空闲时自动切换，悬停与用户操作时暂停阅读计时。 */
+import { useState } from 'react'
+import type { CSSProperties } from 'react'
 import type { PluginSummary } from '@shared/types/plugin'
-import { useAnimationLevelStore } from '@renderer/hooks/useAnimationLevel'
+import { useI18n } from '@renderer/hooks/useI18n'
+import { PRODUCT_DWELL_MS, useProductCarousel } from '@renderer/hooks/useProductCarousel'
 import { ChevronLeftIcon, ChevronRightIcon } from '@renderer/components/icons'
 import { PluginIcon } from '@renderer/components/PluginIcon'
+import { ProductVisual } from '@renderer/components/ProductVisual'
 import '@renderer/styles/featured.css'
-
-function autoplayMs(level: 'low' | 'medium' | 'high'): number | null {
-  if (level === 'low') return null
-  if (level === 'high') return 3200
-  return 3800
-}
-
-function logicalOf(i: number, len: number): number {
-  if (len <= 0) return 0
-  return ((i % len) + len) % len
-}
 
 interface Props {
   items: PluginSummary[]
   onOpen: (id: string) => void
   onDetail?: (id: string) => void
+  paused?: boolean
 }
 
-const MAX_RING = 2
+export function FeaturedCarousel({ items, onOpen, onDetail, paused = false }: Props) {
+  const { locale, t } = useI18n()
+  const english = locale === 'en-US'
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const carousel = useProductCarousel(items, paused || previewOpen)
+  const { index, select } = carousel
 
-function ringStyle(ring: number, focus: number | null): CSSProperties {
-  return {
-    ['--ring' as string]: String(ring),
-    ['--focus' as string]: focus == null ? '0' : String(focus),
-  }
-}
-
-/**
- * coverflow 槽位：以 index 为中心的线性 ring（含 ±(maxSide+1) 缓冲环）。
- * 切换 index 时同一 plugin.id 的 ring 整体 ±1，DOM 不销毁 → 像滚动条一样同向滑动；
- * 缓冲环负责从边缘滑入/滑出，避免最外侧卡片瞬间换内容。
- */
-function buildScrollSlots(items: PluginSummary[], index: number, len: number) {
-  if (len <= 0 || !items[index]) {
-    return [] as { plugin: PluginSummary; logical: number; ring: number }[]
-  }
-  const maxSide = len >= 5 ? MAX_RING : len >= 3 ? 1 : 0
-  const pad = 1
-  const best = new Map<number, number>()
-  for (let k = -(maxSide + pad); k <= maxSide + pad; k++) {
-    const logical = logicalOf(index + k, len)
-    const prev = best.get(logical)
-    if (prev === undefined || Math.abs(k) < Math.abs(prev)) best.set(logical, k)
-  }
-  return [...best.entries()]
-    .map(([logical, ring]) => ({ plugin: items[logical], logical, ring }))
-    .sort((a, b) => a.ring - b.ring)
-}
-
-export function FeaturedCarousel({ items, onOpen, onDetail }: Props) {
-  const [index, setIndex] = useState(0)
-  const [dragging, setDragging] = useState(false)
-  /** 悬停中的 ring：侧卡放大 + 其余卡缩小 + 同侧挤让 */
-  const [hoverRing, setHoverRing] = useState<number | null>(null)
-  const pausedRef = useRef(false)
-  /** 用户点过箭头/圆点/拖拽后：不再自动轮播 */
-  const manualNavRef = useRef(false)
-  const timerRef = useRef<number | null>(null)
-  const level = useAnimationLevelStore((s) => s.level)
-  const len = items.length
-  const rootRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef({ active: false, id: -1, startX: 0, lastX: 0, moved: false })
-  const suppressClickRef = useRef(false)
-  const wheelAccRef = useRef(0)
-  const wheelTimerRef = useRef<number | null>(null)
-
-  const stop = useCallback(() => {
-    if (timerRef.current != null) {
-      window.clearInterval(timerRef.current)
-      timerRef.current = null
-    }
-  }, [])
-
-  const start = useCallback(() => {
-    stop()
-    // 手动切换过（箭头/圆点/拖拽）后不再自动播；悬停 pause 仍可临时停
-    if (manualNavRef.current || pausedRef.current || len < 2) return
-    const ms = autoplayMs(level)
-    if (ms == null) return
-    timerRef.current = window.setInterval(() => {
-      setIndex((i) => logicalOf(i + 1, len))
-    }, ms)
-  }, [len, level, stop])
-
-  /** 标记手动导航并停掉自动播 */
-  const markManualNav = useCallback(() => {
-    manualNavRef.current = true
-    stop()
-  }, [stop])
-
-  useEffect(() => {
-    // 数据重载时恢复自动播
-    manualNavRef.current = false
-    setIndex(0)
-    start()
-    return stop
-  }, [items, len, start, stop])
-
-  useEffect(() => () => stop(), [stop])
-
-  const pause = useCallback(() => {
-    pausedRef.current = true
-    stop()
-  }, [stop])
-
-  const resume = useCallback(() => {
-    pausedRef.current = false
-    setHoverRing(null)
-    if (!dragRef.current.active) start()
-  }, [start])
-
-  const go = useCallback(
-    (delta: number) => {
-      if (len <= 0) return
-      markManualNav()
-      setIndex((i) => logicalOf(i + delta, len))
-    },
-    [len, markManualNav]
-  )
-
-  useEffect(() => {
-    if (!manualNavRef.current && !pausedRef.current) start()
-  }, [index, start])
-
-  const openLogical = useCallback(
-    (logical: number) => {
-      const p = items[logical]
-      if (!p) return
-      if (p.installed && p.enabled !== false) {
-        onOpen(p.id)
-        return
-      }
-      if (onDetail) onDetail(p.id)
-      else onOpen(p.id)
-    },
-    [items, onDetail, onOpen]
-  )
-
-  const onItemClick = (e: ReactMouseEvent<HTMLElement>, logical: number, ring: number) => {
-    if (suppressClickRef.current) {
-      e.preventDefault()
-      e.stopPropagation()
-      return
-    }
-    e.preventDefault()
-    e.stopPropagation()
-    if (!items[logical]) return
-    if (ring !== 0) {
-      markManualNav()
-      setIndex(logical)
-      return
-    }
-    openLogical(logical)
+  const openPlugin = (plugin: PluginSummary) => {
+    if (plugin.installed && plugin.enabled !== false) onOpen(plugin.id)
+    else (onDetail ?? onOpen)(plugin.id)
   }
 
-  const onCtaClick = (e: ReactMouseEvent<HTMLElement>, logical: number) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (suppressClickRef.current) return
-    openLogical(logical)
-  }
+  if (!items.length) return null
 
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 || len < 2) return
-    dragRef.current = { active: true, id: e.pointerId, startX: e.clientX, lastX: e.clientX, moved: false }
-    suppressClickRef.current = false
-    stop()
-    setDragging(true)
-  }
-
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const d = dragRef.current
-    if (!d.active || e.pointerId !== d.id) return
-    const dx = e.clientX - d.startX
-    if (!d.moved && Math.abs(dx) > 6) d.moved = true
-    if (!d.moved) return
-    d.lastX = e.clientX
-    const root = rootRef.current
-    if (root) root.style.setProperty('--drag-x', `${dx * 0.3}px`)
-  }
-
-  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    const d = dragRef.current
-    if (!d.active || e.pointerId !== d.id) return
-    d.active = false
-    setDragging(false)
-    const root = rootRef.current
-    if (root) root.style.removeProperty('--drag-x')
-    if (!d.moved) {
-      if (!pausedRef.current) start()
-      return
-    }
-    suppressClickRef.current = true
-    window.setTimeout(() => {
-      suppressClickRef.current = false
-    }, 0)
-    const dx = d.lastX - d.startX
-    if (dx <= -48) go(1)
-    else if (dx >= 48) go(-1)
-  }
-
-  useEffect(() => {
-    const el = rootRef.current
-    if (!el || len < 2) return
-    const onWheel = (e: WheelEvent) => {
-      const absX = Math.abs(e.deltaX)
-      const absY = Math.abs(e.deltaY)
-      const dx = absX >= absY ? e.deltaX : e.shiftKey ? e.deltaY : 0
-      if (!dx) return
-      e.preventDefault()
-      wheelAccRef.current += dx
-      if (wheelTimerRef.current != null) window.clearTimeout(wheelTimerRef.current)
-      wheelTimerRef.current = window.setTimeout(() => {
-        wheelAccRef.current = 0
-      }, 180)
-      if (wheelAccRef.current <= -40) {
-        wheelAccRef.current = 0
-        go(1)
-      } else if (wheelAccRef.current >= 40) {
-        wheelAccRef.current = 0
-        go(-1)
-      }
-    }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  }, [go, len])
-
-  /** 对称槽位 + 按 plugin.id 复用节点，切换时同一卡 transform 过渡（同向滑动） */
-  const laidOut = useMemo(() => buildScrollSlots(items, index, len), [index, items, len])
-
-  const iconStyle = (p: PluginSummary): CSSProperties => ({
-    background: `linear-gradient(160deg, color-mix(in srgb, ${p.color} 90%, #fff) 0%, ${p.color} 48%, color-mix(in srgb, ${p.color} 70%, #000) 100%)`,
-  })
-
-  /** 侧卡聚焦态：悬停 ring ≠ 0 时其余卡缩小聚拢 */
-  const sideFocus = hoverRing != null && hoverRing !== 0
+  // 尾部的第二项给首项镜像保留下一张预览，避免回环时露出空白。
+  const positions = items.length > 1
+    ? [-1, ...items.map((_, itemIndex) => itemIndex), items.length, items.length + 1]
+    : [0]
 
   return (
-    <div
-      className={`carousel-block featured-coverflow${sideFocus ? ' is-side-focus' : ''}`}
-      data-focus={hoverRing ?? 0}
-      ref={rootRef}
-      onMouseEnter={pause}
-      onMouseLeave={resume}
+    <section
+      ref={carousel.rootRef}
+      className="carousel-block product-carousel"
+      role="region"
+      aria-roledescription="carousel"
+      aria-label={english ? 'Featured plugins' : '精选插件'}
+      data-single={items.length === 1 || undefined}
+      data-autoplay={carousel.running || undefined}
+      style={{ '--product-dwell': `${PRODUCT_DWELL_MS}ms` } as CSSProperties}
+      onKeyDown={carousel.onKeyDown}
+      onPointerEnter={carousel.onPointerEnter}
+      onPointerLeave={carousel.onPointerLeave}
+      onFocusCapture={carousel.onFocusCapture}
+      onBlurCapture={carousel.onBlurCapture}
+      onPointerDownCapture={carousel.onPointerDownCapture}
     >
-      <div className="section-head">
-        <h2>精选插件</h2>
-        {len > 1 && (
-          <div className="carousel-ctrls">
-            <button className="carousel-btn" type="button" aria-label="上一张" onClick={() => go(-1)}>
-              <ChevronLeftIcon size={17} />
-            </button>
-            <button className="carousel-btn" type="button" aria-label="下一张" onClick={() => go(1)}>
-              <ChevronRightIcon size={17} />
-            </button>
-          </div>
-        )}
-      </div>
-
       <div
-        className={`carousel-viewport${dragging ? ' is-dragging' : ''}`}
-        role="region"
-        aria-roledescription="carousel"
-        aria-label="精选插件"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        className={`product-viewport${carousel.dragging ? ' is-dragging' : ''}`}
+        ref={carousel.viewportRef}
+        onScroll={carousel.onScroll}
+        onWheel={carousel.onWheel}
+        onPointerDown={carousel.onPointerDown}
+        onPointerMove={carousel.onPointerMove}
+        onPointerUp={carousel.endDrag}
+        onPointerCancel={carousel.endDrag}
+        onLostPointerCapture={carousel.endDrag}
+        onClickCapture={carousel.onClickCapture}
+        tabIndex={0}
+        aria-label={english ? 'Browse plugins with arrow keys, Home or End; drag to swipe' : '使用左右方向键、Home、End 或拖动浏览插件'}
       >
-        <div className="carousel-track">
-          {laidOut.map(({ plugin: p, logical, ring }) => {
-            const isActive = ring === 0
-            const cta = p.installed ? (p.enabled === false ? '已禁用' : '打开') : '安装'
-            return (
-              <div
-                key={p.id}
-                className={`carousel-item${isActive ? ' is-active' : ''}${Math.abs(ring) === 1 ? ' is-near' : ''}${Math.abs(ring) >= 3 ? ' is-buffer' : ''}`}
-                data-ring={ring}
-                data-logical={logical}
-                data-hover={hoverRing === ring ? 'self' : sideFocus ? 'other' : undefined}
-                aria-label={p.name}
-                aria-current={isActive ? 'true' : undefined}
-                style={ringStyle(ring, hoverRing)}
-                onClick={(e) => onItemClick(e, logical, ring)}
-                onMouseEnter={() => setHoverRing(ring)}
-                onMouseLeave={() => setHoverRing((cur) => (cur === ring ? null : cur))}
-              >
-                <div className="featured-tile" style={{ ['--pc' as string]: p.color }}>
-                  <div className="featured-glow" aria-hidden />
-                  <div className="featured-energy" aria-hidden>
-                    <span className="featured-energy-sweep" />
-                  </div>
-                  <div className="featured-edge" aria-hidden />
-                  <PluginIcon
-                    className="featured-icon"
-                    src={p.icon}
-                    glyph={p.glyph}
-                    slot="featured"
-                    style={iconStyle(p)}
-                  />
-                  <div className="featured-meta">
-                    <div className="featured-name" title={p.name}>
-                      {p.name}
-                    </div>
-                    <div className="featured-desc" title={p.description}>
-                      {p.description}
-                    </div>
-                    <div className="featured-foot">
-                      <span className="featured-cat">{p.category}</span>
-                      <button
-                        type="button"
-                        className="featured-cta"
-                        tabIndex={isActive ? 0 : -1}
-                        onClick={(e) => onCtaClick(e, logical)}
-                      >
-                        {cta}
-                      </button>
-                    </div>
+        {positions.map((physicalIndex) => {
+          const itemIndex = ((physicalIndex % items.length) + items.length) % items.length
+          const plugin = items[itemIndex]
+          const clone = physicalIndex < 0 || physicalIndex >= items.length
+          const active = index === itemIndex
+          const interactive = active && !clone
+          const cta = plugin.installed
+            ? plugin.enabled === false ? t('plugin.detail') : t('plugin.open')
+            : t('plugin.install')
+          const hasInstallCount = /\d/.test(plugin.installs)
+          return (
+            <article
+              key={clone ? `loop-${physicalIndex}-${plugin.id}` : plugin.id}
+              className={`product-slide${active ? clone ? ' is-loop-current' : ' is-current' : ''}`}
+              data-product-index={clone ? undefined : itemIndex}
+              data-product-position={physicalIndex}
+              data-product-clone={clone || undefined}
+              role={clone ? undefined : 'group'}
+              aria-roledescription={clone ? undefined : 'slide'}
+              aria-label={clone ? undefined : `${itemIndex + 1} / ${items.length}: ${plugin.name}`}
+              aria-hidden={clone || undefined}
+              onClickCapture={clone ? (event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                select(physicalIndex)
+              } : undefined}
+              onClick={() => { if (!active) select(itemIndex) }}
+            >
+              <div className="product-peek" aria-hidden="true">
+                <PluginIcon src={plugin.icon} glyph={plugin.glyph} slot="featured" className="product-icon" />
+                <strong>{plugin.name}</strong>
+                <p className="product-peek-description">{plugin.description}</p>
+                <span>{english ? 'View plugin' : '查看插件'} <ChevronRightIcon size={13} /></span>
+              </div>
+              <div className="product-copy">
+                <div className="product-heading">
+                  <PluginIcon src={plugin.icon} glyph={plugin.glyph} slot="featured" className="product-icon" />
+                  <div className="product-title-group">
+                    <h2 className="product-title">
+                      {onDetail && !clone ? (
+                        <button type="button" title={plugin.name} tabIndex={interactive ? 0 : -1}
+                          onClick={() => { if (interactive) onDetail(plugin.id) }}>{plugin.name}</button>
+                      ) : plugin.name}
+                    </h2>
+                    <span className="product-author" title={plugin.author}>{plugin.author}</span>
                   </div>
                 </div>
+                <p className="product-description" title={plugin.description}>{plugin.description}</p>
+                <div className="product-actions">
+                  {clone ? <span className="product-cta">{cta}</span> : (
+                    <button type="button" className="product-cta" tabIndex={interactive ? 0 : -1}
+                      onClick={() => { if (interactive) openPlugin(plugin) }}>{cta}</button>
+                  )}
+                  <div className="product-stats">
+                    <span>v{plugin.version}</span>
+                    {hasInstallCount && <span>{plugin.installs} {english ? 'installs' : '次安装'}</span>}
+                  </div>
+                </div>
+                <div className="product-labels">
+                  <span className="product-category">{plugin.category}</span>
+                  {plugin.installed && <span className="product-state">{plugin.enabled === false ? t('plugin.disabled') : t('plugin.installed')}</span>}
+                </div>
               </div>
-            )
-          })}
-        </div>
+              <ProductVisual plugin={plugin} active={interactive} onPreviewChange={clone ? undefined : setPreviewOpen} />
+            </article>
+          )
+        })}
       </div>
-
-      {len > 1 && (
-        <div className="featured-dots" role="group" aria-label="精选插件分页">
-          {items.map((p, i) => (
-            <button
-              key={p.id}
-              type="button"
-              className={`featured-dot${i === index ? ' is-active' : ''}`}
-              aria-label={`转到第 ${i + 1} 张：${p.name}`}
-              aria-current={i === index ? 'true' : undefined}
-              onClick={() => {
-                markManualNav()
-                setIndex(i)
-              }}
-            />
-          ))}
-        </div>
+      {items.length > 1 && (
+        <>
+          <button className="product-nav product-nav-prev" type="button"
+            aria-label={english ? 'Previous plugin' : '上一个插件'}
+            onClick={() => select(carousel.indexRef.current - 1)}><ChevronLeftIcon size={20} /></button>
+          <button className="product-nav product-nav-next" type="button"
+            aria-label={english ? 'Next plugin' : '下一个插件'}
+            onClick={() => select(carousel.indexRef.current + 1)}><ChevronRightIcon size={20} /></button>
+          <div className="product-controls">
+            <div className="product-pagination" role="group" aria-label={english ? 'Featured plugin pages' : '精选插件分页'}>
+              {items.map((plugin, itemIndex) => (
+                <button key={plugin.id} type="button"
+                  className={`product-page${index === itemIndex ? ' is-current' : ''}`}
+                  aria-label={`${english ? 'Show' : '查看'} ${plugin.name}`}
+                  aria-current={index === itemIndex ? 'true' : undefined}
+                  title={plugin.name} onClick={() => select(itemIndex)}>
+                  {index === itemIndex && carousel.running && <span key={`${index}-${carousel.cycle}`} className="product-page-progress" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
       )}
-    </div>
+      <span className="sr-only" aria-live={carousel.running ? 'off' : 'polite'} aria-atomic="true">{carousel.announcement}</span>
+    </section>
   )
 }

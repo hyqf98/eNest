@@ -4,7 +4,7 @@
  * 仅存 id + 绝对路径 + 退出即杀开关；manifest 每次从目录现读。
  */
 import { existsSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { getAppPaths } from '@main/paths/pathsService'
 import { logWarn } from '@main/logs/logService'
@@ -25,7 +25,16 @@ export async function readDevPluginRecords(): Promise<DevPluginRecord[]> {
   if (!existsSync(file)) return []
   try {
     const raw = await readFile(file, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      // 写入中断等损坏：截取首个完整数组前缀尽力恢复，避免 dev 插件全部静默丢失
+      const end = raw.indexOf(']')
+      if (end <= 0) throw new Error('unrecoverable content')
+      parsed = JSON.parse(raw.slice(0, end + 1))
+      logWarn('dev', 'dev.json was corrupt, recovered records from valid prefix')
+    }
     if (!Array.isArray(parsed)) return []
     return parsed
       .filter((x): x is DevPluginRecord => {
@@ -45,7 +54,10 @@ export async function writeDevPluginRecords(records: DevPluginRecord[]): Promise
   for (const r of records) {
     if (r.id && r.path) unique.set(r.id, { id: r.id, path: r.path, ...(r.killOnHide ? { killOnHide: true } : {}) })
   }
-  await writeFile(file, JSON.stringify([...unique.values()], null, 2), 'utf8')
+  // 临时文件 + 同目录 rename 原子替换，进程中断不再留下半截 JSON
+  const tmp = `${file}.${process.pid}.tmp`
+  await writeFile(tmp, JSON.stringify([...unique.values()], null, 2), 'utf8')
+  await rename(tmp, file)
 }
 
 /** 加载后记录；同 id 覆盖路径，保留已有 killOnHide */

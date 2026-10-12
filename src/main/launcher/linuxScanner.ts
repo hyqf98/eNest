@@ -74,7 +74,7 @@ export async function scanApplications(): Promise<ApplicationScanResult> {
         apps.push({
           name: parsed.nameZh || parsed.name,
           path: parsed.exec,
-          alias: full,
+          alias: parsed.name,
           iconName: parsed.iconName || undefined
         })
       } catch (err) {

@@ -1,499 +1,294 @@
-/**
- * QuickLauncherApp — eNest 快捷启动小窗
- * 视觉复刻参考稿：大号输入条（无放大镜 / 无胶囊底）+ 右上品牌圆标；
- * 首页「最近使用」九列图标网格 + 展开(N)；搜索结果分「最佳搜索结果 / 匹配推荐」
- * 两组网格，选中项浅蓝高亮，命中词橙色前缀高亮，搜索态右侧「切换选中 Tab」提示。
- * 插件态：mini 插件挂载 Quick contentView（原生 view 叠在本渲染层之上，占输入条以下
- * 全部区域）——本层只绘 QUICK_BAR_AREA_H 高的顶栏（返回 / 标题 / 固定到主窗），
- * 列表/网格全部收起；高度由主进程控制（PluginHost 高度自适应），
- * DOM 测量 quickResize 在插件态禁用。动画走 marketMotion 档位（CSS data-anim 分档）。
- */
+/** Quick owns navigation; the native plugin view owns everything below the search bar. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, KeyboardEvent } from 'react'
 import gsap from 'gsap'
-import type { QuickCommand, QuickPluginModeInfo } from '@shared/types/quick'
-import { QUICK_BAR_AREA_H } from '@shared/constants'
-import { d, dy, ease, getAnimLevel } from '@renderer/gsap/marketMotion'
+import type { QuickCommand, QuickCommandKind, QuickOpenRequest, QuickPluginModeInfo } from '@shared/types/quick'
+import { QUICK_BAR_AREA_H, QUICK_CORNER_RADIUS } from '@shared/constants'
+import { d, dy, ease } from '@renderer/gsap/marketMotion'
 import { shellApi } from '@renderer/services/shellApi'
-import { useTheme, useThemeStore } from '@renderer/hooks/useTheme'
-import { useAnimationLevelStore } from '@renderer/hooks/useAnimationLevel'
+import { useAppearanceSync } from '@renderer/hooks/useAppearanceSync'
+import { AmbientParticles } from './AmbientParticles'
+import { SearchField } from './SearchField'
+import { ChevronLeftIcon, HouseIcon, RotateCwIcon, SettingsIcon } from './icons'
 import './quick.css'
 
-/** 网格列数（参考稿九列） */
-const GRID_COLS = 9
-/** 首页收起时显示的条目数（两行） */
-const HOME_COLLAPSED_COUNT = GRID_COLS * 2
+const FILTERS: { kind: QuickCommandKind; label: string }[] = [
+  { kind: 'app', label: '应用' }, { kind: 'plugin', label: '插件' }, { kind: 'action', label: '操作' }
+]
 
-/**
- * 结构性背景场：中/高档渲染，low 关闭。
- * 极坐标点阵 + 两枚软光斑，相位错拍呼吸；非上浮气泡。
- * 样式由 quick.css [data-anim] 分档。
- */
-function QuickParticles({ level }: { level: string }) {
-  if (level !== 'medium' && level !== 'high') return null
-  const rings = level === 'high' ? 4 : 3
-  const dots: { left: string; top: string; delay: string; size: number; hue: 'link' | 'ok' }[] = []
-  for (let ring = 1; ring <= rings; ring++) {
-    const count = 6 + ring * 4
-    const rr = (ring / rings) * 42
-    for (let i = 0; i < count; i++) {
-      const ang = (i / count) * Math.PI * 2 + ring * 0.2
-      dots.push({
-        left: `${50 + Math.cos(ang) * rr * 1.35}%`,
-        top: `${52 + Math.sin(ang) * rr}%`,
-        delay: `${(ring * 0.4 + i * 0.08).toFixed(2)}s`,
-        size: level === 'high' ? 2 + (4 - ring) * 0.4 : 1.6 + (3 - ring) * 0.3,
-        hue: ring % 2 === 0 ? 'ok' : 'link',
-      })
-    }
-  }
-  return (
-    <div className="quick-particles" aria-hidden>
-      <span className="quick-field-orb quick-field-orb-a" />
-      <span className="quick-field-orb quick-field-orb-b" />
-      {/* 点阵整体极缓慢旋转（high 档开启），中心恒定不飘 */}
-      <div className="quick-field-spin">
-        {dots.map((d, i) => (
-          <span
-            key={i}
-            className={`quick-field-dot hue-${d.hue}`}
-            style={{
-              left: d.left,
-              top: d.top,
-              width: `${d.size}px`,
-              height: `${d.size}px`,
-              animationDelay: d.delay,
-            }}
-          />
-        ))}
-      </div>
-    </div>
-  )
+function CategoryIcon({ kind }: { kind: QuickCommandKind }) {
+  return <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    {kind === 'app' ? <><rect x="4" y="4" width="6" height="6" rx="1.5" /><rect x="14" y="4" width="6" height="6" rx="1.5" /><rect x="4" y="14" width="6" height="6" rx="1.5" /><rect x="14" y="14" width="6" height="6" rx="1.5" /></> : kind === 'plugin' ? <><path d="m12 3 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5M3 16l9 5 9-5" /></> : <><path d="m5 7 5 5-5 5M13 17h6" /></>}
+  </svg>
 }
 
 function ItemIcon({ cmd }: { cmd: QuickCommand }) {
   const [failed, setFailed] = useState(false)
-  const showImg = !!cmd.icon && !failed
-  return (
-    <span className={`quick-icon-tile kind-${cmd.kind}${showImg ? ' has-icon' : ''}`} aria-hidden>
-      {showImg ? (
-        <img src={cmd.icon} alt="" onError={() => setFailed(true)} draggable={false} />
-      ) : (
-        <span className="quick-icon-fallback">{(cmd.title || '?').slice(0, 1).toUpperCase()}</span>
-      )}
-    </span>
-  )
+  useEffect(() => setFailed(false), [cmd.icon])
+  return <span className={`quick-icon-tile kind-${cmd.kind}${cmd.icon && !failed ? ' has-icon' : ''}`} aria-hidden>
+    {cmd.icon && !failed ? <img src={cmd.icon} alt="" onError={() => setFailed(true)} draggable={false} /> :
+      cmd.kind === 'action' ? (cmd.action === 'open-settings' ? <SettingsIcon size={25} /> : cmd.action === 'refresh-apps' ? <RotateCwIcon size={25} /> : <HouseIcon size={25} />) :
+        <span>{Array.from(cmd.title || '?')[0].toUpperCase()}</span>}
+  </span>
 }
 
-/** 命中前缀高亮：query 在标题中的子串橙色显示（参考稿「Clash Verge」样式） */
 function HighlightTitle({ text, query }: { text: string; query: string }) {
-  const q = query.trim().toLowerCase()
-  if (q.length > 0) {
-    const i = text.toLowerCase().indexOf(q)
-    if (i >= 0) {
-      return (
-        <>
-          {text.slice(0, i)}
-          <span className="quick-hit-text">{text.slice(i, i + q.length)}</span>
-          {text.slice(i + q.length)}
-        </>
-      )
-    }
-  }
-  return <>{text}</>
+  const q = query.trim().toLocaleLowerCase()
+  const i = q ? text.toLocaleLowerCase().indexOf(q) : -1
+  return i < 0 ? <>{text}</> : <>{text.slice(0, i)}<mark>{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length)}</>
 }
 
 export function QuickLauncherApp() {
-  const hydrateTheme = useTheme().hydrate
-  const hydrateAnim = useAnimationLevelStore((s) => s.hydrate)
-  const animLevel = useAnimationLevelStore((s) => s.level)
+  useAppearanceSync()
   const [query, setQuery] = useState('')
+  const [kind, setKind] = useState<QuickCommandKind>()
   const [items, setItems] = useState<QuickCommand[]>([])
   const [index, setIndex] = useState(0)
   const [busy, setBusy] = useState(false)
-  const [entering, setEntering] = useState(true)
-  const [expandKey, setExpandKey] = useState(0)
-  /** 首页「展开(N)」状态；收起时只显示前 HOME_COLLAPSED_COUNT 个 */
-  const [homeExpanded, setHomeExpanded] = useState(false)
-  /** 插件态信息（quick-plugin-mode 事件）；null = 列表态 */
+  const [error, setError] = useState('')
+  const [opening, setOpening] = useState<string | null>(null)
+  const [categoriesOpen, setCategoriesOpen] = useState(false)
+  const [revision, setRevision] = useState(0)
+  const [shown, setShown] = useState(0)
   const [pluginMode, setPluginMode] = useState<QuickPluginModeInfo | null>(null)
+  const modeRef = useRef(pluginMode)
   const inputRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
-  const bodyRef = useRef<HTMLDivElement>(null)
-  const barRef = useRef<HTMLDivElement>(null)
-
-  const searching = query.trim().length > 0
-  /** 当前渲染出的条目（首页收起时截断；搜索态全量，分组只是视图切分） */
-  const visibleItems = useMemo(
-    () => (searching || homeExpanded ? items : items.slice(0, HOME_COLLAPSED_COUNT)),
-    [items, searching, homeExpanded]
-  )
-  /** 插件态：DOM 测量禁用（主进程 PluginHost 控高），顶栏恒 QUICK_BAR_AREA_H */
-  const inPluginMode = pluginMode !== null
-
-  useEffect(() => {
-    void hydrateTheme()
-    void hydrateAnim()
-  }, [hydrateTheme, hydrateAnim])
-
-  // 主窗改主题/动画档时 Quick 同步：theme-changed 到达后重拉 token（Quick 独立
-  // WebContents，事件经 createQuickWindow 的 quickEventSink 转发到本页面）
-  useEffect(() => {
-    const off = shellApi.onEvent?.((payload) => {
-      if (payload.type === 'theme-changed') {
-        void useThemeStore.getState().hydrate()
-      }
-    })
-    return () => off?.()
+  const panelRef = useRef<HTMLDivElement>(null)
+  const searchVersion = useRef(0)
+  const openingRef = useRef(false)
+  const searching = Boolean(query.trim())
+  const showResults = searching && !pluginMode
+  const groups = useMemo(() => {
+    if (!showResults) return []
+    const frequent = items.filter((item) => item.kind === 'app' && (item.useCount || item.lastUsedTs))
+    return [
+      { id: 'frequent', title: '常用软件', items: frequent },
+      { id: 'apps', title: frequent.length ? '其它软件' : '软件', items: items.filter((item) => item.kind === 'app' && !item.useCount && !item.lastUsedTs) },
+      { id: 'plugins', title: '插件', items: items.filter((item) => item.kind === 'plugin') },
+      { id: 'actions', title: '系统操作', items: items.filter((item) => item.kind === 'action') }
+    ].filter((group) => group.items.length).map((group, i, all) => ({ ...group, offset: all.slice(0, i).reduce((total, previous) => total + previous.items.length, 0) }))
+  }, [items, showResults])
+  const visibleItems = useMemo(() => groups.flatMap((group) => group.items), [groups])
+  const resetResults = useCallback(() => {
+    searchVersion.current++
+    setItems([])
+    setIndex(0)
+    setError('')
+    setBusy(false)
   }, [])
 
-  const search = useCallback(async (q: string) => {
-    if (!shellApi.quickSearch) {
-      setItems([])
-      return
-    }
+  useEffect(() => {
+    const version = ++searchVersion.current
+    if (pluginMode || !searching) return
     setBusy(true)
-    try {
-      const result = await shellApi.quickSearch(q, 24)
-      setItems(result.items)
-      setIndex(0)
-    } catch {
-      setItems([])
-    } finally {
-      setBusy(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void search(query)
-  }, [query, search])
-
-  // 主进程推送插件态切换（挂载 / Esc / 固定 / crash 均会推 null 或新值）
-  useEffect(() => {
-    const off = shellApi.onEvent?.((payload) => {
-      if (payload.type === 'quick-plugin-mode') {
-        setPluginMode(payload.mode)
+    setError('')
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await shellApi.quickSearch?.(query, 60, kind)
+        if (version !== searchVersion.current) return
+        setItems(result?.items ?? [])
+        setIndex(0)
+      } catch {
+        if (version === searchVersion.current) { setItems([]); setError('搜索暂时不可用，请重试。') }
+      } finally {
+        if (version === searchVersion.current) setBusy(false)
       }
+    }, 80)
+    return () => { clearTimeout(timer); searchVersion.current++ }
+  }, [query, kind, revision, pluginMode, searching])
+
+  useEffect(() => {
+    const off = shellApi.onEvent?.((event) => {
+      if (event.type === 'quick-plugin-mode') {
+        modeRef.current = event.mode
+        setPluginMode(event.mode)
+        if (event.mode) { setQuery(''); resetResults(); setCategoriesOpen(false) }
+        setError('')
+        setOpening(null)
+        requestAnimationFrame(() => inputRef.current?.focus())
+      } else if (event.type === 'quick-focus-search') {
+        inputRef.current?.focus()
+        inputRef.current?.select()
+      } else if (event.type === 'plugins-changed') setRevision((v) => v + 1)
     })
-    return () => off?.()
-  }, [])
-
-  // 插件态顶栏入场：GSAP 档位缩放（marketMotion d()/dy()/ease()）
-  useEffect(() => {
-    if (!pluginMode || !barRef.current) return
-    const level = getAnimLevel()
-    gsap.fromTo(
-      barRef.current,
-      { autoAlpha: 0, y: dy(-10) },
-      {
-        autoAlpha: 1,
-        y: 0,
-        duration: d(0.26),
-        ease: ease('power2.out'),
-        overwrite: true,
-        ...(level === 'low' ? { duration: 0.01 } : {})
-      }
-    )
-    // 插件态切顶栏后焦点回输入框（原生 view 可能持焦）
-    window.setTimeout(() => inputRef.current?.focus(), 40)
-  }, [pluginMode])
-
-  // 回列表态时重播列表动画
-  useEffect(() => {
-    if (inPluginMode) return
-    setExpandKey((k) => k + 1)
-  }, [inPluginMode])
-
-  useEffect(() => {
-    const off = shellApi.onQuickShown?.(() => {
+    const offShown = shellApi.onQuickShown?.(() => {
       setQuery('')
-      setHomeExpanded(false)
-      setEntering(true)
-      // 呼出保持插件态（若挂载中，主进程已重推 quick-plugin-mode）；列表态则重播动画
-      if (!pluginMode) {
-        setExpandKey((k) => k + 1)
-        void search('')
-      }
-      window.setTimeout(() => inputRef.current?.focus(), 30)
+      setKind(undefined)
+      setCategoriesOpen(false)
+      resetResults()
+      setRevision((v) => v + 1)
+      setShown((v) => v + 1)
+      requestAnimationFrame(() => inputRef.current?.focus())
     })
-    window.setTimeout(() => inputRef.current?.focus(), 50)
-    return off
-  }, [search, pluginMode])
+    inputRef.current?.focus()
+    return () => { off?.(); offShown?.() }
+  }, [resetResults])
 
-  useEffect(() => {
-    const t = window.setTimeout(() => setEntering(false), 520)
-    return () => window.clearTimeout(t)
-  }, [expandKey])
-
-  // 展开状态变化时重播面板动画
-  useEffect(() => {
-    if (inPluginMode) return
-    setExpandKey((k) => k + 1)
-  }, [items, searching, homeExpanded, inPluginMode])
-
-  // 渲染集变化后回收越界的选中位（首页收起等场景）
-  useEffect(() => {
-    if (index > visibleItems.length - 1) setIndex(Math.max(0, visibleItems.length - 1))
-  }, [index, visibleItems.length])
-
-  // 测量内容高度 → 主进程调整小窗（收起/撑开）；插件态高度由主进程管，跳过
+  // Animate content, never the native clipping surface or its plugin bounds.
   useLayoutEffect(() => {
-    if (inPluginMode) return
-    const el = rootRef.current
-    if (!el) return
-    const apply = (): void => {
-      const h = Math.ceil(el.getBoundingClientRect().height)
-      if (h > 0) shellApi.quickResize?.(h, true)
-    }
-    apply()
-    // 动画帧内再量一次，捕获 tile 入场后的最终高度
-    const raf = requestAnimationFrame(apply)
-    return () => cancelAnimationFrame(raf)
-  }, [items, searching, visibleItems.length, busy, inPluginMode])
+    const root = rootRef.current
+    if (!root) return
+    const ctx = gsap.context(() => {
+      gsap.fromTo('.quick-search-bar', { opacity: 0, y: dy(-5) }, { opacity: 1, y: 0, duration: d(0.25), ease: ease('power2.out') })
+    }, root)
+    return () => ctx.revert()
+  }, [shown])
+
+  useLayoutEffect(() => {
+    const el = panelRef.current
+    if (!el || pluginMode) return
+    const ctx = gsap.context(() => {
+      gsap.fromTo(el, { opacity: 0, y: dy(7) }, { opacity: 1, y: 0, duration: d(0.28), ease: ease('power2.out') })
+    }, el)
+    return () => ctx.revert()
+  }, [showResults, kind, shown])
+
+  useLayoutEffect(() => {
+    if (pluginMode || !rootRef.current) return
+    const root = rootRef.current
+    const resize = () => shellApi.quickResize?.(Math.ceil(root.getBoundingClientRect().height), false)
+    const observer = new ResizeObserver(resize)
+    observer.observe(root)
+    resize()
+    return () => observer.disconnect()
+  }, [pluginMode, shown])
 
   useEffect(() => {
-    const el = bodyRef.current?.querySelector<HTMLElement>(`[data-idx="${index}"]`)
-    el?.scrollIntoView({ block: 'nearest' })
+    if (index >= visibleItems.length) setIndex(Math.max(0, visibleItems.length - 1))
+    panelRef.current?.querySelector<HTMLElement>(`[data-index="${index}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [index, visibleItems])
 
-  /** 插件态 Esc：回列表（view 隐藏保留进程）；列表态沿用清空/隐藏语义 */
-  const escapePlugin = useCallback(() => {
-    if (!pluginMode) return
-    void shellApi.quickOpen?.({ kind: 'plugin-escape', pluginId: pluginMode.pluginId })
-  }, [pluginMode])
+  const execute = useCallback(async (request: QuickOpenRequest, id: string) => {
+    if (openingRef.current) return false
+    openingRef.current = true
+    setOpening(id)
+    setError('')
+    try {
+      const result = await shellApi.quickOpen?.(request)
+      if (!result?.ok) { setError(result?.error || '无法打开，请稍后重试。'); return false }
+      return true
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '无法打开，请稍后重试。')
+      return false
+    } finally { openingRef.current = false; setOpening(null) }
+  }, [])
 
-  /** 固定到主窗：view 迁主窗 + Quick 收起 + 主窗前置 */
-  const pinPlugin = useCallback(() => {
-    if (!pluginMode) return
-    void shellApi.quickOpen?.({ kind: 'plugin-pin', pluginId: pluginMode.pluginId })
-  }, [pluginMode])
+  const escapePlugin = useCallback(async () => {
+    const mode = modeRef.current
+    if (!mode) return true
+    const ok = await execute({ kind: 'plugin-escape', pluginId: mode.pluginId }, mode.pluginId)
+    if (ok) { modeRef.current = null; setPluginMode(null); requestAnimationFrame(() => inputRef.current?.focus()) }
+    return ok
+  }, [execute])
 
-  const openItem = useCallback(
-    async (cmd: QuickCommand) => {
-      if (!shellApi.quickOpen) return
-      if (cmd.kind === 'app' && cmd.path) {
-        await shellApi.quickOpen({ kind: 'app', path: cmd.path })
-        return
-      }
-      if (cmd.kind === 'plugin' && cmd.pluginId) {
-        await shellApi.quickOpen({
-          kind: 'plugin',
-          pluginId: cmd.pluginId,
-          code: cmd.code,
-          // mini → Quick 内嵌（主进程有 form 兜底，此处显式声明意图）
-          container: cmd.form === 'mini' ? 'quick' : 'shell'
-        })
-        return
-      }
-      if (cmd.kind === 'action' && cmd.action) {
-        await shellApi.quickOpen({ kind: 'action', action: cmd.action })
-        if (cmd.action === 'refresh-apps') void search(query)
-      }
-    },
-    [query, search]
-  )
+  const changeQuery = useCallback((value: string) => {
+    resetResults()
+    setBusy(Boolean(value.trim()))
+    setQuery(value)
+    if (modeRef.current && !openingRef.current) void escapePlugin()
+  }, [escapePlugin, resetResults])
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (inPluginMode) {
-      // 插件态顶栏键盘：Esc 回列表 / ⌘Enter 固定（原生 view 区域的同类键由主进程拦截）
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        escapePlugin()
-      } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault()
-        pinPlugin()
+  const openItem = useCallback(async (cmd: QuickCommand, mainWindow = false) => {
+    if (busy) return
+    let request: QuickOpenRequest | undefined
+    if (cmd.kind === 'app' && cmd.path) request = { kind: 'app', path: cmd.path }
+    if (cmd.kind === 'plugin' && cmd.pluginId) request = { kind: 'plugin', pluginId: cmd.pluginId, code: cmd.code, container: !mainWindow && cmd.form === 'mini' ? 'quick' : 'shell' }
+    if (cmd.kind === 'action' && cmd.action) request = { kind: 'action', action: cmd.action }
+    if (request && await execute(request, cmd.id) && cmd.action === 'refresh-apps') setRevision((v) => v + 1)
+  }, [busy, execute])
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return
+    const inInput = event.target === inputRef.current
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault(); inputRef.current?.focus(); inputRef.current?.select(); return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      if (pluginMode) void escapePlugin()
+      else if (query) changeQuery('')
+      else if (categoriesOpen) { setCategoriesOpen(false); inputRef.current?.focus() }
+      else if (kind) { setKind(undefined); resetResults() }
+      else shellApi.quickHide?.()
+      return
+    }
+    if (pluginMode) {
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault(); void execute({ kind: 'plugin-pin', pluginId: pluginMode.pluginId }, pluginMode.pluginId)
       }
       return
     }
-    const total = visibleItems.length
-    const cols = GRID_COLS
-    if (e.key === 'Tab') {
-      // Tab / Shift+Tab 环形切换选中（对齐参考稿「切换选中 Tab」）
-      e.preventDefault()
-      if (total > 0) setIndex((i) => (i + (e.shiftKey ? -1 : 1) + total) % total)
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setIndex((i) => (total === 0 ? 0 : Math.min(total - 1, i + cols)))
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setIndex((i) => Math.max(0, i - cols))
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault()
-      setIndex((i) => (total === 0 ? 0 : Math.min(total - 1, i + 1)))
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault()
-      setIndex((i) => Math.max(0, i - 1))
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      const cmd = visibleItems[index]
-      if (cmd) void openItem(cmd)
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      if (searching) setQuery('')
-      else shellApi.quickHide?.()
+    if (!inInput || busy || !showResults) return
+    let delta = 0
+    if (event.key === 'ArrowDown') delta = 1
+    if (event.key === 'ArrowUp') delta = -1
+    if (delta) { event.preventDefault(); setIndex((i) => Math.max(0, Math.min(visibleItems.length - 1, i + delta))) }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      if (visibleItems[index]) void openItem(visibleItems[index], event.metaKey || event.ctrlKey)
     }
   }
 
-  /** 网格 tile（分组渲染共用；offset = 该组在可见列表中的起始下标） */
-  const renderTiles = (list: QuickCommand[], offset: number) =>
-    list.map((cmd, k) => {
-      const i = offset + k
-      return (
-        <button
-          key={cmd.id}
-          type="button"
-          data-idx={i}
-          className={`quick-tile${i === index ? ' active' : ''}`}
-          style={{ animationDelay: `${Math.min(i, 17) * 20}ms` }}
-          onMouseEnter={() => setIndex(i)}
-          onClick={() => void openItem(cmd)}
-        >
-          <ItemIcon cmd={cmd} />
-          <span className="quick-tile-label">
-            <HighlightTitle text={cmd.title} query={query} />
-          </span>
-          {cmd.form === 'mini' ? <span className="quick-tile-dot" title="小插件" /> : null}
-        </button>
-      )
-    })
+  const selected = visibleItems[index]
+  const modifier = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
+  const actionHint = selected?.kind === 'plugin' ? selected.form === 'mini' ? '在此展开' : '在主窗口打开' : selected?.kind === 'app' ? '打开应用' : '执行操作'
 
-  const animClass = `anim-${animLevel}`
-
-  return (
-    <div
-      ref={rootRef}
-      className={`quick-root ${animClass}${entering ? ' is-entering' : ''}`}
-      data-mode={inPluginMode ? 'plugin' : 'list'}
-      /* 插件态根高钉死 QUICK_BAR_AREA_H（含内边距）：主进程据此计算原生插件 view 起点 y，
-         两端必须在同一条 64px 分割线上，否则 view 会盖住顶栏或留缝 */
-      style={inPluginMode ? { height: QUICK_BAR_AREA_H, boxSizing: 'border-box' } : undefined}
-    >
-      <div className="quick-shell">
-        {/* 浮动粒子层：玻璃壳内、内容之下（low 档 null；中 9 颗 / 高 18 颗） */}
-        <QuickParticles level={animLevel} />
-        {inPluginMode ? (
-          /* 插件态顶栏：flex 撑满钉死的根高（QUICK_BAR_AREA_H），下方区域由原生插件 view 覆盖 */
-          <div className="quick-plugin-bar" ref={barRef}>
-            <button
-              type="button"
-              className="quick-plugin-back"
-              onClick={escapePlugin}
-              aria-label="返回列表"
-              title="返回列表 (Esc)"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden>
-                <path d="M14.5 6l-6 6 6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <span>返回</span>
+  return <div ref={rootRef} className="quick-root" data-mode={pluginMode ? 'plugin' : 'list'} data-expanded={showResults || Boolean(pluginMode)}
+    style={{ '--quick-bar-h': `${QUICK_BAR_AREA_H}px`, '--quick-radius': `${QUICK_CORNER_RADIUS}px` } as CSSProperties} onKeyDown={onKeyDown}>
+    <div className="quick-shell">
+      {showResults && <AmbientParticles />}
+      <div className="quick-search-bar" role="search" data-tools={pluginMode ? 'plugin' : categoriesOpen ? 'expanded' : 'collapsed'}>
+        <SearchField value={query} onChange={changeQuery} inputRef={inputRef}
+          placeholder={pluginMode ? '搜索其它应用或插件…' : kind === 'app' ? '搜索软件…' : kind === 'plugin' ? '搜索插件…' : kind === 'action' ? '搜索系统操作…' : '搜索应用、插件与指令…'}
+          leading={pluginMode ? <button type="button" className="quick-plugin-chip" onClick={() => void escapePlugin()} title="返回搜索（Esc）"><ChevronLeftIcon size={16} /><span>{pluginMode.title}</span></button> : undefined}
+          trailing={<kbd className="search-shortcut">{modifier} K</kbd>}
+          accessory={!pluginMode && <>
+            {busy && showResults && <span className="quick-spinner" aria-label="搜索中" />}
+            <button type="button" className="quick-scope-toggle" aria-expanded={categoriesOpen} aria-controls="quick-categories"
+              aria-label={categoriesOpen ? '收起搜索分类' : '展开搜索分类'} data-filtered={Boolean(kind)}
+              title={`${categoriesOpen ? '收起' : '展开'}搜索分类${kind ? ` · 当前：${FILTERS.find((filter) => filter.kind === kind)!.label}` : ''}`}
+              onClick={() => { setCategoriesOpen((open) => !open); inputRef.current?.focus() }}>
+              {kind ? <CategoryIcon kind={kind} /> : <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden><path d="M4 7h9m4 0h3M4 17h3m4 0h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>}
             </button>
-            <span className="quick-plugin-title" title={pluginMode.title}>
-              {pluginMode.title}
-            </span>
-            <button
-              type="button"
-              className="quick-plugin-pin"
-              onClick={pinPlugin}
-              aria-label="固定到主窗"
-              title="固定到主窗 (⌘Enter)"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden>
-                <path d="M12 3v10M7 9l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M5 17.5h14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-              <span>固定到主窗</span>
-            </button>
+          </>}
+          inputProps={{ role: 'combobox', 'aria-expanded': showResults, 'aria-controls': showResults ? 'quick-results' : undefined, 'aria-activedescendant': showResults && selected && !busy ? `quick-item-${index}` : undefined }} />
+        {pluginMode ? <button className="quick-category quick-pin" type="button" title={`移到主窗口（${modifier} Enter）`} aria-label="移到主窗口" onClick={() => void execute({ kind: 'plugin-pin', pluginId: pluginMode.pluginId }, pluginMode.pluginId)}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M14 3h7v7m0-7-10 10" /><path d="M10 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-5" /></svg>
+        </button> : <div className="quick-categories-slot" id="quick-categories" aria-hidden={!categoriesOpen}>
+          <div className="quick-categories" aria-label="搜索范围">
+            {FILTERS.map((filter) => <button key={filter.kind} type="button" className="quick-category" tabIndex={categoriesOpen ? 0 : -1} aria-label={filter.label} aria-pressed={kind === filter.kind}
+              title={`${filter.label}${kind === filter.kind ? ' · 点击查看全部' : ''}`} onClick={() => {
+                resetResults(); setBusy(searching); setKind((current) => current === filter.kind ? undefined : filter.kind); inputRef.current?.focus()
+              }}><CategoryIcon kind={filter.kind} /></button>)}
           </div>
-        ) : (
-          <>
-            {/* 输入条：大号输入文字，无放大镜；右侧 busy→spinner / 搜索态→Tab 提示 / 品牌圆标 */}
-            <div className="quick-search">
-              <div className="quick-field">
-                <input
-                  ref={inputRef}
-                  className="quick-input"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={onKeyDown}
-                  placeholder="搜索应用和指令 / 粘贴文件或图片"
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-                {busy ? (
-                  <span className="quick-spinner" title="搜索中" aria-hidden />
-                ) : searching ? (
-                  <span className="quick-hint">
-                    切换选中
-                    <span className="quick-hint-key">Tab</span>
-                  </span>
-                ) : null}
-                <span className="quick-brand-orb" aria-hidden>
-                  <svg viewBox="0 0 24 24">
-                    <polygon
-                      points="12,3 19.8,7.5 19.8,16.5 12,21 4.2,16.5 4.2,7.5"
-                      fill="none"
-                      stroke="#ffffff"
-                      strokeWidth="1.6"
-                      strokeLinejoin="round"
-                    />
-                    <rect x="4.9" y="9.5" width="5.4" height="4.2" rx="1.1" fill="#3fe0a4" transform="rotate(-16 7.6 11.6)" />
-                    <rect x="13.7" y="10.3" width="5.4" height="4.2" rx="1.1" fill="#3fe0a4" transform="rotate(16 16.4 12.4)" />
-                    <circle cx="12" cy="12" r="1.25" fill="#f5b83d" />
-                  </svg>
-                </span>
-              </div>
-            </div>
-
-            {/* 内容面板：搜索分「最佳搜索结果 / 匹配推荐」；首页「最近使用」+ 展开(N) */}
-            <div
-              className={`quick-panel${visibleItems.length > 0 || (searching && !busy) ? ' is-open' : ''}`}
-              ref={bodyRef}
-              role="listbox"
-            >
-              <div className="quick-panel-inner">
-                {searching ? (
-                  items.length > 0 ? (
-                    <>
-                      <div className="quick-section">
-                        <div className="quick-section-head">
-                          <span className="quick-section-title">最佳搜索结果</span>
-                        </div>
-                        <div className="quick-grid">{renderTiles(items.slice(0, 1), 0)}</div>
-                      </div>
-                      {items.length > 1 ? (
-                        <div className="quick-section">
-                          <div className="quick-section-head">
-                            <span className="quick-section-title">匹配推荐</span>
-                          </div>
-                          <div className="quick-grid">{renderTiles(items.slice(1), 1)}</div>
-                        </div>
-                      ) : null}
-                    </>
-                  ) : !busy ? (
-                    <div className="quick-empty">
-                      <span>无匹配，试试触发词</span>
-                    </div>
-                  ) : null
-                ) : items.length > 0 ? (
-                  <div className="quick-section">
-                    <div className="quick-section-head">
-                      <span className="quick-section-title">最近使用</span>
-                      {items.length > HOME_COLLAPSED_COUNT ? (
-                        <button
-                          type="button"
-                          className="quick-expand"
-                          onClick={() => setHomeExpanded((v) => !v)}
-                        >
-                          {homeExpanded ? '收起' : `展开 (${items.length})`}
-                        </button>
-                      ) : null}
-                    </div>
-                    <div className="quick-grid">{renderTiles(visibleItems, 0)}</div>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </>
-        )}
+        </div>}
       </div>
+      {error && (showResults || pluginMode) && <div className="quick-error" role="alert">{error}<button type="button" onClick={() => setRevision((v) => v + 1)}>重试</button></div>}
+      {showResults && <>
+        <div className="quick-panel" ref={panelRef}>
+          <div id="quick-results" className="quick-results" role="listbox" aria-label="搜索结果" aria-busy={busy}>
+            {groups.map((group) => <div key={group.id} className="quick-result-group" role="group" aria-labelledby={`quick-group-${group.id}`}>
+              <div className="quick-section-head"><h2 id={`quick-group-${group.id}`}>{group.title}</h2><span className="quick-section-meta">{group.items.length} 项</span></div>
+              <div className="quick-group-items">
+                {group.items.map((cmd, groupIndex) => {
+                  const i = group.offset + groupIndex
+                  return <button key={cmd.id} id={`quick-item-${i}`} type="button" role="option" aria-selected={index === i} tabIndex={-1} data-index={i}
+                    className={`quick-item quick-result${index === i ? ' active' : ''}`} title={`${cmd.title} · ${cmd.kind === 'plugin' ? cmd.form === 'mini' ? '小窗插件' : '主窗插件' : cmd.kind === 'app' ? '本机应用' : cmd.subtitle}`}
+                    disabled={Boolean(opening)} onMouseMove={() => setIndex(i)} onClick={() => void openItem(cmd)}>
+                    <ItemIcon cmd={cmd} /><span className="quick-item-copy"><span className="quick-item-title"><HighlightTitle text={cmd.title} query={query} /></span>
+                      <span className="quick-item-subtitle">{cmd.kind === 'app' ? '本机应用' : cmd.subtitle}</span></span>
+                    <span className="quick-result-type">{opening === cmd.id ? '打开中…' : cmd.kind === 'app' ? '应用' : cmd.kind === 'action' ? '操作' : cmd.form === 'mini' ? '小窗插件' : '主窗插件'}</span>
+                  </button>
+                })}
+              </div>
+            </div>)}
+          </div>
+          {!visibleItems.length && <div className="quick-empty"><span>{busy ? '正在查找应用与插件…' : '没有找到匹配项'}</span><small>{busy ? '首次扫描可能需要片刻' : '试试应用名称、插件名或指令关键词'}</small>
+            {!busy && <button type="button" onClick={() => void execute({ kind: 'action', action: 'refresh-apps' }, 'refresh').then((ok) => { if (ok) setRevision((v) => v + 1) })}>重新扫描应用</button>}</div>}
+        </div>
+        <footer className="quick-footer"><span className="quick-wordmark">eNest <span>Quick</span></span><div><span><kbd>↑ ↓</kbd> 选择</span><span><kbd>↵</kbd> {actionHint}</span><span><kbd>esc</kbd> 清空</span></div></footer>
+      </>}
     </div>
-  )
+  </div>
 }

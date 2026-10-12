@@ -260,6 +260,7 @@ export interface EnestPluginApi {
     setTitle(title: string): Promise<boolean>
     setIcon(icon: string): Promise<boolean>
     setBadge(badge: string | number): Promise<boolean>
+    /** 内容区尺寸建议（CSS px）；Quick 即时调整，主窗仅记录并保持用户窗口尺寸。需 ui.resize 权限。 */
     resize(size: { width?: number; height?: number }): Promise<boolean>
     /**
      * 期望内容高度（px）：Quick 内嵌容器据此调小窗高度；主窗 Tab 场景仅记录。

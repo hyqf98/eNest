@@ -258,6 +258,9 @@ export class SettingsStore {
       writeAnchor(nextRoot)
       this.migrateRowToNewRoot(nextRoot)
     }
+    if (partial.theme) sendShellEvent({ type: 'theme-changed', mode: this.data.theme.mode })
+    const generalKeys = Object.keys(partial.general ?? {})
+    if (generalKeys.length) sendShellEvent({ type: 'settings-changed', generalKeys })
     return this.getAll()
   }
 

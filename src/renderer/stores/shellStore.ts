@@ -30,6 +30,8 @@ function pushOrbState(state: {
 /** Tab 会话持久化 debounce（ms）；避免连续开关 Tab 时刷 IPC */
 const SESSION_PERSIST_MS = 400
 let sessionPersistTimer: ReturnType<typeof setTimeout> | null = null
+/** 开发页后台启动仍会收到宿主的激活事件；该请求不切走当前壳子页面。 */
+const backgroundDebugStarts = new Set<string>()
 
 /** debounce 将当前 tabs / active 写入 settings.sessionTabs（仅插件，不含壳子页） */
 function scheduleSessionPersist(state: {
@@ -99,8 +101,6 @@ interface ShellState {
   removeTabLocal: (tabId: string) => void
   /** plugin-error 事件桥：标记指定插件 Tab 为崩溃态（二次 crash 不自动重启时使用） */
   markTabCrashed: (pluginId: string) => void
-  /** Tab 从崩溃态恢复（重新 openPlugin 成功后清除标记） */
-  clearTabCrashed: (pluginId: string) => void
   /** 惰性会话恢复：新增占位 Tab（不孵化渲染进程） */
   addPlaceholderTab: (pluginId: string, cachedTitle: string | undefined, plugin: PluginSummary) => void
   loadDevPlugin: (dirPath: string) => Promise<void>
@@ -310,21 +310,11 @@ export const useShellStore = create<ShellState>((set, get) => ({
   },
 
   closeTab: async (tabId) => {
-    const { tabs, activeTabId } = get()
-    const gone = tabs.find((t) => t.id === tabId)
+    const gone = get().tabs.find((tab) => tab.id === tabId)
     if (!gone) return
     await shellApi.closePlugin(tabId)
-    const remaining = tabs.filter((t) => t.id !== tabId)
-    const nextId = pickNextTab(tabs, tabId, activeTabId)
-    set({
-      tabs: remaining,
-      activeTabId: nextId,
-      view: nextId ? 'plugin' : 'home',
-      pluginReady: false,
-      pluginError: null,
-    })
-    pushOrbState(get())
-    scheduleSessionPersist(get())
+    // 主进程可能已先发送 active/closed 事件；不要用 await 前的列表覆盖宿主选中的接班项。
+    if (get().tabs.some((tab) => tab.id === tabId)) get().removeTabLocal(tabId)
     toastStore.getState().push(`已关闭「${gone.title}」`)
     get().appendLog('info', `[host] close ${gone.pluginId}`)
   },
@@ -360,10 +350,14 @@ export const useShellStore = create<ShellState>((set, get) => ({
     set((s) => ({ tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, title } : t)) })),
 
   removeTabLocal: (tabId) => {
-    const { tabs, activeTabId } = get()
+    const { tabs, activeTabId, view } = get()
     const remaining = tabs.filter((t) => t.id !== tabId)
     const nextId = pickNextTab(tabs, tabId, activeTabId)
-    set({ tabs: remaining, activeTabId: nextId, view: nextId ? 'plugin' : 'home' })
+    set({
+      tabs: remaining,
+      activeTabId: nextId,
+      view: view === 'plugin' ? (nextId ? 'plugin' : 'home') : view,
+    })
     pushOrbState(get())
     // 卸载 / 主进程关 Tab 也会走到这里，保证 sessionTabs 同步移除
     scheduleSessionPersist(get())
@@ -379,14 +373,6 @@ export const useShellStore = create<ShellState>((set, get) => ({
     if (get().activeTabId === tabId) {
       pushOrbState(get())
     }
-  },
-
-  /** Tab 从崩溃态恢复（重新 openPlugin 成功后清除标记） */
-  clearTabCrashed: (pluginId) => {
-    const tabId = `t-${pluginId}`
-    set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, crashed: false } : t))
-    }))
   },
 
   loadDevPlugin: async (dirPath) => {
@@ -409,9 +395,10 @@ export const useShellStore = create<ShellState>((set, get) => ({
 
   /** 开发调试：启动（在主进程打开插件 View；若当前不在 plugin 视图则保持开发者页，View 后台运行） */
   startDebugPlugin: async (pluginId) => {
+    if (get().view !== 'plugin') backgroundDebugStarts.add(pluginId)
     try {
       await shellApi.openPlugin(pluginId)
-      const { plugins, tabs, activeTabId, view } = get()
+      const { plugins, tabs, view } = get()
       const target = plugins.find((p) => p.id === pluginId)
       let tab = tabs.find((t) => t.pluginId === pluginId)
       if (!tab) {
@@ -436,6 +423,8 @@ export const useShellStore = create<ShellState>((set, get) => ({
       const msg = e instanceof Error ? e.message : String(e)
       get().appendLog('warn', `[dev] debug start failed: ${msg}`)
       toastStore.getState().push(`启动调试失败：${msg}`)
+    } finally {
+      backgroundDebugStarts.delete(pluginId)
     }
   },
 
@@ -497,37 +486,39 @@ export const useShellStore = create<ShellState>((set, get) => ({
   },
 }))
 
-/**
- * 自包含事件桥：
- * - plugin-error：把对应插件 Tab 标记为崩溃态（Tab 保留，显示重试样式）。
- * - plugin-active：主进程已（重新）激活/重建该插件——crash 自愈或唤醒完成，
- *   清除崩溃标记；若该 Tab 当前正展示错误面板，同步清掉 pluginError。
- * useShellEvents 仍负责全局 plugin-error 的 toast/日志，这里只补 Tab 态
- * （不改 useShellEvents.ts，保持本 store 对崩溃 UI 的自洽）。
- */
+/** 主进程激活事件也来自圆轨、迁移和自动恢复；只同步状态，不再次发起激活 IPC。 */
 shellApi.onEvent?.((payload) => {
   if (payload.type === 'plugin-error') {
     useShellStore.getState().markTabCrashed(payload.pluginId)
     return
   }
-  if (payload.type === 'plugin-active' && payload.tabId) {
-    const store = useShellStore.getState()
+  if (payload.type !== 'plugin-active') return
+  const store = useShellStore.getState()
+  if (!payload.tabId) {
+    useShellStore.setState({
+      activeTabId: null,
+      view: store.view === 'plugin' ? 'home' : store.view,
+      pluginReady: false,
+      pluginError: null,
+    })
+  } else {
     const pid = payload.tabId.startsWith('t-') ? payload.tabId.slice(2) : payload.tabId
-    store.clearTabCrashed(pid)
-    // 主窗激活但 Tab 列表缺项（Quick「固定到主窗」迁移 / crash 重建）→ 补 Tab；
-    // 视图已在主窗挂载，补后立即摘掉 lazy 标记（非「点击加载」占位）
-    if (!store.tabs.some((t) => t.pluginId === pid)) {
-      const summary = store.plugins.find((p) => p.id === pid)
-      if (summary) {
-        store.addPlaceholderTab(pid, summary.name, summary)
-        useShellStore.setState((s) => ({
-          tabs: s.tabs.map((t) => (t.pluginId === pid ? { ...t, lazy: false } : t))
-        }))
-      }
+    const existing = store.tabs.find((tab) => tab.pluginId === pid)
+    const keepShellView = store.view !== 'plugin' && backgroundDebugStarts.has(pid)
+    // Quick 固定到主窗或恢复后可能没有 Tab；补齐真实激活项，不创建重复占位。
+    if (!existing) {
+      const summary = store.plugins.find((plugin) => plugin.id === pid)
+      if (summary) store.addPlaceholderTab(pid, summary.name, summary)
     }
-    // 自动重启完成：当前 Tab 的崩溃/错误面板让位给内容
-    if (store.activeTabId === payload.tabId) {
-      store.setPluginError(null)
-    }
+    useShellStore.setState((current) => ({
+      tabs: current.tabs.map((tab) => tab.pluginId === pid ? { ...tab, lazy: false, crashed: false } : tab),
+      activeTabId: keepShellView ? current.activeTabId : payload.tabId,
+      view: keepShellView ? current.view : 'plugin',
+      pluginReady: !keepShellView,
+      pluginError: null,
+    }))
+    if (keepShellView) void shellApi.hidePlugins?.().catch(() => undefined)
   }
+  pushOrbState(useShellStore.getState())
+  scheduleSessionPersist(useShellStore.getState())
 })

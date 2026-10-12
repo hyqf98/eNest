@@ -5,7 +5,6 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { readdir, stat } from 'node:fs/promises'
-import { shell } from 'electron'
 import type { ApplicationScanResult, LocalApp } from '@shared/types/quick'
 
 const SKIP_NAME = /^(uninstall|卸载)|卸载$|website|网站|帮助|help|readme|文档|manual|license|documentation/i
@@ -51,16 +50,9 @@ async function scanLnkDir(dir: string, recursive: boolean, depth: number, out: L
     if (!lower.endsWith('.lnk') && !lower.endsWith('.exe')) continue
     const name = entry.replace(/\.(lnk|exe)$/i, '')
     if (SKIP_NAME.test(name)) continue
-    let target = full
-    if (lower.endsWith('.lnk')) {
-      try {
-        const info = shell.readShortcutLink(full)
-        target = info.target || full
-      } catch {
-        target = full
-      }
-    }
-    out.push({ name, path: target, alias: full })
+    // 保留 .lnk 本身，Windows 会按快捷方式的参数和工作目录启动；
+    // 只启动 target 会丢失 Chrome profile / 带启动参数工具等设置。
+    out.push({ name, path: full })
   }
 }
 

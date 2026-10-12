@@ -70,18 +70,21 @@ export const DATABASE_FILE = 'enest.db'
 
 // —— Quick 快捷小窗尺寸（createQuickWindow / PluginHost quick 容器共用）——
 
-/** Quick 小窗宽度（px） */
+/** Quick 展开面板圆角与内容边框；mini 原生视图按同一轮廓裁切。 */
+export const QUICK_CORNER_RADIUS = 20
+export const QUICK_BORDER_WIDTH = 1
+/** Quick 小窗默认宽度（px） */
 export const QUICK_WIDTH = 720
-/** 仅胶囊输入条时的窗口高度（含外缘阴影留白） */
+/** 仅搜索条时的窗口高度 */
 export const QUICK_MIN_HEIGHT = 72
 /** Quick 小窗总高度上限（px） */
-export const QUICK_MAX_HEIGHT = 520
+export const QUICK_MAX_HEIGHT = 780
 /**
  * Quick 插件态输入条区域高度：quick 渲染层绘制的顶栏（返回/输入/固定）。
  * mini 插件 WebContentsView 从 y=QUICK_BAR_AREA_H 铺满剩余高度。
  * 与 QuickLauncherApp 插件态根高度（quick.css [data-mode='plugin']）保持一致。
  */
-export const QUICK_BAR_AREA_H = 64
+export const QUICK_BAR_AREA_H = 72
 /** mini 插件期望高度缺省值（未上报 setHeight / 无 manifest.window.minHeight 时） */
 export const QUICK_PLUGIN_DEFAULT_HEIGHT = 300
 /** mini 插件区域最小高度（防上报异常小值导致内容不可见） */

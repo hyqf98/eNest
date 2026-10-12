@@ -1,39 +1,35 @@
 /**
  * createQuickWindow — 快捷启动独立小窗
- * 职责：创建/销毁无边框置顶 Quick BaseWindow，挂载 shellPreload 的 WebContentsView，
+ * 职责：创建/销毁无边框置顶 Quick BrowserWindow，由透明主 renderer 绘制圆角表面，
  * 提供 toggle/hide/show 与居中定位；失焦自动隐藏。
  * 兼任 mini 插件容器：提供 getQuickPluginBounds（插件 view 铺输入条以下区域），
- * 窗高 tween / resize 每帧联动 relayoutQuickPlugins（PluginHost 注入，避免循环依赖）。
+ * 尺寸变更联动 relayoutQuickPlugins（PluginHost 注入，避免循环依赖）。
  * 被 index.ts / quickHotkey / quickHandlers / PluginHost 调用。
- * 关键依赖：resolvePreload、settingsStore（主题）、logService。
+ * 关键依赖：resolvePreload、settingsStore（动画）、logService。
  */
 import { join } from 'node:path'
-import {
-  app,
-  BaseWindow,
-  screen,
-  WebContentsView
-} from 'electron'
+import { app, BrowserWindow, screen } from 'electron'
 import {
   QUICK_BAR_AREA_H,
+  QUICK_BORDER_WIDTH,
   QUICK_MAX_HEIGHT,
   QUICK_MIN_HEIGHT,
   QUICK_WIDTH,
   SHELL_PARTITION
 } from '@shared/constants'
 import { IpcChannels } from '@shared/types/ipc'
-import { ensureShellSessionProtocol } from '../plugin/pluginProtocol'
-import { logError, logInfo } from '../logs/logService'
-import { settingsStore } from '../settings/SettingsStore'
+import { ensureShellSessionProtocol } from '@main/plugin/pluginProtocol'
+import { logError, logInfo } from '@main/logs/logService'
+import { settingsStore } from '@main/settings/SettingsStore'
 import { resolvePreload, setQuickEventSink } from './createShellWindow'
 
-let quickWindow: BaseWindow | null = null
-let quickView: WebContentsView | null = null
+let quickWindow: BrowserWindow | null = null
 let lastPushedAnim = ''
-let heightTween: ReturnType<typeof setInterval> | null = null
 let currentTargetHeight = QUICK_MIN_HEIGHT
-/** 呼出时刻 */
-let lastShowAt = 0
+let currentTargetWidth = QUICK_WIDTH
+const WORK_AREA_INSET = 16
+const QUICK_MIN_WIDTH = 480
+const QUICK_MAX_WIDTH = 1200
 /** blur 宽限截止：在此之前只抢焦点、不 hide */
 let blurGuardUntil = 0
 /** toggle 防抖 */
@@ -55,24 +51,22 @@ export function setQuickPluginRelayout(fn: (() => void) | null): void {
   relayoutQuickPlugins = fn
 }
 
-/**
- * mini 插件在 Quick 小窗的内容边界：
- * x=0、y=输入条区域高（渲染层顶栏 QUICK_BAR_AREA_H）、宽=窗宽、高=窗高-输入条。
- * 窗高不足时保底 0（view 隐藏场景由 PluginHost 控制）。
- */
+/** mini 插件位于搜索条下方；保留一像素外边框，宽高取实际原生窗口。 */
 export function getQuickPluginBounds(): Electron.Rectangle {
-  const h = quickWindow && !quickWindow.isDestroyed() ? quickWindow.getBounds().height : QUICK_MIN_HEIGHT
+  const bounds = quickWindow && !quickWindow.isDestroyed()
+    ? quickWindow.getContentBounds()
+    : { width: currentTargetWidth, height: currentTargetHeight }
   return {
-    x: 0,
+    x: QUICK_BORDER_WIDTH,
     y: QUICK_BAR_AREA_H,
-    width: QUICK_WIDTH,
-    height: Math.max(0, h - QUICK_BAR_AREA_H)
+    width: Math.max(0, bounds.width - QUICK_BORDER_WIDTH * 2),
+    height: Math.max(0, bounds.height - QUICK_BAR_AREA_H - QUICK_BORDER_WIDTH)
   }
 }
 
 /** 把动画档位写入 Quick 文档根，供 CSS [data-anim] 分档 */
 function pushAnimLevel(): void {
-  const wc = quickView?.webContents
+  const wc = quickWindow?.webContents
   if (!wc || wc.isDestroyed()) return
   const level = settingsStore.getAll().general.animationLevel || 'medium'
   if (level === lastPushedAnim) return
@@ -81,128 +75,89 @@ function pushAnimLevel(): void {
   void wc.executeJavaScript(js).catch(() => undefined)
 }
 
-function loadQuickRenderer(view: WebContentsView): void {
+function loadQuickRenderer(win: BrowserWindow): void {
   const devUrl = process.env.ELECTRON_RENDERER_URL
-  if (process.env.QUICK_NOIMG === '1' && process.env.ELECTRON_RENDERER_URL) {
-    void view.webContents.loadURL(`${process.env.ELECTRON_RENDERER_URL}?surface=quick&noimg=1`)
-  } else if (devUrl) {
-    void view.webContents.loadURL(`${devUrl}?surface=quick`)
+  if (devUrl) {
+    void win.webContents.loadURL(`${devUrl}?surface=quick`)
   } else {
-    void view.webContents.loadFile(join(app.getAppPath(), 'out', 'renderer', 'index.html'), {
+    void win.webContents.loadFile(join(app.getAppPath(), 'out', 'renderer', 'index.html'), {
       query: { surface: 'quick' }
     })
   }
 }
 
-function applyQuickBounds(win: BaseWindow, view: WebContentsView): void {
-  const b = win.getContentBounds()
-  view.setBounds({ x: 0, y: 0, width: b.width, height: b.height })
+/** 窗口不得越过当前屏幕工作区；小屏幕仍允许完整显示搜索栏。 */
+function clampQuickSize(workArea: Electron.Rectangle): { width: number; height: number } {
+  const maxWidth = Math.max(1, Math.min(QUICK_MAX_WIDTH, workArea.width - WORK_AREA_INSET * 2))
+  const maxHeight = Math.max(1, Math.min(QUICK_MAX_HEIGHT, workArea.height - WORK_AREA_INSET * 2))
+  return {
+    width: Math.min(maxWidth, Math.max(Math.min(QUICK_MIN_WIDTH, maxWidth), currentTargetWidth)),
+    height: Math.min(maxHeight, Math.max(Math.min(QUICK_MIN_HEIGHT, maxHeight), currentTargetHeight))
+  }
 }
 
-/** 在光标所在显示器的上三分之一居中放置；高度用当前目标高度 */
-function positionOnCursorScreen(win: BaseWindow): void {
-  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
-  const wa = display.workArea
-  const height = currentTargetHeight
-  const x = Math.round(wa.x + (wa.width - QUICK_WIDTH) / 2)
-  const y = Math.round(wa.y + wa.height * 0.22)
-  win.setBounds({ x, y, width: QUICK_WIDTH, height })
+/** 在光标所在显示器的上三分之一居中放置，较高内容向上避让屏幕边缘。 */
+function positionOnCursorScreen(win: BrowserWindow): void {
+  const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const size = clampQuickSize(workArea)
+  const x = Math.round(workArea.x + (workArea.width - size.width) / 2)
+  const y = Math.round(Math.max(workArea.y + WORK_AREA_INSET,
+    Math.min(workArea.y + workArea.height * 0.22, workArea.y + workArea.height - size.height - WORK_AREA_INSET)))
+  win.setBounds({ x, y, ...size })
 }
 
 /**
- * 按内容高度调整小窗（收起/撑开）。
- * - 窗口不可见时只记录目标高，不 setBounds/tween（隐藏透明 BaseWindow 上反复
- *   setBounds 会在 Electron 上原生崩溃，表现为整包退出且无 JS 日志）
- * - 可见时默认无动画直接对齐，避免 setInterval tween 与合成层冲突
+ * 一次性调整原生容器，视觉过渡由 renderer 按动画档位完成。
+ * 避免透明 NSWindow 上逐帧 setBounds 引起合成闪烁/原生崩溃；隐藏时仅记住建议尺寸。
  */
-function getExpandDurationMs(): number {
-  const level = settingsStore.getAll().general.animationLevel || 'medium'
-  if (level === 'low') return 0
-  if (level === 'high') return 360
-  return 280
-}
-
-export function setQuickContentHeight(height: number, animate = true): void {
+export function setQuickContentSize(size: { width?: number; height?: number }): void {
+  if (Number.isFinite(size.width) && size.width! > 0) currentTargetWidth = Math.round(size.width!)
+  if (Number.isFinite(size.height) && size.height! > 0) currentTargetHeight = Math.round(size.height!)
   const win = quickWindow
-  if (!win || win.isDestroyed()) return
-  const target = Math.round(Math.min(QUICK_MAX_HEIGHT, Math.max(QUICK_MIN_HEIGHT, height)))
-  currentTargetHeight = target
-
-  // 隐藏态：只记高度，show 时再一次性对齐
-  if (!win.isVisible()) {
-    logInfo('quick', `resize deferred (hidden) target=${target}`)
-    return
+  if (!win || win.isDestroyed() || !win.isVisible()) return
+  const bounds = win.getBounds()
+  const { workArea } = screen.getDisplayMatching(bounds)
+  const target = clampQuickSize(workArea)
+  if (bounds.width === target.width && bounds.height === target.height) return
+  const x = Math.round(Math.max(workArea.x + WORK_AREA_INSET, Math.min(
+    bounds.x + (bounds.width - target.width) / 2,
+    workArea.x + workArea.width - target.width - WORK_AREA_INSET)))
+  const y = Math.round(Math.max(workArea.y + WORK_AREA_INSET, Math.min(
+    bounds.y, workArea.y + workArea.height - target.height - WORK_AREA_INSET)))
+  try {
+    win.setBounds({ x, y, ...target })
+    relayoutQuickPlugins?.()
+  } catch (err) {
+    logError('quick', `resize failed: ${(err as Error).message}`)
   }
-
-  const b = win.getBounds()
-  const from = b.height
-  if (Math.abs(from - target) <= 1) {
-    if (heightTween) {
-      clearInterval(heightTween)
-      heightTween = null
-    }
-    return
-  }
-  if (heightTween) {
-    clearInterval(heightTween)
-    heightTween = null
-  }
-
-  // 默认无动画：透明窗 + 快速 setBounds tween 曾导致进程原生退出
-  const duration = animate ? getExpandDurationMs() : 0
-  const applyOnce = (h: number): void => {
-    try {
-      const cur = win.getBounds()
-      win.setBounds({ x: cur.x, y: cur.y, width: cur.width, height: h })
-      relayoutQuickPlugins?.()
-    } catch (err) {
-      logError('quick', `setBounds failed h=${h}: ${(err as Error).message}`)
-    }
-  }
-
-  logInfo('quick', `resize apply ${from} → ${target} animate=${duration > 0}`)
-  if (duration <= 0) {
-    applyOnce(target)
-    logInfo('quick', `resize done bounds=${JSON.stringify(win.getBounds())}`)
-    return
-  }
-
-  const start = Date.now()
-  heightTween = setInterval(() => {
-    if (!quickWindow || quickWindow.isDestroyed() || !quickWindow.isVisible()) {
-      if (heightTween) clearInterval(heightTween)
-      heightTween = null
-      return
-    }
-    const t = Math.min(1, (Date.now() - start) / duration)
-    const e = 1 - Math.pow(1 - t, 3)
-    applyOnce(Math.round(from + (target - from) * e))
-    if (t >= 1) {
-      if (heightTween) clearInterval(heightTween)
-      heightTween = null
-    }
-  }, 16)
 }
 
-/** show 之后按 currentTargetHeight 无动画对齐窗高 */
+export function setQuickContentHeight(height: number, _animate?: boolean): void {
+  // _animate：旧调用兼容；原生尺寸一次对齐，动效由 renderer 承担。
+  if (!Number.isFinite(height) || height <= 0) return
+  setQuickContentSize({ height })
+}
+
+/** show 后再对齐子视图，兼容跨显示器和隐藏期间的插件尺寸更新。 */
 export function applyQuickHeightAfterShow(): void {
   const win = quickWindow
   if (!win || win.isDestroyed() || !win.isVisible()) return
-  setQuickContentHeight(currentTargetHeight, false)
+  setQuickContentSize({})
+  relayoutQuickPlugins?.()
 }
 
-export function getQuickWindow(): BaseWindow | null {
+export function getQuickWindow(): BrowserWindow | null {
   return quickWindow
 }
 
 export function getQuickWebContents() {
-  return quickView?.webContents ?? null
+  return quickWindow?.webContents ?? null
 }
 
 // Quick 表面事件转发：sendShellEvent 对 quick-plugin-mode 额外投递到 Quick wc
 //（独立 WebContents / 独立 ipcRenderer，主壳事件不会自动到达）。模块加载即注册。
 setQuickEventSink((payload) => {
-  const wc = quickView?.webContents
+  const wc = quickWindow?.webContents
   if (!wc || wc.isDestroyed()) return
   wc.send(IpcChannels.ShellEvent, payload)
 })
@@ -212,61 +167,29 @@ export function isQuickVisible(): boolean {
 }
 
 /** 确保窗口存在；启动时可预创建（隐藏），热键只 show */
-export function ensureQuickWindow(): BaseWindow {
+export function ensureQuickWindow(): BrowserWindow {
   if (quickWindow && !quickWindow.isDestroyed()) return quickWindow
   // 插件 logo 等 enest:// 资源需在 shell 分区可用
   ensureShellSessionProtocol()
 
-  logInfo('quick', 'ensureQuickWindow: creating BaseWindow')
-  let win: BaseWindow
-  try {
-    win = new BaseWindow({
-      width: QUICK_WIDTH,
-      height: QUICK_MIN_HEIGHT,
-      show: false,
-      frame: false,
-      resizable: false,
-      maximizable: false,
-      minimizable: false,
-      fullscreenable: false,
-      skipTaskbar: true,
-      alwaysOnTop: true,
-      // 真透明：roundedCorners 会在 macOS 上合成出灰底圆角矩形，必须关掉
-      transparent: true,
-      hasShadow: false,
-      roundedCorners: false,
-      backgroundColor: '#00000000',
-      title: 'eNest Quick'
-    })
-  } catch (err) {
-    logError('quick', `BaseWindow transparent failed, fallback opaque: ${(err as Error).message}`)
-    win = new BaseWindow({
-      width: QUICK_WIDTH,
-      height: QUICK_MIN_HEIGHT,
-      show: false,
-      frame: false,
-      resizable: false,
-      maximizable: false,
-      minimizable: false,
-      fullscreenable: false,
-      skipTaskbar: true,
-      alwaysOnTop: true,
-      backgroundColor: '#ffffff',
-      title: 'eNest Quick'
-    })
-  }
-  logInfo('quick', 'ensureQuickWindow: BaseWindow ok')
-
-  if (process.platform === 'darwin') {
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  }
-  try {
-    win.setAlwaysOnTop(true, 'screen-saver')
-  } catch {
-    win.setAlwaysOnTop(true)
-  }
-
-  const view = new WebContentsView({
+  logInfo('quick', 'ensureQuickWindow: creating BrowserWindow')
+  const win = new BrowserWindow({
+    width: QUICK_WIDTH,
+    height: QUICK_MIN_HEIGHT,
+    show: false,
+    frame: false,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    transparent: true,
+    hasShadow: true,
+    // 圆角仅由 CSS 表面绘制；窗口和主 renderer 都保持透明，不叠加不透明 View 底板。
+    roundedCorners: false,
+    backgroundColor: '#00000000',
+    title: 'eNest Quick',
     webPreferences: {
       preload: resolvePreload('shellPreload.js'),
       contextIsolation: true,
@@ -276,86 +199,34 @@ export function ensureQuickWindow(): BaseWindow {
       backgroundThrottling: false
     }
   })
-  const applyTransparentView = (): void => {
-    try {
-      view.setBackgroundColor('#00000000')
-    } catch {
-      /* 部分平台忽略 */
-    }
-  }
-  applyTransparentView()
+  logInfo('quick', 'ensureQuickWindow: BrowserWindow ok (renderer lazy)')
 
-  win.contentView.addChildView(view)
-  applyQuickBounds(win, view)
-  // 渲染层延后到首次 show 再 load
-  logInfo('quick', 'ensureQuickWindow: view attached (renderer lazy)')
+  if (process.platform === 'darwin') {
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  }
+  try {
+    win.setAlwaysOnTop(true, 'floating')
+  } catch {
+    win.setAlwaysOnTop(true)
+  }
 
   win.on('resize', () => {
     try {
-      if (!quickWindow || !quickView) return
-      applyQuickBounds(quickWindow, quickView)
+      if (!quickWindow || quickWindow.isDestroyed()) return
       relayoutQuickPlugins?.()
     } catch (err) {
       logError('quick', `resize handler: ${(err as Error).message}`)
     }
   })
 
-  view.webContents.on('render-process-gone', (_e, details) => {
+  win.webContents.on('render-process-gone', (_e, details) => {
     logError('quick', `render-process-gone: ${details.reason} exitCode=${details.exitCode}`)
   })
 
-  view.webContents.on('did-finish-load', () => {
+  win.webContents.on('did-finish-load', () => {
     lastPushedAnim = ''
     pushAnimLevel()
-    applyTransparentView()
-    void view.webContents
-      .insertCSS(
-        [
-          'html,body,#root{background:transparent!important;background-color:transparent!important;}',
-          'html,body{border-radius:0!important;box-shadow:none!important;}',
-          'body::before,body::after{display:none!important;}'
-        ].join('')
-      )
-      .catch(() => undefined)
   })
-
-  // dev 模式：HMR 推不到常驻的 WebContentsView（独立页面、非主窗），改为主进程
-  // 轮询 dev server 的 quick.css 版本指纹，变化即整页 reload（忽略缓存）。
-  // 注意 vite 源码路径需带 /@fs 前缀，否则 SPA fallback 返回 index.html。
-  if (process.env.ELECTRON_RENDERER_URL) {
-    let lastFingerprint = ''
-    const cssUrl = `${process.env.ELECTRON_RENDERER_URL}/@fs${join(app.getAppPath(), 'src/renderer/components/quick.css')}?direct`
-    const pollTimer = setInterval(() => {
-      const wc = quickView?.webContents
-      if (!wc || wc.isDestroyed() || !quickWindow || quickWindow.isDestroyed()) return
-      const url = wc.getURL()
-      // 只在 dev URL（http）时轮询；file:// 构建版无 HMR 需求
-      if (!url.startsWith('http')) return
-      void fetch(`${cssUrl}&t=${Date.now()}`)
-        .then((r) => r.text())
-        .then((css) => {
-          // vite fallback 会给 HTML；指纹对 CSS-only 内容取长度+首尾片段
-          if (css.startsWith('<!DOCTYPE') || css.startsWith('<')) return
-          const fp = `${css.length}:${css.slice(0, 64)}:${css.slice(-64)}`
-          if (!lastFingerprint) {
-            lastFingerprint = fp
-            return
-          }
-          if (fp !== lastFingerprint) {
-            lastFingerprint = fp
-            logInfo('quick', 'dev css changed → reload quick renderer')
-            try {
-              wc.reloadIgnoringCache()
-            } catch {
-              /* ignore */
-            }
-          }
-        })
-        .catch(() => undefined)
-    }, 2000)
-    // 进程退出清理
-    app.on('will-quit', () => clearInterval(pollTimer))
-  }
 
   win.on('blur', () => {
     try {
@@ -375,12 +246,12 @@ export function ensureQuickWindow(): BaseWindow {
             } catch {
               /* ignore */
             }
-            const wc = quickView?.webContents
+            const wc = quickWindow?.webContents
             if (wc && !wc.isDestroyed()) wc.focus()
             return
           }
           if (quickWindow.isFocused()) return
-          if (quickView?.webContents.isDevToolsOpened()) return
+          if (quickWindow.webContents.isDevToolsOpened()) return
           logInfo(
             'quick',
             `blur → hide visible=${quickWindow.isVisible()} focused=${quickWindow.isFocused()}`
@@ -397,19 +268,19 @@ export function ensureQuickWindow(): BaseWindow {
   })
 
   win.on('closed', () => {
+    if (pendingBlurTimer) clearTimeout(pendingBlurTimer)
+    pendingBlurTimer = null
     quickWindow = null
-    quickView = null
+    lastPushedAnim = ''
   })
 
   quickWindow = win
-  quickView = view
   return win
 }
 
 /** 把 Quick 窗前置并拿到键盘焦点。
  * 注意：不要在 show 前 app.focus——会先把主窗设成 key window，quick 立刻 blur 被收起。 */
-function presentAndFocus(win: BaseWindow): void {
-  lastShowAt = Date.now()
+function presentAndFocus(win: BrowserWindow): void {
   blurGuardUntil = Date.now() + SHOW_BLUR_GRACE_MS
   if (pendingBlurTimer) {
     clearTimeout(pendingBlurTimer)
@@ -431,7 +302,7 @@ function presentAndFocus(win: BaseWindow): void {
   // level 会触发原生崩溃（SIGTRAP 无 JS 日志）；创建时已设 alwaysOnTop，无需重申。
   step('focusWin', () => win.focus())
   step('focusWc', () => {
-    const wc = quickView?.webContents
+    const wc = quickWindow?.webContents
     if (wc && !wc.isDestroyed()) wc.focus()
   })
   logInfo('quick', `present done visible=${win.isVisible()} bounds=${JSON.stringify(win.getBounds())}`)
@@ -445,7 +316,7 @@ function presentAndFocus(win: BaseWindow): void {
       if (quickWindow.isFocused()) return
       if (Date.now() > blurGuardUntil) return
       retryWin.focus()
-      const w = quickView?.webContents
+      const w = quickWindow?.webContents
       if (w && !w.isDestroyed()) w.focus()
       logInfo('quick', `refocus after show (${tag})`)
     } catch (err) {
@@ -461,32 +332,17 @@ export function showQuickWindow(): void {
   try {
     const win = ensureQuickWindow()
     logInfo('quick', `ensureQuickWindow ok destroyed=${win.isDestroyed()}`)
-    const mountedHeight = quickPluginRestoreHook?.() ?? null
-    currentTargetHeight = mountedHeight ?? QUICK_MIN_HEIGHT
-    const wc = quickView?.webContents
+    // 每次呼出都从空搜索栏开始；搜索结果与插件只在用户操作后展开。
+    quickPluginResetHook?.()
+    currentTargetHeight = QUICK_MIN_HEIGHT
+    currentTargetWidth = QUICK_WIDTH
+    const wc = quickWindow?.webContents
     const afterPresent = (): void => {
       try {
         if (!wc || wc.isDestroyed()) return
-        try {
-          quickView?.setBackgroundColor('#00000000')
-        } catch {
-          /* ignore */
-        }
         wc.focus()
         wc.send(IpcChannels.QuickShown)
-        // 渲染层 effect 可能晚于 did-finish-load 才挂 onQuickShown，补推一次
-        setTimeout(() => {
-          try {
-            const w = quickView?.webContents
-            if (w && !w.isDestroyed()) w.send(IpcChannels.QuickShown)
-          } catch {
-            /* ignore */
-          }
-        }, 120)
         pushAnimLevel()
-        if (mountedHeight !== null) {
-          relayoutQuickPlugins?.()
-        }
         logInfo('quick', 'afterPresent ok')
       } catch (err) {
         logError('quick', `afterPresent failed: ${(err as Error).stack || String(err)}`)
@@ -503,19 +359,18 @@ export function showQuickWindow(): void {
       try {
         if (!wc.getURL() || wc.getURL() === 'about:blank') {
           logInfo('quick', 'show: loading renderer first time')
-          loadQuickRenderer(quickView!)
+          loadQuickRenderer(win)
         }
       } catch (err) {
         logError('quick', `loadQuickRenderer failed: ${(err as Error).message}`)
       }
-      presentAndFocus(win)
+      // 首帧文档就绪再显示，避免首次唤出时出现透明空窗。
       wc.once('did-finish-load', () => {
         try {
           if (!quickWindow || quickWindow.isDestroyed()) return
           presentAndFocus(win)
           afterPresent()
           applyQuickHeightAfterShow()
-          if (mountedHeight !== null) quickPluginRestoreHook?.()
           logInfo('quick', 'show (after load)')
         } catch (err) {
           logError('quick', `show-after-load failed: ${(err as Error).stack || String(err)}`)
@@ -539,15 +394,14 @@ export function showQuickWindow(): void {
 }
 
 /**
- * PluginHost 注入的「呼出时恢复插件挂载」回调：
- * 有挂载中的 quick 插件时重推 quick-plugin-mode 并返回目标窗高；否则返回 null（列表态）。
- * 注入的闭包读取 PluginHost 实时状态，本模块只消费返回值。
+ * PluginHost 注入的「呼出前重置」回调：隐藏原生插件视图并回到空搜索态。
+ * 插件进程与主动上报的尺寸仍保留，再次显式打开时复用。
  */
-let quickPluginRestoreHook: (() => number | null) | null = null
+let quickPluginResetHook: (() => void) | null = null
 
-/** PluginHost 启动时注入恢复回调；传 null 清除 */
-export function setQuickPluginRestoreHook(fn: (() => number | null) | null): void {
-  quickPluginRestoreHook = fn
+/** PluginHost 启动时注入重置回调；传 null 清除 */
+export function setQuickPluginResetHook(fn: (() => void) | null): void {
+  quickPluginResetHook = fn
 }
 
 /**
@@ -585,12 +439,7 @@ export function toggleQuickWindow(): void {
     if (win && !win.isDestroyed() && win.isVisible()) {
       if (!win.isFocused()) {
         logInfo('quick', 'toggle: visible but unfocused → refocus')
-        presentAndFocus(win)
-        const wc = quickView?.webContents
-        if (wc && !wc.isDestroyed()) {
-          wc.focus()
-          wc.send(IpcChannels.QuickShown)
-        }
+        showQuickWindow()
         return
       }
       hideQuickWindow('toggle')
@@ -605,10 +454,6 @@ export function toggleQuickWindow(): void {
 }
 
 export function destroyQuickWindow(): void {
-  if (heightTween) {
-    clearInterval(heightTween)
-    heightTween = null
-  }
   if (pendingBlurTimer) {
     clearTimeout(pendingBlurTimer)
     pendingBlurTimer = null
@@ -617,5 +462,4 @@ export function destroyQuickWindow(): void {
     quickWindow.destroy()
   }
   quickWindow = null
-  quickView = null
 }

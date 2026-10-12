@@ -26,6 +26,7 @@ import type {
 import type { ProxyTestResult } from '@shared/types/ipc'
 import type {
   ApplicationScanResult,
+  QuickCommandKind,
   QuickHotkeyApplyResult,
   QuickHotkeyConfig,
   QuickOpenRequest,
@@ -204,7 +205,7 @@ export interface EnestShellApi {
   // —— 快捷启动 Quick ——
   quickToggle(): Promise<void>
   quickHide(): void
-  quickSearch(query: string, limit?: number): Promise<QuickSearchResult>
+  quickSearch(query: string, limit?: number, kind?: QuickCommandKind): Promise<QuickSearchResult>
   quickOpen(req: QuickOpenRequest): Promise<QuickOpenResult>
   quickScanApps(force?: boolean): Promise<ApplicationScanResult>
   quickGetConfig(): Promise<QuickHotkeyConfig>
@@ -422,8 +423,8 @@ const api: EnestShellApi = {
   quickHide: () => {
     ipcRenderer.invoke(IpcChannels.QuickHide).catch(() => undefined)
   },
-  quickSearch: (query: string, limit?: number) =>
-    ipcRenderer.invoke(IpcChannels.QuickSearch, { query, limit }) as Promise<QuickSearchResult>,
+  quickSearch: (query: string, limit?: number, kind?: QuickCommandKind) =>
+    ipcRenderer.invoke(IpcChannels.QuickSearch, { query, limit, kind }) as Promise<QuickSearchResult>,
   quickOpen: (req: QuickOpenRequest) =>
     ipcRenderer.invoke(IpcChannels.QuickOpen, req) as Promise<QuickOpenResult>,
   quickScanApps: (force?: boolean) =>
