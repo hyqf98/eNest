@@ -11,11 +11,10 @@ import { existsSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { dialog, ipcMain, Notification } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
-import { toTabId } from '@shared/constants'
-import type { ThemeTokens } from '@shared/types/plugin'
+import { APP_NAME, FONTS_DIR, toTabId } from '@shared/constants'
+import type { PluginLaunchConfig, PluginLaunchPatch, ThemeTokens } from '@shared/types/plugin'
 import { pickAndLoadDevPlugin } from '@main/dev/DevConsole'
 import { setDevPluginKillOnHide } from '@main/dev/devPluginsStore'
-import { kvDelete, kvGet, kvSet } from '@main/db/sqliteService'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, getAppPathsRoot } from '@main/paths/pathsService'
 import { pluginHost } from '@main/plugin/PluginHost'
@@ -28,6 +27,13 @@ import {
 import { uninstallPlugin } from '@main/plugin/PluginUninstaller'
 import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
 import { broadcastPluginLocale, getPluginCallTrace } from '@main/ipc/pluginHandlers'
+import {
+  probeLaunchHotkey,
+  setPluginLaunch,
+  releasePluginLaunchHotkey,
+  clearPluginLaunch,
+  applyPluginLaunchHotkeys
+} from '@main/hotkey/pluginLaunchHotkeys'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { pluginSettingsBridge } from '@main/settings/PluginSettingsBridge'
 import {
@@ -45,7 +51,6 @@ import {
 } from '@main/update/updateService'
 import {
   getMainWindow,
-  getShellBounds,
   getShellWebContents,
   sendShellEvent,
   setPluginLeftInset
@@ -72,7 +77,7 @@ const FONT_EXTS = new Set(['.ttf', '.otf', '.woff', '.woff2'])
 
 /** 自定义字体落盘目录：{dataRoot}/fonts */
 function fontsDir(): string {
-  return join(getAppPathsRoot(), 'fonts')
+  return join(getAppPathsRoot(), FONTS_DIR)
 }
 
 /** 清洗字体文件名，防止路径穿越；非法时回落 custom-font */
@@ -180,6 +185,8 @@ export function registerShellHandlers(): void {
       if (!id) return { ok: false, error: 'plugin id required' }
       logInfo('ipc', `shell:uninstall-plugin ${id}`)
       const result = await uninstallPlugin(id)
+      // 卸载即清快捷启动配置（热键/触发词/启动方式）并释放启动热键
+      await clearPluginLaunch(id)
       // 卸载可能移除最后一个 clipboard.history 持有者，重算轮询
       revalidateClipboardPolling()
       return result.ok ? { ok: true } : { ok: false, error: result.error }
@@ -191,7 +198,7 @@ export function registerShellHandlers(): void {
 
   /**
    * shell:set-plugin-enabled — 启用/禁用已安装插件。
-   * 持久化到 ~/eNest/plugins/disabled.json；成功返回更新后的 summary。
+   * 持久化到 ~/.eNest/plugins/disabled.json；成功返回更新后的 summary。
    */
   ipcMain.handle(
     IpcChannels.ShellSetPluginEnabled,
@@ -203,9 +210,46 @@ export function registerShellHandlers(): void {
         const summary = await pluginRegistry.setPluginEnabled(id, enabled !== false)
         // 启停可能增减 clipboard.history 持有者，重算轮询
         revalidateClipboardPolling()
+        // 快捷启动热键随启停释放/重注册（apply 内部跳过禁用插件）
+        if (enabled === false) releasePluginLaunchHotkey(id)
+        else applyPluginLaunchHotkeys()
         return { ok: true, data: summary }
       } catch (err) {
         logWarn('ipc', `shell:set-plugin-enabled failed: ${(err as Error).message}`)
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
+
+  /**
+   * shell:probe-launch-hotkey — 启动热键录制探测：返回占用归属
+   * （free / system / eNest-quick / plugin-launch / plugin-runtime），
+   * 渲染层据此展示冲突详情与「接管」选项。
+   */
+  ipcMain.handle(
+    IpcChannels.ShellProbeLaunchHotkey,
+    (_e, acc: string, excludePluginId?: string) =>
+      probeLaunchHotkey(String(acc ?? ''), excludePluginId ? String(excludePluginId) : undefined)
+  )
+
+  /**
+   * shell:set-plugin-launch — 写入单插件快捷启动配置（启动方式/热键/触发词）。
+   * 热键冲突时返回 probe 供渲染层展示；takeover=true 才执行接管（UI 须先经用户确认）。
+   */
+  ipcMain.handle(
+    IpcChannels.ShellSetPluginLaunch,
+    async (
+      _e,
+      pluginId: string,
+      patch: PluginLaunchPatch,
+      opts?: { takeover?: boolean }
+    ) => {
+      try {
+        const id = String(pluginId ?? '').trim()
+        if (!id) return { ok: false, error: 'plugin id required' }
+        return await setPluginLaunch(id, patch ?? {}, opts)
+      } catch (err) {
+        logWarn('ipc', `shell:set-plugin-launch failed: ${(err as Error).message}`)
         return { ok: false, error: (err as Error).message }
       }
     }
@@ -279,8 +323,6 @@ export function registerShellHandlers(): void {
       }
     }
   )
-
-  ipcMain.handle(IpcChannels.ShellGetBounds, () => getShellBounds())
 
   /** 返回 ThemeTokens + 已注册主题包列表 */
   ipcMain.handle(IpcChannels.ShellGetTheme, () => ({
@@ -414,32 +456,6 @@ export function registerShellHandlers(): void {
     readPluginReadme(String(pluginId ?? ''))
   )
 
-  /** 共享 KV 库：get / set / delete */
-  ipcMain.handle(
-    IpcChannels.ShellQueryDb,
-    (
-      _e,
-      request: { op: 'get' | 'set' | 'delete'; key: string; value?: string }
-    ): { ok: boolean; data?: string | null; error?: string } => {
-      try {
-        const key = String(request?.key ?? '')
-        if (!key) return { ok: false, error: 'key required' }
-        if (request.op === 'get') return { ok: true, data: kvGet(key) }
-        if (request.op === 'set') {
-          kvSet(key, String(request.value ?? ''))
-          return { ok: true, data: null }
-        }
-        if (request.op === 'delete') {
-          kvDelete(key)
-          return { ok: true, data: null }
-        }
-        return { ok: false, error: `unknown op: ${String(request.op)}` }
-      } catch (err) {
-        return { ok: false, error: (err as Error).message }
-      }
-    }
-  )
-
   // —— 系统级通知 ——
 
   /** shell:system-notify — 弹出 OS 通知（Electron Notification） */
@@ -449,7 +465,7 @@ export function registerShellHandlers(): void {
       try {
         if (!Notification.isSupported()) return { ok: false, error: 'notification unsupported' }
         new Notification({
-          title: String(title ?? 'eNest').slice(0, 120),
+          title: String(title ?? APP_NAME).slice(0, 120),
           body: String(body ?? '').slice(0, 500)
         }).show()
         return { ok: true }
@@ -500,7 +516,7 @@ export function registerShellHandlers(): void {
   // —— 自定义字体 ——
 
   /**
-   * shell:save-custom-font — 将本地字体复制到 ~/eNest/fonts/（或直接写 base64）。
+   * shell:save-custom-font — 将本地字体复制到 ~/.eNest/fonts/（或直接写 base64）。
    * payload: { sourcePath?: string; dataBase64?: string; fileName: string }
    * 返回落盘后的绝对路径。
    */
@@ -530,7 +546,7 @@ export function registerShellHandlers(): void {
     }
   )
 
-  /** shell:read-custom-font — 读 ~/eNest/fonts/{fileName} 为 base64，供 FontFace 加载 */
+  /** shell:read-custom-font — 读 ~/.eNest/fonts/{fileName} 为 base64，供 FontFace 加载 */
   ipcMain.handle(
     IpcChannels.ShellReadCustomFont,
     async (_e, fileName: string): Promise<{ ok: boolean; dataBase64?: string; error?: string }> => {
@@ -547,7 +563,7 @@ export function registerShellHandlers(): void {
     }
   )
 
-  /** shell:delete-custom-font — 删除 ~/eNest/fonts/{fileName}（文件不存在视为成功） */
+  /** shell:delete-custom-font — 删除 ~/.eNest/fonts/{fileName}（文件不存在视为成功） */
   ipcMain.handle(
     IpcChannels.ShellDeleteCustomFont,
     async (_e, fileName: string): Promise<{ ok: boolean; error?: string }> => {

@@ -1,5 +1,6 @@
 # eNest 代码功能实现评估报告
 
+> 注：本文 L224 / L231 的 mini/panel form 区分已于 2026-10 移除——插件不再有 manifest `form`，渲染容器由启动方式决定，现状见 `docs/compose/spec/quick-launcher.md`。
 > 评估时间：2026-09 · 范围：`src/main`、`src/preload`、`src/renderer`、`src/shared`、`eNest_plugin`、`docs`
 > 方法：6 路并行子代理深读源码（只读），逐项对照 `AGENTS.md` / `ARCHITECTURE.md` 约定，证据均带 `file_path:line_number`
 

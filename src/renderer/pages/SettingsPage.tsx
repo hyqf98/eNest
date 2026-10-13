@@ -18,9 +18,13 @@ import { SettingsTabs } from '@renderer/components/SettingsTabs'
 import { useI18n } from '@renderer/hooks/useI18n'
 import type { Locale } from '@renderer/i18n'
 import { shellApi } from '@renderer/services/shellApi'
+import { notify } from '@renderer/services/notifyService'
 import { toastStore } from '@renderer/hooks/useToast'
 import type { ProxyConfig, ProxyType } from '@shared/types/plugin'
+import type { PluginPermission, PluginPermissionGrant } from '@shared/types/plugin'
 import type { UpdateStatePayload } from '@shared/types/ipc'
+import { PLUGIN_CATEGORY_COLOR_DEFAULT } from '@shared/constants'
+import { permissionLabel } from '@shared/permissionLabels'
 
 type CloseBehavior = 'minimize-tray' | 'quit'
 
@@ -79,6 +83,56 @@ function Card({ title, hint, children }: { title: string; hint?: string; childre
       <h2>{title}</h2>
       {hint ? <p className="hint">{hint}</p> : null}
       {children}
+    </div>
+  )
+}
+
+/** 插件「权限管理」块：manifest 声明权限逐项三态分段（允许/询问/拒绝） */
+function PluginPermissionBlock({
+  pluginId,
+  permissions,
+  grants,
+  onChange,
+}: {
+  pluginId: string
+  permissions: PluginPermission[]
+  grants: Partial<Record<PluginPermission, PluginPermissionGrant>>
+  onChange: (pluginId: string, perm: PluginPermission, grant: PluginPermissionGrant) => void
+}) {
+  if (permissions.length === 0) return null
+  const grantOf = (perm: PluginPermission): PluginPermissionGrant => {
+    const g = grants[perm]
+    return g === 'allow' || g === 'deny' ? g : 'ask'
+  }
+  return (
+    <div className="plugin-settings-section perm-grant-block">
+      <h3 className="label">权限管理</h3>
+      {permissions.map((perm) => (
+        <Field key={perm} label={permissionLabel(perm)} desc={perm}>
+          <div
+            className="segmented perm-grant-seg"
+            role="group"
+            aria-label={`${permissionLabel(perm)}授权`}
+          >
+            {(
+              [
+                ['allow', '允许'],
+                ['ask', '询问'],
+                ['deny', '拒绝'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={grantOf(perm) === value ? 'active' : ''}
+                onClick={() => onChange(pluginId, perm, value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </Field>
+      ))}
     </div>
   )
 }
@@ -148,6 +202,35 @@ export function SettingsPage() {
   /** 插件 settings.register 注入的 section 与持久化值 */
   const [pluginSections, setPluginSections] = useState<PluginSettingsSection[]>([])
   const [pluginSettings, setPluginSettings] = useState<Record<string, Record<string, unknown>>>({})
+
+  /** 运行时权限授权表：pluginId → perm → grant（弹窗 always/deny 与本页切换共用） */
+  const [permissionGrants, setPermissionGrants] = useState<
+    Record<string, Partial<Record<PluginPermission, PluginPermissionGrant>>>
+  >({})
+
+  /** 写单项授权：乐观更新 + shellApi 持久化，失败回滚并提示 */
+  const handlePermissionGrant = useCallback(
+    (pluginId: string, perm: PluginPermission, grant: PluginPermissionGrant) => {
+      const prevGrant = permissionGrants[pluginId]?.[perm]
+      setPermissionGrants((prev) => ({
+        ...prev,
+        [pluginId]: { ...(prev[pluginId] ?? {}), [perm]: grant },
+      }))
+      void (async () => {
+        try {
+          await shellApi.setPluginPermissionGrant?.(pluginId, perm, grant)
+        } catch {
+          // 持久化失败：回滚本地状态
+          setPermissionGrants((cur) => ({
+            ...cur,
+            [pluginId]: { ...(cur[pluginId] ?? {}), [perm]: prevGrant ?? 'ask' },
+          }))
+          notify.warn('权限设置保存失败，已还原')
+        }
+      })()
+    },
+    [permissionGrants],
+  )
 
   /** 设置页只展示注册了设置项的插件（manifest 声明或运行时 register） */
   const settingsPlugins = installed.filter(
@@ -249,6 +332,28 @@ export function SettingsPage() {
       off()
     }
   }, [])
+
+  /** 已安装插件的授权表初始拉取（后续经事件/本页切换增量更新） */
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      for (const p of installed) {
+        try {
+          const grants = await shellApi.getPluginPermissionGrants?.(p.id)
+          if (!cancelled && grants) {
+            setPermissionGrants((prev) => ({ ...prev, [p.id]: grants }))
+          }
+        } catch {
+          /* 单插件失败不阻塞其余 */
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // installed 列表变化（新装/卸载）时重拉
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [installed.map((p) => p.id).join(',')])
 
   /** 写入插件单项：优先 setPluginSetting（同步 Bridge），回落 setSettings.plugins */
   const handlePluginSetting = useCallback(
@@ -746,7 +851,7 @@ export function SettingsPage() {
                 )
               }
               if (item.type === 'color') {
-                const color = typeof raw === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(raw) ? raw : '#5b8cff'
+                const color = typeof raw === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(raw) ? raw : PLUGIN_CATEGORY_COLOR_DEFAULT
                 return (
                   <input
                     type="color"
@@ -774,6 +879,12 @@ export function SettingsPage() {
             }
             return (
               <Card title={p.name}>
+                <PluginPermissionBlock
+                  pluginId={p.id}
+                  permissions={p.permissions ?? []}
+                  grants={permissionGrants[p.id] ?? {}}
+                  onChange={handlePermissionGrant}
+                />
                 {sections.length === 0 ? (
                   <p className="desc">{t('settings.pluginSection.empty')}</p>
                 ) : (

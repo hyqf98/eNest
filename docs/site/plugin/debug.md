@@ -34,7 +34,7 @@ npm run dev   # 例如 http://127.0.0.1:5173
 
 ## 静态文件调试
 
-无 `development.main` 时，从插件目录原地读取 `index.html`（不复制到 `~/eNest/plugins`）。改文件后点「热重载」即可。
+无 `development.main` 时，从插件目录原地读取 `index.html`（不复制到 `~/.eNest/plugins`）。改文件后点「热重载」即可。
 
 ## 退出到后台立即结束运行（静态插件改码刷新）
 

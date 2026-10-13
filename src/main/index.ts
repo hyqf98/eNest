@@ -30,6 +30,10 @@ import { registerShellHandlers } from '@main/ipc/shellHandlers'
 import { registerPluginHandlers } from '@main/ipc/pluginHandlers'
 import { registerQuickHandlers } from '@main/ipc/quickHandlers'
 import { initQuickHotkeys, disposeQuickHotkeys } from '@main/hotkey/quickHotkey'
+import {
+  initPluginLaunchHotkeys,
+  releaseAllPluginLaunchHotkeys
+} from '@main/hotkey/pluginLaunchHotkeys'
 import { scanApplications } from '@main/launcher/appScanner'
 import { initUpdateService } from '@main/update/updateService'
 import {
@@ -43,6 +47,16 @@ registerSchemesAsPrivileged()
 
 // 硬件加速必须在 app ready 之前根据 settings.json 决策
 applyHardwareAccelerationBeforeReady()
+
+// win32：AppUserModelId 决定通知归属（未设置时通知可能显示为 Electron 默认名/被折叠）
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.enest.app')
+}
+
+// linux：Wayland 下屏幕捕获需 PipeWire 授权通道（app ready 前追加才生效）
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer')
+}
 
 // 自动化：ENEST_REMOTE_DEBUG=9331 时开启 CDP
 const remoteDebug = process.env.ENEST_REMOTE_DEBUG
@@ -241,6 +255,8 @@ void app.whenReady().then(async () => {
     // 快捷启动：注册全局热键 + 后台扫描；小窗懒创建（首次呼出时）
     // 不要在这里 ensureQuickWindow()：透明小窗按需创建，避免启动阶段并发初始化原生窗口。
     initQuickHotkeys()
+    // 每插件启动热键（settings.pluginLaunch；独立注册表，不随插件休眠释放）
+    initPluginLaunchHotkeys()
     void scanApplications(false)
     logInfo('main', 'quick launcher ok')
 
@@ -288,14 +304,20 @@ app.on('before-quit', (event) => {
   forceTimer.unref?.()
 
   disposeQuickHotkeys()
+  // 每插件启动热键显式簿记释放（releaseAllGlobalShortcutsSync 兜底仍生效）
+  releaseAllPluginLaunchHotkeys()
   releaseAllGlobalShortcutsSync()
-  destroyQuickWindow()
   stopClipboardHistory()
   disposeScreenService()
   disposePinService()
+  // 先 destroyAll 再销毁 Quick 小窗：Quick 内嵌插件的 webContents 仍存活，
+  // 能真正收到 beforeClose 并 flush；若先毁小窗，向已销毁目标只能空等 ack
   void pluginHost
     .destroyAll()
     .catch(() => {})
+    .then(() => {
+      destroyQuickWindow()
+    })
     .finally(() => {
       clearTimeout(forceTimer)
       try {

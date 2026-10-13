@@ -6,7 +6,12 @@
  */
 import type {
   AppPaths,
+  LaunchHotkeyProbeResult,
   MarketInstallResult,
+  PluginLaunchConfig,
+  PluginLaunchPatch,
+  PluginPermission,
+  PluginPermissionGrant,
   PluginSummary,
   PluginTab,
   ProxyConfig,
@@ -59,6 +64,16 @@ export interface ProxySetResult {
   proxy: ProxyConfig
 }
 
+/** shell:set-plugin-launch 返回体（与 preload PluginLaunchSetResult 对齐） */
+export interface PluginLaunchSetResult {
+  ok: boolean
+  error?: string
+  /** 冲突探测详情（失败时供渲染层展示归属与接管选项） */
+  probe?: LaunchHotkeyProbeResult
+  /** 成功后的最终配置（空配置为 null） */
+  config?: PluginLaunchConfig | null
+}
+
 /** preload 注入到渲染进程的完整 shell 能力面 */
 export interface ShellApi {
   getPlugins(): Promise<PluginSummary[]>
@@ -98,6 +113,15 @@ export interface ShellApi {
   uninstallPlugin?(pluginId: string): Promise<void>
   /** 启用/禁用已安装插件（持久化）；成功返回更新后的 summary */
   setPluginEnabled?(pluginId: string, enabled: boolean): Promise<PluginSummary>
+  /** 启动热键录制探测：返回占用归属（free/system/eNest-quick/plugin-launch/plugin-runtime） */
+  probeLaunchHotkey?(acc: string, excludePluginId?: string): Promise<LaunchHotkeyProbeResult>
+  /** 写入单插件快捷启动配置（启动方式/热键/触发词）；冲突返回 probe，takeover 接管。
+   *  patch.mode 传 null = 清除启动方式（回到「跟随入口」）；hotkey 传空串 = 清除 */
+  setPluginLaunch?(
+    pluginId: string,
+    patch: PluginLaunchPatch,
+    opts?: { takeover?: boolean }
+  ): Promise<PluginLaunchSetResult>
   /** 从市场安装/更新：sample 优先，否则远程入队；force 强制走远程更新 */
   installMarketPlugin?(
     pluginId: string,
@@ -146,7 +170,7 @@ export interface ShellApi {
   setProxy?(config: ProxyConfig): Promise<ProxySetResult>
   /** 测试代理连通性；浏览器 mock 对 none 返回 ok */
   testProxy?(config?: ProxyConfig): Promise<ProxyTestResult>
-  /** Electron：复制/写入自定义字体到 ~/eNest/fonts/；浏览器 mock 返回 not-available */
+  /** Electron：复制/写入自定义字体到 ~/.eNest/fonts/；浏览器 mock 返回 not-available */
   saveCustomFont?(payload: {
     sourcePath?: string
     dataBase64?: string
@@ -167,6 +191,24 @@ export interface ShellApi {
   getUpdateState?(): Promise<UpdateStatePayload>
   /** 系统级通知（Electron Notification）；浏览器 mock 用 Web Notification 兜底 */
   systemNotify?(title: string, body?: string): Promise<void>
+  /** —— 运行时权限（壳层三态；mock 分支为内存假实现）—— */
+  /** 响应权限弹窗：once 本次允许 / always 总是允许 / deny 拒绝 */
+  respondPermissionRequest?(
+    requestId: string,
+    decision: 'once' | 'always' | 'deny'
+  ): Promise<void>
+  /** 读插件权限授权表（未设置项语义为 'ask'） */
+  getPluginPermissionGrants?(
+    pluginId: string
+  ): Promise<Partial<Record<PluginPermission, PluginPermissionGrant>>>
+  /** 写单项权限授权（设置页三态分段） */
+  setPluginPermissionGrant?(
+    pluginId: string,
+    permission: PluginPermission,
+    grant: PluginPermissionGrant
+  ): Promise<void>
+  /** 打开 macOS「屏幕录制」系统设置（权限引导） */
+  openScreenCaptureSettings?(): Promise<void>
   /** 仅订阅 install-progress 事件 */
   onInstallProgress?(
     cb: (payload: { jobId: string; name: string; progress: number; step?: string }) => void
@@ -301,6 +343,13 @@ function createMockApi(): ShellApi {
       if (!summary) throw new Error(`plugin not found: ${id}`)
       emit({ type: 'plugins-changed' })
       return summary
+    },
+    async probeLaunchHotkey(acc) {
+      // mock：浏览器无 globalShortcut，一律视为空闲
+      return { acc, status: 'free' as const }
+    },
+    async setPluginLaunch(_id, _patch) {
+      return { ok: false, error: 'mock' }
     },
     async installMarketPlugin(id) {
       const existing = mockRegistry.getById(id)
@@ -603,6 +652,19 @@ function createMockApi(): ShellApi {
         /* ignore */
       }
     },
+    // —— 运行时权限 mock：内存授权表，弹窗链路不生效（浏览器无主进程仲裁）——
+    async respondPermissionRequest(_requestId, _decision) {
+      /* mock no-op */
+    },
+    async getPluginPermissionGrants(_pluginId) {
+      return {}
+    },
+    async setPluginPermissionGrant(_pluginId, _permission, _grant) {
+      /* mock no-op */
+    },
+    async openScreenCaptureSettings() {
+      /* mock no-op */
+    },
     onInstallProgress(cb) {
       const wrapped = (payload: ShellEventPayload): void => {
         if (payload.type === 'install-progress') cb(payload)
@@ -752,4 +814,3 @@ export const shellApi: ShellApi = rawShell
 export const isMockShell = !rawShell
 
 export type { ShellSettingsData }
-export { DEFAULT_SETTINGS }

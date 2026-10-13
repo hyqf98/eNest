@@ -20,6 +20,7 @@ import { getAppPaths, pluginStorageFile } from '@main/paths/pathsService'
 import { sendShellEvent } from '@main/window/createShellWindow'
 import { clearPluginSession, deleteSessionSnapshot } from '@main/plugin/PluginSessionStore'
 import { clearPluginDisabled } from '@main/plugin/pluginEnabledStore'
+import { permissionService } from '@main/plugin/PermissionService'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { forgetDevPlugin } from '@main/dev/DevConsole'
@@ -63,6 +64,9 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
   // 2) 生命周期：任意 → clearing-storage
   pluginHost.beginUninstall(id)
 
+  // 2b) 取消该插件挂起/排队中的权限请求（按拒绝 settle，不持久化）
+  permissionService.cancelFor(id)
+
   // 3) 清空 partition（cookie / localStorage / IndexedDB / cache）
   try {
     const partition = pluginPartition(id)
@@ -83,7 +87,7 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
     logWarn('uninstall', `${id} session bag clear failed: ${(err as Error).message}`)
   }
 
-  // 5) 删除 ~/eNest/plugins/{id} 整棵版本树
+  // 5) 删除 ~/.eNest/plugins/{id} 整棵版本树
   try {
     const pluginDir = join(getAppPaths().plugins, id)
     if (existsSync(pluginDir)) {

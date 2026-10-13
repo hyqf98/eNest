@@ -153,6 +153,15 @@
 }
 
 /* ========== Titlebar（macOS 紧凑风） ========== */
+/* 红绿灯窗口控制符号描边：浅色档深色描边，深色档浅色描边 */
+:root {
+  --titlebar-icon-stroke: rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="dark"] {
+  --titlebar-icon-stroke: rgba(255, 255, 255, 0.5);
+}
+
 .titlebar {
   display: grid;
   grid-template-columns: 68px 1fr;
@@ -699,21 +708,6 @@
 }
 
 /* soft semantic fills — 同一套克制语言 */
-.btn-success {
-  background: var(--ok-soft);
-  color: var(--ok);
-  border: 1px solid color-mix(in srgb, var(--ok) 22%, transparent);
-}
-
-.btn-success:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ok-soft) 70%, var(--ok) 12%);
-}
-
-.btn-success:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--ok) 24%, transparent);
-}
-
 .btn-danger {
   background: var(--danger-soft);
   color: var(--danger);
@@ -1180,53 +1174,6 @@
   border-color: transparent;
 }
 .switch.on::after { transform: translateX(16px); }
-
-/* —— 快捷启动热键录制 —— */
-.hotkey-recorder {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-.hotkey-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 160px;
-}
-.hotkey-empty {
-  color: var(--text-2);
-  font-size: 13px;
-}
-.hotkey-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  font-size: 12px;
-}
-.hotkey-chip code {
-  font-family: inherit;
-}
-.hotkey-remove {
-  border: none;
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  padding: 0 2px;
-}
-.hotkey-remove:hover {
-  color: var(--danger);
-}
-.hotkey-recorder .btn.recording {
-  border-color: var(--accent);
-  color: var(--accent);
-}
 
 /* —— 自定义下拉（向下弹出） —— */
 .ui-select {
@@ -1978,23 +1925,6 @@
   border-color: var(--link);
 }
 
-.dev-empty {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 20px 12px;
-  border-radius: 12px;
-  border: 1px dashed var(--border-dashed);
-  color: var(--text-3);
-  text-align: center;
-  font-size: 12.5px;
-}
-
-.dev-empty strong {
-  color: var(--text-2);
-  font-size: 13px;
-}
-
 .dev-plugin-list {
   display: flex;
   flex-direction: column;
@@ -2134,38 +2064,7 @@
   color: #ff6b81;
 }
 
-/* Toast */
-.toasts {
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  z-index: 200;
-  pointer-events: none;
-}
-
-.toast {
-  padding: 11px 14px;
-  border-radius: 22px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-float);
-  font-size: 12.5px;
-  max-width: 300px;
-}
-
-/* 插件 ui.toast 类型强调色（壳子统一渲染） */
-.toast-success {
-  border-color: color-mix(in srgb, #34c759 55%, var(--border));
-}
-.toast-warn {
-  border-color: color-mix(in srgb, #ff9f0a 55%, var(--border));
-}
-.toast-error {
-  border-color: color-mix(in srgb, #ff453a 55%, var(--border));
-}
+/* Toast 渲染已迁至 NotificationHost（.notify-*），旧 .toasts/.toast* 已删除 */
 
 .empty {
   grid-column: 1 / -1;
@@ -2345,52 +2244,7 @@
   color: var(--text);
 }
 
-.font-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
-  min-height: 96px;
-}
-
-.font-card:hover {
-  background: var(--surface-3);
-}
-
-.font-card.active {
-  border-color: var(--link);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--link) 12%, transparent);
-  background: var(--surface);
-}
-
-.font-card .font-preview {
-  display: block;
-  width: 100%;
-  font-size: 20px;
-  font-weight: 500;
-  line-height: 1.2;
-  color: var(--text);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.font-card .font-preview.sm {
-  font-size: 16px;
-}
-
-.font-card strong {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-2);
-}
+/* —— 字体预设卡（.font-card）已由 .font-* 新版设置区取代，样式删除 —— */
 
 .font-badge {
   font-style: normal;
@@ -2514,7 +2368,6 @@
     padding-left: max(clamp(14px, 2.2vw, 20px), 28px);
   }
 
-  .dev-grid,
   .iso-grid {
     grid-template-columns: 1fr;
   }
@@ -2528,8 +2381,7 @@
 @media (max-width: 720px) {
 
   .token-grid,
-  .iso-grid,
-  .dev-grid {
+  .iso-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2616,18 +2468,6 @@
     height: 36px;
   }
 
-  /* Toast：贴边全宽，避免窄屏被 300px 挤出 */
-  .toasts {
-    left: 16px;
-    right: 16px;
-    bottom: 16px;
-    align-items: stretch;
-  }
-
-  .toast {
-    max-width: none;
-  }
-
   .empty {
     padding: 40px 12px;
   }
@@ -2673,7 +2513,6 @@
     gap: 8px;
   }
 
-  .dev-actions .btn,
   .path-actions .btn {
     flex: 1 1 auto;
   }
@@ -2826,9 +2665,8 @@
       color-mix(in srgb, var(--glow-color) calc(var(--glow-strength) * 22%), transparent);
 }
 
-/* ghost / success / danger 按钮 + 底部悬浮钮：聚焦型轻光晕（贴边 + 小外扩） */
+/* ghost / danger 按钮 + 底部悬浮钮：聚焦型轻光晕（贴边 + 小外扩） */
 :root[data-anim="high"] .btn-ghost,
-:root[data-anim="high"] .btn-success,
 :root[data-anim="high"] .btn-danger,
 :root[data-anim="high"] .float-btn {
   transition: box-shadow 0.24s ease, transform 0.22s cubic-bezier(0.22, 1.3, 0.36, 1);
@@ -2836,8 +2674,6 @@
 
 :root[data-anim="high"] .btn-ghost:hover,
 :root[data-anim="high"] .btn-ghost:focus-visible,
-:root[data-anim="high"] .btn-success:hover,
-:root[data-anim="high"] .btn-success:focus-visible,
 :root[data-anim="high"] .btn-danger:hover:not(:disabled),
 :root[data-anim="high"] .btn-danger:focus-visible:not(:disabled),
 :root[data-anim="high"] .float-btn:hover,
@@ -2864,12 +2700,6 @@
 :root[data-anim="high"] .btn-danger:hover:not(:disabled),
 :root[data-anim="high"] .btn-danger:focus-visible:not(:disabled) {
   box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--danger) calc(var(--glow-strength) * 24%), transparent);
-}
-
-/* 成功操作：ok 光晕 */
-:root[data-anim="high"] .btn-success:hover,
-:root[data-anim="high"] .btn-success:focus-visible {
-  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--ok) calc(var(--glow-strength) * 22%), transparent);
 }
 
 /* medium：主 CTA hover 极轻外沿 */

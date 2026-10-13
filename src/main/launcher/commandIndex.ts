@@ -4,12 +4,12 @@
  *       插件运行时 quick provider，提供统一搜索排序。
  * 被 quickHandlers 调用。
  */
-import type { QuickActionId, QuickCommand, QuickCommandKind } from '@shared/types/quick'
+import type { QuickCommand, QuickCommandKind } from '@shared/types/quick'
 import type { PluginManifest, QuickRecentEntry } from '@shared/types/plugin'
-import { resolvePluginForm } from '@shared/types/plugin'
 import { pluginProtocolUrl } from '@shared/constants'
 import { matchesSearchTerms, normalizeSearchText } from '@shared/search'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { getPluginLaunchAliases } from '@main/hotkey/pluginLaunchHotkeys'
 import { getCachedApps, scanApplications } from './appScanner'
 import { getAppIconDataUrl } from './appLauncher'
 import { searchHistory } from '@main/clipboard/clipboardHistory'
@@ -150,19 +150,19 @@ export function buildPluginCommands(): QuickCommand[] {
   const items: QuickCommand[] = []
   for (const m of installedManifests()) {
     const pluginId = m.id
-    const form = resolvePluginForm(m.form)
     const features = m.features ?? []
     const icon = pluginIconUrl(pluginId, m.logo)
+    // 用户自定义触发词（settings.pluginLaunch.aliases）与 manifest cmds 等权参与检索
+    const userAliases = getPluginLaunchAliases(pluginId)
     if (features.length === 0) {
       items.push({
         kind: 'plugin',
         id: `plugin:${pluginId}:`,
         title: m.name,
-        subtitle: m.description || (form === 'mini' ? '小窗插件' : '主窗插件'),
+        subtitle: m.description || '插件',
         pluginId,
-        form,
         icon,
-        aliases: [m.name, m.id, m.description ?? '']
+        aliases: [...userAliases, m.name, m.id, m.description ?? '']
       })
       continue
     }
@@ -176,11 +176,10 @@ export function buildPluginCommands(): QuickCommand[] {
         kind: 'plugin',
         id: `plugin:${pluginId}:${feature.code}`,
         title: features.length > 1 && cmds[0] ? `${m.name} · ${cmds[0]}` : m.name,
-        subtitle: explain || (form === 'mini' ? '小窗插件' : '主窗插件'),
+        subtitle: explain || '插件',
         pluginId,
         code: feature.code,
-        form,
-        aliases: [...cmds, m.id, m.description ?? ''],
+        aliases: [...cmds, ...userAliases, m.id, m.description ?? ''],
         icon
       })
     }
@@ -255,7 +254,6 @@ function clipboardCommands(
     title: e.type === 'image' ? `图片 ${e.preview}` : e.preview,
     subtitle: `剪贴板 · ${e.pinned ? '置顶 · ' : ''}${new Date(e.ts).toLocaleString()}`,
     pluginId,
-    form: resolvePluginForm(owner?.form),
     aliases: ['clip', 'clipboard', '剪贴板']
   }))
 }
@@ -267,7 +265,6 @@ function providerCommands(
   const out: QuickCommand[] = []
   for (const result of results) {
     const manifest = pluginRegistry.getManifest(result.pluginId)
-    const form = resolvePluginForm(manifest?.form)
     const icon = manifest ? pluginIconUrl(result.pluginId, manifest.logo) : undefined
     for (const item of result.items) {
       const title = String(item?.title ?? '').trim()
@@ -279,7 +276,6 @@ function providerCommands(
         subtitle: String(item?.subtitle ?? item?.explain ?? ''),
         pluginId: result.pluginId,
         code: item?.code ? String(item.code) : undefined,
-        form,
         aliases: [result.providerId],
         icon
       })
@@ -382,5 +378,4 @@ export async function searchQuickCommands(
   return top
 }
 
-export const QUICK_ACTIONS: QuickActionId[] = ['open-market', 'open-settings', 'refresh-apps']
 export const QUICK_RECENT_MAX = RECENT_MAX

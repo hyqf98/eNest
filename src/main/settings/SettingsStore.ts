@@ -14,6 +14,10 @@ import { DatabaseSync } from 'node:sqlite'
 import { nativeTheme } from 'electron'
 import type {
   GeneralSettings as SharedGeneralSettings,
+  PluginLaunchConfig,
+  PluginLaunchSettings,
+  PluginPermission,
+  PluginPermissionGrant,
   QuickLauncherSettings,
   ThemeMode,
   ThemeTokens
@@ -29,8 +33,7 @@ export type GeneralSettings = SharedGeneralSettings & {
 }
 
 /** 平台默认呼出快捷键；多条任一成功即启用。A/B 预设都要有默认值便于设置页展示 */
-export function defaultQuickHotkeys(platform: NodeJS.Platform = process.platform): string[] {
-  if (platform === 'darwin') return ['Alt+Space', 'Control+Space']
+export function defaultQuickHotkeys(_platform: NodeJS.Platform = process.platform): string[] {
   return ['Alt+Space', 'Control+Space']
 }
 
@@ -42,6 +45,8 @@ export interface SettingsData {
   theme: ThemeTokens
   general: GeneralSettings
   plugins: Record<string, Record<string, unknown>>
+  /** 每插件快捷启动配置（启动方式/启动热键/触发词）；键 = pluginId */
+  pluginLaunch: PluginLaunchSettings
 }
 
 const DEFAULTS: SettingsData = {
@@ -62,7 +67,8 @@ const DEFAULTS: SettingsData = {
     quickLauncher: defaultQuickLauncher(),
     splashBackground: { type: 'brand', opacity: 0.55 }
   },
-  plugins: {}
+  plugins: {},
+  pluginLaunch: {}
 }
 
 /** settings 表中的唯一行键 */
@@ -193,7 +199,8 @@ export class SettingsStore {
     return {
       theme: { ...DEFAULTS.theme, ...raw.theme, overrides: raw.theme?.overrides ?? {} },
       general: { ...DEFAULTS.general, ...raw.general },
-      plugins: { ...raw.plugins }
+      plugins: { ...raw.plugins },
+      pluginLaunch: { ...raw.pluginLaunch }
     }
   }
 
@@ -231,7 +238,7 @@ export class SettingsStore {
     // 用 `in` 判断：显式传 undefined/null 可清除 packId / background（取消主题包/背景）
     if ('packId' in theme) this.data.theme.packId = theme.packId
     if ('background' in theme) this.data.theme.background = theme.background
-    await this.persist()
+    this.schedulePersist()
     sendShellEvent({ type: 'theme-changed', mode: this.data.theme.mode })
     return this.getTheme()
   }
@@ -248,10 +255,17 @@ export class SettingsStore {
         this.data.plugins[id] = { ...(this.data.plugins[id] ?? {}), ...(bag ?? {}) }
       }
     }
+    // pluginLaunch 按插件 id 合并（null = 删除该插件配置）
+    if (partial.pluginLaunch) {
+      for (const [id, cfg] of Object.entries(partial.pluginLaunch)) {
+        if (cfg === null) delete this.data.pluginLaunch[id]
+        else this.data.pluginLaunch[id] = { ...(this.data.pluginLaunch[id] ?? {}), ...cfg }
+      }
+    }
     if (partial.general && 'dataRoot' in partial.general) {
       setAppPathsRoot(this.data.general.dataRoot ?? null)
     }
-    await this.persist()
+    this.schedulePersist()
     // dataRoot 变更：锚点立即更新，并把设置行预写到新根的库，避免下次启动读到空库
     const nextRoot = this.data.general.dataRoot as string | undefined
     if (nextRoot !== prevRoot && !this.fileFallback) {
@@ -274,7 +288,56 @@ export class SettingsStore {
     this.ensureLoaded()
     if (!this.data.plugins[pluginId]) this.data.plugins[pluginId] = {}
     this.data.plugins[pluginId][key] = value
-    await this.persist()
+    this.schedulePersist()
+  }
+
+  // —— 运行时权限授权（壳层三态；存 plugins[pluginId].permissionGrants）——
+
+  /** 读取单项授权；未设置缺省 'ask' */
+  getPermissionGrant(pluginId: string, perm: PluginPermission): PluginPermissionGrant {
+    this.ensureLoaded()
+    const bag = this.data.plugins[pluginId] as
+      | { permissionGrants?: Partial<Record<PluginPermission, PluginPermissionGrant>> }
+      | undefined
+    const grant = bag?.permissionGrants?.[perm]
+    return grant === 'allow' || grant === 'deny' ? grant : 'ask'
+  }
+
+  /** 写入单项授权并防抖持久化 */
+  async setPermissionGrant(
+    pluginId: string,
+    perm: PluginPermission,
+    grant: PluginPermissionGrant
+  ): Promise<void> {
+    this.ensureLoaded()
+    const bag = (this.data.plugins[pluginId] ??= {}) as {
+      permissionGrants?: Partial<Record<PluginPermission, PluginPermissionGrant>>
+    }
+    bag.permissionGrants = { ...bag.permissionGrants, [perm]: grant }
+    this.schedulePersist()
+  }
+
+  /** 读取插件整张授权表（浅拷贝；未设置为空对象，语义等同全 'ask'） */
+  getPermissionGrants(
+    pluginId: string
+  ): Partial<Record<PluginPermission, PluginPermissionGrant>> {
+    this.ensureLoaded()
+    const bag = this.data.plugins[pluginId] as
+      | { permissionGrants?: Partial<Record<PluginPermission, PluginPermissionGrant>> }
+      | undefined
+    return { ...bag?.permissionGrants }
+  }
+
+  /** 写入单插件快捷启动配置；null = 删除该插件条目 */
+  async setPluginLaunch(
+    pluginId: string,
+    config: PluginLaunchConfig | null
+  ): Promise<void> {
+    this.ensureLoaded()
+    if (!this.data.pluginLaunch) this.data.pluginLaunch = {}
+    if (config === null) delete this.data.pluginLaunch[pluginId]
+    else this.data.pluginLaunch[pluginId] = config
+    this.schedulePersist()
   }
 
   /** dataRoot 变更时把设置行预写到新根的 enest.db（独立短连接，写完即关） */
@@ -313,22 +376,17 @@ export class SettingsStore {
     this.persistNow()
   }
 
-  /** 落盘：库模式写 settings 行（WAL 自带持久化保证）；回退模式沿用整文件原子写 */
+  /** 落盘：库模式写 settings 行（WAL 自带持久化保证）；回退/失败沿用整文件原子写 */
   private persistNow(): void {
     try {
       if (this.fileFallback || !writeSettingsRow(this.data)) {
-        if (this.fileFallback) {
-          // 库不可用兜底：全量写文件（旧行为）
-          const file = anchorPath()
-          mkdirSync(dirname(file), { recursive: true })
-          const tmp = `${file}.tmp`
-          writeFileSync(tmp, JSON.stringify(this.data, null, 2), 'utf-8')
-          renameSync(tmp, file)
-          return
+        // 库不可用兜底（fileFallback）或库意外掉线：全量写文件
+        // （下次启动仍优先读库；fileFallback 是长期回退，掉线是单轮回退）
+        if (!this.fileFallback) {
+          console.warn('[enest] settings db write failed, fallback to file this round')
         }
-        // 库意外不可用（运行中掉线）：临时回退文件，下次启动仍优先读库
-        console.warn('[enest] settings db write failed, fallback to file this round')
         const file = anchorPath()
+        mkdirSync(dirname(file), { recursive: true })
         const tmp = `${file}.tmp`
         writeFileSync(tmp, JSON.stringify(this.data, null, 2), 'utf-8')
         renameSync(tmp, file)
@@ -336,11 +394,6 @@ export class SettingsStore {
     } catch (err) {
       console.error('[enest] settings persist failed', err)
     }
-  }
-
-  private async persist(): Promise<void> {
-    // 兼容旧调用点：内部改为防抖；紧急一致性场景用 flushNow()
-    this.schedulePersist()
   }
 }
 

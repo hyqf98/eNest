@@ -18,8 +18,8 @@
 | 主题 | 默认浅色；设置页可切深色并实时改 Token |
 | Tab 关闭 | 立即 `webContents.close()`，无 LRU 保活 |
 | 市场数据 | 第一期本地 Mock + `plugins-samples` 示例包 |
-| 数据根目录 | `~/eNest`（`plugins/` · `data/` · `themes/` · `settings.json`） |
-| SQLite | **sql.js**（WASM 真 SQLite）写入 `~/eNest/data/enest.db`；避免 better-sqlite3 原生 ABI 在 Electron 下 SIGSEGV |
+| 数据根目录 | `~/.eNest`（`plugins/` · `data/` · `themes/` · `settings.json`） |
+| SQLite | **sql.js**（WASM 真 SQLite）写入 `~/.eNest/data/enest.db`；避免 better-sqlite3 原生 ABI 在 Electron 下 SIGSEGV |
 | 打包 | electron-builder，目标安装包 &lt; 90MB；`extraResources` 自 `assets/` 含 sql.wasm 与 icons |
 
 ---
@@ -258,7 +258,7 @@ R = Shell Renderer，P = Plugin Renderer，M = Main。
 | 多 Tab 隔离与销毁 | 已实现 |
 | 主题 Token 动态调色 | 已实现 |
 | 开发者目录加载 | 已实现 |
-| 数据目录 `~/eNest` + 迁移 | 已实现 |
+| 数据目录 `~/.eNest` + 迁移 | 已实现 |
 | SQLite（sql.js WASM） | 已实现，文件 `data/enest.db` |
 | i18n 中英切换 | 已实现 |
 | 插件详情弹窗 + README | 已实现 |

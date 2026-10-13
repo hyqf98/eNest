@@ -35,7 +35,6 @@ import {
   lookupDictCmd
 } from '@main/ssh/commandDict'
 import { getMainWindow } from '@main/window/createShellWindow'
-import { IpcChannels } from '@shared/types/ipc'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { logInfo, logWarn } from '@main/logs/logService'
 
@@ -65,19 +64,9 @@ interface SshSession {
 const sessions = new Map<string, SshSession>()
 let sessionSeq = 0
 
-/** 向插件 webContents 推送事件；找不到视图时静默丢弃 */
+/** 向插件 webContents 推送事件（Host 公开访问器，无反射）；找不到视图时静默丢弃 */
 function emitToPlugin(pluginId: string, payload: PluginEventPayload): void {
-  if (!pluginHost.isOpened(pluginId)) return
-  const internal = pluginHost as unknown as {
-    entries?: Map<string, { view?: { webContents?: Electron.WebContents } }>
-  }
-  const wc = internal.entries?.get(pluginId)?.view?.webContents
-  if (!wc || wc.isDestroyed()) return
-  try {
-    wc.send(IpcChannels.PluginEvent, payload)
-  } catch {
-    // webContents 可能正在销毁
-  }
+  pluginHost.sendEvent(pluginId, payload)
 }
 
 function nextSessionId(): string {

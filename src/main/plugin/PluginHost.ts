@@ -9,15 +9,16 @@
  * createShellWindow（窗口引用与事件推送）、createQuickWindow（quick 容器）、
  * resolveThemeCss（主题 Token 解析）、logService。
  *
- * 容器模型（container: 'shell' | 'quick'）：
- * - shell：插件 view 挂主窗 contentView（大插件 Tab，panel 形态），bounds 走
+ * 容器模型（container: 'shell' | 'quick'，即「启动方式」）：
+ * - shell：插件 view 挂主窗 contentView（大窗 Tab，桌面适配样式），bounds 走
  *   getPluginContentBounds；激活语义 = activeTabId（全局唯一）
- * - quick：mini 插件 view 挂 Quick 小窗 contentView（叠在 quick 渲染层之上，
- *   顶部 QUICK_BAR_AREA_H 区域留给输入条），bounds 走 getQuickPluginBounds；
+ * - quick：插件 view 挂 Quick 小窗 contentView（叠在 quick 渲染层之上，渲染在
+ *   输入条下方，小窗适配样式），bounds 走 getQuickPluginBounds；
  *   挂载语义 = quickPluginId。两个容器各自的激活互不干扰（可同时各有一个激活插件）
  * - 迁移：openPlugin 传不同 container 会 migrateContainer（同 webContents 摘下重挂，
  *   不重载）；「固定到主窗」= pinToShell。上次容器记录在 containers map，
- *   crash 自动重启 / 唤醒路径据此回到原容器
+ *   crash 自动重启 / 唤醒路径据此回到原容器；迁移后推 mode-change 事件，
+ *   插件经 getLaunchMode()/onModeChange 切换两套入口样式
  * - 输入拦截：quick 容器 view 注册 before-input-event，插件态 Esc 回列表、
  *   ⌘/Ctrl+Enter 固定到主窗（插件区域持焦时渲染层收不到键盘事件，必须主进程拦截）
  * - 尺寸自适应：manifest.window 提供起始建议，ui.resize/setHeight 即时更新 Quick 容器；
@@ -60,6 +61,7 @@ import {
   toPluginId,
   PLUGIN_HIBERNATE_DELAY_MS,
   PLUGIN_ALIVE_LIMIT,
+  BEFORE_CLOSE_ACK_TIMEOUT_MS,
   QUICK_BAR_AREA_H,
   QUICK_BORDER_WIDTH,
   QUICK_CORNER_RADIUS,
@@ -70,7 +72,8 @@ import {
 import type {
   PluginCloseReason,
   PluginEnterPayload,
-  PluginLifecycleMessage
+  PluginLifecycleMessage,
+  PluginLaunchMode
 } from '@shared/types/plugin'
 import { resolvePluginUi, type PluginUiConfig } from '@shared/types/plugin'
 import {
@@ -113,19 +116,21 @@ import {
   registerPluginProtocolForSession,
   invalidatePluginFileCache
 } from '@main/plugin/pluginProtocol'
-import { releasePluginHotkeys, releasePluginContribs } from '@main/ipc/pluginHandlers'
+import { contributionRegistry } from '@main/contrib/ContributionRegistry'
+import { releasePluginHotkeys } from '@main/hotkey/pluginRuntimeHotkeys'
 import { releaseSshSessions } from '@main/ssh/sshSessionManager'
 import { releaseDbSessions } from '@main/database/dbSessionManager'
 import { resolveThemeTokens, themeTokensToInjectScript } from '@main/theme/resolveThemeCss'
+import { routeExternal, isInternalNavigation } from '@main/plugin/externalLinks'
 
 /** beforeClose 等待插件 ack 的上限；超时直接销毁，避免挂死关闭流程 */
-const BEFORE_CLOSE_ACK_TIMEOUT_MS = 1500
+const BEFORE_CLOSE_ACK_TIMEOUT = BEFORE_CLOSE_ACK_TIMEOUT_MS
 
 /** crash 自动重启计数重置的稳定窗口：加载完成后存活超过该时长才视为“已恢复” */
 const CRASH_RECOVERY_STABLE_MS = 10 * 1000
 
-/** 插件所在容器：shell 主窗 Tab / quick Quick 小窗内嵌（mini） */
-export type PluginContainer = 'shell' | 'quick'
+/** 插件所在容器（= 启动方式）：shell 主窗 Tab / quick Quick 小窗内嵌 */
+export type PluginContainer = PluginLaunchMode
 
 interface PluginEntry {
   view: WebContentsView
@@ -407,8 +412,12 @@ export class PluginHost {
     const base = summary.devUrl
       ? withPid(summary.devUrl, pluginId)
       : withPid(pluginProtocolUrl(pluginId, mainFromManifest), pluginId)
-    // code 走 query，便于插件在首个脚本同步读取；payload 体积不定，走 IPC
-    const url = enter?.code ? withCode(base, enter.code) : base
+    // code/mode 走 query，便于插件在首个脚本同步读取；payload 体积不定，走 IPC。
+    // mode = 启动方式（quick 小窗 / shell 大窗），插件据此选择渲染哪套入口样式
+    const url = withMode(
+      enter?.code ? withCode(base, enter.code) : base,
+      container
+    )
 
     this.applyTransition(pluginId, 'open')
     if (enter && (enter.code !== undefined || enter.payload !== undefined)) {
@@ -432,6 +441,18 @@ export class PluginHost {
 
     view.webContents.on('render-process-gone', (_e, details) => {
       this.handleRenderProcessGone(pluginId, details.reason)
+    })
+
+    // 外链引流：window.open 与站外导航都不在插件页内打开，
+    // 经 routeExternal 门禁（声明 + grant 弹窗）后交给默认浏览器
+    view.webContents.setWindowOpenHandler(({ url }) => {
+      void routeExternal(pluginId, url)
+      return { action: 'deny' }
+    })
+    view.webContents.on('will-navigate', (e, url) => {
+      if (isInternalNavigation(url)) return
+      e.preventDefault()
+      void routeExternal(pluginId, url)
     })
 
     // quick 容器：拦截插件区域键盘事件（插件持焦时渲染层收不到 Esc/⌘Enter）
@@ -523,7 +544,7 @@ export class PluginHost {
       this.hibernated.delete(pluginId)
       // 休眠期间注册的热键一并注销（进程已销毁，事件无处投递）
       releasePluginHotkeys(pluginId)
-      releasePluginContribs(pluginId)
+      contributionRegistry.releaseQuickProviders(pluginId)
       releaseSshSessions(pluginId)
       releaseDbSessions(pluginId)
       this.applyTransition(pluginId, 'close', reason)
@@ -564,9 +585,10 @@ export class PluginHost {
 
     this.applyTransition(pluginId, 'close', reason)
 
-    // beforeClose：给插件 flush 草稿 / 停轮询的窗口；ack 可选，超时兜底
+    // beforeClose：给插件 flush 草稿 / 停轮询的窗口；ack 可选，超时兜底。
+    // webContents 已销毁（如 Quick 小窗先被销毁）时无需等待，立即放行
     this.sendToPlugin(entry.view.webContents, { event: 'beforeClose', reason })
-    await this.waitForBeforeCloseAck(pluginId)
+    await this.waitForBeforeCloseAck(pluginId, entry.view.webContents)
 
     // destroy：尽力而为，此时视图可能已在销毁中
     this.sendToPlugin(entry.view.webContents, { event: 'destroy' })
@@ -579,7 +601,7 @@ export class PluginHost {
     clearPluginSession(pluginId)
     // 注销该插件注册的全局热键与 Quick provider，释放键位与查询派发
     releasePluginHotkeys(pluginId)
-    releasePluginContribs(pluginId)
+    contributionRegistry.releaseQuickProviders(pluginId)
     // 回收 SSH / DB 会话与监控定时器
     releaseSshSessions(pluginId)
     releaseDbSessions(pluginId)
@@ -926,6 +948,8 @@ export class PluginHost {
       entry.view.setBounds(getPluginContentBounds(pluginChromeBarHeight(entry.ui.chrome)))
       raiseOrbRailViews()
     }
+    // 启动方式变更：URL ?mode= 只是初始值（迁移不重载），经事件通知插件切换入口样式
+    this.sendModeChange(entry, container)
   }
 
   /**
@@ -996,6 +1020,36 @@ export class PluginHost {
   /** 是否已有打开的插件 View（开发加载前判断是否需要强制重建） */
   isOpen(pluginId: string): boolean {
     return this.entries.has(pluginId)
+  }
+
+  /** 取插件存活 webContents（未打开/已销毁返回 null）：pluginHandlers / quickProviders 消费 */
+  getWebContents(pluginId: string): WebContents | null {
+    const wc = this.entries.get(pluginId)?.view.webContents
+    if (!wc) return null
+    try {
+      if (wc.isDestroyed()) return null
+    } catch {
+      return null
+    }
+    return wc
+  }
+
+  /** 向指定插件推送 plugin:event 负载（找不到/已销毁静默丢弃） */
+  sendEvent(pluginId: string, payload: PluginEventPayload): void {
+    const wc = this.getWebContents(pluginId)
+    if (!wc) return
+    try {
+      wc.send(IpcChannels.PluginEvent, payload)
+    } catch {
+      // webContents 可能正在销毁
+    }
+  }
+
+  /** 向所有已打开插件广播 plugin:event 负载（locale-change 等全量通知） */
+  broadcastEvent(payload: PluginEventPayload): void {
+    for (const entry of this.entries.values()) {
+      this.sendEvent(entry.pluginId, payload)
+    }
   }
 
   /** 向所有已打开的 themeAware 插件广播当前主题（壳子 setTheme / nativeTheme 变化时调用） */
@@ -1098,6 +1152,8 @@ export class PluginHost {
     const message: PluginLifecycleMessage = {
       event: 'enter',
       tabId: toTabId(pluginId),
+      // 启动方式随 enter 下发：插件可据此（或 getLaunchMode）选择入口样式
+      mode: entry.container,
       ...(isFirst || pending
         ? { code: pending?.code, payload: pending?.payload }
         : {})
@@ -1109,13 +1165,21 @@ export class PluginHost {
     this.applyTransition(pluginId, 'activate')
   }
 
-  /** 等待插件 ack，最多 BEFORE_CLOSE_ACK_TIMEOUT_MS；无插件在听也照常超时放行 */
-  private waitForBeforeCloseAck(pluginId: string): Promise<void> {
+  /**
+   * 等待插件 ack，最多 BEFORE_CLOSE_ACK_TIMEOUT；无插件在听也照常超时放行。
+   * webContents 已销毁时 ack 永远不会来，直接放行（避免向死目标空等 1500ms）。
+   */
+  private waitForBeforeCloseAck(pluginId: string, wc: WebContents): Promise<void> {
     return new Promise((resolve) => {
+      if (wc.isDestroyed()) {
+        logWarn('lifecycle', `${pluginId}: beforeClose target destroyed, skip wait`)
+        resolve()
+        return
+      }
       const timer = setTimeout(() => {
         this.pendingAcks.delete(pluginId)
         resolve()
-      }, BEFORE_CLOSE_ACK_TIMEOUT_MS)
+      }, BEFORE_CLOSE_ACK_TIMEOUT)
       this.pendingAcks.set(pluginId, () => {
         clearTimeout(timer)
         this.pendingAcks.delete(pluginId)
@@ -1130,6 +1194,17 @@ export class PluginHost {
     try {
       if (wc.isDestroyed()) return
       wc.send(IpcChannels.PluginLifecycle, message)
+    } catch {
+      // webContents 可能正在销毁
+    }
+  }
+
+  /** 启动方式变更事件（quick ↔ shell 迁移后；enest.onModeChange / getLaunchMode 消费） */
+  private sendModeChange(entry: PluginEntry, container: PluginContainer): void {
+    try {
+      if (entry.view.webContents.isDestroyed()) return
+      const payload: PluginEventPayload = { type: 'mode-change', mode: container }
+      entry.view.webContents.send(IpcChannels.PluginEvent, payload)
     } catch {
       // webContents 可能正在销毁
     }
@@ -1222,7 +1297,7 @@ export class PluginHost {
     this.teardownView(entry)
     // 休眠进程销毁，注册的热键与 provider 一并注销（唤醒后由插件自行重注册）
     releasePluginHotkeys(pluginId)
-    releasePluginContribs(pluginId)
+    contributionRegistry.releaseQuickProviders(pluginId)
     releaseSshSessions(pluginId)
     releaseDbSessions(pluginId)
     // 休眠 ≠ 关闭：不清 sessionBag（clearPluginSession）、不发 tab-closed
@@ -1273,6 +1348,9 @@ export class PluginHost {
       this.entries.delete(pluginId)
       this.byWcId.delete(entry.view.webContents.id)
       this.teardownView(entry)
+      // 渲染进程已亡，插件运行时自注册热键立即释放——否则二次 crash（不再自动
+      // 重启）后死插件占键直到应用退出；自动重启路径由插件重新加载后自行重注册
+      releasePluginHotkeys(pluginId)
     }
     // quick 容器 crash：挂载态复位，quick 渲染层回列表态
     if (wasQuickMounted) {
@@ -1344,6 +1422,18 @@ function withCode(url: string, code: string): string {
   } catch {
     const sep = url.includes('?') ? '&' : '?'
     return `${url}${sep}code=${encodeURIComponent(code)}`
+  }
+}
+
+/** 在 URL 查询参数中附加启动方式（mode=quick|shell），供插件首个脚本同步读取 */
+function withMode(url: string, mode: PluginLaunchMode): string {
+  try {
+    const u = new URL(url)
+    u.searchParams.set('mode', mode)
+    return u.toString()
+  } catch {
+    const sep = url.includes('?') ? '&' : '?'
+    return `${url}${sep}mode=${mode}`
   }
 }
 

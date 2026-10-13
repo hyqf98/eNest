@@ -18,8 +18,11 @@ export type { MarketPluginSummary } from '@main/plugin/marketMetadata'
 export const MARKET_REPO_OWNER = 'hyqf98'
 export const MARKET_REPO_NAME = 'eNest_plugin'
 
+/** GitHub Release latest 下载基址（registry.json 与 .enestplugin 资产同源） */
+const RELEASE_BASE = `https://github.com/${MARKET_REPO_OWNER}/${MARKET_REPO_NAME}/releases/latest/download/`
+
 const REGISTRY_URLS = [
-  `https://github.com/${MARKET_REPO_OWNER}/${MARKET_REPO_NAME}/releases/latest/download/registry.json`,
+  `${RELEASE_BASE}registry.json`,
   `https://raw.githubusercontent.com/${MARKET_REPO_OWNER}/${MARKET_REPO_NAME}/main/registry.json`
 ]
 
@@ -42,19 +45,10 @@ async function fetchJson(url: string): Promise<unknown> {
 export async function fetchRemoteMarket(): Promise<MarketPluginSummary[]> {
   for (const url of REGISTRY_URLS) {
     const data = await fetchJson(url)
-    const plugins = parseRemoteMarket(
-      data,
-      url,
-      `https://github.com/${MARKET_REPO_OWNER}/${MARKET_REPO_NAME}/releases/latest/download/`
-    )
+    const plugins = parseRemoteMarket(data, url, RELEASE_BASE)
     if (plugins.length) return plugins
   }
   return []
-}
-
-/** 插件 zip 下载地址（安装器使用） */
-export function remoteAssetDownloadUrl(fileName: string): string {
-  return `https://github.com/${MARKET_REPO_OWNER}/${MARKET_REPO_NAME}/releases/latest/download/${fileName}`
 }
 
 // —— 资产下载 ——

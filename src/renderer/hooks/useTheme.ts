@@ -11,7 +11,7 @@ import { shellApi } from '@renderer/services/shellApi'
 import { toastStore } from '@renderer/hooks/useToast'
 
 /** light/dark 预设颜色 Token（取自 @shared 单一来源）+ 中文标签（system 解析后套用对应预设） */
-export const THEME_PRESETS = {
+const THEME_PRESETS = {
   light: { label: '浅色', ...THEME_TOKEN_PRESETS.light },
   dark: { label: '深色', ...THEME_TOKEN_PRESETS.dark },
 } as const
@@ -54,7 +54,7 @@ function matchMediaDark(): MediaQueryList | null {
 }
 
 /** 读取系统是否偏好深色 */
-export function prefersDark(): boolean {
+function prefersDark(): boolean {
   return matchMediaDark()?.matches ?? false
 }
 

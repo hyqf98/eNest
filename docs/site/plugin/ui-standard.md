@@ -7,7 +7,7 @@ eNest 插件可以使用任意前端技术（HTML / CSS / Canvas / WebGL / 任�
 - **背景透明** — 透出壳子壁纸 / 动效背景
 - **配色偏好** — 强制 light/dark 或跟随壳子
 
-另有两种 **打开形态**（`form`）：`panel`（主窗大 Tab，缺省）与 `mini`（Quick 命令面板小窗内嵌）——mini 的布局约束见下文「mini 插件（Quick 小窗）」。
+插件有两种 **启动方式**：`quick`（Quick 命令面板小窗内嵌）与 `shell`（主窗大窗 Tab）。由打开入口决定（缺省跟随入口），用户可为每个插件覆盖；插件运行时可经 `getLaunchMode()` / `onModeChange()` 感知并在两套入口样式间切换——布局约束见下文「双入口样式」。
 
 插件 **无需依赖壳子 DOM**，也拿不到壳子 React 树；集成面全部通过 `ui` 配置 + `enest.ui.*` / `enest.theme.*` API 完成。
 
@@ -74,17 +74,34 @@ eNest 插件可以使用任意前端技术（HTML / CSS / Canvas / WebGL / 任�
 
 ---
 
-## 双宿主与响应式布局
+## 双入口样式
 
-`form` 只决定从快捷启动打开时使用哪个宿主：`panel` 进入主窗口 Tab，`mini` 加载在 Quick 输入条下方。从首页打开的插件使用主窗口；Quick 内的 mini 也可以固定到主窗，迁移时保留同一个 WebContentsView 与运行状态。
+插件不再有 manifest `form` 区分，渲染容器由打开入口决定：从 Quick 快捷启动打开 → quick 容器（输入条下方小窗内嵌，小窗适配界面）；从主窗（市场 / 圆轨 / Tab）打开 → shell 容器（主窗大窗 Tab，桌面适配界面）。用户可在插件详情中为每插件覆盖启动方式（`settings.pluginLaunch[id]`，`mode: 'quick' | 'shell'`），仅影响 Quick 打开与热键启动，主窗入口恒为 shell。
+
+插件开发者可在同一入口里写两套界面样式：小窗适配 + 桌面适配。桌面样式定位是更复杂、功能更全；两套样式并存，运行时按启动方式选择渲染。quick ↔ shell 容器迁移（⌘Enter 固定到主窗等）**不重载页面**，迁移只是模式切换。
 
 壳子负责原生窗口、输入条和插件内容区边界。插件拥有自己的页面、搜索、滚动区域、断点和宽高设置；壳子不注入插件内部布局，也不会缩放整张页面。
+
+### 感知启动方式
+
+- URL query 携带 `?mode=quick|shell`（与 `?pid` / `?code` 并列），插件首个脚本可同步读取——但这只是**初始值**。
+- 运行时以 `enest.getLaunchMode()`（当前值）与 `enest.onModeChange(cb)`（订阅变更）为准；模式变化同时经 `mode-change` 事件推送。
+- `onEnter` 载荷也带 `mode: 'quick' | 'shell'`。
+
+```js
+function applyMode(mode) {
+  document.documentElement.dataset.mode = mode // 小窗样式 / 桌面样式
+}
+applyMode(enest.getLaunchMode())
+enest.onModeChange(({ mode }) => applyMode(mode))
+```
+
+也可以只用 CSS 容器查询等手段按实际 viewport 自适应，两套做法不互斥。
 
 ### 内容区尺寸
 
 ```jsonc
 {
-  "form": "mini",
   "window": {
     "width": 760,
     "height": 400,
@@ -100,10 +117,10 @@ eNest 插件可以使用任意前端技术（HTML / CSS / Canvas / WebGL / 任�
 - `await enest.ui.resize({ width, height })`：Quick 中即时更新尺寸建议，支持只传其中一项；主窗中仅记录，不改变用户主窗口大小。
 - `await enest.ui.setHeight(height)`：只更新内容高度，与 `resize({ height })` 等价。
 - 两个接口需要 `ui.resize` 权限，单位均为 CSS px，参数必须是正有限数。
-- 显示器空间不足时，插件应响应实际 viewport 大小并自行滚动。不要假定 Quick 永远是 720px 宽，也不要假定 mini 只能在小窗运行。
+- 显示器空间不足时，插件应响应实际 viewport 大小并自行滚动。不要假定 Quick 永远是 720px 宽，也不要假定同一入口只能在小窗运行。
 - 壳子不根据 `body.scrollHeight` 循环撑大窗口。内容很长时应使用内部滚动；需要用户自定宽高时，可在插件设置中保存偏好后调用 `resize`。
 
-### 可在两种宿主运行的布局
+### 双入口共用的响应式布局
 
 ```css
 html, body, #app { width: 100%; height: 100%; margin: 0; }
@@ -116,7 +133,7 @@ html, body, #app { width: 100%; height: 100%; margin: 0; }
 }
 ```
 
-Canvas / 图表可监听 `ResizeObserver` 或 `window.resize`，使用实际内容区宽高重绘。主窗口放大、Quick 调整尺寸或固定到主窗都会改变 viewport，无需重新加载插件。
+Canvas / 图表可监听 `ResizeObserver` 或 `window.resize`，使用实际内容区宽高重绘。主窗口放大、Quick 调整尺寸或固定到主窗都会改变 viewport，无需重新加载插件——固定到主窗是容器迁移（`mode-change`），插件按 `getLaunchMode()` 切换小窗 / 桌面两套样式即可。
 
 ```js
 // 尺寸是插件自己的用户偏好，不要把占满视口的根节点高度反复回传。
@@ -171,21 +188,22 @@ const off = enest.ui.onThemeChange(({ mode, tokens }) => {
 
 | 变量 | 含义 | light 预设 | dark 预设 |
 |------|------|-----------|-----------|
-| `--bg` | 页面背景 | `#f3f4f6` | `#0d1118` |
-| `--surface` | 卡片 / 主表面 | `#ffffff` | `#161b24` |
-| `--surface-2` | 次级表面 | `#f0f2f5` | `#1c2230` |
-| `--surface-3` | 浮层表面 | `#e8ebf0` | `#252d3d` |
-| `--border` | 常规边框 | `rgba(15,23,42,0.08)` | `rgba(255,255,255,0.09)` |
-| `--border-strong` | 强边框 | `rgba(15,23,42,0.14)` | `rgba(255,255,255,0.16)` |
-| `--text` | 主文字 | `#0f1420` | `#f3f5f9` |
-| `--text-2` | 次级文字 | `#5c6578` | `#b4bdcf` |
-| `--text-3` | 弱化文字 | `#8b93a5` | `#7c879c` |
-| `--accent` | 强调色 | `#1a1f2e` | `#e8ecf4` |
-| `--ok` | 成功色 | `#0d9f6e` | `#3dd68c` |
-| `--ok-soft` | 成功色淡底（自动派生） | `rgba(--ok, 0.1)` | `rgba(--ok, 0.12)` |
-| `--danger` | 危险色 | `#e11d48` | `#ff7a8e` |
+| `--bg` | 页面背景 | `#f6f6f4` | `#17191b` |
+| `--surface` | 卡片 / 主表面 | `#ffffff` | `#202326` |
+| `--surface-2` | 次级表面 | `#eeefed` | `#292d31` |
+| `--surface-3` | 浮层表面 | `#e5e7e4` | `#33383d` |
+| `--border` | 常规边框 | `rgba(41,44,46,0.08)` | `rgba(242,243,243,0.09)` |
+| `--border-strong` | 强边框 | `rgba(41,44,46,0.16)` | `rgba(242,243,243,0.16)` |
+| `--text` | 主文字 | `#292c2e` | `#f2f3f3` |
+| `--text-2` | 次级文字 | `#666c70` | `#adb3b8` |
+| `--text-3` | 弱化文字 | `#82888b` | `#7e878f` |
+| `--accent` | 强调色 | `#bd542b` | `#e98654` |
+| `--ok` | 成功色 | `#318469` | `#77bfa4` |
+| `--ok-soft` | 成功色淡底（自动派生） | `color-mix(in srgb, --ok 12%, transparent)` | `color-mix(in srgb, --ok 16%, transparent)` |
+| `--danger` | 危险色 | `#c54f46` | `#e79589` |
+| `--link` | 链接色 | `#bd542b` | `#e98654` |
 
-> 预设以 `src/shared/theme/presets.ts` 的 `THEME_TOKEN_PRESETS` 为准；活动主题包与用户 overrides 会覆盖上表。
+> 预设以 `src/shared/theme/presets.ts` 的 `THEME_TOKEN_PRESETS` 为准；活动主题包与用户 overrides 会覆盖上表。`--accent-soft` / `--ok-soft` / `--danger-soft` / `--link` / `--glow-color` / `--bg-dot` / `--border-dashed` 为派生 token（`resolveThemePalette`，soft 比例 light 12% / dark 16%）。
 
 注入时还会设置：
 
@@ -197,9 +215,9 @@ const off = enest.ui.onThemeChange(({ mode, tokens }) => {
 ```css
 :root {
   /* 可选：本地兜底，壳子注入后会被覆盖 */
-  --bg: #f3f4f6;
-  --text: #0f1420;
-  --accent: #1a1f2e;
+  --bg: #f6f6f4;
+  --text: #292c2e;
+  --accent: #bd542b;
 }
 
 body {
@@ -295,7 +313,7 @@ await enest.theme.register({
   },
   background: {
     type: 'color',
-    value: 'linear-gradient(160deg,#0a1f1c,#134e4a)',
+    value: '#0a1f1c',
     opacity: 0.9,
     fit: 'cover'
   }
@@ -304,11 +322,11 @@ await enest.theme.register({
 
 壳子会：
 
-1. 写入主题包注册表（`~/eNest/themes/` 相关存储）
+1. 写入主题包注册表（`~/.eNest` 数据根下 `themes/registry.json`；同一 `enest.db` 生态的持久化存储）
 2. 推送 `theme-packs-changed`
 3. 设置 → 主题 →「主题包」下拉 **即时出现**，用户选择后全壳生效
 
-完整字段见 [enest API → theme.register](api.md#theme-register-pack)。
+运行时注册需在 `permissions` 声明 `theme` 权限（manifest `contributes.themePacks` 声明式路径等价，无需声明）；完整字段与限制见 [enest API → theme.register](api.md#theme-register-pack)。
 
 ---
 
@@ -430,9 +448,9 @@ gl.clear(gl.COLOR_BUFFER_BIT)
   <title>可视化</title>
   <style>
     :root {
-      --bg: #0d1118;
-      --text: #f3f5f9;
-      --accent: #5b8cff;
+      --bg: #17191b;
+      --text: #f2f3f3;
+      --accent: #e98654;
     }
     html, body {
       margin: 0;
@@ -570,21 +588,21 @@ gl.clear(gl.COLOR_BUFFER_BIT)
 
 | Token | light 兜底 | dark 兜底 |
 |-------|------------|-----------|
-| `--bg` | `#f3f4f6` | `#0d1118` |
-| `--surface` | `#ffffff` | `#161b24` |
-| `--surface-2` | `#f0f2f5` | `#1c2230` |
-| `--surface-3` | `#e8ebf0` | `#252d3d` |
-| `--border` | `rgba(15,23,42,0.08)` | `rgba(255,255,255,0.09)` |
-| `--border-strong` | `rgba(15,23,42,0.14)` | `rgba(255,255,255,0.16)` |
-| `--text` | `#0f1420` | `#f3f5f9` |
-| `--text-2` | `#5c6578` | `#b4bdcf` |
-| `--text-3` | `#8b93a5` | `#7c879c` |
-| `--accent` | `#1a1f2e` | `#e8ecf4` |
-| `--accent-soft` | `rgba(26,31,46,0.08)` | `rgba(232,236,244,0.1)` |
-| `--ok` | `#0d9f6e` | `#3dd68c` |
-| `--ok-soft` | `rgba(13,159,110,0.1)` | `rgba(61,214,140,0.14)` |
-| `--danger` | `#e11d48` | `#ff7a8e` |
-| `--danger-soft` | `rgba(225,29,72,0.1)` | `rgba(255,122,142,0.14)` |
+| `--bg` | `#f6f6f4` | `#17191b` |
+| `--surface` | `#ffffff` | `#202326` |
+| `--surface-2` | `#eeefed` | `#292d31` |
+| `--surface-3` | `#e5e7e4` | `#33383d` |
+| `--border` | `rgba(41,44,46,0.08)` | `rgba(242,243,243,0.09)` |
+| `--border-strong` | `rgba(41,44,46,0.16)` | `rgba(242,243,243,0.16)` |
+| `--text` | `#292c2e` | `#f2f3f3` |
+| `--text-2` | `#666c70` | `#adb3b8` |
+| `--text-3` | `#82888b` | `#7e878f` |
+| `--accent` | `#bd542b` | `#e98654` |
+| `--accent-soft` | `color-mix(in srgb, #bd542b 12%, transparent)` | `color-mix(in srgb, #e98654 16%, transparent)` |
+| `--ok` | `#318469` | `#77bfa4` |
+| `--ok-soft` | `color-mix(in srgb, #318469 12%, transparent)` | `color-mix(in srgb, #77bfa4 16%, transparent)` |
+| `--danger` | `#c54f46` | `#e79589` |
+| `--danger-soft` | `color-mix(in srgb, #c54f46 12%, transparent)` | `color-mix(in srgb, #e79589 16%, transparent)` |
 
 结构与字体变量（两套主题共用）：
 
@@ -621,7 +639,7 @@ gl.clear(gl.COLOR_BUFFER_BIT)
 |------|------|
 | 位置 | 缺省 **右下角**；有侧栏时可靠右侧 rail，与内容流脱钩 |
 | 层级 | `z-index` 必须高于滚动内容与列表，低于 context menu / 模态 |
-| 安全边距 | 尊重页面 `padding` 与 mini/透明布局的安全区（避免贴边、避开滚动条） |
+| 安全边距 | 尊重页面 `padding` 与小窗（Quick）/ 透明布局的安全区（避免贴边、避开滚动条） |
 | 尺寸与命中 | 触控/鼠标友好（建议 ≥ 36–40px）；图标用 `--accent` 或 surface+accent 组合，配 tooltip |
 | 阴影与状态 | 使用 `--shadow-float` 托起；禁用态降低透明度，勿换与主题冲突的硬编码色 |
 | 冲突 | 同屏仅一个主 FAB；次级动作进 context menu 或展开菜单，不并排堆多个 FAB |
@@ -637,7 +655,7 @@ gl.clear(gl.COLOR_BUFFER_BIT)
 - [ ] 次级/危险操作进入右键菜单；菜单支持 Esc 与点击外部关闭
 - [ ] FAB 右下或侧栏、z-index 正确、尊重安全边距
 - [ ] `themeAware: false` 或独立打开时，兜底调色板不「白屏/黑屏」
-- [ ] mini（Quick）与 panel 布局下均不遮挡壳子标题栏 / Quick 输入条
+- [ ] 小窗（Quick）与主窗两种启动方式下均不遮挡壳子标题栏 / Quick 输入条；模式切换经 `onModeChange` 切换对应入口样式
 
 ---
 

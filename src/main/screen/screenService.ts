@@ -12,11 +12,12 @@ import {
   screen,
   type IpcMainEvent
 } from 'electron'
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { getAppPaths } from '@main/paths/pathsService'
 import { resolvePreload } from '@main/window/createShellWindow'
+import { IpcChannels } from '@shared/types/ipc'
 import type { ScreenBounds, ScreenCaptureResult } from '@shared/types/plugin'
 import { logInfo, logWarn } from '@main/logs/logService'
 
@@ -216,13 +217,13 @@ addEventListener('keydown',e=>{
 }
 
 function wireRegionIpcOnce(): void {
-  if (ipcMain.listenerCount('plugin:region-confirm') > 0) return
+  if (ipcMain.listenerCount(IpcChannels.PluginRegionConfirm) > 0) return
   const isRegionSender = (event: IpcMainEvent): boolean =>
     !!regionOverlay &&
     !regionOverlay.isDestroyed() &&
     regionOverlay.webContents.id === event.sender.id
 
-  ipcMain.on('plugin:region-confirm', (e: IpcMainEvent, bounds: ScreenBounds) => {
+  ipcMain.on(IpcChannels.PluginRegionConfirm, (e: IpcMainEvent, bounds: ScreenBounds) => {
     if (!isRegionSender(e)) return
     closeRegionOverlay()
     const r = regionResolver
@@ -245,7 +246,7 @@ function wireRegionIpcOnce(): void {
       height: Math.max(1, Math.floor(bounds.height))
     })
   })
-  ipcMain.on('plugin:region-cancel', (e: IpcMainEvent) => {
+  ipcMain.on(IpcChannels.PluginRegionCancel, (e: IpcMainEvent) => {
     if (!isRegionSender(e)) return
     closeRegionOverlay()
     const r = regionResolver
@@ -335,7 +336,7 @@ boot();
 }
 
 function wireRecorderIpcOnce(): void {
-  if (ipcMain.listenerCount('plugin:recorder-started') > 0) return
+  if (ipcMain.listenerCount(IpcChannels.PluginRecorderStarted) > 0) return
 
   const resolveSession = (event: IpcMainEvent): RecordSession | null => {
     for (const s of recordSessions.values()) {
@@ -344,11 +345,11 @@ function wireRecorderIpcOnce(): void {
     return null
   }
 
-  ipcMain.on('plugin:recorder-started', (e) => {
+  ipcMain.on(IpcChannels.PluginRecorderStarted, (e) => {
     const s = resolveSession(e)
     if (s) logInfo('screen', `recording started ${s.id}`)
   })
-  ipcMain.on('plugin:recorder-failed', (e, message: string) => {
+  ipcMain.on(IpcChannels.PluginRecorderFailed, (e, message: string) => {
     const s = resolveSession(e)
     if (!s) return
     s.resolving?.reject(new Error(`screen record failed: ${message}`))
@@ -356,10 +357,10 @@ function wireRecorderIpcOnce(): void {
     if (!s.win.isDestroyed()) s.win.destroy()
     recordSessions.delete(s.id)
   })
-  ipcMain.on('plugin:recorder-audio-unavailable', (e, message: string) => {
+  ipcMain.on(IpcChannels.PluginRecorderAudioUnavailable, (e, message: string) => {
     logWarn('screen', `system audio unavailable: ${message}`)
   })
-  ipcMain.on('plugin:recorder-chunk', (e, buf: ArrayBuffer) => {
+  ipcMain.on(IpcChannels.PluginRecorderChunk, (e, buf: ArrayBuffer) => {
     const s = resolveSession(e)
     if (!s || s.cancelling) return
     const chunk = Buffer.from(buf)
@@ -372,7 +373,7 @@ function wireRecorderIpcOnce(): void {
       }
     })
   })
-  ipcMain.on('plugin:recorder-stopped', (e) => {
+  ipcMain.on(IpcChannels.PluginRecorderStopped, (e) => {
     const s = resolveSession(e)
     if (!s) return
     void (async () => {
@@ -405,7 +406,7 @@ function wireRecorderIpcOnce(): void {
   })
 }
 
-/** 开始矩形录屏；产物 webm 写入 ~/eNest/recordings/ */
+/** 开始矩形录屏；产物 webm 写入 ~/.eNest/recordings/ */
 export async function startRecording(opts?: {
   bounds?: ScreenBounds
   withAudio?: boolean
@@ -542,17 +543,3 @@ export function disposeScreenService(): void {
 
 // 懒注册区域遮罩 IPC
 wireRegionIpcOnce()
-
-/** 导出供测试：hash 避免重复解析同一帧（预留） */
-export function frameHash(dataUrl: string): string {
-  return createHash('sha1').update(dataUrl).digest('hex').slice(0, 16)
-}
-
-/** 将 dataURL 写入 recordings（截图像缓存，可选） */
-export async function saveCaptureDataUrl(dataUrl: string, name?: string): Promise<string> {
-  await mkdir(recordingsDir(), { recursive: true })
-  const file = join(recordingsDir(), name ?? `${randomUUID()}.png`)
-  const b64 = dataUrl.replace(/^data:image\/png;base64,/, '')
-  await writeFile(file, Buffer.from(b64, 'base64'))
-  return file
-}

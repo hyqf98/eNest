@@ -21,7 +21,7 @@ export function TitleBar() {
           onClick={() => shellApi.closeWindow?.()}
         >
           <svg viewBox="0 0 12 12" width="8" height="8" aria-hidden>
-            <path d="M3.2 3.2l5.6 5.6M8.8 3.2L3.2 8.8" stroke="rgba(0,0,0,0.35)" strokeWidth="1.4" strokeLinecap="round" />
+            <path d="M3.2 3.2l5.6 5.6M8.8 3.2L3.2 8.8" stroke="var(--titlebar-icon-stroke)" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
         </button>
         <button
@@ -31,7 +31,7 @@ export function TitleBar() {
           onClick={() => shellApi.minimizeWindow?.()}
         >
           <svg viewBox="0 0 12 12" width="8" height="8" aria-hidden>
-            <path d="M3 6h6" stroke="rgba(0,0,0,0.35)" strokeWidth="1.4" strokeLinecap="round" />
+            <path d="M3 6h6" stroke="var(--titlebar-icon-stroke)" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
         </button>
         <button
@@ -41,7 +41,7 @@ export function TitleBar() {
           onClick={() => shellApi.maximizeWindow?.()}
         >
           <svg viewBox="0 0 12 12" width="8" height="8" aria-hidden>
-            <path d="M4 8V4h4" stroke="rgba(0,0,0,0.35)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <path d="M4 8V4h4" stroke="var(--titlebar-icon-stroke)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
           </svg>
         </button>
       </div>

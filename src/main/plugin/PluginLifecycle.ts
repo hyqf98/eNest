@@ -131,13 +131,5 @@ export function nextState(
   return TRANSITIONS[from][action] ?? null
 }
 
-/** 是否允许该转移 */
-export function canTransition(
-  from: PluginLifecycleState,
-  action: PluginLifecycleAction
-): boolean {
-  return nextState(from, action) !== null
-}
-
 /** 初始状态：已安装、尚未打开 */
 export const INITIAL_LIFECYCLE_STATE: PluginLifecycleState = 'installed'

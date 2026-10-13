@@ -14,7 +14,7 @@ import {
   type Rectangle,
   type WebContents
 } from 'electron'
-import { SHELL_PARTITION, TITLEBAR_HEIGHT, PLUGIN_BAR_HEIGHT, pluginChromeBarHeight } from '@shared/constants'
+import { APP_NAME, SHELL_PARTITION, TITLEBAR_HEIGHT, PLUGIN_BAR_HEIGHT, pluginChromeBarHeight } from '@shared/constants'
 import { IpcChannels, type ShellEventPayload } from '@shared/types/ipc'
 
 let mainWindow: BaseWindow | null = null
@@ -97,7 +97,7 @@ export function createShellWindow(): BaseWindow {
     hasShadow: true,
     backgroundColor: '#011517',
     ...(windowIcon ? { icon: windowIcon } : {}),
-    title: 'eNest'
+    title: APP_NAME
   })
 
   // Dock 单独设置；不可把 icns 传给 BrowserWindow/BaseWindow.icon
@@ -138,10 +138,6 @@ export function createShellWindow(): BaseWindow {
 
 export function getMainWindow(): BaseWindow | null {
   return mainWindow
-}
-
-export function getShellView(): WebContentsView | null {
-  return shellView
 }
 
 export function getShellWebContents(): WebContents | null {

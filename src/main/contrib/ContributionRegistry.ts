@@ -278,6 +278,19 @@ export class ContributionRegistry {
   getQuickProviders(): Array<QuickProviderContribution & { pluginId: string }> {
     return [...this.quickProviders.values()]
   }
+
+  /**
+   * 释放插件的全部运行时 quick provider（closePlugin / hibernate 时由 PluginHost 调用）。
+   * 只清内存 provider；声明式贡献（contributions 表）在卸载/禁用时才清
+   * （unregisterBySource，见 PluginUninstaller / shellHandlers）。
+   */
+  releaseQuickProviders(pluginId: string): void {
+    for (const provider of this.getQuickProviders()) {
+      if (provider.pluginId === pluginId) {
+        this.unregisterQuickProvider(pluginId, provider.id)
+      }
+    }
+  }
 }
 
 export const contributionRegistry = new ContributionRegistry()

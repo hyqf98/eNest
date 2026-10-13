@@ -4,7 +4,13 @@
  * 被 shellPreload、pluginPreload、主进程各 handler 共同引用。
  * 关键依赖：无（纯类型定义）。
  */
-import type { AnimationLevel } from './plugin'
+import type {
+  AnimationLevel,
+  PluginLaunchConfig,
+  PluginLaunchMode,
+  PluginPermission,
+  PluginPermissionGrant
+} from './plugin'
 import type { QuickPluginModeInfo } from './quick'
 import type { SshPluginEvent } from './ssh-db'
 
@@ -34,8 +40,6 @@ export const IpcChannels = {
   ShellSetView: 'shell:set-view',
   /** 圆轨 rail 视图展开/收起：主进程切换 WebContentsView 宽度 */
   ShellSetOrbRailExpanded: 'shell:set-orb-rail-expanded',
-  ShellGetBounds: 'shell:get-bounds',
-  ShellSetContentBounds: 'shell:set-content-bounds',
   ShellGetTheme: 'shell:get-theme',
   ShellSetTheme: 'shell:set-theme',
   ShellLoadDevPlugin: 'shell:load-dev-plugin',
@@ -54,7 +58,6 @@ export const IpcChannels = {
   ShellGetPaths: 'shell:get-paths',
   ShellPickFile: 'shell:pick-file',
   ShellGetPluginReadme: 'shell:get-plugin-readme',
-  ShellQueryDb: 'shell:query-db',
 
   /** 硬件加速（写入设置后需重启） */
   ShellGetHardwareAccel: 'shell:get-hardware-accel',
@@ -65,7 +68,7 @@ export const IpcChannels = {
   ShellSetProxy: 'shell:set-proxy',
   ShellTestProxy: 'shell:test-proxy',
 
-  /** 自定义字体：复制到 ~/eNest/fonts/、读 base64、删除 */
+  /** 自定义字体：复制到 ~/.eNest/fonts/、读 base64、删除 */
   ShellSaveCustomFont: 'shell:save-custom-font',
   ShellReadCustomFont: 'shell:read-custom-font',
   ShellDeleteCustomFont: 'shell:delete-custom-font',
@@ -79,6 +82,11 @@ export const IpcChannels = {
 
   /** 启用/禁用已安装插件（持久化到 plugins/disabled.json） */
   ShellSetPluginEnabled: 'shell:set-plugin-enabled',
+
+  /** 每插件快捷启动配置：启动方式 / 全局启动热键（含接管） / 自定义触发词 */
+  ShellSetPluginLaunch: 'shell:set-plugin-launch',
+  /** 启动热键录制探测：返回占用归属（插件启动键/Quick 键/插件运行时键/系统） */
+  ShellProbeLaunchHotkey: 'shell:probe-launch-hotkey',
 
   /** 从市场安装/更新插件：本地 sample 优先，否则远程 assetUrl 下载入队 */
   ShellInstallMarketPlugin: 'shell:install-market-plugin',
@@ -113,6 +121,20 @@ export const IpcChannels = {
   PluginCall: 'plugin:call',
   PluginEvent: 'plugin:event',
 
+  /** 插件 pin 小窗 preload → 主进程：关闭 pin 窗口 */
+  PluginPinClose: 'plugin:pin-close',
+
+  /** 录屏 region 选区 overlay preload → 主进程：确认 / 取消选区 */
+  PluginRegionConfirm: 'plugin:region-confirm',
+  PluginRegionCancel: 'plugin:region-cancel',
+
+  /** 录音插件 preload → 主进程：录音生命周期与 PCM 分片 */
+  PluginRecorderStarted: 'plugin:recorder-started',
+  PluginRecorderFailed: 'plugin:recorder-failed',
+  PluginRecorderAudioUnavailable: 'plugin:recorder-audio-unavailable',
+  PluginRecorderChunk: 'plugin:recorder-chunk',
+  PluginRecorderStopped: 'plugin:recorder-stopped',
+
   /** 壳子 → 主进程：读取 plugin:call 调用跟踪环形缓冲（DevConsole） */
   ShellGetPluginTrace: 'shell:get-plugin-trace',
 
@@ -124,8 +146,21 @@ export const IpcChannels = {
   /** 主进程 → 壳子渲染进程推送 */
   ShellEvent: 'shell:event',
 
-  /** Quick 渲染层 → 主进程：Esc 请求隐藏 */
-  QuickHideRequest: 'quick:hide-request',
+  /** —— 运行时权限（壳层三态）—— */
+
+  /** 壳渲染层 → 主进程：响应权限弹窗（once/always/deny；对应 permission-request 事件） */
+  PermissionResponse: 'shell:permission-response',
+  /** 壳渲染层 → 主进程：读插件权限授权表（缺省 ask） */
+  PermissionGrantsGet: 'shell:permission-grants-get',
+  /** 壳渲染层 → 主进程：写单项权限授权（设置页三态分段） */
+  PermissionGrantsSet: 'shell:permission-grants-set',
+  /**
+   * 壳渲染层 → 主进程：打开 macOS「屏幕录制」系统隐私设置面板。
+   * 只读安全的内部通道：仅跳转系统设置，不暴露任何插件数据；
+   * 插件不可调用（handler 限定壳窗口 sender）。
+   */
+  OsOpenScreenSettings: 'shell:os-open-screen-settings',
+
   /** 主进程 → Quick 渲染层：窗口已显示，请求聚焦输入框 */
   QuickShown: 'quick:shown'
 } as const
@@ -168,6 +203,8 @@ export type ShellEventPayload =
   | { type: 'quick-hotkey-used'; acc: string }
   /** 快捷启动配置变更 */
   | { type: 'quick-config-changed'; enabled: boolean; hotkeys: string[]; activeHotkey?: string }
+  /** 某插件的快捷启动配置变更（启动方式/热键/触发词）；渲染层据此刷新命令面与详情 */
+  | { type: 'plugin-launch-changed'; pluginId: string; config: PluginLaunchConfig | null }
   /** 命令面要求壳子切换视图 */
   | { type: 'quick-open-view'; view: 'home' | 'settings' | 'dev' }
   /**
@@ -182,6 +219,20 @@ export type ShellEventPayload =
    * （home-cards 区块、rail-entries、settings sections 等）。
    */
   | { type: 'contributions-changed'; slot: string; source: string }
+  /**
+   * 插件运行时权限请求（主进程 → 壳渲染层，grant='ask' 时弹出确认窗）：
+   * 渲染层经 respondPermissionRequest(requestId, 'once'|'always'|'deny') 回应；
+   * 60s 未回应按本次拒绝处理（不持久化）。
+   * osHint：macOS 屏幕权限提示（system-pending=首次调用将弹系统授权 / denied=已被拒）。
+   */
+  | {
+      type: 'permission-request'
+      requestId: string
+      pluginId: string
+      permission: PluginPermission
+      summary: string
+      osHint?: 'system-pending' | 'denied'
+    }
 
 /** orb 悬浮窗同步的 Tab 状态（壳子 renderer → main → overlay） */
 export interface OrbRailState {
@@ -259,6 +310,15 @@ export type PluginEventPayload =
       locale: 'zh-CN' | 'en-US'
     }
   /**
+   * 插件启动方式变更（quick ↔ shell 容器迁移，不重载页面）：
+   * 插件经 enest.onModeChange 监听，据此切换小窗/桌面两套入口样式；
+   * enest.getLaunchMode() 同步返回当前值。
+   */
+  | {
+      type: 'mode-change'
+      mode: PluginLaunchMode
+    }
+  /**
    * Quick 搜索查询（主进程 → 注册了 quick provider 的插件）：
    * 插件经 enest.contribute.onQuickQuery 监听，计算结果后用
    * enest.contribute.respondQuickQuery(reqId, items) 回传（500ms 超时丢弃）。
@@ -319,4 +379,17 @@ export interface PluginCallTraceEntry {
   ok: boolean
   durationMs: number
   error?: string
+}
+
+/** shell:permission-response 载荷：弹窗三按钮决策 */
+export interface PermissionResponsePayload {
+  requestId: string
+  decision: 'once' | 'always' | 'deny'
+}
+
+/** shell:permission-grants-set 载荷：单项三态授权写入 */
+export interface PermissionGrantSetPayload {
+  pluginId: string
+  permission: PluginPermission
+  grant: PluginPermissionGrant
 }

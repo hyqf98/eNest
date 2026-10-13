@@ -16,7 +16,7 @@ import { t } from '@renderer/i18n'
 export const MAX_FONT_BYTES = 5 * 1024 * 1024
 
 /** 允许的字体扩展名 */
-export const FONT_EXTENSIONS = ['.ttf', '.otf', '.woff', '.woff2'] as const
+const FONT_EXTENSIONS = ['.ttf', '.otf', '.woff', '.woff2'] as const
 
 /** 自定义字体 family 后的兜底栈 */
 const FALLBACK_STACK =
@@ -26,7 +26,7 @@ const FALLBACK_STACK =
 const MOCK_FONT_KEY = 'enest.customFont.'
 
 /** 正文基准字号（px）；tokens.css / base.css 的 --font-size-base 缺省同值 */
-export const BASE_FONT_PX = 14
+const BASE_FONT_PX = 14
 
 /** 校验字号缩放：连续区间 0.9–1.3（滑杆实时），兼容历史四档 */
 function isFontSizeScale(v: unknown): v is number {
@@ -55,7 +55,7 @@ export interface FontPreset {
 }
 
 /** 组合预设（中英混排一体）；兼容旧 settings.fontFamily 全栈匹配 */
-export const FONT_PRESETS: FontPreset[] = [
+const FONT_PRESETS: FontPreset[] = [
   {
     id: 'system',
     nameKey: 'settings.font.presets.system',
@@ -158,7 +158,7 @@ export const FONT_PRESETS_CJK: FontPreset[] = [
 ]
 
 /** 将 family 名包装为合法 CSS font-family 值（含兜底栈） */
-export function cssFontValue(family: string): string {
+function cssFontValue(family: string): string {
   const quoted = family.includes('"') ? family : `"${family}"`
   return `${quoted}, ${FALLBACK_STACK}`
 }
@@ -167,12 +167,15 @@ export function cssFontValue(family: string): string {
  * 拼接中英字体栈：Latin 字符优先命中英文栈，CJK 回落中文栈。
  * en 为空时原样返回 cjk（兼容旧版单栈行为）。
  */
-export function composeFontStack(en: string, cjk: string): string {
+/**
+ * 拼接中英字体栈：Latin 字符优先命中英文栈，CJK 回落中文栈。
+ * en 为空时原样返回 cjk（兼容旧版单栈行为）。
+ */
+function composeFontStack(en: string, cjk: string): string {
   if (!en) return cjk
   if (!cjk) return en
   return `${en}, ${cjk}`
 }
-
 /** 写入 --font CSS 变量；空串则移除内联值，回落 tokens.css 默认 */
 function applyFontToDom(en: string, cjk: string): void {
   const root = document.documentElement
@@ -195,7 +198,7 @@ function makeId(): string {
 }
 
 /** 校验扩展名 */
-export function isSupportedFontFile(fileName: string): boolean {
+function isSupportedFontFile(fileName: string): boolean {
   return FONT_EXTENSIONS.some((ext) => fileName.toLowerCase().endsWith(ext))
 }
 

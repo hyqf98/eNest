@@ -1,7 +1,7 @@
 /**
  * logService — 主进程持久化日志（electron-log 5 封装）
  * 职责：将主进程启动、安装队列、插件生命周期等关键步骤写入
- *       {dataRoot}/logs/main.log（默认 ~/eNest/logs）。
+ *       {dataRoot}/logs/main.log（默认 ~/.eNest/logs）。
  * 为什么 electron-log：原先 appendFileSync 逐条同步手写，缺轮转易膨胀；
  *       electron-log 的 file transport 自带 maxSize 轮转与错误兜底，写入失败只经
  *       内部 error 事件打 console，绝不会拖垮业务。
@@ -160,18 +160,3 @@ export const logDebug = (source: string, message: string): void => log('debug', 
 export const logInfo = (source: string, message: string): void => log('info', source, message)
 export const logWarn = (source: string, message: string): void => log('warn', source, message)
 export const logError = (source: string, message: string): void => log('error', source, message)
-
-/**
- * 记录插件生命周期状态转移。统一 source=lifecycle，便于用户按关键字打包反馈。
- * 调用方：PluginHost.applyTransition / openPlugin / closePlugin；PluginUninstaller 各步骤。
- */
-export function logLifecycle(
-  pluginId: string,
-  from: string,
-  to: string,
-  action?: string,
-  detail?: string
-): void {
-  const actionPart = action ? ` (${action}${detail ? `: ${detail}` : ''})` : ''
-  logInfo('lifecycle', `${pluginId}: ${from} → ${to}${actionPart}`)
-}

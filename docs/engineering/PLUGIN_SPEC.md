@@ -44,7 +44,8 @@ my-plugin/
     "settings.register",
     "settings.page",
     "hotkey",
-    "contribute"
+    "contribute",
+    "theme"
   ],
   "window": { "minWidth": 480, "minHeight": 320 },
   "features": [{ "code": "main", "cmds": ["hello"] }],
@@ -84,7 +85,7 @@ my-plugin/
 | `name` | 是 | 显示名 |
 | `version` | 是 | semver |
 | `main` | 是 | HTML 入口相对路径 |
-| `permissions` | 否 | IPC 白名单（**28 项**，含 vault/ssh/db），未声明的调用会被拒绝 |
+| `permissions` | 否 | IPC 白名单（**29 项**，含 theme/vault/ssh/db），未声明的调用会被拒绝；此外还有 **运行时三态授权** `allow / ask / deny`（默认 `ask`，按插件持久化，`ask` 时壳子弹授权弹窗）——详见站点 [权限说明](../site/plugin/permissions.md) |
 | `contributes` | 否 | 贡献点声明（声明式注册，见下节） |
 | `development.main` | 否 | 开发态 URL（Vite/Webpack） |
 | `ui` | 否 | UI 集成配置，见下节 |
@@ -197,7 +198,8 @@ await enest.settings.register({
   items: [{ key: 'name', type: 'text', label: '称呼', default: '朋友' }]
 })
 
-// 持久化存储（按插件 partition 隔离，落盘至 ~/eNest/data/plugin-storage/{id}.json）
+// 持久化存储（按插件 partition 隔离，落盘至 ~/.eNest/data/enest.db 的 plugin_storage 表，
+// 按 plugin_id+key 隔离，50ms 合并写；配额每插件 1000 键 / 单值 512KB）
 await enest.storage.set('k', { any: true })
 await enest.storage.get('k')
 
@@ -240,9 +242,10 @@ await enest.notify({ title: '完成', body: 'ok' }) // 系统通知，可后台�
 | `ui.toast` | `ui.toast` |
 | `settings.register` | `settings.register` |
 | `contribute.*`（Quick provider 注册 / 查询回传） | `contribute` |
+| `theme.register`（运行时主题包注册） | `theme` |
 | `settings.page` | `settings.page`（预留，自定义设置页嵌入） |
 
-> 完整白名单（**28 项**）权威源：`src/shared/types/plugin.ts` → `PLUGIN_PERMISSIONS`；schema 侧见 `eNest_plugin/docs/plugin-manifest.schema.json`。
+> 完整白名单（**29 项**）权威源：`src/shared/types/plugin.ts` → `PLUGIN_PERMISSIONS`；schema 侧见 `eNest_plugin/docs/plugin-manifest.schema.json`。
 
 ### Quick 搜索 provider（运行时贡献，需 `contribute` 权限）
 
@@ -268,13 +271,13 @@ const off = enest.contribute.onQuickQuery(({ reqId, query }) => {
 - 自定义协议：`enest://plugin/{id}/...`，仅映射该插件根目录
 - 关闭 Tab 时 `webContents.close()` 立即回收，并清空 `storage.session`
 - 日常关闭 **不清除** partition localStorage / `storage.local`（用户数据保留）
-- 卸载插件时应 `session.clearStorageData()` + 删除 `plugin-storage/{id}.json`（见 LIFECYCLE_REVIEW.md）
+- 卸载插件时应 `session.clearStorageData()` + 清空 enest.db `plugin_storage` 中该插件的行（见 LIFECYCLE_REVIEW.md）
 
 ## 安装包
 
 - 扩展名：`.enestplugin`（zip）或普通 `.zip`；也可直接拖入**插件文件夹**
 - 包结构：`plugin.json` 必须位于 zip **根目录**，或**唯一一层子目录**内
-- 安装路径：`{dataRoot}/plugins/{id}/{version}/`（默认 `~/eNest/plugins/...`）
+- 安装路径：`{dataRoot}/plugins/{id}/{version}/`（默认 `~/.eNest/plugins/...`）
 - 安装入口：
   1. **拖拽**：将文件夹 / `.enestplugin` 拖到 eNest 窗口任意位置 → 遮罩提示「释放以安装插件」
   2. **IPC**：`shell:install-plugin(sourcePath)` 入队，主进程 `installQueue` 限流执行
@@ -303,4 +306,4 @@ cd my-plugin && zip -r ../my-plugin.enestplugin .
 - **打开** `openPlugin`：不存在则创建 View 并加载；已存在则激活（单例）
 - **切换** `activatePlugin`：`setVisible` 显隐，不销毁
 - **关闭** `closePlugin`：立即销毁 WebContents + 清空 session 存储
-- 演进方向：`onEnter` / `onOut` 生命周期事件（当前未实现）
+- 生命周期事件 `onEnter` / `onOut` / `onBeforeClose` / `onDestroy` 已在 preload 实现（见站点 [生命周期](../site/plugin/lifecycle.md)）

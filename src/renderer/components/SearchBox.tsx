@@ -1,5 +1,6 @@
 /** 首页内搜索；快捷键只在市场页挂载时生效。 */
 import { useEffect, useRef } from 'react'
+import { IS_MAC } from '@shared/platform'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { SearchField } from './SearchField'
 
@@ -11,7 +12,7 @@ interface Props {
 export function SearchBox({ value, onChange }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const { t, locale } = useI18n()
-  const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K'
+  const shortcut = IS_MAC ? '⌘ K' : 'Ctrl K'
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

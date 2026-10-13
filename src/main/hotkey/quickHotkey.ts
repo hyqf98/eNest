@@ -8,10 +8,10 @@
  */
 import { globalShortcut } from 'electron'
 import type { QuickHotkeyApplyResult, QuickHotkeyConfig, QuickHotkeyProbeResult } from '@shared/types/quick'
-import { defaultQuickHotkeys, settingsStore } from '../settings/SettingsStore'
-import { sendShellEvent } from '../window/createShellWindow'
-import { toggleQuickWindow } from '../window/createQuickWindow'
-import { logError, logInfo, logWarn } from '../logs/logService'
+import { defaultQuickHotkeys, settingsStore } from '@main/settings/SettingsStore'
+import { sendShellEvent } from '@main/window/createShellWindow'
+import { toggleQuickWindow } from '@main/window/createQuickWindow'
+import { logError, logInfo, logWarn } from '@main/logs/logService'
 
 /** 当前真正注册成功的 accelerator（互斥下最多一枚） */
 let registeredHotkey = ''

@@ -38,7 +38,7 @@ export function getAppPathsRoot(): string {
 
 /**
  * 解析完整 AppPaths。
- * @param overrideRoot 优先级最高；否则用 setAppPathsRoot 设定的覆盖；否则默认 ~/eNest
+ * @param overrideRoot 优先级最高；否则用 setAppPathsRoot 设定的覆盖；否则默认 ~/.eNest
  */
 export function getAppPaths(overrideRoot?: string): AppPaths {
   const root = overrideRoot && overrideRoot.trim() ? overrideRoot.trim() : getAppPathsRoot()

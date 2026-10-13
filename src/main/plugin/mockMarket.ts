@@ -18,8 +18,6 @@ export interface MockMarketPlugin {
   color: string
   glyph: string
   permissions: PluginPermission[]
-  /** mini = Quick 面板优先；缺省 panel（主窗 Tab）——须与插件 manifest 的 form 一致 */
-  form?: 'mini' | 'panel'
 }
 
 export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
@@ -67,7 +65,6 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
   },
   {
     id: 'com.enest.translate',
-    form: 'mini',
     name: '翻译',
     author: 'Lingua',
     description: '多引擎翻译（Google/MyMemory 自动切换），自动检测语言，一键复制译文。',
@@ -147,7 +144,6 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
   },
   {
     id: 'com.enest.timestamp',
-    form: 'mini',
     name: '时间戳',
     author: 'eNest Labs',
     description: '当前秒/毫秒实时刷新一键复制，时间戳与时间互转，ISO 等常用格式。',
@@ -196,7 +192,6 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
   },
   {
     id: 'com.enest.pomodoro',
-    form: 'mini',
     name: '番茄钟',
     author: 'eNest Labs',
     description: '专注 25 分钟休息 5 分钟（可调），到点系统通知，今日完成统计。',
@@ -221,7 +216,6 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
   },
   {
     id: 'com.enest.calculator',
-    form: 'mini',
     name: '计算器',
     author: 'eNest Labs',
     description: '四则运算与括号百分比，键盘即输即算，附历史记录。',
@@ -234,7 +228,6 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
   },
   {
     id: 'com.enest.password-kit',
-    form: 'mini',
     name: '密码工具箱',
     author: 'eNest Labs',
     description: '随机密码生成（长度/字符集可调、强度提示）与 UUID v4 批量生成。',
@@ -247,7 +240,6 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
   },
   {
     id: 'com.enest.color-picker',
-    form: 'mini',
     name: '取色器',
     author: 'eNest Labs',
     description: '屏幕取色：放大镜精准取点，HEX/RGB/HSL 一键复制，附历史色板。',
@@ -274,7 +266,6 @@ export function mockToSummary(installed: boolean): PluginSummary[] {
     glyph: p.glyph,
     permissions: p.permissions,
     installed,
-    form: p.form ?? 'panel',
     // 市场 mock 尚无 manifest，统一用默认 UI 配置；安装后由 PluginRegistry 覆盖
     ui: { ...DEFAULT_PLUGIN_UI }
   }))

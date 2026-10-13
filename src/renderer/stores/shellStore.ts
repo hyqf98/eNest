@@ -9,6 +9,7 @@
  */
 import { create } from 'zustand'
 import type { PluginSummary, PluginTab, ShellView, TabStyle } from '@shared/types/plugin'
+import { PLUGIN_CATEGORY_COLOR_DEFAULT } from '@shared/constants'
 import { shellApi } from '@renderer/services/shellApi'
 import { toastStore } from '@renderer/hooks/useToast'
 
@@ -38,20 +39,49 @@ function scheduleSessionPersist(state: {
   tabs: ShellTab[]
   activeTabId: string | null
 }): void {
+  latestSession = state
+  sessionDirty = true
   if (sessionPersistTimer) clearTimeout(sessionPersistTimer)
   sessionPersistTimer = setTimeout(() => {
     sessionPersistTimer = null
-    const sessionTabs = state.tabs.map((t) => ({ pluginId: t.pluginId, title: t.title }))
-    const active = state.tabs.find((t) => t.id === state.activeTabId)
-    void shellApi
-      .setSettings({
-        general: {
-          sessionTabs,
-          sessionActivePluginId: active?.pluginId ?? ''
-        }
-      })
-      .catch(() => undefined)
+    flushSessionPersist()
   }, SESSION_PERSIST_MS)
+}
+
+/** 最近一次待落盘的会话快照与脏标记（pagehide 兜底用） */
+let latestSession: { tabs: ShellTab[]; activeTabId: string | null } | null = null
+let sessionDirty = false
+
+function flushSessionPersist(): void {
+  const snap = latestSession
+  if (!snap || !sessionDirty) return
+  sessionDirty = false
+  const sessionTabs = snap.tabs.map((t) => ({ pluginId: t.pluginId, title: t.title }))
+  const active = snap.tabs.find((t) => t.id === snap.activeTabId)
+  void shellApi
+    .setSettings({
+      general: { sessionTabs, sessionActivePluginId: active?.pluginId ?? '' }
+    })
+    .catch(() => undefined)
+}
+
+/**
+ * 页面卸载/隐藏时立即落 session（退出路径兜底）：
+ * 400ms debounce 在窗口销毁时来不及触发，会丢最后一次 Tab 变更；
+ * before-quit 阶段主进程有 ~2s 异步清理窗，此处 invoke 大概率能到达并被 flushNow 落盘。
+ */
+export function registerSessionFlushOnHide(): void {
+  const flush = () => {
+    if (sessionPersistTimer) {
+      clearTimeout(sessionPersistTimer)
+      sessionPersistTimer = null
+    }
+    flushSessionPersist()
+  }
+  window.addEventListener('pagehide', flush)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flush()
+  })
 }
 
 /** 市场分段：浏览全部 vs 已安装 */
@@ -84,7 +114,6 @@ interface ShellState {
   setCategory: (c: string) => void
   setSeg: (s: Seg) => void
   setSettingsTab: (t: string) => void
-  setPluginReady: (ready: boolean) => void
   setPluginError: (msg: string | null) => void
   setTabStyle: (style: TabStyle) => void
   hydrateTabStyle: () => Promise<void>
@@ -97,7 +126,6 @@ interface ShellState {
   closeTab: (tabId: string) => Promise<void>
   activateTab: (tabId: string) => Promise<void>
   goHome: () => void
-  updateTabTitle: (tabId: string, title: string) => void
   removeTabLocal: (tabId: string) => void
   /** plugin-error 事件桥：标记指定插件 Tab 为崩溃态（二次 crash 不自动重启时使用） */
   markTabCrashed: (pluginId: string) => void
@@ -149,7 +177,6 @@ export const useShellStore = create<ShellState>((set, get) => ({
   setCategory: (category) => set({ category }),
   setSeg: (seg) => set({ seg }),
   setSettingsTab: (settingsTab) => set({ settingsTab }),
-  setPluginReady: (ready) => set({ pluginReady: ready }),
   setPluginError: (msg) => set({ pluginError: msg }),
 
   setTabStyle: (style) => {
@@ -346,9 +373,6 @@ export const useShellStore = create<ShellState>((set, get) => ({
     pushOrbState(get())
   },
 
-  updateTabTitle: (tabId, title) =>
-    set((s) => ({ tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, title } : t)) })),
-
   removeTabLocal: (tabId) => {
     const { tabs, activeTabId, view } = get()
     const remaining = tabs.filter((t) => t.id !== tabId)
@@ -406,7 +430,7 @@ export const useShellStore = create<ShellState>((set, get) => ({
           id: `t-${pluginId}`,
           pluginId,
           title: target?.name ?? pluginId,
-          color: target?.color ?? '#f5a524',
+          color: target?.color ?? PLUGIN_CATEGORY_COLOR_DEFAULT,
           glyph: target?.glyph ?? '⌥'
         }
         set((s) => ({ tabs: [...s.tabs, tab as PluginTab] }))

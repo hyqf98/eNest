@@ -76,6 +76,11 @@ my-hello/
 插件根目录提供 `README.md` 后，市场卡片点击进入详情会渲染该文档
 。
 
+## 5. 权限与授权（提前知道）
+
+- `permissions` 声明是能力入口；运行时首次调用敏感能力时壳子还会弹授权弹窗（本次允许 / 总是允许 / 拒绝），详见 [权限说明](permissions.md)。
+- 想做主题插件？参考示例插件 **`com.enest.theme-demo`**（`eNest_plugin/plugins/com.enest.theme-demo/`）：同一份代码演示两条注册路径——manifest `contributes.themePacks` 声明式 与 运行时 `enest.theme.register`（后者需 `theme` 权限），见 [示例插件](examples.md)。
+
 ## 下一步
 
 [plugin.json 字段 →](manifest.md)

@@ -4,6 +4,7 @@ import type { CSSProperties, KeyboardEvent } from 'react'
 import gsap from 'gsap'
 import type { QuickCommand, QuickCommandKind, QuickOpenRequest, QuickPluginModeInfo } from '@shared/types/quick'
 import { QUICK_BAR_AREA_H, QUICK_CORNER_RADIUS } from '@shared/constants'
+import { IS_MAC } from '@shared/platform'
 import { d, dy, ease } from '@renderer/gsap/marketMotion'
 import { shellApi } from '@renderer/services/shellApi'
 import { useAppearanceSync } from '@renderer/hooks/useAppearanceSync'
@@ -193,7 +194,13 @@ export function QuickLauncherApp() {
     if (busy) return
     let request: QuickOpenRequest | undefined
     if (cmd.kind === 'app' && cmd.path) request = { kind: 'app', path: cmd.path }
-    if (cmd.kind === 'plugin' && cmd.pluginId) request = { kind: 'plugin', pluginId: cmd.pluginId, code: cmd.code, container: !mainWindow && cmd.form === 'mini' ? 'quick' : 'shell' }
+    // 缺省不带 container：主进程按「显式 > 每插件启动方式设置 > 跟随入口(quick)」决策；
+    // ⌘/Ctrl+Enter 显式指定主窗
+    if (cmd.kind === 'plugin' && cmd.pluginId) {
+      request = mainWindow
+        ? { kind: 'plugin', pluginId: cmd.pluginId, code: cmd.code, container: 'shell' }
+        : { kind: 'plugin', pluginId: cmd.pluginId, code: cmd.code }
+    }
     if (cmd.kind === 'action' && cmd.action) request = { kind: 'action', action: cmd.action }
     if (request && await execute(request, cmd.id) && cmd.action === 'refresh-apps') setRevision((v) => v + 1)
   }, [busy, execute])
@@ -231,8 +238,8 @@ export function QuickLauncherApp() {
   }
 
   const selected = visibleItems[index]
-  const modifier = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
-  const actionHint = selected?.kind === 'plugin' ? selected.form === 'mini' ? '在此展开' : '在主窗口打开' : selected?.kind === 'app' ? '打开应用' : '执行操作'
+  const modifier = IS_MAC ? '⌘' : 'Ctrl'
+  const actionHint = selected?.kind === 'plugin' ? '打开插件' : selected?.kind === 'app' ? '打开应用' : '执行操作'
 
   return <div ref={rootRef} className="quick-root" data-mode={pluginMode ? 'plugin' : 'list'} data-expanded={showResults || Boolean(pluginMode)}
     style={{ '--quick-bar-h': `${QUICK_BAR_AREA_H}px`, '--quick-radius': `${QUICK_CORNER_RADIUS}px` } as CSSProperties} onKeyDown={onKeyDown}>
@@ -274,11 +281,11 @@ export function QuickLauncherApp() {
                 {group.items.map((cmd, groupIndex) => {
                   const i = group.offset + groupIndex
                   return <button key={cmd.id} id={`quick-item-${i}`} type="button" role="option" aria-selected={index === i} tabIndex={-1} data-index={i}
-                    className={`quick-item quick-result${index === i ? ' active' : ''}`} title={`${cmd.title} · ${cmd.kind === 'plugin' ? cmd.form === 'mini' ? '小窗插件' : '主窗插件' : cmd.kind === 'app' ? '本机应用' : cmd.subtitle}`}
+                    className={`quick-item quick-result${index === i ? ' active' : ''}`} title={`${cmd.title} · ${cmd.kind === 'plugin' ? '插件' : cmd.kind === 'app' ? '本机应用' : cmd.subtitle}`}
                     disabled={Boolean(opening)} onMouseMove={() => setIndex(i)} onClick={() => void openItem(cmd)}>
                     <ItemIcon cmd={cmd} /><span className="quick-item-copy"><span className="quick-item-title"><HighlightTitle text={cmd.title} query={query} /></span>
                       <span className="quick-item-subtitle">{cmd.kind === 'app' ? '本机应用' : cmd.subtitle}</span></span>
-                    <span className="quick-result-type">{opening === cmd.id ? '打开中…' : cmd.kind === 'app' ? '应用' : cmd.kind === 'action' ? '操作' : cmd.form === 'mini' ? '小窗插件' : '主窗插件'}</span>
+                      <span className="quick-result-type">{opening === cmd.id ? '打开中…' : cmd.kind === 'app' ? '应用' : cmd.kind === 'action' ? '操作' : '插件'}</span>
                   </button>
                 })}
               </div>

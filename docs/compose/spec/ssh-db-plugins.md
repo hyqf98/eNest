@@ -41,7 +41,7 @@ eNest 缺少开发运维两大核心工具。插件运行在无 Node 的 `WebCon
 | 持久化契约 | **统一 KV API**：业务数据只经 `enest.storage.get/set(key, value)`；密钥只经 `enest.vault.set→secretRef`。**不是 JSON 文件契约**；物理后端由宿主统一 KV 实现（plugin_storage 等） |
 | 驱动 | MySQL=`mysql2`；SQLite=独立文件库；Timescale=`pg`；Influx/TDengine=HTTP |
 | DB 优先级 | SQL 补全 > 结果集 CRUD/批量 > 会话持久化 > 导入导出 > 其它 |
-| 插件 | `com.enest.ssh` / `com.enest.database`，`form: panel` |
+| 插件 | `com.enest.ssh` / `com.enest.database` |
 
 ## [S2] Design
 

@@ -141,6 +141,7 @@ enest.onBeforeClose(async ({ reason }) => {
 渲染进程崩溃（`render-process-gone`）时：
 
 - **首次 crash**：壳子自动重启（reopen 一次），按崩溃前所在容器（主窗 Tab / Quick）回到原位，session 快照恢复同休眠唤醒；
+- crash 发生时**立即释放该插件的运行时热键**（`hotkey.register` 注册的部分），避免全局快捷键残留成「死键」；
 - **连续第二次 crash**：保留逻辑 Tab 但不再自动重启，渲染层经 `plugin-error` 显示崩溃态，等用户手动重开；
 - 加载完成后稳定存活 10s（`CRASH_RECOVERY_STABLE_MS`）视为已恢复，重置自动重启额度。
 
@@ -152,8 +153,10 @@ enest.onBeforeClose(async ({ reason }) => {
 const api = window.enest // zapi 为 @deprecated 别名，计划 v2 移除
 
 // 进入：首次加载完成 + 每次 Tab 激活 + 休眠唤醒 / crash 重启重建
-const offEnter = api.onEnter(({ tabId, code, payload }) => {
+// 载荷带 mode: 'quick' | 'shell'（本次进入的启动方式）
+const offEnter = api.onEnter(({ tabId, code, payload, mode }) => {
   // code 对应 features[].code；payload 为透传数据
+  applyEntryStyle(mode)
   resumeUi()
 })
 
@@ -194,6 +197,7 @@ off()
 
 ```ts
 // openPlugin — 幂等：已存在则激活；hibernated 则快照恢复重建
+// container 为启动方式：'shell' 主窗 Tab / 'quick' 小窗内嵌，由打开入口 + 用户 pluginLaunch 覆盖决定
 async openPlugin(pluginId: string, enter?: PluginEnterPayload, container?: 'shell' | 'quick') {
   const existing = this.views.get(pluginId)
   if (existing) {
@@ -310,7 +314,10 @@ api?.onBeforeClose(() => {
 
 ## 打开（Open）
 
-触发：市场卡片、已安装列表、开发者加载本地目录、Quick 命令（`form: 'mini'` 插件）。
+触发：市场卡片、已安装列表、开发者加载本地目录、Quick 命令。插件不再有 manifest `form` 区分，容器由「启动方式」决定：
+
+- 从 Quick 快捷启动打开 → `quick`（小窗内嵌）；决策链：显式 container（⌘/Ctrl+Enter 强制主窗）> `settings.pluginLaunch[id].mode` > `'quick'`（跟随入口）；
+- 从主窗（市场 / 圆轨 / Tab）打开 → `shell`（主窗 Tab），恒定不受 `mode` 影响。
 
 主进程步骤（container：`shell` 主窗 Tab / `quick` 小窗内嵌）：
 
@@ -320,10 +327,10 @@ api?.onBeforeClose(() => {
 4. 为该 session 注册 `enest://plugin/{id}` 协议映射
 5. 创建独立渲染视图，注入统一 preload（暴露 `window.enest`；`zapi` 为兼容别名）
 6. 加载 URL：优先 `development.main`（开发态），否则 `enest://plugin/{id}/{main}`
-   - query 携带 `pid` 与可选 `code`，便于 preload 同步解析
-7. `setBounds`：shell 容器铺到内容区（标题栏 + 插件条之下）；quick 容器从输入条之下铺满（见 [UI 标准 → mini 插件](ui-standard.md)）
+   - query 携带 `pid`、可选 `code` 与 `mode=quick|shell`（启动方式初始值），便于 preload / 首个脚本同步解析
+7. `setBounds`：shell 容器铺到内容区（标题栏 + 插件条之下）；quick 容器从输入条之下铺满（见 [UI 标准 → 双入口样式](ui-standard.md)）
 8. 推送 `shell:event` → `plugins-changed`，壳子出现 Tab
-9. `did-finish-load` 后注入主题变量（`themeAware`）并广播 `enter`
+9. `did-finish-load` 后注入主题变量（`themeAware`）并广播 `enter`（载荷含 `mode`）
 
 加载失败推送 `plugin-error`（见 [错误码](errors.md)）。
 
@@ -358,9 +365,41 @@ webContents.reload()  →  重新加载 development.main 或 enest:// 入口
 |------|--------|------|
 | 关闭 Tab | `tab-close` | `beforeClose` → `destroy` → `webContents.close()` → 清 session KV |
 | 关闭窗口 / 退出 | `app-quit` | `destroyAll()` 销毁全部插件 View |
-| 卸载插件 | `uninstall` | 另应清理 partition 数据 + 删除 `plugin-storage/{id}.json` |
+| 卸载插件 | `uninstall` | 另应清理 partition 数据 + 删除 storage（enest.db `plugin_storage` 行） |
 
 **设计取舍**：关闭即销毁，内存可预期。日常关闭 **不清除** partition localStorage / `storage.local`（用户数据保留）；**卸载时**才清理两者。
+
+**退出清理顺序与已知限制**：
+
+- before-quit 中 `destroyAll` 先于销毁 Quick 小窗——Quick 内嵌插件能收到 `beforeClose` 并 flush；
+- 壳子渲染层 `pagehide` 时立即落 `sessionTabs`，保证会话 Tab 可恢复；
+- 已知限制——信号退出（Ctrl+C / SIGTERM）插件收不到 `beforeClose`（保退出速度，与 uTools 行为一致）；重要状态请平时就写 `storage.*`，勿依赖退出前 flush。
+
+---
+
+## 启用 / 禁用（enabled）
+
+已安装插件可被用户禁用而不卸载：
+
+- **状态来源**：`pluginEnabledStore`（持久化在数据根 `plugins/disabled.json`，维护禁用 id 集合）；缺省 / 未记录 = 启用。
+- **禁用后**：
+  - `openPlugin` **拒绝**新的打开（已打开的 Tab 不强制关闭，用户可自行关）；
+  - summary 的 `rootPath` 置空，Quick 搜索索引（按 `installed && rootPath` 过滤）**自动排除**该插件；
+  - **声明式贡献撤下**：设置 section、首页卡片、圆轨入口、主题包（contributes 表 `unregisterBySource`），随 `contributions-changed` 广播刷新；
+  - 启动热键等运行时注册（全局热键 / Quick provider）一并释放。
+- **重新启用**：按当前 manifest 重放声明式贡献，Quick 索引恢复。
+- 卸载时清除该 id 的禁用记录（重装后不会「莫名还是禁用」）。
+
+插件侧无感知 API：禁用不触发生命周期事件（只是打不开）；已打开的插件在下次关闭后自然回收。
+
+---
+
+## 版本更新（latestVersion）
+
+- **检查**：Registry 扫描 / 列表时对比远程市场条目版本；远程存在更高版本时，已安装插件的 summary 带 `latestVersion`（市场 UI 显示「更新」入口）。
+- **安装新版本**：走与安装一致的下载 → 校验（sha256，有则校）→ 解压到 `plugins/{id}/{新版本}/`；**成功后清理同 id 下旧的版本目录**（只保留刚写入的），再重扫注册表。
+- 已打开的旧版本 Tab 在卸载式更新流程中会被关闭（`closePlugin(id, 'uninstall')`）；常规市场更新安装完由用户重新打开。
+- 数据不受影响：`storage.local`（enest.db）与 partition 按插件 id 隔离，与版本目录无关。
 
 ---
 

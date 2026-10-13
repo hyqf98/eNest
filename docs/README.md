@@ -4,9 +4,18 @@
 
 ```
 docs/
+├── compose/         # 组成式规格（模块级 spec，给维护者）
+│   └── spec/
+│       ├── core-plugins.md
+│       ├── quick-launcher.md
+│       └── ssh-db-plugins.md
+│
 ├── engineering/     # 工程内部文档（Markdown，给开发者/维护者）
 │   ├── ARCHITECTURE.md
 │   ├── PLUGIN_SPEC.md
+│   ├── LIFECYCLE_REVIEW.md
+│   ├── PERF_REPORT.md
+│   ├── SMOKE_MANUAL.md
 │   ├── DEVELOPMENT.md
 │   └── AUTOMATION.md
 │
@@ -18,6 +27,7 @@ docs/
 
 | 类型 | 路径 | 是否上 Pages |
 |------|------|----------------|
+| 组成式规格 | `docs/compose/` | 否 |
 | 工程文档 | `docs/engineering/` | 否 |
 | 官网 / 文档站 | `docs/site/` | 是（Actions 发布） |
 

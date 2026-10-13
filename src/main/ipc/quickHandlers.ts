@@ -15,7 +15,7 @@ import type {
   QuickSearchResult
 } from '@shared/types/quick'
 import type { QuickRecentEntry } from '@shared/types/plugin'
-import { resolvePluginForm } from '@shared/types/plugin'
+import { resolveLaunchMode } from '@main/hotkey/pluginLaunchHotkeys'
 import {
   hideQuickWindow,
   setQuickContentHeight,
@@ -30,7 +30,6 @@ import { scanApplications } from '@main/launcher/appScanner'
 import { searchQuickCommands, QUICK_RECENT_MAX } from '@main/launcher/commandIndex'
 import { launchLocalApp } from '@main/launcher/appLauncher'
 import { pluginHost } from '@main/plugin/PluginHost'
-import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
 import { logError, logInfo } from '@main/logs/logService'
@@ -98,23 +97,18 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
     }
     if (req.kind === 'plugin') {
       const enter = req.code ? { code: req.code } : undefined
-      // mini 插件内嵌 Quick 小窗（container=quick）；panel 插件进主窗 Tab（行为不变）。
-      // 渲染层未带 container 时按 manifest form 推导（mini → quick）。
-      const manifestForm = resolvePluginForm(
-        pluginRegistry.getManifest(req.pluginId)?.form ??
-          pluginRegistry.get(req.pluginId)?.form
-      )
+      // 容器决策链：显式 container（⌘Enter 强制主窗）> 用户每插件「启动方式」
+      // 设置（pluginLaunch[id].mode）> 跟随入口（Quick 打开 → quick 小窗内嵌）。
+      // 不再有 manifest form 区分——所有插件都可在小窗内嵌渲染，也可固定主窗。
       const container =
         req.container === 'quick' || req.container === 'shell'
           ? req.container
-          : manifestForm === 'mini'
-            ? 'quick'
-            : 'shell'
+          : resolveLaunchMode(req.pluginId) ?? 'quick'
       if (container === 'quick') {
         // Quick 小窗保持可见：插件 view 挂窗内（PluginHost 挂载 + 高度自适应 +
         // quick-plugin-mode 推送渲染层切插件态）
         const tabId = await pluginHost.openPlugin(req.pluginId, enter, { container: 'quick' })
-        logInfo('quick', `mini open ${req.pluginId} (quick)${req.code ? ` code=${req.code}` : ''}`)
+        logInfo('quick', `plugin open ${req.pluginId} (quick)${req.code ? ` code=${req.code}` : ''}`)
         void touchRecent(req)
         return { ok: true, tabId }
       }
@@ -236,11 +230,6 @@ export function registerQuickHandlers(): void {
       return result
     }
   )
-
-  // Quick 渲染层请求隐藏（Esc）
-  ipcMain.on(IpcChannels.QuickHideRequest, () => {
-    hideQuickWindow()
-  })
 
   // 内容撑开/收起
   ipcMain.on(IpcChannels.QuickResize, (_e, payload: { height?: number; animate?: boolean }) => {

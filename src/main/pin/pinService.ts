@@ -5,6 +5,7 @@
  */
 import { BrowserWindow, ipcMain, screen } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { IpcChannels } from '@shared/types/ipc'
 import { logWarn } from '@main/logs/logService'
 import { resolvePreload } from '@main/window/createShellWindow'
 
@@ -20,7 +21,7 @@ let pinIpcWired = false
 function wirePinIpcOnce(): void {
   if (pinIpcWired) return
   pinIpcWired = true
-  ipcMain.on('plugin:pin-close', (event) => {
+  ipcMain.on(IpcChannels.PluginPinClose, (event) => {
     for (const [id, p] of pins) {
       if (!p.win.isDestroyed() && p.win.webContents.id === event.sender.id) {
         closePin(id)

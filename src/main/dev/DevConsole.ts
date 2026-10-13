@@ -10,8 +10,9 @@ import { dialog } from 'electron'
 import { installFromDirectory } from '@main/plugin/PluginInstaller'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { invalidatePluginFileCache } from '@main/plugin/pluginProtocol'
-import type { PluginForm, PluginManifest, PluginSummary } from '@shared/types/plugin'
-import { resolvePluginForm, resolvePluginUi } from '@shared/types/plugin'
+import type { PluginManifest, PluginSummary } from '@shared/types/plugin'
+import { resolvePluginUi } from '@shared/types/plugin'
+import { pluginCategoryColor } from '@shared/constants'
 import { logInfo, logWarn } from '@main/logs/logService'
 import {
   dropDevPluginRecord,
@@ -21,18 +22,7 @@ import {
 } from '@main/dev/devPluginsStore'
 
 function colorFor(category: string): string {
-  switch (category) {
-    case '效率':
-      return '#5b8cff'
-    case '开发':
-      return '#3ddc97'
-    case '设计':
-      return '#a78bfa'
-    case '媒体':
-      return '#38bdf8'
-    default:
-      return '#f5a524'
-  }
+  return pluginCategoryColor(category)
 }
 
 function glyphFor(name: string): string {
@@ -44,7 +34,6 @@ function glyphFor(name: string): string {
 export async function loadDevPlugin(dirPath: string): Promise<PluginSummary> {
   const manifest: PluginManifest = await installFromDirectory(dirPath)
   const category = (manifest as { category?: string }).category || '开发'
-  const form: PluginForm = resolvePluginForm(manifest.form)
   const summary: PluginSummary = {
     id: manifest.id,
     name: manifest.name,
@@ -60,7 +49,6 @@ export async function loadDevPlugin(dirPath: string): Promise<PluginSummary> {
     rootPath: dirPath,
     devUrl: manifest.development?.main,
     dev: true,
-    form,
     ui: resolvePluginUi(manifest.ui)
   }
   const registered = pluginRegistry.addDevPlugin(summary, manifest)

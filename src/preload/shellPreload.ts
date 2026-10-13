@@ -16,7 +16,12 @@ import {
 } from '@shared/types/ipc'
 import type {
   AppPaths,
+  LaunchHotkeyProbeResult,
   MarketInstallResult,
+  PluginLaunchConfig,
+  PluginLaunchPatch,
+  PluginPermission,
+  PluginPermissionGrant,
   PluginSummary,
   ProxyConfig,
   ThemeMode,
@@ -43,7 +48,19 @@ export interface ShellSettingsData {
   theme?: ThemeTokens
   general?: Record<string, unknown>
   plugins?: Record<string, Record<string, unknown>>
+  /** 每插件快捷启动配置表（键 = pluginId）；读取用，写入走 setPluginLaunch */
+  pluginLaunch?: Record<string, PluginLaunchConfig>
   [key: string]: unknown
+}
+
+/** shell:set-plugin-launch 返回体 */
+export interface PluginLaunchSetResult {
+  ok: boolean
+  error?: string
+  /** 冲突探测详情（失败时供渲染层展示归属与接管选项） */
+  probe?: LaunchHotkeyProbeResult
+  /** 成功后的最终配置（空配置为 null） */
+  config?: PluginLaunchConfig | null
 }
 
 /** 插件注册的设置 section（与主进程 PluginSettingsBridge 对齐） */
@@ -130,6 +147,18 @@ export interface EnestShellApi {
   uninstallPlugin(pluginId: string): Promise<void>
   /** 启用/禁用已安装插件（持久化）；成功返回更新后的 summary */
   setPluginEnabled(pluginId: string, enabled: boolean): Promise<PluginSummary>
+  /** 启动热键录制探测：返回占用归属（free/system/eNest-quick/plugin-launch/plugin-runtime） */
+  probeLaunchHotkey(
+    acc: string,
+    excludePluginId?: string
+  ): Promise<LaunchHotkeyProbeResult>
+  /** 写入单插件快捷启动配置（启动方式/热键/触发词）；冲突返回 probe，takeover 接管。
+   *  patch.mode 传 null = 清除启动方式（回到「跟随入口」）；hotkey 传空串 = 清除 */
+  setPluginLaunch(
+    pluginId: string,
+    patch: PluginLaunchPatch,
+    opts?: { takeover?: boolean }
+  ): Promise<PluginLaunchSetResult>
   /** 从市场安装/更新：sample 优先，否则远程入队；force 强制走远程更新 */
   installMarketPlugin(
     pluginId: string,
@@ -165,7 +194,7 @@ export interface EnestShellApi {
   setProxy(config: ProxyConfig): Promise<ProxySetResult>
   /** TCP 探测代理连通性；省略 config 时测已保存配置 */
   testProxy(config?: ProxyConfig): Promise<ProxyTestResult>
-  /** 复制/写入自定义字体到 ~/eNest/fonts/，返回落盘路径 */
+  /** 复制/写入自定义字体到 ~/.eNest/fonts/，返回落盘路径 */
   saveCustomFont(payload: {
     sourcePath?: string
     dataBase64?: string
@@ -189,6 +218,24 @@ export interface EnestShellApi {
   getUpdateState(): Promise<UpdateStatePayload>
   /** 系统级通知（Electron Notification） */
   systemNotify(title: string, body?: string): Promise<void>
+  /** —— 运行时权限（壳层三态）—— */
+  /** 响应权限弹窗：decision = once（本次允许）/ always（总是允许）/ deny（拒绝） */
+  respondPermissionRequest(
+    requestId: string,
+    decision: 'once' | 'always' | 'deny'
+  ): Promise<void>
+  /** 读插件权限授权表（未设置项语义为 'ask'） */
+  getPluginPermissionGrants(
+    pluginId: string
+  ): Promise<Partial<Record<PluginPermission, PluginPermissionGrant>>>
+  /** 写单项权限授权（设置页三态分段） */
+  setPluginPermissionGrant(
+    pluginId: string,
+    permission: PluginPermission,
+    grant: PluginPermissionGrant
+  ): Promise<void>
+  /** 打开 macOS「屏幕录制」系统设置（权限引导；仅内部通道） */
+  openScreenCaptureSettings(): Promise<void>
   /** 仅订阅 install-progress 事件 */
   onInstallProgress(
     cb: (payload: { jobId: string; name: string; progress: number; step?: string }) => void
@@ -266,6 +313,21 @@ const api: EnestShellApi = {
     unwrapOk<PluginSummary>(
       ipcRenderer.invoke(IpcChannels.ShellSetPluginEnabled, pluginId, enabled)
     ),
+
+  probeLaunchHotkey: (acc: string, excludePluginId?: string) =>
+    ipcRenderer.invoke(IpcChannels.ShellProbeLaunchHotkey, acc, excludePluginId) as Promise<LaunchHotkeyProbeResult>,
+
+  setPluginLaunch: (
+    pluginId: string,
+    patch: PluginLaunchPatch,
+    opts?: { takeover?: boolean }
+  ) =>
+    ipcRenderer.invoke(
+      IpcChannels.ShellSetPluginLaunch,
+      pluginId,
+      patch,
+      opts
+    ) as Promise<PluginLaunchSetResult>,
 
   installMarketPlugin: (pluginId: string, opts?: { force?: boolean }) =>
     unwrapOk<MarketInstallResult>(
@@ -390,6 +452,38 @@ const api: EnestShellApi = {
 
   systemNotify: async (title: string, body?: string) => {
     await expectOk(ipcRenderer.invoke(IpcChannels.ShellSystemNotify, title, body))
+  },
+
+  respondPermissionRequest: async (
+    requestId: string,
+    decision: 'once' | 'always' | 'deny'
+  ) => {
+    await expectOk(
+      ipcRenderer.invoke(IpcChannels.PermissionResponse, { requestId, decision })
+    )
+  },
+
+  getPluginPermissionGrants: (pluginId: string) =>
+    unwrapOk<Partial<Record<PluginPermission, PluginPermissionGrant>>>(
+      ipcRenderer.invoke(IpcChannels.PermissionGrantsGet, pluginId)
+    ),
+
+  setPluginPermissionGrant: async (
+    pluginId: string,
+    permission: PluginPermission,
+    grant: PluginPermissionGrant
+  ) => {
+    await expectOk(
+      ipcRenderer.invoke(IpcChannels.PermissionGrantsSet, {
+        pluginId,
+        permission,
+        grant
+      })
+    )
+  },
+
+  openScreenCaptureSettings: async () => {
+    await expectOk(ipcRenderer.invoke(IpcChannels.OsOpenScreenSettings))
   },
 
   onInstallProgress(cb): Unsubscribe {

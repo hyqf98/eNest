@@ -183,42 +183,6 @@ export function animateTabIn(el: HTMLElement | null): void {
   )
 }
 
-export function toastIn(el: HTMLElement): void {
-  const t = tokens()
-  if (t.level === 'low') {
-    gsap.fromTo(el, { autoAlpha: 0 }, { autoAlpha: 1, duration: msToSec(t.duration.instant), ease: t.ease.enter })
-    return
-  }
-  if (t.level === 'high') {
-    gsap.fromTo(
-      el,
-      { autoAlpha: 0, y: dy(16), scale: 0.94 },
-      { autoAlpha: 1, y: 0, scale: 1, duration: d(0.3), ease: t.ease.overshoot },
-    )
-    return
-  }
-  gsap.fromTo(
-    el,
-    { autoAlpha: 0, y: dy(12) },
-    { autoAlpha: 1, y: 0, duration: d(0.28), ease: t.ease.enter },
-  )
-}
-
-export function toastOut(el: HTMLElement): Promise<void> {
-  return new Promise((resolve) => {
-    const t = tokens()
-    const enterGuess = t.level === 'low' ? msToSec(t.duration.instant) : t.level === 'high' ? d(0.3) : d(0.28)
-    gsap.to(el, {
-      autoAlpha: 0,
-      y: t.level === 'low' ? 0 : dy(8),
-      duration: exitDuration(enterGuess),
-      ease: t.ease.exit,
-      overwrite: true,
-      onComplete: () => resolve(),
-    })
-  })
-}
-
 export function notifyIn(el: HTMLElement, position: 'top' | 'bottom-right'): void {
   const t = tokens()
   if (t.level === 'low') {

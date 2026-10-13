@@ -80,11 +80,6 @@ export function isWriteSql(sql: string): boolean {
   )
 }
 
-/** 只读查询白名单前缀 */
-export function isReadOnlySql(sql: string): boolean {
-  return /^\s*(SELECT|WITH|EXPLAIN|SHOW|DESCRIBE|DESC|PRAGMA|VALUES|TABLE)\b/i.test(sql)
-}
-
 // —— 结构中和：字符串/注释内容替换为等长空格，保持与原文偏移一致 ——
 
 /**

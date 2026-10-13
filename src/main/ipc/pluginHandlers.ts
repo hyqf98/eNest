@@ -5,11 +5,13 @@
  * 被 registerPluginHandlers 在 index.ts 中注册。
  * 关键依赖：PluginHost（识别 sender）、PluginPermissions（权限断言）、SettingsStore、
  * PluginSettingsBridge、themePacks、pluginStorage（storage.local 落 enest.db）、
- * quickHotkey（probeHotkey 冲突检测）、globalShortcut（插件全局热键）。
+ * quickHotkey（Quick 热键冲突预检，经 pluginRuntimeHotkeys 间接使用）。
  */
-import { clipboard, globalShortcut, ipcMain, nativeImage, Notification, shell } from 'electron'
-import { toTabId } from '@shared/constants'
+import { clipboard, ipcMain, nativeImage, Notification, shell } from 'electron'
+import { APP_NAME, EXTERNAL_URL_PROTOCOLS, toTabId } from '@shared/constants'
 import type {
+  PermissionGrantSetPayload,
+  PermissionResponsePayload,
   PluginCallRequest,
   PluginCallResult,
   PluginCallTraceEntry,
@@ -20,6 +22,7 @@ import type {
   AppLocale,
   PluginManifest,
   PluginPermission,
+  PluginPermissionGrant,
   ScreenBounds,
   ThemePack
 } from '@shared/types/plugin'
@@ -35,7 +38,15 @@ import { assertPermission } from '@main/plugin/PluginPermissions'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { sessionBag } from '@main/plugin/PluginSessionStore'
-import { probeHotkey } from '@main/hotkey/quickHotkey'
+import {
+  normalizeGrant,
+  permissionService
+} from '@main/plugin/PermissionService'
+import {
+  checkScreenCapture,
+  openScreenCaptureSettings
+} from '@main/plugin/OsPermissionChecks'
+import { registerRuntimeHotkey, unregisterRuntimeHotkey } from '@main/hotkey/pluginRuntimeHotkeys'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { resolveThemeTokens } from '@main/theme/resolveThemeCss'
 import { pluginSettingsBridge } from '@main/settings/PluginSettingsBridge'
@@ -45,6 +56,7 @@ import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { resolveQuickQuery } from '@main/launcher/quickProviders'
 import {
   getMainWindow,
+  getShellWebContents,
   sendShellEvent
 } from '@main/window/createShellWindow'
 import {
@@ -119,7 +131,7 @@ import type {
   SftpUploadInput
 } from '@shared/types/ssh-db'
 
-/** method → 所需权限映射；null 表示无需权限（settings.get/set 由 Bridge 管控，theme.register 暂不设权限） */
+/** method → 所需权限映射；null 表示无需权限（settings.get/set 由 Bridge 管控 key 白名单） */
 const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'ui.setTitle': 'ui.setTitle',
   'ui.setIcon': 'ui.setIcon',
@@ -160,7 +172,7 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'net.fetch': 'net.fetch',
   'shell.openExternal': 'shell.openExternal',
   notify: 'notify',
-  'theme.register': null,
+  'theme.register': 'theme',
   // 主题 Token 读取：所有插件可用（无需权限声明），用于主题感知绘制
   'theme.getTokens': null,
   // 全局热键：注册/注销共用 'hotkey' 权限
@@ -220,123 +232,10 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
 const NET_FETCH_MAX_BODY = 2 * 1024 * 1024
 const NET_FETCH_DEFAULT_TIMEOUT = 15_000
 
-/** 单插件可注册的全局热键上限（防滥用） */
-const MAX_PLUGIN_HOTKEYS = 4
-
-/**
- * 插件全局热键注册表：pluginId → accelerator 列表。
- * register 用 quickHotkey.probeHotkey 预检冲突（壳子 Quick 热键 ours=true 也算冲突，
- * 除非是同插件重复注册）；触发时向该插件 webContents 推 plugin:event { type:'hotkey' }。
- */
-const pluginHotkeys = new Map<string, string[]>()
-
-/**
- * 取插件存活 webContents：PluginHost 未公开 view 访问器（归代理 E 管辖），
- * 经私有 entries 结构读取（{ view: WebContentsView }）。E 侧若重构字段，
- * 需同步此处或补公开 getWebContentsForPlugin(pluginId) 替换本反射。
- */
-function getPluginWebContents(pluginId: string): Electron.WebContents | null {
-  const internal = pluginHost as unknown as {
-    entries?: Map<string, { view?: { webContents?: Electron.WebContents } }>
-  }
-  const entry = internal.entries?.get(pluginId)
-  return entry?.view?.webContents ?? null
-}
-
 /** 向指定插件的存活 webContents 推送 plugin:event 负载（找不到/已销毁则静默丢弃） */
 function sendPluginEvent(pluginId: string, payload: PluginEventPayload): void {
   if (!pluginHost.isOpened(pluginId)) return
-  const wc = getPluginWebContents(pluginId)
-  if (!wc) return
-  try {
-    if (wc.isDestroyed()) return
-    wc.send(IpcChannels.PluginEvent, payload)
-  } catch {
-    // webContents 可能正在销毁
-  }
-}
-
-/** 注册插件全局热键：预检冲突 → globalShortcut.register → 记录归属 */
-function registerPluginHotkey(
-  pluginId: string,
-  accelerator: string
-): { ok: true } | { ok: false; error: string } {
-  const acc = String(accelerator ?? '').trim()
-  if (!acc) return { ok: false, error: 'accelerator required' }
-
-  const mine = pluginHotkeys.get(pluginId) ?? []
-  if (!mine.includes(acc)) {
-    if (mine.length >= MAX_PLUGIN_HOTKEYS) {
-      return { ok: false, error: `hotkey limit reached (max ${MAX_PLUGIN_HOTKEYS})` }
-    }
-    // 冲突检测：壳子 Quick 热键（ours）与其它应用占用（!free）都拒绝；
-    // 本插件已注册的键（上面 includes 分支）走覆盖式重注册，不视为冲突
-    const probe = probeHotkey(acc)
-    if (probe.ours) {
-      return { ok: false, error: `accelerator already in use (eNest): ${acc}` }
-    }
-    if (!probe.free) {
-      return {
-        ok: false,
-        error: `accelerator unavailable${probe.hint ? `: ${probe.hint}` : ''}: ${acc}`
-      }
-    }
-  }
-
-  try {
-    const ok = globalShortcut.register(acc, () => {
-      logInfo('hotkey', `plugin ${pluginId} hotkey fired: ${acc}`)
-      sendPluginEvent(pluginId, { type: 'hotkey', accelerator: acc })
-    })
-    if (!ok) {
-      // probe 与 register 之间存在竞态（他应用恰好抢占）——如实报失败
-      return { ok: false, error: `accelerator registration failed: ${acc}` }
-    }
-  } catch (err) {
-    return { ok: false, error: `accelerator invalid: ${(err as Error).message}` }
-  }
-
-  if (!mine.includes(acc)) {
-    pluginHotkeys.set(pluginId, [...mine, acc])
-  }
-  return { ok: true }
-}
-
-/** 注销插件热键（单个）；未注册也返回 true（幂等） */
-function unregisterPluginHotkey(pluginId: string, accelerator: string): boolean {
-  const acc = String(accelerator ?? '').trim()
-  const mine = pluginHotkeys.get(pluginId)
-  if (!mine) return true
-  try {
-    if (globalShortcut.isRegistered(acc)) globalShortcut.unregister(acc)
-  } catch (err) {
-    logWarn('hotkey', `unregister failed ${acc}: ${(err as Error).message}`)
-  }
-  const next = mine.filter((a) => a !== acc)
-  if (next.length === 0) pluginHotkeys.delete(pluginId)
-  else pluginHotkeys.set(pluginId, next)
-  return true
-}
-
-/**
- * 批量释放插件注册的全部全局热键（closePlugin / hibernate / 卸载时调用）。
- * 【交接】PluginHost 归属代理 E，需在 PluginHost.closePlugin（销毁路径，
- * clearPluginSession 附近）与 reloadPlugin/hibernate 处补一行调用：
- *   import { releasePluginHotkeys } from '@main/ipc/pluginHandlers'
- *   releasePluginHotkeys(pluginId)
- * 防止关闭后的插件继续占用全局快捷键。
- */
-export function releasePluginHotkeys(pluginId: string): void {
-  const mine = pluginHotkeys.get(pluginId)
-  if (!mine || mine.length === 0) return
-  for (const acc of mine) {
-    try {
-      if (globalShortcut.isRegistered(acc)) globalShortcut.unregister(acc)
-    } catch (err) {
-      logWarn('hotkey', `release failed ${acc}: ${(err as Error).message}`)
-    }
-  }
-  pluginHotkeys.delete(pluginId)
+  pluginHost.sendEvent(pluginId, payload)
 }
 
 /** 调用跟踪环形缓冲上限（最近 N 条，超长丢弃最旧） */
@@ -361,34 +260,11 @@ function recordPluginCall(entry: PluginCallTraceEntry): void {
 }
 
 /**
- * 释放插件的运行时贡献（quick provider 注册表）。
- * 【交接】PluginHost 归属代理 E，需在 PluginHost.closePlugin（销毁路径，与建议的
- * releasePluginHotkeys 同位置）补一行调用：
- *   import { releasePluginContribs } from '@main/ipc/pluginHandlers'
- *   releasePluginContribs(pluginId)
- * 防止已关闭插件的 provider 继续吃 quick-query 派发（超时浪费）。
- * 注意：只清内存 provider；声明式贡献（contributions 表）在卸载/禁用时才清
- *（unregisterBySource，见 PluginUninstaller / shellHandlers 交接说明）。
- */
-export function releasePluginContribs(pluginId: string): void {
-  for (const provider of contributionRegistry.getQuickProviders()) {
-    if (provider.pluginId === pluginId) {
-      contributionRegistry.unregisterQuickProvider(pluginId, provider.id)
-    }
-  }
-}
-
-/**
- * 向所有已打开插件广播 locale-change（settings.general.locale 变化时调用）。
- * 【交接】shellHandlers.ShellSetSettings 检测到 locale 变化处应调用本函数；
- * 若 PluginHost（代理 E）补了 broadcastLocale()，可迁移为 Host 方法并删除本反射实现。
+ * 向所有已打开插件广播 locale-change（settings.general.locale 变化时
+ * 由 shellHandlers.ShellSetSettings 调用）。
  */
 export function broadcastPluginLocale(locale: AppLocale): void {
-  const ids = (pluginHost as unknown as { entries?: Map<string, unknown> }).entries
-  if (!ids) return
-  for (const pluginId of ids.keys()) {
-    sendPluginEvent(pluginId, { type: 'locale-change', locale })
-  }
+  pluginHost.broadcastEvent({ type: 'locale-change', locale })
 }
 
 /** 插件 UI 常传对象形参；与宿主位置参数签名对齐 */
@@ -397,6 +273,63 @@ function asObj(args: unknown[]): Record<string, unknown> {
   return a0 && typeof a0 === 'object' && !Array.isArray(a0)
     ? (a0 as Record<string, unknown>)
     : {}
+}
+
+/** 外链允许的协议：@shared/constants EXTERNAL_URL_PROTOCOLS 单一来源（javascript: 等一律拒绝） */
+function externalProtocolAllowed(rawUrl: string): boolean {
+  try {
+    return EXTERNAL_URL_PROTOCOLS.has(new URL(rawUrl).protocol)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 打开外部链接的统一门禁（plugin:call shell.openExternal 与插件页
+ * window.open / will-navigate 引流共用）：
+ * 1. 协议白名单（http/https/mailto/tel；javascript: 等拒绝）；
+ * 2. manifest 声明校验（shell.openExternal 权限）；
+ * 3. 壳层 grant 三态（deny 或 ask 被拒 → 抛 permission denied，文案不可改：
+ *    插件侧普遍以该串判断）；
+ * 4. OS 屏幕权限与外链无关，不涉及。
+ * 非法协议静默忽略由调用方决定（dispatch 抛错 vs routeExternal 记日志）。
+ */
+async function openExternalWithPermission(
+  pluginId: string,
+  manifest: PluginManifest,
+  rawUrl: string
+): Promise<void> {
+  const url = String(rawUrl ?? '')
+  if (!externalProtocolAllowed(url)) {
+    throw new Error('only http(s)/mailto/tel urls allowed')
+  }
+  assertPermission(manifest, 'shell.openExternal')
+  const allowed = await ensureRuntimeGrant(
+    pluginId,
+    'shell.openExternal',
+    `shell.openExternal ${url.slice(0, 120)}`
+  )
+  if (!allowed) throw new Error('permission denied: shell.openExternal')
+  await shell.openExternal(url)
+}
+
+/**
+ * 壳层运行时 grant 检查（声明校验通过后的第二层）：
+ * deny → false；allow → true；ask → 弹窗等待用户决策。
+ */
+async function ensureRuntimeGrant(
+  pluginId: string,
+  perm: PluginPermission,
+  summary: string
+): Promise<boolean> {
+  const grant = settingsStore.getPermissionGrant(pluginId, perm)
+  if (grant === 'allow') return true
+  if (grant === 'deny') return false
+  const osHint =
+    perm === 'screen.capture' || perm === 'screen.record'
+      ? checkScreenCapture().hint
+      : undefined
+  return permissionService.request(pluginId, perm, summary, osHint)
 }
 
 function argStr(args: unknown[], objKey: string, pos: number): string {
@@ -412,11 +345,24 @@ function argNum(args: unknown[], objKey: string, pos: number, fallback: number):
   return v == null || v === '' ? fallback : Number(v)
 }
 
+/** 该插件已注册的 settings item key 集合（运行时 register 与 manifest 声明统一入 contributions 表） */
+function registeredSettingKeys(pluginId: string): Set<string> {
+  const keys = new Set<string>()
+  for (const section of pluginSettingsBridge.listAll()) {
+    if (section.pluginId !== pluginId) continue
+    for (const item of section.items ?? []) {
+      if (item?.key) keys.add(item.key)
+    }
+  }
+  return keys
+}
+
 /** 按 method 分发到具体实现，权限已在调用前校验 */
 async function dispatch(
   pluginId: string,
   method: string,
-  args: unknown[]
+  args: unknown[],
+  manifest: PluginManifest
 ): Promise<unknown> {
   switch (method) {
     case 'ui.setTitle': {
@@ -503,6 +449,11 @@ async function dispatch(
     case 'settings.set': {
       const key = String(args[0] ?? '')
       const value = args[1]
+      // key 白名单：必须在该插件注册的 settings item keys 内（运行时 register +
+      // manifest contributes.settings 统一入 contributions 表），防止任意键写库
+      if (!registeredSettingKeys(pluginId).has(key)) {
+        throw new Error(`unknown settings key: ${key}`)
+      }
       pluginSettingsBridge.set(pluginId, key, value)
       await settingsStore.setPluginSetting(pluginId, key, value)
       return true
@@ -694,9 +645,7 @@ async function dispatch(
     }
     case 'shell.openExternal': {
       const url = String(args[0] ?? '')
-      // 仅允许 http(s) 协议，防止 file:// 或自定义协议注入
-      if (!/^https?:\/\//i.test(url)) throw new Error('only http(s) urls allowed')
-      await shell.openExternal(url)
+      await openExternalWithPermission(pluginId, manifest, url)
       return true
     }
     case 'shell.saveTextFile': {
@@ -720,9 +669,14 @@ async function dispatch(
     case 'notify': {
       const payload = (args[0] ?? {}) as { title?: string; body?: string }
       new Notification({
-        title: payload.title ?? 'eNest',
+        title: payload.title ?? APP_NAME,
         body: payload.body ?? ''
-      }).show()
+      })
+        // darwin 通知失败（典型：未授权/勿扰）无状态查询 API，仅记录引导日志
+        .on('failed', (_e, reason) => {
+          logWarn('notify', `notification failed (${reason}); check OS notification permission`)
+        })
+        .show()
       return true
     }
     case 'theme.register': {
@@ -742,10 +696,12 @@ async function dispatch(
       return resolveThemeTokens(ui.preferredColorScheme)
     }
     case 'hotkey.register': {
-      return registerPluginHotkey(pluginId, String(args[0] ?? ''))
+      return registerRuntimeHotkey(pluginId, String(args[0] ?? ''), (acc) => {
+        sendPluginEvent(pluginId, { type: 'hotkey', accelerator: acc })
+      })
     }
     case 'hotkey.unregister': {
-      return unregisterPluginHotkey(pluginId, String(args[0] ?? ''))
+      return unregisterRuntimeHotkey(pluginId, String(args[0] ?? ''))
     }
     case 'contribute.registerQuickProvider': {
       const meta = (args[0] ?? {}) as { id?: string; explain?: string; schemaVersion?: string }
@@ -1029,11 +985,28 @@ export function registerPluginHandlers(): void {
           return { ok: false, error: `unknown method: ${method}` }
         }
         if (required) {
+          // 第一层：manifest 声明校验（文案 `permission denied: <perm>` 插件侧依赖，不可改）
           assertPermission(manifest, required)
+          // 第二层：壳层 grant 三态（deny 或 ask 被拒同样拒绝，保持同一错误串）
+          const granted = await ensureRuntimeGrant(
+            hostPluginId,
+            required,
+            `${method} ${JSON.stringify(args).slice(0, 120)}`
+          )
+          if (!granted) {
+            return { ok: false, error: `permission denied: ${required}` }
+          }
+          // OS 层（darwin 屏幕授权）：grant 放行后在执行前检查，避免黑屏/空帧
+          if (required === 'screen.capture' || required === 'screen.record') {
+            const osCheck = checkScreenCapture()
+            if (!osCheck.ok) {
+              return { ok: false, error: 'os permission denied: screen' }
+            }
+          }
         }
         const startedAt = Date.now()
         try {
-          const data = await dispatch(hostPluginId, method, args)
+          const data = await dispatch(hostPluginId, method, args, manifest)
           recordPluginCall({
             ts: startedAt,
             pluginId: hostPluginId,
@@ -1071,4 +1044,68 @@ export function registerPluginHandlers(): void {
       }
     }
   )
+
+  // —— 运行时权限：壳渲染层专用通道（sender 必须是壳窗口 webContents）——
+
+  /** 弹窗响应：requestId 属当前挂起项才生效（防重放/伪造） */
+  ipcMain.handle(
+    IpcChannels.PermissionResponse,
+    (event, payload: PermissionResponsePayload): { ok: boolean; error?: string } => {
+      if (event.sender !== getShellWebContents()) {
+        return { ok: false, error: 'unauthorized sender' }
+      }
+      const requestId = String(payload?.requestId ?? '')
+      const decision = payload?.decision
+      if (
+        (decision !== 'once' && decision !== 'always' && decision !== 'deny') ||
+        !permissionService.resolveRequest(requestId, decision)
+      ) {
+        return { ok: false, error: 'invalid permission response' }
+      }
+      return { ok: true }
+    }
+  )
+
+  /** 读插件授权表（设置页权限管理块初始值） */
+  ipcMain.handle(
+    IpcChannels.PermissionGrantsGet,
+    (event, pluginId: string): { ok: boolean; data?: unknown; error?: string } => {
+      if (event.sender !== getShellWebContents()) {
+        return { ok: false, error: 'unauthorized sender' }
+      }
+      const id = String(pluginId ?? '')
+      if (!id) return { ok: false, error: 'plugin id required' }
+      return { ok: true, data: settingsStore.getPermissionGrants(id) }
+    }
+  )
+
+  /** 写单项授权（三态分段切换） */
+  ipcMain.handle(
+    IpcChannels.PermissionGrantsSet,
+    async (
+      event,
+      payload: PermissionGrantSetPayload
+    ): Promise<{ ok: boolean; error?: string }> => {
+      if (event.sender !== getShellWebContents()) {
+        return { ok: false, error: 'unauthorized sender' }
+      }
+      const id = String(payload?.pluginId ?? '')
+      if (!id) return { ok: false, error: 'plugin id required' }
+      await settingsStore.setPermissionGrant(
+        id,
+        payload.permission,
+        normalizeGrant(payload.grant)
+      )
+      return { ok: true }
+    }
+  )
+
+  /** 打开 macOS 屏幕录制系统设置（权限弹窗引导；只读安全） */
+  ipcMain.handle(IpcChannels.OsOpenScreenSettings, (event): { ok: boolean } => {
+    if (event.sender !== getShellWebContents()) {
+      return { ok: false }
+    }
+    openScreenCaptureSettings()
+    return { ok: true }
+  })
 }

@@ -9,6 +9,7 @@ import { shellApi } from '@renderer/services/shellApi'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { useThemeStore } from '@renderer/hooks/useTheme'
 import { toastStore } from '@renderer/hooks/useToast'
+import { usePermissionPromptStore } from '@renderer/stores/permissionPromptStore'
 
 function handleEvent(payload: ShellEventPayload): void {
   const store = useShellStore.getState()
@@ -83,6 +84,11 @@ function handleEvent(payload: ShellEventPayload): void {
       break
     case 'quick-config-changed':
       store.appendLog('info', `[quick] hotkeys: ${payload.hotkeys.join(', ') || '(none)'}`)
+      break
+    case 'permission-request':
+      // 主进程 PermissionService 弹窗请求：入队，由 SettingsPage 挂载的
+      // PermissionPromptModal 渲染队首并回 respondPermissionRequest
+      usePermissionPromptStore.getState().enqueue(payload)
       break
   }
 }

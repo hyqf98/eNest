@@ -16,6 +16,7 @@
  * 主进程侧另有超时兜底，本地 cap 只防悬挂。
  */
 import { contextBridge, ipcRenderer } from 'electron'
+import { BEFORE_CLOSE_ACK_LOCAL_CAP_MS } from '@shared/constants'
 import {
   IpcChannels,
   type PluginCallRequest,
@@ -28,6 +29,7 @@ import type {
   PluginCloseReason,
   PluginEnterPayload,
   PluginLifecycleMessage,
+  PluginLaunchMode,
   ScreenBounds,
   ScreenCaptureResult
 } from '@shared/types/plugin'
@@ -69,18 +71,21 @@ import type {
  */
 const BEFORE_CLOSE_SYNC_FLUSH_MS = 50
 
-/** ack 等待的本地上限：略大于主进程超时，仅防悬挂；主进程超时是真正的兜底 */
-const BEFORE_CLOSE_ACK_LOCAL_CAP_MS = 2000
+/** ack 等待的本地上限：略大于主进程超时，仅防悬挂；主进程超时是真正的兜底（配对常量在 @shared/constants） */
 
-function getPluginIdFromQuery(): string {
+/** 读当前页 URL query 参数（preload 无 DOM 保证，失败返回 null） */
+function getQueryParam(name: string): string | null {
   try {
     const search =
       (globalThis as unknown as { location?: { search?: string } }).location?.search ?? ''
-    const params = new URLSearchParams(search)
-    return params.get('pid') ?? ''
+    return new URLSearchParams(search).get(name)
   } catch {
-    return ''
+    return null
   }
+}
+
+function getPluginIdFromQuery(): string {
+  return getQueryParam('pid') ?? ''
 }
 
 function getPluginIdFromArgv(): string {
@@ -107,14 +112,21 @@ function pluginId(): string {
 
 /** URL query 中的 code（openPlugin 优先走 query，便于首个脚本同步读取） */
 function enterCodeFromQuery(): string | undefined {
-  try {
-    const search =
-      (globalThis as unknown as { location?: { search?: string } }).location?.search ?? ''
-    return new URLSearchParams(search).get('code') ?? undefined
-  } catch {
-    return undefined
-  }
+  return getQueryParam('code') ?? undefined
 }
+
+/**
+ * URL query 中的启动方式（?mode=quick|shell）：插件首个脚本同步读取的初始值。
+ * 容器迁移不重载页面、URL 不变，运行时真值以 mode-change 事件更新后的
+ * getLaunchMode() 为准。
+ */
+function launchModeFromQuery(): PluginLaunchMode | null {
+  const mode = getQueryParam('mode')
+  return mode === 'quick' || mode === 'shell' ? mode : null
+}
+
+/** 当前启动方式（mode-change 事件实时更新；缺省按 URL ?mode=，再缺省 shell） */
+let currentLaunchMode: PluginLaunchMode | null = null
 
 /** 统一调用入口：组装 PluginCallRequest，经 IPC 发送到主进程 pluginHandlers 分发 */
 async function call<T = unknown>(method: string, args: unknown[] = []): Promise<T> {
@@ -182,12 +194,18 @@ function sendBeforeCloseAck(): void {
 /** Toast 类型：info 默认，success/warn/error 带强调色 */
 export type PluginToastType = 'info' | 'success' | 'warn' | 'error'
 
-/** enter 事件载荷 */
-export type PluginEnterEvent = PluginEnterPayload & { tabId: string }
+/** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗） */
+export type PluginEnterEvent = PluginEnterPayload & {
+  tabId: string
+  mode: PluginLaunchMode
+}
 /** out 事件载荷；isKill 恒为 false（杀死走 beforeClose/destroy） */
 export type PluginOutEvent = { isKill: false }
 /** beforeClose 事件载荷 */
 export type PluginBeforeCloseEvent = { reason: PluginCloseReason }
+
+/** 启动方式变更事件（quick ↔ shell 容器迁移，不重载页面） */
+export type PluginModeChangeEvent = { mode: PluginLaunchMode }
 
 /** 主题变量集合（壳子解析后的 CSS 自定义属性值） */
 export type PluginThemeTokens = Record<string, string>
@@ -519,6 +537,14 @@ export interface EnestPluginApi {
   getPluginId(): string
   /** URL query 中的 code；完整载荷以 onEnter 为准 */
   getEnterCode(): string | undefined
+  /**
+   * 当前启动方式：quick = Quick 小窗内嵌（小窗适配样式）/ shell = 主窗大窗
+   * （桌面适配样式）。初始值来自 URL ?mode=，容器迁移（固定到主窗等）时经
+   * mode-change 事件实时更新——插件据此在两套入口样式间切换。
+   */
+  getLaunchMode(): PluginLaunchMode
+  /** 启动方式变更（quick ↔ shell 迁移，不重载页面）；立即生效后回调 */
+  onModeChange(cb: (mode: PluginLaunchMode) => void): Unsubscribe
 }
 
 const api: EnestPluginApi = {
@@ -811,7 +837,13 @@ const api: EnestPluginApi = {
     return () => api.off('destroy', handler)
   },
   getPluginId: () => pluginId(),
-  getEnterCode: () => enterCodeFromQuery()
+  getEnterCode: () => enterCodeFromQuery(),
+  getLaunchMode: () => currentLaunchMode ?? launchModeFromQuery() ?? 'shell',
+  onModeChange(cb) {
+    const handler: Listener = (data) => cb((data as PluginModeChangeEvent).mode)
+    api.on('mode-change', handler)
+    return () => api.off('mode-change', handler)
+  }
 }
 
 // 订阅主进程生命周期推送，派发到 onEnter / onOut / onBeforeClose / onDestroy
@@ -821,6 +853,7 @@ ipcRenderer.on(IpcChannels.PluginLifecycle, (_e, message: PluginLifecycleMessage
     case 'enter':
       emit('enter', {
         tabId: message.tabId,
+        mode: message.mode ?? 'shell',
         code: message.code,
         payload: message.payload
       } satisfies PluginEnterEvent)
@@ -867,6 +900,10 @@ ipcRenderer.on(IpcChannels.PluginEvent, (_e, payload: PluginEventPayload) => {
     emit('hotkey', { accelerator: payload.accelerator } satisfies PluginHotkeyEvent)
   } else if (payload.type === 'locale-change') {
     emit('locale-change', { locale: payload.locale } satisfies PluginLocaleChangeEvent)
+  } else if (payload.type === 'mode-change') {
+    // 启动方式变更（quick ↔ shell 迁移不重载）：更新真值并通知插件切换入口样式
+    currentLaunchMode = payload.mode
+    emit('mode-change', { mode: payload.mode } satisfies PluginModeChangeEvent)
   } else if (payload.type === 'quick-query') {
     // Quick 搜索 provider 查询：enest.contribute.onQuickQuery / enest.on('quick-query')
     emit('quick-query', { reqId: payload.reqId, query: payload.query })

@@ -179,7 +179,7 @@
 
 ## 2. 主题感知面板（theme + 主题包注册）
 
-演示：读主题变量、跟随主题、注册主题包到壳子设置。
+演示：读主题变量、跟随主题、注册主题包到壳子设置。**运行时注册需在 `permissions` 声明 `theme` 权限**；仓库另有官方示例插件 `com.enest.theme-demo`（见文末一览），同一份代码演示 manifest `contributes.themePacks` 声明式 与 运行时 `enest.theme.register` 双路径。
 
 **plugin.json**
 
@@ -189,7 +189,7 @@
   "name": "主题实验室",
   "version": "1.0.0",
   "main": "index.html",
-  "permissions": ["ui.setTitle", "ui.toast"],
+  "permissions": ["ui.setTitle", "ui.toast", "theme"],
   "ui": {
     "chrome": "minimal",
     "themeAware": true,
@@ -331,7 +331,7 @@
         },
         background: {
           type: 'color',
-          value: 'linear-gradient(160deg,#0a1f1c,#134e4a)',
+          value: '#0a1f1c',
           opacity: 0.92
         }
       })
@@ -348,8 +348,9 @@
 **要点**
 
 - `theme.getTokens()` 与 `ui.onThemeChange` 覆盖首屏 + 运行时
-- `theme.register` 后壳子设置页下拉即时出现，无需重启
+- `theme.register` 需 `theme` 权限；注册后壳子设置页下拉即时出现，无需重启
 - CSS 里保留兜底变量，避免壳子未注入时白屏
+- 双路径：静态主题包可走 manifest `contributes.themePacks`（安装即生效、无需权限声明），动态 / 可配置的走运行时 `register`——`com.enest.theme-demo` 同时演示两种
 
 ---
 
@@ -671,6 +672,7 @@ npm run dev
 | `plugins-samples/snippet` | 片段管理 |
 | `plugins-samples/translate` | 翻译类示例 |
 | `plugins-samples/canvas-demo` | `chrome=none` + 主题感知 + 透明底 Canvas |
+| `eNest_plugin/plugins/com.enest.theme-demo` | 主题包双路径注册：manifest `contributes.themePacks` 声明式 + 运行时 `enest.theme.register`（`theme` 权限） |
 
 以实际仓库目录为准。
 
@@ -699,4 +701,4 @@ cd my-plugin && zip -r ../my-plugin.enestplugin .
 
 - [enest API](api.md) — 方法签名与权限
 - [生命周期](lifecycle.md) — pause / flush 模式
-- [UI 集成标准](ui-standard.md) — chrome / 主题 / 透明 / mini 小窗
+- [UI 集成标准](ui-standard.md) — chrome / 主题 / 透明 / 双入口样式（Quick 小窗）

@@ -9,7 +9,7 @@
  * 关键依赖：ContributionRegistry、PluginHost（webContents 路由）。
  */
 import { randomUUID } from 'node:crypto'
-import { IpcChannels, type PluginEventPayload } from '@shared/types/ipc'
+import type { PluginEventPayload } from '@shared/types/ipc'
 import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { logWarn } from '@main/logs/logService'
@@ -26,30 +26,10 @@ export interface QuickProviderItem {
 /** 单路查询超时：超时丢弃该 provider 的结果，不阻塞整体搜索 */
 const QUERY_TIMEOUT_MS = 500
 
-/**
- * 取插件存活 webContents（与 pluginHandlers 同一反射口径；PluginHost 未公开
- * view 访问器，归代理 E 管辖，若重构需同步两处）。
- */
-function getPluginWebContents(pluginId: string): Electron.WebContents | null {
-  const internal = pluginHost as unknown as {
-    entries?: Map<string, { view?: { webContents?: Electron.WebContents } }>
-  }
-  const entry = internal.entries?.get(pluginId)
-  return entry?.view?.webContents ?? null
-}
-
-/** 向指定插件的存活 webContents 推送 plugin:event 负载 */
+/** 向指定插件的存活 webContents 推送 plugin:event 负载（Host 公开访问器，无反射）；返回是否送达 */
 function sendPluginEvent(pluginId: string, payload: PluginEventPayload): boolean {
   if (!pluginHost.isOpened(pluginId)) return false
-  const wc = getPluginWebContents(pluginId)
-  if (!wc) return false
-  try {
-    if (wc.isDestroyed()) return false
-    wc.send(IpcChannels.PluginEvent, payload)
-    return true
-  } catch {
-    return false
-  }
+  return pluginHost.getWebContents(pluginId) !== null && (pluginHost.sendEvent(pluginId, payload), true)
 }
 
 /** 待回传请求表：reqId → resolve（resolveQuickQuery 命中后消除） */

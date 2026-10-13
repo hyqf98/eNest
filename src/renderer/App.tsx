@@ -15,7 +15,7 @@ import { useTheme } from '@renderer/hooks/useTheme'
 import { useFont } from '@renderer/hooks/useFont'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { useAnimationLevel } from '@renderer/hooks/useAnimationLevel'
-import { useShellStore } from '@renderer/stores/shellStore'
+import { useShellStore, registerSessionFlushOnHide } from '@renderer/stores/shellStore'
 import { initMotion } from '@renderer/gsap/marketMotion'
 
 function isQuickSurface(): boolean {
@@ -37,6 +37,8 @@ export default function App() {
   useEffect(() => {
     if (quick) return
     initMotion()
+    // 退出/页面隐藏时立即落 sessionTabs（400ms debounce 的兜底，防丢最后一次变更）
+    registerSessionFlushOnHide()
     // 主题最先水合，减少首屏色相跳变；Tab 样式（圆轨悬浮窗）等 Splash 结束后再同步
     void (async () => {
       await hydrateTheme()
@@ -47,15 +49,13 @@ export default function App() {
     })()
   }, [quick, hydrateTheme, hydrateFont, hydrateI18n, hydrateAnimLevel, refreshPlugins])
 
-  // Splash 结束后：水合 Tab 样式，并在插件列表就绪后恢复会话 Tab
+  // Splash 结束后：水合 Tab 样式，并恢复会话 Tab
+  //（插件列表已由首个 effect 刷新；hydrateSessionTabs 内含 plugins 为空时再刷新的兜底）
   useEffect(() => {
     if (quick || !splashDone) return
     void hydrateTabStyle()
-    void (async () => {
-      await refreshPlugins()
-      await hydrateSessionTabs()
-    })()
-  }, [quick, splashDone, hydrateTabStyle, hydrateSessionTabs, refreshPlugins])
+    void hydrateSessionTabs()
+  }, [quick, splashDone, hydrateTabStyle, hydrateSessionTabs])
 
   if (quick) {
     return <QuickLauncherApp />

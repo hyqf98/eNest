@@ -83,7 +83,7 @@ screen.record.cancel(sessionId: string): Promise<boolean>
 
 - 截图：`desktopCapturer.getSources` → `nativeImage` → 可选 crop → PNG dataURL
 - 区域遮罩：跨屏 `BrowserWindow`（无边框、全屏、置顶、透明），内置选择 UI
-- 录制：隐藏 `BrowserWindow` + `getUserMedia`/`MediaRecorder`；产物写 `~/eNest/recordings/`
+- 录制：隐藏 `BrowserWindow` + `getUserMedia`/`MediaRecorder`；产物写 `~/.eNest/recordings/`
 - macOS 系统音频依赖系统权限；`withAudio` 优先 loopback，失败回退麦克风，再失败无声并 toast 说明
 
 #### pin
@@ -136,8 +136,8 @@ clipboard.history.togglePin(id: string): Promise<ClipboardHistoryEntry>
 ```
 
 - 主进程 500ms 轮询 `clipboard` 文本/图片指纹；变化则入史
-- 上限 200 条（pinned 不淘汰）；图片 blob 写 `~/eNest/data/clipboard-blobs/{id}.png`
-- meta 写 `~/eNest/data/clipboard-history.json`
+- 上限 200 条（pinned 不淘汰）；图片 blob 写 `~/.eNest/data/clipboard-blobs/{id}.png`
+- meta 写 `~/.eNest/data/clipboard-history.json`
 - 回写：text → `writeText`；image → `writeImage`
 
 #### net
@@ -168,11 +168,11 @@ GET https://translate.googleapis.com/translate_a/single
 
 ### 2.5 三插件清单
 
-| id | 名称 | 目录 | category | form | 核心权限 |
-|----|------|------|----------|------|----------|
-| `com.enest.screen-assistant` | 屏幕助手 | `eNest_plugin/plugins/com.enest.screen-assistant` | 媒体 | panel | screen.* · pin.create · clipboard.writeImage · storage.local · ui.* |
-| `com.enest.clipboard` | 粘贴板 | `eNest_plugin/plugins/com.enest.clipboard` | 效率 | panel | clipboard.* · storage.local · ui.* |
-| `com.enest.translate` | 翻译 | `eNest_plugin/plugins/com.enest.translate` | 效率 | mini | net.fetch · clipboard.read/write · storage.local · ui.* |
+| id | 名称 | 目录 | category | 核心权限 |
+|----|------|------|----------|----------|
+| `com.enest.screen-assistant` | 屏幕助手 | `eNest_plugin/plugins/com.enest.screen-assistant` | 媒体 | screen.* · pin.create · clipboard.writeImage · storage.local · ui.* |
+| `com.enest.clipboard` | 粘贴板 | `eNest_plugin/plugins/com.enest.clipboard` | 效率 | clipboard.* · storage.local · ui.* |
+| `com.enest.translate` | 翻译 | `eNest_plugin/plugins/com.enest.translate` | 效率 | net.fetch · clipboard.read/write · storage.local · ui.* |
 
 ### 2.6 本地安装路径
 
@@ -202,7 +202,6 @@ GET https://translate.googleapis.com/translate_a/single
 - 翻译多引擎切换（DeepL/百度）、离线包
 - 录屏系统音频在无驱动 macOS 上的完美采集
 - 剪贴板云同步、加密库
-- Quick 小窗内嵌上述插件（form: mini 的 translate 仍进主窗 Tab）
 
 ## Tasks
 

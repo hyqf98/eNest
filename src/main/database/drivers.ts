@@ -1240,5 +1240,3 @@ export function getDriver(id: string): DbDriver {
   if (!d) throw new Error(`unknown db driver: ${id}`)
   return d
 }
-
-export { buildDml, sqlLiteral, quoteIdent }

@@ -42,8 +42,10 @@ my-plugin/
 
 | 路径 | 用途 |
 |------|------|
-| `~/eNest/plugins/{id}/{version}/` | 插件安装目录 |
-| `~/eNest/data/` | 壳子 SQLite 等数据 |
+| `~/.eNest/plugins/{id}/{version}/` | 插件安装目录（数据根，可在设置覆盖 `dataRoot`） |
+| `~/.eNest/data/enest.db` | 壳子 SQLite：插件 `storage.local` 落 `plugin_storage` 表、贡献点 contributions、会话快照等 |
 | session partition `persist:plugin-{id}` | Cookie / localStorage 隔离 |
+
+`storage.local` 的存储形态：`plugin_storage` 表按 `plugin_id + key` 主键隔离（每插件配额 1000 键、单值 512KB）；写路径为内存缓存 + **50ms 合并批量事务落库**（高频 `set` 不逐条触发磁盘写）；卸载插件时按 `plugin_id` 清行（连带旧版整文件 JSON 残留一并清理）。旧版 `data/plugin-storage/{id}.json` 会在启动时一次性迁移入库。
 
 > 改 `plugin.json` 的 `id` 等于换插件：旧数据目录不会自动迁移，见 [FAQ](faq.md)。

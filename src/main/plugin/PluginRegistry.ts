@@ -1,6 +1,6 @@
 /**
  * PluginRegistry — 插件注册表
- * 职责：扫描 ~/eNest/plugins（pathsService）下已安装插件，维护安装/开发态插件列表与 manifest，
+ * 职责：扫描 ~/.eNest/plugins（pathsService）下已安装插件，维护安装/开发态插件列表与 manifest，
  * 支持从示例目录安装、远程市场下载安装、开发态加载；合并启用/禁用状态。
  * 被 index.ts 扫描初始化，被 PluginHost / shellHandlers / pluginHandlers 查询。
  * 关键依赖：pathsService、mockMarket（市场元数据）、PluginInstaller（manifest 解析）、
@@ -10,8 +10,13 @@ import { cp, mkdir, readdir, rm, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import type { PluginContributes, PluginManifest, PluginSummary } from '@shared/types/plugin'
-import { resolvePluginForm, resolvePluginUi } from '@shared/types/plugin'
+import type {
+  PluginContributes,
+  PluginManifest,
+  PluginSummary,
+  ThemePack
+} from '@shared/types/plugin'
+import { resolvePluginUi } from '@shared/types/plugin'
 import { pluginProtocolUrl } from '@shared/constants'
 import { getAppPaths } from '@main/paths/pathsService'
 import { MOCK_MARKET_PLUGINS, mockToSummary, shortNameOf } from '@main/plugin/mockMarket'
@@ -26,9 +31,11 @@ import {
   loadDisabledIds,
   persistPluginEnabled
 } from '@main/plugin/pluginEnabledStore'
+import { permissionService } from '@main/plugin/PermissionService'
 import { contributionRegistry } from '@main/contrib/ContributionRegistry'
-import { logInfo, logWarn } from '@main/logs/logService'
+import { themePackRegistry } from '@main/theme/themePacks'
 import { sendShellEvent } from '@main/window/createShellWindow'
+import { logInfo, logWarn } from '@main/logs/logService'
 import {
   manifestCategory,
   manifestScreenshots,
@@ -114,7 +121,6 @@ function manifestToSummary(
     enabled,
     // UI 段归一：缺省 chrome=none / themeAware=true / background=opaque / preferredColorScheme=auto
     ui: resolvePluginUi(manifest.ui),
-    form: resolvePluginForm(manifest.form),
     // 贡献点声明透传（渲染层消费 homeCards 等；ManifestContributes 归一见 normalizeContributes）
     contributes: normalizeContributes(manifest.contributes)
   }
@@ -162,18 +168,66 @@ export class PluginRegistry {
   /** ensureInstalled 进行中的远程下载，避免并发重复拉同一插件 */
   private installing = new Map<string, Promise<PluginSummary>>()
 
-/** manifest.contributes 声明入库（禁用插件除外；启用/安装路径同样调用） */
+/**
+ * manifest.contributes 声明入库（禁用插件除外；启用/安装路径同样调用）。
+ * theme-packs 插槽在入库后消费：逐 pack 注册进 themePackRegistry（声明式断链修复）。
+ */
 private syncContributes(manifest: PluginManifest, enabled: boolean): void {
   try {
     if (enabled) {
       contributionRegistry.registerManifestContributes(manifest.id, manifest.contributes)
+      this.applyThemePackContributions(manifest.id)
     } else {
       // 禁用插件的声明式贡献不显示
       contributionRegistry.unregisterBySource(manifest.id)
+      this.removeThemePackContributions(manifest.id)
+      // 禁用即取消该插件挂起/排队中的权限请求（按拒绝 settle，不持久化）
+      permissionService.cancelFor(manifest.id)
     }
   } catch (err) {
     logWarn('registry', `contributes sync failed for ${manifest.id}: ${(err as Error).message}`)
   }
+}
+
+/**
+ * 消费 theme-packs 插槽：listSlot 中该插件的条目逐个注册进
+ * themePackRegistry（source 强制绑定插件 id），完成后推 theme-packs-changed。
+ * 异步 fire-and-forget：syncContributes 为同步调用点（scan/启用/安装），
+ * 注册失败仅记日志，不阻塞注册表主路径。
+ */
+  private applyThemePackContributions(pluginId: string): void {
+    void (async () => {
+      const entries = contributionRegistry.listSlot<ThemePack>('theme-packs')
+      let registered = 0
+      for (const entry of entries) {
+        if (entry.source !== pluginId) continue
+        try {
+          await themePackRegistry.register({ ...entry.data, source: pluginId })
+          registered++
+        } catch (err) {
+          logWarn('registry', `theme pack "${entry.id}" from ${pluginId} rejected: ${(err as Error).message}`)
+        }
+      }
+      if (registered > 0) {
+        logInfo('registry', `theme packs registered from manifest: ${pluginId} (${registered})`)
+        sendShellEvent({ type: 'theme-packs-changed' })
+      }
+    })()
+  }
+
+/** 禁用插件：移除其声明式注册的主题包并广播（卸载路径已有 removeBySource，此处补禁用） */
+private removeThemePackContributions(pluginId: string): void {
+  void (async () => {
+    try {
+      const removed = await themePackRegistry.removeBySource(pluginId)
+      if (removed.length > 0) {
+        logInfo('registry', `theme packs removed on disable: ${pluginId} (${removed.length})`)
+        sendShellEvent({ type: 'theme-packs-changed' })
+      }
+    } catch (err) {
+      logWarn('registry', `remove theme packs failed for ${pluginId}: ${(err as Error).message}`)
+    }
+  })()
 }
 
 /** 扫描 userData/plugins 下所有已安装插件，解析 manifest 并缓存到内存 */
@@ -430,8 +484,9 @@ private syncContributes(manifest: PluginManifest, enabled: boolean): void {
   removeDevPlugin(id: string): void {
     this.dev.delete(id)
     this.devManifests.delete(id)
-    // 开发态卸载：撤下其声明式贡献
+    // 开发态卸载：撤下其声明式贡献（含声明式主题包）
     contributionRegistry.unregisterBySource(id)
+    this.removeThemePackContributions(id)
   }
 
 /**

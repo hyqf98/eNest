@@ -11,6 +11,7 @@ import { SettingsPage } from '@renderer/pages/SettingsPage'
 import { PluginHostChrome } from '@renderer/pages/PluginHostChrome'
 import { InstallDropHost } from '@renderer/components/InstallDropOverlay'
 import { InstallProgressPanel } from '@renderer/components/InstallProgressPanel'
+import { PermissionPromptModal } from '@renderer/components/PermissionPromptModal'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { useShellEvents } from '@renderer/hooks/useShellEvents'
 
@@ -58,6 +59,9 @@ export function ShellLayout() {
       {/* orb：左侧圆轨在独立透明悬浮窗，主壳不渲染，避免占宽白条 */}
       <InstallDropHost />
       <InstallProgressPanel />
+      {/* 权限弹窗全局挂载点：置于 view 条件渲染之外常驻，
+          主进程 permission-request 事件经 useShellEvents 入队后在此弹出（任意视图可见）。 */}
+      <PermissionPromptModal />
     </div>
   )
 }

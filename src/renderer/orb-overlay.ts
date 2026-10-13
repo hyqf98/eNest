@@ -7,6 +7,7 @@
  */
 import type { AnimationLevel } from '@shared/types/plugin'
 import type { OrbRailState } from '@shared/types/ipc'
+import { LUCIDE_PATHS, lucideSvgMarkup } from '@renderer/icons.paths'
 import './orb-overlay.css'
 
 type OrbState = OrbRailState
@@ -144,11 +145,8 @@ function setExpanded(v: boolean): void {
   }
 }
 
-const SETTINGS_ICON = `
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/>
-    <circle cx="12" cy="12" r="3"/>
-  </svg>`
+/** dock 设置钮（Lucide settings，16px / 1.6 描边，与壳子 chrome 图标同源） */
+const SETTINGS_ICON = lucideSvgMarkup(LUCIDE_PATHS.settings)
 
 function buildChrome(): void {
   root.innerHTML =
@@ -187,10 +185,7 @@ function syncPanel(): void {
     items.push(
       `<div class="orb-item orb-home${homeActive ? ' active' : ''}">
         <button type="button" class="orb-face" data-home="1" title="首页" aria-label="首页"${homeActive ? ' aria-current="page"' : ''}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/>
-            <path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-          </svg>
+          ${lucideSvgMarkup(LUCIDE_PATHS.house)}
         </button>
       </div>`
     )
@@ -202,7 +197,7 @@ function syncPanel(): void {
             <span class="orb-glyph">${escapeHtml(tab.glyph)}</span>
           </button>
           <button type="button" class="orb-close" data-close="${tab.id}" aria-label="关闭 ${escapeHtml(tab.title)}">
-            <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            ${lucideSvgMarkup(LUCIDE_PATHS.x, 8, 1.7)}
           </button>
         </div>`
       )

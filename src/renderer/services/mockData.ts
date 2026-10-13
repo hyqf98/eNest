@@ -1,7 +1,7 @@
 /**
  * mockData — 无主进程时的本地插件注册表与持久化
- * 提供市场插件样例、分类列表、localStorage 持久化的安装状态 / 主题 / 设置。
- * 仅被 shellApi 的 mock 实现与 MarketPage 的 CATEGORIES 使用。
+ * 提供市场插件样例、localStorage 持久化的安装状态 / 主题 / 设置。
+ * 仅被 shellApi 的 mock 实现使用（MarketPage 分类已从 plugins 动态派生）。
  * 依赖：@shared/types/plugin。
  */
 import type { BackgroundConfig, PluginSummary, SplashBackgroundConfig, ThemeMode } from '@shared/types/plugin'
@@ -77,9 +77,6 @@ export const MARKET_PLUGINS: PluginSummary[] = (
     },
   ] as Array<Omit<PluginSummary, 'ui'> & { ui?: PluginSummary['ui'] }>
 ).map((p) => ({ ...p, ui: p.ui ?? { ...DEFAULT_PLUGIN_UI } }))
-
-/** 市场分类筛选项（含「全部」） */
-export const CATEGORIES = ['全部', '效率', '媒体', '开发', '设计'] as const
 
 const INSTALLED_KEY = 'enest.installed.v1'
 const DISABLED_KEY = 'enest.disabled.v1'
@@ -225,6 +222,8 @@ export interface ShellSettingsData {
   theme?: { mode: ThemeMode; overrides?: Record<string, Record<string, string>>; packId?: string; background?: BackgroundConfig }
   general?: GeneralSettingsData
   plugins?: Record<string, Record<string, unknown>>
+  /** 每插件快捷启动配置表（键 = pluginId）；读取用，写入走 setPluginLaunch */
+  pluginLaunch?: Record<string, import('@shared/types/plugin').PluginLaunchConfig>
   /** @deprecated mock 兼容扁平字段 */
   launchAtLogin?: boolean
   closeBehavior?: 'minimize-tray' | 'quit'

@@ -2,7 +2,7 @@
 
 !> **本文件由 `scripts/generate-api-types.mjs` 生成，勿手改。**
 > 上游源：`src/preload/pluginPreload.ts`（`EnestPluginApi` 及其本地类型）+ `src/shared/types/plugin.ts` / `src/shared/types/ssh-db.ts`（共享类型）。
-> 生成时间：**2026-10-12 03:06:07 UTC** · 重新生成：`node scripts/generate-api-types.mjs`
+> 生成时间：**2026-10-13 05:36:15 UTC** · 重新生成：`node scripts/generate-api-types.mjs`
 >
 > 推荐直接安装 [`@enest/plugin-sdk`](../../../packages/plugin-sdk/README.md)（含本 d.ts + manifest 校验 CLI）；
 > 也可将下方声明保存为项目内 `enest-api.d.ts`，经 `/// <reference path="./enest-api.d.ts" />` 引入。
@@ -15,7 +15,7 @@
 /**
  * eNest 插件运行时 API 类型 —— 自动生成，勿手改。
  * 由 scripts/generate-api-types.mjs 从 src/preload/pluginPreload.ts 提取。
- * 生成时间：2026-10-12 03:06:07 UTC
+ * 生成时间：2026-10-13 05:36:15 UTC
  * 重新生成：node scripts/generate-api-types.mjs
  */
 
@@ -359,6 +359,14 @@ export interface EnestPluginApi {
     getPluginId(): string;
     /** URL query 中的 code；完整载荷以 onEnter 为准 */
     getEnterCode(): string | undefined;
+    /**
+     * 当前启动方式：quick = Quick 小窗内嵌（小窗适配样式）/ shell = 主窗大窗
+     * （桌面适配样式）。初始值来自 URL ?mode=，容器迁移（固定到主窗等）时经
+     * mode-change 事件实时更新——插件据此在两套入口样式间切换。
+     */
+    getLaunchMode(): PluginLaunchMode;
+    /** 启动方式变更（quick ↔ shell 迁移，不重载页面）；立即生效后回调 */
+    onModeChange(cb: (mode: PluginLaunchMode) => void): Unsubscribe;
 }
 
 // —— Listener（src/preload/pluginPreload.ts）——
@@ -372,9 +380,10 @@ export type PluginToastType = 'info' | 'success' | 'warn' | 'error';
 
 // —— PluginEnterEvent（src/preload/pluginPreload.ts）——
 
-/** enter 事件载荷 */
+/** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗） */
 export type PluginEnterEvent = PluginEnterPayload & {
     tabId: string;
+    mode: PluginLaunchMode;
 };
 
 // —— PluginOutEvent（src/preload/pluginPreload.ts）——
@@ -512,6 +521,17 @@ export interface ClipboardHistoryEntry {
     pinned: boolean;
     bytes?: number;
 }
+
+// —— PluginLaunchMode（src/shared/types/plugin.ts）——
+
+/**
+ * 插件启动方式（= 运行时挂载容器）：
+ * - quick：Quick 小窗内嵌，渲染在输入框下方（小窗适配样式）
+ * - shell：主窗大窗 Tab（桌面适配样式）
+ * 不再有「大小插件」类型区分：同一插件两种入口样式并存，
+ * 壳子启动时经 URL ?mode= / onEnter 载荷 / getLaunchMode() 传给插件，插件自选渲染样式。
+ */
+export type PluginLaunchMode = 'quick' | 'shell';
 
 // —— ThemePack（src/shared/types/plugin.ts）——
 

@@ -1,6 +1,6 @@
 /**
  * pluginStorage — 插件 storage.local 持久化（SQLite 版）
- * 职责：把原先散落的 ~/eNest/data/plugin-storage/{id}.json 整文件 JSON 迁入
+ * 职责：把原先散落的 ~/.eNest/data/plugin-storage/{id}.json 整文件 JSON 迁入
  *      共享 enest.db 的 plugin_storage 表，提供同步 KV API。
  * 设计：
  *  - 读路径全内存：pluginId → key → value 的二级 Map 缓存，零 SQL；
@@ -22,6 +22,11 @@ const MIGRATED_SUFFIX = '.json.migrated'
 
 /** 写合并窗口：脏键先入缓存，定时器批量落库 */
 const FLUSH_DELAY_MS = 50
+
+/** 每插件 key 数上限 */
+const MAX_KEYS_PER_PLUGIN = 1000
+/** 单值序列化后字符串长度上限（512KB） */
+const MAX_VALUE_BYTES = 512 * 1024
 
 /** pluginId → key → value（JSON 反序列化后的原值） */
 const cache = new Map<string, Map<string, unknown>>()
@@ -153,7 +158,7 @@ export function initPluginStorage(): void {
   }
 }
 
-/** 旧 ~/eNest/data/plugin-storage/{id}.json 导入库并改名 {id}.json.migrated */
+/** 旧 ~/.eNest/data/plugin-storage/{id}.json 导入库并改名 {id}.json.migrated */
 function migrateLegacyJson(db: DatabaseSync): void {
   const dir = pluginStorageDir()
   if (!existsSync(dir)) return
@@ -202,9 +207,22 @@ export function getPluginStorageValue(pluginId: string, key: string): unknown {
   return bagOf(pluginId).get(key)
 }
 
-/** 写单个键：先改缓存，50ms 合并落库 */
+/** 写单个键：先改缓存，50ms 合并落库；超出配额抛错（键数 >1000 或值 >512KB） */
 export function setPluginStorageValue(pluginId: string, key: string, value: unknown): void {
-  bagOf(pluginId).set(key, value)
+  const bag = bagOf(pluginId)
+  if (!bag.has(key) && bag.size >= MAX_KEYS_PER_PLUGIN) {
+    throw new Error('storage quota exceeded')
+  }
+  let serialized: string
+  try {
+    serialized = JSON.stringify(value)
+  } catch {
+    serialized = ''
+  }
+  if (serialized.length > MAX_VALUE_BYTES) {
+    throw new Error('storage quota exceeded')
+  }
+  bag.set(key, value)
   markDirty(pluginId, key, 'set')
 }
 

@@ -28,6 +28,7 @@ export type PluginPermission =
   | 'db.connect'
   | 'db.query'
   | 'db.schema'
+  | 'theme'
 
 /**
  * 权限白名单全列表（与 PluginPermission 联合类型一一对应）。
@@ -62,8 +63,17 @@ export const PLUGIN_PERMISSIONS: readonly PluginPermission[] = [
   'ssh.sftp',
   'db.connect',
   'db.query',
-  'db.schema'
+  'db.schema',
+  'theme'
 ]
+
+/**
+ * 运行时权限授权三态（壳层用户决策，持久化于 SettingsStore.plugins 段）：
+ * - allow：静默放行
+ * - ask：每次调用弹壳层确认（缺省值）
+ * - deny：静默拒绝
+ */
+export type PluginPermissionGrant = 'allow' | 'ask' | 'deny'
 
 /** 壳子支持的界面语言（settings.general.locale / enest.i18n） */
 export type AppLocale = 'zh-CN' | 'en-US'
@@ -96,13 +106,6 @@ export interface ClipboardHistoryEntry {
   ts: number
   pinned: boolean
   bytes?: number
-}
-
-/** 主进程 → 渲染层：剪贴板历史变更（当前插件可订阅） */
-export interface ClipboardHistoryChangedPayload {
-  type: 'clipboard-history-changed'
-  entryId: string
-  entryType: 'text' | 'image'
 }
 
 export interface PluginFeature {
@@ -157,11 +160,46 @@ export function resolvePluginUi(ui?: Partial<PluginUiConfig> | null): PluginUiCo
 }
 
 /**
- * 插件呈现形态：
- * - mini：从快捷启动打开时内嵌输入框下方，也可固定到主窗 Tab
- * - panel：主壳子大插件 Tab（终端/数据库等），缺省
+ * 插件启动方式（= 运行时挂载容器）：
+ * - quick：Quick 小窗内嵌，渲染在输入框下方（小窗适配样式）
+ * - shell：主窗大窗 Tab（桌面适配样式）
+ * 不再有「大小插件」类型区分：同一插件两种入口样式并存，
+ * 壳子启动时经 URL ?mode= / onEnter 载荷 / getLaunchMode() 传给插件，插件自选渲染样式。
  */
-export type PluginForm = 'mini' | 'panel'
+export type PluginLaunchMode = 'quick' | 'shell'
+
+/**
+ * 每插件「快捷启动」用户配置（settings.pluginLaunch[pluginId]）：
+ * 启动方式覆盖项 + 全局启动热键 + 自定义触发词。
+ */
+export interface PluginLaunchConfig {
+  /**
+   * 启动方式覆盖：quick 小窗启动 / shell 大窗启动；
+   * 缺省 = 跟随入口（Quick 打开进小窗，主窗打开进大窗）。仅影响 Quick 入口与热键启动。
+   */
+  mode?: PluginLaunchMode
+  /** 全局启动热键（accelerator）；按下按 mode（缺省 quick）唤起插件 */
+  hotkey?: string
+  /** 自定义触发词：并入 Quick 搜索索引，与 manifest features[].cmds 等权 */
+  aliases?: string[]
+}
+
+/**
+ * 启动热键录制探测结果（归属链：插件启动键 → Quick 键 → 插件运行时键 → 系统）。
+ * status=eNest-quick 不可接管（引导去 Quick 设置换键）；plugin-launch/plugin-runtime 可经确认接管。
+ */
+export interface LaunchHotkeyProbeResult {
+  acc: string
+  status: 'free' | 'system' | 'eNest-quick' | 'plugin-launch' | 'plugin-runtime'
+  /** 占用方插件 id（status=plugin-launch / plugin-runtime） */
+  ownerPluginId?: string
+  /** 占用方显示名（插件名；eNest-quick 为「快捷启动热键」） */
+  ownerLabel?: string
+  /** status=system 的常见系统占用提示 */
+  hint?: string
+  /** 是否可接管（plugin-launch / plugin-runtime 为 true） */
+  takeoverable?: boolean
+}
 
 // —— 插件贡献点（Contribution Points，插槽化架构）——
 
@@ -186,7 +224,9 @@ export interface QuickProviderContribution {
 export interface SettingsSectionContributionItem {
   key: string
   /**
-   * 控件类型：text / switch / select / number / boolean / slider / color / page。
+   * 控件类型（10 种）：text / string / switch / boolean / bool / select /
+   * number / slider / color / page。
+   * - string/bool 为 text/switch 的别名（对齐插件侧声明习惯）；
    * - slider 需 min/max/step；color 渲染颜色输入；page 为 stretch（本期仅声明）。
    * - 非法类型渲染层回退 text。
    */
@@ -281,6 +321,8 @@ export interface PluginManifest {
   icon?: string
   /** 市场分类；与插件仓库 registry.json 的 category 一致 */
   category?: string
+  /** 插件主页，市场详情展示 */
+  homepage?: string
   /** 插件仓库生成市场索引时使用的展示元数据 */
   market?: {
     featured?: boolean
@@ -298,15 +340,8 @@ export interface PluginManifest {
   development?: { main?: string }
   /** UI 集成配置；缺省等价 DEFAULT_PLUGIN_UI */
   ui?: Partial<PluginUiConfig>
-  /** 打开形态；缺省 panel（主窗 Tab） */
-  form?: PluginForm
   /** 贡献点声明（插槽化架构）：settings/homeCards/railEntries/themePacks */
   contributes?: PluginContributes
-}
-
-/** 命令面 / 设置使用的插件 form 归一 */
-export function resolvePluginForm(form?: string | null): PluginForm {
-  return form === 'mini' ? 'mini' : 'panel'
 }
 
 /** 市场/已安装列表使用的插件摘要 */
@@ -338,8 +373,6 @@ export interface PluginSummary {
   dev?: boolean
   /** 已归一的 UI 配置（供壳子 chrome / 主题注入使用） */
   ui: PluginUiConfig
-  /** 已归一的打开形态；缺省 panel */
-  form?: PluginForm
   /**
    * manifest 贡献点声明透传（已安装插件才有；渲染层消费 homeCards 等，
    * 声明式注册不依赖插件运行）。
@@ -410,7 +443,7 @@ export type TabStyle = 'classic' | 'orb'
 /** 动画效果强度：low 几乎无动画 / medium 默认 / high 加强动效 */
 export type AnimationLevel = 'low' | 'medium' | 'high'
 
-/** 自定义字体元数据（二进制另存：Electron 写 ~/eNest/fonts/，mock 存 localStorage dataURL） */
+/** 自定义字体元数据（二进制另存：Electron 写 ~/.eNest/fonts/，mock 存 localStorage dataURL） */
 export interface CustomFontMeta {
   id: string
   /** 显示名，通常取自文件名去掉扩展名 */
@@ -485,7 +518,7 @@ export interface GeneralSettings {
   locale: 'zh-CN' | 'en-US'
   /** 关闭 GPU 加速；变更需重启生效 */
   hardwareAcceleration: boolean
-  /** 数据根目录，默认 ~/eNest；可覆盖 */
+  /** 数据根目录，默认 ~/.eNest；可覆盖 */
   dataRoot?: string
   closeBehavior: 'minimize-tray' | 'quit'
   /** Tab 样式；变更即时生效 */
@@ -521,6 +554,18 @@ export interface AppPaths {
   database: string
 }
 
+/** 每插件快捷启动配置表（SettingsData.pluginLaunch；键 = pluginId） */
+export type PluginLaunchSettings = Record<string, PluginLaunchConfig>
+
+/**
+ * setPluginLaunch 增量写入载荷：
+ * mode 传 null = 清除启动方式（回到「跟随入口」）；hotkey 传空串 = 清除热键；
+ * aliases 传空数组 = 清除触发词。
+ */
+export type PluginLaunchPatch = Omit<Partial<PluginLaunchConfig>, 'mode'> & {
+  mode?: PluginLaunchMode | null
+}
+
 // —— 插件生命周期（对标 uTools onPluginEnter / onPluginOut）——
 
 /** openPlugin 可选进入载荷：code 对应 feature 指令，payload 为任意透传数据 */
@@ -537,7 +582,7 @@ export type PluginCloseReason = 'tab-close' | 'uninstall' | 'app-quit'
  * enter/out 成对出现以便插件 pause/resume；beforeClose 可 ack；destroy 为尽力而为。
  */
 export type PluginLifecycleMessage =
-  | { event: 'enter'; tabId: string; code?: string; payload?: unknown }
+  | { event: 'enter'; tabId: string; code?: string; payload?: unknown; mode: PluginLaunchMode }
   | { event: 'out'; isKill: false }
   | { event: 'beforeClose'; reason: PluginCloseReason }
   | { event: 'destroy' }

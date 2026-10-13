@@ -3,21 +3,22 @@
  * 将 MediaRecorder 产生的 ArrayBuffer 分片送回主进程落盘。
  */
 import { contextBridge, ipcRenderer } from 'electron'
+import { IpcChannels } from '@shared/types/ipc'
 
 contextBridge.exposeInMainWorld('recorderBridge', {
   started() {
-    ipcRenderer.send('plugin:recorder-started')
+    ipcRenderer.send(IpcChannels.PluginRecorderStarted)
   },
   failed(message: string) {
-    ipcRenderer.send('plugin:recorder-failed', String(message ?? 'unknown'))
+    ipcRenderer.send(IpcChannels.PluginRecorderFailed, String(message ?? 'unknown'))
   },
   audioUnavailable(message: string) {
-    ipcRenderer.send('plugin:recorder-audio-unavailable', String(message ?? 'unknown'))
+    ipcRenderer.send(IpcChannels.PluginRecorderAudioUnavailable, String(message ?? 'unknown'))
   },
   chunk(buf: ArrayBuffer) {
-    ipcRenderer.send('plugin:recorder-chunk', buf)
+    ipcRenderer.send(IpcChannels.PluginRecorderChunk, buf)
   },
   stopped() {
-    ipcRenderer.send('plugin:recorder-stopped')
+    ipcRenderer.send(IpcChannels.PluginRecorderStopped)
   }
 })

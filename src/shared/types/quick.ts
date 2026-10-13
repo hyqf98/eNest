@@ -25,7 +25,6 @@ export interface QuickCommand {
   /** kind=plugin */
   pluginId?: string
   code?: string
-  form?: 'mini' | 'panel'
   /** kind=action */
   action?: QuickActionId
   /** 可显示图标：data URL 或 enest:// 资源；无则 UI 用 kind 色点/首字母 */
@@ -51,12 +50,13 @@ export interface QuickSearchResult {
   items: QuickCommand[]
 }
 
-/** 打开目标容器：quick = Quick 小窗内嵌（mini 插件）；shell = 主窗 Tab（默认） */
+/** 打开目标容器（= 启动方式）：quick = Quick 小窗内嵌 / shell = 主窗大窗 Tab */
 export type QuickOpenContainer = 'quick' | 'shell'
 
 /**
  * 打开/交互请求。
- * - app / plugin / action：打开命令（plugin 可带 container：quick = 小窗内嵌 mini）
+ * - app / plugin / action：打开命令（plugin 可带 container 显式指定容器；
+ *   缺省由主进程决策：每插件启动方式设置 > 跟随入口 quick）
  * - plugin-escape：插件态 Esc 回列表（载荷 = 当前插件 id）
  * - plugin-pin：⌘Enter / 「固定到主窗」按钮（载荷 = 当前插件 id）
  */

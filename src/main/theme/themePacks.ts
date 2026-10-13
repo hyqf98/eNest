@@ -1,6 +1,6 @@
 /**
  * themePacks — 主题包注册表
- * 职责：持久化插件/内置注册的 ThemePack 到 ~/eNest/themes/registry.json，
+ * 职责：持久化插件/内置注册的 ThemePack 到 ~/.eNest/themes/registry.json，
  * 供 shell:get-theme 一并返回 packs 列表。
  * 被 pluginHandlers（theme.register）与 shellHandlers 调用。
  * 加固：token 值白名单校验（剔除危险 CSS 片段）、每插件 pack 数量上限、

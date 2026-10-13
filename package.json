@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "adm-zip": "^0.6.1",
-    "ajv": "^8.20.0",
     "electron-log": "^5.4.4",
     "electron-updater": "^6.8.9",
     "gsap": "^3.12.5",

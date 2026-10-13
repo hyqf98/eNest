@@ -64,6 +64,9 @@ assets/icons/AppIcon.iconset/
 /preview.css
 /preview.js
 
+# 本地设计 demo 素材（不入仓库）
+/demo/
+
 # agent 本地笔记
 .zcode/
 

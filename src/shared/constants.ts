@@ -65,8 +65,40 @@ export const DATA_DIR_NAME = '.eNest'
 export const PLUGINS_DIR = 'plugins'
 export const DATA_SUBDIR = 'data'
 export const THEMES_DIR = 'themes'
+export const FONTS_DIR = 'fonts'
 export const SETTINGS_FILE = 'settings.json'
 export const DATABASE_FILE = 'enest.db'
+
+/** 插件分类展示色（效率/开发/设计/媒体/其它）— DevConsole、shellStore、设置页等共用单一来源 */
+export const PLUGIN_CATEGORY_COLORS: Record<string, string> = {
+  效率: '#5b8cff',
+  开发: '#3ddc97',
+  设计: '#a78bfa',
+  媒体: '#38bdf8',
+  其它: '#f5a524'
+}
+
+/** 未匹配到分类枚举时的兜底色 */
+export const PLUGIN_CATEGORY_COLOR_DEFAULT = '#f5a524'
+
+/**
+ * 外部链接（shell.openExternal / 插件页外链引流）允许的协议白名单，
+ * externalLinks.ts 与 pluginHandlers.ts 共用单一来源；
+ * javascript: 等危险协议一律不在白名单内。
+ */
+export const EXTERNAL_URL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:'])
+
+/** 按分类名取展示色；未知名回退默认色 */
+export function pluginCategoryColor(category: string): string {
+  return PLUGIN_CATEGORY_COLORS[category] ?? PLUGIN_CATEGORY_COLOR_DEFAULT
+}
+
+// —— beforeClose 关闭确认：主进程超时与插件本地兜底为跨进程配对约定，改动需两端同步 ——
+
+/** 主进程等待插件 beforeClose ack 的超时（ms） */
+export const BEFORE_CLOSE_ACK_TIMEOUT_MS = 1500
+/** 插件 preload 侧本地兜底上限（ms）：本地超时也按已 ack 上报，避免与主进程超时赛跑 */
+export const BEFORE_CLOSE_ACK_LOCAL_CAP_MS = 2000
 
 // —— Quick 快捷小窗尺寸（createQuickWindow / PluginHost quick 容器共用）——
 
@@ -103,30 +135,14 @@ export const PLUGIN_ALIVE_LIMIT = 6
 
 // —— 插件图标规范（壳子市场 / Tab / 精选统一约定）——
 //
-// 源图：
-// - 推荐 256×256 PNG/WebP，最小 128×128，正方形
-// - 关键图形落在约 80% 安全区（四周各留 ~10% 呼吸，避免圆角裁切）
-// 显示：
-// - PluginCard ≈ 48px
-// - FeaturedCarousel 中心 ≈ 64px
-// - Tab / orb 轨道 ≈ 20–24px
+// 源图：推荐 256×256 PNG/WebP，最小 128×128，正方形，
+// 关键图形落在约 80% 安全区（四周各留 ~10% 呼吸，避免圆角裁切）。
+// 显示：PluginCard ≈ 48px；FeaturedCarousel 中心 ≈ 64px；Tab / orb 轨道 ≈ 20–24px。
 // CSS：object-fit: cover；border-radius ≈ 容器 28%；加载失败回退 glyph 色块。
 // Installer 未引入图像解码依赖，不做像素级校验；前端按本约定消费。
 
-/** 插件 logo 源图推荐边长（px，正方形） */
-export const PLUGIN_ICON_SOURCE_SIZE = 256
-/** 插件 logo 源图最小边长（px）；小于该值显示可能发糊 */
-export const PLUGIN_ICON_SOURCE_MIN = 128
-/** 源图安全区占比（0–1）：关键内容应落在中心该比例区域内 */
-export const PLUGIN_ICON_SAFE_AREA = 0.8
-/** 市场 PluginCard 显示边长（px） */
-export const PLUGIN_ICON_DISPLAY_CARD = 48
-/** 精选轮播中心图标显示边长（px） */
-export const PLUGIN_ICON_DISPLAY_FEATURED = 64
-/** Tab / orb 轨道圆球图标显示边长（px，区间下限；上限见 DISPLAY_TAB_MAX） */
+/** Tab / orb 轨道圆球图标显示边长（px） */
 export const PLUGIN_ICON_DISPLAY_TAB = 20
-/** Tab / orb 显示边长上限（px） */
-export const PLUGIN_ICON_DISPLAY_TAB_MAX = 24
 /** 图标圆角 / 容器边长 比例（≈28%，与 app 图标语言一致） */
 export const PLUGIN_ICON_RADIUS_RATIO = 0.28
 /** 显示层 object-fit；源图非正方形时 cover 居中裁切 */

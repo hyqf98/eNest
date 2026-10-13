@@ -1,6 +1,6 @@
 /**
  * pluginEnabledStore — 插件启用/禁用持久化
- * 职责：读写 ~/eNest/plugins/disabled.json，维护禁用 id 集合；默认全部启用。
+ * 职责：读写 ~/.eNest/plugins/disabled.json，维护禁用 id 集合；默认全部启用。
  * 为什么独立：启用状态属于插件元数据而非 SettingsStore，卸载/扫描时由
  *       PluginRegistry / PluginUninstaller 调用，避免与 settings.json 耦合。
  * 被 PluginRegistry（list/get/scan/setPluginEnabled）、PluginHost（open 拒绝）、
@@ -61,11 +61,6 @@ export async function loadDisabledIds(): Promise<Set<string>> {
  */
 export function isEnabledSync(id: string): boolean {
   return cache ? !cache.has(id) : true
-}
-
-/** 当前禁用 id 集合快照（只读用途） */
-export function getDisabledIdsSync(): ReadonlySet<string> {
-  return cache ?? new Set()
 }
 
 /** 写入启用状态并落盘 */
