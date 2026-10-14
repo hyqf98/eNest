@@ -23,7 +23,8 @@ function wirePinIpcOnce(): void {
   pinIpcWired = true
   ipcMain.on(IpcChannels.PluginPinClose, (event) => {
     for (const [id, p] of pins) {
-      if (!p.win.isDestroyed() && p.win.webContents.id === event.sender.id) {
+      if (!p.win.isDestroyed() && p.win.webContents === event.sender &&
+          event.senderFrame === p.win.webContents.mainFrame) {
         closePin(id)
         return
       }

@@ -1,0 +1,34 @@
+{
+  "artifacts": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-quick-smoke-artifacts-SUGbX9",
+  "screenshots": [
+    {
+      "kind": "native-window-composite",
+      "file": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-quick-smoke-artifacts-SUGbX9/quick-home-two-rows.png"
+    },
+    {
+      "kind": "native-window-composite",
+      "file": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-quick-smoke-artifacts-SUGbX9/quick-global-results.png"
+    },
+    {
+      "kind": "native-window-composite",
+      "file": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-quick-smoke-artifacts-SUGbX9/quick-content-groups.png"
+    },
+    {
+      "kind": "native-window-composite",
+      "file": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-quick-smoke-artifacts-SUGbX9/quick-expanded.png"
+    },
+    {
+      "kind": "native-window-composite",
+      "file": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-quick-smoke-artifacts-SUGbX9/quick-after-input-escape.png"
+    },
+    {
+      "kind": "native-window-composite",
+      "file": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-quick-smoke-artifacts-SUGbX9/quick-reopened.png"
+    },
+    {
+      "kind": "native-window-composite",
+      "file": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-quick-smoke-artifacts-SUGbX9/quick-final-blank.png"
+    }
+  ],
+  "repeatedEscapeEvents": 16
+}

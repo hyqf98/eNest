@@ -1,3 +1,6 @@
+import type { LocalFileHandle, LocalFilePickOptions } from '@shared/types/local-files'
+import { authorizePluginPermission } from '@main/plugin/PluginPermissions'
+import { resolveLocalFileHandle, resolveLocalDirectoryTarget, pickLocalFiles } from '@main/plugin/localFiles'
 /**
  * sshSessionManager — SSH 会话 / exec / metrics / sftp / completion 宿主服务
  * 职责：以 ssh2 建立 shell/exec 通道；入参 secretRef 经 vault 解密；
@@ -7,11 +10,12 @@
  * 关键依赖：ssh2、@main/vault/secretVault、@main/ssh/commandDict、PluginHost 事件通道。
  */
 import { createWriteStream, createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { StringDecoder } from 'node:string_decoder'
+import { pipeline } from 'node:stream/promises'
+import { basename, join, posix } from 'node:path'
 import { Client, type ClientChannel, type ConnectConfig, type SFTPWrapper } from 'ssh2'
-import { dialog } from 'electron'
 import type {
   SshCompletionItem,
   SshCompletionResult,
@@ -34,11 +38,26 @@ import {
   detectDangerous,
   lookupDictCmd
 } from '@main/ssh/commandDict'
-import { getMainWindow } from '@main/window/createShellWindow'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { logInfo, logWarn } from '@main/logs/logService'
+import { verifySshHost } from '@main/ssh/sshTrust'
+import { openSshProxy } from '@main/ssh/sshProxy'
+import { systemSnapshot, releaseSystemState } from '@main/ssh/sshSystem'
+import { acquirePluginActivity } from '@main/plugin/activityRegistry'
+import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 
-interface SshSession {
+export interface SshSession {
+  scope: PluginRuntimeScope
+  controller: AbortController
+  releaseScopeActivity: () => void
+  detachScope?: () => void
+  onScopeAbort?: () => void
+  disposed?: boolean
+  jumpClient?: Client
+  jumpClients?: Client[]
+  sftpOpening?: Promise<SFTPWrapper>
+  releaseActivity?: () => void
+  cleanup?: Set<() => void>
   sessionId: string
   pluginId: string
   profileId?: string
@@ -63,10 +82,69 @@ interface SshSession {
 
 const sessions = new Map<string, SshSession>()
 let sessionSeq = 0
+const authChallenges = new Map<string, { session: SshSession; count: number; finish: (answers: string[]) => void; cleanup: () => void }>()
+
+function attachInteractiveAuth(session: SshSession, client: Client, host: string): void {
+  client.on('keyboard-interactive', (_name, instructions, _lang, prompts, finish) => {
+    if (!isSessionCurrent(session)) { finish([]); return }
+    const challengeId = randomUUID()
+    const cleanup = (): void => { authChallenges.delete(challengeId); session.cleanup?.delete(cleanup) }
+    authChallenges.set(challengeId, { session, count: prompts.length, finish, cleanup })
+    session.cleanup ??= new Set(); session.cleanup.add(cleanup)
+    emitToPlugin(session.pluginId, { type: 'ssh.auth', sessionId: session.sessionId, challengeId, host, instructions, prompts: prompts.map(p => ({ prompt: p.prompt, echo: p.echo ?? false })) })
+  })
+}
+
+export function sshRespondAuth(pluginId: string, challengeId: string, answers: string[] | null): boolean {
+  const challenge = authChallenges.get(challengeId)
+  if (!challenge || challenge.session.pluginId !== pluginId) throw new Error('认证请求已过期')
+  assertSessionCurrent(challenge.session)
+  if (answers && (answers.length !== challenge.count || answers.some(value => typeof value !== 'string' || value.length > 16384))) throw new Error('认证回答无效')
+  challenge.cleanup()
+  if (!answers) { sshDisconnect(pluginId, challenge.session.sessionId); return false }
+  challenge.finish(answers)
+  return true
+}
 
 /** 向插件 webContents 推送事件（Host 公开访问器，无反射）；找不到视图时静默丢弃 */
 function emitToPlugin(pluginId: string, payload: PluginEventPayload): void {
+  if ('sessionId' in payload && typeof payload.sessionId === 'string') {
+    const session = sessions.get(payload.sessionId)
+    if (!session || session.pluginId !== pluginId || !isSessionCurrent(session)) return
+  }
   pluginHost.sendEvent(pluginId, payload)
+}
+
+function isSessionCurrent(session: SshSession): boolean {
+  return !session.disposed && !session.controller.signal.aborted && !session.scope.signal.aborted &&
+    session.scope.isCurrent() && sessions.get(session.sessionId) === session
+}
+
+function assertSessionCurrent(session: SshSession): void {
+  if (!isSessionCurrent(session)) throw new Error('SSH session is closing')
+}
+
+/** Reserve ownership before asynchronous connection/channel creation starts. */
+function ownedStep<T>(session: SshSession, operation: (resolve: (value: T) => void, reject: (error: Error) => void) => void, timeoutMs = 20_000): Promise<T> {
+  assertSessionCurrent(session)
+  return new Promise<T>((resolve, reject) => {
+    let settled = false
+    const finish = (error?: Error, value?: T): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      session.controller.signal.removeEventListener('abort', aborted)
+      if (error) reject(error); else resolve(value as T)
+    }
+    const aborted = () => finish(new Error('SSH session is closing'))
+    const timer = setTimeout(() => {
+      finish(new Error('SSH operation timed out'))
+      sshDisconnect(session.pluginId, session.sessionId)
+    }, Math.max(100, Math.min(120_000, timeoutMs)))
+    session.controller.signal.addEventListener('abort', aborted, { once: true })
+    try { operation(value => isSessionCurrent(session) ? finish(undefined, value) : aborted(), error => finish(error)) }
+    catch (error) { finish(error as Error) }
+  })
 }
 
 function nextSessionId(): string {
@@ -85,7 +163,7 @@ function resolveAuthSecret(
   return null
 }
 
-function buildConnectConfig(input: SshConnectInput & { password?: string }, pluginId: string): ConnectConfig {
+async function buildConnectConfig(input: SshConnectInput & { password?: string }, pluginId: string): Promise<ConnectConfig> {
   // 插件 UI 可能传 password 字段作为一次性口令；规范名为 ephemeralSecret
   const ephemeralSecret = input.ephemeralSecret ?? (input as { password?: string }).password
   const port = input.port && input.port > 0 ? input.port : 22
@@ -99,18 +177,26 @@ function buildConnectConfig(input: SshConnectInput & { password?: string }, plug
     keepaliveInterval: keepAliveMs,
     keepaliveCountMax: 3
   }
-  const authType = input.authType ?? (input.privateKeyPath ? 'key' : 'password')
+  if ('privateKeyPath' in input || 'agentPath' in input) throw new Error('raw credential paths are not supported; select a private key handle')
+  const authType = input.authType ?? (input.privateKeyHandleId ? 'key' : 'password')
+  if (authType === 'keyboard-interactive') {
+    cfg.tryKeyboard = true
+    cfg.authHandler = ['keyboard-interactive']
+    cfg.readyTimeout = Math.max(120_000, timeoutMs)
+    return cfg
+  }
   if (authType === 'agent') {
-    cfg.agent = process.env.SSH_AUTH_SOCK
+    await authorizePluginPermission(pluginId, 'ssh.agent', `使用本机 SSH Agent 连接 ${input.username}@${input.host}`)
+    cfg.agent = process.env.SSH_AUTH_SOCK || (process.platform === 'win32' ? 'pageant' : undefined)
     if (!cfg.agent) throw new Error('SSH_AUTH_SOCK not set; ssh-agent unavailable')
     return cfg
   }
   if (authType === 'key') {
-    if (!input.privateKeyPath) throw new Error('privateKeyPath required for key auth')
-    if (!existsSync(input.privateKeyPath)) {
-      throw new Error(`private key not found: ${input.privateKeyPath}`)
-    }
-    cfg.privateKey = readFileSync(input.privateKeyPath)
+    if (!input.privateKeyHandleId) throw new Error('privateKeyHandleId is required for key auth')
+    const keyPath = await resolveLocalFileHandle(pluginId, input.privateKeyHandleId, 'read')
+    const info = statSync(keyPath)
+    if (!info.isFile() || info.size > 1024 * 1024) throw new Error('invalid private key file')
+    cfg.privateKey = readFileSync(keyPath)
     const passphrase = resolveAuthSecret(pluginId, input.secretRef, ephemeralSecret)
     if (passphrase) cfg.passphrase = passphrase
     return cfg
@@ -124,7 +210,7 @@ function buildConnectConfig(input: SshConnectInput & { password?: string }, plug
 
 function fingerprintOf(key: Buffer): string {
   try {
-    return createHash('sha256').update(key).digest('base64')
+    return 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '')
   } catch {
     return ''
   }
@@ -137,125 +223,149 @@ export async function sshConnect(
   if (!input?.host || !input?.username) throw new Error('host and username required')
   const sessionId = nextSessionId()
   const port = input.port && input.port > 0 ? input.port : 22
-  const cfg = buildConnectConfig(input, pluginId)
-  // jump（P0 单级）：先连跳板，再 direct-tcpip 到目标
-  let jumpClient: Client | null = null
-  if (input.jump?.host) {
-    jumpClient = new Client()
-    const jumpCfg = buildConnectConfig(
-      {
-        host: input.jump.host,
-        port: input.jump.port ?? 22,
-        username: input.jump.username,
-        authType: input.jump.authType ?? 'password',
-        privateKeyPath: input.jump.privateKeyPath,
-        secretRef: input.jump.secretRef,
-        ephemeralSecret: input.jump.ephemeralSecret
-      },
-      pluginId
-    )
-    await new Promise<void>((resolve, reject) => {
-      jumpClient!
-        .on('ready', () => resolve())
-        .on('error', (err: Error) => reject(err))
-        .connect(jumpCfg)
-    })
-    cfg.sock = await new Promise((resolve, reject) => {
-      jumpClient!.forwardOut('127.0.0.1', 0, input.host, port, (err, stream) => {
-        if (err) reject(err)
-        else resolve(stream as never)
-      })
-    })
-  }
-
+  const scope = getRuntimeScope(pluginId)
+  if (!scope || !scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
+  const cfg = await buildConnectConfig(input, pluginId)
+  if (!scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
   const client = new Client()
   const session: SshSession = {
-    sessionId,
-    pluginId,
-    profileId: input.profileId,
-    host: input.host,
-    port,
-    username: input.username,
-    status: 'connecting',
-    cols: input.cols && input.cols > 0 ? input.cols : 80,
-    rows: input.rows && input.rows > 0 ? input.rows : 24,
-    client,
-    metricsIntervalMs: 5000,
-    pathCache: new Map()
+    scope, controller: new AbortController(), releaseScopeActivity: scope.acquireActivity('ssh:connection'),
+    sessionId, pluginId, profileId: input.profileId, host: input.host, port, username: input.username,
+    status: 'connecting', cols: input.cols && input.cols > 0 ? input.cols : 80,
+    rows: input.rows && input.rows > 0 ? input.rows : 24, client, metricsIntervalMs: 5000,
+    pathCache: new Map(), cleanup: new Set()
   }
   sessions.set(sessionId, session)
-
-  await new Promise<void>((resolve, reject) => {
-    client
-      .on('ready', () => {
-        session.status = 'connected'
-        session.connectedAt = Date.now()
-        client.on('banner', () => {})
-        resolve()
-      })
-      .on('error', (err: Error) => {
-        session.status = 'exited'
-        emitToPlugin(pluginId, { type: 'ssh.error', sessionId, message: err.message })
-        reject(err)
-      })
-      .on('close', () => {
-        if (session.status !== 'exited') session.status = 'disconnected'
-      })
-    // host key 指纹：ssh2 通过 hostVerifier 暴露
-    const cfgWithVerifier = cfg as ConnectConfig & { hostVerifier?: unknown }
-    cfgWithVerifier.hostVerifier = (hashedKey: Buffer) => {
-      session.fingerprint = fingerprintOf(hashedKey)
-      // P0 tofu：默认接受；strict 策略后续可对接 known_hosts
-      return true
-    }
-    client.on('banner', (message: string) => {
-      session.serverIdent = message?.slice(0, 200)
-    })
-    try {
-      client.connect(cfg)
-    } catch (err) {
-      reject(err as Error)
-    }
-  })
-
-  // 打开 shell 通道（xterm 数据通道）
-  await new Promise<void>((resolve, reject) => {
-    client.shell(
-      { term: input.term || 'xterm-256color', cols: session.cols, rows: session.rows },
-      (err, channel) => {
-        if (err) return reject(err)
-        session.shell = channel
-        channel.on('data', (data: Buffer) => {
-          emitToPlugin(pluginId, {
-            type: 'ssh.data',
-            sessionId,
-            data: data.toString('utf-8')
-          })
+  session.onScopeAbort = () => { sshDisconnect(pluginId, sessionId) }
+  scope.signal.addEventListener('abort', session.onScopeAbort, { once: true })
+  session.detachScope = scope.addDisposer(() => { sshDisconnect(pluginId, sessionId) })
+  // Each hop is owned before connecting so every partial chain is closed on cancellation.
+  const jumps = input.jumps?.length ? input.jumps : input.jump?.host ? [input.jump] : []
+  try {
+    if (jumps.length > 8) throw new Error('跳板链最多支持 8 层')
+    let forwardedSocket: ConnectConfig['sock']
+    if (input.proxy) {
+      const firstHop = jumps[0] || input
+      forwardedSocket = await openSshProxy(input.proxy, { host: firstHop.host, port: firstHop.port || 22 },
+        resolveAuthSecret(pluginId, input.proxy.secretRef, input.proxy.ephemeralSecret), {
+          signal: session.controller.signal, timeoutMs: cfg.readyTimeout || 20000,
+          ownSocket: socket => { session.cleanup?.add(() => socket.destroy()) }
         })
-        channel.on('close', (code?: number | null, signal?: string) => {
-          session.status = 'exited'
-          stopMetrics(sessionId)
-          emitToPlugin(pluginId, {
-            type: 'ssh.exit',
-            sessionId,
-            code: code ?? null,
-            signal
-          })
-        })
-        resolve()
+      assertSessionCurrent(session)
+    }
+    for (let index = 0; index < jumps.length; index++) {
+      const hop = jumps[index]
+      if (!hop.host || !hop.username) throw new Error(`跳板 ${index + 1} 缺少主机或用户名`)
+      const jumpClient = new Client()
+      session.jumpClient ??= jumpClient
+      session.jumpClients ??= []
+      session.jumpClients.push(jumpClient)
+      const jumpCfg = await buildConnectConfig(hop, pluginId)
+      assertSessionCurrent(session)
+      attachInteractiveAuth(session, jumpClient, hop.host)
+      if (forwardedSocket) jumpCfg.sock = forwardedSocket
+      let jumpTrustError: Error | undefined
+      jumpCfg.hostVerifier = (key: Buffer) => {
+        try { verifySshHost(pluginId, hop.host, hop.port || 22, fingerprintOf(key)); return true }
+        catch (error) { jumpTrustError = error as Error; return false }
       }
-    )
-  }).catch((err) => {
-    client.end()
-    if (jumpClient) jumpClient.end()
-    sessions.delete(sessionId)
-    throw err
-  })
+      await ownedStep<void>(session, (resolve, reject) => {
+        jumpClient
+          .on('ready', () => resolve())
+          .on('error', (err: Error) => { reject(jumpTrustError || err); sshDisconnect(pluginId, sessionId) })
+          .on('close', () => { if (isSessionCurrent(session)) sshDisconnect(pluginId, sessionId) })
+          .connect(jumpCfg)
+      }, jumpCfg.readyTimeout)
+      assertSessionCurrent(session)
+      const nextHop = jumps[index + 1] || input
+      forwardedSocket = await ownedStep(session, (resolve, reject) => {
+        jumpClient.forwardOut('127.0.0.1', 0, nextHop.host, nextHop.port || 22, (err, stream) => {
+          if (err) reject(err)
+          else if (!isSessionCurrent(session)) { stream.destroy(); reject(new Error('SSH session is closing')) }
+          else resolve(stream as never)
+        })
+      })
+    }
+    if (forwardedSocket) cfg.sock = forwardedSocket
 
-  // 保存 jump 客户端以便 disconnect 时关闭
-  ;(session as SshSession & { jumpClient?: Client }).jumpClient = jumpClient ?? undefined
-  logInfo('ssh', `session opened ${sessionId} ${input.username}@${input.host}:${port}`)
-  return toInfo(session)
+    let trustError: Error | undefined
+    attachInteractiveAuth(session, client, input.host)
+    await ownedStep<void>(session, (resolve, reject) => {
+      client
+        .on('ready', () => {
+          if (!isSessionCurrent(session)) { client.destroy(); return reject(new Error('SSH session is closing')) }
+          session.status = 'connected'
+          session.connectedAt = Date.now()
+          client.on('banner', () => {})
+          resolve()
+        })
+        .on('error', (err: Error) => {
+          session.status = 'exited'
+          emitToPlugin(pluginId, { type: 'ssh.error', sessionId, message: (trustError || err).message })
+          reject(trustError || err)
+          sshDisconnect(pluginId, sessionId)
+        })
+        .on('close', () => {
+          sshDisconnect(pluginId, sessionId)
+        })
+      // host key 指纹：ssh2 通过 hostVerifier 暴露
+      const cfgWithVerifier = cfg as ConnectConfig & { hostVerifier?: unknown }
+      cfgWithVerifier.hostVerifier = (hashedKey: Buffer) => {
+        session.fingerprint = fingerprintOf(hashedKey)
+        try {
+          verifySshHost(pluginId, input.host, port, session.fingerprint, (input as SshConnectInput & { fingerprintPolicy?: string }).fingerprintPolicy)
+          return true
+        } catch (error) { trustError = error as Error; return false }
+      }
+      client.on('banner', (message: string) => {
+        session.serverIdent = message?.slice(0, 200)
+      })
+      try {
+        client.connect(cfg)
+      } catch (err) {
+        reject(err as Error)
+      }
+    }, cfg.readyTimeout)
+
+    // 打开 shell 通道（xterm 数据通道）
+    await ownedStep<void>(session, (resolve, reject) => {
+      client.shell(
+        { term: input.term || 'xterm-256color', cols: session.cols, rows: session.rows },
+        (err, channel) => {
+          if (err) return reject(err)
+          if (!isSessionCurrent(session)) { channel.destroy(); return reject(new Error('SSH session is closing')) }
+          session.shell = channel
+          session.releaseActivity = acquirePluginActivity(pluginId, sessionId, 'SSH 连接')
+          const decoder = new StringDecoder('utf8')
+          channel.on('data', (data: Buffer) => {
+            emitToPlugin(pluginId, {
+              type: 'ssh.data',
+              sessionId,
+              data: decoder.write(data)
+            })
+          })
+          channel.on('close', (code?: number | null, signal?: string) => {
+            session.status = 'exited'
+            stopMetrics(sessionId)
+            session.releaseActivity?.()
+            emitToPlugin(pluginId, {
+              type: 'ssh.exit',
+              sessionId,
+              code: code ?? null,
+              signal
+            })
+            sshDisconnect(pluginId, sessionId)
+          })
+          resolve()
+        }
+      )
+    })
+
+    // The owner may have closed while the final channel callback was queued.
+    assertSessionCurrent(session)
+    logInfo('ssh', `session opened ${sessionId} ${input.username}@${input.host}:${port}`)
+    return toInfo(session)
+  } catch (error) { sshDisconnect(pluginId, sessionId); throw error }
 }
 
 function toInfo(s: SshSession): SshSessionInfo {
@@ -278,6 +388,7 @@ function requireSession(sessionId: string | undefined | null): SshSession {
   const id = String(sessionId ?? '')
   const s = sessions.get(id)
   if (!s) throw new Error(`ssh session not found: ${id}`)
+  assertSessionCurrent(s)
   return s
 }
 
@@ -309,9 +420,19 @@ export function sshDisconnect(pluginId: string, sessionId: string): boolean {
   const s = sessions.get(sessionId)
   if (!s) return true
   if (s.pluginId !== pluginId) throw new Error('session does not belong to this plugin')
+  if (s.disposed) return true
+  s.disposed = true
   stopMetrics(sessionId)
+  s.controller.abort(new Error('SSH session closed'))
+  if (s.onScopeAbort) s.scope.signal.removeEventListener('abort', s.onScopeAbort)
+  s.detachScope?.()
+  s.releaseScopeActivity()
+  s.releaseActivity?.()
+  // Each resource must close even when an independent cleanup fails.
+  for (const close of s.cleanup ?? []) { try { close() } catch (error) { logWarn('ssh', `cleanup failed ${sessionId}: ${String(error)}`) } }
+  s.cleanup?.clear()
   try {
-    s.shell?.end()
+    s.shell?.destroy()
   } catch {
     /* ignore */
   }
@@ -321,19 +442,20 @@ export function sshDisconnect(pluginId: string, sessionId: string): boolean {
     /* ignore */
   }
   try {
-    s.client.end()
+    s.client.destroy()
   } catch {
     /* ignore */
   }
-  const jump = (s as SshSession & { jumpClient?: Client }).jumpClient
-  if (jump) {
+  for (const jump of [...(s.jumpClients || (s.jumpClient ? [s.jumpClient] : []))].reverse()) {
     try {
-      jump.end()
+      jump.destroy()
     } catch {
       /* ignore */
     }
   }
   s.status = 'disconnected'
+  s.pathCache.clear()
+  releaseSystemState(sessionId)
   sessions.delete(sessionId)
   return true
 }
@@ -349,249 +471,59 @@ export async function sshExec(pluginId: string, input: SshExecInput): Promise<Ss
   if (s.pluginId !== pluginId) throw new Error('session does not belong to this plugin')
   const command = String(input.command ?? '')
   if (!command) throw new Error('command required')
-  const timeoutMs = input.timeoutMs && input.timeoutMs > 0 ? input.timeoutMs : 30_000
+  const timeoutMs = Math.max(100, Math.min(600_000, input.timeoutMs && input.timeoutMs > 0 ? input.timeoutMs : 30_000))
   const started = Date.now()
   return new Promise<SshExecResult>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`ssh exec timeout after ${timeoutMs}ms`))
-    }, timeoutMs)
-    s.client.exec(command, (err, channel) => {
-      if (err) {
-        clearTimeout(timer)
-        return reject(err)
+    let stream: ClientChannel | undefined, settled = false, bytes = 0
+    let stdout = '', stderr = ''
+    const outDecoder = new StringDecoder('utf8'), errDecoder = new StringDecoder('utf8')
+    const finish = (error?: Error, code?: number | null): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      s.controller.signal.removeEventListener('abort', aborted)
+      if (error) {
+        try { stream?.signal('TERM') } catch { /* remote signal unsupported */ }
+        try { stream?.close() } catch { /* disconnected */ }
+        try { stream?.destroy() } catch { /* disconnected */ }
+        reject(error)
+      } else resolve({ stdout: stdout + outDecoder.end(), stderr: stderr + errDecoder.end(), exitCode: code ?? null, durationMs: Date.now() - started })
+    }
+    const aborted = () => finish(new Error('SSH session is closing'))
+    const timer = setTimeout(() => finish(new Error(`ssh exec timeout after ${timeoutMs}ms`)), timeoutMs)
+    s.controller.signal.addEventListener('abort', aborted, { once: true })
+    try { s.client.exec(command, (err, channel) => {
+      if (err) return finish(err)
+      if (settled || !isSessionCurrent(s)) { channel.destroy(); return aborted() }
+      stream = channel
+      const retain = (data: Buffer, output: 'stdout' | 'stderr'): void => {
+        if (settled) return
+        bytes += data.length
+        if (bytes > 8 * 1024 * 1024) return finish(new Error('SSH exec output exceeds 8 MiB; use a file transfer for large output'))
+        if (output === 'stdout') stdout += outDecoder.write(data)
+        else stderr += errDecoder.write(data)
       }
-      let stdout = ''
-      let stderr = ''
       channel.on('data', (d: Buffer) => {
-        stdout += d.toString('utf-8')
+        retain(d, 'stdout')
       })
       channel.stderr.on('data', (d: Buffer) => {
-        stderr += d.toString('utf-8')
+        retain(d, 'stderr')
       })
-      channel.on('close', (code: number | null) => {
-        clearTimeout(timer)
-        resolve({
-          stdout,
-          stderr,
-          exitCode: code ?? null,
-          durationMs: Date.now() - started
-        })
-      })
-    })
+      channel.once('error', (error: Error) => finish(error))
+      channel.stderr.once('error', (error: Error) => finish(error))
+      channel.once('close', (code: number | null) => finish(undefined, code))
+    }) } catch (error) { finish(error as Error) }
   })
 }
 
-// —— Metrics（Spec SSH-F）——
-
-/** Linux 采集脚本：cpu / mem / load / disk / net / uptime / top */
-const METRICS_SCRIPT_LINUX = [
-  "echo '---CPU---'",
-  "grep 'cpu ' /proc/stat || true",
-  "echo '---MEM---'",
-  "free -b 2>/dev/null || true",
-  "echo '---LOAD---'",
-  "cat /proc/loadavg 2>/dev/null || true",
-  "echo '---DISK---'",
-  "df -P 2>/dev/null | tail -n +2 || true",
-  "echo '---NET---'",
-  "cat /proc/net/dev 2>/dev/null | tail -n +3 || true",
-  "echo '---UPTIME---'",
-  "cat /proc/uptime 2>/dev/null || true",
-  "echo '---TOP---'",
-  "ps -eo pid,pcpu,pmem,comm --sort=-pcpu 2>/dev/null | head -n 11 || true"
-].join('\n')
-
-/** macOS 降级采集 */
-const METRICS_SCRIPT_MAC = [
-  "echo '---CPU---'",
-  "top -l 1 -n 0 2>/dev/null | grep 'CPU usage' || true",
-  "echo '---MEM---'",
-  "vm_stat 2>/dev/null | head -n 8 || true",
-  "sysctl -n hw.memsize 2>/dev/null || true",
-  "echo '---LOAD---'",
-  "sysctl -n vm.loadavg 2>/dev/null || true",
-  "echo '---DISK---'",
-  "df -P 2>/dev/null | tail -n +2 || true",
-  "echo '---UPTIME---'",
-  "uptime 2>/dev/null || true",
-  "echo '---TOP---'",
-  "ps -Ao pid,pcpu,pmem,comm -r 2>/dev/null | head -n 11 || true"
-].join('\n')
-
-function parseMetricsLinux(raw: string): SshMetricsSample {
-  const sample: SshMetricsSample = { ts: Date.now() }
-  const sections = raw.split(/^---(\w+)---$/m)
-  const get = (name: string): string => {
-    for (let i = 1; i < sections.length; i += 2) {
-      if (sections[i] === name) return sections[i + 1] ?? ''
-    }
-    return ''
-  }
-  // CPU：两次采样差分在宿主端做 best-effort——单次仅记 idle/total 供下次比对
-  const cpuLine = get('CPU').trim().split('\n')[0] ?? ''
-  const cpuParts = cpuLine.trim().split(/\s+/)
-  if (cpuParts[0] === 'cpu') {
-    const nums = cpuParts.slice(1).map((x) => Number(x) || 0)
-    const idle = (nums[3] ?? 0) + (nums[4] ?? 0)
-    const total = nums.reduce((a, b) => a + b, 0)
-    const key = sample.ts
-    const prev = cpuPrev
-    cpuPrev = { idle, total, key }
-    if (prev && total > prev.total) {
-      const dTotal = total - prev.total
-      const dIdle = idle - prev.idle
-      sample.cpuPercent = dTotal > 0 ? Math.round(((dTotal - dIdle) / dTotal) * 1000) / 10 : undefined
-    }
-  }
-  const mem = get('MEM').trim()
-  const memTotal = /Mem:\s+(\d+)/.exec(mem)?.[1]
-  const memAvail = /Mem:\s+\d+\s+\d+\s+(\d+)/.exec(mem)?.[1]
-  if (memTotal && memAvail) {
-    sample.memTotal = Number(memTotal)
-    sample.memUsed = sample.memTotal - Number(memAvail)
-    sample.memPercent =
-      sample.memTotal > 0
-        ? Math.round((sample.memUsed / sample.memTotal) * 1000) / 10
-        : undefined
-  }
-  const load = get('LOAD').trim()
-  const load1 = /^([0-9.]+)/.exec(load)?.[1]
-  if (load1) sample.load1 = Number(load1)
-  const disk = get('DISK').trim()
-  if (disk) {
-    sample.disks = disk
-      .split('\n')
-      .map((line) => {
-        const cols = line.trim().split(/\s+/)
-        if (cols.length < 6) return null
-        const usedPercent = Number(String(cols[4] ?? '').replace('%', ''))
-        return {
-          mount: cols[5] ?? '',
-          usedPercent: Number.isFinite(usedPercent) ? usedPercent : 0,
-          used: Number(cols[2]) || undefined,
-          total: Number(cols[1]) || undefined
-        }
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null)
-  }
-  const net = get('NET').trim()
-  if (net) {
-    sample.net = net
-      .split('\n')
-      .map((line) => {
-        const m = /^\s*(\S+):\s*(\d+)\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)/.exec(line)
-        if (!m) return null
-        return { iface: m[1]!, rxKbps: Math.round(Number(m[2]) / 1024), txKbps: Math.round(Number(m[3]) / 1024) }
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null)
-  }
-  const uptime = get('UPTIME').trim().split(/\s+/)[0]
-  if (uptime) sample.uptimeSec = Math.floor(Number(uptime))
-  const top = get('TOP').trim()
-  if (top) {
-    sample.topProcesses = top
-      .split('\n')
-      .slice(1)
-      .map((line) => {
-        const cols = line.trim().split(/\s+/)
-        return {
-          pid: Number(cols[0]) || 0,
-          cpuPercent: Number(cols[1]) || undefined,
-          memPercent: Number(cols[2]) || undefined,
-          command: cols.slice(3).join(' ')
-        }
-      })
-      .filter((p) => p.pid > 0)
-      .slice(0, 10)
-  }
-  return sample
-}
-
-let cpuPrev: { idle: number; total: number; key: number } | null = null
-
-function parseMetricsMac(raw: string): SshMetricsSample {
-  const sample: SshMetricsSample = { ts: Date.now() }
-  const sections = raw.split(/^---(\w+)---$/m)
-  const get = (name: string): string => {
-    for (let i = 1; i < sections.length; i += 2) {
-      if (sections[i] === name) return sections[i + 1] ?? ''
-    }
-    return ''
-  }
-  const cpu = get('CPU')
-  const userM = /([\d.]+)%\s*user/.exec(cpu)
-  const sysM = /([\d.]+)%\s*(sys|system)/.exec(cpu)
-  if (userM && sysM) sample.cpuPercent = Math.round((Number(userM[1]) + Number(sysM[1])) * 10) / 10
-  const memBlock = get('MEM')
-  const pageSize = 4096
-  const freePages = /Pages free:\s+(\d+)/.exec(memBlock)?.[1]
-  const inactive = /Pages inactive:\s+(\d+)/.exec(memBlock)?.[1]
-  const totalMem = /(\d+)\s*$/.exec(memBlock.trim())?.[1]
-  if (totalMem && Number(totalMem) > 1_000_000) {
-    sample.memTotal = Number(totalMem)
-    const free = (Number(freePages ?? 0) + Number(inactive ?? 0)) * pageSize
-    sample.memUsed = Math.max(0, sample.memTotal - free)
-    sample.memPercent =
-      sample.memTotal > 0 ? Math.round((sample.memUsed / sample.memTotal) * 1000) / 10 : undefined
-  }
-  const load = get('LOAD')
-  const load1 = /\{?\s*([\d.]+)/.exec(load)?.[1]
-  if (load1) sample.load1 = Number(load1)
-  const disk = get('DISK').trim()
-  if (disk) {
-    sample.disks = disk
-      .split('\n')
-      .map((line) => {
-        const cols = line.trim().split(/\s+/)
-        if (cols.length < 6) return null
-        const usedPercent = Number(String(cols[4] ?? '').replace('%', ''))
-        return { mount: cols[5] ?? '', usedPercent: Number.isFinite(usedPercent) ? usedPercent : 0 }
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null)
-  }
-  const up = get('UPTIME')
-  const upM = /up\s+(?:(\d+)\s+days?,\s+)?(?:(\d+):(\d+)|(\d+)\s+min)/.exec(up)
-  if (upM) {
-    const days = Number(upM[1] ?? 0)
-    const hours = upM[2] ? Number(upM[2]) : 0
-    const mins = upM[3] ? Number(upM[3]) : Number(upM[4] ?? 0)
-    sample.uptimeSec = days * 86400 + hours * 3600 + mins * 60
-  }
-  const top = get('TOP').trim()
-  if (top) {
-    sample.topProcesses = top
-      .split('\n')
-      .slice(1)
-      .map((line) => {
-        const cols = line.trim().split(/\s+/)
-        return {
-          pid: Number(cols[0]) || 0,
-          cpuPercent: Number(cols[1]) || undefined,
-          memPercent: Number(cols[2]) || undefined,
-          command: cols.slice(3).join(' ')
-        }
-      })
-      .filter((p) => p.pid > 0)
-      .slice(0, 10)
-  }
-  return sample
-}
-
+// Metrics are detected and sampled on the remote platform; counters are session-local.
 async function sampleOnce(session: SshSession): Promise<SshMetricsSample> {
-  const script = process.platform === 'darwin' ? METRICS_SCRIPT_MAC : METRICS_SCRIPT_LINUX
   try {
-    const result = await sshExec(session.pluginId, {
-      sessionId: session.sessionId,
-      command: script,
-      timeoutMs: 8000
-    })
-    const raw = result.stdout || result.stderr
-    const sample =
-      process.platform === 'darwin' ? parseMetricsMac(raw) : parseMetricsLinux(raw)
+    const sample = await systemSnapshot(session.pluginId, session.sessionId)
     session.lastSample = sample
     return sample
-  } catch (err) {
-    const sample: SshMetricsSample = { ts: Date.now(), error: (err as Error).message }
+  } catch (error) {
+    const sample = { ts: Date.now(), error: (error as Error).message }
     session.lastSample = sample
     return sample
   }
@@ -607,17 +539,22 @@ export function sshMetricsStart(
   stopMetrics(sessionId)
   const ms = Math.max(2000, Math.min(60_000, Math.round(Number(intervalMs) || 5000)))
   s.metricsIntervalMs = ms
+  let sampling = false
   const tick = async () => {
-    if (s.status !== 'connected') return
-    const sample = await sampleOnce(s)
-    emitToPlugin(pluginId, { type: 'ssh.metrics', sessionId, sample })
+    if (s.status !== 'connected' || sampling) return
+    sampling = true
+    try {
+      const sample = await sampleOnce(s)
+      if (s.status === 'connected') emitToPlugin(pluginId, { type: 'ssh.metrics', sessionId, sample })
+    } finally { sampling = false }
   }
   void tick()
   s.metricsTimer = setInterval(() => void tick(), ms)
   return { ok: true, intervalMs: ms }
 }
 
-export function sshMetricsStop(_pluginId: string, sessionId: string): boolean {
+export function sshMetricsStop(pluginId: string, sessionId: string): boolean {
+  requireOwnedSshSession(pluginId, sessionId)
   stopMetrics(sessionId)
   return true
 }
@@ -640,36 +577,49 @@ export function sshMetricsLatest(pluginId: string, sessionId: string): SshMetric
 function currentWord(line: string, cursor?: number): { word: string; isPathLike: boolean; start: number } {
   const pos = cursor !== undefined && cursor >= 0 ? Math.min(cursor, line.length) : line.length
   const before = line.slice(0, pos)
-  const m = /(\S*)$/.exec(before)
-  const word = m?.[1] ?? ''
-  return { word, isPathLike: word.startsWith('/') || word.startsWith('./') || word.startsWith('~/') || word.includes('/'), start: pos - word.length }
+  let start = 0, quote = '', escaped = false
+  for (let i = 0; i < before.length; i++) {
+    const char = before[i]
+    if (escaped) { escaped = false; continue }
+    if (char === '\\' && quote !== "'") { escaped = true; continue }
+    if (quote) { if (char === quote) quote = ''; continue }
+    if (char === "'" || char === '"') quote = char
+    else if (/[\s|;&]/.test(char)) start = i + 1
+  }
+  const word = before.slice(start)
+  return { word, isPathLike: word.includes('/'), start }
 }
 
 async function remotePathComplete(
   session: SshSession,
-  prefix: string
+  prefix: string,
+  cwd?: string
 ): Promise<string[]> {
-  const cached = session.pathCache.get(prefix)
+  const cacheKey = `${cwd || ''}|${prefix}`
+  const cached = session.pathCache.get(cacheKey)
   const now = Date.now()
   if (cached && now - cached.ts < 3000) return cached.items
-  // compgen -f 对相对/绝对路径前缀 best-effort
-  const escaped = prefix.replace(/'/g, `'\\''`)
-  const cmd = `compgen -f -- '${escaped}' 2>/dev/null | head -n 50 || ls -1d ${prefix}* 2>/dev/null | head -n 50`
+  // Never interpolate user input into a remote shell command.
   try {
-    const result = await sshExec(session.pluginId, {
-      sessionId: session.sessionId,
-      command: cmd,
-      timeoutMs: 3000
+    const sftp = await getSftp(session)
+    const home = await ownedStep<string>(session, (resolve, reject) => sftp.realpath('.', (e, p) => e ? reject(e) : resolve(p)))
+    const unquoted = prefix.replace(/^['"]/, '').replace(/['"]$/, '').replace(/\\([\\ '"$`])/g, '$1')
+    const normalized = unquoted.startsWith('~/') ? home + unquoted.slice(1) : unquoted
+    const split = normalized.lastIndexOf('/')
+    const relativeDirectory = split >= 0 ? normalized.slice(0, split + 1) : '.'
+    const directory = posix.isAbsolute(relativeDirectory) ? relativeDirectory : cwd && posix.isAbsolute(cwd) ? posix.join(cwd, relativeDirectory) : relativeDirectory
+    const word = normalized.slice(split + 1)
+    const entries = await ownedStep<Array<{ filename: string; attrs: { isDirectory(): boolean } }>>(session, (resolve, reject) => sftp.readdir(directory, (e, list) => e ? reject(e) : resolve(list)))
+    const items = entries.filter(x => x.filename.startsWith(word)).slice(0, 50).map(x => {
+      const path = (split >= 0 ? normalized.slice(0, split + 1) : '') + x.filename + (x.attrs.isDirectory() ? '/' : '')
+      return /[^a-zA-Z0-9_./~:@%+,-]/.test(path) ? `'${path.replace(/'/g, `'\\''`)}'` : path
     })
-    const items = result.stdout
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean)
-    session.pathCache.set(prefix, { ts: now, items })
+    assertSessionCurrent(session)
+    if (session.pathCache.size >= 128) session.pathCache.delete(session.pathCache.keys().next().value!)
+    session.pathCache.set(cacheKey, { ts: now, items })
     return items
-  } catch {
-    return []
-  }
+  } catch { return [] }
+
 }
 
 export async function sshCompletionSuggest(
@@ -678,6 +628,7 @@ export async function sshCompletionSuggest(
     sessionId: string
     line: string
     cursor?: number
+    cwd?: string
     history?: string[]
     snippets?: Array<{ title: string; command: string }>
   }
@@ -726,8 +677,8 @@ export async function sshCompletionSuggest(
 
   // 远程路径（优先级 1，已连接且像路径）
   const s = sessions.get(input.sessionId)
-  if (s && s.pluginId === pluginId && s.status === 'connected' && isPathLike && word) {
-    const paths = await remotePathComplete(s, word)
+  if (s && s.pluginId === pluginId && s.status === 'connected' && (isPathLike || input.cwd && /\s/.test(line) && !word.startsWith('-'))) {
+    const paths = await remotePathComplete(s, word, input.cwd)
     for (const p of paths) {
       push({
         label: p,
@@ -818,15 +769,21 @@ export async function sshCompletionSuggest(
 
 // —— SFTP（Spec SSH-G P0）——
 
-async function getSftp(session: SshSession): Promise<SFTPWrapper> {
+export async function getSftp(session: SshSession): Promise<SFTPWrapper> {
+  assertSessionCurrent(session)
   if (session.sftp) return session.sftp
-  return new Promise((resolve, reject) => {
+  if (session.sftpOpening) return session.sftpOpening
+  const pending = ownedStep<SFTPWrapper>(session, (resolve, reject) => {
     session.client.sftp((err, sftp) => {
       if (err) return reject(err)
+      if (!isSessionCurrent(session)) { sftp.end(); return reject(new Error('SSH session is closing')) }
       session.sftp = sftp
       resolve(sftp)
     })
   })
+  session.sftpOpening = pending
+  try { return await pending }
+  finally { if (session.sftpOpening === pending) session.sftpOpening = undefined }
 }
 
 /**
@@ -938,37 +895,29 @@ export async function sshSftpDownload(
   const sftp = await getSftp(s)
   const remotePath = String(input.remotePath ?? '')
   if (!remotePath) throw new Error('remotePath required')
-  let localPath = input.localPath
-  if (!localPath) {
-    localPath = join(homedir(), 'Downloads', basename(remotePath))
-  }
+  if ('localPath' in input) throw new Error('raw local paths are not supported')
+  const localPath = await resolveLocalDirectoryTarget(pluginId, input.localDirectoryHandleId, basename(remotePath))
   // 预取远端文件大小（进度 total；失败则 total=0 表示未知）
-  const total = await new Promise<number>((resolve) => {
+  const total = await ownedStep<number>(s, (resolve) => {
     sftp.stat(remotePath, (err, stats) => resolve(err ? 0 : stats.size))
   })
-  return new Promise((resolve) => {
+  assertSessionCurrent(s)
+  const progress = createTransferProgress(pluginId, s.sessionId, 'download', remotePath, total)
+  try {
     const readStream = sftp.createReadStream(remotePath)
     const writeStream = createWriteStream(localPath!)
-    const progress = createTransferProgress(pluginId, s.sessionId, 'download', remotePath, total)
     readStream.on('data', (chunk: string | Buffer) => {
       progress.add(
         typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length
       )
     })
-    readStream.on('error', (err: Error) => {
-      progress.error(err.message)
-      resolve({ ok: false, remotePath, error: err.message })
-    })
-    writeStream.on('error', (err: Error) => {
-      progress.error(err.message)
-      resolve({ ok: false, remotePath, localPath, error: err.message })
-    })
-    writeStream.on('close', () => {
-      progress.finish()
-      resolve({ ok: true, remotePath, localPath, bytes: progress.transferred })
-    })
-    readStream.pipe(writeStream)
-  })
+    await pipeline(readStream, writeStream, { signal: s.controller.signal })
+    progress.finish()
+    return { ok: true, remotePath, localPath, bytes: progress.transferred }
+  } catch (error) {
+    progress.error((error as Error).message)
+    return { ok: false, remotePath, localPath, error: (error as Error).message }
+  }
 }
 
 export async function sshSftpUpload(
@@ -978,34 +927,29 @@ export async function sshSftpUpload(
   const s = requireSession(input.sessionId)
   if (s.pluginId !== pluginId) throw new Error('session does not belong to this plugin')
   const sftp = await getSftp(s)
-  const localPath = String(input.localPath ?? '')
+  if ('localPath' in input) throw new Error('raw local paths are not supported')
+  const localPath = await resolveLocalFileHandle(pluginId, input.localHandleId, 'read')
   const remotePath = String(input.remotePath ?? '')
   if (!localPath || !remotePath) throw new Error('localPath and remotePath required')
   if (!existsSync(localPath)) throw new Error(`local file not found: ${localPath}`)
   const total = statSync(localPath).size
-  return new Promise((resolve) => {
+  assertSessionCurrent(s)
+  const progress = createTransferProgress(pluginId, s.sessionId, 'upload', remotePath, total)
+  try {
     const readStream = createReadStream(localPath)
     const writeStream = sftp.createWriteStream(remotePath)
-    const progress = createTransferProgress(pluginId, s.sessionId, 'upload', remotePath, total)
     readStream.on('data', (chunk: string | Buffer) => {
       progress.add(
         typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length
       )
     })
-    readStream.on('error', (err: Error) => {
-      progress.error(err.message)
-      resolve({ ok: false, localPath, error: err.message })
-    })
-    writeStream.on('error', (err: Error) => {
-      progress.error(err.message)
-      resolve({ ok: false, localPath, remotePath, error: err.message })
-    })
-    writeStream.on('close', () => {
-      progress.finish()
-      resolve({ ok: true, localPath, remotePath, bytes: progress.transferred })
-    })
-    readStream.pipe(writeStream)
-  })
+    await pipeline(readStream, writeStream, { signal: s.controller.signal })
+    progress.finish()
+    return { ok: true, localPath, remotePath, bytes: progress.transferred }
+  } catch (error) {
+    progress.error((error as Error).message)
+    return { ok: false, localPath, remotePath, error: (error as Error).message }
+  }
 }
 
 /** 会话归属校验 + 取 sftp 通道（mkdir/rename/delete/chmod 共用入口） */
@@ -1022,7 +966,7 @@ async function requireSftpSession(
 /** sftp.stat 包装 */
 function sftpStat(sftp: SFTPWrapper, path: string): Promise<{ isDir: boolean; size: number }> {
   return new Promise((resolve, reject) => {
-    sftp.stat(path, (err, stats) => {
+    sftp.lstat(path, (err, stats) => {
       if (err) return reject(err)
       resolve({ isDir: stats.isDirectory(), size: stats.size })
     })
@@ -1166,63 +1110,33 @@ export async function sshSftpChmod(
 
 /** mode 归一：number 直取；'0644'/'644' 等字符串按八进制/十进制解析 */
 function parseSftpMode(mode: number | string): number {
-  if (typeof mode === 'number') return mode
+  if (typeof mode === 'number') {
+    if (!Number.isInteger(mode) || mode < 0 || mode > 0o7777) throw new Error('invalid mode')
+    return mode
+  }
   const str = String(mode ?? '').trim()
   if (!str) throw new Error('mode required')
-  const value = str.startsWith('0') && /^0[0-7]+$/.test(str)
-    ? parseInt(str, 8)
-    : Number(str)
+  if (!/^[0-7]{3,4}$/.test(str)) throw new Error('权限必须为三或四位八进制数字')
+  const value = parseInt(str, 8)
   if (!Number.isFinite(value) || value < 0 || value > 0o7777) {
     throw new Error(`invalid mode: ${mode}`)
   }
   return value
 }
 
-/**
- * 宿主文件选择对话框（SSH 上传/导出选路径）。
- * 入参兼容插件侧 `{ mode: 'file' | 'dir' }` 与宿主侧 `properties` 双形态
- *（com.enest.ssh 资产/SFTP 用 mode）。
- */
-export async function sshPickLocalFile(
-  _pluginId: string,
-  opts?: {
-    properties?: Array<'openFile' | 'openDirectory' | 'multiSelections'>
-    /** 插件兼容别名：file→openFile；dir|directory|folder→openDirectory */
-    mode?: 'file' | 'dir' | 'directory' | 'folder'
-  }
-): Promise<string | null> {
-  const win = getMainWindow()
-  let properties = (opts?.properties?.length ? opts.properties : undefined) as
-    | Array<'openFile' | 'openDirectory' | 'multiSelections'>
-    | undefined
-  if (!properties?.length) {
-    const mode = opts?.mode
-    if (mode === 'dir' || mode === 'directory' || mode === 'folder') {
-      properties = ['openDirectory']
-    } else {
-      properties = ['openFile']
-    }
-  }
-  const dialogOpts = { properties, title: '选择文件' }
-  const result = win
-    ? await dialog.showOpenDialog(win as never, dialogOpts)
-    : await dialog.showOpenDialog(dialogOpts)
-  if (result.canceled || result.filePaths.length === 0) return null
-  return result.filePaths[0] ?? null
+/** SSH convenience picker returns a runtime-scoped capability, never a raw path. */
+export async function sshPickLocalFile(pluginId: string, options?: LocalFilePickOptions): Promise<LocalFileHandle | null> {
+  return (await pickLocalFiles(pluginId, options))[0] ?? null
 }
 
 /** 插件关闭时清理其全部 SSH 会话（PluginHost 交接用） */
-export function releaseSshSessions(pluginId: string): void {
-  for (const s of [...sessions.values()]) {
-    if (s.pluginId === pluginId) {
-      try {
-        stopMetrics(s.sessionId)
-        s.shell?.end()
-        s.client.end()
-      } catch (err) {
-        logWarn('ssh', `release session failed ${s.sessionId}: ${(err as Error).message}`)
-      }
-      sessions.delete(s.sessionId)
-    }
-  }
+export function releaseSshSessions(pluginId: string, generation?: number): void {
+  for (const s of [...sessions.values()]) if (s.pluginId === pluginId && (generation === undefined || s.scope.owner.generation === generation)) sshDisconnect(pluginId, s.sessionId)
+}
+
+/** Owned context for internal SSH adapters only; never exposed through the bridge. */
+export function requireOwnedSshSession(pluginId: string, sessionId: string): SshSession {
+  const session = requireSession(sessionId)
+  if (session.pluginId !== pluginId) throw new Error('session does not belong to this plugin')
+  return session
 }

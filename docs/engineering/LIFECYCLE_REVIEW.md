@@ -1,5 +1,7 @@
 # eNest 插件生命周期与 API 面评审
 
+> 历史评审记录，不代表当前实现。现行标准见 [插件开发文档](../site/plugin/README.md)；本轮验证见 [沙箱与生命周期报告](PLUGIN_SANDBOX_LIFECYCLE_VALIDATION.md)。
+
 > 对标 uTools 插件模型，审视 eNest 当前 PluginHost / pluginHandlers / pluginPreload 的实现。
 > 范围：生命周期对比、性能取舍、API gap、建议状态机与最小落地改动。
 > 代码位置：`src/main/plugin/PluginHost.ts`、`src/main/ipc/pluginHandlers.ts`、`src/preload/pluginPreload.ts`、`docs/engineering/PLUGIN_SPEC.md`。
@@ -12,7 +14,7 @@ uTools 是「呼之即来、即用即走」的超级面板模型：插件是**�
 
 | 阶段 | uTools 行为 | 关键 API / 事件 | eNest 现状 |
 |------|------------|----------------|-----------|
-| **加载（安装）** | 下载/解压到本地，解析 `plugin.json`，注册 `features` 指令到搜索框 | 目录结构 + `plugin.json` | `PluginRegistry.scan()` 扫描 `~/eNest/plugins/{id}/{version}/`，`installFromDirectory` 解析 manifest。✅ 对等 |
+| **加载（安装）** | 下载/解压到本地，解析 `plugin.json`，注册 `features` 指令到搜索框 | 目录结构 + `plugin.json` | `PluginRegistry.scan()` 扫描 `~/.eNest/plugins/{id}/{version}/`，`installFromDirectory` 解析 manifest。✅ 对等 |
 | **打开（进入）** | 首次触发 feature → 创建插件页面，执行 `preload`，回调 `onPluginEnter({code,type,payload,from})` | `utools.onPluginEnter` | `PluginHost.openPlugin()` 创建独立 partition 的 `WebContentsView` 并 `loadURL`。**无 enter 事件 / 无 code·payload 传递**（features 仅存在于 manifest） |
 | **切换（再进入）** | 已在后台则直接显示（不销毁），再次 `onPluginEnter`；`pluginSetting.single=false` 可多实例 | `pluginSetting.single`（默认 true） | `openPlugin` 已存在则 `activatePlugin`（仅 `setVisible`）。✅ 单例语义对等；**无多实例** |
 | **切换 Tab（并存）** | 单插件面板模型，无多 Tab 并存 | — | eNest 特色：多 Tab 并存，`activatePlugin` 显隐切换。需要单独设计 |
@@ -90,7 +92,7 @@ uTools 是「呼之即来、即用即走」的超级面板模型：插件是**�
   ```ts
   await session.fromPartition(pluginPartition(id)).clearStorageData()
   ```
-  同时删除 `~/eNest/data/plugin-storage/{id}.json`。
+  同时删除 `~/.eNest/data/plugin-storage/{id}.json`。
 - eNest 自有 `storage.local`（JSON 文件）与 partition localStorage 是**两套**，卸载时两者都要清。文档中应写明。
 
 ### 3.4 懒加载

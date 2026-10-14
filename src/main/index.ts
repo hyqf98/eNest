@@ -1,3 +1,4 @@
+import { disposeNativeClipboard } from '@main/clipboard/nativeClipboard'
 /**
  * Main entry — Electron 主进程入口
  * 职责：ready 前按设置决策硬件加速；ready 后创建数据目录、执行迁移、加载设置/KV 库/主题包，
@@ -6,7 +7,9 @@
  * 关键依赖：hardwareAcceleration、pathsService、migrate、sqliteService、themePacks、
  * PluginRegistry、PluginHost、SettingsStore、createShellWindow。
  */
-import { app, BaseWindow, globalShortcut } from 'electron'
+import { app, BaseWindow, globalShortcut, Notification } from 'electron'
+if (process.env.ENEST_TEST_USER_DATA) app.setPath('userData', process.env.ENEST_TEST_USER_DATA)
+
 import { registerSchemesAsPrivileged, initPluginProtocol } from '@main/plugin/pluginProtocol'
 import { applyHardwareAccelerationBeforeReady } from '@main/hardwareAcceleration'
 import { ensureAppDirs } from '@main/paths/pathsService'
@@ -29,6 +32,7 @@ import { restoreDevPlugins } from '@main/dev/DevConsole'
 import { registerShellHandlers } from '@main/ipc/shellHandlers'
 import { registerPluginHandlers } from '@main/ipc/pluginHandlers'
 import { registerQuickHandlers } from '@main/ipc/quickHandlers'
+import { disposeQuickPatternMatching } from '@main/launcher/quickPatternMatching'
 import { initQuickHotkeys, disposeQuickHotkeys } from '@main/hotkey/quickHotkey'
 import {
   initPluginLaunchHotkeys,
@@ -40,8 +44,10 @@ import {
   revalidateClipboardPolling,
   stopClipboardHistory
 } from '@main/clipboard/clipboardHistory'
-import { disposeScreenService } from '@main/screen/screenService'
+import { disposePluginInstallWorkers } from '@main/plugin/pluginInstallTasks'
+import { disposeScreenService, finishRecordingsForShutdown } from '@main/screen/screenService'
 import { disposePinService } from '@main/pin/pinService'
+import { initFocusTimers, shutdownFocusTimers, shutdownFocusTimersSync, stopFocusTimer } from '@main/timer/focusTimerService'
 
 registerSchemesAsPrivileged()
 
@@ -104,6 +110,7 @@ function handleFatalSignal(sig: NodeJS.Signals | string): void {
     /* ignore */
   }
   try {
+    shutdownFocusTimersSync()
     flushAll()
     settingsStore.flushNow()
   } catch {
@@ -198,11 +205,33 @@ void app.whenReady().then(async () => {
     // 恢复上次加载过的开发态插件（dev.json → 源码目录仍存在则重新挂进 registry）
     await restoreDevPlugins()
     logInfo('main', 'dev plugins restored')
+    try {
+      await initFocusTimers((event) => {
+        if (event.type === 'change') {
+          if (!pluginRegistry.isEnabled(event.pluginId) && event.snapshot.state.status !== 'idle') {
+            void stopFocusTimer(event.pluginId).catch(error => logWarn('timer', String(error)))
+            return
+          }
+          pluginHost.sendEvent(event.pluginId, { type: 'focus-timer-change', snapshot: event.snapshot })
+        } else {
+          const manifest = pluginRegistry.getManifest(event.pluginId)
+          if (!pluginRegistry.isEnabled(event.pluginId) || !manifest?.permissions?.includes('notify') || settingsStore.getPermissionGrant(event.pluginId, 'notify') === 'deny') return
+          new Notification({ title: event.title, body: event.body })
+            .on('failed', (_event, reason) => logWarn('timer', `notification failed: ${reason}`))
+            .show()
+        }
+      })
+    } catch (error) { logWarn('timer', `initialization failed: ${String(error)}`) }
     initPluginProtocol()
     logInfo('main', 'protocol ok')
 
     const win: BaseWindow = createShellWindow()
     logInfo('main', 'window ok')
+    const syncShellVisibility = () => pluginHost.setShellVisible(win.isVisible() && !win.isMinimized())
+    win.on('hide', syncShellVisibility)
+    win.on('minimize', syncShellVisibility)
+    win.on('show', syncShellVisibility)
+    win.on('restore', syncShellVisibility)
     win.on('resize', () => {
       pluginHost.layoutAll()
       layoutOrbRailViews()
@@ -295,12 +324,13 @@ app.on('before-quit', (event) => {
   if (quitting) return
   quitting = true
   event.preventDefault()
-  // 异步清理最长 2s，超时强制退出并注销热键
+  // Ordinary runtime cleanup takes 1.5s; recording finalization owns a separate 10s limit.
   const forceTimer = setTimeout(() => {
     logWarn('main', 'before-quit cleanup timeout → force exit')
+    try { shutdownFocusTimersSync() } catch { /* forced exit: best effort */ }
     releaseAllGlobalShortcutsSync()
     app.exit(0)
-  }, 2000)
+  }, 12_000)
   forceTimer.unref?.()
 
   disposeQuickHotkeys()
@@ -308,14 +338,15 @@ app.on('before-quit', (event) => {
   releaseAllPluginLaunchHotkeys()
   releaseAllGlobalShortcutsSync()
   stopClipboardHistory()
-  disposeScreenService()
+  disposeNativeClipboard()
   disposePinService()
   // 先 destroyAll 再销毁 Quick 小窗：Quick 内嵌插件的 webContents 仍存活，
   // 能真正收到 beforeClose 并 flush；若先毁小窗，向已销毁目标只能空等 ack
-  void pluginHost
-    .destroyAll()
-    .catch(() => {})
+  void Promise.allSettled([pluginHost.destroyAll(), disposePluginInstallWorkers(), disposeQuickPatternMatching(), shutdownFocusTimers().catch(error => logWarn('timer', `shutdown save failed: ${String(error)}`))])
+    .then(() => finishRecordingsForShutdown())
+    .catch((error) => logWarn('main', `shutdown cleanup failed: ${String(error)}`))
     .then(() => {
+      disposeScreenService()
       destroyQuickWindow()
     })
     .finally(() => {

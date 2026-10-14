@@ -6,7 +6,7 @@
  * 关键依赖：Node undici fetch（避开 Chromium c-ares）、marketMetadata、logService。
  */
 import { createHash } from 'node:crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, open, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseRemoteMarket, type MarketPluginSummary } from '@main/plugin/marketMetadata'
@@ -30,12 +30,39 @@ async function fetchJson(url: string): Promise<unknown> {
   try {
     // Node undici fetch（不走 Chromium net/c-ares）：主进程外部请求须避开内置解析器，
     // 见 index.ts host-resolver-rules 注释；代理经 proxyService 设置的 HTTP(S)_PROXY 生效
-    const res = await fetch(url, { method: 'GET' })
+    const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(15_000) })
     if (!res.ok) return null
     return await res.json()
   } catch {
     return null
   }
+}
+
+const readmeCache = new Map<string, string>()
+/** Only registry-owned URLs reach this function; bound time, bytes and retained cache. */
+export async function fetchMarketReadme(url: string): Promise<string> {
+  const parsed = new URL(url)
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('invalid README URL')
+  const cached = readmeCache.get(url)
+  if (cached !== undefined) { readmeCache.delete(url); readmeCache.set(url, cached); return cached }
+  const response = await fetch(url, { signal: AbortSignal.timeout(10_000) })
+  if (!response.ok || !response.body) throw new Error(`插件说明读取失败：HTTP ${response.status}`)
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let bytes = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      bytes += value.byteLength
+      if (bytes > 512 * 1024) throw new Error('插件说明超过 512 KiB')
+      chunks.push(value)
+    }
+  } finally { await reader.cancel().catch(() => {}); reader.releaseLock() }
+  const markdown = Buffer.concat(chunks).toString('utf8')
+  readmeCache.set(url, markdown)
+  while (readmeCache.size > 20) readmeCache.delete(readmeCache.keys().next().value!)
+  return markdown
 }
 
 /**
@@ -80,11 +107,14 @@ export interface DownloadedPackage {
 export async function downloadPluginPackage(
   url: string,
   opts: {
+    /** Known registry identity, not inferred from an arbitrary URL or display name. */
+    pluginId?: string
     expectedSha256?: string | null
     fileName?: string
     onProgress?: (p: DownloadProgress) => void
   } = {}
 ): Promise<DownloadedPackage> {
+  const maxBytes = opts.pluginId === 'com.enest.dsh' ? 256 * 1024 * 1024 : MAX_PLUGIN_PACKAGE_BYTES
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -126,8 +156,8 @@ export async function downloadPluginPackage(
     }
     const lengthHeader = res.headers.get('content-length')
     const total = lengthHeader ? Number(lengthHeader) : null
-    if (total != null && total > MAX_PLUGIN_PACKAGE_BYTES) {
-      throw new Error(`package too large: ${total} bytes (limit ${MAX_PLUGIN_PACKAGE_BYTES})`)
+    if (total != null && total > maxBytes) {
+      throw new Error(`package too large: ${total} bytes (limit ${maxBytes})`)
     }
 
     const body = res.body
@@ -136,22 +166,24 @@ export async function downloadPluginPackage(
     }
 
     const reader = body.getReader()
-    const chunks: Uint8Array[] = []
+    const file = await open(dest, 'wx')
+    const digest = createHash('sha256')
     let received = 0
-    for (;;) {
+    try { for (;;) {
       const { done, value } = await reader.read()
       if (done) break
       if (value) {
         received += value.byteLength
-        if (received > MAX_PLUGIN_PACKAGE_BYTES) {
+        if (received > maxBytes) {
           try {
             await reader.cancel()
           } catch {
             /* ignore */
           }
-          throw new Error(`package too large: exceeded ${MAX_PLUGIN_PACKAGE_BYTES} bytes`)
+          throw new Error(`package too large: exceeded ${maxBytes} bytes`)
         }
-        chunks.push(value)
+        digest.update(value)
+        await file.writeFile(value)
         opts.onProgress?.({
           percent: total ? Math.min(99, Math.round((received / total) * 100)) : 0,
           received,
@@ -160,12 +192,12 @@ export async function downloadPluginPackage(
       }
     }
 
-    const buf = Buffer.concat(chunks.map((c) => Buffer.from(c)))
-    if (buf.length === 0) {
+    } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); await file.close() }
+    if (received === 0) {
       throw new Error('download failed: empty file')
     }
 
-    const actualSha = createHash('sha256').update(buf).digest('hex')
+    const actualSha = digest.digest('hex')
     const expected = (opts.expectedSha256 ?? '').trim().toLowerCase()
     if (expected) {
       if (actualSha !== expected) {
@@ -176,7 +208,6 @@ export async function downloadPluginPackage(
       logWarn('market', `sha256 not provided, skip verify (${actualSha.slice(0, 12)}…)`)
     }
 
-    await writeFile(dest, buf)
     opts.onProgress?.({ percent: 100, received, total: total ?? received })
     logInfo('market', `download ok → ${dest} (${received} bytes)`)
     return { path: dest, cleanup }
@@ -188,5 +219,6 @@ export async function downloadPluginPackage(
     throw err
   } finally {
     clearTimeout(timer)
+    controller.abort()
   }
 }

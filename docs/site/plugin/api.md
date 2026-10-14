@@ -4,7 +4,7 @@ eNest 在每个插件页注入 **`window.enest`**，同时暴露别名 **`window
 
 > **`zapi` 为 `@deprecated` 历史别名**：保留兼容，计划 v2 移除。新代码统一使用 `enest.*`；本地调试需要双名兜底时写 `window.enest`（壳子环境必有）。
 
-所有能力调用统一进入主进程，完成 **发送者身份校验 → pluginId 匹配 → 权限断言 → 方法分发** 四步。
+所有能力调用统一进入主进程，完成 **窗口 / 主 frame / 精确 origin / 运行代次校验 → pluginId 匹配 → 基础能力放行 / 敏感能力授权 → 方法分发** 四步。
 
 ```js
 const api = window.enest
@@ -28,7 +28,8 @@ preload call('ui.setTitle', ['x'])
                               sender ∈ PluginHost? ──否──► unauthorized sender
                               request.pluginId 匹配? ──否──► plugin id mismatch
                               method 已知?          ──否──► unknown method
-                              permissions 声明?     ──否──► permission denied
+                              敏感能力声明并授权?   ──否──► permission denied
+                              （基础能力跳过此步）
                               dispatch(method, args)
         │
         ▼
@@ -37,7 +38,7 @@ resolve({ ok: true, data })
 
 失败时 Promise **reject**，`Error.message` 为上图中的错误字符串（见 [错误码](errors.md)）。
 
-**运行时授权**：manifest 声明权限只是入口，每项权限还对应一份 **按插件持久化的运行时三态授权** `allow / ask / deny`（默认 `ask`）。调用需权限的方法且处于 `ask` 时，壳子弹出授权弹窗「本次允许 / 总是允许 / 拒绝」，60 秒无响应按本次拒绝；选择「拒绝」会被记住为 `deny`（可在 插件设置 → 权限管理 改回）。未声明或已被 `deny` 的调用直接 reject `permission denied: <perm>`。完整模型与 OS 层（如 macOS 屏幕录制 TCC）叠加说明见 [权限说明](permissions.md)。
+**能力与授权分开**：私有存储、插件 UI、设置、声明式入口、主题和私有密钥保存是基础能力，无需声明或单项授权。其它敏感能力需要在 manifest 声明，并使用按插件保存的 `allow / ask / deny`（默认 `ask`）；`ask` 时由主进程原生对话框询问，超时拒绝。设置页可随时调整敏感授权，撤权会关闭当前实例并回收资源。插件可以自行实现任意前端业务，权限清单只约束敏感资源访问，见 [权限说明](permissions.md)。
 
 ---
 
@@ -45,30 +46,30 @@ resolve({ ok: true, data })
 
 | 命名空间 | 方法 | 权限 | 说明 |
 |---------|------|------|------|
-| `ui` | `setTitle(title)` | `ui.setTitle` | 设置 Tab 标题 |
-| `ui` | `setIcon(icon)` | `ui.setIcon` | 设置 Tab 图标 |
-| `ui` | `setBadge(badge)` | `ui.setBadge` | 设置角标 |
-| `ui` | `resize(size)` | `ui.resize` | 声明内容尺寸，Quick 即时适配 |
-| `ui` | `setHeight(height)` | `ui.resize` | 期望内容高度（Quick 内嵌消费） |
-| `ui` | `toast({ message, type? })` | `ui.toast` | 壳子应用内 Toast |
+| `ui` | `setTitle(title)` | 基础能力 | 设置 Tab 标题 |
+| `ui` | `setIcon(icon)` | 基础能力 | 设置 Tab 图标 |
+| `ui` | `setBadge(badge)` | 基础能力 | 设置角标 |
+| `ui` | `resize(size)` | 基础能力 | 声明内容尺寸，Quick 即时适配 |
+| `ui` | `setHeight(height)` | 基础能力 | 期望内容高度（Quick 内嵌消费） |
+| `ui` | `toast({ message, type? })` | 基础能力 | 壳子应用内 Toast |
 | `ui` | `getThemeTokens()` | 无 | 读主题变量（别名） |
 | `ui` | `onThemeChange(cb)` | 无 | 订阅主题变更 |
-| `theme` | `getTokens()` | 无 | 读当前主题变量 |
-| `theme` | `register(pack)` | `theme` | 注册主题包（≤8 个/插件） |
+| 基础能力 | `getTokens()` | 无 | 读当前主题变量 |
+| 基础能力 | `register(pack)` | 基础能力 | 注册主题包（≤8 个/插件） |
 | `hotkey` | `register(acc, opts?)` | `hotkey` | 注册全局热键 |
 | `hotkey` | `unregister(acc)` | `hotkey` | 注销全局热键 |
 | `hotkey` | `onHotkey(cb)` | 无 | 订阅热键触发 |
 | `i18n` | `getLocale()` | 无 | 读壳子语言 |
 | `i18n` | `onLocaleChange(cb)` | 无 | 订阅语言变更 |
-| `contribute` | `registerQuickProvider(meta)` | `contribute` | 注册 Quick 搜索 provider |
-| `contribute` | `unregisterQuickProvider(id)` | `contribute` | 注销 provider |
-| `contribute` | `onQuickQuery(cb)` | 无 | 订阅 Quick 搜索查询（门禁在 `registerQuickProvider`，纯订阅不校验） |
-| `contribute` | `respondQuickQuery(reqId, items)` | `contribute` | 回传查询结果 |
-| `settings` | `register(section)` | `settings.register` | 注册设置分组 |
+| 基础能力 | `registerQuickProvider(meta)` | 基础能力 | 注册 Quick 搜索 provider |
+| 基础能力 | `unregisterQuickProvider(id)` | 基础能力 | 注销 provider |
+| 基础能力 | `onQuickQuery(cb)` | 无 | 订阅 Quick 搜索查询（门禁在 `registerQuickProvider`，纯订阅不校验） |
+| 基础能力 | `respondQuickQuery(reqId, items)` | 基础能力 | 回传查询结果 |
+| `settings` | `register(section)` | 基础能力 | 注册设置分组 |
 | `settings` | `get(key)` | 无 | 读插件设置 |
 | `settings` | `set(key, value)` | 无 | 写插件设置 |
-| `storage` | `get/set/remove/clear` | `storage.local` | 持久化 KV |
-| `storage.session` | `get/set/remove/clear` | `storage.local` | 会话态 KV |
+| `storage` | `get/set/remove/clear` | 基础能力 | 持久化 KV |
+| `storage.session` | `get/set/remove/clear` | 基础能力 | 会话态 KV |
 | `clipboard` | `readText()` | `clipboard.read` | 读纯文本 |
 | `clipboard` | `writeText(text)` | `clipboard.write` | 写纯文本 |
 | `clipboard` | `readImage()` | `clipboard.readImage` | 读图片 dataURL |
@@ -78,27 +79,32 @@ resolve({ ok: true, data })
 | `screen` | `selectRegion()` | `screen.capture` | 全屏区域选择 |
 | `screen.record` | `start/stop/cancel` | `screen.record` | 矩形录屏 |
 | `pin` | `open/close/list/closeAll` | `pin.create` | 贴图窗口 |
-| `net` | `fetch({ url, method?, headers?, body?, timeoutMs? })` | `net.fetch` | 受控 HTTPS |
+| `net` | `fetch({ url, method?, headers?, body?, timeoutMs?, stream? })` | `net.fetch` | 受控 HTTP(S) / 流式 / SSE |
+| `net.socket` | `connect/send/close/list` / `serveWs(socketId)` | `net.socket` | 出站 TCP + 本地 ws 桥 |
+| `net` | `onNetData(cb)` / `onNetClose(cb)` / `onChunk(cb)` | 无（纯订阅） | `net.data` / `net.close` / `net.chunk` 事件 |
+| `agent` | `apps()` / `read(app)` / `write({ app, changes, confirmed })` / `backups(app)` / `restore({ app, id })` | `config.agent.read` / `config.agent.write` | AI CLI 配置白名单读写（自动快照） |
+| `sys` | `processes()` / `ports()` / `kill(pid, opts)` | `sys.inspect` / `sys.control` | 本机进程 / 端口 / 结束确认 |
 | `shell` | `openExternal(url)` | `shell.openExternal` | 系统浏览器打开 |
-| `shell` | `saveTextFile(payload)` | `shell.openExternal` | 另存文本文件 |
-| `vault` | `set(key, secret)` | `vault.write` | 存密钥，返回引用 |
-| `vault` | `has(keyOrRef)` | `vault.write` | 判断密钥是否存在 |
-| `vault` | `remove(keyOrRef)` | `vault.write` | 删除密钥 |
+| `shell` | `saveTextFile(payload)` | `fs.write` | 另存文本文件 |
+| `vault` | `set(key, secret)` | 基础能力 | 存密钥，返回引用 |
+| `vault` | `has(keyOrRef)` | 基础能力 | 判断密钥是否存在 |
+| `vault` | `remove(keyOrRef)` | 基础能力 | 删除密钥 |
 | `ssh` | `connect(input)` / `disconnect(id)` / `listSessions()` | `ssh.session` | 连接管理 |
 | `ssh` | `write(id, data)` / `resize(id, cols, rows)` | `ssh.session` | 交互终端 |
 | `ssh` | `exec(input)` | `ssh.exec` | 执行命令取结果 |
 | `ssh` | `metrics.start/stop/latest` | `ssh.exec` | 服务器指标采样 |
 | `ssh` | `completion.suggest(input)` | `ssh.exec` | 命令补全 |
-| `ssh` | `sftp.list/download/upload/mkdir/rename/delete/chmod` | `ssh` | 文件传输与目录 / 权限操作 |
+| `ssh` | `sftp.list/download/upload/mkdir/rename/delete/chmod` | `ssh.sftp`（本地文件另需 `fs.read/write`） | 文件传输与目录 / 权限操作 |
 | `ssh` | `onSshTransfer(cb)` | 无 | 订阅 SFTP 传输进度（`ssh.transfer`） |
-| `ssh` | `pickLocalFile(opts?)` | `ssh` | 选择本地文件/目录 |
+| `ssh` | `pickLocalFile(opts?)` | `fs.read` / `fs.write` | 选择本地文件/目录 |
 | `db` | `test(config)` / `open(input)` / `close(key)` / `listSessions()` | `db.connect` | 连接管理 |
 | `db` | `execute(input)` / `explain(input)` / `cancel(key)` | `db.query` | 查询执行 |
 | `db` | `applyChanges(input)` | `db.query` | 表格化编辑回写 |
 | `db` | `importPreview(input)` / `importRun(input)` | `db.query` | CSV 导入 |
 | `db` | `schema.tree/describe/ddl` | `db.schema` | 库表结构 |
 | `db` | `completion(input)` / `dialects.list()` | `db.schema` | SQL 补全 / 方言 |
-| `db` | `pickSqliteFile()` / `pickImportFile()` | `db.connect` | 选择数据库文件 |
+| `db` | `pickSqliteFile()` / `pickImportFile()` | 数据库选择 `fs.read/write`；导入选择 `fs.read` | 选择数据库文件 |
+| `mw` | `workbench(request)` | 按 action：`mw.connect` / `mw.query` / `mw.admin` | 中间件控制台统一入口（kafka / rabbitmq / mqtt / rocketmq）：连接、浏览、变更与实时监听；tail 消息经 `enest.on('mw.data')` 推送，错误经 `enest.on('mw.error')` |
 | — | `notify({ title?, body? })` | `notify` | 系统通知 |
 | — | `on(event, cb)` / `off(event, cb)` | 无 | 通用事件 |
 | — | `onEnter / onOut / onBeforeClose / onDestroy` | 无 | 生命周期 |
@@ -117,10 +123,10 @@ resolve({ ok: true, data })
 
 | | |
 |--|--|
-| **权限** | `ui.setTitle` |
-| **参数** | `title: string` — 新标题；空字符串会显示为空 |
-| **返回** | `Promise<boolean>` — 恒为 `true` |
-| **错误** | `permission denied: ui.setTitle` |
+| **权限** | 基础能力，无需声明或授权 |
+| **参数** | `title: string` — 最多 120 个 Unicode 码点，不含控制字符；空白字符串恢复 manifest 名称 |
+| **返回** | `Promise<boolean>` — 当前实例的展示状态是否更新 |
+| **错误** | 标题过长或包含控制字符 |
 
 ```js
 await enest.ui.setTitle('待办 · 3 项')
@@ -132,31 +138,32 @@ await enest.ui.setTitle('待办 · 3 项')
 
 ### `ui.setIcon(icon)`
 
-设置 Tab 图标。
+临时以文字图形覆盖 classic / orb Tab 的包内图标。默认图标始终来自当前插件安装包。
 
 | | |
 |--|--|
-| **权限** | `ui.setIcon` |
-| **参数** | `icon: string` — 图标标识（emoji / 内置 glyph 名，或后续扩展的资源 URL） |
+| **权限** | 基础能力，无需声明或授权 |
+| **参数** | `icon: string` — 1–2 个可见 Unicode 码点，例如 `✓` 或 `★`；不接受 URL、路径、空白或控制字符。空字符串恢复包内图标 |
 | **返回** | `Promise<boolean>` |
-| **错误** | `permission denied: ui.setIcon` |
+| **错误** | 文本过长或非法图标值 |
 
 ```js
 await enest.ui.setIcon('✓')
+await enest.ui.setIcon('') // 恢复本插件 assets/market/icon.svg
 ```
 
 ---
 
 ### `ui.setBadge(badge)`
 
-设置 Tab 角标。
+设置 classic / orb Tab 角标。标题、图标覆盖与角标经宿主统一快照同步，切换和休眠时保留，最终关闭后清除。
 
 | | |
 |--|--|
-| **权限** | `ui.setBadge` |
-| **参数** | `badge: string \| number` — 数字或短文本；传 `''` 清除 |
+| **权限** | 基础能力，无需声明或授权 |
+| **参数** | `badge: string \| number` — 0–999999 的整数或最多 8 个 Unicode 码点的文本，不含控制字符；传 `''` 清除 |
 | **返回** | `Promise<boolean>` |
-| **错误** | `permission denied: ui.setBadge` |
+| **错误** | 数字越界、文本过长或包含控制字符 |
 
 ```js
 await enest.ui.setBadge(3)
@@ -172,7 +179,7 @@ await enest.ui.setBadge('') // 清除
 
 | | |
 |--|--|
-| **权限** | `ui.resize` |
+| **权限** | 基础能力，无需声明或授权 |
 | **参数** | `size: { width?: number; height?: number }` |
 | **返回** | `Promise<boolean>` |
 
@@ -190,7 +197,7 @@ await enest.ui.resize({ width: 960, height: 640 })
 
 | | |
 |--|--|
-| **权限** | `ui.resize`（复用） |
+| **权限** | 基础能力，无需声明或授权 |
 | **参数** | `height: number` — 期望高度 px（正数） |
 | **返回** | `Promise<boolean>` |
 | **错误** | `invalid height`（非正数） |
@@ -209,10 +216,10 @@ await enest.ui.setHeight(420)
 
 | | |
 |--|--|
-| **权限** | `ui.toast` |
+| **权限** | 基础能力，无需声明或授权 |
 | **参数** | `payload: { message: string; type?: 'info' \| 'success' \| 'warn' \| 'error' }` |
 | **返回** | `Promise<boolean>` |
-| **错误** | `permission denied: ui.toast`；`toast message required`（`message` 为空） |
+| **错误** | `toast message required`（`message` 为空） |
 
 - `message` 必填非空。
 - `type` 缺省或非法值时按 `'info'` 处理。
@@ -222,11 +229,11 @@ await enest.ui.toast({ message: '已保存', type: 'success' })
 await enest.ui.toast({ message: '网络异常', type: 'error' })
 ```
 
-| | `ui.toast` | `notify` |
+| | 基础能力 | `notify` |
 |--|-----------|----------|
 | 渲染方 | 壳子应用内 Toast | 操作系统通知 |
 | 场景 | 当前窗口内轻反馈 | 可后台触发、系统级 |
-| 权限 | `ui.toast` | `notify` |
+| 权限 | 基础能力 | `notify` |
 
 ---
 
@@ -305,10 +312,10 @@ const { mode, tokens } = await enest.theme.getTokens()
 
 | | |
 |--|--|
-| **权限** | `theme`（运行时注册路径需声明；manifest `contributes.themePacks` 声明式路径同样计入本插件配额） |
+| **权限** | 基础能力，无需声明或授权；两种注册路径共用本插件配额 |
 | **参数** | `pack: ThemePack` |
 | **返回** | `Promise<unknown>` — 注册后的主题包对象 |
-| **错误** | `permission denied: theme`；`invalid theme pack: require id and name`；`theme pack id already registered by <src>`；`theme pack limit reached` 等（见 [错误码](errors.md)） |
+| **错误** | `invalid theme pack: require id and name`；`theme pack id already registered by <src>`；`theme pack limit reached` 等（见 [错误码](errors.md)） |
 
 ```js
 await enest.theme.register({
@@ -419,7 +426,7 @@ const off = enest.i18n.onLocaleChange(({ locale }) => switchDict(locale))
 
 | | |
 |--|--|
-| **权限** | `contribute` |
+| **权限** | `contribute`（接收 Quick 全局搜索文本） |
 | **参数** | `meta: { id: string; explain?: string; schemaVersion?: string }` |
 | **返回** | `Promise<{ ok: true } \| { ok: false; error?: string }>` — 失败不 reject |
 
@@ -442,7 +449,7 @@ const off = enest.i18n.onLocaleChange(({ locale }) => switchDict(locale))
 
 | | |
 |--|--|
-| **权限** | `contribute` |
+| **权限** | `contribute`（接收 Quick 全局搜索文本） |
 | **参数** | `reqId: string`；`items: Array<{ id?; title?; subtitle?; explain?; code? }>` |
 | **返回** | `Promise<boolean>` |
 
@@ -470,10 +477,10 @@ enest.contribute.onQuickQuery(async ({ reqId, query }) => {
 
 | | |
 |--|--|
-| **权限** | `settings.register` |
+| **权限** | 基础能力，无需声明或授权 |
 | **参数** | `section: { id: string; title: string; items: Array<{ key, type, label, default? }> }` |
 | **返回** | `Promise<boolean>` |
-| **错误** | `permission denied: settings.register`；`invalid settings section`（缺 `id` 或 `title`） |
+| **错误** | `invalid settings section`（缺 `id` 或 `title`） |
 
 ```js
 await enest.settings.register({
@@ -491,7 +498,7 @@ await enest.settings.register({
 | `section.id` | 分组唯一 id |
 | `section.title` | 设置页分组标题 |
 | `items[].key` | 设置键，后续 `settings.get/set` 使用 |
-| `items[].type` | 控件类型：`text` / `string` / `switch` / `boolean` / `bool` / `select`（含 `options`）/ `number` / `slider`（含 `min` / `max` / `step`）/ `color`；`page` 为预留（需 `settings.page` 权限，本期仅声明）。非法类型渲染层回退 `text` |
+| `items[].type` | 控件类型：`text` / `string` / `switch` / `boolean` / `bool` / `select`（含 `options`）/ `number` / `slider`（含 `min` / `max` / `step`）/ `color`；`page` 为打开本插件设置功能的入口（基础能力）。非法类型渲染层回退 `text` |
 | `items[].label` | 控件标签 |
 | `items[].default` | 默认值（可选） |
 | `items[].options` | `select` 的选项列表 `Array<{ label, value }>` |
@@ -501,7 +508,7 @@ await enest.settings.register({
 
 ### `settings.get(key)`
 
-读取插件设置值。优先从设置桥读取，否则回落到壳子已持久化的插件设置。**只能读取注册过的设置项**（`settings.register` 或 `contributes.settings` 声明的 key）。
+读取插件设置值。优先从设置桥读取，否则回落到壳子已持久化的插件设置。**只能读取注册过的设置项**（`settings.register` 或 `contributes.settings` 声明的 key）；宿主保留键（如 `permissionGrants`）不能注册、读取或写入。
 
 | | |
 |--|--|
@@ -539,19 +546,19 @@ await enest.settings.set('name', '世界')
 
 | | `storage.*`（local） | `storage.session.*` |
 |--|----------------------|---------------------|
-| 介质 | SQLite（`~/.eNest` 数据根下 `enest.db` 的 `plugin_storage` 表，按 `plugin_id + key` 隔离） | 主进程内存 Map |
+| 介质 | SQLite（`~/.eNest` 数据根下 `data/enest.db` 的 `plugin_storage` 表，按 `plugin_id + key` 隔离） | 主进程内存 Map |
 | 写入策略 | 50ms 合并写（脏键批量事务落库）；配额：每插件 1000 键、单值 512KB | 即时内存 |
 | 生命周期 | 关 Tab **保留**；卸载清理 | 插件关闭 / 应用退出即清空（休眠有快照恢复） |
-| 权限 | `storage.local` | `storage.local`（复用，无需单独声明） |
+| 权限 | 基础能力 | 基础能力 |
 
 ### `storage.get(key)` / `storage.set(key, value)` / `storage.remove(key)` / `storage.clear()`
 
 | | |
 |--|--|
-| **权限** | `storage.local` |
+| **权限** | 基础能力，无需声明或授权 |
 | **参数** | `key: string`；`set` 另需 `value: unknown`（任意 JSON 可序列化值） |
 | **返回** | `get → Promise<unknown>`；其余 `Promise<boolean>` |
-| **错误** | `permission denied: storage.local`；`storage quota exceeded`（每插件 >1000 键或单值 >512KB） |
+| **错误** | `storage quota exceeded`（每插件 >1000 键或单值 >512KB） |
 
 ```js
 await enest.storage.set('prefs', { theme: 'dark', compact: true })
@@ -568,7 +575,7 @@ await enest.storage.clear()
 
 | | |
 |--|--|
-| **权限** | `storage.local` |
+| **权限** | 基础能力，无需声明或授权 |
 | **参数 / 返回** | 与 local 相同 |
 
 ```js
@@ -746,20 +753,21 @@ const { pinId } = await enest.pin.open({ dataUrl, width: 420, title: '参考图'
 
 ### `net.fetch(req)`
 
-受控 HTTPS 请求，用于调用开放 API / 拉取文本资源。
+受控 HTTP(S) 请求，用于调用开放 API / 拉取文本资源 / 流式订阅。
 
 | | |
 |--|--|
 | **权限** | `net.fetch` |
-| **参数** | `req: { url: string; method?: 'GET' \| 'POST'; headers?: Record<string, string>; body?: string; timeoutMs?: number }` |
-| **返回** | `Promise<{ status: number; headers: Record<string, string>; body: string }>` |
+| **参数** | `req: { url: string; method?: 'GET' \| 'POST' \| 'PUT' \| 'PATCH' \| 'DELETE' \| 'HEAD'; headers?: Record<string, string>; body?: string; timeoutMs?: number; stream?: boolean }` |
+| **返回** | `Promise<{ status: number; headers: Record<string, string>; body: string; streamed?: boolean; reqId?: string }>`（`stream:true` 时 `body` 为空，分片走 `net.chunk` 事件） |
 
 硬约束（超限直接 reject，见 [错误码](errors.md)）：
 
-- **仅 https**：URL 与每一跳重定向都必须是 `https://`（手动逐跳跟随，最多 5 跳，阻断 http / 内网跳转 SSRF）
-- **仅 GET / POST**
-- **响应体上限 2MB**（先看 `content-length`，再按实际字节复核）
-- **超时**：默认 15s，可传 `timeoutMs` 调整（下限 1s、上限 60s）；超时报 `net.fetch timeout`
+- **仅 https**：URL 与每一跳重定向都必须是 `https://`（手动逐跳跟随，最多 5 跳，阻断 http / 内网跳转 SSRF）；manifest 声明 `"net": { "allowInsecure": true }` 时放行明文 `http://`（重定向逐跳仍按此规则校验）
+- **GET / POST / PUT / PATCH / DELETE / HEAD**
+- **响应体上限**：非流式 2MB；`stream: true` 流式 32MB（超过 2MB 的部分经 `net.chunk` 事件分片推送，chunk 为 base64）
+- **SSE**：`stream: true` 且响应 `content-type: text/event-stream` 时按行转发 `data:` 事件（chunk 为 utf8 文本，`done: true` 终态）
+- **超时**：默认 15s，可传 `timeoutMs` 调整（下限 1s、上限 120s）；超时报 `net.fetch timeout`
 
 ```js
 const res = await enest.net.fetch({
@@ -770,7 +778,84 @@ const res = await enest.net.fetch({
   timeoutMs: 10_000
 })
 if (res.status === 200) console.log(res.body)
+
+// 流式（>2MB 响应 / SSE）：
+const off = enest.net.onChunk(({ reqId, chunk, done, error }) => {
+  if (done) { off(); return }
+  const text = atob(chunk) // base64 → 文本（SSE 模式 chunk 已是 utf8 文本）
+  console.log(text)
+})
+await enest.net.fetch({ url: 'https://api.example.com/stream', stream: true })
 ```
+
+---
+
+## net.socket — 出站 TCP 连接与本地 WebSocket 桥
+
+供远程桌面（noVNC / RDP）、TCP 调试类插件使用。仅 outgoing 连接（不提供监听）；与
+`enest.ssh.workbench({ action: 'tunnel.open' })` 打开的本地隧道口衔接：先建隧道，再
+`socket.connect({ host: '127.0.0.1', port: <隧道本地口> })`。
+
+| 方法 | 说明 |
+|------|------|
+| `net.socket.connect({ sessionId?, host, port, tls?, timeoutMs? })` | 建立 TCP / TLS 连接 → `{ socketId }`；连接超时缺省 10s；**每插件并发上限 8** |
+| `net.socket.send(socketId, data)` | 发送数据（合法 base64 按二进制，否则按 utf8 文本）；每 socket 1MB/s 令牌桶限速（突发 2MB） |
+| `net.socket.close(socketId)` | 关闭连接（插件关闭时宿主自动释放全部 socket） |
+| `net.socket.list()` | 本插件 socket 概览（含 ws 桥端口、收发字节统计） |
+| `net.socket.serveWs(socketId)` | 为已连接 socket 起本地 WebSocket 桥 → `{ url, token, port }` |
+
+**权限**：`net.socket`。
+
+**事件**（`enest.on(...)` / 命名空间订阅）：
+
+| 事件 | 载荷 | 说明 |
+|------|------|------|
+| `net.data` | `{ socketId, chunk }`（base64） | 对端数据（64KB / 20ms 双阈值节流合并） |
+| `net.close` | `{ socketId, reason }` | 连接关闭（对端关闭 / 本端关闭 / 错误） |
+
+**serveWs 模式**：桥服务只绑 `127.0.0.1` 随机端口，`token` 一次性（首个命中连接消费，
+后续连接即使 token 对也被拒绝；扩展协商拒绝）。桥建立后该 socket 的双向流直通 ws 二进制
+帧（不再经 IPC 分片），插件页内 vendored 的 noVNC / ironrdp-wasm 直接：
+
+```js
+const { socketId } = await enest.net.socket.connect({ host: '127.0.0.1', port: 5901 })
+const { url } = await enest.net.socket.serveWs(socketId)
+const ws = new WebSocket(url)  // ws.binaryType = 'arraybuffer'，双向二进制流
+ws.binaryType = 'arraybuffer'
+```
+
+---
+
+## agent — AI CLI 配置白名单读写
+
+白名单覆盖 10 个应用（路径硬编码在宿主内，禁止任意路径）：
+`claude-code`（~/.claude/settings.json）、`claude-desktop`、`codex`（~/.codex/config.toml +
+auth.json）、`gemini-cli`（~/.gemini/settings.json）、`grok-build`（~/.grok/config.toml）、
+`opencode`、`openclaw`、`hermes`（config.yaml）、`pi`、`minimax-code`。
+
+| 方法 | 说明 |
+|------|------|
+| `agent.apps()` | 可用应用 + 探测到的安装状态（`installed` 主配置存在）与活跃状态（如 codex auth 有登录材料） |
+| `agent.read(app)` | 配置原文 + 解析结果（JSON 解析为对象；TOML/YAML 回传原文） |
+| `agent.write({ app, changes, confirmed })` | 最小侵入写入：只替换给定**顶层键**（JSON 键序保留、TOML 注释与未触及行保留）；宿主确认具体目标后执行；**写前自动快照** |
+| `agent.backups(app)` | 快照列表（时间倒序） |
+| `agent.restore({ app, id })` | 从快照恢复（恢复前对当前状态再做一次安全快照） |
+
+**权限**：`config.agent.read` / `config.agent.write`。快照位于 `~/.eNest/agent-config-backups/<app>/<timestamp>`，
+每应用保留最近 20 份。`changes` 的 `$file` 特殊键指定目标文件（如 codex 的
+`{ $file: 'auth.json', OPENAI_API_KEY: 'sk-...' }` 写 auth.json 而非 config.toml）。
+
+---
+
+## sys — 本机进程与端口
+
+| 方法 | 说明 |
+|------|------|
+| `sys.processes()` | 进程列表（`ps -axo pid,pcpu,pmem,rss,user,comm`；Linux 探测式回退）；1s 采样缓存 |
+| `sys.ports()` | 监听端口（`lsof -nP -iTCP -sTCP:LISTEN`；Linux 回退 `ss -ltnp` / `netstat`）；1s 采样缓存 |
+| `sys.kill(pid, { signal?, confirmed })` | 结束进程：宿主原生对话框确认 PID / 进程目标，`confirmed` 不能代替授权；`signal` 支持 TERM（缺省）/ KILL / INT；宿主拒绝 kill 自身进程与 PID ≤ 1 |
+
+**权限**：列表使用 `sys.inspect`，结束进程使用 `sys.control`。
 
 ---
 
@@ -815,13 +900,13 @@ if (saved) enest.ui.toast({ message: `已保存到 ${saved.path}` })
 
 ## vault — 密钥保险库
 
-保存连接口令、API token 等敏感信息。**只写不读**：存入后返回一个 `secretRef` 引用，之后把引用传给 SSH / 数据库连接参数，明文不会回到插件页。
+保存本插件的连接口令、API token 等敏感信息，不能读取系统已有凭据。系统加密不可用时保存失败，不会静默降级为简单混淆。**只写不读**：存入后返回一个 `secretRef` 引用，之后把引用传给 SSH / 数据库连接参数，明文不会回到插件页。
 
 ### `vault.set(key, secret)`
 
 | | |
 |--|--|
-| **权限** | `vault.write` |
+| **权限** | 基础能力，无需声明或授权 |
 | **参数** | `key: string`（插件内唯一的标识，如 `prod-db`）；`secret: string` |
 | **返回** | `Promise<{ secretRef: string }>` |
 
@@ -829,7 +914,7 @@ if (saved) enest.ui.toast({ message: `已保存到 ${saved.path}` })
 
 | | |
 |--|--|
-| **权限** | `vault.write` |
+| **权限** | 基础能力，无需声明或授权 |
 | **参数** | `keyOrRef: string` — 存入时的 key 或返回的 secretRef 均可 |
 | **返回** | `Promise<boolean>` |
 
@@ -849,7 +934,7 @@ await enest.db.open({ config: { driver: 'mysql', host, username, secretRef } })
 
 | | |
 |--|--|
-| **权限** | `ssh` |
+| **权限** | `ssh.session`（agent 另需 `ssh.agent`，私钥文件另需 `fs.read`） |
 | **参数** | `input: SshConnectInput`（见下） |
 | **返回** | `Promise<SshSessionInfo>`（含 `sessionId`） |
 
@@ -863,7 +948,7 @@ await enest.db.open({ config: { driver: 'mysql', host, username, secretRef } })
 | `authType` | `'password' \| 'key' \| 'agent'?` | 认证方式 |
 | `secretRef` | `string?` | vault 引用（推荐） |
 | `password` | `string?` | 一次性口令（不落盘） |
-| `privateKeyPath` | `string?` | 本地私钥路径 |
+| `privateKeyHandleId` | `string?` | 宿主选择器返回的只读私钥句柄；不接受路径 |
 | `jump` | `SshJumpConfig?` | 跳板机（字段同上，`host`/`username` 必填） |
 | `cols` / `rows` / `term` | | 终端初始尺寸与类型 |
 | `timeoutMs` / `keepAliveSec` | | 连接超时与保活 |
@@ -901,8 +986,8 @@ console.log(r.exitCode, r.stdout)
 | 方法 | 参数 | 返回 |
 |------|------|------|
 | `list` | `{ sessionId?, path? }` | `Promise<SftpEntry[]>` — `name/type/size/mtime` |
-| `download` | `{ sessionId?, remotePath?, localPath? }` | `Promise<SftpTransferResult>` |
-| `upload` | `{ sessionId?, localPath?, remotePath? }` | `Promise<SftpTransferResult>` |
+| `download` | `{ sessionId?, remotePath?, localDirectoryHandleId? }` | `Promise<SftpTransferResult>` |
+| `upload` | `{ sessionId?, localHandleId?, remotePath? }` | `Promise<SftpTransferResult>` |
 | `mkdir` | `(sessionId, path)` | `Promise<boolean>` — 新建远程目录 |
 | `rename` | `(sessionId, path, newPath)` | `Promise<boolean>` — 重命名 / 移动 |
 | `delete` | `(sessionId, path, recursive?)` | `Promise<boolean>` — 删除文件 / 目录（目录递归需 `recursive: true`） |
@@ -943,8 +1028,8 @@ const off = enest.ssh.onSshTransfer(({ direction, path, transferred, total, done
 
 | | |
 |--|--|
-| **参数** | `opts?: { properties?: Array<'openFile' \| 'openDirectory'>; mode?: 'file' \| 'dir' }` |
-| **返回** | `Promise<string \| null>` — 用户取消时 `null` |
+| **参数** | `opts?: LocalFilePickOptions` — `kind`、`multiple`、`access`，与 localFiles.pick 相同 |
+| **返回** | `Promise<LocalFileHandle \| null>` — 用户取消时 `null` |
 
 ---
 
@@ -967,7 +1052,7 @@ const off = enest.ssh.onSshTransfer(({ direction, path, transferred, total, done
 | `driver` | 必填：`mysql` / `sqlite` / `influxdb` / `timescale` / `tdengine` |
 | `host` / `port` / `database` / `username` | 连接信息 |
 | `secretRef` / `ephemeralSecret` | vault 引用（推荐）或一次性口令 |
-| `filePath` / `createIfMissing` | SQLite 本地库文件 |
+| `fileHandleId` / `createIfMissing` | SQLite / DuckDB 的用户授权文件；内存库用 `database: ":memory:"` |
 | `org` / `bucket` | InfluxDB v2 |
 | `readOnly` | 只读连接（推荐查询类插件开启） |
 
@@ -979,7 +1064,7 @@ const off = enest.ssh.onSshTransfer(({ direction, path, transferred, total, done
 | **返回** | `Promise<QueryResult>` — `{ columns, rows, rowCount, durationMs, truncated? ... }` |
 
 - `params` 支持 `?` 位置占位与 `:name` 命名占位，请始终用参数化查询拼接用户输入。
-- 生产 / 受保护连接执行写操作时需 `confirmed: true`（对应错误见 [错误码](errors.md)）。
+- 生产 / 受保护连接执行写操作时需用户确认；宿主对危险目标另行原生确认，插件传 `confirmed: true` 不授予权限。
 - `truncated: true` 表示命中 `maxRows` 上限被截断。
 
 ```js
@@ -1010,7 +1095,7 @@ const { rows, columns } = await enest.db.execute({
 
 ### `db.importPreview(input)` / `db.importRun(input)`
 
-CSV 导入两步流：先 `importPreview` 看列映射与 SQL 预览（`{ columns, sampleRows, mappedColumns, sqlPreview }`），确认后 `importRun` 执行（`{ ok, inserted, failed, errors? }`）。数据源传 `csvText`，或先 `pickImportFile()` 选文件后传 `filePath`。`conflict` 策略支持 `insert / upsert / skip`。
+CSV 导入两步流：先 `importPreview` 看列映射与 SQL 预览（`{ columns, sampleRows, mappedColumns, sqlPreview }`），确认后 `importRun` 执行（`{ ok, inserted, failed, errors? }`）。数据源传 `csvText`，或先 `pickImportFile()` 选文件后传 `fileHandleId: handle.id`。`conflict` 策略支持 `insert / upsert / skip`。
 
 ### `db.schema.tree / describe / ddl`
 
@@ -1026,7 +1111,7 @@ CSV 导入两步流：先 `importPreview` 看列映射与 SQL 预览（`{ column
 
 ### `db.pickSqliteFile()` / `db.pickImportFile()`
 
-系统文件选择框：前者限定 SQLite 库文件，后者限定 CSV 等导入文件。只允许使用选择器返回的路径。
+系统文件选择框：前者限定 SQLite 库文件，后者限定 CSV 等导入文件。返回文件句柄或 null，只能使用句柄 id，不接受路径。
 
 ---
 
@@ -1184,11 +1269,11 @@ URL query 中的 `?mode=quick|shell`（与 `?pid` / `?code` 并列）只是**初
 | | |
 |--|--|
 | **权限** | 无 |
-| **参数** | `cb: (event: { mode: 'quick' \| 'shell' }) => void` |
+| **参数** | `cb: (mode: 'quick' \| 'shell') => void` |
 | **返回** | `() => void` — 取消订阅 |
 
 ```js
-const off = enest.onModeChange(({ mode }) => {
+const off = enest.onModeChange((mode) => {
   document.documentElement.dataset.mode = mode
 })
 ```
@@ -1235,10 +1320,10 @@ const code = enest.getEnterCode()
 
 ## TypeScript
 
-完整 `window.enest` 接口声明见 [TypeScript 类型](api-types.md)（由 `scripts/generate-api-types.mjs` 自动生成，勿手改）。推荐安装 **`@enest/plugin-sdk`** 包（位于壳子仓库 `packages/plugin-sdk`，含 d.ts 与 manifest 校验 CLI），或将生成的 d.ts 拷入插件工程：
+完整 `window.enest` 接口声明见 [TypeScript 类型](api-types.md)（由 `scripts/generate-api-types.mjs` 自动生成，勿手改）。推荐安装 **`@enest/plugin-sdk`** 包（位于插件仓库 `packages/plugin-sdk`，声明与 preload 同源生成），或将生成的 d.ts 拷入插件工程：
 
 ```text
-packages/plugin-sdk/src/enest-api.d.ts   ← 自动生成，与 preload 严格一致
+eNest_plugin/packages/plugin-sdk/index.d.ts   ← 自动生成，与 preload 严格一致
 ```
 
 推荐插件内的安全用法：
@@ -1256,10 +1341,38 @@ if (!api) {
 ## 安全模型要点
 
 1. **无 Node**：插件页不能 `require('electron')`，不能访问任意文件系统。
-2. **权限门禁**：未在 `plugin.json` 的 `permissions` 声明的调用被拒绝；已声明的能力还受运行时三态授权（allow / ask / deny）约束（见 [权限说明](permissions.md)）。
+2. **权限门禁**：基础能力无需声明或授权；敏感能力必须在 `plugin.json.permissions` 声明，并取得运行时三态授权（allow / ask / deny）（见 [权限说明](permissions.md)）。
 3. **身份绑定**：调用仅接受壳子管理的插件页面；伪造 `pluginId` 返回 `plugin id mismatch`。
 4. **协议隔离**：`enest://plugin/{id}/...` 只映射该插件根目录，路径穿越会被拒。
 5. **partition 隔离**：每个插件独立 `persist:plugin-{id}`，cookie / localStorage 互不可见。
 
-→ 权限完整表见 [权限说明](permissions.md)  
+→ 权限完整表见 [权限说明](permissions.md)
 → 错误字符串见 [错误码](errors.md)
+
+
+## 文件句柄与 WebSocket 新接口
+
+`localFiles.pick({ kind?, multiple?, access? })` 返回 `LocalFileHandle[]`；`localFiles.pickSave({ defaultName? })` 返回句柄或 `null`。句柄包含 `id/name/kind/size/displayPath`，只在签发插件的当前实例中有效。具体能力与持久化策略见 [权限](permissions.md)。
+
+`localFiles.read({ handleId, encoding: 'text' | 'dataUrl', maxBytes? })` 使用 `fs.read` 读取已授权文件，返回 UTF-8 文本字符串或带 MIME 的 data URL 字符串。文本默认 2 MiB、data URL 默认 16 MiB，调用方可设置 `maxBytes`，最大 32 MiB；每插件最多两次并发读取。只接受普通文件，不跟随符号链接；关闭、重载或撤权后原句柄失效。官方插件的文本导入、图片预览通过此接口读取，不持久化系统路径或句柄。
+
+`db.pickSqliteFile({ createIfMissing?, readOnly? })` 返回 `LocalFileHandle | null`。默认可写选择需 `fs.write`；显式 `readOnly:true` 且不创建文件时需 `fs.read`。`db.pickImportFile()` 返回只读文件句柄或 `null`。不要保存句柄跨重启复用。
+
+`net.websocket` 使用 `net.socket` 权限并走宿主代理：
+
+```js
+const { socketId } = await enest.net.websocket.connect({ url: 'wss://example.com/events' })
+const offMessage = enest.net.websocket.onMessage(event => {
+  if (event.socketId === socketId) console.log(event.data, event.binary)
+})
+await enest.net.websocket.send(socketId, 'hello')
+// 二进制发送时 data 为 base64，第三个参数 binary=true。
+await enest.net.websocket.close(socketId)
+offMessage()
+```
+
+生产页面的原生 fetch / WebSocket 不用于任意外联。`net.socket.serveWs` 是经授权签发、绑定当前运行代次的精确连接桥，仅用于已有二进制协议适配，不能构造 URL 访问其它本机服务。
+
+存储排队写入、HTTP 分片、SSE、socket 帧和发送队列都有字节预算；超限 reject，调用方应显示错误并允许缩小数据或重试，不应无界积累缓冲。完整返回类型以 [生成的 API 类型](api-types.md) 为准。
+
+HTTP 同时最多 8 个在途请求；流式响应（含 SSE）单次最多 32 MiB。SSE 单行最多 2 MiB、最多 65,536 个事件；读取达到预算或运行实例失效时，宿主取消上游请求并返回明确错误。

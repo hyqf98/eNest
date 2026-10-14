@@ -1,0 +1,141 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { mkdtemp, readFile, rm, writeFile, readdir } from 'node:fs/promises'
+import * as fs from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createRequire } from 'node:module'
+import ts from 'typescript'
+
+const require = createRequire(import.meta.url)
+function load(file, mocks = {}) {
+  const js = ts.transpileModule(readFileSync(new URL(file, import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
+  }).outputText
+  const module = { exports: {} }
+  new Function('require', 'module', 'exports', js)(name => mocks[name] ?? require(name), module, module.exports)
+  return module.exports
+}
+const contract = load('../../shared/pluginContract.ts')
+test('plugin theme tokens cannot inject selectors or non-token root properties, including persisted packs', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'enest-theme-tokens-'))
+  const mocks = {
+    '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
+    '@main/logs/logService': { logWarn() {} },
+    '@shared/pluginContract': contract
+  }
+  const js = ts.transpileModule(readFileSync(new URL('./themePacks.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
+  }).outputText
+  const module = { exports: {} }
+  new Function('require', 'module', 'exports', js)(name => mocks[name] ?? require(name), module, module.exports)
+  const tokens = {
+    '--accent': '#bd542b',
+    '--font': 'Arial, sans-serif',
+    'display': 'none',
+    '--x: red; } body { display': 'none',
+    '--x\n} body { color': '#fff',
+    '--remote': 'url(https://example.test/exfil)'
+  }
+  try {
+    const registry = new module.exports.ThemePackRegistry()
+    const saved = await registry.register({ id: 'test-theme', name: 'Test', source: 'com.test.theme', tokens })
+    assert.deepEqual(saved.tokens, { '--accent': '#bd542b', '--font': 'Arial, sans-serif' })
+    assert.deepEqual(JSON.parse(await readFile(join(directory, 'registry.json'), 'utf8'))[0].tokens, saved.tokens)
+    await writeFile(join(directory, 'registry.json'), JSON.stringify([{ ...saved, tokens }]))
+    const reloaded = new module.exports.ThemePackRegistry()
+    await reloaded.load()
+    assert.deepEqual(reloaded.get('test-theme').tokens, saved.tokens)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('concurrent theme sources serialize atomic registry writes and leave valid complete JSON', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'enest-theme-persist-'))
+  let active = 0, maximum = 0
+  const mocks = {
+    '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
+    '@main/logs/logService': { logWarn() {} },
+    '@shared/pluginContract': contract,
+    'node:fs/promises': { ...fs, writeFile: async (...args) => {
+      active++; maximum = Math.max(maximum, active)
+      try { await new Promise(resolve => setTimeout(resolve, 5)); return await writeFile(...args) }
+      finally { active-- }
+    } }
+  }
+  const js = ts.transpileModule(readFileSync(new URL('./themePacks.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
+  }).outputText
+  const module = { exports: {} }
+  new Function('require', 'module', 'exports', js)(name => mocks[name] ?? require(name), module, module.exports)
+  try {
+    const registry = new module.exports.ThemePackRegistry()
+    await Promise.all(Array.from({ length: 6 }, (_, i) => registry.register({
+      id: 'theme-' + i, name: 'Theme ' + i, source: 'com.test.source' + i, tokens: { '--accent': '#fff' }
+    })))
+    assert.equal(maximum, 1)
+    const saved = JSON.parse(await readFile(join(directory, 'registry.json'), 'utf8'))
+    assert.equal(saved.length, 6)
+    assert.deepEqual(await readdir(directory), ['registry.json'])
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('plugin themes cannot use shell backgrounds for remote, local-file or cross-plugin access', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'enest-theme-background-'))
+  const { ThemePackRegistry } = load('./themePacks.ts', {
+    '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
+    '@main/logs/logService': { logWarn() {} }, '@shared/pluginContract': contract
+  })
+  const source = 'com.test.theme', pack = { id: 'background', name: 'Background', source, tokens: { '--accent': '#fff' } }
+  const bad = [
+    { type: 'color', value: 'url(https://example.test/track)' },
+    { type: 'color', value: 'image-set("https://example.test/track" 1x)' },
+    { type: 'image', value: 'https://example.test/track.png' },
+    { type: 'image', value: 'data:image/svg+xml,<svg/>' },
+    { type: 'video', value: 'blob:enest://plugin/anything' },
+    { type: 'image', value: '/Users/someone/private.png' },
+    { type: 'image', value: 'enest://media/?path=/Users/someone/private.png' },
+    { type: 'image', value: 'enest://plugin/com.other.plugin/assets/private.png' },
+    { type: 'image', value: `enest://plugin/${source}/assets/%252e%252e/private.png` },
+    { type: 'image', value: `enest://plugin/${source}/assets/../private.png` },
+    { type: 'image', value: `enest://plugin/${source}/assets/icon.svg?path=/private` },
+    { type: 'image', value: `enest://plugin/${source}/assets/index.html` }
+  ]
+  try {
+    const registry = new ThemePackRegistry()
+    for (const background of bad) {
+      const saved = await registry.registerPlugin({ ...pack, background }, source)
+      assert.equal(saved.background, undefined, JSON.stringify(background))
+      assert.equal(registry.get(pack.id).background, undefined)
+    }
+    for (const background of [
+      { type: 'color', value: '#153b4f', opacity: 0.5, fit: 'cover' },
+      { type: 'color', value: 'rgba(10, 20, 30, 0.7)', opacity: 0.7, fit: 'contain' },
+      { type: 'image', value: `enest://plugin/${source}/assets/wallpaper.webp`, opacity: 0.8, fit: 'cover' },
+      { type: 'video', value: `enest://plugin/${source}/assets/wallpaper.webm`, opacity: 0.9, fit: 'contain' }
+    ]) assert.deepEqual((await registry.registerPlugin({ ...pack, background }, source)).background, background)
+    await writeFile(join(directory, 'registry.json'), JSON.stringify([{ ...pack, background: bad[0] }]))
+    const reloaded = new ThemePackRegistry()
+    await reloaded.load()
+    assert.equal(reloaded.get(pack.id).background, undefined)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('plugin theme sources cannot impersonate built-ins or bypass per-source quotas', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'enest-theme-owner-'))
+  const { ThemePackRegistry } = load('./themePacks.ts', {
+    '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
+    '@main/logs/logService': { logWarn() {} }, '@shared/pluginContract': contract
+  })
+  try {
+    const registry = new ThemePackRegistry(), pack = { id: 'fixture', name: 'Fixture', source: 'enest.builtin', tokens: {} }
+    await assert.rejects(registry.registerPlugin(pack, 'enest.builtin'), /reserved theme source/)
+    await registry.register(pack)
+    await assert.rejects(registry.registerPlugin(pack, 'com.test.theme'), /already registered by enest.builtin/)
+    for (let i = 0; i < 8; i++) {
+      const saved = await registry.registerPlugin({ ...pack, id: 'plugin-' + i }, 'com.test.theme')
+      assert.equal(saved.source, 'com.test.theme')
+    }
+    await assert.rejects(registry.registerPlugin({ ...pack, id: 'excess' }, 'com.test.theme'), /theme pack limit/)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})

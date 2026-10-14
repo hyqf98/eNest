@@ -6,6 +6,7 @@
  */
 import type { BackgroundConfig, PluginSummary, SplashBackgroundConfig, ThemeMode } from '@shared/types/plugin'
 import { DEFAULT_PLUGIN_UI } from '@shared/types/plugin'
+import { mockPluginIcon } from '@shared/mockPluginIcon'
 
 const DEFAULT_INSTALLED: string[] = []
 
@@ -76,7 +77,7 @@ export const MARKET_PLUGINS: PluginSummary[] = (
       installed: false,
     },
   ] as Array<Omit<PluginSummary, 'ui'> & { ui?: PluginSummary['ui'] }>
-).map((p) => ({ ...p, ui: p.ui ?? { ...DEFAULT_PLUGIN_UI } }))
+).map((p) => ({ ...p, icon: mockPluginIcon(p.id, p.color), ui: p.ui ?? { ...DEFAULT_PLUGIN_UI } }))
 
 const INSTALLED_KEY = 'enest.installed.v1'
 const DISABLED_KEY = 'enest.disabled.v1'
@@ -149,6 +150,7 @@ export interface MockThemeData {
   overrides: Partial<Record<'light' | 'dark', Record<string, string>>>
   packId?: string
   background?: BackgroundConfig
+  backgroundSource?: 'user' | 'pack'
 }
 
 /** 从 localStorage 读取 mock 主题（mode + overrides + packId + background） */
@@ -166,6 +168,7 @@ export function readMockTheme(): MockThemeData {
         overrides: saved.overrides ?? {},
         packId: saved.packId,
         background: saved.background,
+        backgroundSource: saved.backgroundSource === 'user' || saved.backgroundSource === 'pack' ? saved.backgroundSource : undefined,
       }
     }
   } catch {

@@ -72,6 +72,7 @@ const TRANSITIONS: Record<
     uninstall: 'clearing-storage'
   },
   ready: {
+    deactivate: 'background',
     activate: 'active',
     reload: 'opening',
     close: 'closing',

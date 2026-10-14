@@ -8,9 +8,11 @@
  * 关键依赖：pathsService、logService、@shared/types/plugin。
  */
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
-import type { ThemePack } from '@shared/types/plugin'
+import type { BackgroundConfig, ThemePack } from '@shared/types/plugin'
+import { isPluginAssetPath } from '@shared/pluginContract'
 import { getAppPaths } from '@main/paths/pathsService'
 import { logWarn } from '@main/logs/logService'
 
@@ -36,6 +38,8 @@ function isThemePack(value: unknown): value is ThemePack {
 
 /** token 值长度上限（覆盖 font-family 长栈场景） */
 const MAX_TOKEN_VALUE_LEN = 200
+/** Tokens are custom properties, never CSS selectors or normal root style properties. */
+const TOKEN_NAME_RE = /^--[A-Za-z0-9_-]{1,126}$/
 
 /** 危险片段：注入 CSS / 脚本 / 外链资源 */
 const FORBIDDEN_TOKEN_FRAGMENTS = ['url(', 'expression(', 'javascript:', '<', '>', '\\']
@@ -75,6 +79,10 @@ function sanitizeTokens(source: string, tokens: unknown): Record<string, string>
   if (!tokens || typeof tokens !== 'object' || Array.isArray(tokens)) return null
   const cleaned: Record<string, string> = {}
   for (const [key, value] of Object.entries(tokens as Record<string, unknown>)) {
+    if (!TOKEN_NAME_RE.test(key)) {
+      logWarn('theme', `${source}: 非法主题 Token 名已剔除`)
+      continue
+    }
     if (!isValidThemeTokenValue(value)) {
       logWarn('theme', `${source}: token "${key}" 值非法已剔除 (${String(value).slice(0, 40)})`)
       continue
@@ -84,8 +92,49 @@ function sanitizeTokens(source: string, tokens: unknown): Record<string, string>
   return cleaned
 }
 
+/** Shell-rendered backgrounds cannot grant a plugin network or arbitrary local-file access. */
+function sanitizeBackground(source: string, value: unknown): BackgroundConfig | undefined {
+  if (value === undefined) return undefined
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const candidate = value as Record<string, unknown>
+  const opacity = typeof candidate.opacity === 'number' && Number.isFinite(candidate.opacity)
+    ? Math.max(0, Math.min(1, candidate.opacity)) : 0.85
+  const fit = candidate.fit === 'contain' ? 'contain' : 'cover'
+  if (candidate.type === 'none') return { type: 'none', value: '', opacity, fit }
+  if (typeof candidate.value !== 'string' || candidate.value.length > 2048) return undefined
+  const text = candidate.value.trim()
+  if (candidate.type === 'color') {
+    if (HEX_COLOR_RE.test(text) || RGB_FUNC_RE.test(text) || text === 'transparent') {
+      return { type: 'color', value: text, opacity, fit }
+    }
+    return undefined
+  }
+  if (candidate.type !== 'image' && candidate.type !== 'video') return undefined
+  try {
+    const url = new URL(text)
+    if (url.protocol !== 'enest:' || url.hostname !== 'plugin' || url.port || url.username || url.password || url.search || url.hash) return undefined
+    const path = decodeURIComponent(url.pathname)
+    const prefix = `/${source}/`
+    if (!path.startsWith(prefix)) return undefined
+    const asset = path.slice(prefix.length)
+    if (!asset.startsWith('assets/') || !isPluginAssetPath(asset)) return undefined
+    if (!(candidate.type === 'image' ? /\.(png|jpe?g|gif|webp|svg|ico)$/i : /\.(mp4|webm|mov)$/i).test(asset)) return undefined
+    // pluginProtocol resolves this canonical asset against the registered package
+    // root and rejects missing files, symlinks and escapes at request time.
+    return { type: candidate.type, value: url.href, opacity, fit }
+  } catch { return undefined }
+}
+
+function cleanBackground(pack: ThemePack): void {
+  const background = sanitizeBackground(pack.source, pack.background)
+  if (pack.background !== undefined && !background) logWarn('theme', `${pack.source}: 非法主题背景已剔除`)
+  if (background) pack.background = background
+  else delete pack.background
+}
+
 export class ThemePackRegistry {
   private packs = new Map<string, ThemePack>()
+  private persistTail: Promise<void> = Promise.resolve()
 
   async load(): Promise<void> {
     this.packs.clear()
@@ -95,7 +144,14 @@ export class ThemePackRegistry {
       const raw = JSON.parse(await readFile(file, 'utf-8')) as unknown
       const list = Array.isArray(raw) ? raw : []
       for (const item of list) {
-        if (isThemePack(item)) this.packs.set(item.id, item)
+        if (!isThemePack(item)) continue
+        const source = item.source || 'enest.builtin'
+        const tokens = sanitizeTokens(source, item.tokens)
+        if (tokens) {
+          const saved = { ...item, source, tokens }
+          cleanBackground(saved)
+          this.packs.set(item.id, saved)
+        }
       }
     } catch {
       // 损坏文件忽略，从空表开始
@@ -118,6 +174,12 @@ export class ThemePackRegistry {
       if (pack.source === source) n++
     }
     return n
+  }
+
+  /** Plugin entry points bind identity here; enest.builtin belongs only to the host. */
+  async registerPlugin(pack: ThemePack, pluginId: string): Promise<ThemePack> {
+    if (!pluginId || pluginId === 'enest.builtin') throw new Error('reserved theme source')
+    return this.register({ ...pack, source: pluginId })
   }
 
   /**
@@ -153,6 +215,7 @@ export class ThemePackRegistry {
       throw new Error('invalid theme pack: tokens must be an object')
     }
     saved.tokens = tokens
+    cleanBackground(saved)
 
     this.packs.set(saved.id, saved)
     await this.persist()
@@ -182,10 +245,17 @@ export class ThemePackRegistry {
     return removedIds
   }
 
-  private async persist(): Promise<void> {
-    const file = registryFile()
-    await mkdir(dirname(file), { recursive: true })
-    await writeFile(file, JSON.stringify(this.list(), null, 2), 'utf-8')
+  private persist(): Promise<void> {
+    const operation = this.persistTail.catch(() => {}).then(async () => {
+      const file = registryFile(), temporary = `${file}.${randomUUID()}.tmp`
+      await mkdir(dirname(file), { recursive: true })
+      try {
+        await writeFile(temporary, JSON.stringify(this.list(), null, 2), { encoding: 'utf8', flag: 'wx' })
+        await rename(temporary, file)
+      } finally { await rm(temporary, { force: true }).catch(() => {}) }
+    })
+    this.persistTail = operation
+    return operation
   }
 }
 

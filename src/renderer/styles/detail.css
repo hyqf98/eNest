@@ -145,6 +145,30 @@
   overscroll-behavior: contain;
 }
 
+.detail-capabilities {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.detail-capabilities > h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.detail-capabilities > .desc {
+  margin: 0;
+  color: var(--text-3);
+  line-height: 1.6;
+}
+
+.detail-capabilities .detail-chip {
+  height: auto;
+  min-height: 1.5rem;
+  padding-block: 0.25rem;
+  overflow-wrap: anywhere;
+}
+
 .detail-state {
   display: flex;
   flex-direction: column;

@@ -1,0 +1,555 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://enest.local/schemas/plugin-manifest.json",
+  "title": "eNest plugin.json",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "version",
+    "main",
+    "description",
+    "icon",
+    "market"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9-]+)+$",
+      "description": "全局唯一反向域名，必须与目录名一致；enest.builtin 为宿主保留标识",
+      "not": {
+        "const": "enest.builtin"
+      }
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1
+    },
+    "author": {
+      "type": "string"
+    },
+    "main": {
+      "const": "index.html"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "效率",
+        "开发",
+        "设计",
+        "媒体",
+        "其它"
+      ]
+    },
+    "icon": {
+      "const": "assets/market/icon.svg"
+    },
+    "homepage": {
+      "type": "string"
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "clipboard.read",
+          "clipboard.write",
+          "clipboard.readImage",
+          "clipboard.writeImage",
+          "clipboard.history",
+          "clipboard.paste",
+          "timer.background",
+          "screen.capture",
+          "screen.record",
+          "pin.create",
+          "net.fetch",
+          "shell.openExternal",
+          "storage.local",
+          "notify",
+          "ui.setTitle",
+          "ui.setIcon",
+          "ui.setBadge",
+          "ui.resize",
+          "ui.toast",
+          "settings.register",
+          "settings.page",
+          "hotkey",
+          "contribute",
+          "vault.write",
+          "ssh.session",
+          "ssh.exec",
+          "ssh.sftp",
+          "db.connect",
+          "db.query",
+          "db.schema",
+          "mw.connect",
+          "mw.query",
+          "mw.admin",
+          "dsh.connect",
+          "dsh.chat",
+          "dsh.admin",
+          "net.socket",
+          "lan.share",
+          "fs.rename",
+          "fs.read",
+          "fs.write",
+          "sys.control",
+          "ssh.agent",
+          "config.agent.read",
+          "config.agent.write",
+          "sys.inspect",
+          "theme"
+        ]
+      },
+      "description": "需要用户授权的敏感宿主能力；基础能力（插件私有存储、UI、设置、主题和私有密钥保存）无需声明，已有基础能力声明也可接受。分类见 plugin-permission-policy.json。"
+    },
+    "engines": {
+      "type": "object",
+      "properties": {
+        "enest": {
+          "type": "string",
+          "description": "壳子版本范围：支持 * / ^x.y.z / >=x.y.z / 精确 x.y.z；复杂范围安装时拒绝"
+        }
+      }
+    },
+    "net": {
+      "type": "object",
+      "description": "网络能力声明；net.fetch 的明文 http 放行开关",
+      "properties": {
+        "allowInsecure": {
+          "type": "boolean",
+          "description": "为 true 时 net.fetch 允许明文 http:// URL（重定向逐跳仍按此规则校验）；缺省 false 仅 https"
+        }
+      },
+      "additionalProperties": false
+    },
+    "features": {
+      "type": "array",
+      "description": "可搜索指令（Quick 命令面板 feature 集合）",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "cmds"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S",
+            "description": "指令码，openPlugin 载荷 code 与之对应"
+          },
+          "explain": {
+            "type": "string",
+            "description": "指令说明（命令面板副标题）"
+          },
+          "cmds": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "type",
+                    "label"
+                  ],
+                  "anyOf": [
+                    {
+                      "required": [
+                        "match"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "regex"
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "type": {
+                      "const": "regex"
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    },
+                    "match": {
+                      "type": "string",
+                      "maxLength": 2048,
+                      "pattern": "^/[\\s\\S]+/[dgimsuvy]*$",
+                      "description": "正则字面量 /source/flags；安装时仅编译校验，搜索在隔离线程匹配"
+                    },
+                    "regex": {
+                      "type": "string",
+                      "maxLength": 2048,
+                      "pattern": "^/[\\s\\S]+/[dgimsuvy]*$",
+                      "description": "match 的兼容字段；两者同时存在时 match 优先"
+                    },
+                    "minLength": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991,
+                      "default": 1
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "type",
+                    "label"
+                  ],
+                  "properties": {
+                    "type": {
+                      "const": "over"
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    },
+                    "exclude": {
+                      "type": "string",
+                      "maxLength": 2048,
+                      "pattern": "^/[\\s\\S]+/[dgimsuvy]*$",
+                      "description": "匹配此正则的文本不推荐该指令"
+                    },
+                    "minLength": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991,
+                      "default": 1
+                    },
+                    "maxLength": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991,
+                      "default": 10000
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "minItems": 1,
+            "description": "文本触发关键词、regex 内容匹配或 over 文本处理；maxLength 不得小于 minLength，正则语法由安装器补充校验；图片和文件指令暂不支持"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "window": {
+      "type": "object",
+      "description": "Quick 内容区高度建议与下限；宽度固定720px并受工作区限制，width/minWidth保留兼容；主窗由用户控制",
+      "properties": {
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "minWidth": {
+          "type": "number",
+          "minimum": 200
+        },
+        "minHeight": {
+          "type": "number",
+          "minimum": 200
+        }
+      },
+      "additionalProperties": false
+    },
+    "development": {
+      "type": "object",
+      "description": "开发态配置（开发者控制台加载时使用）",
+      "properties": {
+        "main": {
+          "type": "string",
+          "description": "开发服务器入口 URL（Vite/Webpack dev server）"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ui": {
+      "type": "object",
+      "description": "UI 集成配置；缺省等价 chrome=none / themeAware=true / background=opaque / preferredColorScheme=auto",
+      "properties": {
+        "chrome": {
+          "enum": [
+            "default",
+            "minimal",
+            "none"
+          ],
+          "description": "default 已废弃（等价 none）；minimal 细条 28px；none 无条全幅（缺省）"
+        },
+        "themeAware": {
+          "type": "boolean"
+        },
+        "background": {
+          "enum": [
+            "opaque",
+            "transparent"
+          ]
+        },
+        "preferredColorScheme": {
+          "enum": [
+            "auto",
+            "light",
+            "dark"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "market": {
+      "type": "object",
+      "properties": {
+        "featured": {
+          "type": "boolean",
+          "default": false,
+          "description": "首页推荐候选；缺省 false"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "screenshots": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^assets/market/screenshots/.+\\.([pP][nN][gG]|[jJ][pP][eE]?[gG]|[wW][eE][bB][pP])$"
+          },
+          "default": [],
+          "description": "有序真实产品截图，第一张为首页封面。固定在 assets/market/screenshots/，只支持 PNG/JPG/JPEG/WebP；源码初始化可为空，发布必须 1–8 张且归档包含实际文件。"
+        },
+        "readme": {
+          "const": "assets/market/README.md"
+        }
+      },
+      "required": [
+        "readme",
+        "screenshots"
+      ],
+      "additionalProperties": false
+    },
+    "contributes": {
+      "type": "object",
+      "description": "贡献点声明（插槽化架构）：声明式注册，安装/扫描时入库，重启即显示，不依赖插件运行。schemaVersion 缺省视为当前版本（'1'），不匹配时拒绝",
+      "properties": {
+        "settings": {
+          "type": "array",
+          "description": "设置 section：壳子设置页插件分组；等价运行时 enest.settings.register",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "items"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "schemaVersion": {
+                "type": "string"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "key",
+                    "type",
+                    "label"
+                  ],
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "text",
+                        "string",
+                        "switch",
+                        "boolean",
+                        "bool",
+                        "select",
+                        "number",
+                        "slider",
+                        "color",
+                        "page"
+                      ],
+                      "description": "控件类型；slider 需 min/max/step；color 渲染颜色输入；page 打开当前插件的独立设置页面"
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "entry": {
+                      "type": "object",
+                      "description": "page 入口，缺省 code=settings；始终打开贡献该设置项的插件",
+                      "required": [
+                        "code"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "payload": {}
+                      },
+                      "additionalProperties": false
+                    },
+                    "default": {},
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "label",
+                          "value"
+                        ],
+                        "properties": {
+                          "label": {
+                            "type": "string"
+                          },
+                          "value": {}
+                        }
+                      }
+                    },
+                    "min": {
+                      "type": "number"
+                    },
+                    "max": {
+                      "type": "number"
+                    },
+                    "step": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "homeCards": {
+          "type": "array",
+          "description": "首页卡片：市场页（首页）「插件扩展」区块",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "glyph": {
+                "type": "string",
+                "maxLength": 2
+              },
+              "color": {
+                "type": "string"
+              },
+              "explain": {
+                "type": "string"
+              },
+              "openCode": {
+                "type": "string",
+                "description": "点击卡片 openPlugin 时透传的 feature code"
+              },
+              "schemaVersion": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "railEntries": {
+          "type": "array",
+          "description": "左侧轨道入口（orb 模式）：数据层已下发，渲染消费见工程文档交接说明",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "glyph"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "glyph": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2
+              },
+              "color": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "openCode": {
+                "type": "string"
+              },
+              "schemaVersion": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "themePacks": {
+          "type": "array",
+          "description": "主题包（并入统一语义，等价运行时 enest.theme.register；source 强制绑插件 id）",
+          "items": {
+            "type": "object"
+          }
+        },
+        "quickProviders": {
+          "type": "array",
+          "description": "保留字段：Quick 搜索 provider 仅支持运行时注册（enest.contribute.registerQuickProvider），manifest 声明不生效",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -37,6 +37,11 @@ export interface QuickCommand {
   useCount?: number
   /** 命中的触发关键词（uTools 风格）；有值时 UI 高亮 */
   keywordHit?: string
+  /** 由检索层分组，界面保持组内相关性顺序。 */
+  group?: 'best' | 'match' | 'recommendation' | 'provider'
+  type?: 'text' | 'regex' | 'over'
+  /** 内容匹配或动态 provider 的进入载荷。 */
+  payload?: unknown
 }
 
 export interface QuickSearchRequest {
@@ -44,6 +49,8 @@ export interface QuickSearchRequest {
   limit?: number
   /** 缺省搜索全部类型；先过滤再排序/截断。 */
   kind?: QuickCommandKind
+  /** 静态索引先返回，运行时 provider 随后补齐。 */
+  phase?: 'static' | 'enriched' | 'providers'
 }
 
 export interface QuickSearchResult {
@@ -61,11 +68,12 @@ export type QuickOpenContainer = 'quick' | 'shell'
  * - plugin-pin：⌘Enter / 「固定到主窗」按钮（载荷 = 当前插件 id）
  */
 export type QuickOpenRequest =
-  | { kind: 'app'; path: string }
-  | { kind: 'plugin'; pluginId: string; code?: string; container?: QuickOpenContainer }
-  | { kind: 'action'; action: QuickActionId }
+  | { kind: 'app'; path: string; query?: string }
+  | { kind: 'plugin'; pluginId: string; code?: string; container?: QuickOpenContainer; type?: 'text' | 'regex' | 'over'; payload?: unknown; query?: string }
+  | { kind: 'action'; action: QuickActionId; query?: string }
   | { kind: 'plugin-escape'; pluginId: string }
   | { kind: 'plugin-pin'; pluginId: string }
+  | { kind: 'plugin-tab'; pluginId: string; shift?: boolean }
 
 export interface QuickOpenResult {
   ok: boolean

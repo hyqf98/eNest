@@ -13,11 +13,13 @@ import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { settingsStore } from '@main/settings/SettingsStore'
 import type { SettingsSectionContribution } from '@shared/types/plugin'
 import { logWarn } from '@main/logs/logService'
+import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
 
 export interface SettingsSectionItem {
   key: string
   type: string
   label: string
+  entry?: { code: string; payload?: unknown }
   default?: unknown
   options?: Array<{ label: string; value: unknown }>
   /** type=slider：范围与步长（渲染层消费） */
@@ -46,33 +48,30 @@ export class PluginSettingsBridge {
       logWarn('settings-bridge', 'register rejected: invalid section')
       return
     }
-    const items = Array.isArray(section.items) ? section.items : []
-    contributionRegistry.registerManifestContributes(pluginId, {
-      settings: [
-        {
-          id: section.id,
-          title: section.title,
-          items: items.map((item) => ({
-            key: item?.key ?? '',
-            type: item?.type ?? 'text',
-            label: item?.label ?? item?.key ?? '',
-            default: item?.default,
-            options: item?.options,
-            min: item?.min,
-            max: item?.max,
-            step: item?.step
-          }))
-        }
-      ]
+    const items = Array.isArray(section.items) ? section.items.filter(item => isPluginSettingKey(item?.key)) : []
+    contributionRegistry.registerSettingsSection(pluginId, {
+      id: section.id,
+      title: section.title,
+      items: items.map((item) => ({
+        key: item?.key ?? '',
+        type: item?.type ?? 'text',
+        label: item?.label ?? item?.key ?? '',
+        entry: item?.entry,
+        default: item?.default,
+        options: item?.options,
+        min: item?.min,
+        max: item?.max,
+        step: item?.step
+      }))
     })
 
     if (!this.values.has(pluginId)) {
       const persisted = settingsStore.getPluginSettings(pluginId)
       const defaults: Record<string, unknown> = {}
       for (const item of items) {
-        if (item?.key) {
+        if (item?.key && item.type !== 'page') {
           defaults[item.key] =
-            item.key in persisted ? persisted[item.key] : item.default
+            Object.hasOwn(persisted, item.key) ? persisted[item.key] : item.default
         }
       }
       this.values.set(pluginId, defaults)
@@ -82,7 +81,7 @@ export class PluginSettingsBridge {
 
   /** 运行时注销（插件主动调用场景少，卸载走 unregisterBySource） */
   unregister(pluginId: string): void {
-    contributionRegistry.unregisterBySource(pluginId)
+    contributionRegistry.unregisterSettingsSections(pluginId)
     this.values.delete(pluginId)
     this.emit()
   }
@@ -99,18 +98,27 @@ export class PluginSettingsBridge {
         id: row.id,
         title: row.data.title,
         pluginId: row.source,
-        items: row.data.items as SettingsSectionItem[]
+        items: (row.data.items as SettingsSectionItem[]).filter(item => isPluginSettingKey(item?.key))
       }))
   }
 
   get(pluginId: string, key: string): unknown {
-    return this.values.get(pluginId)?.[key]
+    if (!isPluginSettingKey(key)) return undefined
+    const bag = this.values.get(pluginId)
+    if (bag && Object.hasOwn(bag, key)) return bag[key]
+    for (const section of this.listAll()) {
+      if (section.pluginId !== pluginId) continue
+      const item = section.items.find(item => item.key === key && item.type !== 'page')
+      if (item) return item.default
+    }
+    return undefined
   }
 
   set(pluginId: string, key: string, value: unknown): void {
-    const bag = this.values.get(pluginId)
-    if (!bag) return
+    if (!isPluginSettingKey(key)) throw new Error('reserved plugin settings key')
+    const bag = this.values.get(pluginId) ?? {}
     bag[key] = value
+    this.values.set(pluginId, bag)
   }
 
   private emit(): void {

@@ -1,3 +1,5 @@
+import { pathToFileURL } from 'node:url'
+import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
 /**
  * orbRailViews — 左侧圆轨 / 设置钮（主窗口内顶层 WebContentsView）
  * 取代独立透明子窗方案：视图内是真实 DOM 鼠标事件，无穿透转发、无窗口焦点/层级问题。
@@ -38,6 +40,8 @@ let railView: WebContentsView | null = null
 let dockView: WebContentsView | null = null
 let railExpanded = false
 let themeHooked = false
+let visibleStyle: 'classic' | 'orb' | null = null
+const onNativeThemeUpdated = (): void => setOrbTheme()
 
 let lastState: OrbRailState = {
   view: 'home',
@@ -116,11 +120,13 @@ function loadPart(view: WebContentsView, part: 'rail' | 'dock'): void {
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (devUrl) {
     const base = devUrl.replace(/\/$/, '')
-    void view.webContents.loadURL(
-      `${base}/orb-overlay.html?part=${part}&anim=${encodeURIComponent(anim)}&theme=${themeMode}`
-    )
+    const url = `${base}/orb-overlay.html?part=${part}&anim=${encodeURIComponent(anim)}&theme=${themeMode}`
+    registerTrustedSurface(view.webContents, 'orb', url)
+    void view.webContents.loadURL(url)
   } else {
-    void view.webContents.loadFile(join(app.getAppPath(), 'out', 'renderer', 'orb-overlay.html'), {
+    const file = join(app.getAppPath(), 'out', 'renderer', 'orb-overlay.html')
+    registerTrustedSurface(view.webContents, 'orb', pathToFileURL(file).href)
+    void view.webContents.loadFile(file, {
       query: { part, anim, theme: themeMode }
     })
   }
@@ -134,9 +140,8 @@ function makeView(part: 'rail' | 'dock'): WebContentsView {
     preload: resolvePreload('shellPreload.js'),
     contextIsolation: true,
     nodeIntegration: false,
-    sandbox: false,
-    partition: SHELL_PARTITION,
-    backgroundThrottling: false
+    sandbox: true,
+    partition: SHELL_PARTITION
   }
   const view = new WebContentsView({ webPreferences: prefs })
   try {
@@ -176,7 +181,7 @@ export function createOrbRailViews(): void {
 function hookNativeTheme(): void {
   if (themeHooked) return
   themeHooked = true
-  nativeTheme.on('updated', () => setOrbTheme())
+  nativeTheme.on('updated', onNativeThemeUpdated)
 }
 
 /** 插件视图挂载后调用：remove+re-add 把圆轨/设置钮重新放到最顶层 */
@@ -207,13 +212,15 @@ export function layoutOrbRailViews(): void {
 export function setOrbRailState(state: OrbRailState): void {
   // animationLevel / theme 不信任 renderer：一律以 settingsStore 为准，
   // 避免主壳 hydrate 前的默认值覆盖真实档位/主题
-  lastState = {
+  const next = {
     ...state,
     animationLevel: readAnimLevel(),
     theme: readTheme(),
     // rail-entries 插槽贡献以主进程 contributions 表为唯一事实来源，不信任 renderer
     contribEntries: readRailContribEntries()
   }
+  if (JSON.stringify(next) === JSON.stringify(lastState)) return
+  lastState = next
   broadcastState()
   if (lastState.tabStyle === 'orb') {
     setPluginLeftInset(0)
@@ -274,6 +281,8 @@ export function setOrbTheme(): void {
 
 /** tabStyle 变化：orb 显示圆轨/设置钮（插件全宽）；classic 隐藏 */
 export function applyOrbRailVisibility(tabStyle: 'classic' | 'orb'): void {
+  if (visibleStyle === tabStyle) return
+  visibleStyle = tabStyle
   lastState = { ...lastState, tabStyle, contribEntries: readRailContribEntries() }
   if (tabStyle === 'orb') {
     setPluginLeftInset(0)
@@ -294,6 +303,13 @@ export function destroyOrbRailViews(): void {
       if (view) win.contentView.removeChildView(view)
     }
   }
+  for (const view of [railView, dockView]) {
+    if (view && !view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false })
+  }
   railView = null
   dockView = null
+  railExpanded = false
+  visibleStyle = null
+  if (themeHooked) nativeTheme.removeListener('updated', onNativeThemeUpdated)
+  themeHooked = false
 }

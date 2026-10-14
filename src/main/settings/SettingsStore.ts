@@ -25,6 +25,9 @@ import type {
 import { getDefaultSettingsPath, setAppPathsRoot } from '@main/paths/pathsService'
 import { kvStore } from '@main/db/sqliteService'
 import { sendShellEvent } from '@main/window/createShellWindow'
+import { normalizeSearchText } from '@shared/search'
+import { filterPermissionGrants, isBuiltinCapability } from '@shared/pluginPermissionPolicy'
+import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
 
 /** 通用设置：以 shared 契约为准，保留历史 openAtLogin 扩展字段 */
 export type GeneralSettings = SharedGeneralSettings & {
@@ -149,6 +152,7 @@ function writeSettingsRow(data: SettingsData): boolean {
 export class SettingsStore {
   private data: SettingsData = structuredClone(DEFAULTS)
   private loaded = false
+  private pluginLaunchRevision = 0
   /** 库不可用时的文件回退模式（保持旧行为：全量写 settings.json） */
   private fileFallback = false
   /** 防抖持久化句柄；写路径统一 schedulePersist()，退出前 flushNow() 兜底 */
@@ -181,6 +185,7 @@ export class SettingsStore {
     }
     this.data = this.mergeDefaults(stored)
     this.loaded = true
+    this.pluginLaunchRevision++
 
     // 3) 最终 dataRoot 校正（库内值可能与锚点不同步）
     setAppPathsRoot((this.data.general.dataRoot as string | undefined) ?? null)
@@ -213,6 +218,47 @@ export class SettingsStore {
     return structuredClone(this.data)
   }
 
+  getQuickLauncherSettings(): QuickLauncherSettings {
+    this.ensureLoaded()
+    return structuredClone(this.data.general.quickLauncher ?? defaultQuickLauncher())
+  }
+
+  /** 同步更新狭窄的 Quick 状态，避免搜索/启动复制所有插件设置。 */
+  recordQuickUse(id: string, query: string | undefined, maxRecent: number): void {
+    this.ensureLoaded()
+    const quick = this.data.general.quickLauncher ??= defaultQuickLauncher()
+    const previous = quick.recent ?? []
+    const count = previous.find(entry => entry.id === id)?.count ?? 0
+    quick.recent = [{ id, ts: Date.now(), count: count + 1 }, ...previous.filter(entry => entry.id !== id)]
+      .slice(0, maxRecent)
+    const normalized = normalizeSearchText(query ?? '')
+    // Long content belongs to the invoked plugin, not the query-preference store.
+    if (normalized && normalized.length <= 32) {
+      quick.queryPreferences = [{ query: normalized, id }, ...(quick.queryPreferences ?? [])
+        .filter(entry => entry.query !== normalized)].slice(0, 100)
+    }
+    this.schedulePersist()
+  }
+
+  /** Small appearance snapshot for native plugin documents; excludes history, grants and window state. */
+  getPluginAppearance(): Pick<GeneralSettings, 'fontFamily' | 'fontFamilyEn' | 'fontSizeScale' | 'animationLevel' | 'customFonts'> {
+    this.ensureLoaded()
+    const { fontFamily, fontFamilyEn, fontSizeScale, animationLevel, customFonts } = this.data.general
+    return { fontFamily, fontFamilyEn, fontSizeScale, animationLevel, customFonts: structuredClone(customFonts ?? []) }
+  }
+
+  getPluginLaunchRevision(): number { return this.pluginLaunchRevision }
+
+  getPluginLaunchSettings(): PluginLaunchSettings {
+    this.ensureLoaded()
+    return structuredClone(this.data.pluginLaunch ?? {})
+  }
+
+  getPluginLaunchConfig(id: string): PluginLaunchConfig | undefined {
+    this.ensureLoaded()
+    return structuredClone(this.data.pluginLaunch?.[id])
+  }
+
   getTheme(): ThemeTokens {
     this.ensureLoaded()
     return structuredClone(this.data.theme)
@@ -220,6 +266,9 @@ export class SettingsStore {
 
   /** 更新主题 mode / overrides / packId / background，持久化后推送 theme-changed */
   async setTheme(theme: Partial<ThemeTokens>): Promise<ThemeTokens> {
+    if (theme.backgroundSource !== undefined && theme.backgroundSource !== 'user' && theme.backgroundSource !== 'pack') {
+      throw new Error('invalid background source')
+    }
     this.ensureLoaded()
     if (theme.mode) this.data.theme.mode = theme.mode as ThemeMode
     if (theme.overrides) {
@@ -237,7 +286,9 @@ export class SettingsStore {
     }
     // 用 `in` 判断：显式传 undefined/null 可清除 packId / background（取消主题包/背景）
     if ('packId' in theme) this.data.theme.packId = theme.packId
-    if ('background' in theme) this.data.theme.background = theme.background
+    if ('backgroundSource' in theme) this.data.theme.backgroundSource = theme.backgroundSource
+    if (this.data.theme.backgroundSource === 'pack') delete this.data.theme.background
+    else if ('background' in theme) this.data.theme.background = theme.background
     this.schedulePersist()
     sendShellEvent({ type: 'theme-changed', mode: this.data.theme.mode })
     return this.getTheme()
@@ -257,6 +308,7 @@ export class SettingsStore {
     }
     // pluginLaunch 按插件 id 合并（null = 删除该插件配置）
     if (partial.pluginLaunch) {
+      this.pluginLaunchRevision++
       for (const [id, cfg] of Object.entries(partial.pluginLaunch)) {
         if (cfg === null) delete this.data.pluginLaunch[id]
         else this.data.pluginLaunch[id] = { ...(this.data.pluginLaunch[id] ?? {}), ...cfg }
@@ -280,11 +332,14 @@ export class SettingsStore {
 
   getPluginSettings(pluginId: string): Record<string, unknown> {
     this.ensureLoaded()
-    return structuredClone(this.data.plugins[pluginId] ?? {})
+    return structuredClone(Object.fromEntries(
+      Object.entries(this.data.plugins[pluginId] ?? {}).filter(([key]) => isPluginSettingKey(key))
+    ))
   }
 
   /** 写入单个插件的设置项，自动创建插件设置对象 */
   async setPluginSetting(pluginId: string, key: string, value: unknown): Promise<void> {
+    if (!isPluginSettingKey(key)) throw new Error('reserved plugin settings key')
     this.ensureLoaded()
     if (!this.data.plugins[pluginId]) this.data.plugins[pluginId] = {}
     this.data.plugins[pluginId][key] = value
@@ -293,8 +348,9 @@ export class SettingsStore {
 
   // —— 运行时权限授权（壳层三态；存 plugins[pluginId].permissionGrants）——
 
-  /** 读取单项授权；未设置缺省 'ask' */
+  /** 基础能力始终可用；敏感权限未设置缺省 'ask'。旧基础能力拒绝值不再生效。 */
   getPermissionGrant(pluginId: string, perm: PluginPermission): PluginPermissionGrant {
+    if (isBuiltinCapability(perm)) return 'allow'
     this.ensureLoaded()
     const bag = this.data.plugins[pluginId] as
       | { permissionGrants?: Partial<Record<PluginPermission, PluginPermissionGrant>> }
@@ -309,15 +365,17 @@ export class SettingsStore {
     perm: PluginPermission,
     grant: PluginPermissionGrant
   ): Promise<void> {
+    if (isBuiltinCapability(perm)) throw new Error('built-in capabilities do not require user consent')
     this.ensureLoaded()
     const bag = (this.data.plugins[pluginId] ??= {}) as {
       permissionGrants?: Partial<Record<PluginPermission, PluginPermissionGrant>>
     }
-    bag.permissionGrants = { ...bag.permissionGrants, [perm]: grant }
+    bag.permissionGrants = { ...filterPermissionGrants(bag.permissionGrants), [perm]: grant }
     this.schedulePersist()
+    sendShellEvent({ type: 'permission-grants-changed', pluginId, grants: this.getPermissionGrants(pluginId) })
   }
 
-  /** 读取插件整张授权表（浅拷贝；未设置为空对象，语义等同全 'ask'） */
+  /** 仅返回敏感权限的授权表；未设置的敏感项语义为 'ask'。 */
   getPermissionGrants(
     pluginId: string
   ): Partial<Record<PluginPermission, PluginPermissionGrant>> {
@@ -325,7 +383,7 @@ export class SettingsStore {
     const bag = this.data.plugins[pluginId] as
       | { permissionGrants?: Partial<Record<PluginPermission, PluginPermissionGrant>> }
       | undefined
-    return { ...bag?.permissionGrants }
+    return filterPermissionGrants(bag?.permissionGrants)
   }
 
   /** 写入单插件快捷启动配置；null = 删除该插件条目 */
@@ -334,6 +392,7 @@ export class SettingsStore {
     config: PluginLaunchConfig | null
   ): Promise<void> {
     this.ensureLoaded()
+    this.pluginLaunchRevision++
     if (!this.data.pluginLaunch) this.data.pluginLaunch = {}
     if (config === null) delete this.data.pluginLaunch[pluginId]
     else this.data.pluginLaunch[pluginId] = config

@@ -1,0 +1,1629 @@
+{
+  "schemaVersion": 1,
+  "bundleSha256": "b901b4c6902c8ad6e9442eacf1bcc4515f5e9504967ebc804577093b484b417a",
+  "measuredAt": "2026-10-13T11:32:24.653Z",
+  "platform": "darwin",
+  "arch": "arm64",
+  "osRelease": "27.0.0",
+  "electron": "44.4.3",
+  "chromium": "152.0.7977.130",
+  "node": "24.21.0",
+  "cpu": "Apple M2",
+  "totalSystemMemoryBytes": 17179869184,
+  "isolation": "Fresh temporary userData/sessionData; no user settings, plugins or application data read",
+  "scope": "Real Electron PluginHost detach/destroy timing and own app process memory; fixture service adapters; hidden native window; not end-to-end interaction/FPS or cross-platform verification",
+  "fixture": {
+    "preload": "production src/preload/pluginPreload.ts",
+    "rendererAllocationMiB": 8,
+    "canvas": "1024x320 rAF",
+    "timerIntervalMs": 100,
+    "beforeCloseAck": "queueMicrotask",
+    "residentLimit": 6,
+    "sandbox": true
+  },
+  "baseline": {
+    "ownProcessCount": 1,
+    "rendererProcessCount": 0,
+    "workingSetKiB": 124848,
+    "privateKiB": null,
+    "mainRssBytes": 127893504,
+    "mainHeapUsedBytes": 4606044,
+    "processes": [
+      {
+        "type": "Browser",
+        "pid": 9470,
+        "workingSetKiB": 124848,
+        "privateKiB": null
+      }
+    ]
+  },
+  "tabCounts": [
+    {
+      "logicalTabs": 1,
+      "residentBeforeClose": 1,
+      "openMs": {
+        "count": 1,
+        "min": 691.486,
+        "median": 691.486,
+        "p95": 691.486,
+        "max": 691.486
+      },
+      "detachMs": {
+        "count": 1,
+        "min": 1.219,
+        "median": 1.219,
+        "p95": 1.219,
+        "max": 1.219
+      },
+      "destroyedMs": {
+        "count": 1,
+        "min": 6,
+        "median": 6,
+        "p95": 6,
+        "max": 6
+      },
+      "closes": [
+        {
+          "id": "bench1.p0",
+          "hadRenderer": true,
+          "syncDetachMs": 1.219,
+          "completionMs": 6.222,
+          "destroyedMs": 6,
+          "detached": true,
+          "destroyed": true
+        }
+      ],
+      "loadedMemory": {
+        "ownProcessCount": 4,
+        "rendererProcessCount": 1,
+        "workingSetKiB": 358800,
+        "privateKiB": null,
+        "mainRssBytes": 159105024,
+        "mainHeapUsedBytes": 6232984,
+        "processes": [
+          {
+            "type": "Browser",
+            "pid": 9470,
+            "workingSetKiB": 155360,
+            "privateKiB": null
+          },
+          {
+            "type": "GPU",
+            "pid": 9494,
+            "workingSetKiB": 58480,
+            "privateKiB": null
+          },
+          {
+            "type": "Utility",
+            "pid": 9495,
+            "workingSetKiB": 43888,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9501,
+            "workingSetKiB": 101072,
+            "privateKiB": null
+          }
+        ]
+      },
+      "afterCloseMemory": {
+        "ownProcessCount": 3,
+        "rendererProcessCount": 0,
+        "workingSetKiB": 251040,
+        "privateKiB": null,
+        "mainRssBytes": 153518080,
+        "mainHeapUsedBytes": 6283856,
+        "processes": [
+          {
+            "type": "Browser",
+            "pid": 9470,
+            "workingSetKiB": 149920,
+            "privateKiB": null
+          },
+          {
+            "type": "GPU",
+            "pid": 9494,
+            "workingSetKiB": 58272,
+            "privateKiB": null
+          },
+          {
+            "type": "Utility",
+            "pid": 9495,
+            "workingSetKiB": 42848,
+            "privateKiB": null
+          }
+        ]
+      },
+      "orphanIds": []
+    },
+    {
+      "logicalTabs": 6,
+      "residentBeforeClose": 6,
+      "openMs": {
+        "count": 6,
+        "min": 159.101,
+        "median": 275.728,
+        "p95": 563.584,
+        "max": 563.584
+      },
+      "detachMs": {
+        "count": 6,
+        "min": 0.54,
+        "median": 0.696,
+        "p95": 1.699,
+        "max": 1.699
+      },
+      "destroyedMs": {
+        "count": 6,
+        "min": 4.184,
+        "median": 5.092,
+        "p95": 10.698,
+        "max": 10.698
+      },
+      "closes": [
+        {
+          "id": "bench6.p0",
+          "hadRenderer": true,
+          "syncDetachMs": 1.699,
+          "completionMs": 5.156,
+          "destroyedMs": 5.092,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench6.p1",
+          "hadRenderer": true,
+          "syncDetachMs": 0.696,
+          "completionMs": 10.755,
+          "destroyedMs": 10.698,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench6.p2",
+          "hadRenderer": true,
+          "syncDetachMs": 0.54,
+          "completionMs": 5.105,
+          "destroyedMs": 5.053,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench6.p3",
+          "hadRenderer": true,
+          "syncDetachMs": 0.714,
+          "completionMs": 5.29,
+          "destroyedMs": 5.253,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench6.p4",
+          "hadRenderer": true,
+          "syncDetachMs": 0.623,
+          "completionMs": 4.602,
+          "destroyedMs": 4.568,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench6.p5",
+          "hadRenderer": true,
+          "syncDetachMs": 0.562,
+          "completionMs": 4.199,
+          "destroyedMs": 4.184,
+          "detached": true,
+          "destroyed": true
+        }
+      ],
+      "loadedMemory": {
+        "ownProcessCount": 9,
+        "rendererProcessCount": 6,
+        "workingSetKiB": 779984,
+        "privateKiB": null,
+        "mainRssBytes": 159399936,
+        "mainHeapUsedBytes": 7248848,
+        "processes": [
+          {
+            "type": "Browser",
+            "pid": 9470,
+            "workingSetKiB": 155600,
+            "privateKiB": null
+          },
+          {
+            "type": "GPU",
+            "pid": 9494,
+            "workingSetKiB": 58032,
+            "privateKiB": null
+          },
+          {
+            "type": "Utility",
+            "pid": 9495,
+            "workingSetKiB": 44464,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9515,
+            "workingSetKiB": 80848,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9517,
+            "workingSetKiB": 83360,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9520,
+            "workingSetKiB": 81664,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9521,
+            "workingSetKiB": 81120,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9522,
+            "workingSetKiB": 94832,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9523,
+            "workingSetKiB": 100064,
+            "privateKiB": null
+          }
+        ]
+      },
+      "afterCloseMemory": {
+        "ownProcessCount": 3,
+        "rendererProcessCount": 0,
+        "workingSetKiB": 253760,
+        "privateKiB": null,
+        "mainRssBytes": 156827648,
+        "mainHeapUsedBytes": 7389108,
+        "processes": [
+          {
+            "type": "Browser",
+            "pid": 9470,
+            "workingSetKiB": 153152,
+            "privateKiB": null
+          },
+          {
+            "type": "GPU",
+            "pid": 9494,
+            "workingSetKiB": 56592,
+            "privateKiB": null
+          },
+          {
+            "type": "Utility",
+            "pid": 9495,
+            "workingSetKiB": 44016,
+            "privateKiB": null
+          }
+        ]
+      },
+      "orphanIds": []
+    },
+    {
+      "logicalTabs": 10,
+      "residentBeforeClose": 6,
+      "openMs": {
+        "count": 10,
+        "min": 187.219,
+        "median": 244.213,
+        "p95": 369.214,
+        "max": 369.214
+      },
+      "detachMs": {
+        "count": 10,
+        "min": 0.005,
+        "median": 0.434,
+        "p95": 1.149,
+        "max": 1.149
+      },
+      "destroyedMs": {
+        "count": 6,
+        "min": 2.333,
+        "median": 10.074,
+        "p95": 23.297,
+        "max": 23.297
+      },
+      "closes": [
+        {
+          "id": "bench10.p0",
+          "hadRenderer": false,
+          "syncDetachMs": 0.036,
+          "completionMs": 0.058,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench10.p1",
+          "hadRenderer": false,
+          "syncDetachMs": 0.016,
+          "completionMs": 0.021,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench10.p2",
+          "hadRenderer": false,
+          "syncDetachMs": 0.015,
+          "completionMs": 0.019,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench10.p3",
+          "hadRenderer": false,
+          "syncDetachMs": 0.005,
+          "completionMs": 0.008,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench10.p4",
+          "hadRenderer": true,
+          "syncDetachMs": 0.502,
+          "completionMs": 2.353,
+          "destroyedMs": 2.333,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench10.p5",
+          "hadRenderer": true,
+          "syncDetachMs": 0.432,
+          "completionMs": 10.119,
+          "destroyedMs": 10.074,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench10.p6",
+          "hadRenderer": true,
+          "syncDetachMs": 0.69,
+          "completionMs": 20.814,
+          "destroyedMs": 20.79,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench10.p7",
+          "hadRenderer": true,
+          "syncDetachMs": 0.434,
+          "completionMs": 6.375,
+          "destroyedMs": 6.345,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench10.p8",
+          "hadRenderer": true,
+          "syncDetachMs": 0.476,
+          "completionMs": 6.123,
+          "destroyedMs": 6.097,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench10.p9",
+          "hadRenderer": true,
+          "syncDetachMs": 1.149,
+          "completionMs": 23.505,
+          "destroyedMs": 23.297,
+          "detached": true,
+          "destroyed": true
+        }
+      ],
+      "loadedMemory": {
+        "ownProcessCount": 9,
+        "rendererProcessCount": 6,
+        "workingSetKiB": 774960,
+        "privateKiB": null,
+        "mainRssBytes": 164560896,
+        "mainHeapUsedBytes": 7030844,
+        "processes": [
+          {
+            "type": "Browser",
+            "pid": 9470,
+            "workingSetKiB": 160608,
+            "privateKiB": null
+          },
+          {
+            "type": "GPU",
+            "pid": 9494,
+            "workingSetKiB": 55856,
+            "privateKiB": null
+          },
+          {
+            "type": "Utility",
+            "pid": 9495,
+            "workingSetKiB": 46944,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9531,
+            "workingSetKiB": 82112,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9532,
+            "workingSetKiB": 80720,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9533,
+            "workingSetKiB": 81872,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9534,
+            "workingSetKiB": 82304,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9535,
+            "workingSetKiB": 84432,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9536,
+            "workingSetKiB": 100112,
+            "privateKiB": null
+          }
+        ]
+      },
+      "afterCloseMemory": {
+        "ownProcessCount": 3,
+        "rendererProcessCount": 0,
+        "workingSetKiB": 261408,
+        "privateKiB": null,
+        "mainRssBytes": 162742272,
+        "mainHeapUsedBytes": 7164680,
+        "processes": [
+          {
+            "type": "Browser",
+            "pid": 9470,
+            "workingSetKiB": 158928,
+            "privateKiB": null
+          },
+          {
+            "type": "GPU",
+            "pid": 9494,
+            "workingSetKiB": 55504,
+            "privateKiB": null
+          },
+          {
+            "type": "Utility",
+            "pid": 9495,
+            "workingSetKiB": 46976,
+            "privateKiB": null
+          }
+        ]
+      },
+      "orphanIds": []
+    },
+    {
+      "logicalTabs": 20,
+      "residentBeforeClose": 6,
+      "openMs": {
+        "count": 20,
+        "min": 133.675,
+        "median": 155.652,
+        "p95": 184.43,
+        "max": 232.493
+      },
+      "detachMs": {
+        "count": 20,
+        "min": 0.001,
+        "median": 0.002,
+        "p95": 0.87,
+        "max": 0.919
+      },
+      "destroyedMs": {
+        "count": 6,
+        "min": 1.331,
+        "median": 6.613,
+        "p95": 14.225,
+        "max": 14.225
+      },
+      "closes": [
+        {
+          "id": "bench20.p0",
+          "hadRenderer": false,
+          "syncDetachMs": 0.026,
+          "completionMs": 0.046,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p1",
+          "hadRenderer": false,
+          "syncDetachMs": 0.004,
+          "completionMs": 0.006,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p2",
+          "hadRenderer": false,
+          "syncDetachMs": 0.002,
+          "completionMs": 0.004,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p3",
+          "hadRenderer": false,
+          "syncDetachMs": 0.002,
+          "completionMs": 0.004,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p4",
+          "hadRenderer": false,
+          "syncDetachMs": 0.002,
+          "completionMs": 0.004,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p5",
+          "hadRenderer": false,
+          "syncDetachMs": 0.002,
+          "completionMs": 0.004,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p6",
+          "hadRenderer": false,
+          "syncDetachMs": 0.002,
+          "completionMs": 0.003,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p7",
+          "hadRenderer": false,
+          "syncDetachMs": 0.002,
+          "completionMs": 0.003,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p8",
+          "hadRenderer": false,
+          "syncDetachMs": 0.002,
+          "completionMs": 0.004,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p9",
+          "hadRenderer": false,
+          "syncDetachMs": 0.002,
+          "completionMs": 0.003,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p10",
+          "hadRenderer": false,
+          "syncDetachMs": 0.002,
+          "completionMs": 0.004,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p11",
+          "hadRenderer": false,
+          "syncDetachMs": 0.002,
+          "completionMs": 0.003,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p12",
+          "hadRenderer": false,
+          "syncDetachMs": 0.002,
+          "completionMs": 0.004,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p13",
+          "hadRenderer": false,
+          "syncDetachMs": 0.001,
+          "completionMs": 0.003,
+          "destroyedMs": null,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p14",
+          "hadRenderer": true,
+          "syncDetachMs": 0.493,
+          "completionMs": 1.343,
+          "destroyedMs": 1.331,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p15",
+          "hadRenderer": true,
+          "syncDetachMs": 0.42,
+          "completionMs": 6.778,
+          "destroyedMs": 6.731,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p16",
+          "hadRenderer": true,
+          "syncDetachMs": 0.919,
+          "completionMs": 5.525,
+          "destroyedMs": 5.503,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p17",
+          "hadRenderer": true,
+          "syncDetachMs": 0.87,
+          "completionMs": 6.63,
+          "destroyedMs": 6.613,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p18",
+          "hadRenderer": true,
+          "syncDetachMs": 0.342,
+          "completionMs": 14.257,
+          "destroyedMs": 14.225,
+          "detached": true,
+          "destroyed": true
+        },
+        {
+          "id": "bench20.p19",
+          "hadRenderer": true,
+          "syncDetachMs": 0.291,
+          "completionMs": 5.772,
+          "destroyedMs": 5.75,
+          "detached": true,
+          "destroyed": true
+        }
+      ],
+      "loadedMemory": {
+        "ownProcessCount": 9,
+        "rendererProcessCount": 6,
+        "workingSetKiB": 889584,
+        "privateKiB": null,
+        "mainRssBytes": 182681600,
+        "mainHeapUsedBytes": 7529268,
+        "processes": [
+          {
+            "type": "Browser",
+            "pid": 9470,
+            "workingSetKiB": 178336,
+            "privateKiB": null
+          },
+          {
+            "type": "GPU",
+            "pid": 9494,
+            "workingSetKiB": 56512,
+            "privateKiB": null
+          },
+          {
+            "type": "Utility",
+            "pid": 9495,
+            "workingSetKiB": 53424,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9566,
+            "workingSetKiB": 100048,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9567,
+            "workingSetKiB": 100240,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9568,
+            "workingSetKiB": 100240,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9569,
+            "workingSetKiB": 100320,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9570,
+            "workingSetKiB": 100208,
+            "privateKiB": null
+          },
+          {
+            "type": "Tab",
+            "pid": 9571,
+            "workingSetKiB": 100256,
+            "privateKiB": null
+          }
+        ]
+      },
+      "afterCloseMemory": {
+        "ownProcessCount": 3,
+        "rendererProcessCount": 0,
+        "workingSetKiB": 284448,
+        "privateKiB": null,
+        "mainRssBytes": 179257344,
+        "mainHeapUsedBytes": 7710740,
+        "processes": [
+          {
+            "type": "Browser",
+            "pid": 9470,
+            "workingSetKiB": 175056,
+            "privateKiB": null
+          },
+          {
+            "type": "GPU",
+            "pid": 9494,
+            "workingSetKiB": 55968,
+            "privateKiB": null
+          },
+          {
+            "type": "Utility",
+            "pid": 9495,
+            "workingSetKiB": 53424,
+            "privateKiB": null
+          }
+        ]
+      },
+      "orphanIds": []
+    }
+  ],
+  "cycles": {
+    "count": 50,
+    "openMs": {
+      "count": 50,
+      "min": 128.448,
+      "median": 242.81,
+      "p95": 610.008,
+      "max": 711.689
+    },
+    "detachMs": {
+      "count": 50,
+      "min": 0.318,
+      "median": 0.399,
+      "p95": 0.934,
+      "max": 1.648
+    },
+    "destroyedMs": {
+      "count": 50,
+      "min": 0.953,
+      "median": 1.775,
+      "p95": 2.955,
+      "max": 53.034
+    },
+    "samples": [
+      {
+        "cycle": 1,
+        "openMs": 154.379,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.329,
+        "completionMs": 1.798,
+        "destroyedMs": 1.784,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 2,
+        "openMs": 155.967,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.321,
+        "completionMs": 1.217,
+        "destroyedMs": 1.202,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 3,
+        "openMs": 152.458,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.731,
+        "completionMs": 1.886,
+        "destroyedMs": 1.874,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 4,
+        "openMs": 151.926,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.459,
+        "completionMs": 1.432,
+        "destroyedMs": 1.42,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 5,
+        "openMs": 153.174,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.33,
+        "completionMs": 2.074,
+        "destroyedMs": 2.061,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 6,
+        "openMs": 140.421,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.566,
+        "completionMs": 2.247,
+        "destroyedMs": 2.22,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 7,
+        "openMs": 183.449,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.325,
+        "completionMs": 1.657,
+        "destroyedMs": 1.642,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 8,
+        "openMs": 229.462,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.33,
+        "completionMs": 1.276,
+        "destroyedMs": 1.265,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 9,
+        "openMs": 197.539,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.577,
+        "completionMs": 2.635,
+        "destroyedMs": 2.604,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 10,
+        "openMs": 152.554,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.321,
+        "completionMs": 2.074,
+        "destroyedMs": 2.061,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 11,
+        "openMs": 128.448,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.318,
+        "completionMs": 1.714,
+        "destroyedMs": 1.687,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 12,
+        "openMs": 157.309,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.356,
+        "completionMs": 1.276,
+        "destroyedMs": 1.264,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 13,
+        "openMs": 224.307,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.776,
+        "completionMs": 2.866,
+        "destroyedMs": 2.825,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 14,
+        "openMs": 305.604,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.4,
+        "completionMs": 2.095,
+        "destroyedMs": 2.074,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 15,
+        "openMs": 183.176,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.36,
+        "completionMs": 0.965,
+        "destroyedMs": 0.953,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 16,
+        "openMs": 610.008,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.35,
+        "completionMs": 1.714,
+        "destroyedMs": 1.695,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 17,
+        "openMs": 250.868,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.357,
+        "completionMs": 1.547,
+        "destroyedMs": 1.531,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 18,
+        "openMs": 182.171,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.352,
+        "completionMs": 1.214,
+        "destroyedMs": 1.201,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 19,
+        "openMs": 184.012,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.639,
+        "completionMs": 2.083,
+        "destroyedMs": 2.056,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 20,
+        "openMs": 176.767,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.416,
+        "completionMs": 1.589,
+        "destroyedMs": 1.549,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 21,
+        "openMs": 195.651,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.401,
+        "completionMs": 1.991,
+        "destroyedMs": 1.976,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 22,
+        "openMs": 242.81,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.356,
+        "completionMs": 1.828,
+        "destroyedMs": 1.812,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 23,
+        "openMs": 341.637,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.628,
+        "completionMs": 1.802,
+        "destroyedMs": 1.775,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 24,
+        "openMs": 188.3,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.384,
+        "completionMs": 1.902,
+        "destroyedMs": 1.874,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 25,
+        "openMs": 323.625,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.432,
+        "completionMs": 2.283,
+        "destroyedMs": 2.245,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 26,
+        "openMs": 372.354,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.356,
+        "completionMs": 1.371,
+        "destroyedMs": 1.355,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 27,
+        "openMs": 475.234,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.588,
+        "completionMs": 1.755,
+        "destroyedMs": 1.659,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 28,
+        "openMs": 394.742,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 1.648,
+        "completionMs": 53.068,
+        "destroyedMs": 53.034,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 29,
+        "openMs": 657.353,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.391,
+        "completionMs": 1.37,
+        "destroyedMs": 1.355,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 30,
+        "openMs": 214.432,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.34,
+        "completionMs": 1.227,
+        "destroyedMs": 1.215,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 31,
+        "openMs": 235.677,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.518,
+        "completionMs": 1.654,
+        "destroyedMs": 1.629,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 32,
+        "openMs": 329.843,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 1.142,
+        "completionMs": 2.972,
+        "destroyedMs": 2.955,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 33,
+        "openMs": 428.357,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.595,
+        "completionMs": 3.467,
+        "destroyedMs": 3.437,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 34,
+        "openMs": 217.853,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.354,
+        "completionMs": 1.692,
+        "destroyedMs": 1.665,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 35,
+        "openMs": 385.328,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.357,
+        "completionMs": 1.571,
+        "destroyedMs": 1.542,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 36,
+        "openMs": 298.395,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.479,
+        "completionMs": 2.382,
+        "destroyedMs": 2.366,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 37,
+        "openMs": 418.295,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.346,
+        "completionMs": 1.76,
+        "destroyedMs": 1.729,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 38,
+        "openMs": 327.356,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.364,
+        "completionMs": 1.278,
+        "destroyedMs": 1.265,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 39,
+        "openMs": 533.295,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.611,
+        "completionMs": 2.331,
+        "destroyedMs": 2.29,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 40,
+        "openMs": 335.146,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.358,
+        "completionMs": 1.781,
+        "destroyedMs": 1.76,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 41,
+        "openMs": 289.197,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.42,
+        "completionMs": 1.935,
+        "destroyedMs": 1.918,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 42,
+        "openMs": 711.689,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.506,
+        "completionMs": 1.663,
+        "destroyedMs": 1.651,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 43,
+        "openMs": 209.795,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.553,
+        "completionMs": 2.448,
+        "destroyedMs": 2.43,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 44,
+        "openMs": 222.813,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.934,
+        "completionMs": 2.343,
+        "destroyedMs": 2.328,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 45,
+        "openMs": 267.481,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.399,
+        "completionMs": 1.49,
+        "destroyedMs": 1.476,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 46,
+        "openMs": 250.08,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.386,
+        "completionMs": 1.659,
+        "destroyedMs": 1.645,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 47,
+        "openMs": 588.436,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.333,
+        "completionMs": 1.276,
+        "destroyedMs": 1.258,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 48,
+        "openMs": 242.529,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.658,
+        "completionMs": 2.322,
+        "destroyedMs": 2.303,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 49,
+        "openMs": 324.9,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.452,
+        "completionMs": 1.979,
+        "destroyedMs": 1.966,
+        "detached": true,
+        "destroyed": true
+      },
+      {
+        "cycle": 50,
+        "openMs": 585.15,
+        "id": "bench-cycle",
+        "hadRenderer": true,
+        "syncDetachMs": 0.349,
+        "completionMs": 1.924,
+        "destroyedMs": 1.907,
+        "detached": true,
+        "destroyed": true
+      }
+    ],
+    "memorySamples": [
+      {
+        "cycle": 10,
+        "memory": {
+          "ownProcessCount": 3,
+          "rendererProcessCount": 0,
+          "workingSetKiB": 285712,
+          "privateKiB": null,
+          "mainRssBytes": 180355072,
+          "mainHeapUsedBytes": 8113928,
+          "processes": [
+            {
+              "type": "Browser",
+              "pid": 9470,
+              "workingSetKiB": 176128,
+              "privateKiB": null
+            },
+            {
+              "type": "GPU",
+              "pid": 9494,
+              "workingSetKiB": 55952,
+              "privateKiB": null
+            },
+            {
+              "type": "Utility",
+              "pid": 9495,
+              "workingSetKiB": 53632,
+              "privateKiB": null
+            }
+          ]
+        },
+        "orphanIds": []
+      },
+      {
+        "cycle": 20,
+        "memory": {
+          "ownProcessCount": 3,
+          "rendererProcessCount": 0,
+          "workingSetKiB": 283680,
+          "privateKiB": null,
+          "mainRssBytes": 179077120,
+          "mainHeapUsedBytes": 8496128,
+          "processes": [
+            {
+              "type": "Browser",
+              "pid": 9470,
+              "workingSetKiB": 174880,
+              "privateKiB": null
+            },
+            {
+              "type": "GPU",
+              "pid": 9494,
+              "workingSetKiB": 55760,
+              "privateKiB": null
+            },
+            {
+              "type": "Utility",
+              "pid": 9495,
+              "workingSetKiB": 53040,
+              "privateKiB": null
+            }
+          ]
+        },
+        "orphanIds": []
+      },
+      {
+        "cycle": 30,
+        "memory": {
+          "ownProcessCount": 3,
+          "rendererProcessCount": 0,
+          "workingSetKiB": 266160,
+          "privateKiB": null,
+          "mainRssBytes": 166494208,
+          "mainHeapUsedBytes": 8234776,
+          "processes": [
+            {
+              "type": "Browser",
+              "pid": 9470,
+              "workingSetKiB": 162528,
+              "privateKiB": null
+            },
+            {
+              "type": "GPU",
+              "pid": 9494,
+              "workingSetKiB": 55552,
+              "privateKiB": null
+            },
+            {
+              "type": "Utility",
+              "pid": 9495,
+              "workingSetKiB": 48080,
+              "privateKiB": null
+            }
+          ]
+        },
+        "orphanIds": []
+      },
+      {
+        "cycle": 40,
+        "memory": {
+          "ownProcessCount": 3,
+          "rendererProcessCount": 0,
+          "workingSetKiB": 232352,
+          "privateKiB": null,
+          "mainRssBytes": 140591104,
+          "mainHeapUsedBytes": 8570392,
+          "processes": [
+            {
+              "type": "Browser",
+              "pid": 9470,
+              "workingSetKiB": 137232,
+              "privateKiB": null
+            },
+            {
+              "type": "GPU",
+              "pid": 9494,
+              "workingSetKiB": 50176,
+              "privateKiB": null
+            },
+            {
+              "type": "Utility",
+              "pid": 9495,
+              "workingSetKiB": 44944,
+              "privateKiB": null
+            }
+          ]
+        },
+        "orphanIds": []
+      },
+      {
+        "cycle": 50,
+        "memory": {
+          "ownProcessCount": 3,
+          "rendererProcessCount": 0,
+          "workingSetKiB": 226720,
+          "privateKiB": null,
+          "mainRssBytes": 136200192,
+          "mainHeapUsedBytes": 8911836,
+          "processes": [
+            {
+              "type": "Browser",
+              "pid": 9470,
+              "workingSetKiB": 132944,
+              "privateKiB": null
+            },
+            {
+              "type": "GPU",
+              "pid": 9494,
+              "workingSetKiB": 49216,
+              "privateKiB": null
+            },
+            {
+              "type": "Utility",
+              "pid": 9495,
+              "workingSetKiB": 44560,
+              "privateKiB": null
+            }
+          ]
+        },
+        "orphanIds": []
+      }
+    ]
+  },
+  "adversarial": [
+    {
+      "id": "bench-noack",
+      "hadRenderer": true,
+      "syncDetachMs": 0.869,
+      "completionMs": 1206.997,
+      "destroyedMs": 1206.953,
+      "detached": true,
+      "destroyed": true
+    },
+    {
+      "id": "bench-veto",
+      "hadRenderer": true,
+      "syncDetachMs": 1.37,
+      "completionMs": 4.451,
+      "destroyedMs": 4.426,
+      "detached": true,
+      "destroyed": true
+    },
+    {
+      "id": "bench-blocked",
+      "hadRenderer": true,
+      "syncDetachMs": 0.539,
+      "completionMs": 1208.869,
+      "destroyedMs": 1208.843,
+      "detached": true,
+      "destroyed": true
+    }
+  ],
+  "warnings": [],
+  "passed": true,
+  "browserBoundary": {
+    "blocked": true,
+    "deniedHits": 0,
+    "sandbox": true
+  },
+  "finalMemory": {
+    "ownProcessCount": 3,
+    "rendererProcessCount": 0,
+    "workingSetKiB": 228384,
+    "privateKiB": null,
+    "mainRssBytes": 137625600,
+    "mainHeapUsedBytes": 6436036,
+    "processes": [
+      {
+        "type": "Browser",
+        "pid": 9470,
+        "workingSetKiB": 134384,
+        "privateKiB": null
+      },
+      {
+        "type": "GPU",
+        "pid": 9494,
+        "workingSetKiB": 49024,
+        "privateKiB": null
+      },
+      {
+        "type": "Utility",
+        "pid": 9495,
+        "workingSetKiB": 44976,
+        "privateKiB": null
+      }
+    ]
+  },
+  "finalOrphanIds": [],
+  "totalCreatedWebContents": 90
+}

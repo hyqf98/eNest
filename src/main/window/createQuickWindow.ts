@@ -1,17 +1,22 @@
+import { pathToFileURL } from 'node:url'
+import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
 /**
  * createQuickWindow — 快捷启动独立小窗
- * 职责：创建/销毁无边框置顶 Quick BrowserWindow，由透明主 renderer 绘制圆角表面，
+ * 职责：创建/销毁无边框置顶 Quick BaseWindow，由透明主 renderer 绘制圆角表面，
  * 提供 toggle/hide/show 与居中定位；失焦自动隐藏。
  * 兼任 mini 插件容器：提供 getQuickPluginBounds（插件 view 铺输入条以下区域），
  * 尺寸变更联动 relayoutQuickPlugins（PluginHost 注入，避免循环依赖）。
  * 被 index.ts / quickHotkey / quickHandlers / PluginHost 调用。
  * 关键依赖：resolvePreload、settingsStore（动画）、logService。
  */
+import { capturePasteTarget } from '@main/clipboard/nativeClipboard'
 import { join } from 'node:path'
-import { app, BrowserWindow, screen } from 'electron'
+import { app, BaseWindow, screen, systemPreferences, View, WebContentsView } from 'electron'
 import {
   QUICK_BAR_AREA_H,
   QUICK_BORDER_WIDTH,
+  QUICK_CORNER_RADIUS,
+  QUICK_HOME_HEIGHT,
   QUICK_MAX_HEIGHT,
   QUICK_MIN_HEIGHT,
   QUICK_WIDTH,
@@ -23,9 +28,86 @@ import { logError, logInfo } from '@main/logs/logService'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { resolvePreload, setQuickEventSink } from './createShellWindow'
 
-let quickWindow: BrowserWindow | null = null
+/** Explicit shell view lets one native surface clip shell and plugin together. */
+class QuickWindow extends BaseWindow {
+  readonly shellView: WebContentsView
+  readonly webContents: Electron.WebContents
+
+  constructor() {
+    super({
+      width: QUICK_WIDTH, height: QUICK_HOME_HEIGHT, show: false, frame: false,
+      resizable: false, maximizable: false, minimizable: false, fullscreenable: false,
+      skipTaskbar: true, alwaysOnTop: true, transparent: true, hasShadow: true,
+      roundedCorners: false, backgroundColor: '#00000000', title: 'eNest Quick'
+    })
+    this.shellView = new WebContentsView({ webPreferences: {
+      preload: resolvePreload('shellPreload.js'), contextIsolation: true,
+      nodeIntegration: false, sandbox: true, partition: SHELL_PARTITION
+    } })
+    this.shellView.setBackgroundColor('#00000000')
+    this.webContents = this.shellView.webContents
+    // BaseWindow does not own/close WebContents automatically.
+    this.once('closed', () => {
+      if (!this.webContents.isDestroyed()) this.webContents.close({ waitForBeforeUnload: false })
+    })
+  }
+}
+
+let quickWindow: QuickWindow | null = null
+let quickPluginSurface: View | null = null
+let revealTimer: ReturnType<typeof setTimeout> | null = null
+let reveal: { start: number; duration: number; level: string; fromHeight: number } | null = null
+
+/** One native outer contour; the plugin's own top edge must stay square. */
+export function getQuickPluginParent(): View | null { return quickPluginSurface }
+
+function layoutQuickContents(): void {
+  if (!quickWindow || quickWindow.isDestroyed()) return
+  const { width, height } = quickWindow.getContentBounds()
+  quickWindow.shellView.setBounds({ x: 0, y: 0, width, height })
+  layoutQuickSurface()
+}
+
+function layoutQuickSurface(): void {
+  if (!quickWindow || quickWindow.isDestroyed() || !quickPluginSurface) return
+  const { width, height } = quickWindow.getContentBounds()
+  let visibleHeight = height
+  if (reveal) {
+    const t = Math.min(1, (performance.now() - reveal.start) / reveal.duration)
+    const progress = t === 1 ? 1 : reveal.level === 'medium'
+      ? 1 - Math.pow(2, -10 * t) : 1 - Math.pow(1 - t, reveal.level === 'low' ? 2 : 4)
+    visibleHeight = Math.round(reveal.fromHeight + (height - reveal.fromHeight) * progress)
+    if (t === 1) reveal = null
+  }
+  // Only this plain View changes. Neither the native window nor plugin viewport
+  // is resized per frame, so plugin layout/ResizeObserver work stays constant.
+  quickPluginSurface.setBounds({ x: 0, y: 0, width, height: visibleHeight })
+}
+
+export function finishQuickPluginReveal(): void {
+  if (revealTimer) clearTimeout(revealTimer)
+  revealTimer = null
+  reveal = null
+  layoutQuickSurface()
+}
+
+export function revealQuickPlugin(fromHeight = QUICK_BAR_AREA_H): void {
+  finishQuickPluginReveal()
+  if (!quickWindow?.isVisible() || systemPreferences.getAnimationSettings().prefersReducedMotion) return
+  const level = settingsStore.getAll().general.animationLevel || 'medium'
+  // Same duration tiers as marketMotion.d(0.28); native clipping uses no renderer IPC per frame.
+  const duration = level === 'low' ? 182.4 : level === 'high' ? 322 : 308
+  reveal = { start: performance.now(), duration, level, fromHeight }
+  const frame = (): void => {
+    revealTimer = null
+    layoutQuickSurface()
+    if (reveal) revealTimer = setTimeout(frame, 16)
+  }
+  frame()
+}
+
 let lastPushedAnim = ''
-let currentTargetHeight = QUICK_MIN_HEIGHT
+let currentTargetHeight = QUICK_HOME_HEIGHT
 let currentTargetWidth = QUICK_WIDTH
 const WORK_AREA_INSET = 16
 const QUICK_MIN_WIDTH = 480
@@ -34,11 +116,28 @@ const QUICK_MAX_WIDTH = 1200
 let blurGuardUntil = 0
 /** toggle 防抖 */
 let lastToggleAt = 0
+let showRevision = 0
 /** 待执行的 blur-hide 定时器 */
 let pendingBlurTimer: ReturnType<typeof setTimeout> | null = null
 const TOGGLE_DEBOUNCE_MS = 260
 /** 呼出后保护期：show/app 激活/IME 会抢焦点，期内 blur 只回焦不收起 */
 const SHOW_BLUR_GRACE_MS = 900
+const nativeInteractions = new Set<symbol>()
+
+/** Native dialogs and drag sessions temporarily own focus; never steal it back. */
+export function acquireQuickInteraction(): () => void {
+  const token = Symbol('native-interaction')
+  nativeInteractions.add(token)
+  if (pendingBlurTimer) clearTimeout(pendingBlurTimer)
+  pendingBlurTimer = null
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    nativeInteractions.delete(token)
+    if (nativeInteractions.size === 0) blurGuardUntil = Date.now() + 250
+  }
+}
 
 /**
  * PluginHost 注入的插件 view 联动布局回调（quick 窗高变化时同步 setBounds）。
@@ -75,12 +174,17 @@ function pushAnimLevel(): void {
   void wc.executeJavaScript(js).catch(() => undefined)
 }
 
-function loadQuickRenderer(win: BrowserWindow): void {
+function loadQuickRenderer(win: QuickWindow): void {
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (devUrl) {
-    void win.webContents.loadURL(`${devUrl}?surface=quick`)
+    const url = new URL(devUrl)
+    url.searchParams.set('surface', 'quick')
+    registerTrustedSurface(win.webContents, 'quick', url.href)
+    void win.webContents.loadURL(url.href)
   } else {
-    void win.webContents.loadFile(join(app.getAppPath(), 'out', 'renderer', 'index.html'), {
+    const file = join(app.getAppPath(), 'out', 'renderer', 'index.html')
+    registerTrustedSurface(win.webContents, 'quick', pathToFileURL(file).href)
+    void win.webContents.loadFile(file, {
       query: { surface: 'quick' }
     })
   }
@@ -97,7 +201,7 @@ function clampQuickSize(workArea: Electron.Rectangle): { width: number; height: 
 }
 
 /** 在光标所在显示器的上三分之一居中放置，较高内容向上避让屏幕边缘。 */
-function positionOnCursorScreen(win: BrowserWindow): void {
+function positionOnCursorScreen(win: QuickWindow): void {
   const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   const size = clampQuickSize(workArea)
   const x = Math.round(workArea.x + (workArea.width - size.width) / 2)
@@ -107,11 +211,12 @@ function positionOnCursorScreen(win: BrowserWindow): void {
 }
 
 /**
- * 一次性调整原生容器，视觉过渡由 renderer 按动画档位完成。
+ * 一次性调整原生窗口；壳与插件共用的父 View 按动画档位揭示。
  * 避免透明 NSWindow 上逐帧 setBounds 引起合成闪烁/原生崩溃；隐藏时仅记住建议尺寸。
  */
 export function setQuickContentSize(size: { width?: number; height?: number }): void {
-  if (Number.isFinite(size.width) && size.width! > 0) currentTargetWidth = Math.round(size.width!)
+  // Quick 共享固定宽度，仅在小屏工作区不足时缩小。插件只控制内容高度。
+  currentTargetWidth = QUICK_WIDTH
   if (Number.isFinite(size.height) && size.height! > 0) currentTargetHeight = Math.round(size.height!)
   const win = quickWindow
   if (!win || win.isDestroyed() || !win.isVisible()) return
@@ -125,15 +230,19 @@ export function setQuickContentSize(size: { width?: number; height?: number }): 
   const y = Math.round(Math.max(workArea.y + WORK_AREA_INSET, Math.min(
     bounds.y, workArea.y + workArea.height - target.height - WORK_AREA_INSET)))
   try {
+    const fromHeight = quickPluginSurface?.getBounds().height ?? bounds.height
     win.setBounds({ x, y, ...target })
+    layoutQuickContents()
     relayoutQuickPlugins?.()
+    if (target.height > fromHeight) revealQuickPlugin(fromHeight)
+    else finishQuickPluginReveal()
   } catch (err) {
     logError('quick', `resize failed: ${(err as Error).message}`)
   }
 }
 
 export function setQuickContentHeight(height: number, _animate?: boolean): void {
-  // _animate：旧调用兼容；原生尺寸一次对齐，动效由 renderer 承担。
+  // _animate：旧调用兼容；窗口一次对齐，父 View 统一裁切壳与插件。
   if (!Number.isFinite(height) || height <= 0) return
   setQuickContentSize({ height })
 }
@@ -143,10 +252,11 @@ export function applyQuickHeightAfterShow(): void {
   const win = quickWindow
   if (!win || win.isDestroyed() || !win.isVisible()) return
   setQuickContentSize({})
+  layoutQuickContents()
   relayoutQuickPlugins?.()
 }
 
-export function getQuickWindow(): BrowserWindow | null {
+export function getQuickWindow(): QuickWindow | null {
   return quickWindow
 }
 
@@ -167,39 +277,22 @@ export function isQuickVisible(): boolean {
 }
 
 /** 确保窗口存在；启动时可预创建（隐藏），热键只 show */
-export function ensureQuickWindow(): BrowserWindow {
+export function ensureQuickWindow(): QuickWindow {
   if (quickWindow && !quickWindow.isDestroyed()) return quickWindow
   // 插件 logo 等 enest:// 资源需在 shell 分区可用
   ensureShellSessionProtocol()
 
-  logInfo('quick', 'ensureQuickWindow: creating BrowserWindow')
-  const win = new BrowserWindow({
-    width: QUICK_WIDTH,
-    height: QUICK_MIN_HEIGHT,
-    show: false,
-    frame: false,
-    resizable: false,
-    maximizable: false,
-    minimizable: false,
-    fullscreenable: false,
-    skipTaskbar: true,
-    alwaysOnTop: true,
-    transparent: true,
-    hasShadow: true,
-    // 圆角仅由 CSS 表面绘制；窗口和主 renderer 都保持透明，不叠加不透明 View 底板。
-    roundedCorners: false,
-    backgroundColor: '#00000000',
-    title: 'eNest Quick',
-    webPreferences: {
-      preload: resolvePreload('shellPreload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      partition: SHELL_PARTITION,
-      backgroundThrottling: false
-    }
-  })
-  logInfo('quick', 'ensureQuickWindow: BrowserWindow ok (renderer lazy)')
+  logInfo('quick', 'ensureQuickWindow: creating BaseWindow')
+  const win = new QuickWindow()
+  // Force a compositor layer even though no blur is applied: without a layer,
+  // View border paths do not reliably clip descendant WebContentsViews on macOS.
+  const surface = new View()
+  surface.setBackgroundBlur(0)
+  surface.setBorderRadius(QUICK_CORNER_RADIUS)
+  surface.addChildView(win.shellView)
+  win.contentView.addChildView(surface)
+  quickPluginSurface = surface
+  logInfo('quick', 'ensureQuickWindow: BaseWindow ok (renderer lazy)')
 
   if (process.platform === 'darwin') {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -213,6 +306,7 @@ export function ensureQuickWindow(): BrowserWindow {
   win.on('resize', () => {
     try {
       if (!quickWindow || quickWindow.isDestroyed()) return
+      layoutQuickContents()
       relayoutQuickPlugins?.()
     } catch (err) {
       logError('quick', `resize handler: ${(err as Error).message}`)
@@ -240,6 +334,7 @@ export function ensureQuickWindow(): BrowserWindow {
           pendingBlurTimer = null
           if (!quickWindow || quickWindow.isDestroyed()) return
           if (!quickWindow.isVisible()) return
+          if (nativeInteractions.size > 0) return
           if (Date.now() < blurGuardUntil) {
             try {
               quickWindow.focus()
@@ -267,20 +362,27 @@ export function ensureQuickWindow(): BrowserWindow {
     }
   })
 
+  win.on('close', () => quickPluginHiddenHook?.())
   win.on('closed', () => {
+    if (revealTimer) clearTimeout(revealTimer)
+    revealTimer = null
+    reveal = null
+    quickPluginSurface = null
     if (pendingBlurTimer) clearTimeout(pendingBlurTimer)
     pendingBlurTimer = null
     quickWindow = null
+    nativeInteractions.clear()
     lastPushedAnim = ''
   })
 
   quickWindow = win
+  layoutQuickContents()
   return win
 }
 
 /** 把 Quick 窗前置并拿到键盘焦点。
  * 注意：不要在 show 前 app.focus——会先把主窗设成 key window，quick 立刻 blur 被收起。 */
-function presentAndFocus(win: BrowserWindow): void {
+function presentAndFocus(win: QuickWindow): void {
   blurGuardUntil = Date.now() + SHOW_BLUR_GRACE_MS
   if (pendingBlurTimer) {
     clearTimeout(pendingBlurTimer)
@@ -313,6 +415,7 @@ function presentAndFocus(win: BrowserWindow): void {
     try {
       if (!quickWindow || quickWindow.isDestroyed() || quickWindow !== retryWin) return
       if (!quickWindow.isVisible()) return
+      if (nativeInteractions.size > 0) return
       if (quickWindow.isFocused()) return
       if (Date.now() > blurGuardUntil) return
       retryWin.focus()
@@ -327,14 +430,20 @@ function presentAndFocus(win: BrowserWindow): void {
   setTimeout(() => retryFocus('280ms'), 280)
 }
 
-export function showQuickWindow(): void {
+export function getQuickShowRevision(): number { return showRevision }
+
+export async function showQuickWindow(canShow: () => boolean = () => true): Promise<boolean> {
+  if (!canShow()) return false
   logInfo('quick', 'showQuickWindow enter')
+  const revision = ++showRevision
+  if (!isQuickVisible()) await capturePasteTarget()
+  if (revision !== showRevision || !canShow()) return false
   try {
     const win = ensureQuickWindow()
     logInfo('quick', `ensureQuickWindow ok destroyed=${win.isDestroyed()}`)
-    // 每次呼出都从空搜索栏开始；搜索结果与插件只在用户操作后展开。
+    // 每次呼出显示空搜索词的两行常用项，避免先闪过仅输入栏的一帧。
     quickPluginResetHook?.()
-    currentTargetHeight = QUICK_MIN_HEIGHT
+    currentTargetHeight = QUICK_HOME_HEIGHT
     currentTargetWidth = QUICK_WIDTH
     const wc = quickWindow?.webContents
     const afterPresent = (): void => {
@@ -366,6 +475,7 @@ export function showQuickWindow(): void {
       }
       // 首帧文档就绪再显示，避免首次唤出时出现透明空窗。
       wc.once('did-finish-load', () => {
+        if (revision !== showRevision || !canShow()) return
         try {
           if (!quickWindow || quickWindow.isDestroyed()) return
           presentAndFocus(win)
@@ -390,7 +500,9 @@ export function showQuickWindow(): void {
     } catch {
       /* ignore */
     }
+    return false
   }
+  return true
 }
 
 /**
@@ -416,6 +528,7 @@ export function setQuickPluginHiddenHook(fn: (() => void) | null): void {
 }
 
 export function hideQuickWindow(reason = 'explicit'): void {
+  showRevision++
   if (quickWindow && !quickWindow.isDestroyed() && quickWindow.isVisible()) {
     logInfo(
       `quick`,

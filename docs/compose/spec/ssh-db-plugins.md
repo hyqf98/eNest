@@ -8,6 +8,8 @@ commits: (uncommitted working tree on main)
 
 # SSH 管理 + 数据库插件（生产核心路径）
 
+> 本文是 2026-09-18 的历史交付记录。2026-10-13 的双入口工作台、驱动扩展、真实取消、文件传输与生命周期实现以 [当前实现与验证记录](../../engineering/SSH_DATABASE_WORKBENCH.md) 为准；下文旧的范围排除与已知限制不代表当前状态。
+
 ## Report
 
 **What was built** — 在正式主仓（无 worktree）交付宿主运行时与双插件：`vault`/`ssh`/`db` 权限与 API、统一 KV 存储契约（`enest.storage` + `enest.vault`→secretRef）、SSH 会话/补全/监控/SFTP、五数据库驱动 + IDEA 向 SQL 补全 + 结果集变更 + 控制台会话持久化 + 导入导出。插件包：`eNest_plugin/plugins/com.enest.ssh` 与 `com.enest.database`。

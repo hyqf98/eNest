@@ -1,10 +1,12 @@
-/** 插件权限白名单键 */
+/** 宿主能力标识；基础能力直接可用，敏感能力需在 manifest 声明并取得用户授权。 */
 export type PluginPermission =
   | 'clipboard.read'
   | 'clipboard.write'
   | 'clipboard.readImage'
   | 'clipboard.writeImage'
   | 'clipboard.history'
+  | 'clipboard.paste'
+  | 'timer.background'
   | 'screen.capture'
   | 'screen.record'
   | 'pin.create'
@@ -28,6 +30,22 @@ export type PluginPermission =
   | 'db.connect'
   | 'db.query'
   | 'db.schema'
+  | 'mw.connect'
+  | 'mw.query'
+  | 'mw.admin'
+  | 'dsh.connect'
+  | 'dsh.chat'
+  | 'dsh.admin'
+  | 'net.socket'
+  | 'lan.share'
+  | 'fs.rename'
+  | 'fs.read'
+  | 'fs.write'
+  | 'sys.control'
+  | 'ssh.agent'
+  | 'config.agent.read'
+  | 'config.agent.write'
+  | 'sys.inspect'
   | 'theme'
 
 /**
@@ -41,6 +59,8 @@ export const PLUGIN_PERMISSIONS: readonly PluginPermission[] = [
   'clipboard.readImage',
   'clipboard.writeImage',
   'clipboard.history',
+  'clipboard.paste',
+  'timer.background',
   'screen.capture',
   'screen.record',
   'pin.create',
@@ -64,14 +84,30 @@ export const PLUGIN_PERMISSIONS: readonly PluginPermission[] = [
   'db.connect',
   'db.query',
   'db.schema',
+  'mw.connect',
+  'mw.query',
+  'mw.admin',
+  'dsh.connect',
+  'dsh.chat',
+  'dsh.admin',
+  'net.socket',
+  'lan.share',
+  'fs.rename',
+  'fs.read',
+  'fs.write',
+  'sys.control',
+  'ssh.agent',
+  'config.agent.read',
+  'config.agent.write',
+  'sys.inspect',
   'theme'
 ]
 
 /**
- * 运行时权限授权三态（壳层用户决策，持久化于 SettingsStore.plugins 段）：
+ * 敏感权限授权三态（壳层用户决策，持久化于 SettingsStore.plugins 段）：
  * - allow：静默放行
- * - ask：每次调用弹壳层确认（缺省值）
- * - deny：静默拒绝
+ * - ask：调用时由主进程原生对话框确认（敏感权限缺省值）
+ * - deny：静默拒绝；基础能力不受此授权表控制
  */
 export type PluginPermissionGrant = 'allow' | 'ask' | 'deny'
 
@@ -96,7 +132,9 @@ export interface ScreenCaptureResult {
 /** 剪贴板历史条目（list 不含完整二进制；get 返回完整字段） */
 export interface ClipboardHistoryEntry {
   id: string
-  type: 'text' | 'image'
+  type: 'text' | 'image' | 'files'
+  files?: import('./plugin-tools').ClipboardFile[]
+  sourceApp?: import('./plugin-tools').ClipboardSourceApp
   /** 文本截断或图片尺寸摘要，用于列表展示 */
   preview: string
   text?: string
@@ -108,10 +146,15 @@ export interface ClipboardHistoryEntry {
   bytes?: number
 }
 
+/** 声明式内容处理指令；字符串指令继续保持兼容。 */
+export type PluginFeatureCommand = string
+  | { type: 'regex'; label: string; match?: string; regex?: string; minLength?: number }
+  | { type: 'over'; label: string; exclude?: string; minLength?: number; maxLength?: number }
+
 export interface PluginFeature {
   code: string
   explain?: string
-  cmds: string[]
+  cmds: PluginFeatureCommand[]
 }
 
 /** 插件宿主 Chrome 模式：default 标准条 / minimal 细条 / none 无条（全幅内容） */
@@ -227,11 +270,13 @@ export interface SettingsSectionContributionItem {
    * 控件类型（10 种）：text / string / switch / boolean / bool / select /
    * number / slider / color / page。
    * - string/bool 为 text/switch 的别名（对齐插件侧声明习惯）；
-   * - slider 需 min/max/step；color 渲染颜色输入；page 为 stretch（本期仅声明）。
+   * - slider 需 min/max/step；color 渲染颜色输入；page 打开插件内独立设置页。
    * - 非法类型渲染层回退 text。
    */
   type: string
   label: string
+  /** type=page：打开本插件并发送入口事件；缺省 code=settings。 */
+  entry?: { code: string; payload?: unknown }
   default?: unknown
   options?: Array<{ label: string; value: unknown }>
   /** type=slider：范围与步长 */
@@ -314,27 +359,33 @@ export interface PluginManifest {
   id: string
   name: string
   version: string
-  description?: string
+  description: string
   author?: string
-  logo?: string
-  /** 兼容插件仓库的旧图标字段；logo 优先 */
-  icon?: string
+  /** Standard runtime-relative icon path: assets/market/icon.svg. */
+  icon: 'assets/market/icon.svg'
   /** 市场分类；与插件仓库 registry.json 的 category 一致 */
   category?: string
   /** 插件主页，市场详情展示 */
   homepage?: string
   /** 插件仓库生成市场索引时使用的展示元数据 */
-  market?: {
+  market: {
     featured?: boolean
     tags?: string[]
-    /** 有序截图，最多 8 张；插件根相对路径或 HTTPS URL，首张为首页封面 */
-    screenshots?: string[]
+    /** 有序截图，最多 8 张；包内 assets/market/screenshots 相对路径，首张为首页封面 */
+    screenshots: string[]
+    /** Runtime-relative Markdown document in the packaged static assets. */
+    readme: 'assets/market/README.md'
   }
-  main: string
-  settings?: string
+  main: 'index.html'
   engines?: { enest?: string }
+  /**
+   * 网络能力声明（可选）：
+   * - allowInsecure: true 时 net.fetch 允许明文 http:// URL（含重定向逐跳）；
+   *   缺省 false 仅 https。PluginInstaller 安装时校验形状，运行时按 manifest 读取。
+   */
+  net?: { allowInsecure?: boolean }
   permissions?: PluginPermission[]
-  /** 插件内容区尺寸建议（CSS px）；Quick 按屏幕工作区限制，主窗由用户控制。 */
+  /** 插件内容区尺寸建议（CSS px）；Quick 宽度固定，仅采用高度并按屏幕工作区限制，主窗由用户控制。 */
   window?: { width?: number; height?: number; minWidth?: number; minHeight?: number }
   features?: PluginFeature[]
   development?: { main?: string }
@@ -355,10 +406,14 @@ export interface PluginSummary {
   installs: string
   color: string
   glyph: string
-  /** 图标 URL：已安装插件为 enest://plugin/{id}/{logo}，远程市场为 registry 条目的 icon URL；缺省回退 glyph 色块 */
+  /** 图标 URL：已安装插件为 enest://plugin/{id}/{icon}，远程市场为 registry 条目的 icon URL；缺省回退 glyph 色块 */
   icon?: string
   /** 已解析的有序截图 URL；首张为首页封面，旧插件缺省无截图 */
   screenshots?: string[]
+  /** Version-matched Markdown resource URL. */
+  readmeUrl?: string
+  /** Same-version packaged Markdown image attachment map, keyed by relative path. */
+  readmeImages?: Record<string, string>
   /** 插件市场推荐标记 */
   featured?: boolean
   permissions: PluginPermission[]
@@ -369,6 +424,10 @@ export interface PluginSummary {
   latestVersion?: string
   rootPath?: string
   devUrl?: string
+  /** Source preview maps assets/* to public/assets/*; false previews built output. */
+  devSource?: boolean
+  /** Original source folder, also retained when previewing its dist directory. */
+  sourcePath?: string
   /** 开发态插件（开发者控制台加载，未复制到 userData） */
   dev?: boolean
   /** 已归一的 UI 配置（供壳子 chrome / 主题注入使用） */
@@ -378,6 +437,12 @@ export interface PluginSummary {
    * 声明式注册不依赖插件运行）。
    */
   contributes?: PluginContributes
+}
+
+/** Developer registration. An empty URL explicitly selects static source preview. */
+export interface DevPluginLoadOptions {
+  url?: string
+  preview?: 'source' | 'dist'
 }
 
 /** 市场安装结果：sample 本地同步安装 / remote 已入队下载 */
@@ -398,6 +463,10 @@ export interface PluginTab {
   title: string
   color: string
   glyph: string
+  /** Package icon URL; null explicitly selects the runtime glyph override. */
+  icon?: string | null
+  /** Runtime badge text, empty when cleared. */
+  badge?: string
 }
 
 export type ShellView = 'home' | 'settings' | 'dev' | 'plugin'
@@ -435,6 +504,8 @@ export interface ThemeTokens {
   /** 当前激活的自定义主题包 id；空则用 mode + overrides */
   packId?: string
   background?: BackgroundConfig
+  /** user 为用户自选；pack 从当前主题包派生。旧版未标记值保留，不能推定来源。 */
+  backgroundSource?: 'user' | 'pack'
 }
 
 /** Tab 呈现方式：classic 顶栏条 / orb 左侧悬浮圆形轨道 */
@@ -488,6 +559,8 @@ export interface QuickLauncherSettings {
   activeHotkey?: string
   /** 最近使用命令（按 ts 倒序，截断 20）；缺省 = 尚未记录 */
   recent?: QuickRecentEntry[]
+  /** 每个标准化搜索词上次选择的命令；有界保存最近 100 项。 */
+  queryPreferences?: Array<{ query: string; id: string }>
 }
 
 /** 启动 Splash 背景类型：brand 品牌色 / none 主题色 / image 自定义图 */
@@ -571,6 +644,7 @@ export type PluginLaunchPatch = Omit<Partial<PluginLaunchConfig>, 'mode'> & {
 /** openPlugin 可选进入载荷：code 对应 feature 指令，payload 为任意透传数据 */
 export interface PluginEnterPayload {
   code?: string
+  type?: 'text' | 'regex' | 'over'
   payload?: unknown
 }
 
@@ -582,7 +656,8 @@ export type PluginCloseReason = 'tab-close' | 'uninstall' | 'app-quit'
  * enter/out 成对出现以便插件 pause/resume；beforeClose 可 ack；destroy 为尽力而为。
  */
 export type PluginLifecycleMessage =
-  | { event: 'enter'; tabId: string; code?: string; payload?: unknown; mode: PluginLaunchMode }
+  | ({ event: 'enter'; tabId: string; mode: PluginLaunchMode } & PluginEnterPayload)
   | { event: 'out'; isKill: false }
-  | { event: 'beforeClose'; reason: PluginCloseReason }
+  | { event: 'beforeClose'; reason: PluginCloseReason; operationId: string }
+  | { event: 'beforeSuspend'; operationId: string }
   | { event: 'destroy' }

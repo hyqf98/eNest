@@ -6,6 +6,7 @@
  */
 import type { PluginPermission, PluginSummary } from '@shared/types/plugin'
 import { DEFAULT_PLUGIN_UI } from '@shared/types/plugin'
+import { mockPluginIcon } from '@shared/mockPluginIcon'
 
 export interface MockMarketPlugin {
   id: string
@@ -264,6 +265,7 @@ export function mockToSummary(installed: boolean): PluginSummary[] {
     installs: p.installs,
     color: p.color,
     glyph: p.glyph,
+    icon: mockPluginIcon(p.id, p.color),
     permissions: p.permissions,
     installed,
     // 市场 mock 尚无 manifest，统一用默认 UI 配置；安装后由 PluginRegistry 覆盖

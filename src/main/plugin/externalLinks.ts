@@ -13,19 +13,7 @@ import { assertPermission } from '@main/plugin/PluginPermissions'
 import { permissionService } from '@main/plugin/PermissionService'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { shell } from 'electron'
-
-/** dev 模式放行的本地调试源（插件自身 devUrl 所在宿主） */
-function isDevNavigation(url: string): boolean {
-  if (!process.env.ELECTRON_RENDERER_URL) return false
-  try {
-    const u = new URL(url)
-    return u.protocol === 'http:' || u.protocol === 'https:'
-      ? /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(u.host)
-      : false
-  } catch {
-    return false
-  }
-}
+import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 
 /**
  * 引流一条站外 URL：
@@ -35,6 +23,8 @@ function isDevNavigation(url: string): boolean {
  * - 通过后 shell.openExternal。
  */
 export async function routeExternal(pluginId: string, rawUrl: string): Promise<void> {
+  const scope = getRuntimeScope(pluginId)
+  if (!scope || scope.signal.aborted) return
   const url = String(rawUrl ?? '')
   let protocol: string
   try {
@@ -63,6 +53,7 @@ export async function routeExternal(pluginId: string, rawUrl: string): Promise<v
     'shell.openExternal',
     `shell.openExternal ${url.slice(0, 120)}`
   )
+  if (!scope.isCurrent() || scope.signal.aborted) return
   if (!grant) {
     logInfo('external', `${pluginId}: user denied external nav ${url.slice(0, 120)}`)
     return
@@ -72,8 +63,12 @@ export async function routeExternal(pluginId: string, rawUrl: string): Promise<v
   })
 }
 
-/** 供 PluginHost will-navigate 判定：站内协议（enest://）与 dev localhost 放行 */
-export function isInternalNavigation(url: string): boolean {
-  if (url.startsWith('enest://')) return true
-  return isDevNavigation(url)
+/** Navigation remains in this plugin, or its explicitly registered development origin. */
+export function isInternalNavigation(url: string, pluginId: string): boolean {
+  try {
+    const target = new URL(url)
+    if (target.protocol === 'enest:') return target.hostname === 'plugin' && target.pathname.split('/')[1] === pluginId
+    const devUrl = pluginRegistry.get(pluginId)?.devUrl
+    return !!devUrl && target.origin === new URL(devUrl).origin
+  } catch { return false }
 }

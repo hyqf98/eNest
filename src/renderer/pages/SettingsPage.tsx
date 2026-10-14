@@ -15,6 +15,7 @@ import { QuickSettingsSection } from '@renderer/components/QuickSettingsSection'
 import { LanguageSelect } from '@renderer/components/LanguageSelect'
 import { Select } from '@renderer/components/Select'
 import { SettingsTabs } from '@renderer/components/SettingsTabs'
+import { PluginBuiltinCapabilities } from '@renderer/components/PluginBuiltinCapabilities'
 import { useI18n } from '@renderer/hooks/useI18n'
 import type { Locale } from '@renderer/i18n'
 import { shellApi } from '@renderer/services/shellApi'
@@ -25,6 +26,7 @@ import type { PluginPermission, PluginPermissionGrant } from '@shared/types/plug
 import type { UpdateStatePayload } from '@shared/types/ipc'
 import { PLUGIN_CATEGORY_COLOR_DEFAULT } from '@shared/constants'
 import { permissionLabel } from '@shared/permissionLabels'
+import { filterPermissionGrants, requiresUserConsent } from '@shared/pluginPermissionPolicy'
 
 type CloseBehavior = 'minimize-tray' | 'quit'
 
@@ -33,6 +35,7 @@ interface PluginSettingsItem {
   key: string
   type: string
   label: string
+  entry?: { code: string; payload?: unknown }
   default?: unknown
   options?: Array<{ label: string; value: unknown }>
   /** type=slider：范围与步长 */
@@ -87,32 +90,37 @@ function Card({ title, hint, children }: { title: string; hint?: string; childre
   )
 }
 
-/** 插件「权限管理」块：manifest 声明权限逐项三态分段（允许/询问/拒绝） */
+/** Only declared sensitive capabilities carry a user-managed consent decision. */
 function PluginPermissionBlock({
   pluginId,
   permissions,
   grants,
+  saving,
   onChange,
 }: {
   pluginId: string
   permissions: PluginPermission[]
   grants: Partial<Record<PluginPermission, PluginPermissionGrant>>
+  saving: Record<string, boolean>
   onChange: (pluginId: string, perm: PluginPermission, grant: PluginPermissionGrant) => void
 }) {
-  if (permissions.length === 0) return null
+  const sensitive = [...new Set(permissions)].filter(requiresUserConsent)
   const grantOf = (perm: PluginPermission): PluginPermissionGrant => {
     const g = grants[perm]
     return g === 'allow' || g === 'deny' ? g : 'ask'
   }
   return (
     <div className="plugin-settings-section perm-grant-block">
-      <h3 className="label">权限管理</h3>
-      {permissions.map((perm) => (
-        <Field key={perm} label={permissionLabel(perm)} desc={perm}>
+      <h3 className="label">系统与隐私权限</h3>
+      <p className="desc">敏感操作可设为允许、每次询问或拒绝。文件访问仍限定于你选择并授权的文件。</p>
+      {sensitive.length === 0 ? <p className="desc">此插件未申请系统或隐私权限。</p> : null}
+      {sensitive.map((perm) => (
+        <Field key={perm} label={permissionLabel(perm)}>
           <div
             className="segmented perm-grant-seg"
-            role="group"
+            role="radiogroup"
             aria-label={`${permissionLabel(perm)}授权`}
+            data-permission={perm}
           >
             {(
               [
@@ -124,6 +132,9 @@ function PluginPermissionBlock({
               <button
                 key={value}
                 type="button"
+                role="radio"
+                aria-checked={grantOf(perm) === value}
+                disabled={saving[`${pluginId}:${perm}`] === true}
                 className={grantOf(perm) === value ? 'active' : ''}
                 onClick={() => onChange(pluginId, perm, value)}
               >
@@ -133,6 +144,7 @@ function PluginPermissionBlock({
           </div>
         </Field>
       ))}
+      <PluginBuiltinCapabilities />
     </div>
   )
 }
@@ -207,10 +219,16 @@ export function SettingsPage() {
   const [permissionGrants, setPermissionGrants] = useState<
     Record<string, Partial<Record<PluginPermission, PluginPermissionGrant>>>
   >({})
+  const [permissionSaving, setPermissionSaving] = useState<Record<string, boolean>>({})
+  const pendingPermissions = useRef(new Set<string>())
 
   /** 写单项授权：乐观更新 + shellApi 持久化，失败回滚并提示 */
   const handlePermissionGrant = useCallback(
     (pluginId: string, perm: PluginPermission, grant: PluginPermissionGrant) => {
+      const key = `${pluginId}:${perm}`
+      if (!requiresUserConsent(perm) || pendingPermissions.current.has(key)) return
+      pendingPermissions.current.add(key)
+      setPermissionSaving((prev) => ({ ...prev, [key]: true }))
       const prevGrant = permissionGrants[pluginId]?.[perm]
       setPermissionGrants((prev) => ({
         ...prev,
@@ -226,20 +244,19 @@ export function SettingsPage() {
             [pluginId]: { ...(cur[pluginId] ?? {}), [perm]: prevGrant ?? 'ask' },
           }))
           notify.warn('权限设置保存失败，已还原')
+        } finally {
+          pendingPermissions.current.delete(key)
+          setPermissionSaving((prev) => ({ ...prev, [key]: false }))
         }
       })()
     },
     [permissionGrants],
   )
 
-  /** 设置页只展示注册了设置项的插件（manifest 声明或运行时 register） */
-  const settingsPlugins = installed.filter(
-    (p) =>
-      (p.contributes?.settings?.length ?? 0) > 0 ||
-      pluginSections.some((s) => s.pluginId === p.id)
-  )
+  /** Every installed plugin needs a consent-management entry, even without custom settings. */
+  const settingsPlugins = installed
 
-  /** 当前 tab 指向已无设置项的插件时回落通用，避免空面板 */
+  /** Only an uninstalled plugin should lose its settings entry. */
   useEffect(() => {
     if (
       settingsTab.startsWith('p:') &&
@@ -333,15 +350,21 @@ export function SettingsPage() {
     }
   }, [])
 
-  /** 已安装插件的授权表初始拉取（后续经事件/本页切换增量更新） */
+  /** Initial read and native consent decisions share the same filtered state. */
   useEffect(() => {
     let cancelled = false
+    const changed = new Set<string>()
+    const off = shellApi.onEvent((payload) => {
+      if (payload.type !== 'permission-grants-changed') return
+      changed.add(payload.pluginId)
+      setPermissionGrants((prev) => ({ ...prev, [payload.pluginId]: filterPermissionGrants(payload.grants) }))
+    })
     void (async () => {
       for (const p of installed) {
         try {
           const grants = await shellApi.getPluginPermissionGrants?.(p.id)
-          if (!cancelled && grants) {
-            setPermissionGrants((prev) => ({ ...prev, [p.id]: grants }))
+          if (!cancelled && grants && !changed.has(p.id)) {
+            setPermissionGrants((prev) => ({ ...prev, [p.id]: filterPermissionGrants(grants) }))
           }
         } catch {
           /* 单插件失败不阻塞其余 */
@@ -350,6 +373,7 @@ export function SettingsPage() {
     })()
     return () => {
       cancelled = true
+      off()
     }
     // installed 列表变化（新装/卸载）时重拉
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -793,6 +817,15 @@ export function SettingsPage() {
             const sections = pluginSections.filter((s) => s.pluginId === id)
             const values = pluginSettings[id] ?? {}
             const renderValue = (item: PluginSettingsItem) => {
+              if (item.type === 'page') {
+                return (
+                  <button type="button" className="btn" onClick={() => {
+                    void shellApi.openPlugin(id, item.entry ?? { code: 'settings' }).catch((error: unknown) => {
+                      notify.error(error instanceof Error ? error.message : '无法打开插件设置')
+                    })
+                  }}>打开插件设置</button>
+                )
+              }
               const raw = item.key in values ? values[item.key] : item.default
               if (item.type === 'boolean' || item.type === 'bool' || item.type === 'switch') {
                 return (
@@ -883,6 +916,7 @@ export function SettingsPage() {
                   pluginId={p.id}
                   permissions={p.permissions ?? []}
                   grants={permissionGrants[p.id] ?? {}}
+                  saving={permissionSaving}
                   onChange={handlePermissionGrant}
                 />
                 {sections.length === 0 ? (

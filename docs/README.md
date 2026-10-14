@@ -1,5 +1,7 @@
 # docs/ 目录说明
 
+当前插件开发标准从 [开发文档入口](site/plugin/README.md) 开始；本轮改动与实际验证见 [标准化交付报告](engineering/PLUGIN_STANDARDIZATION_REPORT.md) 和后续 [能力与权限收口](engineering/PLUGIN_PERMISSION_CLOSEOUT.md)。SDK、构建工具、文档同步副本和 `skills/enest-development` 在独立插件仓库维护。旧评审/决策记录只用于追溯，不作为现行契约。
+
 按用途分成两块，互不混放：
 
 ```

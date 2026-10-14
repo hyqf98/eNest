@@ -19,7 +19,10 @@ const PART: Part = new URLSearchParams(window.location.search).get('part') === '
 /** 鼠标离开后收起缓冲（hover intent），不随动画档位缩放 */
 const COLLAPSE_DELAY_MS = 260
 /** 收起 CSS 动画播完后再缩窄视图，避免圆球被右缘裁切（item 淡出 ~260ms 已不可见） */
-const NARROW_DELAY_MS = 280
+function narrowDelayMs(): number {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return 0
+  return currentAnimLevel() === 'high' ? 380 : currentAnimLevel() === 'low' ? 180 : 280
+}
 /** 展开错落 delay 基准：40 + i * 38（medium） */
 const STAGGER_BASE_MS = 40
 const STAGGER_STEP_MS = 38
@@ -73,7 +76,7 @@ function readUrlTheme(): 'light' | 'dark' | null {
 function itemStaggerMs(index: number): number {
   const lv = currentAnimLevel()
   if (lv === 'low') return 0
-  const base = STAGGER_BASE_MS + index * STAGGER_STEP_MS
+  const base = STAGGER_BASE_MS + Math.min(index, 5) * STAGGER_STEP_MS
   return lv === 'high' ? Math.round(base * 1.2) : base
 }
 
@@ -113,9 +116,6 @@ function cancelNarrow(): void {
   }
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
 
 function applyExpanded(): void {
   root.classList.toggle('expanded', expanded)
@@ -141,7 +141,7 @@ function setExpanded(v: boolean): void {
     narrowTimer = window.setTimeout(() => {
       narrowTimer = null
       void shell?.setOrbRailExpanded?.(false).catch(() => undefined)
-    }, NARROW_DELAY_MS)
+    }, narrowDelayMs())
   }
 }
 
@@ -169,59 +169,134 @@ function buildChrome(): void {
   `
 }
 
+interface OrbItemSpec {
+  key: string
+  kind: 'home' | 'tab' | 'contrib' | 'separator'
+  title?: string
+  color?: string
+  glyph?: string
+  icon?: string | null
+  badge?: string
+  active?: boolean
+  tabId?: string
+  pluginId?: string
+  openCode?: string
+}
+
+const panelItems = new Map<string, HTMLElement>()
+let previousDots = ''
+
 function syncPanel(): void {
-  if (PART === 'rail') {
-    const panel = document.getElementById('orb-panel')
-    const dots = document.getElementById('orb-dots')
-    if (!panel || !dots) return
-
-    const homeActive = state.view === 'home' || state.view === 'settings'
-    dots.innerHTML = `
-      <i style="background:currentColor;opacity:${homeActive ? '0.95' : '0.4'}"></i>
-      ${state.tabs.slice(0, 3).map((t) => `<i style="background:${t.color}"></i>`).join('')}
-    `
-
-    const items: string[] = []
-    items.push(
-      `<div class="orb-item orb-home${homeActive ? ' active' : ''}">
-        <button type="button" class="orb-face" data-home="1" title="首页" aria-label="首页"${homeActive ? ' aria-current="page"' : ''}>
-          ${lucideSvgMarkup(LUCIDE_PATHS.house)}
-        </button>
-      </div>`
-    )
-    for (const tab of state.tabs) {
-      const active = tab.id === state.activeTabId && state.view === 'plugin'
-      items.push(
-        `<div class="orb-item orb-tab${active ? ' active' : ''}">
-          <button type="button" class="orb-face" style="background:${tab.color}" title="${escapeHtml(tab.title)}" aria-label="${escapeHtml(tab.title)}"${active ? ' aria-current="page"' : ''} data-activate="${tab.id}">
-            <span class="orb-glyph">${escapeHtml(tab.glyph)}</span>
-          </button>
-          <button type="button" class="orb-close" data-close="${tab.id}" aria-label="关闭 ${escapeHtml(tab.title)}">
-            ${lucideSvgMarkup(LUCIDE_PATHS.x, 8, 1.7)}
-          </button>
-        </div>`
-      )
-    }
-    // rail-entries 插槽贡献（manifest.contributes.railEntries）：Tab 圆点之后、
-    // 分隔线下方渲染入口圆点；点击 openPlugin(pluginId, { code: openCode })
-    const contribs = state.contribEntries ?? []
-    if (contribs.length > 0) {
-      items.push('<div class="orb-item orb-contrib-sep" aria-hidden="true"><span></span></div>')
-      for (const entry of contribs) {
-        items.push(
-          `<div class="orb-item orb-contrib">
-            <button type="button" class="orb-face" style="background:${entry.color}" title="${escapeHtml(entry.title)}" data-contrib="${entry.pluginId}" data-open-code="${escapeHtml(entry.openCode ?? '')}">
-              <span class="orb-glyph">${escapeHtml(entry.glyph.charAt(0) || '·')}</span>
-            </button>
-          </div>`
-        )
-      }
-    }
-    panel.innerHTML = items.join('')
-    applyExpanded()
-  } else {
+  if (PART !== 'rail') {
     root.querySelector('[data-settings]')?.classList.toggle('active', state.view === 'settings')
+    return
   }
+  const panel = document.getElementById('orb-panel')
+  const dots = document.getElementById('orb-dots')
+  if (!panel || !dots) return
+  const homeActive = state.view === 'home' || state.view === 'settings'
+  const dotsKey = JSON.stringify([homeActive, state.tabs.slice(0, 3).map((tab) => tab.color)])
+  if (dotsKey !== previousDots) {
+    previousDots = dotsKey
+    dots.replaceChildren(...[undefined, ...state.tabs.slice(0, 3)].map((tab) => {
+      const dot = document.createElement('i')
+      dot.style.background = tab?.color ?? 'currentColor'
+      if (!tab) dot.style.opacity = homeActive ? '0.95' : '0.4'
+      return dot
+    }))
+  }
+  const items: OrbItemSpec[] = [{ key: 'home', kind: 'home', title: '首页', active: homeActive }]
+  for (const tab of state.tabs) {
+    items.push({ key: `tab:${tab.id}`, kind: 'tab', tabId: tab.id, title: tab.title,
+      color: tab.color, glyph: tab.glyph, icon: tab.icon, badge: tab.badge,
+      active: tab.id === state.activeTabId && state.view === 'plugin' })
+  }
+  const contribs = state.contribEntries ?? []
+  if (contribs.length) items.push({ key: 'separator', kind: 'separator' })
+  for (const entry of contribs) items.push({ key: `contrib:${entry.pluginId}:${entry.id}`, kind: 'contrib',
+    title: entry.title, color: entry.color, glyph: entry.glyph.charAt(0) || '·',
+    pluginId: entry.pluginId, openCode: entry.openCode ?? '' })
+
+  const wanted = new Set(items.map((item) => item.key))
+  for (const [key, node] of panelItems) {
+    if (!wanted.has(key)) { node.remove(); panelItems.delete(key) }
+  }
+  items.forEach((item, index) => {
+    let node = panelItems.get(item.key)
+    if (!node) {
+      node = document.createElement('div')
+      if (item.kind === 'separator') {
+        node.appendChild(document.createElement('span'))
+        node.setAttribute('aria-hidden', 'true')
+      } else {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = 'orb-face'
+        if (item.kind === 'home') {
+          button.dataset.home = '1'
+          button.innerHTML = lucideSvgMarkup(LUCIDE_PATHS.house)
+        } else {
+          const glyph = document.createElement('span')
+          glyph.className = 'orb-glyph'
+          button.appendChild(glyph)
+          if (item.kind === 'tab') {
+            const image = document.createElement('img')
+            image.className = 'orb-icon'
+            image.alt = ''
+            image.draggable = false
+            image.hidden = true
+            image.onload = () => { const loaded = Boolean(image.getAttribute('src') && image.naturalWidth); image.hidden = !loaded; glyph.hidden = loaded }
+            image.onerror = () => { image.hidden = true; glyph.hidden = false }
+            button.appendChild(image)
+            const badge = document.createElement('span')
+            badge.className = 'orb-badge'
+            badge.hidden = true
+            button.appendChild(badge)
+          }
+          if (item.kind === 'tab') button.dataset.activate = item.tabId
+          else button.dataset.contrib = item.pluginId
+        }
+        node.appendChild(button)
+        if (item.kind === 'tab') {
+          const close = document.createElement('button')
+          close.type = 'button'
+          close.className = 'orb-close'
+          close.dataset.close = item.tabId
+          close.innerHTML = lucideSvgMarkup(LUCIDE_PATHS.x, 8, 1.7)
+          node.appendChild(close)
+        }
+      }
+      panelItems.set(item.key, node)
+    }
+    node.className = `orb-item orb-${item.kind === 'separator' ? 'contrib-sep' : item.kind}${item.active ? ' active' : ''}`
+    const face = node.querySelector<HTMLButtonElement>('.orb-face')
+    if (face) {
+      face.title = item.title ?? ''
+      face.setAttribute('aria-label', item.title ?? '')
+      if (item.active) face.setAttribute('aria-current', 'page')
+      else face.removeAttribute('aria-current')
+      if (item.color) face.style.background = item.color
+      if (item.kind === 'contrib') face.dataset.openCode = item.openCode
+      const glyph = face.querySelector('.orb-glyph')
+      if (glyph && glyph.textContent !== item.glyph) glyph.textContent = item.glyph ?? ''
+      const image = face.querySelector<HTMLImageElement>('.orb-icon')
+      if (image) {
+        const nextSource = item.icon ?? ''
+        if ((image.getAttribute('src') ?? '') !== nextSource) {
+          image.hidden = true
+          if (glyph instanceof HTMLElement) glyph.hidden = false
+          if (nextSource) image.src = nextSource
+          else image.removeAttribute('src')
+        }
+      }
+      const badge = face.querySelector<HTMLElement>('.orb-badge')
+      if (badge) { badge.textContent = item.badge ?? ''; badge.hidden = !item.badge; badge.setAttribute('aria-label', `角标 ${item.badge ?? ''}`) }
+      node.querySelector('.orb-close')?.setAttribute('aria-label', `关闭 ${item.title}`)
+    }
+    // 保留按钮身份、焦点、hover 与滚动位置，仅在排序变化时移动节点。
+    if (panel.children[index] !== node) panel.insertBefore(node, panel.children[index] ?? null)
+  })
+  applyExpanded()
 }
 
 function bindEvents(): void {
@@ -234,13 +309,16 @@ function bindEvents(): void {
     }
     const act = t.closest('[data-activate]') as HTMLElement | null
     if (act?.dataset.activate) {
-      void shell?.activatePlugin(act.dataset.activate)
+      void shell?.activatePlugin(act.dataset.activate).catch(() => undefined)
       setExpanded(false)
       return
     }
     const close = t.closest('[data-close]') as HTMLElement | null
     if (close?.dataset.close) {
-      void shell?.closePlugin(close.dataset.close)
+      const tabId = close.dataset.close
+      state = { ...state, tabs: state.tabs.filter((tab) => tab.id !== tabId) }
+      syncPanel()
+      void shell?.closePlugin(tabId).catch(() => undefined)
       return
     }
     // rail-entries 贡献入口：openPlugin(pluginId, { code: openCode })，

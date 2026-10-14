@@ -1,11 +1,13 @@
 /**
  * DevConsoleSection — 设置 → 开发者
- * 加载本地目录（不跳转插件页）→ 启动/停止调试 / DevTools / 移除；开发中列表与日志。
+ * 加载本地源码目录并直接打开插件→ 启动/停止调试 / DevTools / 移除；开发中列表与日志。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { shellApi } from '@renderer/services/shellApi'
 import type { PluginCallTraceEntry } from '@shared/types/ipc'
+import { PluginIcon } from '@renderer/components/PluginIcon'
+import { notify } from '@renderer/services/notifyService'
 import { useI18n } from '@renderer/hooks/useI18n'
 
 /** 调用跟踪自动刷新间隔（面板开启轮询时；关闭即停，无常驻开销） */
@@ -23,12 +25,14 @@ export function DevConsoleSection() {
   const startDebugPlugin = useShellStore((s) => s.startDebugPlugin)
   const stopDebugPlugin = useShellStore((s) => s.stopDebugPlugin)
   const removeDevPlugin = useShellStore((s) => s.removeDevPlugin)
-  const reloadActivePlugin = useShellStore((s) => s.reloadActivePlugin)
-  const openDevToolsActive = useShellStore((s) => s.openDevToolsActive)
   const openPlugin = useShellStore((s) => s.openPlugin)
   const plugins = useShellStore((s) => s.plugins)
   const tabs = useShellStore((s) => s.tabs)
   const [dirPath, setDirPath] = useState('')
+  const [preview, setPreview] = useState<'manifest' | 'server' | 'static' | 'dist'>('manifest')
+  const [devHost, setDevHost] = useState('127.0.0.1')
+  const [devPort, setDevPort] = useState('5173')
+  const [devUrl, setDevUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [debuggingId, setDebuggingId] = useState<string | null>(null)
   const [trace, setTrace] = useState<PluginCallTraceEntry[]>([])
@@ -87,8 +91,15 @@ export function DevConsoleSection() {
     if (loading) return
     setLoading(true)
     try {
-      await loadDevPlugin(path !== undefined ? path : '')
+      const url = preview === 'static' ? '' : preview === 'server' ? (devUrl.trim() || `http://${devHost.trim()}:${devPort.trim()}/`) : undefined
+      if (url) {
+        const endpoint = new URL(url)
+        if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) throw new Error('请输入有效的 HTTP(S) 开发地址')
+      }
+      await loadDevPlugin(path !== undefined ? path : '', { url, preview: preview === 'dist' ? 'dist' : 'source' })
       if (path?.trim()) setDirPath('')
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : String(error))
     } finally {
       setLoading(false)
     }
@@ -126,8 +137,24 @@ export function DevConsoleSection() {
             {loading ? t('common.loading') : t('devConsole.browse')}
           </button>
           <p className="desc" style={{ margin: '8px 0 0' }}>
-            {t('devConsole.stayHint')}
+            选择含 plugin.json 的源码目录后直接打开。开发服务由终端启动，壳子不会安装依赖或监听源码。
           </p>
+        </div>
+
+        <div className="dev-source-options">
+          <label>预览方式
+            <select value={preview} onChange={event => setPreview(event.target.value as typeof preview)}>
+              <option value="manifest">使用 plugin.json 配置</option>
+              <option value="server">连接开发服务器</option>
+              <option value="static">静态源码（手动刷新）</option>
+              <option value="dist">预览 dist 构建产物</option>
+            </select>
+          </label>
+          {preview === 'server' && <>
+            <label>IP / 主机<input value={devHost} onChange={event => setDevHost(event.target.value)} placeholder="127.0.0.1" /></label>
+            <label>端口<input inputMode="numeric" value={devPort} onChange={event => setDevPort(event.target.value)} placeholder="5173" /></label>
+            <label className="dev-url-field">完整 URL（可选，优先使用）<input value={devUrl} onChange={event => setDevUrl(event.target.value)} placeholder="http://192.168.1.10:5173/" /></label>
+          </>}
         </div>
 
         <div className="dev-load-row">
@@ -163,9 +190,7 @@ export function DevConsoleSection() {
               const isSelf = debuggingId === p.id || running
               return (
                 <div className={`dev-plugin-item${running ? ' running' : ''}`} key={p.id}>
-                  <span className="dev-plugin-ico" style={{ background: p.color }}>
-                    {p.glyph}
-                  </span>
+                  <PluginIcon src={p.icon} glyph={p.glyph} size={40} alt={p.name} />
                   <div className="dev-plugin-meta">
                     <div className="dev-plugin-name">
                       {p.name}
@@ -196,14 +221,14 @@ export function DevConsoleSection() {
                         <button
                           className="btn btn-ghost btn-sm"
                           type="button"
-                          onClick={() => void openDevToolsActive()}
+                          onClick={() => void shellApi.openDevTools(p.id)}
                         >
                           DevTools
                         </button>
                         <button
                           className="btn btn-ghost btn-sm"
                           type="button"
-                          onClick={() => void reloadActivePlugin()}
+                          onClick={() => void shellApi.reloadPlugin(p.id)}
                         >
                           {t('devConsole.reload')}
                         </button>

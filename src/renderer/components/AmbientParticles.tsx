@@ -4,16 +4,16 @@ import { useAnimationLevelStore, useReducedMotion } from '@renderer/hooks/useAni
 import { startAmbientFlow } from '@renderer/gsap/ambientFlow'
 import '@renderer/styles/ambient.css'
 
-export function AmbientParticles() {
+export function AmbientParticles({ paused = false }: { paused?: boolean }) {
   const level = useAnimationLevelStore((s) => s.level)
   const reducedMotion = useReducedMotion()
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || reducedMotion) return
+    if (!canvas || reducedMotion || paused) return
     return startAmbientFlow(canvas, { level })
-  }, [level, reducedMotion])
+  }, [level, reducedMotion, paused])
 
   if (reducedMotion) return null
 

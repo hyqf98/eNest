@@ -13,6 +13,10 @@ import type {
 } from './plugin'
 import type { QuickPluginModeInfo } from './quick'
 import type { SshPluginEvent } from './ssh-db'
+import type { MwMessage } from './mw-workbench'
+import type { DshWorkbenchEvent } from './dsh-workbench'
+import type { QuickInputState, QuickInputAction } from './plugin-tools'
+import type { FocusTimerSnapshot } from './focus-timer'
 
 /**
  * IPC 通道常量 — 主进程 / preload / 渲染进程共用。
@@ -29,6 +33,8 @@ export const IpcChannels = {
   /** 设置插件内容区左侧 inset（orb 传统通道模式；overlay 模式恒为 0） */
   ShellSetPluginInset: 'shell:set-plugin-inset',
   /** 壳子 → 主进程：同步圆轨悬浮窗所需 Tab 状态 */
+  ShellGetPluginDiagnostics: 'shell:get-plugin-diagnostics',
+  ShellRestoreTabs: 'shell:restore-tabs',
   ShellSyncOrbState: 'shell:sync-orb-state',
   /** 悬浮窗 → 主进程：读取圆轨状态 */
   ShellGetOrbState: 'shell:get-orb-state',
@@ -112,6 +118,7 @@ export const IpcChannels = {
   QuickProbeHotkey: 'quick:probe-hotkey',
   /** 渲染层测量内容高度后请求调整小窗高度（内容撑开/收起） */
   QuickResize: 'quick:resize',
+  QuickInput: 'quick:plugin-input',
 
   WindowMinimize: 'window:minimize',
   WindowMaximize: 'window:maximize',
@@ -148,7 +155,7 @@ export const IpcChannels = {
 
   /** —— 运行时权限（壳层三态）—— */
 
-  /** 壳渲染层 → 主进程：响应权限弹窗（once/always/deny；对应 permission-request 事件） */
+  /** 废弃 renderer 授权响应通道；主进程拒绝，敏感授权仅由原生对话框决定。 */
   PermissionResponse: 'shell:permission-response',
   /** 壳渲染层 → 主进程：读插件权限授权表（缺省 ask） */
   PermissionGrantsGet: 'shell:permission-grants-get',
@@ -172,7 +179,11 @@ export type ToastKind = 'info' | 'success' | 'warn' | 'error'
 
 /** shell:event 负载类型 */
 export type ShellEventPayload =
+  | { type: 'quick-input'; state: QuickInputState | null }
+  | { type: 'plugin-open-settings'; pluginId: string }
   | { type: 'plugins-changed' }
+  | { type: 'plugin-ready'; pluginId: string; generation: number }
+  | { type: 'plugin-tabs'; revision: number; tabs: Array<{id: string; title: string; icon?: string | null; glyph?: string; color?: string; badge?: string; status: 'loading' | 'ready' | 'error' | 'hibernated'}>; activeTabId: string | null }
   | { type: 'tab-closed'; tabId: string }
   | { type: 'plugin-error'; pluginId: string; message: string }
   | { type: 'settings-sections'; sections: unknown[] }
@@ -219,11 +230,11 @@ export type ShellEventPayload =
    * （home-cards 区块、rail-entries、settings sections 等）。
    */
   | { type: 'contributions-changed'; slot: string; source: string }
+  /** 原生授权对话框或设置页更新敏感权限后，同步设置 UI。基础能力不进入此表。 */
+  | { type: 'permission-grants-changed'; pluginId: string; grants: Partial<Record<PluginPermission, PluginPermissionGrant>> }
   /**
-   * 插件运行时权限请求（主进程 → 壳渲染层，grant='ask' 时弹出确认窗）：
-   * 渲染层经 respondPermissionRequest(requestId, 'once'|'always'|'deny') 回应；
-   * 60s 未回应按本次拒绝处理（不持久化）。
-   * osHint：macOS 屏幕权限提示（system-pending=首次调用将弹系统授权 / denied=已被拒）。
+   * 废弃的 renderer 权限请求载荷，仅保留类型兼容。
+   * 宿主不再发出此事件，renderer 不能据此授予权限；原生对话框是唯一授权入口。
    */
   | {
       type: 'permission-request'
@@ -252,6 +263,8 @@ export interface OrbRailState {
     title: string
     color: string
     glyph: string
+    icon?: string | null
+    badge?: string
   }>
   /**
    * rail-entries 插槽贡献（插件贡献点，声明式）：orb 模式左侧轨道底部入口。
@@ -294,6 +307,11 @@ export interface UpdateStatePayload {
 
 /** 主进程 → 插件 WebContents（IpcChannels.PluginEvent）负载 */
 export type PluginEventPayload =
+  | { type: 'quick-input-change'; value: string }
+  | { type: 'quick-input-action'; action: QuickInputAction }
+  | { type: 'settings-change'; key: string; value: unknown }
+  | { type: 'clipboard-history-change' }
+  | { type: 'focus-timer-change'; snapshot: FocusTimerSnapshot }
   | {
       type: 'theme-change'
       mode: 'light' | 'dark'
@@ -330,6 +348,8 @@ export type PluginEventPayload =
     }
   /** SSH 会话数据/退出/错误/指标（com.enest.ssh） */
   | SshPluginEvent
+  /** 中间件控制台实时事件：tail 监听消息 / 连接与监听错误 */
+  | MwPluginEvent
   /**
    * SFTP 传输进度（ssh.sftp.download / ssh.sftp.upload 过程推送）：
    * 主进程按 200ms / 64KB 双阈值节流；终态 done=true，失败附 error。
@@ -345,6 +365,40 @@ export type PluginEventPayload =
       done?: boolean
       error?: string
     }
+  /** 中间件控制台事件（mw.*）：tail 实时消息与连接/监听错误 */
+  | { type: 'mw.data'; sessionKey: string; tailId: string; message: MwMessage }
+  | { type: 'mw.error'; sessionKey?: string; tailId?: string; error: string }
+  /** DSH 驾驶舱事件（dsh.*）：web 进程就绪/端口重设、sdk JSON-RPC 通知、热更新进度（com.enest.dsh） */
+  | { type: 'dsh.event'; event: DshWorkbenchEvent }
+  /**
+   * net.socket 出站 TCP 连接数据（net.socket.connect 的 socketId 对应流）：
+   * chunk 为 base64；插件经 enest.onNetData / enest.on('net.data') 订阅。
+   */
+  | { type: 'net.data'; socketId: string; chunk: string }
+  /** net.socket 连接关闭；reason 为对端关闭 / 本端关闭 / 错误信息 */
+  | { type: 'net.close'; socketId: string; reason: string }
+  | { type: 'net.websocket.message'; socketId: string; data: string; binary: boolean }
+  | { type: 'net.websocket.close'; socketId: string; code: number; reason: string }
+  /**
+   * net.fetch 流式响应分片（大响应 > 2MB 部分与 SSE stream 模式）：
+   * chunk 为 base64（utf8 安全回传）；done=true 终态；error 附失败原因。
+   */
+  | { type: 'net.chunk'; reqId: string; chunk: string; done?: boolean; error?: string }
+  /**
+   * 局域网传件下载请求（lan.share.start 的 shareId 对应服务）：
+   * 每个命中白名单且取件码校验通过的下载请求推送一次，插件据此做传输日志。
+   */
+  | { type: 'lan.request'; shareId: string; file: string; ip: string; ts: number }
+  /** 分享关停（到期 / stop / 插件关闭）；reason 见 lanShareService */
+  | { type: 'lan.stopped'; shareId: string; reason: string }
+
+/** mw.* 事件负载别名（mwSessionManager → 插件 WebContents） */
+export type MwPluginEvent =
+  | { type: 'mw.data'; sessionKey: string; tailId: string; message: MwMessage }
+  | { type: 'mw.error'; sessionKey?: string; tailId?: string; error: string }
+
+/** dsh.* 事件负载别名（dshRuntimeService → 插件 WebContents） */
+export type DshPluginEvent = { type: 'dsh.event'; event: DshWorkbenchEvent }
 
 /** 安装队列任务对外视图（active / waiting 列表项） */
 export interface InstallJobInfo {

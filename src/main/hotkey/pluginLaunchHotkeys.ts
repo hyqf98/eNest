@@ -46,12 +46,12 @@ function pluginDisplayName(pluginId: string): string {
 
 /** 读取全部插件启动配置（settings.pluginLaunch） */
 export function getPluginLaunchSettings(): PluginLaunchSettings {
-  return settingsStore.getAll().pluginLaunch ?? {}
+  return settingsStore.getPluginLaunchSettings()
 }
 
 /** 读取单插件启动配置 */
 export function getPluginLaunch(pluginId: string): PluginLaunchConfig | undefined {
-  return getPluginLaunchSettings()[pluginId]
+  return settingsStore.getPluginLaunchConfig(pluginId)
 }
 
 /**
@@ -61,6 +61,11 @@ export function getPluginLaunch(pluginId: string): PluginLaunchConfig | undefine
 export function resolveLaunchMode(pluginId: string): PluginLaunchMode | undefined {
   const mode = getPluginLaunch(pluginId)?.mode
   return mode === 'quick' || mode === 'shell' ? mode : undefined
+}
+
+/** Revision changes only with launch configuration; regular recent-use/settings writes keep it stable. */
+export function getPluginLaunchAliasRevision(): number {
+  return settingsStore.getPluginLaunchRevision()
 }
 
 /** 用户自定义触发词（去空去重，小写化交由搜索侧统一归一） */
@@ -79,13 +84,13 @@ export function getPluginLaunchAliases(pluginId: string): string[] {
 }
 
 /** 热键触发：按启动方式唤起插件（缺省 quick）；quick 时确保小窗可见 */
-function fireLaunch(pluginId: string): void {
+async function fireLaunch(pluginId: string): Promise<void> {
   const mode = resolveLaunchMode(pluginId) ?? 'quick'
   logInfo('launch-hotkey', `${pluginId} fired → ${mode}`)
   if (mode === 'quick') {
     // 必须先呼出再挂载：showQuickWindow 会重置列表态（隐藏全部 quick 视图），
     // 后调会把刚挂载的插件视图藏掉
-    showQuickWindow()
+    await showQuickWindow()
   }
   void pluginHost
     .openPlugin(pluginId, undefined, { container: mode })

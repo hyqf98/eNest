@@ -93,10 +93,24 @@ function applyMode(mode) {
   document.documentElement.dataset.mode = mode // 小窗样式 / 桌面样式
 }
 applyMode(enest.getLaunchMode())
-enest.onModeChange(({ mode }) => applyMode(mode))
+enest.onModeChange((mode) => applyMode(mode))
 ```
 
-也可以只用 CSS 容器查询等手段按实际 viewport 自适应，两套做法不互斥。
+模式由入口决定；CSS 容器查询处理当前模式内的宽度变化，不能仅用宽度推断入口。
+
+`await enest.ui.openInShell()` 将调用插件的现有视图移到主窗口，不新建实例、不重连，也不重放查询。使用同一个会话与编辑器 model，分别持久化 Quick 和桌面的布局。`ResizeObserver` 负责在迁移后重新布局终端和编辑器。
+
+### 编辑区焦点与快捷键
+
+使用 `enest.ui.setInputContext('terminal' | 'editor' | 'overlay' | 'workbench')` 声明当前焦点用途。终端、编辑器和临时选择列表优先处理自己的按键，壳子不会抢走 Esc、Ctrl/Cmd+K 或 Ctrl/Cmd+Enter。只有 `workbench` 上下文保留 Quick 的全局搜索、关闭和固定快捷键。中文输入组合期间不拦截。`enest.ui.focus()` 聚焦当前插件；返回全局搜索使用 `enest.ui.focusSearch()`。
+
+快捷键配置应留在插件自己的设置页。通过 `contributes.settings[].items` 注册 `{ "key": "workbench", "type": "page", "label": "工作台与快捷键", "entry": { "code": "settings" } }` 可在壳设置中提供入口；插件用 `onEnter` 处理 `code === 'settings'`。
+
+### 本地文件与原生拖出
+
+`enest.localFiles.pick()` 打开以当前插件容器为父窗口的选择器；`fromDrop([...event.dataTransfer.files])` 将真实磁盘文件转换为插件私有句柄。之后使用句柄 ID 访问所选内容，禁止把远程路径用作本地文件路径。
+
+拖出必须分两步：先准备真实的本地文件并获取 `exportId`，再在用户 `dragstart` 中调用 `enest.localFiles.startDrag(exportId)`。本地文件用 `prepareDrag({ handleIds })`，SSH 远程文件用下载准备接口。`dragend` 调用 `endDrag()` 释放失焦保护。句柄与导出记录随插件运行实例清理。
 
 ### 内容区尺寸
 
@@ -108,15 +122,15 @@ enest.onModeChange(({ mode }) => applyMode(mode))
     "minWidth": 480,
     "minHeight": 240
   },
-  "permissions": ["ui.resize"]
+  "permissions": []
 }
 ```
 
-`width` / `height` 是 Quick 初次挂载的**内容区**尺寸建议，`minWidth` / `minHeight` 是下限建议。未声明时使用壳子默认宽度与内容高度。实际尺寸受当前显示器可用工作区限制，顶部输入条和边框由壳子另行计算，插件不要把它们加进内容高度。
+`height` / `minHeight` 是 Quick 初次挂载的**内容区**高度建议与下限。Quick 外框统一为 720px，工作区不足时缩小；`width` / `minWidth` 保留兼容但不改变 Quick 的宽度。未声明高度时使用壳子默认内容高度。实际尺寸受当前显示器可用工作区限制，顶部输入条和边框由壳子另行计算，插件不要把它们加进内容高度。
 
-- `await enest.ui.resize({ width, height })`：Quick 中即时更新尺寸建议，支持只传其中一项；主窗中仅记录，不改变用户主窗口大小。
+- `await enest.ui.resize({ width, height })`：Quick 中仅即时更新高度建议，支持只传高度；主窗中仅记录，不改变用户主窗口大小。
 - `await enest.ui.setHeight(height)`：只更新内容高度，与 `resize({ height })` 等价。
-- 两个接口需要 `ui.resize` 权限，单位均为 CSS px，参数必须是正有限数。
+- 两个接口都是无需声明或授权的基础能力，单位均为 CSS px，参数必须是正有限数。
 - 显示器空间不足时，插件应响应实际 viewport 大小并自行滚动。不要假定 Quick 永远是 720px 宽，也不要假定同一入口只能在小窗运行。
 - 壳子不根据 `body.scrollHeight` 循环撑大窗口。内容很长时应使用内部滚动；需要用户自定宽高时，可在插件设置中保存偏好后调用 `resize`。
 
@@ -326,7 +340,7 @@ await enest.theme.register({
 2. 推送 `theme-packs-changed`
 3. 设置 → 主题 →「主题包」下拉 **即时出现**，用户选择后全壳生效
 
-运行时注册需在 `permissions` 声明 `theme` 权限（manifest `contributes.themePacks` 声明式路径等价，无需声明）；完整字段与限制见 [enest API → theme.register](api.md#theme-register-pack)。
+运行时和声明式主题注册都是基础能力，无需在 `permissions` 声明或单项授权；完整字段与限制见 [enest API → theme.register](api.md#theme-register-pack)。
 
 ---
 
@@ -413,7 +427,7 @@ gl.clearColor(0, 0, 0, 0)
 gl.clear(gl.COLOR_BUFFER_BIT)
 ```
 
-仓库可运行示例：`plugins-samples/canvas-demo/`（`chrome: none` + 透明底 + 主题感知动画）。
+入口、市场资源与构建方式遵循 [工程结构](structure.md)。
 
 ---
 
@@ -427,7 +441,7 @@ gl.clear(gl.COLOR_BUFFER_BIT)
   "name": "可视化",
   "version": "1.0.0",
   "main": "index.html",
-  "permissions": ["ui.setTitle"],
+  "permissions": [],
   "ui": {
     "chrome": "none",
     "themeAware": true,
@@ -475,8 +489,16 @@ gl.clear(gl.COLOR_BUFFER_BIT)
 <body>
   <canvas id="c"></canvas>
   <div class="hud">theme-aware · transparent · chrome=none</div>
-  <script>
-    const api = window.enest // zapi 为 @deprecated 别名，计划 v2 移除
+  <script type="module" src="./src/main.js"></script>
+
+</body>
+</html>
+```
+
+**src/main.js**
+
+```js
+const api = window.enest // zapi 为 @deprecated 别名，计划 v2 移除
     const canvas = document.getElementById('c')
     const ctx = canvas.getContext('2d')
     let accent = getComputedStyle(document.documentElement)
@@ -518,9 +540,6 @@ gl.clear(gl.COLOR_BUFFER_BIT)
     }
     api?.onEnter(() => { if (!raf) raf = requestAnimationFrame(frame) })
     api?.onOut(() => { cancelAnimationFrame(raf); raf = 0 })
-  </script>
-</body>
-</html>
 ```
 
 ---
@@ -676,3 +695,20 @@ gl.clear(gl.COLOR_BUFFER_BIT)
 - [enest API](api.md) — `ui.*` / `theme.*` 完整签名
 - [plugin.json](manifest.md) — 清单字段
 - [示例插件](examples.md) — 可运行样例
+
+
+## 响应式空间约定
+
+Quick/主窗使用真实启动模式；不要用 600px 断点猜测模式。宽度只决定是否收起侧栏、换行工具栏或调整列数。固定图标、1px 边框和 36px 宿主标题栏可保留像素；内容尺寸随容器变化。
+
+```css
+html, body, #app { margin: 0; width: 100%; height: 100%; min-width: 0; }
+body { font: var(--font-size-base, 14px)/1.5 var(--font, sans-serif); }
+.workspace { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; min-height: 0; }
+.toolbar { display: flex; flex-wrap: wrap; gap: .5rem; }
+.content { min-width: 0; min-height: 0; overflow: auto; padding: clamp(.75rem, 2vw, 1.5rem); }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1rem; }
+.table-scroll { max-width: 100%; overflow: auto; }
+```
+
+容器查询的 container-type 设置在被查询组件的祖先上，不能通过查询自身改变自己的大小。不要用 body overflow:hidden 掩盖不可达的按钮。至少验收窄 Quick、桌面主窗和 150% 字号，表格/终端可局部横向滚动，页面本身不应意外横溢出。

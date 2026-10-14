@@ -1,5 +1,7 @@
 # eNest 代码功能实现评估报告
 
+> 历史评审记录，不代表当前实现。现行标准见 [插件开发文档](site/plugin/README.md)；本轮验证见 [工程报告](engineering/PLUGIN_SANDBOX_LIFECYCLE_VALIDATION.md)。
+
 > 注：本文 L224 / L231 的 mini/panel form 区分已于 2026-10 移除——插件不再有 manifest `form`，渲染容器由启动方式决定，现状见 `docs/compose/spec/quick-launcher.md`。
 > 评估时间：2026-09 · 范围：`src/main`、`src/preload`、`src/renderer`、`src/shared`、`eNest_plugin`、`docs`
 > 方法：6 路并行子代理深读源码（只读），逐项对照 `AGENTS.md` / `ARCHITECTURE.md` 约定，证据均带 `file_path:line_number`
@@ -102,13 +104,13 @@ radar
 
 ```
 壳子 useTheme.applyToDom（预设 → packTokens → overrides）
-  → shellApi.setTheme → SettingsStore ~/eNest/settings.json
+  → shellApi.setTheme → SettingsStore ~/.eNest/settings.json
   → theme-changed → pluginHost.broadcastTheme
   → themeAware 插件：executeJavaScript CSS 变量 + PluginEvent
   另有 enest://plugin/{id}/__enest_theme.css 静态通道
 
 插件 enest.theme.register(ThemePack)
-  → themePackRegistry 落盘 ~/eNest/themes/registry.json
+  → themePackRegistry 落盘 ~/.eNest/themes/registry.json
   → theme-packs-changed → refreshPacks → 设置页下拉即时刷新
 ```
 
@@ -253,7 +255,7 @@ radar
 | 单层 `../` 跨子目录 | 20 | 可跑 `scripts/rewrite-imports.mjs` 一次清掉 |
 | 类型双份维护 | 多处 | `EnestShellApi`≈`ShellApi`；`PickFileOptions` 等 preload/renderer 各一份；mock 缺 `quickLauncher` |
 | eslint 配置 | **缺失** | `npm run lint` 无配置文件 |
-| 文档漂移 | 多处 | 根 ARCHITECTURE 失效链接；TITLEBAR 仍写 48（代码 36）；安装路径仍写 userData（实际 `~/eNest`）；forge vs builder；哈希校验有文档无实现 |
+| 文档漂移 | 多处 | 根 ARCHITECTURE 失效链接；TITLEBAR 仍写 48（代码 36）；安装路径仍写 userData（实际 `~/.eNest`）；forge vs builder；哈希校验有文档无实现 |
 | 仓库杂物 | 2 张 generated PNG ≈2MB | 未 gitignore |
 | 空目录 | `src/shared/constants/` | 与 `constants.ts` 并存易误导 |
 

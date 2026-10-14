@@ -1,14 +1,13 @@
 /**
  * PluginHostChrome — 插件宿主 Chrome（Tab 打开后的插件视图壳）
- * 顶部 plugin-bar 显示插件名与 enest:// 协议 URL；主体为启动中/出错/崩溃占位。
+ * 顶部 plugin-bar 显示插件名；主体保留启动状态、错误信息与恢复操作。
  * 支持 manifest.ui.chrome 三档：default（48px 标准条）/ minimal（28px 细条）/ none（无条，全幅）。
  * 实际插件内容由 main 侧 WebContentsView 覆盖本层（pointer-events: none）。
  * orb 模式下插件内容全宽渲染（inset 0），左侧圆轨为顶层 WebContentsView 悬浮覆盖。
  * Tab 态：lazy（占位，点击 Tab 加载）与 crashed（崩溃面板 + 重试按钮）。
- * 依赖：shellStore（tabs/activeTabId/plugins/pluginReady/pluginError）、@shared/constants 协议与分区工具。
+ * 依赖：shellStore（tabs/activeTabId/plugins/pluginReady/pluginError）。
  */
 import { useShellStore } from '@renderer/stores/shellStore'
-import { pluginProtocolUrl, pluginPartition } from '@shared/constants'
 import type { PluginChromeMode } from '@shared/types/plugin'
 
 export function PluginHostChrome() {
@@ -23,7 +22,6 @@ export function PluginHostChrome() {
   if (!tab) return null
 
   const plugin = plugins.find((p) => p.id === tab.pluginId)
-  const url = pluginProtocolUrl(tab.pluginId)
   // manifest.ui.chrome：default | minimal | none（缺省 default）
   const chrome: PluginChromeMode = plugin?.ui?.chrome ?? 'default'
   const showBar = chrome !== 'none'
@@ -44,7 +42,6 @@ export function PluginHostChrome() {
         <div className="plugin-body">
           <div className="isolate-panel">
             <h2>{tab.title}</h2>
-            <p>上次会话保留的 Tab，尚未启动插件进程。点击上方 Tab 即可加载。</p>
             <button
               className="btn btn-primary btn-sm"
               type="button"
@@ -65,7 +62,6 @@ export function PluginHostChrome() {
           <div className="left">
             <span className={`live-dot${tab.crashed ? ' crashed' : ''}`} style={{ background: tab.color }} />
             <span className="name">{tab.title}</span>
-            {chrome !== 'minimal' && <span className="path">{url}</span>}
           </div>
         </div>
       )}
@@ -73,7 +69,6 @@ export function PluginHostChrome() {
         <div className="plugin-body">
           <div className="isolate-panel">
             <h2>正在启动 {tab.title}…</h2>
-            <p>WebContentsView 正在挂载，就绪后本占位层会被原生插件内容覆盖。</p>
           </div>
         </div>
       )}
@@ -82,20 +77,9 @@ export function PluginHostChrome() {
           <div className="isolate-panel">
             <h2>{tab.crashed ? '插件已崩溃' : '插件出错'}</h2>
             <p>{pluginError}</p>
-            {tab.crashed && <p>点击下方按钮重新启动插件（渲染进程已销毁，重试为全新实例）。</p>}
-            <div className="iso-grid">
-              <div className="iso-tile">
-                <strong>进程隔离</strong>
-                <span>{pluginPartition(tab.pluginId)}</span>
-              </div>
-              <div className="iso-tile">
-                <strong>权限</strong>
-                <span>{plugin?.permissions.join(' · ') || '—'}</span>
-              </div>
-            </div>
             {tab.crashed && (
               <button
-                className="btn btn-primary btn-sm retry-btn"
+                className="btn btn-primary btn-sm"
                 type="button"
                 onClick={() => void activateTab(tab.id)}
               >

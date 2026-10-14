@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "bundleSha256": "6403047d5b379de026a4fac5b0510cfd07839e0ee98a3cd75032bbdda220e2d7",
+  "measuredAt": "2026-10-13T06:24:03.099Z",
+  "platform": "darwin",
+  "arch": "arm64",
+  "electron": "44.4.3",
+  "chromium": "152.0.7977.130",
+  "cpu": "Apple M2",
+  "scope": "Real Electron PluginHost detach/destroy timing and own app process memory; fixture service adapters; hidden native window; not end-to-end interaction/FPS or cross-platform verification",
+  "fixture": {
+    "rendererAllocationMiB": 8,
+    "canvas": "1024x320 rAF",
+    "timerIntervalMs": 100,
+    "beforeCloseAckDelayMs": 10,
+    "residentLimit": 6
+  },
+  "passed": true,
+  "purpose": "Control before switching no-async-handler lifecycle acknowledgements from a timer to a microtask. Timers in hidden renderers are throttled.",
+  "tabCounts": [
+    {
+      "logicalTabs": 1,
+      "residentBeforeClose": 1,
+      "detachMs": {
+        "count": 1,
+        "min": 1.942,
+        "median": 1.942,
+        "p95": 1.942,
+        "max": 1.942
+      },
+      "destroyedMs": {
+        "count": 1,
+        "min": 175.503,
+        "median": 175.503,
+        "p95": 175.503,
+        "max": 175.503
+      },
+      "orphanIds": []
+    },
+    {
+      "logicalTabs": 6,
+      "residentBeforeClose": 6,
+      "detachMs": {
+        "count": 6,
+        "min": 0.299,
+        "median": 0.459,
+        "p95": 0.934,
+        "max": 0.934
+      },
+      "destroyedMs": {
+        "count": 6,
+        "min": 354.114,
+        "median": 1003.677,
+        "p95": 1024.332,
+        "max": 1024.332
+      },
+      "orphanIds": []
+    },
+    {
+      "logicalTabs": 10,
+      "residentBeforeClose": 6,
+      "detachMs": {
+        "count": 10,
+        "min": 0.004,
+        "median": 0.37,
+        "p95": 1.267,
+        "max": 1.267
+      },
+      "destroyedMs": {
+        "count": 6,
+        "min": 640.835,
+        "median": 991.942,
+        "p95": 1072.32,
+        "max": 1072.32
+      },
+      "orphanIds": []
+    },
+    {
+      "logicalTabs": 20,
+      "residentBeforeClose": 6,
+      "detachMs": {
+        "count": 20,
+        "min": 0.001,
+        "median": 0.006,
+        "p95": 0.777,
+        "max": 0.792
+      },
+      "destroyedMs": {
+        "count": 6,
+        "min": 596.693,
+        "median": 1024.369,
+        "p95": 1025.934,
+        "max": 1025.934
+      },
+      "orphanIds": []
+    }
+  ],
+  "cycles": {
+    "count": 50,
+    "detachMs": {
+      "count": 50,
+      "min": 0.278,
+      "median": 0.535,
+      "p95": 1.11,
+      "max": 2.192
+    },
+    "destroyedMs": {
+      "count": 50,
+      "min": 261.952,
+      "median": 839.635,
+      "p95": 880.695,
+      "max": 1005.333
+    }
+  },
+  "adversarial": [
+    {
+      "id": "bench-noack",
+      "hadRenderer": true,
+      "syncDetachMs": 0.298,
+      "completionMs": 1201.44,
+      "destroyedMs": 1201.422,
+      "detached": true,
+      "destroyed": true
+    },
+    {
+      "id": "bench-veto",
+      "hadRenderer": true,
+      "syncDetachMs": 0.451,
+      "completionMs": 1034.582,
+      "destroyedMs": 1034.555,
+      "detached": true,
+      "destroyed": true
+    },
+    {
+      "id": "bench-blocked",
+      "hadRenderer": true,
+      "syncDetachMs": 0.654,
+      "completionMs": 1203.69,
+      "destroyedMs": 1203.669,
+      "detached": true,
+      "destroyed": true
+    }
+  ]
+}

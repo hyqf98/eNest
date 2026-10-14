@@ -3,7 +3,7 @@
  * 职责：把原先散落的 ~/.eNest/data/plugin-storage/{id}.json 整文件 JSON 迁入
  *      共享 enest.db 的 plugin_storage 表，提供同步 KV API。
  * 设计：
- *  - 读路径全内存：pluginId → key → value 的二级 Map 缓存，零 SQL；
+ *  - 单键惰性读取；可重读的 clean JSON 缓存按32MiB全局/4MiB插件淘汰；
  *  - 写合并：set/remove 先改缓存，50ms 定时器把脏键合并为一次批量事务落库
  *    （prepare 语句复用），避免高频 set 逐条触发磁盘写；
  *  - 一次性迁移：init 时发现旧 {id}.json 存在则导入并把文件改名为
@@ -15,6 +15,7 @@ import { existsSync, readFileSync, readdirSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
 import { kvStore, runInTransaction } from '@main/db/sqliteService'
+import { serializeJson } from '@main/plugin/PluginSessionStore'
 import { pluginStorageDir } from '@main/paths/pathsService'
 
 /** 旧 JSON 迁移后的完整后缀（保留现场，卸载时一并清理） */
@@ -25,14 +26,75 @@ const FLUSH_DELAY_MS = 50
 
 /** 每插件 key 数上限 */
 const MAX_KEYS_PER_PLUGIN = 1000
-/** 单值序列化后字符串长度上限（512KB） */
+/** 单值序列化后的 UTF-8 字节上限（512 KiB）。 */
 const MAX_VALUE_BYTES = 512 * 1024
+const MAX_KEY_BYTES = 1024
+const PLUGIN_DIRTY_BYTES = 8 * 1024 * 1024
+const GLOBAL_DIRTY_BYTES = 64 * 1024 * 1024
 
-/** pluginId → key → value（JSON 反序列化后的原值） */
-const cache = new Map<string, Map<string, unknown>>()
+interface CachedValue { pluginId: string; key: string; json: string; bytes: number }
+const cache = new Map<string, CachedValue>()
+const dirty = new Map<string, CachedValue | null>()
+const dirtyPluginBytes = new Map<string, number>()
+let dirtyBytes = 0
+const pluginBytes = new Map<string, number>()
+let cacheBytes = 0
+let hits = 0, misses = 0, evictions = 0
+let lastFlushError: string | null = null
+const GLOBAL_CACHE_BYTES = 32 * 1024 * 1024
+const PLUGIN_CACHE_BYTES = 4 * 1024 * 1024
+function composite(id: string, key: string): string {
+  if (id.includes('\0') || key.includes('\0')) throw new Error('invalid storage key')
+  return `${id}\0${key}`
+}
+function evict(key: string): void {
+  const item = cache.get(key)
+  if (!item) return
+  cache.delete(key); cacheBytes -= item.bytes
+  const bytes = (pluginBytes.get(item.pluginId) ?? 0) - item.bytes
+  if (bytes) pluginBytes.set(item.pluginId, bytes)
+  else pluginBytes.delete(item.pluginId)
+}
+function remember(item: CachedValue): void {
+  const key = composite(item.pluginId, item.key)
+  evict(key); cache.set(key, item); cacheBytes += item.bytes
+  pluginBytes.set(item.pluginId, (pluginBytes.get(item.pluginId) ?? 0) + item.bytes)
+  for (const [candidate, value] of cache) {
+    if (cacheBytes <= GLOBAL_CACHE_BYTES && (pluginBytes.get(item.pluginId) ?? 0) <= PLUGIN_CACHE_BYTES) break
+    if (cacheBytes > GLOBAL_CACHE_BYTES || value.pluginId === item.pluginId) { evict(candidate); evictions++ }
+  }
+}
+export function getStorageDiagnostics() { return { cacheBytes, dirtyKeys: dirty.size, dirtyBytes, pluginDirtyLimit: PLUGIN_DIRTY_BYTES, globalDirtyLimit: GLOBAL_DIRTY_BYTES, maxKeyBytes: MAX_KEY_BYTES, hits, misses, evictions, plugins: pluginBytes.size, lastFlushError } }
 
-/** 脏键集合：`${pluginId}\u0000${key}` → 'set' | 'remove'（整包 clear 立即执行，不走队列） */
-const dirty = new Map<string, 'set' | 'remove'>()
+/** Count keys and tombstones too: failed disks must not permit unbounded retained IPC data. */
+function dirtySize(key: string, item: CachedValue | null): number {
+  return Buffer.byteLength(key) + (item ? Buffer.byteLength(item.json) : 0) + 32
+}
+function deleteDirty(key: string): void {
+  if (!dirty.has(key)) return
+  const bytes = dirtySize(key, dirty.get(key)!)
+  const [id] = splitComposite(key)
+  dirtyBytes -= bytes
+  const remaining = (dirtyPluginBytes.get(id) ?? 0) - bytes
+  if (remaining) dirtyPluginBytes.set(id, remaining)
+  else dirtyPluginBytes.delete(id)
+  dirty.delete(key)
+}
+function retainDirty(key: string, item: CachedValue | null): void {
+  const [id] = splitComposite(key)
+  const previous = dirty.has(key) ? dirtySize(key, dirty.get(key)!) : 0
+  const bytes = dirtySize(key, item)
+  const delta = bytes - previous
+  if (delta > 0 && (dirtyBytes + delta > GLOBAL_DIRTY_BYTES || (dirtyPluginBytes.get(id) ?? 0) + delta > PLUGIN_DIRTY_BYTES)) {
+    throw new Error('pending storage quota exceeded (8 MiB/plugin, 64 MiB/global); flush or retry after persistence recovers')
+  }
+  dirty.set(key, item)
+  dirtyBytes += delta
+  dirtyPluginBytes.set(id, (dirtyPluginBytes.get(id) ?? 0) + delta)
+}
+function validateWriteKey(key: string): void {
+  if (Buffer.byteLength(key) > MAX_KEY_BYTES) throw new Error('storage key quota exceeded (1024 UTF-8 bytes)')
+}
 
 let flushTimer: NodeJS.Timeout | null = null
 let initialized = false
@@ -42,7 +104,8 @@ interface StorageStatements {
   upsert: StatementSync
   remove: StatementSync
   clear: StatementSync
-  selectAll: StatementSync
+  selectOne: StatementSync
+  selectKeys: StatementSync
 }
 let cachedStatements: { db: DatabaseSync; stmts: StorageStatements } | null = null
 
@@ -55,7 +118,8 @@ function statementsFor(db: DatabaseSync): StorageStatements {
     ),
     remove: db.prepare('DELETE FROM plugin_storage WHERE plugin_id = ? AND key = ?'),
     clear: db.prepare('DELETE FROM plugin_storage WHERE plugin_id = ?'),
-    selectAll: db.prepare('SELECT key, value FROM plugin_storage WHERE plugin_id = ?')
+    selectOne: db.prepare('SELECT value FROM plugin_storage WHERE plugin_id = ? AND key = ?'),
+    selectKeys: db.prepare('SELECT key FROM plugin_storage WHERE plugin_id = ?')
   }
   cachedStatements = { db, stmts }
   return stmts
@@ -67,74 +131,34 @@ function splitComposite(k: string): [string, string] {
   return [k.slice(0, i), k.slice(i + 1)]
 }
 
-function markDirty(pluginId: string, key: string, op: 'set' | 'remove'): void {
-  dirty.set(`${pluginId}\u0000${key}`, op)
-  scheduleFlush()
-}
-
 function scheduleFlush(): void {
   if (flushTimer) return
-  flushTimer = setTimeout(() => {
-    flushTimer = null
-    flushDirty(false)
-  }, FLUSH_DELAY_MS)
+  flushTimer = setTimeout(() => { flushTimer = null; flushDirty() }, FLUSH_DELAY_MS)
 }
 
-/** 把当前脏键合并为一次事务写入 */
-function flushDirty(force: boolean): void {
+/** Pending writes stay owned until the whole transaction commits. */
+function flushDirty(): boolean {
+  if (!dirty.size) return true
   const db = kvStore.getDatabase()
-  if (!db) {
-    // backend='none' 兜底：无库时只留内存态（与旧 JSON 读写失败降级一致）
-    if (!force) return
-    dirty.clear()
-    return
-  }
-  if (dirty.size === 0) return
-  const { upsert, remove } = statementsFor(db)
-  const entries = [...dirty.entries()]
-  dirty.clear()
+  if (!db) { lastFlushError = 'storage backend unavailable'; console.error('[enest] storage backend unavailable; pending writes retained'); return false }
+  const entries = [...dirty]
   try {
+    const { upsert, remove } = statementsFor(db)
     runInTransaction(db, () => {
-      for (const [composite, op] of entries) {
-        const [pluginId, key] = splitComposite(composite)
-        const value = cache.get(pluginId)?.get(key)
-        if (op === 'remove' || value === undefined) {
-          remove.run(pluginId, key)
-        } else {
-          upsert.run(pluginId, key, JSON.stringify(value))
-        }
+      for (const [key, value] of entries) {
+        const [id, storageKey] = splitComposite(key)
+        if (value) upsert.run(id, storageKey, value.json)
+        else remove.run(id, storageKey)
       }
     })
-  } catch (err) {
-    console.error('[enest] plugin_storage flush failed', err)
-  }
-}
-
-/** 读取（或惰性加载）某插件的整包缓存；库不可用时退化为空 bag 仅内存态 */
-function bagOf(pluginId: string, loadFromDb = true): Map<string, unknown> {
-  let bag = cache.get(pluginId)
-  if (bag) return bag
-  bag = new Map()
-  cache.set(pluginId, bag)
-  const db = kvStore.getDatabase()
-  if (loadFromDb && db) {
-    try {
-      const rows = statementsFor(db).selectAll.all(pluginId) as Array<{
-        key: string
-        value: string
-      }>
-      for (const row of rows) {
-        try {
-          bag.set(row.key, JSON.parse(row.value))
-        } catch {
-          // 损坏值跳过，等价于不存在
-        }
-      }
-    } catch (err) {
-      console.error('[enest] plugin_storage load failed', pluginId, err)
+    for (const [key, value] of entries) {
+      if (dirty.get(key) !== value) continue
+      deleteDirty(key)
+      if (value) remember(value)
     }
-  }
-  return bag
+    lastFlushError = null
+    return true
+  } catch (error) { lastFlushError = String(error); console.error('[enest] storage flush failed; pending writes retained', error); return false }
 }
 
 /**
@@ -202,57 +226,59 @@ function readFileSafe(path: string): string {
   }
 }
 
-/** 读单个键（缓存命中路径零 SQL）；未初始化时降级为内存态 */
+/** Read just the requested key; clean cache values are safe to evict. */
 export function getPluginStorageValue(pluginId: string, key: string): unknown {
-  return bagOf(pluginId).get(key)
-}
-
-/** 写单个键：先改缓存，50ms 合并落库；超出配额抛错（键数 >1000 或值 >512KB） */
-export function setPluginStorageValue(pluginId: string, key: string, value: unknown): void {
-  const bag = bagOf(pluginId)
-  if (!bag.has(key) && bag.size >= MAX_KEYS_PER_PLUGIN) {
-    throw new Error('storage quota exceeded')
-  }
-  let serialized: string
-  try {
-    serialized = JSON.stringify(value)
-  } catch {
-    serialized = ''
-  }
-  if (serialized.length > MAX_VALUE_BYTES) {
-    throw new Error('storage quota exceeded')
-  }
-  bag.set(key, value)
-  markDirty(pluginId, key, 'set')
-}
-
-/** 删单个键：先改缓存，50ms 合并落库 */
-export function removePluginStorageValue(pluginId: string, key: string): void {
-  bagOf(pluginId).delete(key)
-  markDirty(pluginId, key, 'remove')
-}
-
-/** 清空某插件全部 storage（storage.clear 与卸载共用）：清缓存 + 立即清库 */
-export function clearPluginStorage(pluginId: string): void {
-  cache.delete(pluginId)
-  for (const composite of [...dirty.keys()]) {
-    if (splitComposite(composite)[0] === pluginId) dirty.delete(composite)
-  }
+  const id = composite(pluginId, key)
+  if (dirty.has(id)) { const item = dirty.get(id); return item ? JSON.parse(item.json) : undefined }
+  const cached = cache.get(id)
+  if (cached) { hits++; cache.delete(id); cache.set(id, cached); return JSON.parse(cached.json) }
+  misses++
   const db = kvStore.getDatabase()
-  if (db) {
-    try {
-      statementsFor(db).clear.run(pluginId)
-    } catch (err) {
-      console.error('[enest] plugin_storage clear failed', pluginId, err)
-    }
-  }
+  if (!db) return undefined
+  const row = statementsFor(db).selectOne.get(pluginId, key) as { value: string } | undefined
+  if (!row) return undefined
+  const value = JSON.parse(row.value)
+  remember({ pluginId, key, json: row.value, bytes: Buffer.byteLength(row.value) + Buffer.byteLength(key) })
+  return value
 }
-
-/** 立即落盘全部脏键（应用退出前在 will-quit 调用；主线程负责接线） */
-export function flushAll(): void {
-  if (flushTimer) {
-    clearTimeout(flushTimer)
-    flushTimer = null
+export function setPluginStorageValue(pluginId: string, key: string, value: unknown): void {
+  const id = composite(pluginId, key)
+  validateWriteKey(key)
+  const json = serializeJson(value)
+  const bytes = Buffer.byteLength(json)
+  if (bytes > MAX_VALUE_BYTES) throw new Error('storage quota exceeded')
+  const db = kvStore.getDatabase()
+  const keys = new Set(db ? (statementsFor(db).selectKeys.all(pluginId) as {key: string}[]).map((row) => row.key) : [])
+  for (const [compositeKey, pending] of dirty) {
+    const [pid, itemKey] = splitComposite(compositeKey)
+    if (pid === pluginId) { if (pending) keys.add(itemKey); else keys.delete(itemKey) }
   }
-  flushDirty(true)
+  if (!keys.has(key) && keys.size >= MAX_KEYS_PER_PLUGIN) throw new Error('storage quota exceeded')
+  retainDirty(id, { pluginId, key, json, bytes: bytes + Buffer.byteLength(key) })
+  evict(id)
+  scheduleFlush()
+}
+export function removePluginStorageValue(pluginId: string, key: string): void {
+  const id = composite(pluginId, key)
+  validateWriteKey(key)
+  retainDirty(id, null)
+  evict(id)
+  scheduleFlush()
+}
+export function clearPluginStorage(pluginId: string): void {
+  const db = kvStore.getDatabase()
+  if (!db) throw new Error('storage backend unavailable')
+  // Failed deletes leave both dirty data and cached values intact.
+  statementsFor(db).clear.run(pluginId)
+  for (const [key, item] of cache) if (item.pluginId === pluginId) evict(key)
+  for (const key of dirty.keys()) if (splitComposite(key)[0] === pluginId) deleteDirty(key)
+}
+export function flushAll(): boolean {
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null }
+  return flushDirty()
+}
+export function releasePluginStorage(pluginId: string): boolean {
+  const saved = flushAll()
+  for (const [key, item] of cache) if (item.pluginId === pluginId) evict(key)
+  return saved
 }

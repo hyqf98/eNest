@@ -1,0 +1,327 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-10-13T06:33:58.729Z",
+  "platform": "darwin",
+  "arch": "arm64",
+  "osRelease": "27.0.0",
+  "cpu": "Apple M2",
+  "fixture": {
+    "functionCount": 8000,
+    "bytes": 452891,
+    "sha256": "e05fa607ff166ee81d43b4228325d647f62475a41d44fbaaa7cd044e30d69309",
+    "expectedChecksum": 32004000
+  },
+  "isolation": "Temporary userData/sessionData, hidden BrowserWindows; each load creates and destroys one new WebContents; user data is never accessed",
+  "methodology": "Production-style custom standard scheme, secure=true, codeCache flag varied, Response(Buffer), Cache-Control=no-cache, weak ETag and stable Last-Modified. Enabled profile reused after the first Electron process fully exits.",
+  "conclusions": {
+    "codeCacheFilesCreatedOnlyWhenEnabled": true,
+    "filesPersistAcrossElectronRestart": true,
+    "allRendererExecutionsCorrect": true,
+    "limits": "No V8 compile trace or cache-hit counters collected. File persistence and successful reload do not prove a cache hit. Load times include native window/renderer initialization and OS noise, use a small fixed-order sample, and do not establish speedup or cross-platform performance."
+  },
+  "runs": [
+    {
+      "label": "disabled-fresh-process",
+      "processElapsedMs": 5006,
+      "enabled": false,
+      "electron": "44.4.3",
+      "chromium": "152.0.7977.130",
+      "node": "24.21.0",
+      "loads": [
+        {
+          "index": 1,
+          "wcId": 1,
+          "loadIncludingWindowCreationMs": 275.763,
+          "scriptExecutionMs": 13.4,
+          "documentToScriptReadyMs": 154.2,
+          "checksum": 32004000
+        },
+        {
+          "index": 2,
+          "wcId": 2,
+          "loadIncludingWindowCreationMs": 185.774,
+          "scriptExecutionMs": 13.5,
+          "documentToScriptReadyMs": 161.5,
+          "checksum": 32004000
+        },
+        {
+          "index": 3,
+          "wcId": 3,
+          "loadIncludingWindowCreationMs": 171.559,
+          "scriptExecutionMs": 14.5,
+          "documentToScriptReadyMs": 148.8,
+          "checksum": 32004000
+        },
+        {
+          "index": 4,
+          "wcId": 4,
+          "loadIncludingWindowCreationMs": 168.992,
+          "scriptExecutionMs": 18.4,
+          "documentToScriptReadyMs": 142.4,
+          "checksum": 32004000
+        }
+      ],
+      "requests": [
+        {
+          "url": "enest-cache-probe://plugin/index.html",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/fixture.js",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/index.html",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/fixture.js",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/index.html",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/fixture.js",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/index.html",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/fixture.js",
+          "ifNoneMatch": null
+        }
+      ],
+      "launch": {
+        "code": 0,
+        "signal": null,
+        "stderr": "[86511:1013/143348.193428:ERROR:base/process/process_mac.cc:53] task_policy_set TASK_CATEGORY_POLICY: (os/kern) invalid argument (4)\n[86511:1013/143348.193454:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n"
+      },
+      "cacheFiles": [
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/index",
+          "bytes": 24
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/index-dir/the-real-index",
+          "bytes": 48
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/wasm/index",
+          "bytes": 24
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/wasm/index-dir/the-real-index",
+          "bytes": 48
+        }
+      ],
+      "compiledEntries": []
+    },
+    {
+      "label": "enabled-fresh-process",
+      "processElapsedMs": 4981,
+      "enabled": true,
+      "electron": "44.4.3",
+      "chromium": "152.0.7977.130",
+      "node": "24.21.0",
+      "loads": [
+        {
+          "index": 1,
+          "wcId": 1,
+          "loadIncludingWindowCreationMs": 401.354,
+          "scriptExecutionMs": 19.4,
+          "documentToScriptReadyMs": 309.8,
+          "checksum": 32004000
+        },
+        {
+          "index": 2,
+          "wcId": 2,
+          "loadIncludingWindowCreationMs": 188.762,
+          "scriptExecutionMs": 14.7,
+          "documentToScriptReadyMs": 157.3,
+          "checksum": 32004000
+        },
+        {
+          "index": 3,
+          "wcId": 3,
+          "loadIncludingWindowCreationMs": 123.786,
+          "scriptExecutionMs": 1.9,
+          "documentToScriptReadyMs": 105.9,
+          "checksum": 32004000
+        },
+        {
+          "index": 4,
+          "wcId": 4,
+          "loadIncludingWindowCreationMs": 129.816,
+          "scriptExecutionMs": 1.9,
+          "documentToScriptReadyMs": 112,
+          "checksum": 32004000
+        }
+      ],
+      "requests": [
+        {
+          "url": "enest-cache-probe://plugin/index.html",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/fixture.js",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/index.html",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/fixture.js",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/index.html",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/fixture.js",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/index.html",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/fixture.js",
+          "ifNoneMatch": null
+        }
+      ],
+      "launch": {
+        "code": 0,
+        "signal": null,
+        "stderr": ""
+      },
+      "cacheFiles": [
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/4cae5cc492a5db5f_0",
+          "bytes": 250
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/88a86a6eb2ac1ac2_0",
+          "bytes": 1529200
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/index",
+          "bytes": 24
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/index-dir/the-real-index",
+          "bytes": 96
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/wasm/index",
+          "bytes": 24
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/wasm/index-dir/the-real-index",
+          "bytes": 48
+        }
+      ],
+      "compiledEntries": [
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/4cae5cc492a5db5f_0",
+          "bytes": 250
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/88a86a6eb2ac1ac2_0",
+          "bytes": 1529200
+        }
+      ]
+    },
+    {
+      "label": "enabled-new-process-same-profile",
+      "processElapsedMs": 3007,
+      "enabled": true,
+      "electron": "44.4.3",
+      "chromium": "152.0.7977.130",
+      "node": "24.21.0",
+      "loads": [
+        {
+          "index": 1,
+          "wcId": 1,
+          "loadIncludingWindowCreationMs": 275.932,
+          "scriptExecutionMs": 2.4,
+          "documentToScriptReadyMs": 146.1,
+          "checksum": 32004000
+        },
+        {
+          "index": 2,
+          "wcId": 2,
+          "loadIncludingWindowCreationMs": 193.022,
+          "scriptExecutionMs": 2.3,
+          "documentToScriptReadyMs": 162.5,
+          "checksum": 32004000
+        }
+      ],
+      "requests": [
+        {
+          "url": "enest-cache-probe://plugin/index.html",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/fixture.js",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/index.html",
+          "ifNoneMatch": null
+        },
+        {
+          "url": "enest-cache-probe://plugin/fixture.js",
+          "ifNoneMatch": null
+        }
+      ],
+      "launch": {
+        "code": 0,
+        "signal": null,
+        "stderr": ""
+      },
+      "cacheFiles": [
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/4cae5cc492a5db5f_0",
+          "bytes": 250
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/88a86a6eb2ac1ac2_0",
+          "bytes": 1529200
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/index",
+          "bytes": 24
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/index-dir/the-real-index",
+          "bytes": 96
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/wasm/index",
+          "bytes": 24
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/wasm/index-dir/the-real-index",
+          "bytes": 48
+        }
+      ],
+      "compiledEntries": [
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/4cae5cc492a5db5f_0",
+          "bytes": 250
+        },
+        {
+          "path": "Partitions/code-cache-probe/Code Cache/js/88a86a6eb2ac1ac2_0",
+          "bytes": 1529200
+        }
+      ]
+    }
+  ],
+  "passed": true
+}

@@ -1,3 +1,5 @@
+import { pathToFileURL } from 'node:url'
+import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
 /**
  * createShellWindow — 壳子窗口创建与管理
  * 职责：创建无边框主窗口，挂载 shell WebContentsView，管理预加载脚本路径解析与事件推送。
@@ -20,10 +22,9 @@ import { IpcChannels, type ShellEventPayload } from '@shared/types/ipc'
 let mainWindow: BaseWindow | null = null
 let shellView: WebContentsView | null = null
 
-/** 解析 preload 脚本路径：开发与打包环境的扩展名不同（.js → .mjs） */
+/** All isolated worlds load independently bundled CommonJS preloads. */
 export function resolvePreload(name: string): string {
-  const file = name.endsWith('.js') ? name.replace(/\.js$/, '.mjs') : name
-  return join(app.getAppPath(), 'out', 'preload', file)
+  return join(app.getAppPath(), 'out', 'preload', name.replace(/\.(js|mjs|cjs)$/, '.cjs'))
 }
 
 /** 解析 icons 根目录列表：开发路径优先，打包后走 process.resourcesPath */
@@ -72,9 +73,12 @@ function applyDockIcon(): void {
 function loadRenderer(view: WebContentsView): void {
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (devUrl) {
+    registerTrustedSurface(view.webContents, 'shell', devUrl)
     void view.webContents.loadURL(devUrl)
   } else {
-    void view.webContents.loadFile(join(app.getAppPath(), 'out', 'renderer', 'index.html'))
+    const file = join(app.getAppPath(), 'out', 'renderer', 'index.html')
+    registerTrustedSurface(view.webContents, 'shell', pathToFileURL(file).href)
+    void view.webContents.loadFile(file)
   }
 }
 
@@ -108,7 +112,7 @@ export function createShellWindow(): BaseWindow {
       preload: resolvePreload('shellPreload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false, // preload 需要访问 ipcRenderer，故不启用沙箱
+      sandbox: true,
       partition: SHELL_PARTITION // 与插件分区隔离，避免数据串扰
     }
   })
@@ -127,6 +131,8 @@ export function createShellWindow(): BaseWindow {
   })
 
   win.on('closed', () => {
+    // BaseWindow 不负责销毁子 WebContents；摘引用前显式结束 renderer。
+    if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false })
     mainWindow = null
     shellView = null
   })
@@ -208,6 +214,7 @@ export function sendShellEvent(payload: ShellEventPayload): void {
   // Quick 是独立文档，只同步自身插件态、目录与共享外观；不转发主窗口的 Tab 状态。
   if (
     payload.type === 'quick-plugin-mode' ||
+    payload.type === 'quick-input' ||
     payload.type === 'quick-focus-search' ||
     payload.type === 'plugins-changed' ||
     payload.type === 'theme-changed' ||

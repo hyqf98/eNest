@@ -1,3 +1,11 @@
+import { consumeFetchStream } from '@main/net/fetchStream'
+import { websocketConnect, websocketSend, websocketClose } from '@main/net/websocketService'
+import { handleShellIpc } from '@main/ipc/ipcSecurity'
+import { isPluginPageUrl } from '@main/plugin/pluginSessionPolicy'
+import { PLUGIN_PERMISSIONS } from '@shared/types/plugin'
+import { isBuiltinCapability } from '@shared/pluginPermissionPolicy'
+import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
+import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
 /**
  * pluginHandlers — 插件 IPC 调用分发器
  * 职责：接收插件 preload 发起的 `plugin:call`，校验发送者身份与权限，按 method 分发到具体实现；
@@ -7,8 +15,8 @@
  * PluginSettingsBridge、themePacks、pluginStorage（storage.local 落 enest.db）、
  * quickHotkey（Quick 热键冲突预检，经 pluginRuntimeHotkeys 间接使用）。
  */
-import { clipboard, ipcMain, nativeImage, Notification, shell } from 'electron'
-import { APP_NAME, EXTERNAL_URL_PROTOCOLS, toTabId } from '@shared/constants'
+import { clipboard, ipcMain, nativeImage, Notification, shell, net as electronNet } from 'electron'
+import { APP_NAME, EXTERNAL_URL_PROTOCOLS } from '@shared/constants'
 import type {
   PermissionGrantSetPayload,
   PermissionResponsePayload,
@@ -34,10 +42,41 @@ import {
   removePluginStorageValue,
   setPluginStorageValue
 } from '@main/db/pluginStorage'
-import { assertPermission } from '@main/plugin/PluginPermissions'
+import { assertPermission, confirmPluginOperation } from '@main/plugin/PluginPermissions'
 import { pluginHost } from '@main/plugin/PluginHost'
+import { acquireQuickInteraction } from '@main/window/createQuickWindow'
+import { pickLocalFiles, readLocalFile, localFilesFromDrop, listLocalFiles, revealLocalFile, prepareLocalDrag, startLocalDrag, endLocalDrag } from '@main/plugin/localFiles'
+import type { LocalFilePickOptions, PluginInputContext } from '@shared/types/local-files'
+import { sshWorkbench, sshWorkbenchPermission } from '@main/ssh/sshWorkbench'
+import type { SshWorkbenchRequest } from '@shared/types/ssh-workbench'
+import { dbWorkbenchCall, dbWorkbenchPermission } from '@main/database/workbench'
+import type { DbWorkbenchRequest } from '@shared/types/db-workbench'
+import {
+  socketClose,
+  socketConnect,
+  socketList,
+  socketSend,
+  socketServeWs,
+  type SocketConnectInput
+} from '@main/net/socketBridge'
+import {
+  lanShareStart,
+  lanShareStatus,
+  lanShareStop,
+  lanShareList
+} from '@main/net/lanShareService'
+import { renameLocalFile, renameLocalFiles, resolveLocalFileHandle, pickLocalSaveFile } from '@main/plugin/localFiles'
+import { agentApps, agentRead, agentWrite, agentBackups, agentRestore, agentSessionsList, agentSessionsRead } from '@main/config/agentConfigService'
+import { sysProcesses, sysPorts, sysKill } from '@main/sys/sysInspectService'
+import { mwWorkbenchCall, mwWorkbenchPermission } from '@main/middleware/workbench'
+import type { MwWorkbenchRequest } from '@shared/types/mw-workbench'
+import { dshWorkbenchCall, dshWorkbenchPermission } from '@main/dsh/workbench'
+import type { DshWorkbenchRequest } from '@shared/types/dsh-workbench'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
-import { sessionBag } from '@main/plugin/PluginSessionStore'
+import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
+import { randomUUID } from 'node:crypto'
+import { PLUGIN_TOOL_PERMISSIONS, bindPluginTools, dispatchPluginTool } from '@main/ipc/pluginToolsHandlers'
+import { getSessionValue, setSessionValue, removeSessionValue, clearPluginSession } from '@main/plugin/PluginSessionStore'
 import {
   normalizeGrant,
   permissionService
@@ -55,7 +94,6 @@ import { themePackRegistry } from '@main/theme/themePacks'
 import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { resolveQuickQuery } from '@main/launcher/quickProviders'
 import {
-  getMainWindow,
   getShellWebContents,
   sendShellEvent
 } from '@main/window/createShellWindow'
@@ -132,12 +170,32 @@ import type {
 } from '@shared/types/ssh-db'
 
 /** method → 所需权限映射；null 表示无需权限（settings.get/set 由 Bridge 管控 key 白名单） */
+const runtimeLeases = new Map<string, { release: () => void; unregister: () => void; pluginId: string }>()
+const CLOSE_SAFE = /^(storage\.|screen\.record\.(stop|cancel)$|pin\.close|runtime\.release$|ssh\.(disconnect|unwatch)|db\.(disconnect|cancel)|net\.socket\.close$|lan\.share\.stop$)/
+
 const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
+  ...PLUGIN_TOOL_PERMISSIONS,
+  'runtime.acquire': null,
+  'runtime.release': null,
   'ui.setTitle': 'ui.setTitle',
   'ui.setIcon': 'ui.setIcon',
   'ui.setBadge': 'ui.setBadge',
   'ui.resize': 'ui.resize',
   'ui.setHeight': 'ui.resize',
+  'ui.openInShell': null,
+  'ui.setInputContext': null,
+  'ui.focus': null,
+  'ui.focusSearch': null,
+  'localFiles.read': 'fs.read',
+  'localFiles.pick': 'fs.read',
+  'localFiles.pickSave': 'fs.write',
+  'localFiles.fromDrop': 'fs.read',
+  'localFiles.list': 'fs.read',
+  'localFiles.reveal': 'fs.read',
+  'localFiles.prepareDrag': 'fs.read',
+  // A prepared export is already a caller-owned capability; asking during dragstart cancels the gesture.
+  'localFiles.startDrag': null,
+  'localFiles.endDrag': null,
   'ui.toast': 'ui.toast',
   'settings.register': 'settings.register',
   'settings.get': null,
@@ -206,7 +264,7 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'ssh.sftp.rename': 'ssh.sftp',
   'ssh.sftp.delete': 'ssh.sftp',
   'ssh.sftp.chmod': 'ssh.sftp',
-  'ssh.pickLocalFile': 'ssh.sftp',
+  'ssh.pickLocalFile': 'fs.read',
   'db.test': 'db.connect',
   'db.open': 'db.connect',
   'db.close': 'db.connect',
@@ -223,13 +281,46 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'db.schema.ddl': 'db.schema',
   'db.completion.suggest': 'db.schema',
   'db.dialects.list': 'db.schema',
-  'db.pickImportFile': 'db.connect',
+  'db.pickImportFile': 'fs.read',
+  // mw.workbench 权限按 action 动态判 mw.connect/mw.query/mw.admin（见下方 required 解析）
+  'mw.workbench': 'mw.admin',
+  // dsh.workbench 权限按 action 动态判 dsh.connect/dsh.chat/dsh.admin（见下方 required 解析）
+  'dsh.workbench': 'dsh.admin',
+  // —— net.socket / config.agent / sys.inspect（波 0 宿主能力扩展）——
+  'net.websocket.connect': 'net.socket',
+  'net.websocket.send': 'net.socket',
+  'net.websocket.close': 'net.socket',
+  'net.socket.connect': 'net.socket',
+  'net.socket.send': 'net.socket',
+  'net.socket.close': 'net.socket',
+  'net.socket.list': 'net.socket',
+  'net.socket.serveWs': 'net.socket',
+  // —— lan.share / fs.rename（局域网传件 + 句柄白名单改名）——
+  'lan.share.start': 'lan.share',
+  'lan.share.status': 'lan.share',
+  'lan.share.list': 'lan.share',
+  'lan.share.stop': 'lan.share',
+  'fs.rename': 'fs.rename',
+  'fs.renameBatch': 'fs.rename',
+  'agent.apps': 'config.agent.read',
+  'agent.read': 'config.agent.read',
+  'agent.write': 'config.agent.write',
+  'agent.backups': 'config.agent.read',
+  'agent.restore': 'config.agent.write',
+  'agent.sessions.list': 'config.agent.read',
+  'agent.sessions.read': 'config.agent.read',
+  'sys.processes': 'sys.inspect',
+  'sys.ports': 'sys.inspect',
+  'sys.kill': 'sys.control',
   // 导出落盘：复用 shell.openExternal 权限（两插件均已声明）
-  'shell.saveTextFile': 'shell.openExternal'
+  'shell.saveTextFile': 'fs.write'
 }
 
 /** net.fetch 响应体上限（2MB），防止插件拉超大资源 */
 const NET_FETCH_MAX_BODY = 2 * 1024 * 1024
+/** net.fetch 流式（stream: true）响应体上限（32MB），经 net.chunk 分片推送 */
+const NET_FETCH_STREAM_MAX_BODY = 32 * 1024 * 1024
+const netFetchCounts = new WeakMap<PluginRuntimeScope, number>()
 const NET_FETCH_DEFAULT_TIMEOUT = 15_000
 
 /** 向指定插件的存活 webContents 推送 plugin:event 负载（找不到/已销毁则静默丢弃） */
@@ -304,17 +395,11 @@ async function openExternalWithPermission(
     throw new Error('only http(s)/mailto/tel urls allowed')
   }
   assertPermission(manifest, 'shell.openExternal')
-  const allowed = await ensureRuntimeGrant(
-    pluginId,
-    'shell.openExternal',
-    `shell.openExternal ${url.slice(0, 120)}`
-  )
-  if (!allowed) throw new Error('permission denied: shell.openExternal')
   await shell.openExternal(url)
 }
 
 /**
- * 壳层运行时 grant 检查（声明校验通过后的第二层）：
+ * 基础能力免授权；敏感能力在声明校验后检查运行时 grant：
  * deny → false；allow → true；ask → 弹窗等待用户决策。
  */
 async function ensureRuntimeGrant(
@@ -322,6 +407,7 @@ async function ensureRuntimeGrant(
   perm: PluginPermission,
   summary: string
 ): Promise<boolean> {
+  if (isBuiltinCapability(perm)) return true
   const grant = settingsStore.getPermissionGrant(pluginId, perm)
   if (grant === 'allow') return true
   if (grant === 'deny') return false
@@ -364,21 +450,76 @@ async function dispatch(
   args: unknown[],
   manifest: PluginManifest
 ): Promise<unknown> {
+  if (method in PLUGIN_TOOL_PERMISSIONS) {
+    if (method === 'clipboard.history.copy' || method === 'clipboard.history.paste') {
+      const scope = getRuntimeScope(pluginId)
+      const permissions: PluginPermission[] = ['clipboard.history']
+      const entry = await getHistoryEntry(String(args[0] ?? ''))
+      if (!entry) throw new Error('该记录已删除')
+      permissions.push(entry.type === 'image' ? 'clipboard.writeImage' : 'clipboard.write')
+      for (const permission of permissions) {
+        assertPermission(manifest, permission)
+        if (!(await ensureRuntimeGrant(pluginId, permission, '复制剪贴板历史内容'))) throw new Error(`permission denied: ${permission}`)
+      }
+      if (!scope?.isCurrent() || scope.isClosing) throw new Error('plugin runtime is closing or stale')
+    }
+    if (method === 'focusTimer.start' && asObj(args).notify !== false) {
+      const scope = getRuntimeScope(pluginId)
+      const allowed = manifest.permissions?.includes('notify') && await ensureRuntimeGrant(pluginId, 'notify', '专注计时到期提醒')
+      // The optional grant may settle after close (or after a replacement opened).
+      // Persistent host tasks must only be created by the original live owner.
+      if (!scope?.isCurrent() || scope.isClosing || scope.signal.aborted) throw new Error('plugin runtime is closing')
+      args = [{ ...asObj(args), notify: Boolean(allowed) }]
+    }
+    return dispatchPluginTool(pluginId, method, args)
+  }
   switch (method) {
-    case 'ui.setTitle': {
-      const title = String(args[0] ?? '')
-      sendShellEvent({ type: 'plugin-title', tabId: toTabId(pluginId), title })
+    case 'runtime.acquire': {
+      const scope = getRuntimeScope(pluginId)
+      if (!scope || scope.isClosing) throw new Error('plugin runtime unavailable')
+      const token = randomUUID()
+      const release = scope.acquireActivity(String(args[0] ?? 'plugin task'))
+      const unregister = scope.addDisposer(() => { release(); runtimeLeases.delete(token) })
+      runtimeLeases.set(token, { release, unregister, pluginId })
+      return token
+    }
+    case 'runtime.release': {
+      const token = String(args[0] ?? '')
+      const lease = runtimeLeases.get(token)
+      if (lease?.pluginId === pluginId) { lease.release(); lease.unregister(); runtimeLeases.delete(token) }
       return true
+    }
+
+    case 'ui.openInShell':
+      pluginHost.pinToShell(pluginId)
+      return true
+    case 'ui.setInputContext':
+      pluginHost.setInputContext(pluginId, args[0] as PluginInputContext)
+      return true
+    case 'ui.focus':
+      return pluginHost.focusPlugin(pluginId)
+    case 'ui.focusSearch':
+      return pluginHost.focusSearch(pluginId)
+    case 'localFiles.read': return readLocalFile(pluginId, asObj(args) as { handleId: string; encoding?: 'text' | 'dataUrl'; maxBytes?: number })
+    case 'localFiles.pick': return pickLocalFiles(pluginId, asObj(args) as LocalFilePickOptions)
+    case 'localFiles.fromDrop': return localFilesFromDrop(pluginId, args[0] as string[])
+    case 'localFiles.list': return listLocalFiles(pluginId, asObj(args) as { handleId: string; relativePath?: string })
+    case 'localFiles.reveal': return revealLocalFile(pluginId, String(args[0] ?? ''))
+    case 'localFiles.prepareDrag': return prepareLocalDrag(pluginId, asObj(args).handleIds as string[])
+    case 'localFiles.startDrag': return startLocalDrag(pluginId, String(args[0] ?? ''))
+    case 'localFiles.endDrag': return endLocalDrag(pluginId)
+    case 'ssh.workbench': return sshWorkbench(pluginId, args[0] as SshWorkbenchRequest)
+    case 'db.workbench': return dbWorkbenchCall(pluginId, args[0] as DbWorkbenchRequest)
+    case 'mw.workbench': return mwWorkbenchCall(pluginId, args[0] as MwWorkbenchRequest)
+    case 'dsh.workbench': return dshWorkbenchCall(pluginId, args[0] as DshWorkbenchRequest)
+    case 'ui.setTitle': {
+      return pluginHost.setTitle(pluginId, args[0])
     }
     case 'ui.setIcon': {
-      const icon = String(args[0] ?? '')
-      sendShellEvent({ type: 'plugin-icon', tabId: toTabId(pluginId), icon })
-      return true
+      return pluginHost.setIcon(pluginId, args[0])
     }
     case 'ui.setBadge': {
-      const badge = (args[0] ?? '') as string | number
-      sendShellEvent({ type: 'plugin-badge', tabId: toTabId(pluginId), badge })
-      return true
+      return pluginHost.setBadge(pluginId, args[0])
     }
     case 'ui.resize': {
       const size = args[0] as { width?: number; height?: number } | undefined
@@ -425,14 +566,15 @@ async function dispatch(
         }>
       }
       if (!section?.id || !section.title) throw new Error('invalid settings section')
+      const items = Array.isArray(section.items) ? section.items.filter(item => isPluginSettingKey(item?.key)) : []
       pluginSettingsBridge.register(pluginId, {
         id: section.id,
         title: section.title,
-        items: section.items ?? []
+        items
       })
       // 用已持久化值覆盖 bridge 中的 default，保证重启后 settings.get 读到上次写入
       const persisted = settingsStore.getPluginSettings(pluginId)
-      for (const item of section.items ?? []) {
+      for (const item of items) {
         if (item?.key && item.key in persisted) {
           pluginSettingsBridge.set(pluginId, item.key, persisted[item.key])
         }
@@ -441,6 +583,7 @@ async function dispatch(
     }
     case 'settings.get': {
       const key = String(args[0] ?? '')
+      if (!isPluginSettingKey(key)) throw new Error('reserved plugin settings key')
       // 持久化值优先（壳子/重启后写入），bridge 仅作未落盘时的 default 兜底
       const persisted = settingsStore.getPluginSettings(pluginId)
       if (key in persisted) return persisted[key]
@@ -448,6 +591,7 @@ async function dispatch(
     }
     case 'settings.set': {
       const key = String(args[0] ?? '')
+      if (!isPluginSettingKey(key)) throw new Error('reserved plugin settings key')
       const value = args[1]
       // key 白名单：必须在该插件注册的 settings item keys 内（运行时 register +
       // manifest contributes.settings 统一入 contributions 表），防止任意键写库
@@ -456,8 +600,10 @@ async function dispatch(
       }
       pluginSettingsBridge.set(pluginId, key, value)
       await settingsStore.setPluginSetting(pluginId, key, value)
+      pluginHost.sendEvent(pluginId, { type: 'settings-change', key, value })
       return true
     }
+    case 'localFiles.pickSave': return pickLocalSaveFile(pluginId, asObj(args))
     case 'storage.get': {
       const key = String(args[0] ?? '')
       return getPluginStorageValue(pluginId, key)
@@ -478,20 +624,20 @@ async function dispatch(
     }
     case 'storage.session.get': {
       const key = String(args[0] ?? '')
-      return sessionBag(pluginId).get(key)
+      return getSessionValue(pluginId, key)
     }
     case 'storage.session.set': {
       const key = String(args[0] ?? '')
-      sessionBag(pluginId).set(key, args[1])
+      setSessionValue(pluginId, key, args[1])
       return true
     }
     case 'storage.session.remove': {
       const key = String(args[0] ?? '')
-      sessionBag(pluginId).delete(key)
+      removeSessionValue(pluginId, key)
       return true
     }
     case 'storage.session.clear': {
-      sessionBag(pluginId).clear()
+      clearPluginSession(pluginId)
       return true
     }
     case 'clipboard.readText': {
@@ -549,7 +695,7 @@ async function dispatch(
       return captureScreen(opts)
     }
     case 'screen.selectRegion': {
-      return selectRegion()
+      return selectRegion(pluginId)
     }
     case 'screen.record.start': {
       const opts = (args[0] ?? {}) as {
@@ -557,13 +703,13 @@ async function dispatch(
         withAudio?: boolean
         displayId?: number
       }
-      return startRecording(opts)
+      return startRecording(pluginId, opts)
     }
     case 'screen.record.stop': {
-      return stopRecording(String(args[0] ?? ''))
+      return stopRecording(pluginId, String(args[0] ?? ''))
     }
     case 'screen.record.cancel': {
-      return cancelRecording(String(args[0] ?? ''))
+      return cancelRecording(pluginId, String(args[0] ?? ''))
     }
     case 'pin.open': {
       const payload = (args[0] ?? {}) as {
@@ -585,6 +731,137 @@ async function dispatch(
     case 'pin.list': {
       return listPins(pluginId)
     }
+    case 'net.socket.connect': {
+      const o = asObj(args)
+      const input = (o.host != null ? o : args[0]) as SocketConnectInput
+      return socketConnect(pluginId, {
+        sessionId: typeof input.sessionId === 'string' ? input.sessionId : undefined,
+        host: String(input.host ?? ''),
+        port: Number(input.port),
+        tls: input.tls === true,
+        timeoutMs: input.timeoutMs != null ? Number(input.timeoutMs) : undefined
+      })
+    }
+    case 'net.socket.send': {
+      const o = asObj(args)
+      return socketSend(pluginId, argStr(args, 'socketId', 0), argStr(args, 'data', 1))
+    }
+    case 'net.socket.close': {
+      return socketClose(pluginId, argStr(args, 'socketId', 0))
+    }
+    case 'net.socket.list': {
+      return socketList(pluginId)
+    }
+    case 'net.socket.serveWs': {
+      return socketServeWs(pluginId, argStr(args, 'socketId', 0))
+    }
+    case 'lan.share.start': {
+      const o = asObj(args)
+      // files 支持两种形态：{handleId}（localFiles 句柄，宿主侧解析真实路径）
+      // 与 {path}（已有绝对路径，如 db 导出）；句柄解析失败给友好错误
+      const rawFiles = Array.isArray(o.files) ? (o.files as Array<{ handleId?: string; path?: string; name?: string }>) : []
+      if (!rawFiles.length) throw new Error('files required (handleId or path)')
+      const files = await Promise.all(rawFiles.map(async (item) => {
+        if (item?.handleId != null && item.handleId !== '') {
+          let path: string
+          try {
+            path = await resolveLocalFileHandle(pluginId, String(item.handleId))
+          } catch {
+            throw new Error('文件句柄已失效（文件可能已被移动或删除），请重新选择')
+          }
+          return { path, name: item.name != null ? String(item.name) : undefined }
+        }
+        throw new Error('each shared file requires a selected handleId; raw paths are not supported')
+      }))
+      return lanShareStart(pluginId, { files, minutes: o.minutes != null ? Number(o.minutes) : undefined })
+    }
+    case 'lan.share.status': {
+      const status = lanShareStatus(pluginId, argStr(args, 'shareId', 0))
+      if (!status) throw new Error('share not found')
+      return status
+    }
+    case 'lan.share.list': {
+      return lanShareList(pluginId)
+    }
+    case 'lan.share.stop': {
+      const stopped = lanShareStop(pluginId, argStr(args, 'shareId', 0))
+      if (!stopped) throw new Error('share not found')
+      return true
+    }
+    case 'fs.rename': {
+      const o = asObj(args)
+      return renameLocalFile(
+        pluginId,
+        o.handleId != null ? String(o.handleId) : String(args[0] ?? ''),
+        o.newName != null ? String(o.newName) : String(args[1] ?? '')
+      )
+    }
+    case 'fs.renameBatch': {
+      const o = asObj(args)
+      const items = (o.items ?? args[0]) as Array<{ handleId?: string; newName?: string }>
+      return renameLocalFiles(pluginId, {
+        items: (Array.isArray(items) ? items : []).map((item) => ({
+          handleId: String(item?.handleId ?? ''),
+          newName: String(item?.newName ?? '')
+        })),
+        confirmed: o.confirmed === true
+      })
+    }
+    case 'agent.apps': {
+      return agentApps()
+    }
+    case 'agent.read': {
+      return agentRead(pluginId, argStr(args, 'app', 0))
+    }
+    case 'agent.write': {
+      const o = asObj(args)
+      await confirmPluginOperation(pluginId, '修改 AI CLI 配置？', `应用：${String(o.app ?? args[0] ?? '')}\n修改字段：${Object.keys((o.changes ?? args[1] ?? {}) as object).join(', ')}`)
+      return agentWrite(pluginId, {
+        app: o.app != null ? String(o.app) : String(args[0] ?? ''),
+        changes: (o.changes ?? args[1]) as Record<string, unknown>,
+        confirmed: true
+      })
+    }
+    case 'agent.backups': {
+      return agentBackups(pluginId, argStr(args, 'app', 0))
+    }
+    case 'agent.restore': {
+      const o = asObj(args)
+      await confirmPluginOperation(pluginId, '恢复 AI CLI 配置备份？', `应用：${String(o.app ?? args[0] ?? '')}\n备份：${String(o.id ?? args[1] ?? '')}`)
+      return agentRestore(pluginId, {
+        app: o.app != null ? String(o.app) : String(args[0] ?? ''),
+        id: o.id != null ? String(o.id) : String(args[1] ?? '')
+      })
+    }
+    case 'agent.sessions.list': {
+      return agentSessionsList(pluginId, argStr(args, 'app', 0))
+    }
+    case 'agent.sessions.read': {
+      const o = asObj(args)
+      return agentSessionsRead(pluginId, {
+        app: o.app != null ? String(o.app) : String(args[0] ?? ''),
+        file: o.file != null ? String(o.file) : String(args[1] ?? ''),
+        maxBytes: o.maxBytes != null ? Number(o.maxBytes) : undefined
+      })
+    }
+    case 'sys.processes': {
+      return sysProcesses()
+    }
+    case 'sys.ports': {
+      return sysPorts()
+    }
+    case 'sys.kill': {
+      const o = asObj(args)
+      const pid = o.pid != null ? Number(o.pid) : Number(args[0])
+      const signal =
+        (o.signal ?? args[1]) === 'KILL' ? 'KILL'
+        : (o.signal ?? args[1]) === 'INT' ? 'INT'
+        : 'TERM'
+      return sysKill(pluginId, pid, signal, o.confirmed === true || args[2] === true)
+    }
+    case 'net.websocket.connect': return websocketConnect(pluginId, args[0] as { url: string; protocols?: string[] })
+    case 'net.websocket.send': return websocketSend(pluginId, String(args[0]), args[1] as string, args[2] as boolean | undefined)
+    case 'net.websocket.close': return websocketClose(pluginId, String(args[0]))
     case 'net.fetch': {
       const req = (args[0] ?? {}) as {
         url?: string
@@ -592,55 +869,122 @@ async function dispatch(
         headers?: Record<string, string>
         body?: string
         timeoutMs?: number
+        stream?: boolean
       }
+      // 明文 http 仅在 manifest 声明 net.allowInsecure 时放行（PluginInstaller 已校验形状）
+      const allowInsecure = manifest.net?.allowInsecure === true
+      const schemeOk = (u: string): boolean =>
+        allowInsecure ? /^https?:\/\//i.test(u) : /^https:\/\//i.test(u)
+      const schemeName = allowInsecure ? 'http(s)' : 'https'
+      if (req.body !== undefined && (typeof req.body !== 'string' || Buffer.byteLength(req.body) > 8 * 1024 * 1024)) throw new Error('request body exceeds 8 MiB')
       let url = String(req.url ?? '')
-      if (!/^https:\/\//i.test(url)) throw new Error('only https urls allowed')
+      if (!schemeOk(url)) throw new Error(`only ${schemeName} urls allowed`)
       const method = (req.method ?? 'GET').toUpperCase()
-      if (method !== 'GET' && method !== 'POST') {
-        throw new Error('only GET/POST allowed')
+      if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].includes(method)) {
+        throw new Error('only GET/POST/PUT/PATCH/DELETE/HEAD allowed')
       }
-      const timeoutMs = Math.min(60_000, Math.max(1_000, req.timeoutMs ?? NET_FETCH_DEFAULT_TIMEOUT))
+      const timeoutMs = Math.min(120_000, Math.max(1_000, req.timeoutMs ?? NET_FETCH_DEFAULT_TIMEOUT))
       const controller = new AbortController()
+      const scope = getRuntimeScope(pluginId)
+      if (!scope || scope.signal.aborted) throw new Error('plugin runtime closed')
+      const abort = () => controller.abort()
+      scope.signal.addEventListener('abort', abort, { once: true })
+      if ((netFetchCounts.get(scope) ?? 0) >= 8) { scope.signal.removeEventListener('abort', abort); throw new Error('network request limit (8) reached') }
+      const releaseNetworkActivity = scope.acquireActivity('network request')
+      netFetchCounts.set(scope, (netFetchCounts.get(scope) ?? 0) + 1)
+      let released = false
+      const releaseActivity = (): void => { if (released) return; released = true; releaseNetworkActivity(); netFetchCounts.set(scope, Math.max(0, (netFetchCounts.get(scope) ?? 1) - 1)) }
       const timer = setTimeout(() => controller.abort(), timeoutMs)
+      const streamMode = req.stream === true
+      let detachedStream = false
+      const reqId = randomUUID()
+      const emitChunk = (chunk: string, done = false, error?: string): void => {
+        if (!scope.isCurrent() || scope.signal.aborted) return
+        sendPluginEvent(pluginId, {
+          type: 'net.chunk',
+          reqId,
+          chunk,
+          ...(done ? { done: true } : {}),
+          ...(error !== undefined ? { error } : {})
+        })
+      }
       try {
-        // 有限次手动跟随重定向，每一跳都校验 https，阻断 http/内网跳转 SSRF
+        // 有限次手动跟随重定向，每一跳都重新校验协议，阻断 SSRF
         let res: Response | null = null
         for (let hop = 0; hop < 5; hop++) {
-          res = await fetch(url, {
+          res = await electronNet.fetch(url, {
             method,
             headers: req.headers ?? {},
-            body: method === 'POST' ? req.body : undefined,
+            body: method === 'GET' || method === 'HEAD' ? undefined : req.body,
             signal: controller.signal,
             redirect: 'manual'
           })
           if (res.status >= 300 && res.status < 400) {
+            await res.body?.cancel()
             const loc = res.headers.get('location')
             if (!loc) throw new Error('redirect without location')
             url = new URL(loc, url).href
-            if (!/^https:\/\//i.test(url)) throw new Error('only https urls allowed')
+            if (!schemeOk(url)) throw new Error(`only ${schemeName} urls allowed`)
             continue
           }
           break
         }
         if (!res) throw new Error('net.fetch failed')
-        const declared = Number(res.headers.get('content-length') ?? '0')
-        if (declared > NET_FETCH_MAX_BODY) throw new Error('response body too large')
-        const buf = Buffer.from(await res.arrayBuffer())
-        if (buf.length > NET_FETCH_MAX_BODY) throw new Error('response body too large')
         const headers: Record<string, string> = {}
         res.headers.forEach((v, k) => {
           headers[k] = v
         })
-        return {
-          status: res.status,
-          headers,
-          body: buf.toString('utf-8')
+        const contentType = (headers['content-type'] ?? '').toLowerCase()
+        const isSse = streamMode && contentType.includes('text/event-stream')
+        // HEAD / 204/304 无响应体，直接返回
+        if (method === 'HEAD' || res.status === 204 || res.status === 304) {
+          return { status: res.status, headers, body: '', streamed: false, reqId }
         }
+        const reader = res.body?.getReader()
+        if (!reader) return { status: res.status, headers, body: '', streamed: false, reqId }
+        const declared = Number(headers['content-length'] ?? '0')
+        const declaredMax = streamMode ? NET_FETCH_STREAM_MAX_BODY : NET_FETCH_MAX_BODY
+        if (declared > declaredMax) {
+          await reader.cancel()
+          throw new Error('response body too large')
+        }
+        // 流式模式：立即返回元信息；>2MB 的响应体经 net.chunk 分片（base64），上限 32MB
+        if (streamMode) {
+          detachedStream = true
+          void consumeFetchStream(reader, isSse, chunk => emitChunk(chunk)).then(
+            () => emitChunk('', true),
+            error => emitChunk('', true, (error as Error).message)
+          ).finally(() => {
+            clearTimeout(timer)
+            scope.signal.removeEventListener('abort', abort)
+            releaseActivity()
+          })
+          return { status: res.status, headers, body: '', streamed: true, reqId }
+        }
+        // 非流式：一次性读回（2MB 上限，向后兼容旧返回形状）
+        const chunks: Uint8Array[] = []
+        let bytes = 0
+        try {
+          while (true) {
+            const result = await reader.read()
+            if (result.done) break
+            bytes += result.value.byteLength
+            if (bytes > NET_FETCH_MAX_BODY) { await reader.cancel(); throw new Error('response body too large') }
+            chunks.push(result.value)
+          }
+        } finally { reader.releaseLock() }
+        const buf = Buffer.concat(chunks)
+        return { status: res.status, headers, body: buf.toString('utf-8'), streamed: false, reqId }
       } catch (err) {
         const msg = (err as Error).name === 'AbortError' ? 'net.fetch timeout' : (err as Error).message
         throw new Error(msg)
       } finally {
-        clearTimeout(timer)
+        // 流式模式的释放在其内部 async 完成时执行；此处只清非流式路径
+        if (!detachedStream) {
+          clearTimeout(timer)
+          scope.signal.removeEventListener('abort', abort)
+          releaseActivity()
+        }
       }
     }
     case 'shell.openExternal': {
@@ -652,16 +996,31 @@ async function dispatch(
       const o = asObj(args)
       const content = String(o.content ?? args[1] ?? '')
       const defaultName = String(o.defaultName || o.filename || args[0] || 'export.txt')
-      const win = getMainWindow()
-      const { dialog } = await import('electron')
-      const { writeFile } = await import('node:fs/promises')
-      const saveOpts = { defaultName, filters: [{ name: 'All Files', extensions: ['*'] }] }
-      const result = win
-        ? await dialog.showSaveDialog(win as never, saveOpts)
-        : await dialog.showSaveDialog(saveOpts)
-      if (result.canceled || !result.filePath) return null
-      await writeFile(result.filePath, content, 'utf-8')
-      return { ok: true, path: result.filePath }
+      const scope = getRuntimeScope(pluginId)
+      if (!scope || !scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
+      const releaseActivity = scope.acquireActivity('file:export')
+      const releaseFocus = acquireQuickInteraction()
+      const release = () => { releaseFocus(); releaseActivity() }
+      scope.signal.addEventListener('abort', release, { once: true })
+      const assertCurrent = () => {
+        if (!scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
+      }
+      try {
+        const { dialog } = await import('electron')
+        assertCurrent()
+        const { writeFile } = await import('node:fs/promises')
+        assertCurrent()
+        const win = pluginHost.getContainerWindow(pluginId)
+        const saveOpts = { defaultPath: defaultName, filters: [{ name: 'All Files', extensions: ['*'] }] }
+        const result = win ? await dialog.showSaveDialog(win, saveOpts) : await dialog.showSaveDialog(saveOpts)
+        assertCurrent()
+        if (result.canceled || !result.filePath) return null
+        await writeFile(result.filePath, content, 'utf-8')
+        return { ok: true, path: result.filePath }
+      } finally {
+        scope.signal.removeEventListener('abort', release)
+        release()
+      }
     }
     case 'db.pickImportFile': {
       return dbPickImportFile(pluginId)
@@ -682,10 +1041,7 @@ async function dispatch(
     case 'theme.register': {
       const pack = args[0] as ThemePack
       // 来源强制绑定当前插件 id，防伪造他人/内置来源（覆盖保护在 registry 内做）
-      const saved = await themePackRegistry.register({
-        ...pack,
-        source: pluginId
-      })
+      const saved = await themePackRegistry.registerPlugin(pack, pluginId)
       sendShellEvent({ type: 'theme-packs-changed' })
       return saved
     }
@@ -805,6 +1161,7 @@ async function dispatch(
         sessionId,
         line,
         cursor: o.cursor != null ? Number(o.cursor) : undefined,
+        cwd: typeof o.cwd === 'string' ? o.cwd : undefined,
         history: Array.isArray(o.history) ? (o.history as string[]) : undefined,
         snippets: Array.isArray(o.snippets)
           ? (o.snippets as Array<{ title: string; command: string }>)
@@ -827,7 +1184,7 @@ async function dispatch(
           : ({
               sessionId: String(args[0] ?? ''),
               remotePath: String(args[1] ?? ''),
-              localPath: args[2] != null ? String(args[2]) : undefined
+              localDirectoryHandleId: String(args[2] ?? '')
             } as SftpDownloadInput)
       return sshSftpDownload(pluginId, input)
     }
@@ -838,7 +1195,7 @@ async function dispatch(
           ? (o as unknown as SftpUploadInput)
           : ({
               sessionId: String(args[0] ?? ''),
-              localPath: String(args[1] ?? ''),
+              localHandleId: String(args[1] ?? ''),
               remotePath: String(args[2] ?? '')
             } as SftpUploadInput)
       return sshSftpUpload(pluginId, input)
@@ -883,7 +1240,7 @@ async function dispatch(
       )
     }
     case 'ssh.pickLocalFile': {
-      return sshPickLocalFile(pluginId, args[0] as { properties?: Array<'openFile' | 'openDirectory'> } | undefined)
+      return sshPickLocalFile(pluginId, args[0] as LocalFilePickOptions | undefined)
     }
     // —— db ——
     case 'db.test': {
@@ -900,7 +1257,7 @@ async function dispatch(
       return dbListSessions(pluginId)
     }
     case 'db.pickSqliteFile': {
-      return dbPickSqliteFile(pluginId)
+      return dbPickSqliteFile(pluginId, asObj(args))
     }
     case 'db.execute': {
       return dbExecute(pluginId, (args[0] ?? {}) as DbExecuteInput)
@@ -911,7 +1268,7 @@ async function dispatch(
     case 'db.cancel': {
       const o = asObj(args)
       const sid = o.sessionKey != null ? String(o.sessionKey) : String(args[0] ?? '')
-      return dbCancel(pluginId, sid)
+      return dbCancel(pluginId, { sessionKey: sid, executionId: typeof o.executionId === 'string' ? o.executionId : undefined })
     }
     case 'db.applyChanges': {
       return dbApplyChanges(pluginId, (args[0] ?? {}) as DbApplyChangesInput)
@@ -946,7 +1303,7 @@ async function dispatch(
       return dbCompletion(pluginId, (args[0] ?? {}) as DbCompletionInput)
     }
     case 'db.dialects.list': {
-      return dbDialectsList()
+      return dbDialectsList(pluginId)
     }
     default:
       throw new Error(`unknown method: ${method}`)
@@ -958,6 +1315,7 @@ async function dispatch(
  * 另注册 plugin:lifecycle-ack，供插件确认 beforeClose（可选，Host 侧 1500ms 超时兜底）。
  */
 export function registerPluginHandlers(): void {
+  bindPluginTools()
   // storage.local 底座：建表 + 一次性迁移旧 plugin-storage/*.json（幂等）
   initPluginStorage()
   ipcMain.handle(
@@ -967,9 +1325,10 @@ export function registerPluginHandlers(): void {
         const senderId = event.sender.id
         // 仅允许 PluginHost 管理的 WebContents 发起调用
         const hostPluginId = pluginHost.getPluginIdByWebContentsId(senderId)
-        if (!hostPluginId) {
+        if (!hostPluginId || event.senderFrame !== event.sender.mainFrame || !isPluginPageUrl(event.senderFrame.url, hostPluginId, pluginRegistry.get(hostPluginId)?.devUrl)) {
           return { ok: false, error: 'unauthorized sender' }
         }
+        if (!request || typeof request !== 'object' || typeof request.method !== 'string' || (request.args !== undefined && !Array.isArray(request.args))) return { ok: false, error: 'invalid plugin request' }
         // 防止插件伪造其他插件身份发起调用
         if (request.pluginId && request.pluginId !== hostPluginId) {
           return { ok: false, error: 'plugin id mismatch' }
@@ -978,20 +1337,36 @@ export function registerPluginHandlers(): void {
         if (!manifest) {
           return { ok: false, error: 'manifest not found' }
         }
+        if (!request || typeof request !== 'object' || typeof request.method !== 'string' || (request.args !== undefined && !Array.isArray(request.args))) return { ok: false, error: 'invalid plugin request' }
         const { method, args = [] } = request
+        const scope = getRuntimeScope(hostPluginId)
+        const allowed = () => scope?.owner.wcId === senderId && scope.isCurrent() && (!scope.isClosing || CLOSE_SAFE.test(method))
+        if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
         // 权限为 null 表示该方法无需 manifest 声明（settings 由 Bridge 管控）
-        const required = METHOD_PERMISSION[method]
+        const required = method === 'db.pickSqliteFile'
+          ? (asObj(args).readOnly === true && asObj(args).createIfMissing !== true ? 'fs.read' : 'fs.write')
+          : (method === 'localFiles.pick' || method === 'ssh.pickLocalFile') && asObj(args).access === 'write'
+          ? 'fs.write'
+          : method === 'ssh.workbench'
+          ? sshWorkbenchPermission(String(asObj(args).action ?? ''))
+          : method === 'db.workbench'
+            ? dbWorkbenchPermission(String(asObj(args).action ?? ''))
+            : method === 'mw.workbench'
+              ? mwWorkbenchPermission(String(asObj(args).action ?? ''))
+              : method === 'dsh.workbench'
+                ? dshWorkbenchPermission(String(asObj(args).action ?? ''))
+                : METHOD_PERMISSION[method]
         if (required === undefined) {
           return { ok: false, error: `unknown method: ${method}` }
         }
         if (required) {
-          // 第一层：manifest 声明校验（文案 `permission denied: <perm>` 插件侧依赖，不可改）
+          // 基础能力无需声明；敏感能力必须声明（错误文案为插件兼容契约）。
           assertPermission(manifest, required)
-          // 第二层：壳层 grant 三态（deny 或 ask 被拒同样拒绝，保持同一错误串）
+          // 基础能力免弹窗；敏感能力按壳层 grant 三态授权。
           const granted = await ensureRuntimeGrant(
             hostPluginId,
             required,
-            `${method} ${JSON.stringify(args).slice(0, 120)}`
+            `调用宿主 API：${method}`
           )
           if (!granted) {
             return { ok: false, error: `permission denied: ${required}` }
@@ -1004,6 +1379,7 @@ export function registerPluginHandlers(): void {
             }
           }
         }
+        if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
         const startedAt = Date.now()
         try {
           const data = await dispatch(hostPluginId, method, args, manifest)
@@ -1036,19 +1412,19 @@ export function registerPluginHandlers(): void {
   // beforeClose ack：插件 preload 在收到 beforeClose 后可回 ack，Host 解除等待
   ipcMain.on(
     IpcChannels.PluginLifecycleAck,
-    (event, payload?: { event?: string }) => {
+    (event, payload?: { event?: string; operationId?: string; success?: boolean }) => {
       const hostPluginId = pluginHost.getPluginIdByWebContentsId(event.sender.id)
-      if (!hostPluginId) return
-      if (payload?.event === 'beforeClose') {
-        pluginHost.ackBeforeClose(hostPluginId)
+      if (!hostPluginId || event.senderFrame !== event.sender.mainFrame || !isPluginPageUrl(event.senderFrame.url, hostPluginId, pluginRegistry.get(hostPluginId)?.devUrl)) return
+      if (payload?.event === 'beforeClose' || payload?.event === 'beforeSuspend') {
+        pluginHost.ackBeforeClose(hostPluginId, event.sender.id, payload.operationId, payload.success !== false)
       }
     }
   )
 
   // —— 运行时权限：壳渲染层专用通道（sender 必须是壳窗口 webContents）——
 
-  /** 弹窗响应：requestId 属当前挂起项才生效（防重放/伪造） */
-  ipcMain.handle(
+  /** 保留旧 IPC 兼容；渲染层响应始终拒绝，只有原生授权窗口能作出决策。 */
+  handleShellIpc(
     IpcChannels.PermissionResponse,
     (event, payload: PermissionResponsePayload): { ok: boolean; error?: string } => {
       if (event.sender !== getShellWebContents()) {
@@ -1067,7 +1443,7 @@ export function registerPluginHandlers(): void {
   )
 
   /** 读插件授权表（设置页权限管理块初始值） */
-  ipcMain.handle(
+  handleShellIpc(
     IpcChannels.PermissionGrantsGet,
     (event, pluginId: string): { ok: boolean; data?: unknown; error?: string } => {
       if (event.sender !== getShellWebContents()) {
@@ -1080,7 +1456,7 @@ export function registerPluginHandlers(): void {
   )
 
   /** 写单项授权（三态分段切换） */
-  ipcMain.handle(
+  handleShellIpc(
     IpcChannels.PermissionGrantsSet,
     async (
       event,
@@ -1091,17 +1467,25 @@ export function registerPluginHandlers(): void {
       }
       const id = String(payload?.pluginId ?? '')
       if (!id) return { ok: false, error: 'plugin id required' }
+      if (!PLUGIN_PERMISSIONS.includes(payload.permission)) return { ok: false, error: 'invalid permission' }
+      if (isBuiltinCapability(payload.permission)) return { ok: false, error: 'built-in capabilities do not require user consent' }
       await settingsStore.setPermissionGrant(
         id,
         payload.permission,
         normalizeGrant(payload.grant)
       )
+      revalidateClipboardPolling()
+      if (normalizeGrant(payload.grant) !== 'allow') {
+        permissionService.cancelFor(id)
+        getRuntimeScope(id)?.markClosing()
+        await pluginHost.closePlugin(id, 'tab-close')
+      }
       return { ok: true }
     }
   )
 
   /** 打开 macOS 屏幕录制系统设置（权限弹窗引导；只读安全） */
-  ipcMain.handle(IpcChannels.OsOpenScreenSettings, (event): { ok: boolean } => {
+  handleShellIpc(IpcChannels.OsOpenScreenSettings, (event): { ok: boolean } => {
     if (event.sender !== getShellWebContents()) {
       return { ok: false }
     }

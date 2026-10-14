@@ -1,0 +1,25 @@
+{
+  "platform": "darwin",
+  "fixture": "com.enest.smoke.builtin",
+  "declaredPermissions": [],
+  "tests": [
+    "storage, session storage, settings, title and theme work without manifest permissions or native prompts, ignoring legacy denials",
+    "theme source is host-bound and remote CSS background is stripped before reaching shell rendering",
+    "undeclared external file, network, clipboard and global search-provider access rejected; settings cannot read or overwrite host authorization"
+  ],
+  "sandbox": true,
+  "rejected": {
+    "file": "permission denied: fs.read",
+    "network": "permission denied: net.fetch",
+    "clipboard": "permission denied: clipboard.read",
+    "globalSearch": "permission denied: contribute",
+    "settingsRead": "reserved plugin settings key",
+    "settingsWrite": "reserved plugin settings key"
+  },
+  "nativePrompts": 0,
+  "cleanup": {
+    "instances": 0,
+    "resources": 0,
+    "sessionBytes": 0
+  }
+}

@@ -51,12 +51,14 @@ import { pluginHost } from '../plugin/PluginHost'
 
 IPC 通道名只定义在 `@shared/types/ipc`，preload 与 main 共用。
 
+插件业务界面、算法、数据模型和协议处理放在插件仓库；壳只扩展可复用的原生能力。不要按插件业务功能增加专用权限或主进程处理器。基础/敏感分类统一使用 `@shared/pluginPermissionPolicy`：插件私有存储、UI、设置、主题、声明式入口和私有密钥保存无需声明或用户授权；文件、网络、剪贴板、系统控制等敏感能力继续声明并授权。两类都校验实例归属、参数、配额和资源回收，基础能力不得接触宿主保留设置键。
+
 ## 状态与设置
 
 - 全局 UI 状态：`@renderer/stores/shellStore`（zustand）
 - 主题 / 字体 / 动画档：`@renderer/hooks/useTheme`、`useFont`、`useAnimationLevel`
 - 通知：优先 `@renderer/services/notifyService`（`notify.info/success/...`）；`toastStore.push` 为兼容层，默认顶部
-- 持久化：主进程 `settingsStore`（`~/eNest/settings.json`）+ mock（localStorage）字段契约对齐；新设置写入 `general` 或独立段，勿只写 UI 本地 state
+- 持久化：主进程 `settingsStore`（`{dataRoot}/data/enest.db`；`~/.eNest/settings.json` 仅存数据根引导信息）+ mock（localStorage）字段契约对齐；新设置写入 `general` 或独立段，勿只写 UI 本地 state
 
 设置变更若需即时生效，先 `set` store / DOM，再异步 `shellApi.setSettings`。
 

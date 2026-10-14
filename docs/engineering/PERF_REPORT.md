@@ -1,5 +1,9 @@
 # eNest 插件规模性能对比报告
 
+> 2026-10-13 更新：最新实现与隔离 Electron 实测见 [插件缓存与生命周期实现、验证记录](LIFECYCLE_CACHE_IMPLEMENTATION.md)。50 轮原生关闭同步摘除 P95 为 0.714ms，destroyed P95 为 6.602ms；1/6/10/20 个逻辑 Tab 稳定存活 1/6/6/6 个实例。该结果来自 macOS 原生窗口与生产 preload 的隔离 fixture，并不等于完整产品的点击至屏幕退场时间或跨平台验收。
+>
+> 以下保留 2026-09-17 历史记录。其开发态、真实数据目录和全机 Electron RSS 采样口径与新报告不同，不应直接比较内存绝对值；其中 opening/LRU 遗留描述也不代表当前实现。不要使用旧脚本对用户真实数据进行回归。
+
 - 生成时间：2026-09-17T12:38:54.872Z
 - 工具：`node scripts/perf-compare.mjs`（dev 模式 + CDP + main.log + ps 采样）
 - 环境：macOS dev（electron-vite dev，非打包），数据目录 `~/.eNest`

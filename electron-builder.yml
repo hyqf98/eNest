@@ -1,5 +1,5 @@
 # electron-builder 打包配置（YAML 会被自动发现，无需 --config）
-# 图标与静态资源统一放 assets/icons（icon.icns / icon.ico / icon.png）
+# 打包图标放 build/icon.{icns,ico,png}；assets/icons 仅为运行时图标
 # 运行时 extraResources：assets/icons → Resources/icons（存储走 node:sqlite，无原生依赖）
 
 appId: com.enest.shell
@@ -7,7 +7,7 @@ productName: eNest
 copyright: Copyright © 2026 eNest
 directories:
   output: release
-  buildResources: assets/icons
+  buildResources: build
 
 # GitHub Releases 自动更新源（electron-updater 读取 app-update.yml）
 publish:
@@ -19,18 +19,22 @@ publish:
 files:
   - out/**/*
   - package.json
+  # node-gyp's local Python symlinks are build tools, not runtime dependencies.
+  - '!**/node_modules/**/build/node_gyp_bins{,/**/*}'
 
 asar: true
 extraResources:
   - from: assets/icons
     to: icons
+  - from: native/bin
+    to: native
 
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
 mac:
   category: public.app-category.productivity
-  # electron-builder 使用 buildResources(assets/icons) 下的 icon.icns / icon.png
-  icon: assets/icons/icon.icns
+  # electron-builder 使用 build 下的 icon.icns / icon.png
+  icon: build/icon.icns
   hardenedRuntime: false
   gatekeeperAssess: false
   target:
@@ -40,14 +44,14 @@ mac:
       arch: [x64, arm64]
 
 win:
-  # NSIS 需要 .ico；统一用 assets/icons/icon.ico
-  icon: assets/icons/icon.ico
+  # NSIS 需要 .ico；统一用 build/icon.ico
+  icon: build/icon.ico
   target:
     - target: nsis
       arch: [x64]
 
 linux:
-  icon: assets/icons
+  icon: build/icon.png
   category: Utility
   synopsis: Plugin-based desktop shell
   desktop:
@@ -72,9 +76,9 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: eNest
-  installerIcon: assets/icons/icon.ico
-  uninstallerIcon: assets/icons/icon.ico
-  installerHeaderIcon: assets/icons/icon.ico
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
   installerLanguages: [zh_CN, en_US]
 
 dmg:

@@ -1,3 +1,4 @@
+import { handleShellIpc, onShellIpc } from '@main/ipc/ipcSecurity'
 /**
  * shellHandlers — 壳子 IPC 处理器
  * 职责：注册壳子渲染层所有 invoke/on 通道（插件列表、打开/关闭/激活、主题、设置、
@@ -6,18 +7,21 @@
  * 关键依赖：PluginHost、PluginRegistry、SettingsStore、pathsService、sqliteService、
  * themePacks、createShellWindow、DevConsole。
  */
+import { getPluginDiagnostics } from '@main/plugin/pluginDiagnostics'
 import { copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { dialog, ipcMain, Notification } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
 import { APP_NAME, FONTS_DIR, toTabId } from '@shared/constants'
-import type { PluginLaunchConfig, PluginLaunchPatch, ThemeTokens } from '@shared/types/plugin'
+import type { DevPluginLoadOptions, PluginLaunchConfig, PluginLaunchPatch, ThemeTokens } from '@shared/types/plugin'
 import { pickAndLoadDevPlugin } from '@main/dev/DevConsole'
 import { setDevPluginKillOnHide } from '@main/dev/devPluginsStore'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, getAppPathsRoot } from '@main/paths/pathsService'
 import { pluginHost } from '@main/plugin/PluginHost'
+import { resolvePluginFile } from '@main/plugin/pluginPaths'
+import { fetchMarketReadme } from '@main/plugin/marketClient'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import {
   enqueueInstall,
@@ -25,6 +29,7 @@ import {
   getInstallQueueState
 } from '@main/plugin/installQueue'
 import { uninstallPlugin } from '@main/plugin/PluginUninstaller'
+import { stopFocusTimer } from '@main/timer/focusTimerService'
 import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
 import { broadcastPluginLocale, getPluginCallTrace } from '@main/ipc/pluginHandlers'
 import {
@@ -90,29 +95,31 @@ function sanitizeFontFileName(raw: string): string {
 
 type PickFilterKey = keyof typeof PICK_FILTERS
 
-/** 读取插件根目录 README（README.md / readme.md） */
+/** Details are version-matched package resources, including source-preview's fixed mapping. */
 async function readPluginReadme(pluginId: string): Promise<string> {
-  const root = pluginRegistry.getRootPath(pluginId)
-  if (!root) return ''
-  for (const name of ['README.md', 'readme.md', 'Readme.md']) {
-    try {
-      return await readFile(join(root, name), 'utf-8')
-    } catch {
-      // try next
-    }
+  const root = pluginRegistry.getAssetRootPath(pluginId)
+  const path = pluginRegistry.getAssetManifest(pluginId)?.market?.readme
+  if (!root || !path) {
+    const summary = pluginRegistry.get(pluginId)
+    return !summary?.installed && summary?.readmeUrl ? fetchMarketReadme(summary.readmeUrl) : ''
   }
-  return ''
+  const file = await resolvePluginFile(root, path, pluginRegistry.get(pluginId)?.devSource === true)
+  if (!file) return ''
+  const info = await import('node:fs/promises').then(fs => fs.stat(file))
+  if (info.size > 512 * 1024) throw new Error('插件说明超过 512 KiB')
+  return readFile(file, 'utf-8')
 }
 
 /** 注册壳子渲染层所有 IPC 通道处理器 */
 export function registerShellHandlers(): void {
-  ipcMain.handle(IpcChannels.ShellGetPlugins, () => pluginRegistry.list())
+  handleShellIpc(IpcChannels.ShellGetPluginDiagnostics, () => getPluginDiagnostics())
+  handleShellIpc(IpcChannels.ShellRestoreTabs, (_e, ids: string[]) => { pluginHost.restoreTabs(Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : []) })
+  handleShellIpc(IpcChannels.ShellGetPlugins, () => pluginRegistry.list())
 
-  ipcMain.handle(
+  handleShellIpc(
     IpcChannels.ShellOpenPlugin,
     async (_e, pluginId: string, enter?: { code?: string; payload?: unknown }) => {
       try {
-        await pluginRegistry.ensureInstalled(pluginId)
         const tabId = await pluginHost.openPlugin(pluginId, enter)
         logInfo('plugin', `open ${pluginId} tab=${tabId}${enter?.code ? ` code=${enter.code}` : ''}`)
         return { ok: true, data: tabId }
@@ -123,42 +130,42 @@ export function registerShellHandlers(): void {
     }
   )
 
-  ipcMain.handle(IpcChannels.ShellClosePlugin, async (_e, tabId: string) => {
-    await pluginHost.closePlugin(tabId, 'tab-close')
+  handleShellIpc(IpcChannels.ShellClosePlugin, async (_e, tabId: string) => {
+    void pluginHost.closePlugin(tabId, 'tab-close').catch((error) => logWarn('lifecycle', String(error)))
     return { ok: true }
   })
 
-  ipcMain.handle(IpcChannels.ShellActivatePlugin, (_e, tabId: string) => {
+  handleShellIpc(IpcChannels.ShellActivatePlugin, (_e, tabId: string) => {
     pluginHost.activatePlugin(tabId)
     return { ok: true }
   })
 
-  ipcMain.handle(IpcChannels.ShellHidePlugins, () => {
+  handleShellIpc(IpcChannels.ShellHidePlugins, () => {
     pluginHost.hideAllViews()
     return { ok: true }
   })
 
-  ipcMain.handle(IpcChannels.ShellSetPluginInset, (_e, left: number) => {
+  handleShellIpc(IpcChannels.ShellSetPluginInset, (_e, left: number) => {
     setPluginLeftInset(Number(left) || 0)
     pluginHost.layoutAll()
     return { ok: true }
   })
 
-  ipcMain.handle(IpcChannels.ShellSyncOrbState, (_e, state) => {
+  handleShellIpc(IpcChannels.ShellSyncOrbState, (_e, state) => {
     setOrbRailState(state)
     if (state?.tabStyle) applyOrbRailVisibility(state.tabStyle)
     return { ok: true }
   })
 
-  ipcMain.handle(IpcChannels.ShellGetOrbState, () => getOrbRailState())
+  handleShellIpc(IpcChannels.ShellGetOrbState, () => getOrbRailState())
 
-  ipcMain.handle(IpcChannels.ShellGoHome, () => {
+  handleShellIpc(IpcChannels.ShellGoHome, () => {
     pluginHost.hideAllViews()
     sendShellEvent({ type: 'go-home' })
     return { ok: true }
   })
 
-  ipcMain.handle(IpcChannels.ShellSetView, (_e, view: string) => {
+  handleShellIpc(IpcChannels.ShellSetView, (_e, view: string) => {
     if (view !== 'plugin') pluginHost.hideAllViews()
     sendShellEvent({
       type: 'set-view',
@@ -170,7 +177,7 @@ export function registerShellHandlers(): void {
   })
 
   /** 圆轨 rail 视图展开/收起：renderer CSS 动画先行，主进程跟进切换视图宽度 */
-  ipcMain.handle(IpcChannels.ShellSetOrbRailExpanded, (_e, expanded: boolean) => {
+  handleShellIpc(IpcChannels.ShellSetOrbRailExpanded, (_e, expanded: boolean) => {
     setOrbRailExpandedView(expanded === true)
     return { ok: true }
   })
@@ -179,7 +186,7 @@ export function registerShellHandlers(): void {
    * shell:uninstall-plugin — 完整卸载：关 Tab → 清 partition storage →
    * 删插件目录与 storage JSON → 重扫注册表。结果经 uninstall-result 事件推送。
    */
-  ipcMain.handle(IpcChannels.ShellUninstallPlugin, async (_e, pluginId: string) => {
+  handleShellIpc(IpcChannels.ShellUninstallPlugin, async (_e, pluginId: string) => {
     try {
       const id = String(pluginId ?? '').trim()
       if (!id) return { ok: false, error: 'plugin id required' }
@@ -200,14 +207,22 @@ export function registerShellHandlers(): void {
    * shell:set-plugin-enabled — 启用/禁用已安装插件。
    * 持久化到 ~/.eNest/plugins/disabled.json；成功返回更新后的 summary。
    */
-  ipcMain.handle(
+  handleShellIpc(
     IpcChannels.ShellSetPluginEnabled,
     async (_e, pluginId: string, enabled: boolean) => {
       try {
         const id = String(pluginId ?? '').trim()
         if (!id) return { ok: false, error: 'plugin id required' }
         logInfo('ipc', `shell:set-plugin-enabled ${id} → ${enabled !== false}`)
-        const summary = await pluginRegistry.setPluginEnabled(id, enabled !== false)
+        const release = enabled === false ? pluginHost.blockPlugin(id) : () => {}
+        let summary
+        try {
+          if (enabled === false) {
+            await stopFocusTimer(id)
+            await pluginHost.closePlugin(id)
+          }
+          summary = await pluginRegistry.setPluginEnabled(id, enabled !== false)
+        } finally { release() }
         // 启停可能增减 clipboard.history 持有者，重算轮询
         revalidateClipboardPolling()
         // 快捷启动热键随启停释放/重注册（apply 内部跳过禁用插件）
@@ -226,7 +241,7 @@ export function registerShellHandlers(): void {
    * （free / system / eNest-quick / plugin-launch / plugin-runtime），
    * 渲染层据此展示冲突详情与「接管」选项。
    */
-  ipcMain.handle(
+  handleShellIpc(
     IpcChannels.ShellProbeLaunchHotkey,
     (_e, acc: string, excludePluginId?: string) =>
       probeLaunchHotkey(String(acc ?? ''), excludePluginId ? String(excludePluginId) : undefined)
@@ -236,7 +251,7 @@ export function registerShellHandlers(): void {
    * shell:set-plugin-launch — 写入单插件快捷启动配置（启动方式/热键/触发词）。
    * 热键冲突时返回 probe 供渲染层展示；takeover=true 才执行接管（UI 须先经用户确认）。
    */
-  ipcMain.handle(
+  handleShellIpc(
     IpcChannels.ShellSetPluginLaunch,
     async (
       _e,
@@ -260,7 +275,7 @@ export function registerShellHandlers(): void {
    * 策略：本地 sample 优先（同步）；否则远程 assetUrl 入队下载（进度经 install-progress）。
    * force=true 时已安装也会走远程更新（需 latestVersion 更高）。
    */
-  ipcMain.handle(
+  handleShellIpc(
     IpcChannels.ShellInstallMarketPlugin,
     async (_e, pluginId: string, opts?: { force?: boolean }) => {
       try {
@@ -310,7 +325,8 @@ export function registerShellHandlers(): void {
         }
         const job = enqueueInstallFromUrl(remote.assetUrl, {
           name: remote.name || id,
-          sha256: remote.assetSha256
+          sha256: remote.assetSha256,
+          identity: { id, version: remote.version }
         })
         logInfo('ipc', `shell:install-market-plugin ${id} queued remote job=${job.id}`)
         return {
@@ -325,12 +341,12 @@ export function registerShellHandlers(): void {
   )
 
   /** 返回 ThemeTokens + 已注册主题包列表 */
-  ipcMain.handle(IpcChannels.ShellGetTheme, () => ({
+  handleShellIpc(IpcChannels.ShellGetTheme, () => ({
     ...settingsStore.getTheme(),
     packs: themePackRegistry.list()
   }))
 
-  ipcMain.handle(IpcChannels.ShellSetTheme, async (_e, theme: Partial<ThemeTokens>) => {
+  handleShellIpc(IpcChannels.ShellSetTheme, async (_e, theme: Partial<ThemeTokens>) => {
     const saved = await settingsStore.setTheme(theme)
     // 壳子主题变更后，向所有已打开的 themeAware 插件广播新 Token
     pluginHost.broadcastTheme()
@@ -339,9 +355,10 @@ export function registerShellHandlers(): void {
     return saved
   })
 
-  ipcMain.handle(IpcChannels.ShellLoadDevPlugin, async (_e, dirPath?: string) => {
+  handleShellIpc(IpcChannels.ShellLoadDevPlugin, async (_e, dirPath?: string, options: DevPluginLoadOptions = {}) => {
     try {
-      const summary = await pickAndLoadDevPlugin(dirPath)
+      if (options && (typeof options !== 'object' || Array.isArray(options))) throw new Error('Invalid development options')
+      const summary = await pickAndLoadDevPlugin(dirPath, options)
       if (!summary) return { ok: false, error: 'cancelled' }
       // 已打开的同 id 插件先关掉：rootPath / development.main 可能已变，必须重建 View
       if (pluginHost.isOpen(summary.id)) {
@@ -356,13 +373,13 @@ export function registerShellHandlers(): void {
     }
   })
 
-  ipcMain.handle(IpcChannels.ShellReloadPlugin, (_e, tabId: string) => {
+  handleShellIpc(IpcChannels.ShellReloadPlugin, (_e, tabId: string) => {
     pluginHost.reloadPlugin(tabId)
     return { ok: true }
   })
 
   /** dev 插件「退出即杀」开关：内存生效 + 持久化 dev.json；enabled 省略时仅查询当前状态 */
-  ipcMain.handle(IpcChannels.ShellSetDevKillOnHide, (_e, pluginId: string, enabled?: boolean) => {
+  handleShellIpc(IpcChannels.ShellSetDevKillOnHide, (_e, pluginId: string, enabled?: boolean) => {
     try {
       if (typeof pluginId !== 'string' || !pluginId) return { ok: false, error: 'pluginId required' }
       if (enabled !== undefined) {
@@ -376,9 +393,9 @@ export function registerShellHandlers(): void {
   })
 
   /** plugin:call 调用跟踪环形缓冲读取（DevConsole「调用跟踪」面板轮询用） */
-  ipcMain.handle(IpcChannels.ShellGetPluginTrace, () => getPluginCallTrace())
+  handleShellIpc(IpcChannels.ShellGetPluginTrace, () => getPluginCallTrace())
 
-  ipcMain.handle(IpcChannels.ShellOpenDevTools, (_e, tabId?: string) => {
+  handleShellIpc(IpcChannels.ShellOpenDevTools, (_e, tabId?: string) => {
     const target = tabId ?? pluginHost.getActive()
     if (target) {
       pluginHost.openDevTools(target, 'detach')
@@ -388,9 +405,9 @@ export function registerShellHandlers(): void {
     return { ok: true }
   })
 
-  ipcMain.handle(IpcChannels.ShellGetSettings, () => settingsStore.getAll())
+  handleShellIpc(IpcChannels.ShellGetSettings, () => settingsStore.getAll())
 
-  ipcMain.handle(IpcChannels.ShellSetSettings, async (_e, partial) => {
+  handleShellIpc(IpcChannels.ShellSetSettings, async (_e, partial) => {
     // locale 变更检测：变化时向所有已打开插件广播 locale-change
     // （preload → enest.i18n.onLocaleChange）
     const prevLocale = settingsStore.getAll().general.locale
@@ -407,15 +424,17 @@ export function registerShellHandlers(): void {
     // 动画档位变更即时推给 orb 悬浮窗（独立文档，不随主壳 data-anim 联动）
     const lvl = (partial as { general?: { animationLevel?: unknown } } | undefined)?.general
       ?.animationLevel
-    if (lvl === 'low' || lvl === 'medium' || lvl === 'high') setOrbAnimationLevel(lvl)
+    if (lvl === 'low' || lvl === 'medium' || lvl === 'high') { setOrbAnimationLevel(lvl); pluginHost.broadcastTheme() }
+    const generalPatch = (partial as { general?: Record<string, unknown> } | undefined)?.general
+    if (generalPatch && ['fontFamily', 'fontFamilyEn', 'fontSizeScale', 'customFonts'].some(key => key in generalPatch)) pluginHost.broadcastTheme()
     return result
   })
 
   /** 设置页插件分组：已注册 section 列表 */
-  ipcMain.handle(IpcChannels.ShellGetSettingsSections, () => pluginSettingsBridge.listAll())
+  handleShellIpc(IpcChannels.ShellGetSettingsSections, () => pluginSettingsBridge.listAll())
 
   /** 设置页插件分组：写入单项，同步 Bridge 与 settings.json */
-  ipcMain.handle(
+  handleShellIpc(
     IpcChannels.ShellSetPluginSetting,
     async (_e, pluginId: string, key: string, value: unknown) => {
       const id = String(pluginId ?? '')
@@ -423,15 +442,16 @@ export function registerShellHandlers(): void {
       if (!id || !k) return { ok: false, error: 'pluginId and key required' }
       pluginSettingsBridge.set(id, k, value)
       await settingsStore.setPluginSetting(id, k, value)
+      pluginHost.sendEvent(id, { type: 'settings-change', key: k, value })
       return { ok: true }
     }
   )
 
   // —— 路径与数据 ——
 
-  ipcMain.handle(IpcChannels.ShellGetPaths, () => getAppPaths())
+  handleShellIpc(IpcChannels.ShellGetPaths, () => getAppPaths())
 
-  ipcMain.handle(
+  handleShellIpc(
     IpcChannels.ShellPickFile,
     async (_e, options?: { filters?: PickFilterKey }): Promise<string | null> => {
       const key: PickFilterKey = options?.filters && PICK_FILTERS[options.filters]
@@ -452,14 +472,14 @@ export function registerShellHandlers(): void {
     }
   )
 
-  ipcMain.handle(IpcChannels.ShellGetPluginReadme, (_e, pluginId: string) =>
+  handleShellIpc(IpcChannels.ShellGetPluginReadme, (_e, pluginId: string) =>
     readPluginReadme(String(pluginId ?? ''))
   )
 
   // —— 系统级通知 ——
 
   /** shell:system-notify — 弹出 OS 通知（Electron Notification） */
-  ipcMain.handle(
+  handleShellIpc(
     IpcChannels.ShellSystemNotify,
     (_e, title?: string, body?: string): { ok: boolean; error?: string } => {
       try {
@@ -478,11 +498,11 @@ export function registerShellHandlers(): void {
 
   // —— 硬件加速 ——
 
-  ipcMain.handle(IpcChannels.ShellGetHardwareAccel, () => ({
+  handleShellIpc(IpcChannels.ShellGetHardwareAccel, () => ({
     enabled: settingsStore.getAll().general.hardwareAcceleration !== false
   }))
 
-  ipcMain.handle(IpcChannels.ShellSetHardwareAccel, async (_e, enabled: boolean) => {
+  handleShellIpc(IpcChannels.ShellSetHardwareAccel, async (_e, enabled: boolean) => {
     const all = settingsStore.getAll()
     await settingsStore.setAll({
       general: { ...all.general, hardwareAcceleration: enabled !== false }
@@ -492,13 +512,13 @@ export function registerShellHandlers(): void {
 
   // —— 网络代理 ——
 
-  ipcMain.handle(IpcChannels.ShellGetProxy, () => {
+  handleShellIpc(IpcChannels.ShellGetProxy, () => {
     const fromSettings = (settingsStore.getAll().general as { proxy?: unknown }).proxy
     return fromSettings ? normalizeProxy(fromSettings) : getActiveProxy()
   })
 
   /** 写入 settings.general.proxy 并即时 session.setProxy；返回是否需要重启（否） */
-  ipcMain.handle(IpcChannels.ShellSetProxy, async (_e, config) => {
+  handleShellIpc(IpcChannels.ShellSetProxy, async (_e, config) => {
     const next = normalizeProxy(config)
     const all = settingsStore.getAll()
     await settingsStore.setAll({
@@ -509,7 +529,7 @@ export function registerShellHandlers(): void {
   })
 
   /** TCP 探测代理 host:port（5s 超时）；未传 config 时测当前已保存配置 */
-  ipcMain.handle(IpcChannels.ShellTestProxy, (_e, config?) =>
+  handleShellIpc(IpcChannels.ShellTestProxy, (_e, config?) =>
     testProxyConnectivity(config ? normalizeProxy(config) : undefined)
   )
 
@@ -520,7 +540,7 @@ export function registerShellHandlers(): void {
    * payload: { sourcePath?: string; dataBase64?: string; fileName: string }
    * 返回落盘后的绝对路径。
    */
-  ipcMain.handle(
+  handleShellIpc(
     IpcChannels.ShellSaveCustomFont,
     async (
       _e,
@@ -547,7 +567,7 @@ export function registerShellHandlers(): void {
   )
 
   /** shell:read-custom-font — 读 ~/.eNest/fonts/{fileName} 为 base64，供 FontFace 加载 */
-  ipcMain.handle(
+  handleShellIpc(
     IpcChannels.ShellReadCustomFont,
     async (_e, fileName: string): Promise<{ ok: boolean; dataBase64?: string; error?: string }> => {
       try {
@@ -564,7 +584,7 @@ export function registerShellHandlers(): void {
   )
 
   /** shell:delete-custom-font — 删除 ~/.eNest/fonts/{fileName}（文件不存在视为成功） */
-  ipcMain.handle(
+  handleShellIpc(
     IpcChannels.ShellDeleteCustomFont,
     async (_e, fileName: string): Promise<{ ok: boolean; error?: string }> => {
       try {
@@ -585,7 +605,7 @@ export function registerShellHandlers(): void {
    * shell:install-plugin — 将本地文件夹或 .enestplugin 入队安装。
    * 立即返回任务摘要；进度与结果经 shell:event（install-progress / install-queue / install-result）推送。
    */
-  ipcMain.handle(IpcChannels.ShellInstallPlugin, (_e, sourcePath: string) => {
+  handleShellIpc(IpcChannels.ShellInstallPlugin, (_e, sourcePath: string) => {
     try {
       const path = String(sourcePath ?? '').trim()
       if (!path) return { ok: false, error: 'source path required' }
@@ -599,21 +619,21 @@ export function registerShellHandlers(): void {
   })
 
   /** shell:get-install-queue — 查询当前 active / waiting 列表 */
-  ipcMain.handle(IpcChannels.ShellGetInstallQueue, () => getInstallQueueState())
+  handleShellIpc(IpcChannels.ShellGetInstallQueue, () => getInstallQueueState())
 
   // —— 应用更新（GitHub Release）——
 
-  ipcMain.handle(IpcChannels.ShellCheckUpdate, () => checkForUpdates())
-  ipcMain.handle(IpcChannels.ShellDownloadUpdate, () => downloadUpdate())
-  ipcMain.handle(IpcChannels.ShellInstallUpdate, () => quitAndInstallUpdate())
-  ipcMain.handle(IpcChannels.ShellGetUpdateState, () => getUpdateState())
+  handleShellIpc(IpcChannels.ShellCheckUpdate, () => checkForUpdates())
+  handleShellIpc(IpcChannels.ShellDownloadUpdate, () => downloadUpdate())
+  handleShellIpc(IpcChannels.ShellInstallUpdate, () => quitAndInstallUpdate())
+  handleShellIpc(IpcChannels.ShellGetUpdateState, () => getUpdateState())
 
-  ipcMain.on(IpcChannels.WindowMinimize, () => getMainWindow()?.minimize())
-  ipcMain.on(IpcChannels.WindowMaximize, () => {
+  onShellIpc(IpcChannels.WindowMinimize, () => getMainWindow()?.minimize())
+  onShellIpc(IpcChannels.WindowMaximize, () => {
     const win = getMainWindow()
     if (!win) return
     if (win.isMaximized()) win.unmaximize()
     else win.maximize()
   })
-  ipcMain.on(IpcChannels.WindowClose, () => getMainWindow()?.close())
+  onShellIpc(IpcChannels.WindowClose, () => getMainWindow()?.close())
 }

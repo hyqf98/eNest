@@ -204,8 +204,9 @@ export function extractTableAliases(statement: string): Array<TableAliasInfo> {
   let m: RegExpExecArray | null
   while ((m = re.exec(zoned)) !== null) {
     const kwIndex = m.index
+    const sourceMatch = FROM_JOIN_RE().exec(statement.slice(m.index, m.index + m[0].length)) || m
     const isParen = m[3] === '('
-    let alias = m[4]?.replace(/["`]/g, '') ?? ''
+    let alias = sourceMatch[4]?.replace(/["`]/g, '') ?? ''
     if (alias && /^(WHERE|GROUP|ORDER|LIMIT|ON|LEFT|RIGHT|INNER|OUTER|CROSS|JOIN|HAVING|UNION|SET|VALUES|AS|USING|WINDOW|FULL)$/i.test(alias)) {
       alias = ''
     }
@@ -215,7 +216,7 @@ export function extractTableAliases(statement: string): Array<TableAliasInfo> {
       results.push({ table: '(subquery)', alias, index: kwIndex })
       continue
     }
-    const rawTable = m[2] ?? ''
+    const rawTable = sourceMatch[2] ?? ''
     const parts = rawTable.split('.').map((p) => p.replace(/["`]/g, '').trim())
     const table = parts[parts.length - 1] ?? ''
     const schema = parts.length > 1 ? parts[parts.length - 2] : undefined
@@ -502,9 +503,6 @@ export function detectContext(statement: string, cursorInStmt: number): {
     return { context: 'update_set', prefix: lastWord(cleanedBefore), target: updSet }
   }
   // FROM / JOIN 后
-  if (/(?:FROM|JOIN)\s+[`"\w$#.\s]*$/i.test(cleanedBefore) && !/\bON\b/i.test(cleanedBefore.split(/\bFROM\b|\bJOIN\b/i).pop() ?? '')) {
-    return { context: 'from_item', prefix: q?.ident.text ?? lastWord(cleanedBefore) }
-  }
   // AS 之后建议别名
   if (/\b(?:FROM|JOIN)\s+\S+\s+(?:AS\s+)?$/i.test(cleanedBefore)) {
     return { context: 'alias_suggest', prefix: '' }
@@ -517,6 +515,9 @@ export function detectContext(statement: string, cursorInStmt: number): {
   }
   if (/\b(GROUP|ORDER|HAVING)\s+(BY\s+)?[\w.`]*$/i.test(cleanedBefore)) {
     return { context: 'group_order_having', prefix: q?.ident.text ?? lastWord(cleanedBefore) }
+  }
+  if (/(?:FROM|JOIN)\s+[`"\w$#.\s]*$/i.test(cleanedBefore) && !/\bON\b/i.test(cleanedBefore.split(/\bFROM\b|\bJOIN\b/i).pop() ?? '')) {
+    return { context: 'from_item', prefix: q?.ident.text ?? lastWord(cleanedBefore) }
   }
   const selectIdx = cleanedBefore.search(/\bSELECT\b/i)
   const fromIdx = cleanedBefore.search(/\bFROM\b/i)
@@ -641,7 +642,8 @@ export function buildCompletion({ input, driverId, catalog }: CompletionBuildCon
 
   const quoteIdent = (name: string): string => {
     if (/^[a-z_][a-z0-9_]*$/i.test(name)) return name
-    return `\`${name.replace(/`/g, '')}\``
+    const quote = dialect === 'mysql' || dialect === 'tdengine' ? '`' : '"'
+    return quote + name.replaceAll(quote, quote + quote) + quote
   }
 
   // CTE / 派生表虚拟表（SELECT * / t.* 可借 catalog 展开）

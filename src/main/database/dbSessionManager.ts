@@ -1,609 +1,353 @@
-/**
- * dbSessionManager — 数据库会话 / 查询 / 补全 / applyChanges / 导入宿主 API
- * 职责：注册表管理 open 会话；提供 pluginHandlers 所需 db.* 全部分发入口。
- *      业务连接配置/控制台会话存 enest.storage（插件 KV）；宿主只管运行态会话。
- * 被 pluginHandlers 分发调用。
- * 关键依赖：@main/database/drivers、completion、dialects、@main/vault/secretVault、
- *          node:fs/csv、electron dialog。
- */
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { dialog } from 'electron'
-import type {
-  BatchResult,
-  CompletionCatalog,
-  CompletionResponse,
-  DbApplyChangesInput,
-  DbCompletionInput,
-  DbConnectionConfig,
-  DbDialectInfo,
-  DbDriverId,
-  DbExecuteInput,
-  DbImportPreviewInput,
-  DbImportPreviewResult,
-  DbImportRunInput,
-  DbImportRunResult,
-  DbSchemaTreeInput,
-  DbSessionInfo,
-  DbTestResult,
-  QueryResult,
-  RowChange,
-  SchemaObject,
-  TableDetail
-} from '@shared/types/ssh-db'
-import { getDriver, DRIVER_REGISTRY, DEFAULT_MAX_ROWS } from '@main/database/drivers'
-import {
-  buildCompletion,
-  getCatalog,
-  invalidateCatalog,
-  isDdlSql,
-  isWriteSql,
-  setCatalog
-} from '@main/database/completion'
-import { listDialects } from '@main/database/dialects'
+import type { HostDbConnectionConfig } from '@main/database/hostDbConfig'
+import type { LocalFileHandle } from '@shared/types/local-files'
+import { pickLocalFiles, pickLocalSaveFile, resolveLocalFileHandle } from '@main/plugin/localFiles'
+/** Main-process DB facade. Permissions, secret resolution and native pickers stay
+ * here; drivers, SQL, CSV and result conversion run in a per-runtime utility. */
+import { utilityProcess, type UtilityProcess } from 'electron'
+import { fileURLToPath } from 'node:url'
+import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { resolveSecret } from '@main/vault/secretVault'
-import { getMainWindow } from '@main/window/createShellWindow'
-import { logInfo, logWarn } from '@main/logs/logService'
-import type { DriverHandle } from '@main/database/drivers'
+import { logWarn } from '@main/logs/logService'
+import { listDialects } from '@main/database/dialects'
+import type * as Api from '@main/database/dbService'
+import type { DbConnectionConfig, DbSessionInfo } from '@shared/types/ssh-db'
+import type { DbWorkbenchRequest } from '@shared/types/db-workbench'
 
-interface DbSession {
-  sessionKey: string
+const CANCEL_DEADLINE_MS = 250
+const MAX_PENDING = 32
+const MAX_REQUEST_BYTES = 4 * 1024 * 1024
+interface Pending {
+  resolve: (value: unknown) => void
+  reject: (error: Error) => void
+  timer: ReturnType<typeof setTimeout>
+  release: () => void
+}
+interface ConnectionLease { release: () => void }
+interface Service {
   pluginId: string
-  driverId: DbDriverId
-  handle: DriverHandle
-  config: DbConnectionConfig
-  readOnly: boolean
-  openedAt: number
-  /** 进行中的查询（cancel 用） */
-  running: Map<string, { aborted: boolean }>
+  scope: PluginRuntimeScope
+  child: UtilityProcess
+  pending: Map<number, Pending>
+  disposed: boolean
+  detach: () => void
+  onAbort: () => void
+  transactions: Map<string, () => void>
+  connections: Map<string, ConnectionLease>
+  shutdownPromise?: Promise<void>
+  exited: boolean
+  spawned: boolean
+  pid?: number
+  exitDeadline?: number
+  killAttempts: number
+  killTimer?: ReturnType<typeof setTimeout>
+  exitPromise: Promise<void>
+  resolveExit: () => void
+  retiringReleases: Set<() => void>
+}
+const services = new Map<string, Service>()
+let requestSequence = 0
+
+function requireScope(pluginId: string): PluginRuntimeScope {
+  const scope = getRuntimeScope(pluginId)
+  if (!scope || !scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
+  return scope
 }
 
-const sessions = new Map<string, DbSession>()
-let sessionSeq = 0
-
-function makeSessionKey(pluginId: string, driver: DbDriverId, hint?: string): string {
-  sessionSeq += 1
-  return `${pluginId}:${driver}:${hint ?? sessionSeq}:${Date.now().toString(36)}`
-}
-
-function requireSession(pluginId: string, sessionKey: string): DbSession {
-  const s = sessions.get(sessionKey)
-  if (!s) throw new Error(`db session not found: ${sessionKey}`)
-  if (s.pluginId !== pluginId) throw new Error('session does not belong to this plugin')
-  return s
-}
-
-function resolvePassword(pluginId: string, config: DbConnectionConfig): string | undefined {
-  if (config.ephemeralSecret) return config.ephemeralSecret
-  if (config.secretRef) return resolveSecret(pluginId, config.secretRef) ?? undefined
-  return undefined
-}
-
-export async function dbTest(pluginId: string, config: DbConnectionConfig): Promise<DbTestResult> {
-  const driver = getDriver(config.driver)
-  const password = resolvePassword(pluginId, config)
-  return driver.test(config, password)
-}
-
-export async function dbOpen(
-  pluginId: string,
-  input: { config: DbConnectionConfig; sessionKey?: string } | DbConnectionConfig
-): Promise<DbSessionInfo> {
-  const config =
-    input && typeof input === 'object' && 'config' in input && (input as { config?: DbConnectionConfig }).config
-      ? (input as { config: DbConnectionConfig; sessionKey?: string }).config
-      : (input as DbConnectionConfig)
-  const sessionKey =
-    input && typeof input === 'object' && 'sessionKey' in input
-      ? (input as { sessionKey?: string }).sessionKey
-      : undefined
-  if (!config?.driver) throw new Error('driver required')
-  const driver = getDriver(config.driver)
-  const password = resolvePassword(pluginId, config)
-  const key = sessionKey || makeSessionKey(pluginId, config.driver)
-  // 同 key 重复 open：先关旧的
-  if (sessions.has(key)) {
-    await dbClose(pluginId, key).catch(() => undefined)
+function attemptKill(service: Service): void {
+  if (service.exited) return
+  service.killAttempts++
+  let accepted = false
+  try { accepted = service.child.kill() } catch (error) { logWarn('db', `utility kill failed for ${service.pluginId}: ${String(error)}`) }
+  // kill() is only a signal request. Keep ownership and PID until the exit event.
+  if (service.spawned && !service.killTimer) {
+    service.killTimer = setTimeout(() => {
+      service.killTimer = undefined
+      if (service.exited) return
+      const pid = service.pid
+      if (!pid || !Number.isInteger(pid) || pid <= 0) { logWarn('db', `utility termination unconfirmed for ${service.pluginId}; no spawned child pid`); return }
+      try { process.kill(pid, 'SIGKILL') }
+      catch (error) { logWarn('db', `utility force termination not confirmed for ${service.pluginId}: ${String(error)}`) }
+    }, CANCEL_DEADLINE_MS)
   }
-  const handle = await driver.open(
-    { ...config, options: { ...(config.options ?? {}), readOnly: normalizeReadOnly(config) } },
-    password
-  )
-  const readOnly = normalizeReadOnly(config)
-  handle.readOnly = readOnly
-  const session: DbSession = {
-    sessionKey: key,
-    pluginId,
-    driverId: config.driver,
-    handle,
-    config,
-    readOnly,
-    openedAt: Date.now(),
-    running: new Map()
-  }
-  sessions.set(key, session)
-  // 预热 catalog（表名；列懒加载由 completion 触发）
-  void driver
-    .completionCatalog(handle, { database: config.database, schema: config.options?.schema })
-    .then((catalog) => {
-      setCatalog(key, config.database, config.options?.schema, catalog)
-    })
-    .catch(() => undefined)
-  logInfo('db', `session opened ${key} driver=${config.driver}`)
-  return toSessionInfo(session)
+  if (!accepted && service.spawned) logWarn('db', `database utility did not accept termination for ${service.pluginId}; retaining ownership until exit`)
 }
 
-function toSessionInfo(s: DbSession): DbSessionInfo {
-  return {
-    sessionKey: s.sessionKey,
-    driver: s.driverId,
-    host: s.config.host,
-    database: s.config.database,
-    filePath: s.config.filePath,
-    readOnly: s.readOnly,
-    openedAt: s.openedAt
+function terminate(service: Service, reason: string, kill = true): void {
+  if (!service.disposed) {
+    service.disposed = true
+    service.exitDeadline = Date.now() + 1000
+    service.scope.signal.removeEventListener('abort', service.onAbort)
+    for (const pending of service.pending.values()) {
+      clearTimeout(pending.timer)
+      service.retiringReleases.add(pending.release)
+      pending.reject(new Error(reason))
+    }
+    service.pending.clear()
+    for (const release of service.transactions.values()) service.retiringReleases.add(release)
+    service.transactions.clear()
+    for (const connection of service.connections.values()) service.retiringReleases.add(connection.release)
+    service.connections.clear()
   }
+  if (service.exited) {
+    if (service.killTimer) clearTimeout(service.killTimer)
+    if (services.get(service.pluginId) === service) services.delete(service.pluginId)
+    service.pid = undefined
+    service.detach()
+    for (const release of service.retiringReleases) release()
+    service.retiringReleases.clear()
+    service.resolveExit()
+  } else if (kill) attemptKill(service)
 }
 
-export async function dbClose(pluginId: string, sessionKey: string): Promise<boolean> {
-  const s = sessions.get(sessionKey)
-  if (!s) return true
-  if (s.pluginId !== pluginId) throw new Error('session does not belong to this plugin')
-  const driver = getDriver(s.driverId)
+async function waitForExit(service: Service): Promise<void> {
+  if (service.exited) return
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    await driver.close(s.handle)
-  } catch (err) {
-    logWarn('db', `close failed ${sessionKey}: ${(err as Error).message}`)
+    await Promise.race([service.exitPromise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('database utility has not exited; reconnect is blocked until termination is confirmed')), Math.max(0, (service.exitDeadline || Date.now() + 1000) - Date.now())) })])
+  } finally { if (timer) clearTimeout(timer) }
+}
+
+function serviceFor(pluginId: string): Service {
+  const scope = requireScope(pluginId)
+  const old = services.get(pluginId)
+  if (old && old.scope === scope && !old.disposed) return old
+  if (old) {
+    terminate(old, 'database runtime replaced')
+    if (!old.exited) throw new Error('Previous database utility is retiring; wait for its exit before reconnecting')
   }
-  invalidateCatalog(sessionKey)
-  sessions.delete(sessionKey)
-  return true
-}
-
-/** 宿主文件选择器选中的路径白名单（防插件任意 filePath 读盘） */
-const pickedFilePaths = new Set<string>()
-
-function notePickedFile(p: string | null | undefined): string | null {
-  if (!p) return null
-  const abs = resolve(p)
-  pickedFilePaths.add(abs)
-  return abs
-}
-
-function normalizeReadOnly(config: DbConnectionConfig): boolean {
-  return (
-    config.options?.readOnly === true ||
-    (config as { readOnly?: boolean }).readOnly === true
-  )
-}
-
-/** prod / requireConfirm 连接上的写操作必须 confirmed:true */
-function assertWriteConfirmed(s: DbSession, confirmed?: boolean, action = 'write'): void {
-  const env = String((s.config as { env?: string }).env || s.config.options?.env || '').toLowerCase()
-  const need =
-    s.config.options?.requireConfirm === true ||
-    env === 'prod' ||
-    env === 'production' ||
-    env === '生产'
-  if (need && confirmed !== true) {
-    throw new Error(`${action} requires confirmed=true on prod/protected connection`)
-  }
-}
-
-export function dbListSessions(pluginId: string): DbSessionInfo[] {
-  return [...sessions.values()].filter((s) => s.pluginId === pluginId).map(toSessionInfo)
-}
-
-export async function dbExecute(pluginId: string, input: DbExecuteInput): Promise<QueryResult> {
-  const s = requireSession(pluginId, input.sessionKey)
-  const driver = getDriver(s.driverId)
-  const sql = String(input.sql ?? '')
-  if (!sql.trim()) throw new Error('sql required')
-  if (s.readOnly && (isWriteSql(sql) || isDdlSql(sql))) {
-    throw new Error('read-only connection rejects write SQL')
-  }
-  if (!s.readOnly && isWriteSql(sql)) {
-    assertWriteConfirmed(s, input.confirmed, 'write SQL')
-  }
-  const runId = `run_${Date.now().toString(36)}`
-  s.running.set(runId, { aborted: false })
-  try {
-    const result = await driver.execute(s.handle, sql, {
-      maxRows: input.maxRows && input.maxRows > 0 ? input.maxRows : DEFAULT_MAX_ROWS,
-      timeoutMs: input.timeoutMs,
-      params: input.params
-    })
-    if (isDdlSql(sql)) invalidateCatalog(s.sessionKey)
-    // 补全 catalog：SELECT * FROM t 且缺列时懒加载
-    if (result.columns.length > 0) {
-      const cache = getCatalog(s.sessionKey, s.config.database, s.config.options?.schema)
-      if (cache) {
-        const simple = /^\s*SELECT\s+\*\s+FROM\s+["`]?([\w.]+)["`]?/i.exec(sql)
-        if (simple) {
-          const tableName = simple[1]!.split('.').pop()!
-          const t = cache.tables.find((x) => x.name.toLowerCase() === tableName.toLowerCase())
-          if (t && t.columns.length === 0) {
-            t.columns = result.columns.map((c) => ({
-              name: c.name,
-              type: c.dataType,
-              pk: c.primaryKey
-            }))
-          }
-        }
-      }
-    }
-    return result
-  } finally {
-    s.running.delete(runId)
-  }
-}
-
-export async function dbExplain(pluginId: string, input: { sessionKey: string; sql: string }): Promise<QueryResult> {
-  const s = requireSession(pluginId, input.sessionKey)
-  const driver = getDriver(s.driverId)
-  if (!driver.explain) throw new Error(`driver ${s.driverId} does not support explain`)
-  return driver.explain(s.handle, String(input.sql ?? ''))
-}
-
-export function dbCancel(pluginId: string, sessionKeyOrInput: string | { sessionKey?: string }): boolean {
-  const sessionKey =
-    typeof sessionKeyOrInput === 'string'
-      ? sessionKeyOrInput
-      : String(sessionKeyOrInput?.sessionKey ?? '')
-  const s = requireSession(pluginId, sessionKey)
-  for (const r of s.running.values()) r.aborted = true
-  // HTTP 驱动无法真正中断在途 fetch；标记后 execute 结果丢弃由上层处理
-  logInfo('db', `cancel requested ${sessionKey}`)
-  return true
-}
-
-export async function dbApplyChanges(pluginId: string, input: DbApplyChangesInput): Promise<BatchResult> {
-  const s = requireSession(pluginId, input.sessionKey)
-  const driver = getDriver(s.driverId)
-  if (!driver.applyBatch) throw new Error(`driver ${s.driverId} does not support applyChanges`)
-  if (s.readOnly) throw new Error('read-only connection rejects applyChanges')
-  assertWriteConfirmed(s, input.confirmed, 'applyChanges')
-  const mode = input.mode === 'continue' ? 'continue' : 'stop-on-error'
-  return driver.applyBatch(s.handle, (input.changes ?? []) as RowChange[], mode)
-}
-
-export async function dbSchemaTree(
-  pluginId: string,
-  input: DbSchemaTreeInput & { node?: { type?: string; database?: string; schema?: string; table?: string } }
-): Promise<SchemaObject[]> {
-  const s = requireSession(pluginId, input.sessionKey)
-  const driver = getDriver(s.driverId)
-  // 兼容插件传 node.type 作为 parent
-  const parent =
-    input.parent ??
-    (input.node?.type === 'root' || !input.node?.type
-      ? 'root'
-      : input.node.type === 'table' || input.node.type === 'view'
-        ? 'table'
-        : input.node.type)
-  const scope = {
-    database: input.database ?? input.node?.database ?? s.config.database,
-    schema: input.schema ?? input.node?.schema ?? s.config.options?.schema
-  }
-  const filter = input.filter?.toLowerCase()
-
-  if (!parent || parent === 'root') {
-    // 连接层：库列表 +（无 schemas 的驱动直接表）
-    const databases = await driver.listDatabases(s.handle)
-    if (!driver.capabilities.schemas && databases.length <= 1) {
-      const tables = await driver.listTables(s.handle, scope)
-      const filtered = filter ? tables.filter((t) => t.name.toLowerCase().includes(filter)) : tables
-      return [
-        {
-          name: databases[0] ?? scope.database ?? 'main',
-          type: 'database',
-          children: filtered
-        }
-      ]
-    }
-    return databases
-      .filter((d) => !filter || d.toLowerCase().includes(filter))
-      .map((d) => ({ name: d, type: 'database' as const, database: d }))
-  }
-
-  if (parent === 'database') {
-    if (driver.capabilities.schemas) {
-      const schemas = await driver.listSchemas(s.handle, scope.database)
-      return schemas
-        .filter((sc) => !filter || sc.toLowerCase().includes(filter))
-        .map((sc) => ({ name: sc, type: 'schema' as const, schema: sc, database: scope.database }))
-    }
-    const tables = await driver.listTables(s.handle, scope)
-    const filtered = filter ? tables.filter((t) => t.name.toLowerCase().includes(filter)) : tables
-    return filtered
-  }
-
-  if (parent === 'schema') {
-    const tables = await driver.listTables(s.handle, scope)
-    const filtered = filter ? tables.filter((t) => t.name.toLowerCase().includes(filter)) : tables
-    return filtered
-  }
-
-  const tableName = input.table ?? input.node?.table
-  if (parent === 'table' && tableName) {
-    const detail = await driver.describeTable(s.handle, scope, tableName)
-    return detail.columns
-      .filter((c) => !filter || c.name.toLowerCase().includes(filter))
-      .map((c) => ({
-        name: c.name,
-        type: 'column' as const,
-        schema: scope.schema,
-        database: scope.database,
-        column: c
-      }))
-  }
-
-  return []
-}
-
-export async function dbSchemaDescribe(
-  pluginId: string,
-  input: { sessionKey: string; database?: string; schema?: string; table: string }
-): Promise<TableDetail> {
-  const s = requireSession(pluginId, input.sessionKey)
-  const driver = getDriver(s.driverId)
-  return driver.describeTable(s.handle, { database: input.database, schema: input.schema }, input.table)
-}
-
-export async function dbSchemaDdl(
-  pluginId: string,
-  input: { sessionKey: string; database?: string; schema?: string; table: string }
-): Promise<string> {
-  const s = requireSession(pluginId, input.sessionKey)
-  const driver = getDriver(s.driverId)
-  if (!driver.getDdl) throw new Error(`driver ${s.driverId} does not support ddl`)
-  return driver.getDdl(s.handle, { database: input.database, schema: input.schema }, input.table)
-}
-
-export async function dbCompletion(
-  pluginId: string,
-  input: DbCompletionInput
-): Promise<CompletionResponse> {
-  const s = requireSession(pluginId, input.sessionKey)
-  const driver = getDriver(s.driverId)
-  const database = input.database ?? s.config.database
-  const schema = input.schema ?? s.config.options?.schema
-  let catalog: CompletionCatalog | null = getCatalog(s.sessionKey, database, schema)
-  if (!catalog) {
-    try {
-      catalog = await driver.completionCatalog(s.handle, { database, schema })
-      setCatalog(s.sessionKey, database, schema, catalog)
-    } catch (err) {
-      logWarn('db', `completion catalog load failed: ${(err as Error).message}`)
-      catalog = null
-    }
-  }
-  return buildCompletion({ input, driverId: s.driverId, catalog })
-}
-
-export function dbDialectsList(): DbDialectInfo[] {
-  return listDialects()
-}
-
-export async function dbPickSqliteFile(
-  _pluginId: string,
-  _opts?: { createIfMissing?: boolean }
-): Promise<string | null> {
-  const win = getMainWindow()
-  const dialogOpts = {
-    properties: ['openFile' as const],
-    title: '选择 SQLite 数据库文件',
-    filters: [
-      { name: 'SQLite', extensions: ['db', 'sqlite', 'sqlite3'] },
-      { name: 'All Files', extensions: ['*'] }
-    ]
-  }
-  const result = win ? await dialog.showOpenDialog(win as never, dialogOpts) : await dialog.showOpenDialog(dialogOpts)
-  if (result.canceled || result.filePaths.length === 0) return null
-  return notePickedFile(result.filePaths[0])
-}
-
-/** 导入 CSV：宿主选择器；返回路径并加入 import 白名单 */
-export async function dbPickImportFile(_pluginId: string): Promise<string | null> {
-  const win = getMainWindow()
-  const dialogOpts = {
-    properties: ['openFile' as const],
-    title: '选择要导入的 CSV',
-    filters: [
-      { name: 'CSV', extensions: ['csv', 'tsv', 'txt'] },
-      { name: 'All Files', extensions: ['*'] }
-    ]
-  }
-  const result = win ? await dialog.showOpenDialog(win as never, dialogOpts) : await dialog.showOpenDialog(dialogOpts)
-  if (result.canceled || result.filePaths.length === 0) return null
-  return notePickedFile(result.filePaths[0])
-}
-
-// —— CSV 导入（Spec DB-G P0 最小）——
-
-function parseCsv(text: string, opts?: { delimiter?: string; hasHeader?: boolean }): {
-  columns: string[]
-  rows: string[][]
-} {
-  const delimiter = opts?.delimiter && opts.delimiter.length > 0 ? opts.delimiter : ','
-  const lines = text.split(/\r?\n/).filter((l) => l.length > 0)
-  if (lines.length === 0) return { columns: [], rows: [] }
-  const parseLine = (line: string): string[] => {
-    const out: string[] = []
-    let cur = ''
-    let inQ = false
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i]!
-      if (inQ) {
-        if (ch === '"') {
-          if (line[i + 1] === '"') {
-            cur += '"'
-            i++
-          } else {
-            inQ = false
-          }
-        } else {
-          cur += ch
-        }
-      } else if (ch === '"') {
-        inQ = true
-      } else if (ch === delimiter) {
-        out.push(cur)
-        cur = ''
-      } else {
-        cur += ch
-      }
-    }
-    out.push(cur)
-    return out
-  }
-  const hasHeader = opts?.hasHeader !== false
-  if (hasHeader) {
-    return { columns: parseLine(lines[0]!), rows: lines.slice(1).map(parseLine) }
-  }
-  const first = parseLine(lines[0]!)
-  return {
-    columns: first.map((_, i) => `col_${i + 1}`),
-    rows: lines.map(parseLine)
-  }
-}
-
-function loadCsvText(input: { csvText?: string; filePath?: string }): string {
-  if (input.csvText) return input.csvText
-  if (input.filePath) {
-    const abs = resolve(input.filePath)
-    if (!pickedFilePaths.has(abs)) {
-      throw new Error('import filePath must be selected via host file picker')
-    }
-    return readFileSync(abs, 'utf-8')
-  }
-  throw new Error('csvText or filePath required')
-}
-
-function quoteIdent(name: string): string {
-  return `\`${String(name).replace(/`/g, '``')}\``
-}
-
-function assertSafeTableIdent(name: string, what = 'identifier'): string {
-  const s = String(name ?? '')
-  if (!s || s.length > 256 || /[`"';\\]|--|\/\*|\u0000/.test(s)) {
-    throw new Error(`invalid ${what}: ${s}`)
-  }
-  return s
-}
-
-function tableRefSql(t: { database?: string; schema?: string; table: string }, driverId: DbDriverId): string {
-  if (driverId === 'timescale') {
-    const schema = t.schema
-      ? `"${assertSafeTableIdent(t.schema, 'schema').replace(/"/g, '""')}".`
-      : ''
-    return `${schema}"${assertSafeTableIdent(t.table, 'table').replace(/"/g, '""')}"`
-  }
-  if (driverId === 'mysql' && t.database) {
-    return `${quoteIdent(assertSafeTableIdent(t.database, 'database'))}.${quoteIdent(assertSafeTableIdent(t.table, 'table'))}`
-  }
-  return quoteIdent(assertSafeTableIdent(t.table, 'table'))
-}
-
-function importPlaceholders(driverId: DbDriverId, n: number): string {
-  if (driverId === 'timescale') {
-    return Array.from({ length: n }, (_, i) => `$${i + 1}`).join(', ')
-  }
-  return Array.from({ length: n }, () => '?').join(', ')
-}
-
-export async function dbImportPreview(
-  pluginId: string,
-  input: DbImportPreviewInput
-): Promise<DbImportPreviewResult> {
-  const s = requireSession(pluginId, input.sessionKey)
-  const text = loadCsvText(input)
-  const sampleN = input.options?.sampleRows && input.options.sampleRows > 0 ? input.options.sampleRows : 20
-  const { columns, rows } = parseCsv(text, input.options)
-  const sampleRows = rows.slice(0, sampleN)
-  const tref = tableRefSql(input.table, s.driverId)
-  const targetCols = (input.options?.columns ?? columns).map((c) => assertSafeTableIdent(c, 'column'))
-  const sqlPreview = sampleRows.slice(0, 3).map((row) => {
-    const ph = importPlaceholders(s.driverId, targetCols.length)
-    return `INSERT INTO ${tref} (${targetCols.map(quoteIdent).join(', ')}) VALUES (${ph}); /* ${row
-      .map((v) => (v === '' ? 'NULL' : String(v).slice(0, 24)))
-      .join(' | ')} */`
+  const child = utilityProcess.fork(fileURLToPath(new URL('./dbUtility.js', import.meta.url)), [], {
+    serviceName: `eNest DB ${pluginId} #${scope.owner.generation}`,
+    stdio: 'ignore',
+    execArgv: ['--max-old-space-size=256'],
+    // Inherit proxy environment; do not copy credentials into the environment.
+    env: { ...process.env, NODE_USE_ENV_PROXY: '1' }
   })
-  return {
-    columns,
-    sampleRows,
-    totalRowsEstimate: rows.length,
-    mappedColumns: columns.map((c, i) => ({ source: c, target: targetCols[i] ?? c })),
-    sqlPreview
+  let resolveExit!: () => void
+  const exitPromise = new Promise<void>(resolve => { resolveExit = resolve })
+  const service: Service = { pluginId, scope, child, pending: new Map(), disposed: false, detach: () => {}, onAbort: () => {}, transactions: new Map(), connections: new Map(), exited: false, spawned: child.pid !== undefined, pid: child.pid, killAttempts: 0, exitPromise, resolveExit, retiringReleases: new Set() }
+  services.set(pluginId, service)
+  child.on('message', (message: { id?: number; ok?: boolean; data?: unknown; error?: string }) => {
+    const pending = service.pending.get(Number(message?.id))
+    if (!pending) return
+    service.pending.delete(Number(message.id))
+    clearTimeout(pending.timer)
+    pending.release()
+    if (!scope.isCurrent() || scope.signal.aborted) pending.reject(new Error('plugin runtime is closing'))
+    else if (message.ok) pending.resolve(message.data)
+    else pending.reject(new Error(message.error || 'database service failed'))
+  })
+  child.once('spawn', () => { service.spawned = true; service.pid = child.pid; if (service.disposed) { service.killAttempts = 0; attemptKill(service) } })
+  child.once('exit', code => {
+    service.exited = true
+    if (!service.disposed) logWarn('db', `service exited for ${pluginId}: ${code}`)
+    terminate(service, 'database service exited; reconnect the database', false)
+  })
+  // Abort stops database work immediately; the child gets a short opportunity to
+  // close its drivers, then a real process kill bounds synchronous SQLite work.
+  service.onAbort = () => { void shutdown(service).catch(error => logWarn('db', String(error))) }
+  scope.signal.addEventListener('abort', service.onAbort, { once: true })
+  service.detach = scope.addDisposer(() => shutdown(service))
+  return service
+}
+
+function shutdown(service: Service): Promise<void> {
+  if (service.shutdownPromise) return service.shutdownPromise
+  service.shutdownPromise = (async () => {
+    if (service.exited) return
+    if (!service.disposed) { try { await send(service, 'releaseDbSessions', [], CANCEL_DEADLINE_MS, false) } catch { /* bounded kill below */ } }
+    terminate(service, 'database runtime closed')
+    await waitForExit(service)
+  })()
+  return service.shutdownPromise
+}
+
+function transactionLease(service: Service, key: string, active: boolean): void {
+  if (service.disposed || !service.scope.isCurrent() || service.scope.signal.aborted) return
+  if (active && !service.transactions.has(key)) service.transactions.set(key, service.scope.acquireActivity(`db:transaction:${key}`))
+  if (!active) { service.transactions.get(key)?.(); service.transactions.delete(key) }
+}
+
+function connected(service: Service, session: DbSessionInfo): void {
+  if (service.disposed || services.get(service.pluginId) !== service || !service.scope.isCurrent() || service.scope.signal.aborted) throw new Error('plugin runtime is closing')
+  // Replace the identity even for the same key: a late close/list response for
+  // the previous connection must never release its successful replacement.
+  const release = service.connections.get(session.sessionKey)?.release || service.scope.acquireActivity(`db:connection:${session.sessionKey}`)
+  service.connections.set(session.sessionKey, { release })
+  transactionLease(service, session.sessionKey, session.transactionActive === true)
+}
+
+function sessionSnapshot(service: Service) {
+  return { connections: new Map(service.connections), transactions: new Map(service.transactions) }
+}
+
+function syncSessionLeases(service: Service, sessions: DbSessionInfo[], snapshot: ReturnType<typeof sessionSnapshot>): void {
+  if (service.disposed || services.get(service.pluginId) !== service || !service.scope.isCurrent() || service.scope.signal.aborted) return
+  const active = new Map(sessions.map(session => [session.sessionKey, session]))
+  for (const [key, connection] of snapshot.connections) {
+    if (service.connections.get(key) !== connection) continue
+    if (!active.has(key)) { service.connections.delete(key); connection.release() }
+  }
+  for (const [key, release] of snapshot.transactions) {
+    if (service.transactions.get(key) !== release) continue
+    if (service.connections.has(key) && service.connections.get(key) !== snapshot.connections.get(key)) continue
+    if (!active.get(key)?.transactionActive) { service.transactions.delete(key); release() }
   }
 }
 
-export async function dbImportRun(
-  pluginId: string,
-  input: DbImportRunInput
-): Promise<DbImportRunResult> {
-  const s = requireSession(pluginId, input.sessionKey)
-  if (s.readOnly) throw new Error('read-only connection rejects import')
-  assertWriteConfirmed(s, input.confirmed, 'import')
-  const driver = getDriver(s.driverId)
-  const t0 = Date.now()
-  const text = loadCsvText(input)
-  const { columns, rows } = parseCsv(text, input.options)
-  const targetCols = (input.options?.columns ?? columns).map((c) => assertSafeTableIdent(c, 'column'))
-  const tref = tableRefSql(input.table, s.driverId)
-  const ph = importPlaceholders(s.driverId, targetCols.length)
-  let inserted = 0
-  let failed = 0
-  const errors: string[] = []
-  for (const row of rows) {
-    const params = row.map((v) => (v === '' ? null : v))
-    const sql = `INSERT INTO ${tref} (${targetCols.map(quoteIdent).join(', ')}) VALUES (${ph})`
+async function listSessions(service: Service, timeoutMs = 30_000, activity = true): Promise<DbSessionInfo[]> {
+  const snapshot = sessionSnapshot(service)
+  const sessions = await send(service, 'dbListSessions', [], timeoutMs, activity) as DbSessionInfo[]
+  syncSessionLeases(service, sessions, snapshot)
+  return sessions
+}
+
+function send(service: Service, method: string, args: unknown[], timeoutMs = 30_000, activity = true): Promise<unknown> {
+  if (service.disposed) return Promise.reject(new Error('database service closed'))
+  if (service.pending.size >= MAX_PENDING && activity) return Promise.reject(new Error('too many pending database operations'))
+  const id = ++requestSequence
+  const release = activity ? service.scope.acquireActivity(`db:${method}`) : () => {}
+  return new Promise((resolveResult, reject) => {
+    const timer = setTimeout(() => {
+      terminate(service, method === 'dbCancel' ? 'database cancelled; service reset, reconnect the database' : 'database operation timed out; service reset, reconnect the database')
+    }, timeoutMs)
+    service.pending.set(id, { resolve: resolveResult, reject, timer, release })
     try {
-      if (s.driverId === 'mysql') {
-        const pool = s.handle.raw as import('mysql2/promise').Pool
-        await pool.query(sql, params)
-      } else if (s.driverId === 'timescale') {
-        const client = s.handle.raw as import('pg').Client
-        await client.query(sql, params as unknown[])
-      } else if (s.driverId === 'sqlite') {
-        const db = s.handle.raw as import('node:sqlite').DatabaseSync
-        db.prepare(sql).run(...(params as never[]))
-      } else {
-        // HTTP 驱动：退回字面量（仍经 assertSafe 标识符）
-        const lit = params
-          .map((v) => (v === null ? 'NULL' : `'${String(v).replace(/'/g, "''")}'`))
-          .join(', ')
-        await driver.execute(s.handle, `INSERT INTO ${tref} (${targetCols.map(quoteIdent).join(', ')}) VALUES (${lit})`)
-      }
-      inserted++
-    } catch (err) {
-      failed++
-      if (errors.length < 20) errors.push((err as Error).message)
-      if (input.options?.conflict === 'insert' || !input.options?.conflict) {
-        if (failed > 0 && errors.length >= 20) break
-      }
+      // The current proxy environment is forwarded, including changes made since fork.
+      service.child.postMessage({ id, method, pluginId: service.pluginId, args,
+        proxy: { HTTP_PROXY: process.env.HTTP_PROXY, HTTPS_PROXY: process.env.HTTPS_PROXY, ALL_PROXY: process.env.ALL_PROXY, NO_PROXY: process.env.NO_PROXY } })
+    } catch (error) {
+      service.pending.delete(id)
+      clearTimeout(timer)
+      release()
+      reject(error as Error)
+    }
+  })
+}
+
+function rpc<T>(pluginId: string, method: string, args: unknown[], timeoutMs?: number): Promise<T> {
+  return serviceRpc(serviceFor(pluginId), method, args, timeoutMs)
+}
+
+function serviceRpc<T>(service: Service, method: string, args: unknown[], timeoutMs?: number): Promise<T> {
+  // Bounded IPC payload; large CSV imports use a picker-authorized file path.
+  if (Buffer.byteLength(JSON.stringify(args, (_, value) => typeof value === 'bigint' ? value.toString() : value)) > MAX_REQUEST_BYTES) return Promise.reject(new Error('database request exceeds 4 MiB; use a file import'))
+  return send(service, method, args, timeoutMs) as Promise<T>
+}
+
+async function withPassword(pluginId: string, config: DbConnectionConfig): Promise<HostDbConnectionConfig> {
+  if ('filePath' in config || 'sqlitePath' in config || config.options?.file) throw new Error('raw database paths are not supported; select fileHandleId')
+  const readOnly = config.readOnly === true || config.options?.readOnly === true
+  const resolved: HostDbConnectionConfig = { ...config, readOnly, options: { ...config.options, readOnly }, secretRef: undefined,
+    ephemeralSecret: config.ephemeralSecret || (config.secretRef ? resolveSecret(pluginId, config.secretRef) ?? undefined : undefined) }
+  if (config.driver === 'sqlite' || config.driver === 'duckdb') {
+    if (config.database === ':memory:' && !config.fileHandleId) resolved.filePath = ':memory:'
+    else {
+      if (!config.fileHandleId) throw new Error('fileHandleId is required for a local database')
+      resolved.filePath = await resolveLocalFileHandle(pluginId, config.fileHandleId, readOnly ? 'read' : 'write')
     }
   }
-  return {
-    ok: failed === 0,
-    inserted,
-    failed,
-    errors: errors.length > 0 ? errors : undefined,
-    durationMs: Date.now() - t0
-  }
+  return resolved
 }
 
-/** 插件关闭时清理其 DB 会话 */
-export function releaseDbSessions(pluginId: string): void {
-  for (const s of [...sessions.values()]) {
-    if (s.pluginId !== pluginId) continue
-    const driver = getDriver(s.driverId)
-    void driver.close(s.handle).catch((err) => {
-      logWarn('db', `release close failed ${s.sessionKey}: ${(err as Error).message}`)
-    })
-    invalidateCatalog(s.sessionKey)
-    sessions.delete(s.sessionKey)
+export const dbOpen: typeof Api.dbOpen = async (pluginId, input) => {
+  const scope = requireScope(pluginId)
+  const release = scope.acquireActivity('db:open')
+  try {
+    const wrapped = 'config' in input
+    const config = await withPassword(pluginId, wrapped ? input.config : input)
+    if (scope.signal.aborted || !scope.isCurrent()) throw new Error('plugin runtime is closing')
+    const service = serviceFor(pluginId)
+    const session = await serviceRpc<DbSessionInfo>(service, 'dbOpen', [wrapped ? { ...input, config } : config])
+    connected(service, session)
+    return session
+  } finally { release() }
+}
+export const dbTest: typeof Api.dbTest = async (pluginId, config) => {
+  const scope = requireScope(pluginId)
+  const resolved = await withPassword(pluginId, config)
+  if (!scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
+  return rpc(pluginId, 'dbTest', [resolved], 15_000)
+}
+export const dbClose: typeof Api.dbClose = async (pluginId, key) => {
+  const service = services.get(pluginId)
+  if (!service) return true
+  const connection = service.connections.get(key), transaction = service.transactions.get(key)
+  try {
+    const result = await send(service, 'dbClose', [key], CANCEL_DEADLINE_MS, false)
+    if (connection && service.connections.get(key) === connection) { service.connections.delete(key); connection.release() }
+    if (transaction && service.transactions.get(key) === transaction && (!service.connections.has(key) || service.connections.get(key) === connection)) { service.transactions.delete(key); transaction() }
+    return result as boolean
   }
+  catch (error) { terminate(service, 'database close failed; reconnect'); await waitForExit(service); throw error }
+}
+export function dbListSessions(pluginId: string): Promise<DbSessionInfo[]> {
+  const service = services.get(pluginId)
+  return service ? listSessions(service) : Promise.resolve([])
+}
+export const dbExecute: typeof Api.dbExecute = async (pluginId, input) => {
+  const service = serviceFor(pluginId)
+  const result = await rpc<Awaited<ReturnType<typeof Api.dbExecute>>>(pluginId, 'dbExecute', [input], Math.max(250, Math.min(600000, Number(input.timeoutMs) || 30000)) + 500)
+  transactionLease(service, input.sessionKey, result.transactionActive === true)
+  return result
+}
+export const dbExplain: typeof Api.dbExplain = (pluginId, input) => rpc(pluginId, 'dbExplain', [input])
+export const dbCancel: typeof Api.dbCancel = async (pluginId, key) => {
+  const service = services.get(pluginId)
+  if (!service) return true
+  // Cancellation may preserve a native connection or close it. Reconcile with
+  // the actual session list; an unresponsive SQLite worker is killed at 250ms.
+  try {
+    await send(service, 'dbCancel', [key], CANCEL_DEADLINE_MS, false)
+    await listSessions(service, CANCEL_DEADLINE_MS, false)
+    return true
+  }
+  catch (error) { terminate(service, 'database cancellation failed; service reset'); await waitForExit(service); throw error }
+}
+export const dbApplyChanges: typeof Api.dbApplyChanges = (pluginId, input) => rpc(pluginId, 'dbApplyChanges', [input])
+export const dbSchemaTree: typeof Api.dbSchemaTree = (pluginId, input) => rpc(pluginId, 'dbSchemaTree', [input])
+export const dbSchemaDescribe: typeof Api.dbSchemaDescribe = (pluginId, input) => rpc(pluginId, 'dbSchemaDescribe', [input])
+export const dbSchemaDdl: typeof Api.dbSchemaDdl = (pluginId, input) => rpc(pluginId, 'dbSchemaDdl', [input])
+export const dbCompletion: typeof Api.dbCompletion = (pluginId, input) => rpc(pluginId, 'dbCompletion', [input])
+export function dbDialectsList(pluginId?: string) { return pluginId ? rpc(pluginId, 'dbDialectsList', []) : listDialects() }
+export const dbImportPreview: typeof Api.dbImportPreview = async (pluginId, input) => {
+  const scope = requireScope(pluginId)
+  if ('filePath' in input) throw new Error('raw import paths are not supported; select fileHandleId')
+  const filePath = input.fileHandleId ? await resolveLocalFileHandle(pluginId, input.fileHandleId, 'read') : undefined
+  if (!scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
+  return rpc(pluginId, 'dbImportPreview', [{ ...input, filePath }])
+}
+export const dbImportRun: typeof Api.dbImportRun = async (pluginId, input) => {
+  const scope = requireScope(pluginId)
+  if ('filePath' in input) throw new Error('raw import paths are not supported; select fileHandleId')
+  const filePath = input.fileHandleId ? await resolveLocalFileHandle(pluginId, input.fileHandleId, 'read') : undefined
+  if (!scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
+  return rpc(pluginId, 'dbImportRun', [{ ...input, filePath }], 600_000)
 }
 
-export { DRIVER_REGISTRY }
+export async function dbPickSqliteFile(pluginId: string, options?: { createIfMissing?: boolean; readOnly?: boolean }): Promise<LocalFileHandle | null> {
+  if (options?.createIfMissing) return pickLocalSaveFile(pluginId, { defaultName: 'database.sqlite' })
+  return (await pickLocalFiles(pluginId, { kind: 'file', access: options?.readOnly ? 'read' : 'write' }))[0] ?? null
+}
+export async function dbPickImportFile(pluginId: string): Promise<LocalFileHandle | null> { return (await pickLocalFiles(pluginId, { kind: 'file', access: 'read' }))[0] ?? null }
+
+/** Optional generation prevents a late old-runtime release closing its successor. */
+export async function releaseDbSessions(pluginId: string, generation?: number): Promise<void> {
+  const service = services.get(pluginId)
+  if (service && (generation === undefined || service.scope.owner.generation === generation)) await shutdown(service)
+}
+
+/** Workbench uses the same per-runtime utility, including cancellation and transactions. */
+export async function dbWorkbenchRpc(pluginId: string, request: DbWorkbenchRequest): Promise<unknown> {
+  if (request.action === 'test') return dbTest(pluginId, request.input)
+  if (request.action === 'cancel') return dbCancel(pluginId, request.input)
+  const service = serviceFor(pluginId)
+  const result = await rpc<Record<string, unknown>>(pluginId, 'dbWorkbenchService', [request], request.action === 'execute' ? Math.max(250, Math.min(600000, request.input.timeoutMs || 30000)) + 500 : 60000)
+  if (request.action === 'transaction') transactionLease(service, request.input.sessionKey, result.active === true)
+  else if (request.action === 'execute') transactionLease(service, request.input.sessionKey, result.transactionActive === true)
+  return result
+}
+
+/** Main-only diagnostics; a retiring utility stays visible until its actual exit event. */
+export function getDbUtilityDiagnostics() {
+  return [...services.values()].map(service => ({ ...service.scope.owner, pid: service.pid, state: service.disposed ? 'retiring' as const : 'running' as const, spawned: service.spawned, pending: service.pending.size, heldReleases: service.retiringReleases.size }))
+}

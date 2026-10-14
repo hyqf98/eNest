@@ -176,12 +176,7 @@ GET https://translate.googleapis.com/translate_a/single
 
 ### 2.6 本地安装路径
 
-`PluginRegistry.installFromSample` / `ensureInstalled` 解析顺序：
-
-1. `eNest_plugin/plugins/{id}/`（完整 monorepo 源）
-2. `plugins-samples/{shortNameOf(id)}/`（历史占位）
-
-避免 sample 占位页抢先命中：clipboard/translate 的 `plugins-samples` 占位将同步替换为与 monorepo 一致的实现，或仅保留 monorepo 路径。**采用：优先 monorepo，占位目录删除以免旧 UI 抢占。**
+本地预览只读取 `eNest_plugin/plugins/{id}/dist/` 的标准构建产物，不搜索旧示例目录或任意备用路径。开发源码使用开发者控制台的源码/服务器入口，不通过安装器复制。发布包根直接为 dist 内容，详见 [工程格式](../../site/plugin/structure.md)。
 
 ### 2.7 权限文案
 

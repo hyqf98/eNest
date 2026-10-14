@@ -1,0 +1,70 @@
+import { ipcMain, shell, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { IpcChannels } from '@shared/types/ipc'
+
+type SurfaceRole = 'shell' | 'quick' | 'orb'
+type SenderEvent = IpcMainEvent | IpcMainInvokeEvent
+const surfaces = new Map<number, { contents: WebContents; role: SurfaceRole; url: string }>()
+const sharedReads = [IpcChannels.ShellGetTheme, IpcChannels.ShellGetSettings, IpcChannels.ShellReadCustomFont]
+const quickChannels = new Set<string>([
+  ...sharedReads, IpcChannels.QuickInput, IpcChannels.QuickToggle, IpcChannels.QuickHide,
+  IpcChannels.QuickSearch, IpcChannels.QuickOpen, IpcChannels.QuickGetConfig,
+  IpcChannels.QuickResize, IpcChannels.ShellSetView, IpcChannels.ShellGetPlugins,
+  IpcChannels.ShellActivatePlugin, IpcChannels.ShellOpenPlugin
+])
+const orbChannels = new Set<string>([
+  ...sharedReads, IpcChannels.ShellGetOrbState, IpcChannels.ShellSetOrbRailExpanded,
+  IpcChannels.ShellActivatePlugin, IpcChannels.ShellOpenPlugin, IpcChannels.ShellClosePlugin,
+  IpcChannels.ShellGoHome, IpcChannels.ShellSetView, IpcChannels.WindowMinimize,
+  IpcChannels.WindowMaximize, IpcChannels.WindowClose
+])
+
+/** Only window creation can register a privileged surface, never renderer-provided IDs or URLs. */
+export function registerTrustedSurface(contents: WebContents, role: SurfaceRole, url: string): void {
+  const firstRegistration = !surfaces.has(contents.id)
+  surfaces.set(contents.id, { contents, role, url })
+  if (!firstRegistration) return
+  // Privileged renderers remain on their own document; README links open in the system browser.
+  contents.on('will-navigate', (event, destination) => {
+    const expected = surfaces.get(contents.id)?.url
+    try {
+      const target = new URL(destination), source = new URL(expected ?? '')
+      if (target.protocol === source.protocol && target.host === source.host && target.pathname === source.pathname) return
+    } catch { /* deny malformed destinations */ }
+    event.preventDefault()
+  })
+  contents.setWindowOpenHandler(({ url: target }) => {
+    try {
+      const parsed = new URL(target)
+      if (role === 'shell' && ['https:', 'http:', 'mailto:'].includes(parsed.protocol) && !parsed.username && !parsed.password) {
+        void shell.openExternal(parsed.href).catch(() => {})
+      }
+    } catch { /* deny malformed destinations */ }
+    return { action: 'deny' }
+  })
+  contents.once('destroyed', () => { if (surfaces.get(contents.id)?.contents === contents) surfaces.delete(contents.id) })
+}
+
+export function assertSurfaceSender(event: SenderEvent, channel: string): void {
+  const surface = surfaces.get(event.sender.id)
+  if (!surface || surface.contents !== event.sender || event.sender.isDestroyed() || !event.senderFrame || event.senderFrame !== event.sender.mainFrame) {
+    throw new Error('IPC denied: untrusted surface or frame')
+  }
+  const expected = new URL(surface.url)
+  const actual = new URL(event.senderFrame.url)
+  if (actual.protocol !== expected.protocol || actual.host !== expected.host || actual.pathname !== expected.pathname || actual.username || actual.password) {
+    throw new Error('IPC denied: unexpected document')
+  }
+  if (surface.role === 'quick' && !quickChannels.has(channel) || surface.role === 'orb' && !orbChannels.has(channel)) {
+    throw new Error('IPC denied: surface capability')
+  }
+}
+
+export function handleShellIpc(channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void {
+  ipcMain.handle(channel, (event, ...args) => { assertSurfaceSender(event, channel); return listener(event, ...args) })
+}
+export function onShellIpc(channel: string, listener: (event: IpcMainEvent, ...args: any[]) => void): void {
+  ipcMain.on(channel, (event, ...args) => {
+    try { assertSurfaceSender(event, channel) } catch { return }
+    listener(event, ...args)
+  })
+}

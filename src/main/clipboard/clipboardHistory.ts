@@ -7,7 +7,11 @@
  * 图片降本：剪贴板持续是同一张图时，先做廉价指纹（toBitmap 字节数 + 采样字节）比对，
  *           指纹未变则跳过 toPNG 全量 + sha1。
  */
-import { clipboard, nativeImage } from 'electron'
+import { clipboard, nativeImage, shell } from 'electron'
+import { settingsStore } from '@main/settings/SettingsStore'
+import { readNativeFiles, writeNativeFiles, nativeClipboardSource, pasteToOriginal, isNativeClipboardBusy } from '@main/clipboard/nativeClipboard'
+import type { PasteOwner } from '@main/clipboard/nativeClipboard'
+import type { ClipboardQuery, ClipboardSourceApp } from '@shared/types/plugin-tools'
 
 /** Electron 44 clipboard Web 化后的图片读取：read() → ClipboardItem(image/*) → Blob → PNG buffer。
  *  无图片或读取失败返回 null。 */
@@ -36,8 +40,8 @@ async function writeClipboardImage(img: Electron.NativeImage): Promise<void> {
 }
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { mkdir, readFile, rename, writeFile, copyFile, stat } from 'node:fs/promises'
+import { dirname, join, basename } from 'node:path'
 import { getAppPaths } from '@main/paths/pathsService'
 import type { PluginPermission } from '@shared/types/plugin'
 import type { ClipboardHistoryEntry } from '@shared/types/plugin'
@@ -66,8 +70,21 @@ let lastImageHash = ''
 let lastImageFingerprint = ''
 let entries: StoredEntry[] = []
 let loaded = false
+let loadError: Error | null = null
 let loadPromise: Promise<void> | null = null
 let writeQueue: Promise<void> = Promise.resolve()
+let polling = false
+let lastFilesHash = ''
+const changes = new Set<() => void>()
+export function onClipboardHistoryChange(callback: () => void): () => void { changes.add(callback); return () => changes.delete(callback) }
+function changed(): void { for (const listener of changes) listener() }
+function preferences(): Record<string, unknown> { return settingsStore.getPluginSettings('com.enest.clipboard') }
+function capacity(): number { return Math.max(50, Math.min(10000, Number(preferences().historyLimit) || MAX_ITEMS)) }
+async function sourceApp(): Promise<ClipboardSourceApp | undefined> { return preferences().recordSource === false ? undefined : (await nativeClipboardSource()) ?? undefined }
+function excluded(source?: ClipboardSourceApp): boolean {
+  const names = String(preferences().excludedApps || '').split(/[\n,，]/).map(v => v.trim().toLowerCase()).filter(Boolean)
+  return !!source && names.some(name => [source.id, source.name].some(value => value?.toLowerCase() === name))
+}
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
@@ -80,6 +97,7 @@ function blobsDir(): string {
 }
 
 async function ensureLoaded(): Promise<void> {
+  if (loadError) throw loadError
   if (loaded) return
   if (!loadPromise) {
     loadPromise = (async () => {
@@ -87,29 +105,36 @@ async function ensureLoaded(): Promise<void> {
         const file = historyFile()
         if (existsSync(file)) {
           const raw = JSON.parse(await readFile(file, 'utf-8'))
-          if (Array.isArray(raw)) entries = raw as StoredEntry[]
+          if (Array.isArray(raw)) {
+            entries = raw.filter(entry => entry && ['text', 'image', 'files'].includes(entry.type) && typeof entry.id === 'string') as StoredEntry[]
+            if (!existsSync(`${file}.v1.bak`)) await copyFile(file, `${file}.v1.bak`)
+          }
         }
-      } catch {
-        entries = []
-        logWarn('clipboard', 'history file corrupt, reset')
+      } catch (error) {
+        loadError = new Error(`剪贴板历史无法读取，原文件已保留：${String(error)}`)
+        logWarn('clipboard', loadError.message)
       } finally {
         loaded = true
       }
     })()
   }
   await loadPromise
+  if (loadError) throw loadError
 }
 
 function persist(): Promise<void> {
-  writeQueue = writeQueue.then(async () => {
+  const snapshot = JSON.stringify(entries, null, 2)
+  writeQueue = writeQueue.catch(() => {}).then(async () => {
     try {
       const file = historyFile()
       await mkdir(dirname(file), { recursive: true })
       const tmp = `${file}.tmp`
-      await writeFile(tmp, JSON.stringify(entries, null, 2), 'utf-8')
+      await writeFile(tmp, snapshot, 'utf-8')
       await rename(tmp, file)
+      changed()
     } catch (err) {
       logWarn('clipboard', `persist history failed: ${(err as Error).message}`)
+      throw err
     }
   })
   return writeQueue
@@ -150,6 +175,8 @@ function publicEntry(e: StoredEntry): ClipboardHistoryEntry {
 }
 
 async function pushText(text: string): Promise<void> {
+  const source = await sourceApp()
+  if (excluded(source)) { lastTextHash = textHash(text); return }
   const hash = textHash(text)
   lastTextHash = hash
   lastImageHash = ''
@@ -157,6 +184,7 @@ async function pushText(text: string): Promise<void> {
   const existing = entries.find((e) => e.type === 'text' && e.text === text)
   if (existing) {
     existing.ts = Date.now()
+    existing.sourceApp = source
     // 移到最前
     entries = [existing, ...entries.filter((e) => e.id !== existing.id)]
   } else {
@@ -170,6 +198,7 @@ async function pushText(text: string): Promise<void> {
       text,
       ts: Date.now(),
       pinned: false,
+      sourceApp: source,
       bytes: Buffer.byteLength(text, 'utf-8')
     }
     entries.unshift(entry)
@@ -178,6 +207,8 @@ async function pushText(text: string): Promise<void> {
 }
 
 async function pushImage(image: Electron.NativeImage, fingerprint: string): Promise<void> {
+  const source = await sourceApp()
+  if (excluded(source)) { lastImageFingerprint = fingerprint; return }
   // 先记指纹：超大图跳过入库后，后续轮询仍可凭指纹避免 toPNG 全量 + sha1
   lastImageFingerprint = fingerprint
   const png = image.toPNG()
@@ -191,6 +222,7 @@ async function pushImage(image: Electron.NativeImage, fingerprint: string): Prom
   const dup = entries.find((e) => e.type === 'image' && e.hash === hash)
   if (dup) {
     dup.ts = Date.now()
+    dup.sourceApp = source
     entries = [dup, ...entries.filter((e) => e.id !== dup.id)]
     await trimAndPersist()
     return
@@ -205,6 +237,7 @@ async function pushImage(image: Electron.NativeImage, fingerprint: string): Prom
   const entry: StoredEntry = {
     id,
     type: 'image',
+    sourceApp: source,
     preview: `${width}×${height}`,
     hasImage: true,
     width,
@@ -221,8 +254,9 @@ async function pushImage(image: Electron.NativeImage, fingerprint: string): Prom
 
 async function trimAndPersist(): Promise<void> {
   const pinned = entries.filter((e) => e.pinned)
-  const rest = entries.filter((e) => !e.pinned)
-  const keepRest = Math.max(0, MAX_ITEMS - pinned.length)
+  const days = Math.max(0, Number(preferences().retentionDays) || 0)
+  const rest = entries.filter((e) => !e.pinned && (!days || e.ts >= Date.now() - days * 86400000))
+  const keepRest = Math.max(0, capacity() - pinned.length)
   const next = [...pinned, ...rest.slice(0, keepRest)]
   // 清理被挤出的图片 blob
   const keptIds = new Set(next.map((e) => e.id))
@@ -238,8 +272,28 @@ async function trimAndPersist(): Promise<void> {
 }
 
 async function pollOnce(): Promise<void> {
+  if (polling || isNativeClipboardBusy() || preferences().monitoring === false) return
+  polling = true
+  try {
   await ensureLoaded()
   try {
+    const paths = await readNativeFiles()
+    if (paths.length) {
+      const hash = textHash(JSON.stringify(paths))
+      if (hash !== lastFilesHash) {
+        lastFilesHash = hash; lastTextHash = ''; lastImageFingerprint = ''
+        const source = await sourceApp()
+        if (!excluded(source)) {
+          const existing = entries.find(e => e.type === 'files' && e.hash === hash)
+          const item: StoredEntry = existing ?? { id: randomUUID(), type: 'files', pinned: false, ts: Date.now(), preview: paths.map(path => basename(path)).join('、') }
+          item.files = paths.map(path => ({ path, name: basename(path) })); item.hash = hash; item.ts = Date.now(); item.sourceApp = source
+          entries = [item, ...entries.filter(e => e.id !== item.id)]
+          await trimAndPersist()
+        }
+      }
+      return
+    }
+    lastFilesHash = ''
     // Electron 44：clipboard 图片走 Web 化 read() → ClipboardItem(Blob)，不再有 readImage()
     const img = await readClipboardImage()
     if (img && !img.isEmpty()) {
@@ -259,6 +313,7 @@ async function pollOnce(): Promise<void> {
   } catch (err) {
     logWarn('clipboard', `poll failed: ${(err as Error).message}`)
   }
+  } catch (error) { logWarn('clipboard', `poll unavailable: ${String(error)}`) } finally { polling = false }
 }
 
 /**
@@ -274,7 +329,8 @@ export function clipboardPollingWanted(): boolean {
           p.installed !== false &&
           (Boolean(p.rootPath) || p.dev === true) &&
           p.enabled !== false &&
-          (p.permissions ?? []).includes('clipboard.history' as PluginPermission)
+          (p.permissions ?? []).includes('clipboard.history' as PluginPermission) &&
+          settingsStore.getPermissionGrant(p.id, 'clipboard.history') === 'allow'
       )
   } catch {
     // registry 异常时保守起见不轮询（历史数据保留，仅暂停采集）
@@ -297,7 +353,7 @@ export function revalidateClipboardPolling(): void {
 
 export function startClipboardHistory(): void {
   if (timer) return
-  void ensureLoaded()
+  void ensureLoaded().catch(error => logWarn('clipboard', String(error)))
   // 启动（含停后重启）时对齐当前剪贴板，避免把启动前/停轮询期间的内容整段灌入
   try {
     void (async () => {
@@ -308,7 +364,7 @@ export function startClipboardHistory(): void {
         lastImageHash = imageHash(img.toPNG())
         lastImageFingerprint = imageFingerprint(img)
       }
-    })()
+    })().catch(error => logWarn('clipboard', String(error)))
   } catch {
     // ignore
   }
@@ -324,7 +380,52 @@ export function stopClipboardHistory(): void {
 
 export async function listHistory(limit = 100): Promise<ClipboardHistoryEntry[]> {
   await ensureLoaded()
-  return entries.slice(0, Math.max(1, Math.min(MAX_ITEMS, limit))).map(publicEntry)
+  return entries.filter(e => e.type !== 'files').slice(0, Math.max(1, Math.min(capacity(), limit))).map(publicEntry)
+}
+
+export async function queryHistory(options: ClipboardQuery = {}): Promise<{ items: ClipboardHistoryEntry[]; total: number; nextCursor: number | null }> {
+  await ensureLoaded()
+  const q = String(options.query || '').trim().toLocaleLowerCase()
+  const filtered = entries.filter(e => (!options.type || e.type === options.type) && (!options.pinned || e.pinned) && (!q || `${e.text || ''} ${e.preview} ${e.sourceApp?.name || ''} ${e.files?.map(file => file.path).join(' ') || ''}`.toLocaleLowerCase().includes(q)))
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.ts - a.ts)
+  const offset = Math.max(0, Math.floor(Number(options.cursor) || 0)), limit = Math.max(1, Math.min(100, Number(options.limit) || 60))
+  const items = await Promise.all(filtered.slice(offset, offset + limit).map(async e => {
+    const item = publicEntry(e)
+    if (item.files) item.files = await Promise.all(item.files.map(async file => { try { const s = await stat(file.path); return { ...file, exists: true, directory: s.isDirectory() } } catch { return { ...file, exists: false } } }))
+    return item
+  }))
+  return { items, total: filtered.length, nextCursor: offset + limit < filtered.length ? offset + limit : null }
+}
+
+export async function copyHistoryEntry(id: string, options: { paths?: boolean; plainText?: boolean } = {}, signal?: AbortSignal): Promise<boolean> {
+  const entry = await getHistoryEntry(id)
+  if (!entry) throw new Error('该记录已删除')
+  signal?.throwIfAborted()
+  if (entry.type === 'files') {
+    const paths = entry.files?.map(file => file.path) ?? []
+    if (options.paths) { const text = paths.join('\n'); await clipboard.writeText(text); noteExternalText(text); return true }
+    for (const path of paths) if (!existsSync(path)) throw new Error(`文件已移动或删除：${basename(path)}`)
+    await writeNativeFiles(paths, signal); lastFilesHash = textHash(JSON.stringify(paths))
+  } else if (entry.type === 'image') {
+    if (!entry.dataUrl) throw new Error('图片原始数据已丢失')
+    const image = nativeImage.createFromDataURL(entry.dataUrl)
+    await writeClipboardImage(image); noteExternalImage(image)
+  } else {
+    const text = entry.text || entry.preview
+    await clipboard.writeText(text); noteExternalText(text)
+  }
+  return true
+}
+export async function pasteHistoryEntry(id: string, signal?: AbortSignal, owner?: PasteOwner): Promise<{ pasted: boolean; reason?: string }> {
+  if (owner && !owner.isCurrent()) return { pasted: false, reason: '插件入口已变化，已取消回贴' }
+  await copyHistoryEntry(id, {}, signal)
+  signal?.throwIfAborted()
+  return pasteToOriginal(signal, owner)
+}
+export async function revealHistoryFile(id: string, fileIndex = 0): Promise<boolean> {
+  const entry = await getHistoryEntry(id), file = entry?.files?.[Math.max(0, Math.floor(fileIndex))]
+  if (!file || !existsSync(file.path)) throw new Error('文件已移动或删除')
+  shell.showItemInFolder(file.path); return true
 }
 
 export async function getHistoryEntry(id: string): Promise<(ClipboardHistoryEntry & { dataUrl?: string }) | null> {
@@ -385,6 +486,7 @@ export async function togglePinHistoryEntry(id: string): Promise<ClipboardHistor
 /** 主动推送：插件写入剪贴板后不必等轮询 */
 export function noteExternalText(text: string): void {
   lastTextHash = textHash(text)
+  lastFilesHash = ''
   lastImageHash = ''
   lastImageFingerprint = ''
 }

@@ -23,7 +23,7 @@ let effectiveRoot: string | null = null
 
 /** 默认数据根：~/.eNest（跨平台隐藏目录） */
 export function defaultDataRoot(): string {
-  return join(homedir(), DATA_DIR_NAME)
+  return process.env.ENEST_TEST_DATA_ROOT || join(homedir(), DATA_DIR_NAME)
 }
 
 /** 设置 dataRoot 覆盖；传 null/空串恢复默认 */

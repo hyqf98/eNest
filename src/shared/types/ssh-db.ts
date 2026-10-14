@@ -8,14 +8,26 @@ export interface VaultSetResult {
 
 // —— SSH ——
 
-export type SshAuthType = 'password' | 'key' | 'agent'
+export type SshAuthType = 'password' | 'key' | 'agent' | 'keyboard-interactive'
+
+/** Per-connection TCP transport. Only the first SSH hop uses this proxy. */
+export interface SshProxyConfig {
+  type: 'http-connect' | 'socks5'
+  host: string
+  port: number
+  username?: string
+  /** Proxy password is kept in the requesting plugin's vault. */
+  secretRef?: string
+  /** One-off test credential, never saved with the profile. */
+  ephemeralSecret?: string
+}
 
 export interface SshJumpConfig {
   host: string
   port?: number
   username: string
   authType?: SshAuthType
-  privateKeyPath?: string
+  privateKeyHandleId?: string
   secretRef?: string
   ephemeralSecret?: string
 }
@@ -31,8 +43,12 @@ export interface SshConnectInput {
   ephemeralSecret?: string
   /** 插件 UI 一次性口令别名，等价 ephemeralSecret */
   password?: string
-  privateKeyPath?: string
+  privateKeyHandleId?: string
   jump?: SshJumpConfig | null
+  /** Explicit proxy; omitted means direct TCP, independent of shell HTTP proxy. */
+  proxy?: SshProxyConfig
+  /** Ordered jump chain, from the local-facing bastion to the target. Max 8. */
+  jumps?: SshJumpConfig[]
   keepAliveSec?: number
   timeoutMs?: number
   cols?: number
@@ -89,6 +105,8 @@ export interface SshCompletionSuggestInput {
   line?: string
   prefix?: string
   cursor?: number
+  /** Current working directory from explicit shell integration (OSC 7). */
+  cwd?: string
   history?: string[]
   snippets?: Array<{ title: string; command: string }>
 }
@@ -120,7 +138,7 @@ export interface SftpListInput {
   authType?: SshAuthType
   secretRef?: string
   ephemeralSecret?: string
-  privateKeyPath?: string
+  privateKeyHandleId?: string
 }
 
 export interface SftpEntry {
@@ -132,11 +150,11 @@ export interface SftpEntry {
 
 export interface SftpDownloadInput extends SftpListInput {
   remotePath?: string
-  localPath?: string
+  localDirectoryHandleId: string
 }
 
 export interface SftpUploadInput extends SftpListInput {
-  localPath?: string
+  localHandleId: string
   remotePath?: string
 }
 
@@ -152,6 +170,7 @@ export interface SftpTransferResult {
 }
 
 export type SshPluginEvent =
+  | { type: 'ssh.auth'; sessionId: string; challengeId: string; host: string; instructions: string; prompts: Array<{ prompt: string; echo: boolean }> }
   | { type: 'ssh.data'; sessionId: string; data: string }
   | { type: 'ssh.exit'; sessionId: string; code?: number | null; signal?: string }
   | { type: 'ssh.error'; sessionId?: string; message: string }
@@ -159,7 +178,7 @@ export type SshPluginEvent =
 
 // —— Database ——
 
-export type DbDriverId = 'mysql' | 'sqlite' | 'influxdb' | 'timescale' | 'tdengine'
+export type DbDriverId = 'mysql' | 'mariadb' | 'postgres' | 'sqlite' | 'influxdb' | 'influxdb1' | 'influxdb3' | 'timescale' | 'tdengine' | 'mongodb' | 'redis' | 'clickhouse' | 'mssql' | 'duckdb' | 'oracle' | 'cassandra' | 'scylladb' | 'neo4j' | 'elasticsearch' | 'opensearch' | 'tidb' | 'oceanbase' | 'cockroachdb' | 'yugabytedb' | 'questdb' | 'doris' | 'starrocks'
 
 export type DbDialect = 'mysql' | 'sqlite' | 'postgres' | 'influxql' | 'tdengine' | string
 
@@ -175,8 +194,7 @@ export interface DbConnectionConfig {
   env?: string
   readOnly?: boolean
   /** sqlite / 用户文件库（不是壳子 enest.db） */
-  filePath?: string
-  sqlitePath?: string
+  fileHandleId?: string
   createIfMissing?: boolean
   /** influxdb */
   org?: string
@@ -213,9 +231,12 @@ export interface DbSessionInfo {
   readOnly?: boolean
   openedAt: number
   connectionId?: string
+  transactionActive?: boolean
 }
 
 export interface DbExecuteInput {
+  executionId?: string
+  surface?: 'quick' | 'shell'
   sessionKey: string
   sql: string
   maxRows?: number
@@ -271,6 +292,11 @@ export interface QueryResultColumn {
 }
 
 export interface QueryResult {
+  editable?: boolean
+  transactionActive?: boolean
+  executionId?: string
+  results?: QueryResult[]
+  format?: 'table' | 'document' | 'key-value'
   columns: QueryResultColumn[]
   rows: unknown[][]
   rowCount: number
@@ -296,7 +322,7 @@ export interface DbSchemaTreeInput {
 
 export interface SchemaObject {
   name: string
-  type: 'database' | 'schema' | 'table' | 'view' | 'measurement' | 'supertable' | 'column' | 'other'
+  type: 'database' | 'schema' | 'table' | 'view' | 'measurement' | 'supertable' | 'collection' | 'key' | 'column' | 'other'
   database?: string
   schema?: string
   comment?: string
@@ -310,6 +336,7 @@ export interface DbColumnMeta {
   dataType?: string
   nullable?: boolean
   default?: unknown
+  defaultValue?: unknown
   key?: string
   primaryKey?: boolean
   comment?: string
@@ -317,6 +344,7 @@ export interface DbColumnMeta {
 }
 
 export interface TableDetail {
+  metadata?: Record<string, unknown>
   name?: string
   table?: string
   schema?: string
@@ -324,6 +352,7 @@ export interface TableDetail {
   columns: DbColumnMeta[]
   primaryKey?: string[]
   indexes?: Array<{ name: string; columns: string[]; unique?: boolean }>
+  foreignKeys?: Array<{ name: string; columns: string[]; referencedTable: string; referencedSchema?: string; referencedColumns: string[] }>
   comment?: string
   ddl?: string
 }
@@ -410,8 +439,8 @@ export interface DbImportPreviewInput {
   sessionKey: string
   table: TableRef
   csvText?: string
-  /** 仅允许宿主 picker 白名单路径 */
-  filePath?: string
+  /** Host-selected file capability, valid only in the current runtime. */
+  fileHandleId?: string
   options?: {
     delimiter?: string
     hasHeader?: boolean
@@ -432,8 +461,8 @@ export interface DbImportRunInput {
   sessionKey: string
   table: TableRef
   csvText?: string
-  /** 仅允许宿主 picker 选中的路径 */
-  filePath?: string
+  /** Host-selected file capability, valid only in the current runtime. */
+  fileHandleId?: string
   options?: {
     delimiter?: string
     hasHeader?: boolean

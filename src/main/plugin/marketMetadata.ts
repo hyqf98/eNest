@@ -1,4 +1,6 @@
 /** 插件市场展示元数据：统一远程索引、本地 manifest 与已安装摘要的图片解析和合并。 */
+import { isPluginAssetPath } from '@shared/pluginContract'
+import manifestSchema from '@shared/pluginManifest.schema.json'
 import { pluginProtocolUrl } from '@shared/constants'
 import type { PluginManifest, PluginPermission, PluginSummary, PluginUiConfig } from '@shared/types/plugin'
 import { PLUGIN_PERMISSIONS, resolvePluginUi } from '@shared/types/plugin'
@@ -12,6 +14,8 @@ export interface RemoteRegistryPlugin {
   category?: string
   icon?: string
   screenshots?: string[]
+  readmeUrl?: string
+  readmeImages?: Record<string, string>
   permissions?: string[]
   featured?: boolean
   installs?: number
@@ -31,6 +35,8 @@ export interface MarketPluginSummary {
   glyph: string
   icon?: string
   screenshots?: string[]
+  readmeUrl?: string
+  readmeImages?: Record<string, string>
   permissions: PluginPermission[]
   ui: PluginUiConfig
   featured: boolean
@@ -41,6 +47,8 @@ export interface MarketPluginSummary {
 
 const SCREENSHOT_LIMIT = 8
 const IMAGE_EXTENSION = /\.(png|jpe?g|webp|gif)$/i
+const PLUGIN_ID_PATTERN = new RegExp(manifestSchema.properties.id.pattern)
+const PLUGIN_VERSION_PATTERN = new RegExp(manifestSchema.properties.version.pattern)
 /** 本地兜底分类；远程 registry 声明 categories 时以其为准（插件仓库配置即市场分类） */
 const CATEGORIES = new Set(['效率', '开发', '设计', '媒体', '其它'])
 
@@ -101,6 +109,18 @@ export function resolveRegistryImageUrl(
 }
 
 /** 无截图/非法元数据均返回空数组；保持发布顺序，剔除重复和无效地址。 */
+function readmeImages(raw: unknown, registryUrl: string): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const result: Record<string, string> = Object.create(null)
+  for (const [key, value] of Object.entries(raw).slice(0, 32)) {
+    const path = key.replace(/^\.\//, '')
+    if (!isPluginAssetPath(path) || !/\.(png|jpe?g|webp|gif|svg)$/i.test(path)) continue
+    const url = resolveRegistryImageUrl(value, registryUrl)
+    if (url) result[path] = url
+  }
+  return result
+}
+
 function screenshotUrls(raw: unknown, resolve: (value: unknown) => string | undefined): string[] {
   if (!Array.isArray(raw)) return []
   const result: string[] = []
@@ -116,8 +136,7 @@ export function manifestScreenshots(manifest: PluginManifest): string[] {
   return screenshotUrls(manifest.market?.screenshots, (value) => {
     if (typeof value !== 'string' || !value.trim()) return undefined
     const raw = value.trim()
-    const absolute = httpImageUrl(raw)
-    if (absolute) return absolute
+    if (!isPluginAssetPath(raw) || !raw.startsWith('assets/market/screenshots/')) return undefined
     const relative = relativeImagePath(raw, true, false)
     return relative ? pluginProtocolUrl(manifest.id, relative) : undefined
   })
@@ -151,8 +170,9 @@ export function parseRemoteMarket(
   return data.plugins.flatMap((raw: unknown) => {
     if (!raw || typeof raw !== 'object') return []
     const p = raw as RemoteRegistryPlugin
-    if (typeof p.id !== 'string' || !p.id || typeof p.name !== 'string' || !p.name ||
-        typeof p.version !== 'string' || !p.version) return []
+    if (typeof p.id !== 'string' || !PLUGIN_ID_PATTERN.test(p.id) || p.id === manifestSchema.properties.id.not.const || typeof p.name !== 'string' || !p.name.trim() ||
+        typeof p.version !== 'string' || !PLUGIN_VERSION_PATTERN.test(p.version)) return []
+    const category = stringValue(p.category).trim()
     const installs = typeof p.installs === 'number' && Number.isFinite(p.installs) && p.installs > 0 ? p.installs : 0
     const asset = stringValue(p.asset?.url) || stringValue(p.asset?.name)
     const assetUrl = asset ? httpImageUrl(asset) ?? (
@@ -165,12 +185,14 @@ export function parseRemoteMarket(
       version: p.version,
       description: stringValue(p.description),
       author: stringValue(p.author, 'unknown'),
-      category: categorySet.has((p.category ?? '').trim()) ? p.category!.trim() : '其它',
+      category: categorySet.has(category) ? category : '其它',
       installs: installs >= 1000 ? `${(installs / 1000).toFixed(1)}k` : String(installs),
       color: colorFromId(p.id),
       glyph: p.name.trim().slice(0, 1).toUpperCase() || '?',
       icon: resolveRegistryImageUrl(p.icon, registryUrl),
       screenshots: screenshotUrls(p.screenshots, (value) => resolveRegistryImageUrl(value, registryUrl, true)),
+      readmeUrl: resolveRegistryImageUrl(p.readmeUrl, registryUrl),
+      readmeImages: readmeImages(p.readmeImages, registryUrl),
       permissions: Array.isArray(p.permissions)
         ? p.permissions.filter((permission): permission is PluginPermission => PLUGIN_PERMISSIONS.includes(permission as PluginPermission))
         : [],
@@ -187,16 +209,17 @@ export function parseRemoteMarket(
 export function mergeMarketMetadata(summary: PluginSummary, remote?: MarketPluginSummary): PluginSummary {
   if (!remote) return summary
   const localScreenshots = summary.screenshots ?? []
-  const screenshots = summary.dev && localScreenshots.length ? localScreenshots
-    : remote.screenshots?.length ? remote.screenshots : localScreenshots
+  const screenshots = summary.installed ? localScreenshots : remote.screenshots ?? []
   return {
     ...summary,
     category: remote.category,
     installs: summary.dev ? summary.installs : remote.installs,
     color: remote.color,
     glyph: remote.glyph,
-    icon: summary.icon || remote.icon,
+    icon: summary.installed ? summary.icon : remote.icon,
     screenshots,
+    readmeUrl: summary.installed ? summary.readmeUrl : remote.readmeUrl,
+    readmeImages: summary.installed ? undefined : remote.readmeImages,
     featured: summary.dev && summary.featured !== undefined ? summary.featured : remote.featured
   }
 }

@@ -73,3 +73,6 @@ assets/icons/AppIcon.iconset/
 # 本地工作流草稿与工具配置
 .wf-scratch/
 .zcodeignore
+
+# Bundled native helper build output
+/native/bin/

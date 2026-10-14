@@ -12,10 +12,17 @@
  * - onBeforeClose({ reason })          — 销毁前（Tab 关闭 / 卸载 / 退出），可同步 flush
  * - onDestroy()                        — 关闭已开始，best-effort
  * beforeClose 的 ack 策略：等插件 onBeforeClose 回调返回的 Promise 全部 settle
- * （任一返回 Promise 即等待）；无监听器 / 纯同步回调时延迟一小窗口再 ack。
+ * （任一返回 Promise 即等待）；无监听器 / 纯同步回调时在微任务检查点后 ack。
  * 主进程侧另有超时兜底，本地 cap 只防悬挂。
  */
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { QuickInputAction, QuickInputConfig, PluginBlob, PluginFileSaveResult, ClipboardCapabilities, ClipboardQuery } from '@shared/types/plugin-tools'
+import type { FocusTimerOptions, FocusTimerSnapshot, FocusTimerRecordPatch } from '@shared/types/focus-timer'
+import type { LocalFileHandle, LocalFilePickOptions, PluginInputContext } from '@shared/types/local-files'
+import type { SshWorkbenchRequest } from '@shared/types/ssh-workbench'
+import type { DbWorkbenchRequest } from '@shared/types/db-workbench'
+import type { MwWorkbenchRequest } from '@shared/types/mw-workbench'
+import type { DshWorkbenchEvent, DshWorkbenchRequest } from '@shared/types/dsh-workbench'
 import { BEFORE_CLOSE_ACK_LOCAL_CAP_MS } from '@shared/constants'
 import {
   IpcChannels,
@@ -64,12 +71,6 @@ import type {
   TableDetail,
   VaultSetResult
 } from '@shared/types/ssh-db'
-
-/**
- * beforeClose ack 前的最小等待窗口：无监听器 / 纯同步回调时，
- * 给插件同步 flush（含微任务内的 send）留出的余量。
- */
-const BEFORE_CLOSE_SYNC_FLUSH_MS = 50
 
 /** ack 等待的本地上限：略大于主进程超时，仅防悬挂；主进程超时是真正的兜底（配对常量在 @shared/constants） */
 
@@ -159,7 +160,7 @@ function emit(event: string, data: unknown): void {
 
 /**
  * 派发事件并收集监听器返回的 thenable（Promise）。
- * 回调抛错被吞（与 emit 一致）；返回非 Promise 的监听器不参与等待。
+ * 同步抛错转为失败结果；返回非 Promise 的监听器不参与等待。
  */
 function emitAndCollectPromises(event: string, data: unknown): Promise<unknown>[] {
   const set = listeners.get(event)
@@ -173,19 +174,19 @@ function emitAndCollectPromises(event: string, data: unknown): Promise<unknown>[
         typeof ret === 'object' &&
         typeof (ret as Promise<unknown>).then === 'function'
       ) {
-        pending.push(Promise.resolve(ret).catch(() => undefined))
+        pending.push(Promise.resolve(ret))
       }
-    } catch {
-      // 插件回调抛错不应影响其它监听器，也不阻塞 ack
+    } catch (error) {
+      pending.push(Promise.reject(error))
     }
   }
   return pending
 }
 
 /** 发送 beforeClose ack；通道可能已随销毁关闭，失败静默（主进程有超时兜底） */
-function sendBeforeCloseAck(): void {
+function sendBeforeCloseAck(event: 'beforeClose' | 'beforeSuspend', operationId: string, success = true): void {
   try {
-    ipcRenderer.send(IpcChannels.PluginLifecycleAck, { event: 'beforeClose' })
+    ipcRenderer.send(IpcChannels.PluginLifecycleAck, { event, operationId, success })
   } catch {
     // 通道可能已随销毁关闭
   }
@@ -239,6 +240,8 @@ export type PluginQuickQueryItem = {
   subtitle?: string
   explain?: string
   code?: string
+  /** 选择此业务结果时随 onEnter 传回；应为可通过 IPC 克隆的数据。 */
+  payload?: unknown
 }
 
 /** Quick provider 注册元数据 */
@@ -266,6 +269,194 @@ export type PluginHotkeyRegisterResult = {
   error?: string
 }
 
+/** net.socket 数据事件（enest.net.onNetData / enest.on('net.data')） */
+export type NetDataEvent = {
+  socketId: string
+  /** base64 编码的分片（64KB / 20ms 双阈值节流合并） */
+  chunk: string
+}
+
+/** net.socket 关闭事件（enest.net.onNetClose / enest.on('net.close')） */
+export type NetCloseEvent = {
+  socketId: string
+  reason: string
+}
+
+/** net.fetch 流式分片事件（enest.net.onChunk / enest.on('net.chunk')） */
+export type NetChunkEvent = {
+  reqId: string
+  /** base64（流式响应）或 utf8 文本（SSE data: 行） */
+  chunk: string
+  done?: boolean
+  error?: string
+}
+
+/** net.socket.connect 返回 */
+export type NetSocketHandle = {
+  socketId: string
+}
+
+/** net.socket.serveWs 返回：插件页内 new WebSocket(url) 直连 */
+export type NetWsEndpoint = {
+  url: string
+  /** 一次性 token（已含在 url query；单独暴露便于自定义拼装） */
+  token: string
+  port: number
+}
+
+/** net.socket.list 条目 */
+export type NetSocketListItem = {
+  socketId: string
+  host: string
+  port: number
+  tls: boolean
+  sessionId?: string
+  status: string
+  openedAt: number
+  rxBytes: number
+  txBytes: number
+  ws?: { port: number; url: string } | null
+}
+
+/** net.fetch 返回（stream:true 时 body 为空、分片走 net.chunk） */
+export type NetFetchResult = {
+  status: number
+  headers: Record<string, string>
+  body: string
+  streamed?: boolean
+  reqId?: string
+}
+
+/** lan.share 状态（start/status/list 返回；files 不含宿主侧路径） */
+export type LanShareStatus = {
+  shareId: string
+  port: number
+  /** 6 位数字取件码 */
+  code: string
+  files: Array<{ id: string; name: string; size: number }>
+  /** 本机内网 IPv4 列表（内网段优先），供展示与生成二维码 */
+  ips: string[]
+  startedAt: number
+  expiresAt: number
+  stopped?: boolean
+  stopReason?: string
+  activeConnections: number
+  downloads: number
+}
+
+/** lan.request 下载请求日志事件（enest.net.share.onRequest） */
+export type LanRequestEvent = {
+  shareId: string
+  file: string
+  ip: string
+  ts: number
+}
+
+/** lan.stopped 分享关停事件（enest.net.share.onStopped） */
+export type LanStoppedEvent = {
+  shareId: string
+  reason: string
+}
+
+/** agent.apps 条目 */
+export type AgentAppInfo = {
+  app: string
+  name: string
+  configPaths: string[]
+  installed: boolean
+  active: boolean
+}
+
+/** agent.read 返回 */
+export type AgentConfigSnapshot = {
+  app: string
+  files: Array<{ path: string; content: string; parsed: unknown; exists: boolean }>
+  active: boolean
+  readAt: number
+}
+
+/** agent.write 载荷：changes 为「文件内顶层键 → 新值」映射（最小侵入合并） */
+export type AgentWriteInput = {
+  app: string
+  changes: Record<string, unknown>
+  confirmed?: boolean
+}
+
+/** agent.write 返回 */
+export type AgentWriteResult = {
+  ok: boolean
+  app: string
+  written: string[]
+  backupId: string
+}
+
+/** agent.backups 条目 */
+export type AgentBackupInfo = {
+  id: string
+  app: string
+  createdAt: number
+  files: string[]
+}
+
+/** agent.sessions.list 条目文件 */
+export type AgentSessionFile = {
+  file: string
+  path: string
+  bytes: number
+  modifiedAt: number
+  project?: string
+}
+
+/** agent.sessions.list 返回（每个会话根目录一条） */
+export type AgentSessionsListResult = {
+  app: string
+  root: string
+  files: AgentSessionFile[]
+  truncated: boolean
+}
+
+/** agent.sessions.read 单行（json 解析失败为 null） */
+export type AgentSessionLine = {
+  n: number
+  json: unknown
+  raw: string
+  truncated: boolean
+}
+
+/** agent.sessions.read 返回 */
+export type AgentSessionsReadResult = {
+  app: string
+  file: string
+  path: string
+  bytes: number
+  readBytes: number
+  truncated: boolean
+  lines: AgentSessionLine[]
+}
+
+/** sys.processes 条目 */
+export type SysProcessInfo = {
+  pid: number
+  pcpu: number
+  pmem: number
+  /** 常驻内存（KB） */
+  rss: number
+  user: string
+  command: string
+}
+
+/** sys.ports 条目 */
+export type SysPortInfo = {
+  command: string
+  pid: number
+  user: string
+  protocol: string
+  /** 监听地址（IPv4/IPv6 原样） */
+  address: string
+  port: number
+  name: string
+}
+
 type Unsubscribe = () => void
 
 export interface EnestPluginApi {
@@ -275,16 +466,27 @@ export interface EnestPluginApi {
   resize(size: { width?: number; height?: number }): Promise<boolean>
   /** UI 命名空间：与 PLUGIN_SPEC 的 enest.ui.* 对齐 */
   ui: {
+    /** Classic/orb Tab title, up to 120 characters; empty restores the manifest name. */
     setTitle(title: string): Promise<boolean>
+    /** 1–2 visible Unicode code points, never a URL/path; empty restores the package icon. */
     setIcon(icon: string): Promise<boolean>
+    /** Classic/orb badge: integer 0–999999 or text up to 8 characters; empty clears it. */
     setBadge(badge: string | number): Promise<boolean>
-    /** 内容区尺寸建议（CSS px）；Quick 即时调整，主窗仅记录并保持用户窗口尺寸。需 ui.resize 权限。 */
+    /** 内容区尺寸建议（CSS px）；Quick 即时调整，主窗仅记录并保持用户窗口尺寸。基础能力，无需声明或授权。 */
     resize(size: { width?: number; height?: number }): Promise<boolean>
     /**
      * 期望内容高度（px）：Quick 内嵌容器据此调小窗高度；主窗 Tab 场景仅记录。
-     * 需 ui.resize 权限。
+     * 基础能力，无需声明或授权。
      */
     setHeight(height: number): Promise<boolean>
+    /** Move this plugin's existing view to the desktop without reloading it. */
+    openInShell(): Promise<boolean>
+    openSettings(): Promise<boolean>
+    /** Focused editor/terminal/overlay owns keys that Quick otherwise intercepts. */
+    setInputContext(context: PluginInputContext): Promise<boolean>
+    focus(): Promise<boolean>
+    /** Return focus to the Quick global search without closing this plugin. */
+    focusSearch(): Promise<boolean>
     /** 由壳子 Toast 统一渲染的轻提示；与 notify（系统通知）分工 */
     toast(payload: { message: string; type?: PluginToastType }): Promise<boolean>
     /** 读取当前主题变量（themeAware 插件可主动拉取） */
@@ -338,7 +540,7 @@ export interface EnestPluginApi {
   }
   /**
    * 贡献点命名空间（插槽化架构）：Quick 搜索 provider 运行时注册与查询回传。
-   * 需 manifest permissions 声明 'contribute'。
+   * 需声明 contribute 并取得授权：注册后会接收 Quick 全局搜索文本。
    */
   contribute: {
     /**
@@ -359,12 +561,35 @@ export interface EnestPluginApi {
     register(section: {
       id: string
       title: string
-      items: Array<{ key: string; type: string; label: string; default?: unknown }>
+      items: Array<{ key: string; type: string; label: string; default?: unknown; entry?: { code: string; payload?: unknown }; options?: Array<{ label: string; value: unknown }>; min?: number; max?: number; step?: number }>
     }): Promise<boolean>
     get(key: string): Promise<unknown>
     set(key: string, value: unknown): Promise<boolean>
+    onChange(cb: (event: { key: string; value: unknown }) => void): Unsubscribe
+  }
+  quickInput: {
+    configure(config: QuickInputConfig): Promise<boolean>
+    release(): Promise<boolean>
+    escape(): Promise<boolean>
+    onChange(cb: (value: string) => void): Unsubscribe
+    onAction(cb: (action: QuickInputAction) => void): Unsubscribe
+  }
+  focusTimer: {
+    start(options: Partial<FocusTimerOptions>): Promise<FocusTimerSnapshot>
+    get(): Promise<FocusTimerSnapshot>
+    pause(): Promise<FocusTimerSnapshot>
+    resume(): Promise<FocusTimerSnapshot>
+    skip(): Promise<FocusTimerSnapshot>
+    stop(): Promise<FocusTimerSnapshot>
+    updateRecord(recordId: string, patch: FocusTimerRecordPatch): Promise<FocusTimerSnapshot>
+    onChange(cb: (snapshot: FocusTimerSnapshot) => void): Unsubscribe
   }
   storage: {
+    blobs: {
+      put(input: { dataUrl: string; name?: string }): Promise<PluginBlob>
+      get(id: string): Promise<{ dataUrl: string; bytes: number } | null>
+      remove(id: string): Promise<boolean>
+    }
     get(key: string): Promise<unknown>
     set(key: string, value: unknown): Promise<boolean>
     remove(key: string): Promise<boolean>
@@ -378,11 +603,18 @@ export interface EnestPluginApi {
     }
   }
   clipboard: {
+    capabilities(): Promise<ClipboardCapabilities>
+    requestPermission(): Promise<ClipboardCapabilities>
     readText(): Promise<string>
     writeText(text: string): Promise<boolean>
     readImage(): Promise<{ dataUrl: string; width: number; height: number } | null>
     writeImage(dataUrl: string): Promise<boolean>
     history: {
+      query(options?: ClipboardQuery): Promise<{ items: ClipboardHistoryEntry[]; total: number; nextCursor: number | null }>
+      copy(id: string, options?: { plainText?: boolean; paths?: boolean }): Promise<boolean>
+      paste(id: string): Promise<{ pasted: boolean; reason?: string }>
+      reveal(id: string, fileIndex?: number): Promise<boolean>
+      onChange(cb: () => void): Unsubscribe
       list(opts?: { limit?: number }): Promise<ClipboardHistoryEntry[]>
       get(id: string): Promise<(ClipboardHistoryEntry & { dataUrl?: string }) | null>
       remove(id: string): Promise<boolean>
@@ -417,15 +649,136 @@ export interface EnestPluginApi {
     list(): Promise<Array<{ pinId: string }>>
   }
   net: {
+    /**
+     * 受控 HTTP(S) 请求：GET/POST/PUT/PATCH/DELETE/HEAD；明文 http 需 manifest
+     * `net.allowInsecure`。stream:true 时立即返回元信息，响应体经 net.chunk
+     * 分片推送（上限 32MB）；text/event-stream 按 data: 行转发。
+     */
     fetch(req: {
       url: string
-      method?: 'GET' | 'POST'
+      method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD'
       headers?: Record<string, string>
       body?: string
       timeoutMs?: number
-    }): Promise<{ status: number; headers: Record<string, string>; body: string }>
+      /** 流式响应 / SSE 模式（分片走 onChunk） */
+      stream?: boolean
+    }): Promise<NetFetchResult>
+    websocket: {
+      connect(input: { url: string; protocols?: string[] }): Promise<{ socketId: string }>
+      send(socketId: string, data: string, binary?: boolean): Promise<{ sent: number }>
+      close(socketId: string): Promise<boolean>
+      /** Binary messages carry base64 data; text messages carry UTF-8 text. */
+      onMessage(cb: (event: { socketId: string; data: string; binary: boolean }) => void): Unsubscribe
+      onClose(cb: (event: { socketId: string; code: number; reason: string }) => void): Unsubscribe
+    }
+    socket: {
+      /**
+       * 建立出站 TCP / TLS 连接（仅 outgoing）。host 可为 127.0.0.1 衔接
+       * ssh.workbench tunnel.open 打开的本地隧道口。需 net.socket 权限。
+       */
+      connect(input: {
+        sessionId?: string
+        host: string
+        port: number
+        tls?: boolean
+        timeoutMs?: number
+      }): Promise<NetSocketHandle>
+      /** 发送数据（base64 优先识别，否则按 utf8 文本）；受 1MB/s 令牌桶限速 */
+      send(socketId: string, data: string): Promise<{ sent: number }>
+      /** 关闭连接（插件侧主动关闭；插件关闭时宿主自动释放） */
+      close(socketId: string): Promise<boolean>
+      /** 本插件全部 socket 概览（含 ws 桥端口） */
+      list(): Promise<NetSocketListItem[]>
+      /**
+       * 为已连接 socket 起本地 WebSocket 桥（仅 127.0.0.1 随机端口，
+       * 一次性 token）：插件页内 new WebSocket(url) 直连该 TCP 流的
+       * 双向二进制通道（noVNC / ironrdp-wasm 场景，避免逐帧 IPC）。
+       */
+      serveWs(socketId: string): Promise<NetWsEndpoint>
+    }
+    /** 订阅 socket 数据分片（base64）；等价 enest.on('net.data') */
+    onNetData(cb: (event: NetDataEvent) => void): Unsubscribe
+    /** 订阅 socket 关闭；等价 enest.on('net.close') */
+    onNetClose(cb: (event: NetCloseEvent) => void): Unsubscribe
+    /** 订阅 fetch 流式分片 / SSE data 行；等价 enest.on('net.chunk') */
+    onChunk(cb: (event: NetChunkEvent) => void): Unsubscribe
+    /**
+     * 局域网传件（lan.share 权限）：起限时 http 下载服务（0.0.0.0 随机端口，
+     * 局域网可见——手机扫码即下），6 位数字取件码门禁、文件白名单、
+     * 只读 GET（Range 支持）、并发连接上限、到期自动关停。
+     */
+    share: {
+      /** 起分享：files 仅支持经用户选择的句柄 {handleId}；minutes 1–120（缺省 10） */
+      start(input: {
+        files: Array<{ handleId: string; name?: string }>
+        minutes?: number
+      }): Promise<LanShareStatus>
+      /** 查单个分享状态 */
+      status(shareId: string): Promise<LanShareStatus>
+      /** 本插件全部分享 */
+      list(): Promise<LanShareStatus[]>
+      /** 手动停止 */
+      stop(shareId: string): Promise<boolean>
+      /** 订阅下载请求日志（文件/ip/时间）；等价 enest.on('lan.request') */
+      onRequest(cb: (event: LanRequestEvent) => void): Unsubscribe
+      /** 订阅分享关停（到期 / stop / 插件关闭）；等价 enest.on('lan.stopped') */
+      onStopped(cb: (event: LanStoppedEvent) => void): Unsubscribe
+    }
+  }
+  /**
+   * 本地文件改名（fs.rename 权限）：仅对 localFiles 句柄白名单内文件做
+   * 同目录改名；newName 必须是纯文件名（禁路径分隔符 / .. / 盘符）。
+   */
+  fs: {
+    /** 单文件改名；返回 { oldName, newName } */
+    rename(input: { handleId: string; newName: string }): Promise<{ handleId: string; oldName: string; newName: string }>
+    /** 批量改名；必须 confirmed: true（危险操作二次确认）；逐项返回 ok/error */
+    renameBatch(input: {
+      items: Array<{ handleId: string; newName: string }>
+      confirmed?: boolean
+    }): Promise<{
+      results: Array<{ handleId: string; oldName: string; newName: string; ok: boolean; error?: string }>
+      succeeded: number
+      failed: number
+    }>
+  }
+  /**
+   * AI CLI 配置白名单读写（config.agent 权限）：
+   * 10 个应用的 adapter（路径白名单硬编码）；写前自动快照（保留 20 份）。
+   */
+  agent: {
+    /** 可用应用 + 探测到的安装状态 */
+    apps(): Promise<AgentAppInfo[]>
+    /** 读配置原文与解析结果（不修改） */
+    read(app: string): Promise<AgentConfigSnapshot>
+    /**
+     * 最小侵入写入：只替换给定顶层键（TOML/JSON 分别处理，保留注释与其余内容）；
+     * 写前自动快照。changes[filePath?] 按 app 主配置文件定位。
+     */
+    write(input: AgentWriteInput): Promise<AgentWriteResult>
+    /** 某应用的快照列表（时间倒序） */
+    backups(app: string): Promise<AgentBackupInfo[]>
+    /** 从快照恢复 */
+    restore(input: { app: string; id: string }): Promise<boolean>
+    /** 会话日志只读：白名单目录下 jsonl 文件清单（大小+mtime，mtime 倒序） */
+    sessions: {
+      list(app: string): Promise<AgentSessionsListResult[]>
+      /** 逐行读会话文件（默认上限 512KB/文件；尾半行丢弃） */
+      read(input: { app: string; file: string; maxBytes?: number }): Promise<AgentSessionsReadResult>
+    }
+  }
+  /** 本机进程与端口查看（sys.inspect，1s 缓存）/ 终止（sys.control） */
+  sys: {
+    processes(): Promise<SysProcessInfo[]>
+    ports(): Promise<SysPortInfo[]>
+    /**
+     * 结束进程：需 sys.control 权限与宿主原生确认（保护壳子进程、父进程与 PID 1）。
+     * signal：TERM（缺省）/ KILL / INT。
+     */
+    kill(pid: number, opts?: { signal?: 'TERM' | 'KILL' | 'INT'; confirmed?: boolean }): Promise<boolean>
   }
   shell: {
+    saveFile(input: { defaultName: string; dataUrl: string }): Promise<PluginFileSaveResult | null>
     openExternal(url: string): Promise<boolean>
     saveTextFile(payload: {
       defaultName?: string
@@ -434,14 +787,27 @@ export interface EnestPluginApi {
     }): Promise<{ ok: boolean; path: string } | null>
   }
   notify(payload: { title?: string; body?: string }): Promise<boolean>
-  /** 密钥保险库：set→secretRef；无明文 get。需 vault.write */
+  /** 插件私有密钥保险库：set→secretRef；无明文 get。基础能力，无需声明或授权；系统加密不可用时保存失败。 */
   vault: {
     set(key: string, secret: string): Promise<VaultSetResult>
     has(keyOrRef: string): Promise<boolean>
     remove(keyOrRef: string): Promise<boolean>
   }
   /** SSH 运行时：session / exec / metrics / completion / sftp */
+  localFiles: {
+    /** Read a chosen file; UTF-8 text or a base64 data URL. Hard limit 32 MiB, two simultaneous reads. */
+    read(input: { handleId: string; encoding?: 'text' | 'dataUrl'; maxBytes?: number }): Promise<string>
+    pick(options?: LocalFilePickOptions): Promise<LocalFileHandle[]>
+    pickSave(options?: { defaultName?: string }): Promise<LocalFileHandle | null>
+    fromDrop(files: File[]): Promise<LocalFileHandle[]>
+    list(input: { handleId: string; relativePath?: string }): Promise<{ directory: LocalFileHandle; entries: LocalFileHandle[] }>
+    reveal(handleId: string): Promise<boolean>
+    prepareDrag(input: { handleIds: string[] }): Promise<{ exportId: string }>
+    startDrag(exportId: string): Promise<boolean>
+    endDrag(): Promise<boolean>
+  }
   ssh: {
+    workbench(request: SshWorkbenchRequest): Promise<unknown>
     connect(input: SshConnectInput): Promise<SshSessionInfo>
     write(sessionId: string, data: string): Promise<boolean>
     resize(sessionId: string, cols: number, rows: number): Promise<boolean>
@@ -462,6 +828,7 @@ export interface EnestPluginApi {
         sessionId: string
         line: string
         cursor?: number
+        cwd?: string
         history?: string[]
         snippets?: Array<{ title: string; command: string }>
       }): Promise<SshCompletionResult>
@@ -477,25 +844,22 @@ export interface EnestPluginApi {
     }
     /** 订阅 SFTP 传输进度（download/upload 过程推送）；等价 enest.on('ssh.transfer') */
     onSshTransfer(cb: (event: SshTransferEvent) => void): Unsubscribe
-    pickLocalFile(opts?: {
-      properties?: Array<'openFile' | 'openDirectory'>
-      /** 插件兼容别名：file / dir|directory|folder */
-      mode?: 'file' | 'dir' | 'directory' | 'folder'
-    }): Promise<string | null>
+    pickLocalFile(opts?: LocalFilePickOptions): Promise<LocalFileHandle | null>
   }
   /** 数据库运行时：驱动会话 / 查询 / 补全 / schema / applyChanges / 导入 */
   db: {
+    workbench(request: DbWorkbenchRequest): Promise<unknown>
     test(config: DbConnectionConfig): Promise<DbTestResult>
     open(
       input: { config: DbConnectionConfig; sessionKey?: string } | DbConnectionConfig
     ): Promise<DbSessionInfo>
     close(sessionKey: string): Promise<boolean>
     listSessions(): Promise<DbSessionInfo[]>
-    pickSqliteFile(): Promise<string | null>
-    pickImportFile(): Promise<string | null>
+    pickSqliteFile(options?: { createIfMissing?: boolean; readOnly?: boolean }): Promise<LocalFileHandle | null>
+    pickImportFile(): Promise<LocalFileHandle | null>
     execute(input: DbExecuteInput): Promise<QueryResult>
     explain(input: { sessionKey: string; sql: string }): Promise<QueryResult>
-    cancel(sessionKey: string | { sessionKey?: string }): Promise<boolean>
+    cancel(sessionKey: string | { sessionKey?: string; executionId?: string }): Promise<boolean>
     applyChanges(input: DbApplyChangesInput): Promise<BatchResult>
     importPreview(input: DbImportPreviewInput): Promise<DbImportPreviewResult>
     importRun(input: DbImportRunInput): Promise<DbImportRunResult>
@@ -521,6 +885,16 @@ export interface EnestPluginApi {
       list(): Promise<DbDialectInfo[]>
     }
   }
+  /** 中间件控制台运行时：连接 / 浏览 / 变更（kafka / rabbitmq / mqtt / rocketmq） */
+  mw: {
+    workbench(request: MwWorkbenchRequest): Promise<unknown>
+  }
+  /** DSH 驾驶舱运行时：runtime 探测 / web+sdk 进程 / profile / 备份 / 热更新 */
+  dsh: {
+    workbench(request: DshWorkbenchRequest): Promise<unknown>
+    /** dsh:* 事件（web-ready/web-port/sdk-notify/runtime-progress…）；等价 on('dsh.event') */
+    onDshEvent(cb: (event: DshWorkbenchEvent) => void): Unsubscribe
+  }
   on(event: string, cb: Listener): void
   off(event: string, cb: Listener): void
 
@@ -530,6 +904,8 @@ export interface EnestPluginApi {
   /** 退到后台：其它 Tab 成为 active；isKill 恒 false */
   onOut(cb: (event: PluginOutEvent) => void): Unsubscribe
   /** 即将销毁：可在此 flush 草稿；回调返回 Promise 时 preload 等其 settle 再 ack */
+  onBeforeSuspend(cb: () => void | Promise<unknown>): Unsubscribe
+  runtime: { acquireActivity(reason: string): Promise<string>; releaseActivity(token: string): Promise<void> }
   onBeforeClose(cb: (event: PluginBeforeCloseEvent) => void | Promise<unknown>): Unsubscribe
   /** 关闭已开始（best-effort），通常已在 beforeClose 完成清理 */
   onDestroy(cb: () => void): Unsubscribe
@@ -547,6 +923,12 @@ export interface EnestPluginApi {
   onModeChange(cb: (mode: PluginLaunchMode) => void): Unsubscribe
 }
 
+function subscribeToolEvent<T>(event: string, cb: (data: T) => void): Unsubscribe {
+  const handler: Listener = data => cb(data as T)
+  api.on(event, handler)
+  return () => api.off(event, handler)
+}
+
 const api: EnestPluginApi = {
   setTitle: (title: string) => call<boolean>('ui.setTitle', [title]),
   setIcon: (icon: string) => call<boolean>('ui.setIcon', [icon]),
@@ -558,6 +940,11 @@ const api: EnestPluginApi = {
     setBadge: (badge: string | number) => call<boolean>('ui.setBadge', [badge]),
     resize: (size: { width?: number; height?: number }) => call<boolean>('ui.resize', [size]),
     setHeight: (height: number) => call<boolean>('ui.setHeight', [height]),
+    openInShell: () => call<boolean>('ui.openInShell', []),
+    openSettings: () => call<boolean>('ui.openSettings'),
+    setInputContext: (context) => call<boolean>('ui.setInputContext', [context]),
+    focus: () => call<boolean>('ui.focus', []),
+    focusSearch: () => call<boolean>('ui.focusSearch', []),
     toast: (payload: { message: string; type?: PluginToastType }) =>
       call<boolean>('ui.toast', [payload]),
     getThemeTokens: () =>
@@ -623,9 +1010,32 @@ const api: EnestPluginApi = {
   settings: {
     register: (section) => call<boolean>('settings.register', [section]),
     get: (key: string) => call<unknown>('settings.get', [key]),
-    set: (key: string, value: unknown) => call<boolean>('settings.set', [key, value])
+    set: (key: string, value: unknown) => call<boolean>('settings.set', [key, value]),
+    onChange: cb => subscribeToolEvent('settings-change', cb)
+  },
+  quickInput: {
+    configure: config => call('quickInput.configure', [config]),
+    release: () => call('quickInput.release'),
+    escape: () => call('quickInput.escape'),
+    onChange: cb => subscribeToolEvent('quick-input-change', cb),
+    onAction: cb => subscribeToolEvent('quick-input-action', cb)
+  },
+  focusTimer: {
+    start: options => call('focusTimer.start', [options]),
+    get: () => call('focusTimer.get'),
+    pause: () => call('focusTimer.pause'),
+    resume: () => call('focusTimer.resume'),
+    skip: () => call('focusTimer.skip'),
+    stop: () => call('focusTimer.stop'),
+    updateRecord: (recordId, patch) => call('focusTimer.updateRecord', [recordId, patch]),
+    onChange: cb => subscribeToolEvent('focus-timer-change', cb)
   },
   storage: {
+    blobs: {
+      put: input => call('storage.blobs.put', [input]),
+      get: id => call('storage.blobs.get', [id]),
+      remove: id => call('storage.blobs.remove', [id])
+    },
     get: (key: string) => call<unknown>('storage.get', [key]),
     set: (key: string, value: unknown) => call<boolean>('storage.set', [key, value]),
     remove: (key: string) => call<boolean>('storage.remove', [key]),
@@ -638,11 +1048,18 @@ const api: EnestPluginApi = {
     }
   },
   clipboard: {
+    capabilities: () => call('clipboard.capabilities'),
+    requestPermission: () => call('clipboard.requestPermission'),
     readText: () => call<string>('clipboard.readText'),
     writeText: (text: string) => call<boolean>('clipboard.writeText', [text]),
     readImage: () => call<{ dataUrl: string; width: number; height: number } | null>('clipboard.readImage'),
     writeImage: (dataUrl: string) => call<boolean>('clipboard.writeImage', [dataUrl]),
     history: {
+      query: options => call('clipboard.history.query', [options]),
+      copy: (id, options) => call('clipboard.history.copy', [id, options]),
+      paste: id => call('clipboard.history.paste', [id]),
+      reveal: (id, fileIndex) => call('clipboard.history.reveal', [id, fileIndex]),
+      onChange: cb => subscribeToolEvent('clipboard-history-change', cb),
       list: (opts?: { limit?: number }) => call<ClipboardHistoryEntry[]>('clipboard.history.list', [opts]),
       get: (id: string) =>
         call<(ClipboardHistoryEntry & { dataUrl?: string }) | null>('clipboard.history.get', [id]),
@@ -679,14 +1096,124 @@ const api: EnestPluginApi = {
   net: {
     fetch: (req: {
       url: string
-      method?: 'GET' | 'POST'
+      method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD'
       headers?: Record<string, string>
       body?: string
       timeoutMs?: number
+      stream?: boolean
+    }) => call<NetFetchResult>('net.fetch', [req]),
+    websocket: {
+      connect: input => call<{ socketId: string }>('net.websocket.connect', [input]),
+      send: (socketId, data, binary = false) => call<{ sent: number }>('net.websocket.send', [socketId, data, binary]),
+      close: socketId => call<boolean>('net.websocket.close', [socketId]),
+      onMessage(cb) {
+        const handler: Listener = data => cb(data as { socketId: string; data: string; binary: boolean })
+        api.on('net.websocket.message', handler)
+        return () => api.off('net.websocket.message', handler)
+      },
+      onClose(cb) {
+        const handler: Listener = data => cb(data as { socketId: string; code: number; reason: string })
+        api.on('net.websocket.close', handler)
+        return () => api.off('net.websocket.close', handler)
+      }
+    },
+    socket: {
+      connect: (input: {
+        sessionId?: string
+        host: string
+        port: number
+        tls?: boolean
+        timeoutMs?: number
+      }) => call<NetSocketHandle>('net.socket.connect', [input]),
+      send: (socketId: string, data: string) =>
+        call<{ sent: number }>('net.socket.send', [socketId, data]),
+      close: (socketId: string) => call<boolean>('net.socket.close', [socketId]),
+      list: () => call<NetSocketListItem[]>('net.socket.list'),
+      serveWs: (socketId: string) => call<NetWsEndpoint>('net.socket.serveWs', [socketId])
+    },
+    onNetData(cb) {
+      const handler: Listener = (data) => {
+        const p = data as NetDataEvent
+        if (p && typeof p === 'object' && typeof p.socketId === 'string' && typeof p.chunk === 'string') cb(p)
+      }
+      api.on('net.data', handler)
+      return () => api.off('net.data', handler)
+    },
+    onNetClose(cb) {
+      const handler: Listener = (data) => {
+        const p = data as NetCloseEvent
+        if (p && typeof p === 'object' && typeof p.socketId === 'string') cb(p)
+      }
+      api.on('net.close', handler)
+      return () => api.off('net.close', handler)
+    },
+    onChunk(cb) {
+      const handler: Listener = (data) => {
+        const p = data as NetChunkEvent
+        if (p && typeof p === 'object' && typeof p.reqId === 'string') cb(p)
+      }
+      api.on('net.chunk', handler)
+      return () => api.off('net.chunk', handler)
+    },
+    share: {
+      start: (input: {
+        files: Array<{ handleId: string; name?: string }>
+        minutes?: number
+      }) => call<LanShareStatus>('lan.share.start', [input]),
+      status: (shareId: string) => call<LanShareStatus>('lan.share.status', [shareId]),
+      list: () => call<LanShareStatus[]>('lan.share.list'),
+      stop: (shareId: string) => call<boolean>('lan.share.stop', [shareId]),
+      onRequest(cb) {
+        const handler: Listener = (data) => {
+          const p = data as LanRequestEvent
+          if (p && typeof p === 'object' && typeof p.shareId === 'string' && typeof p.file === 'string') cb(p)
+        }
+        api.on('lan.request', handler)
+        return () => api.off('lan.request', handler)
+      },
+      onStopped(cb) {
+        const handler: Listener = (data) => {
+          const p = data as LanStoppedEvent
+          if (p && typeof p === 'object' && typeof p.shareId === 'string' && typeof p.reason === 'string') cb(p)
+        }
+        api.on('lan.stopped', handler)
+        return () => api.off('lan.stopped', handler)
+      }
+    }
+  },
+  fs: {
+    rename: (input: { handleId: string; newName: string }) =>
+      call<{ handleId: string; oldName: string; newName: string }>('fs.rename', [input]),
+    renameBatch: (input: {
+      items: Array<{ handleId: string; newName: string }>
+      confirmed?: boolean
     }) =>
-      call<{ status: number; headers: Record<string, string>; body: string }>('net.fetch', [req])
+      call<{
+        results: Array<{ handleId: string; oldName: string; newName: string; ok: boolean; error?: string }>
+        succeeded: number
+        failed: number
+      }>('fs.renameBatch', [input])
+  },
+  agent: {
+    apps: () => call<AgentAppInfo[]>('agent.apps'),
+    read: (app: string) => call<AgentConfigSnapshot>('agent.read', [app]),
+    write: (input: AgentWriteInput) => call<AgentWriteResult>('agent.write', [input]),
+    backups: (app: string) => call<AgentBackupInfo[]>('agent.backups', [app]),
+    restore: (input: { app: string; id: string }) => call<boolean>('agent.restore', [input]),
+    sessions: {
+      list: (app: string) => call<AgentSessionsListResult[]>('agent.sessions.list', [app]),
+      read: (input: { app: string; file: string; maxBytes?: number }) =>
+        call<AgentSessionsReadResult>('agent.sessions.read', [input])
+    }
+  },
+  sys: {
+    processes: () => call<SysProcessInfo[]>('sys.processes'),
+    ports: () => call<SysPortInfo[]>('sys.ports'),
+    kill: (pid: number, opts?: { signal?: 'TERM' | 'KILL' | 'INT'; confirmed?: boolean }) =>
+      call<boolean>('sys.kill', [pid, opts?.signal ?? 'TERM', opts?.confirmed === true])
   },
   shell: {
+    saveFile: input => call('shell.saveFile', [input]),
     openExternal: (url: string) => call<boolean>('shell.openExternal', [url]),
     /** 导出落盘：系统保存对话框 + 写文件 */
     saveTextFile: (payload: { defaultName?: string; filename?: string; content: string }) =>
@@ -698,7 +1225,23 @@ const api: EnestPluginApi = {
     has: (keyOrRef: string) => call<boolean>('vault.has', [keyOrRef]),
     remove: (keyOrRef: string) => call<boolean>('vault.remove', [keyOrRef])
   },
+  localFiles: {
+    read: input => call<string>('localFiles.read', [input]),
+    pick: (options) => call<LocalFileHandle[]>('localFiles.pick', [options ?? {}]),
+    pickSave: (options) => call<LocalFileHandle | null>('localFiles.pickSave', [options ?? {}]),
+    fromDrop: (files) => {
+      const paths = Array.from(files).map((file) => webUtils.getPathForFile(file))
+      if (paths.some((path) => !path)) return Promise.reject(new Error('only files dragged from this computer are supported'))
+      return call<LocalFileHandle[]>('localFiles.fromDrop', [paths])
+    },
+    list: (input) => call('localFiles.list', [input]),
+    reveal: (handleId) => call('localFiles.reveal', [handleId]),
+    prepareDrag: (input) => call('localFiles.prepareDrag', [input]),
+    startDrag: (exportId) => call('localFiles.startDrag', [exportId]),
+    endDrag: () => call('localFiles.endDrag', [])
+  },
   ssh: {
+    workbench: (request) => call('ssh.workbench', [request]),
     connect: (input: SshConnectInput) => call<SshSessionInfo>('ssh.connect', [input]),
     write: (sessionId: string, data: string) => call<boolean>('ssh.write', [sessionId, data]),
     resize: (sessionId: string, cols: number, rows: number) =>
@@ -758,23 +1301,20 @@ const api: EnestPluginApi = {
       api.on('ssh.transfer', handler)
       return () => api.off('ssh.transfer', handler)
     },
-    pickLocalFile: (opts?: {
-      properties?: Array<'openFile' | 'openDirectory'>
-      /** 插件兼容别名：file / dir|directory|folder */
-      mode?: 'file' | 'dir' | 'directory' | 'folder'
-    }) => call<string | null>('ssh.pickLocalFile', [opts])
+    pickLocalFile: (opts?: LocalFilePickOptions) => call<LocalFileHandle | null>('ssh.pickLocalFile', [opts])
   },
   db: {
+    workbench: (request) => call('db.workbench', [request]),
     test: (config: DbConnectionConfig) => call<DbTestResult>('db.test', [config]),
     open: (input: { config: DbConnectionConfig; sessionKey?: string } | DbConnectionConfig) =>
       call<DbSessionInfo>('db.open', [input]),
     close: (sessionKey: string) => call<boolean>('db.close', [sessionKey]),
     listSessions: () => call<DbSessionInfo[]>('db.listSessions'),
-    pickSqliteFile: () => call<string | null>('db.pickSqliteFile'),
-    pickImportFile: () => call<string | null>('db.pickImportFile'),
+    pickSqliteFile: (options) => call<LocalFileHandle | null>('db.pickSqliteFile', [options ?? {}]),
+    pickImportFile: () => call<LocalFileHandle | null>('db.pickImportFile'),
     execute: (input: DbExecuteInput) => call<QueryResult>('db.execute', [input]),
     explain: (input: { sessionKey: string; sql: string }) => call<QueryResult>('db.explain', [input]),
-    cancel: (sessionKey: string | { sessionKey?: string }) =>
+    cancel: (sessionKey: string | { sessionKey?: string; executionId?: string }) =>
       call<boolean>('db.cancel', [sessionKey]),
     applyChanges: (input: DbApplyChangesInput) => call<BatchResult>('db.applyChanges', [input]),
     importPreview: (input: DbImportPreviewInput) => call<DbImportPreviewResult>('db.importPreview', [input]),
@@ -807,6 +1347,22 @@ const api: EnestPluginApi = {
       list: () => call<DbDialectInfo[]>('db.dialects.list')
     }
   },
+  mw: {
+    /** 中间件控制台统一入口；事件流经 on('mw.data'|'mw.error') */
+    workbench: (request: MwWorkbenchRequest) => call('mw.workbench', [request])
+  },
+  dsh: {
+    /** DSH 统一入口；事件流经 onDshEvent / on('dsh.event') */
+    workbench: (request: DshWorkbenchRequest) => call('dsh.workbench', [request]),
+    onDshEvent: (cb: (event: DshWorkbenchEvent) => void): Unsubscribe => {
+      const wrapped = ((payload: unknown) => cb(payload as DshWorkbenchEvent)) as Listener
+      if (!listeners.has('dsh.event')) listeners.set('dsh.event', new Set())
+      listeners.get('dsh.event')!.add(wrapped)
+      return () => {
+        listeners.get('dsh.event')?.delete(wrapped)
+      }
+    }
+  },
   on(event: string, cb: Listener) {
     if (!listeners.has(event)) listeners.set(event, new Set())
     listeners.get(event)!.add(cb)
@@ -824,6 +1380,11 @@ const api: EnestPluginApi = {
     const handler: Listener = (data) => cb(data as PluginOutEvent)
     api.on('out', handler)
     return () => api.off('out', handler)
+  },
+  runtime: { acquireActivity: (reason) => call<string>('runtime.acquire', [reason]), releaseActivity: (token) => call<void>('runtime.release', [token]) },
+  onBeforeSuspend(cb) {
+    api.on('beforeSuspend', cb)
+    return () => api.off('beforeSuspend', cb)
   },
   onBeforeClose(cb) {
     // 透传 cb 的返回值：返回 Promise 时 dispatch 侧据此等待 settle 再 ack
@@ -855,33 +1416,33 @@ ipcRenderer.on(IpcChannels.PluginLifecycle, (_e, message: PluginLifecycleMessage
         tabId: message.tabId,
         mode: message.mode ?? 'shell',
         code: message.code,
+        type: message.type,
         payload: message.payload
       } satisfies PluginEnterEvent)
       break
     case 'out':
       emit('out', { isKill: false } satisfies PluginOutEvent)
       break
+    case 'beforeSuspend':
     case 'beforeClose': {
       // 等插件回调返回的 Promise settle 后再 ack；无监听器 / 纯同步回调时
-      // 延迟一个小窗口（给同步 flush 留余量）。主进程另有超时兜底。
-      const pending = emitAndCollectPromises('beforeClose', {
-        reason: message.reason
-      } satisfies PluginBeforeCloseEvent)
+      // 用微任务确认（同步 IPC 已按序发出），避免隐藏页 timer 节流。主进程另有超时兜底。
+      const pending = emitAndCollectPromises(message.event, message.event === 'beforeClose' ? { reason: message.reason } satisfies PluginBeforeCloseEvent : undefined)
       let acked = false
-      const ackOnce = () => {
+      const ackOnce = (success = true) => {
         if (acked) return
         acked = true
-        sendBeforeCloseAck()
+        sendBeforeCloseAck(message.event, message.operationId, success)
       }
       if (pending.length > 0) {
         // 任一 handler 返回 Promise 即等待全部 settle；本地 cap 防悬挂
-        const cap = setTimeout(ackOnce, BEFORE_CLOSE_ACK_LOCAL_CAP_MS)
-        Promise.all(pending).then(() => {
+        const cap = setTimeout(() => ackOnce(false), BEFORE_CLOSE_ACK_LOCAL_CAP_MS)
+        Promise.allSettled(pending).then((results) => {
           clearTimeout(cap)
-          ackOnce()
+          ackOnce(results.every((result) => result.status === 'fulfilled'))
         })
       } else {
-        setTimeout(ackOnce, BEFORE_CLOSE_SYNC_FLUSH_MS)
+        queueMicrotask(() => ackOnce())
       }
       break
     }
@@ -894,7 +1455,17 @@ ipcRenderer.on(IpcChannels.PluginLifecycle, (_e, message: PluginLifecycleMessage
 // 主题/热键/语言/Quick 查询广播（PluginHost.broadcastTheme 等 → PluginEvent 通道）
 ipcRenderer.on(IpcChannels.PluginEvent, (_e, payload: PluginEventPayload) => {
   if (!payload || typeof payload !== 'object') return
-  if (payload.type === 'theme-change') {
+  if (payload.type === 'quick-input-change') {
+    emit(payload.type, payload.value)
+  } else if (payload.type === 'quick-input-action') {
+    emit(payload.type, payload.action)
+  } else if (payload.type === 'settings-change') {
+    emit(payload.type, { key: payload.key, value: payload.value })
+  } else if (payload.type === 'clipboard-history-change') {
+    emit(payload.type, undefined)
+  } else if (payload.type === 'focus-timer-change') {
+    emit(payload.type, payload.snapshot)
+  } else if (payload.type === 'theme-change') {
     emit('theme-change', { mode: payload.mode, tokens: payload.tokens })
   } else if (payload.type === 'hotkey') {
     emit('hotkey', { accelerator: payload.accelerator } satisfies PluginHotkeyEvent)
@@ -907,6 +1478,9 @@ ipcRenderer.on(IpcChannels.PluginEvent, (_e, payload: PluginEventPayload) => {
   } else if (payload.type === 'quick-query') {
     // Quick 搜索 provider 查询：enest.contribute.onQuickQuery / enest.on('quick-query')
     emit('quick-query', { reqId: payload.reqId, query: payload.query })
+  } else if (payload.type === 'dsh.event') {
+    // DSH 驾驶舱事件：enest.dsh.onDshEvent / enest.on('dsh.event')
+    emit('dsh.event', payload.event)
   } else if (
     payload.type === 'ssh.data' ||
     payload.type === 'ssh.exit' ||
@@ -915,6 +1489,20 @@ ipcRenderer.on(IpcChannels.PluginEvent, (_e, payload: PluginEventPayload) => {
   ) {
     // SSH 会话事件：enest.on('ssh.data'|'ssh.exit'|'ssh.error'|'ssh.metrics')
     emit(payload.type, payload)
+  } else if (payload.type === 'net.data') {
+    // net.socket 数据分片：enest.net.onNetData / enest.on('net.data')
+    emit('net.data', { socketId: payload.socketId, chunk: payload.chunk } satisfies NetDataEvent)
+  } else if (payload.type === 'net.close') {
+    // net.socket 关闭：enest.net.onNetClose / enest.on('net.close')
+    emit('net.close', { socketId: payload.socketId, reason: payload.reason } satisfies NetCloseEvent)
+  } else if (payload.type === 'net.chunk') {
+    // net.fetch 流式分片 / SSE 行：enest.net.onChunk / enest.on('net.chunk')
+    emit('net.chunk', {
+      reqId: payload.reqId,
+      chunk: payload.chunk,
+      ...(payload.done !== undefined ? { done: payload.done } : {}),
+      ...(payload.error !== undefined ? { error: payload.error } : {})
+    } satisfies NetChunkEvent)
   } else if (payload.type === 'ssh.transfer') {
     // SFTP 传输进度：enest.ssh.onSshTransfer / enest.on('ssh.transfer')
     emit('ssh.transfer', {
@@ -926,9 +1514,22 @@ ipcRenderer.on(IpcChannels.PluginEvent, (_e, payload: PluginEventPayload) => {
       ...(payload.done !== undefined ? { done: payload.done } : {}),
       ...(payload.error !== undefined ? { error: payload.error } : {})
     } satisfies SshTransferEvent)
+  } else if (payload.type === 'lan.request') {
+    // 局域网传件下载请求：enest.net.share.onRequest / enest.on('lan.request')
+    emit('lan.request', {
+      shareId: payload.shareId,
+      file: payload.file,
+      ip: payload.ip,
+      ts: payload.ts
+    } satisfies LanRequestEvent)
+  } else if (payload.type === 'lan.stopped') {
+    // 分享关停（到期 / stop / 插件关闭）：enest.net.share.onStopped / enest.on('lan.stopped')
+    emit('lan.stopped', { shareId: payload.shareId, reason: payload.reason } satisfies LanStoppedEvent)
   }
 })
 
 // 同时暴露 enest 与 zapi 两个全局名，兼容不同插件 SDK 期望
+const dragEvents = globalThis as unknown as { addEventListener?: (type: string, listener: () => void, capture?: boolean) => void }
+dragEvents.addEventListener?.('dragend', () => { void api.localFiles.endDrag().catch(() => {}) }, true)
 contextBridge.exposeInMainWorld('enest', api)
 contextBridge.exposeInMainWorld('zapi', api)

@@ -1,7 +1,7 @@
 // Run: node --test src/main/plugin/marketMetadata.test.mjs
 // Bundle the real TypeScript registry and protocol with in-memory Electron/store adapters.
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,18 +17,19 @@ const adapters = {
     export const app = { getAppPath: () => '/fixture', isPackaged: false };
     export const protocolRequest = (url) => handler(new Request(url));
   `,
-  '@main/paths/pathsService': `export const getAppPaths = () => ({ plugins: '/fixture', root: '/fixture' }); export const defaultDataRoot = () => '/fixture';`,
-  '@main/plugin/PluginInstaller': `export const installFromDirectory = async () => null; export const installFromZip = async () => null;`,
+  '@main/paths/pathsService': `export const getAppPaths = () => ({ plugins: '/fixture', root: '/fixture' }); export const defaultDataRoot = () => '/fixture'; export const getAppPathsRoot = () => '/fixture';`,
+  '@main/plugin/PluginInstaller': `export const installFromDirectory = async () => null; export const installFromFolder = async () => null; export const installFromZip = async () => null; export const withInstallLock = async (_id, action) => action(); export const beginPluginInstall = () => 1;`,
   '@main/plugin/pluginEnabledStore': `
     export const disabled = new Set();
     export const isEnabledSync = (id) => !disabled.has(id);
     export const loadDisabledIds = async () => {};
     export const persistPluginEnabled = async (id, enabled) => enabled ? disabled.delete(id) : disabled.add(id);
   `,
-  '@main/contrib/ContributionRegistry': `export const contributionRegistry = { registerManifestContributes() {}, unregisterBySource() {} };`,
+  '@main/plugin/PermissionService': `export const permissionService = { cancelFor() {} };`,
+  '@main/contrib/ContributionRegistry': `export const contributionRegistry = { registerManifestContributes() {}, unregisterBySource() {}, listSlot: () => [] };`,
   '@main/logs/logService': `export const logInfo = () => {}; export const logWarn = () => {};`,
   '@main/window/createShellWindow': `export const sendShellEvent = () => {};`,
-  '@main/settings/SettingsStore': `export const settingsStore = { getTheme: () => ({}), getAll: () => ({ general: {} }) };`,
+  '@main/settings/SettingsStore': `export const settingsStore = { getTheme: () => ({}), getAll: () => ({ general: {} }), getPluginAppearance: () => ({}) };`,
   '@main/theme/resolveThemeCss': `export const resolveThemeTokens = () => ({}); export const themeTokensToCss = () => '';`
 }
 const bundle = await build({
@@ -60,7 +61,7 @@ const rawUrl = 'https://raw.githubusercontent.com/owner/repo/main/registry.json'
 const releaseBase = 'https://github.com/owner/repo/releases/latest/download/'
 const manifest = {
   id: 'com.test.example', name: 'Example', version: '1.0.0', main: 'index.html',
-  market: { screenshots: ['screenshots/home.png'] }
+  market: { screenshots: ['assets/market/screenshots/home.png'] }
 }
 const entry = {
   id: manifest.id, name: manifest.name, version: '2.0.0', category: '设计', featured: true,
@@ -102,38 +103,29 @@ test('旧索引缺省无截图，包下载使用显式发布 URL', () => {
 
 test('manifest 截图来自插件根，开发服务器地址不影响静态截图', () => {
   assert.deepEqual(api.manifestScreenshots({ ...manifest, development: { main: 'http://localhost:5173/app/' } }), [
-    `enest://plugin/${manifest.id}/screenshots/home.png`
+    `enest://plugin/${manifest.id}/assets/market/screenshots/home.png`
   ])
-  assert.deepEqual(api.manifestScreenshots({ ...manifest, market: { screenshots: ['screenshots/首页 1.png', 'https://cdn.example.com/image?size=large'] } }), [
-    `enest://plugin/${manifest.id}/screenshots/%E9%A6%96%E9%A1%B5%201.png`, 'https://cdn.example.com/image?size=large'
+  assert.deepEqual(api.manifestScreenshots({ ...manifest, market: { screenshots: ['assets/market/screenshots/首页 1.png', 'https://cdn.example.com/image?size=large'] } }), [
+    `enest://plugin/${manifest.id}/assets/market/screenshots/%E9%A6%96%E9%A1%B5%201.png`
   ])
 })
 
-test('manifest 原始百分号文件名与 registry 编码路径一致且能读到实际图片', async () => {
+test('包内图标和中文截图按磁盘原名编码读取，不接受远程或编码绕过路径', async () => {
   const rootPath = await mkdtemp(join(tmpdir(), 'enest-market-encoding-'))
   const id = 'com.test.encoding'
-  const filenames = ['100%.png', 'literal%20.png', '主界面 1.png']
-  const localManifest = { ...manifest, id, logo: filenames[0], icon: filenames[1], market: { screenshots: filenames } }
+  const screenshot = 'assets/market/screenshots/主界面 1.png'
+  const icon = 'assets/market/icon.svg'
+  const localManifest = { ...manifest, id, icon, market: { screenshots: [screenshot] } }
   try {
-    for (const name of filenames) await writeFile(join(rootPath, name), name)
+    await mkdir(join(rootPath,'assets/market/screenshots'), {recursive:true})
+    await writeFile(join(rootPath, screenshot), 'image')
+    await writeFile(join(rootPath, icon), '<svg/>')
     api.pluginRegistry.installed.set(id, { manifest: localManifest, rootPath, version: '1.0.0' })
     api.initPluginProtocol()
-    const screenshots = api.manifestScreenshots(localManifest)
-    assert.equal(screenshots.length, filenames.length)
-    for (const [index, name] of filenames.entries()) {
-      const encoded = encodeURIComponent(name)
-      assert.equal(screenshots[index], `enest://plugin/${id}/${encoded}`)
-      assert.equal(api.resolveRegistryImageUrl(`plugins/${id}/${encoded}`, rawUrl, true), new URL(`plugins/${id}/${encoded}`, rawUrl).href)
-      const response = await api.protocolRequest(screenshots[index])
-      assert.equal(response.status, 200)
-      assert.equal(await response.text(), name)
-    }
-    // 安装后不能让未编码的本地 logo 遮盖正确的远程图标；icon 是旧字段兜底。
-    assert.equal(api.pluginRegistry.get(id).icon, screenshots[0])
-    assert.equal(await (await api.protocolRequest(api.pluginRegistry.get(id).icon)).text(), filenames[0])
-    delete localManifest.logo
-    assert.equal(api.pluginRegistry.get(id).icon, screenshots[1])
-    assert.equal(await (await api.protocolRequest(api.pluginRegistry.get(id).icon)).text(), filenames[1])
+    const summary = api.pluginRegistry.get(id)
+    assert.equal(await (await api.protocolRequest(summary.icon)).text(), '<svg/>')
+    assert.equal(await (await api.protocolRequest(summary.screenshots[0])).text(), 'image')
+    assert.deepEqual(api.manifestScreenshots({...localManifest,market:{screenshots:['https://cdn.example/image.png','assets/market/screenshots/%2e%2e/secret.png']}}),[])
   } finally {
     api.pluginRegistry.installed.delete(id)
     await rm(rootPath, { recursive: true, force: true })
@@ -151,7 +143,7 @@ test('已安装插件 list/get 保留市场分类、推荐、截图与更新提�
   assert.equal(summary.category, '设计')
   assert.equal(summary.featured, true)
   assert.equal(summary.installs, '1.5k')
-  assert.deepEqual(summary.screenshots, entry.screenshots)
+  assert.deepEqual(summary.screenshots, [`enest://plugin/${manifest.id}/assets/market/screenshots/home.png`])
   assert.equal(summary.rootPath, '/fixture/plugin')
 })
 
@@ -162,7 +154,7 @@ test('无截图旧索引安装后使用 manifest 截图与本地分类', () => {
   assert.equal(registry.get(manifest.id).category, '媒体')
   assert.equal(registry.get(manifest.id).featured, true)
   registry.remoteMarket = [remote({ ...entry, screenshots: undefined })]
-  assert.deepEqual(registry.get(manifest.id).screenshots, [`enest://plugin/${manifest.id}/screenshots/home.png`])
+  assert.deepEqual(registry.get(manifest.id).screenshots, [`enest://plugin/${manifest.id}/assets/market/screenshots/home.png`])
 })
 
 test('开发插件注册返回值与 list/get 一致，优先本地截图并保留 HMR URL', () => {
@@ -174,7 +166,7 @@ test('开发插件注册返回值与 list/get 一致，优先本地截图并保�
   }, manifest)
   assert.deepEqual(summary, registry.get(manifest.id))
   assert.deepEqual(summary, registry.list().find((item) => item.id === manifest.id))
-  assert.deepEqual(summary.screenshots, [`enest://plugin/${manifest.id}/screenshots/home.png`])
+  assert.deepEqual(summary.screenshots, [`enest://plugin/${manifest.id}/assets/market/screenshots/home.png`])
   assert.equal(summary.devUrl, 'http://localhost:5173/')
   assert.equal(summary.installs, 'dev')
 })
@@ -183,13 +175,14 @@ test('禁用插件仍能读静态图片，执行摘要不暴露 rootPath，协�
   const rootPath = await mkdtemp(join(tmpdir(), 'enest-market-test-'))
   const id = 'com.test.disabled'
   try {
-    await writeFile(join(rootPath, 'cover.png'), 'image fixture')
+    await mkdir(join(rootPath,'assets/market/screenshots'),{recursive:true})
+    await writeFile(join(rootPath, 'assets/market/screenshots/cover.png'), 'image fixture')
     api.pluginRegistry.installed.set(id, { manifest: { ...manifest, id }, rootPath, version: '1.0.0' })
     api.disabled.add(id)
     assert.equal(api.pluginRegistry.get(id).rootPath, undefined)
     assert.equal(api.pluginRegistry.getRootPath(id), rootPath)
     api.initPluginProtocol()
-    const response = await api.protocolRequest(`enest://plugin/${id}/cover.png`)
+    const response = await api.protocolRequest(`enest://plugin/${id}/assets/market/screenshots/cover.png`)
     assert.equal(response.status, 200)
     assert.equal(response.headers.get('Content-Type'), 'image/png')
     assert.equal(await response.text(), 'image fixture')
@@ -220,4 +213,27 @@ test('分类集合以 registry 声明为准，未声明时回落本地枚举', (
   // 空 categories 数组同样回落
   const empty = api.parseRemoteMarket({ categories: [], plugins: [entry] }, rawUrl, releaseBase)
   assert.equal(empty[0].category, '设计')
+})
+
+test('published README attachments resolve from the registry while installed versions keep their own resources',()=>{
+ const parsed=remote({...entry,readmeUrl:'example@2.0.0-README.md',readmeImages:{'./screenshots/one.png':'example@2.0.0-screenshot-1.png','../secret.png':'secret.png','bad.png':'file:///secret'}})
+ assert.equal(parsed.readmeUrl,new URL('example%402.0.0-README.md',rawUrl).href)
+ assert.deepEqual({...parsed.readmeImages},{'screenshots/one.png':new URL('example%402.0.0-screenshot-1.png',rawUrl).href})
+ const local={...api.remoteToSummary(parsed,true),installed:true,version:'1.0.0',readmeUrl:'enest://plugin/test/assets/market/README.md'}
+ const merged=api.mergeMarketMetadata(local,parsed)
+ assert.equal(merged.readmeUrl,local.readmeUrl);assert.equal(merged.readmeImages,undefined)
+})
+
+test('malformed remote entries cannot become filesystem identities or break the entire market', () => {
+  const parsed = api.parseRemoteMarket({ plugins: [
+    { ...entry, id: '../outside' },
+    { ...entry, id: 'enest.builtin' },
+    { ...entry, id: 'com.valid', version: '../../outside' },
+    { ...entry, id: 'com.empty', name: ' ' },
+    { ...entry, id: 'com.numeric', category: 42 },
+    { ...entry, id: 'com.object', category: { trim: 'not a function' } },
+    entry
+  ] }, rawUrl, releaseBase)
+  assert.deepEqual(parsed.map(item => item.id), ['com.numeric', 'com.object', entry.id])
+  assert.deepEqual(parsed.map(item => item.category), ['其它', '其它', entry.category])
 })

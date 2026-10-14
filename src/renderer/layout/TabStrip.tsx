@@ -8,6 +8,7 @@
  * 依赖：shellStore（view/tabs/activeTabId/goHome/activateTab/closeTab）、animateTabIn。
  */
 import { useEffect, useRef } from 'react'
+import gsap from 'gsap'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { animateTabIn } from '@renderer/gsap/marketMotion'
 import { HouseIcon, RotateCwIcon, XIcon } from '@renderer/components/icons'
@@ -22,22 +23,27 @@ export function TabStrip() {
   const activateTab = useShellStore((s) => s.activateTab)
   const closeTab = useShellStore((s) => s.closeTab)
   const prevCount = useRef(0)
+  const stripRef = useRef<HTMLDivElement>(null)
 
   // 首页高亮：仅 market；设置/开发者打开时不高亮首页
   const homeActive = view === 'home'
 
   // 仅在 tabs 增加时对新 Tab 播放入场动画，避免重渲染/关闭时误触发
   useEffect(() => {
-    if (tabs.length > prevCount.current) {
-      const last = tabs[tabs.length - 1]
-      const node = document.querySelector(`[data-tab="${last.id}"]`) as HTMLElement | null
-      animateTabIn(node)
-    }
+    const ctx = gsap.context(() => {
+      if (tabs.length > prevCount.current) {
+        const last = tabs[tabs.length - 1]
+        const node = Array.from(stripRef.current?.querySelectorAll<HTMLElement>('[data-tab]') ?? [])
+          .find((item) => item.dataset.tab === last.id)
+        animateTabIn(node ?? null)
+      }
+    }, stripRef)
     prevCount.current = tabs.length
+    return () => ctx.revert()
   }, [tabs])
 
   return (
-    <div className="tab-strip">
+    <div className="tab-strip" ref={stripRef}>
       <div className="tab-strip-scroll">
         <button className={`home-tab${homeActive ? ' active' : ''}`} type="button" title="首页" onClick={goHome}>
           <HouseIcon size={13} strokeWidth={1.7} />
@@ -66,7 +72,7 @@ export function TabStrip() {
               ) : (
                 <PluginIcon
                   className="ico"
-                  src={undefined}
+                  src={tab.icon ?? undefined}
                   glyph={tab.glyph}
                   slot="tab"
                   size={PLUGIN_ICON_DISPLAY_TAB}
@@ -74,6 +80,7 @@ export function TabStrip() {
                 />
               )}
               <span>{tab.title}</span>
+              {tab.badge && <span className="tab-badge" aria-label={`角标 ${tab.badge}`}>{tab.badge}</span>}
               {tab.lazy && <span className="lazy-hint">点击加载</span>}
               {tab.crashed && (
                 <span className="retry" aria-hidden="true">

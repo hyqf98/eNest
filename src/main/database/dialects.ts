@@ -41,7 +41,7 @@ const FN = (n: string, sig: string, doc?: string): { name: string; signature: st
   kind: 'native'
 })
 
-export const DIALECT_INFO: Record<DbDriverId, DbDialectInfo> = {
+export const DIALECT_INFO: Record<string, DbDialectInfo> = {
   mysql: {
     id: 'mysql',
     dialect: 'mysql',

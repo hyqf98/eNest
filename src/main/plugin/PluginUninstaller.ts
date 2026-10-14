@@ -1,3 +1,4 @@
+import { clearPluginBlobs } from '@main/plugin/pluginFiles'
 /**
  * PluginUninstaller — 插件卸载器
  * 职责：完整卸载一个已安装插件——关闭运行中 Tab → 清空 partition storage
@@ -21,12 +22,15 @@ import { sendShellEvent } from '@main/window/createShellWindow'
 import { clearPluginSession, deleteSessionSnapshot } from '@main/plugin/PluginSessionStore'
 import { clearPluginDisabled } from '@main/plugin/pluginEnabledStore'
 import { permissionService } from '@main/plugin/PermissionService'
+import { withInstallLock, cancelPluginInstalls } from '@main/plugin/PluginInstaller'
+import { invalidatePluginCodeCache, invalidatePluginFileCache } from '@main/plugin/pluginProtocol'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { forgetDevPlugin } from '@main/dev/DevConsole'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { themePackRegistry } from '@main/theme/themePacks'
 import { contributionRegistry } from '@main/contrib/ContributionRegistry'
+import { clearFocusTimer } from '@main/timer/focusTimerService'
 
 export interface UninstallResult {
   ok: boolean
@@ -41,6 +45,12 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
   const id = String(pluginId ?? '').trim()
   if (!id) return { ok: false, error: 'plugin id required' }
 
+  cancelPluginInstalls(id)
+  const release = pluginHost.blockPlugin(id)
+  return withInstallLock(id, () => uninstallLocked(id)).finally(release)
+}
+
+async function uninstallLocked(id: string): Promise<UninstallResult> {
   // 卸载前取展示名，删完目录后 Registry 已无此插件
   const summary = pluginRegistry.get(id)
   const name = summary?.name || id
@@ -51,12 +61,18 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
 
   // 1) 若插件正在运行，以 uninstall 原因关闭（beforeClose → destroy）
   try {
-    if (pluginHost.isOpened(id)) {
-      logInfo('uninstall', `closing open tab ${id}`)
-      await pluginHost.closePlugin(id, 'uninstall')
-    }
+    logInfo('uninstall', `closing open tab ${id}`)
+    await pluginHost.closePlugin(id, 'uninstall')
   } catch (err) {
     const msg = `close tab failed: ${(err as Error).message}`
+    logWarn('uninstall', `${id} ${msg}`)
+    sendShellEvent({ type: 'uninstall-result', pluginId: id, name, ok: false, error: msg })
+    return { ok: false, error: msg }
+  }
+
+  // Timers outlive renderer tabs, so uninstall explicitly removes their state and records.
+  try { await clearFocusTimer(id) } catch (err) {
+    const msg = `clear focus timer failed: ${(err as Error).message}`
     errors.push(msg)
     logWarn('uninstall', `${id} ${msg}`)
   }
@@ -72,6 +88,8 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
     const partition = pluginPartition(id)
     const ses = session.fromPartition(partition)
     await ses.clearStorageData()
+    await invalidatePluginCodeCache(id)
+    if (summary?.rootPath) invalidatePluginFileCache(summary.rootPath)
     logInfo('uninstall', `cleared partition storage ${partition}`)
   } catch (err) {
     const msg = `clearStorageData failed: ${(err as Error).message}`
@@ -130,6 +148,8 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
     errors.push(msg)
     logWarn('uninstall', `${id} ${msg}`)
   }
+
+  try { await clearPluginBlobs(id) } catch (error) { errors.push(`remove attachments failed: ${String(error)}`) }
 
   // 7) 开发态一并移除（若曾 addDevPlugin）；清理启用/禁用记录避免重装后仍禁用
   try {

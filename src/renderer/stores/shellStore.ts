@@ -1,3 +1,4 @@
+import type { DevPluginLoadOptions } from '@shared/types/plugin'
 /**
  * shellStore — 壳子全局状态（zustand）
  * 管理视图切换、插件列表、Tab 生命周期、搜索/筛选条件、插件就绪/错误与开发者日志。
@@ -33,6 +34,10 @@ const SESSION_PERSIST_MS = 400
 let sessionPersistTimer: ReturnType<typeof setTimeout> | null = null
 /** 开发页后台启动仍会收到宿主的激活事件；该请求不切走当前壳子页面。 */
 const backgroundDebugStarts = new Set<string>()
+const closingTabs = new Set<string>()
+let lastTabRevision = -1
+let sessionRestore: Promise<void> | null = null
+let sessionHydrated = false
 
 /** debounce 将当前 tabs / active 写入 settings.sessionTabs（仅插件，不含壳子页） */
 function scheduleSessionPersist(state: {
@@ -41,6 +46,9 @@ function scheduleSessionPersist(state: {
 }): void {
   latestSession = state
   sessionDirty = true
+  // Early deep links/IPC can open and close plugins while Splash is visible.
+  // Keep that projection in memory until the saved startup session has been read.
+  if (!sessionHydrated) return
   if (sessionPersistTimer) clearTimeout(sessionPersistTimer)
   sessionPersistTimer = setTimeout(() => {
     sessionPersistTimer = null
@@ -54,7 +62,7 @@ let sessionDirty = false
 
 function flushSessionPersist(): void {
   const snap = latestSession
-  if (!snap || !sessionDirty) return
+  if (!sessionHydrated || !snap || !sessionDirty) return
   sessionDirty = false
   const sessionTabs = snap.tabs.map((t) => ({ pluginId: t.pluginId, title: t.title }))
   const active = snap.tabs.find((t) => t.id === snap.activeTabId)
@@ -70,7 +78,7 @@ function flushSessionPersist(): void {
  * 400ms debounce 在窗口销毁时来不及触发，会丢最后一次 Tab 变更；
  * before-quit 阶段主进程有 ~2s 异步清理窗，此处 invoke 大概率能到达并被 flushNow 落盘。
  */
-export function registerSessionFlushOnHide(): void {
+export function registerSessionFlushOnHide(): () => void {
   const flush = () => {
     if (sessionPersistTimer) {
       clearTimeout(sessionPersistTimer)
@@ -79,9 +87,12 @@ export function registerSessionFlushOnHide(): void {
     flushSessionPersist()
   }
   window.addEventListener('pagehide', flush)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') flush()
-  })
+  const onVisibility = () => { if (document.visibilityState === 'hidden') flush() }
+  document.addEventListener('visibilitychange', onVisibility)
+  return () => {
+    window.removeEventListener('pagehide', flush)
+    document.removeEventListener('visibilitychange', onVisibility)
+  }
 }
 
 /** 市场分段：浏览全部 vs 已安装 */
@@ -92,7 +103,7 @@ export type Seg = 'browse' | 'installed'
  * - lazy：惰性会话恢复的占位 Tab，渲染进程未孵化，点击时才 openPlugin
  * - crashed：插件渲染进程崩溃（且主进程不再自动重启），Tab 显示重试样式，点击重新 openPlugin
  */
-export type ShellTab = PluginTab & { lazy?: boolean; crashed?: boolean }
+export type ShellTab = PluginTab & { lazy?: boolean; crashed?: boolean; status?: 'loading' | 'ready' | 'error' | 'hibernated' }
 
 interface ShellState {
   view: ShellView
@@ -127,11 +138,7 @@ interface ShellState {
   activateTab: (tabId: string) => Promise<void>
   goHome: () => void
   removeTabLocal: (tabId: string) => void
-  /** plugin-error 事件桥：标记指定插件 Tab 为崩溃态（二次 crash 不自动重启时使用） */
-  markTabCrashed: (pluginId: string) => void
-  /** 惰性会话恢复：新增占位 Tab（不孵化渲染进程） */
-  addPlaceholderTab: (pluginId: string, cachedTitle: string | undefined, plugin: PluginSummary) => void
-  loadDevPlugin: (dirPath: string) => Promise<void>
+  loadDevPlugin: (dirPath: string, options?: DevPluginLoadOptions) => Promise<void>
   startDebugPlugin: (pluginId: string) => Promise<void>
   stopDebugPlugin: (pluginId: string) => Promise<void>
   removeDevPlugin: (pluginId: string) => Promise<void>
@@ -212,71 +219,27 @@ export const useShellStore = create<ShellState>((set, get) => ({
    * active 插件缺失/打开失败则回首页（占位 Tab 仍保留，可手动点开）。
    * 依赖 refreshPlugins 先完成（App 在 splash 后调用）。
    */
-  hydrateSessionTabs: async () => {
-    try {
-      const settings = await shellApi.getSettings()
-      const saved = settings.general?.sessionTabs
-      if (!Array.isArray(saved) || saved.length === 0) return
-      // 确保插件列表就绪（openPlugin 依赖 plugins.find）
-      if (get().plugins.length === 0) {
-        await get().refreshPlugins()
-      }
-      const plugins = get().plugins
-      const activePid = settings.general?.sessionActivePluginId
-      let addedAny = false
-      for (const item of saved) {
-        const pid = item?.pluginId
-        if (!pid) continue
-        const plugin = plugins.find((p) => p.id === pid)
-        // 仅恢复已安装插件；未安装/不存在静默跳过
-        if (!plugin?.installed) continue
-        // 去重：同一插件只占一个 Tab
-        if (get().tabs.some((t) => t.pluginId === pid)) continue
-        if (pid === activePid) {
-          // 上次 active 的插件真正孵化（单个失败不阻断其余占位 Tab 恢复）
-          try {
-            await get().openPlugin(pid)
-          } catch {
-            /* 禁用/打开失败：回落占位 Tab，可手动点开 */
-            get().addPlaceholderTab(pid, item?.title, plugin)
-          }
-        } else {
-          // 占位条目：不孵化渲染进程，点击时经 activateTab 唤醒
-          get().addPlaceholderTab(pid, item?.title, plugin)
+  hydrateSessionTabs: () => {
+    if (sessionRestore) return sessionRestore
+    sessionRestore = (async () => {
+      try {
+        const settings = await shellApi.getSettings()
+        if (get().plugins.length === 0) await get().refreshPlugins()
+        const ids = (settings.general?.sessionTabs ?? []).map((tab) => tab.pluginId).filter(Boolean)
+        // 主进程验证和持有逻辑 Tab；恢复不会创建 WebContents。
+        await shellApi.restoreTabs(ids)
+        const activePid = settings.general?.sessionActivePluginId
+        if (activePid && get().tabs.some((tab) => tab.pluginId === activePid)) {
+          await get().openPlugin(activePid)
         }
-        addedAny = true
+      } catch (error) {
+        get().appendLog('warn', `[host] session restore failed: ${String(error)}`)
+      } finally {
+        sessionHydrated = true
+        if (sessionDirty) scheduleSessionPersist(get())
       }
-      if (!addedAny) return
-      const activeTab = activePid
-        ? get().tabs.find((t) => t.pluginId === activePid)
-        : undefined
-      if (activeTab && !activeTab.lazy) {
-        await get().activateTab(activeTab.id)
-      } else {
-        // active 缺失或未恢复成功 → 首页（Tab 仍保留，可手动点开）
-        get().goHome()
-      }
-      pushOrbState(get())
-    } catch {
-      /* 设置读取失败：保持空会话 */
-    }
-  },
-
-  /** 新增占位 Tab（惰性会话恢复用）：lazy 标记 + 缓存显示名兜底 */
-  addPlaceholderTab(pluginId: string, cachedTitle: string | undefined, plugin: PluginSummary): void {
-    set((s) => {
-      if (s.tabs.some((t) => t.pluginId === pluginId)) return s
-      const tab: ShellTab = {
-        id: `t-${pluginId}`,
-        pluginId,
-        title: plugin.name ?? cachedTitle ?? pluginId,
-        color: plugin.color,
-        glyph: plugin.glyph,
-        lazy: true
-      }
-      return { tabs: [...s.tabs, tab] }
-    })
-    scheduleSessionPersist(get())
+    })()
+    return sessionRestore
   },
 
   appendLog: (level, text) =>
@@ -288,83 +251,45 @@ export const useShellStore = create<ShellState>((set, get) => ({
   },
 
   openPlugin: async (id, enter) => {
-    const { plugins } = get()
-    const plugin = plugins.find((p) => p.id === id)
+    const plugin = get().plugins.find((item) => item.id === id)
     if (!plugin) return
-    if (!plugin.installed) {
+    try {
       await shellApi.openPlugin(id, enter)
-      await get().refreshPlugins()
-      const fresh = get().plugins.find((p) => p.id === id)
-      toastStore.getState().push(`已安装「${fresh?.name ?? plugin.name}」`)
-    } else {
-      await shellApi.openPlugin(id, enter)
-    }
-    const target = get().plugins.find((p) => p.id === id) ?? plugin
-    // 必须重读当前 tabs：await 期间 plugin-active 事件桥可能已为 pin/迁移场景
-    // 补过 Tab（旧快照查不到会导致重复添加——同 id 双 Tab、关闭时一起消失）
-    let tab = get().tabs.find((t) => t.pluginId === id)
-    if (!tab) {
-      tab = {
-        id: `t-${id}`,
-        pluginId: id,
-        title: target.name,
-        color: target.color,
-        glyph: target.glyph,
+      if (!plugin.installed) {
+        await get().refreshPlugins()
+        toastStore.getState().push(`已安装「${plugin.name}」`)
       }
-      set((s) => ({ tabs: [...s.tabs, tab as PluginTab] }))
+      // Tab、active 和 ready 均由宿主快照推进，IPC 返回不代表页面加载完成。
+      get().appendLog('info', `[host] open ${id}`)
+    } catch (error) {
+      toastStore.getState().push(`启动失败：${error instanceof Error ? error.message : String(error)}`, 'error')
     }
-    // 真正孵化成功：占位 / 崩溃标记一并清除
-    if (tab.lazy || tab.crashed) {
-      const tabId = tab.id
-      set((s) => ({
-        tabs: s.tabs.map((t) =>
-          t.id === tabId ? { ...t, lazy: false, crashed: false } : t
-        )
-      }))
-    }
-    set({
-      activeTabId: tab.id,
-      view: 'plugin',
-      pluginReady: false,
-      pluginError: null,
-    })
-    pushOrbState(get())
-    scheduleSessionPersist(get())
-    void get().appendLog('info', `[host] open ${id}`)
-    window.setTimeout(() => {
-      if (get().activeTabId === tab!.id) set({ pluginReady: true })
-    }, 400)
   },
 
   closeTab: async (tabId) => {
     const gone = get().tabs.find((tab) => tab.id === tabId)
-    if (!gone) return
-    await shellApi.closePlugin(tabId)
-    // 主进程可能已先发送 active/closed 事件；不要用 await 前的列表覆盖宿主选中的接班项。
-    if (get().tabs.some((tab) => tab.id === tabId)) get().removeTabLocal(tabId)
-    toastStore.getState().push(`已关闭「${gone.title}」`)
-    get().appendLog('info', `[host] close ${gone.pluginId}`)
+    if (!gone || closingTabs.has(tabId)) return
+    closingTabs.add(tabId)
+    // 点击即反馈；真正的顺序/接班项以紧随其后的宿主快照为准。
+    get().removeTabLocal(tabId)
+    try {
+      await shellApi.closePlugin(tabId)
+      get().appendLog('info', `[host] close ${gone.pluginId}`)
+    } catch (error) {
+      toastStore.getState().push(`关闭失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+    } finally {
+      closingTabs.delete(tabId)
+    }
   },
 
   activateTab: async (tabId) => {
-    const tab = get().tabs.find((t) => t.id === tabId)
-    // 占位 Tab（惰性恢复）或崩溃 Tab（点击重试）：先 openPlugin 唤醒/重建
-    if (tab && (tab.lazy || tab.crashed)) {
-      try {
-        await get().openPlugin(tab.pluginId)
-        // openPlugin 已完成激活与状态清理，直接返回
-        return
-      } catch {
-        /* 打开失败：openPlugin 内部不抛出（走 plugin-error），回落常规激活 */
-      }
+    if (!get().tabs.some((tab) => tab.id === tabId) || closingTabs.has(tabId)) return
+    try {
+      // 宿主负责 lazy/crashed/hibernated 的唤醒，所有入口共用同一流程。
+      await shellApi.activatePlugin(tabId)
+    } catch (error) {
+      toastStore.getState().push(`切换失败：${error instanceof Error ? error.message : String(error)}`, 'error')
     }
-    await shellApi.activatePlugin(tabId)
-    set({ activeTabId: tabId, view: 'plugin', pluginReady: false, pluginError: null })
-    pushOrbState(get())
-    scheduleSessionPersist(get())
-    window.setTimeout(() => {
-      if (get().activeTabId === tabId) set({ pluginReady: true })
-    }, 300)
   },
 
   goHome: () => {
@@ -375,37 +300,29 @@ export const useShellStore = create<ShellState>((set, get) => ({
 
   removeTabLocal: (tabId) => {
     const { tabs, activeTabId, view } = get()
+    if (!tabs.some((tab) => tab.id === tabId)) return
     const remaining = tabs.filter((t) => t.id !== tabId)
     const nextId = pickNextTab(tabs, tabId, activeTabId)
     set({
       tabs: remaining,
       activeTabId: nextId,
       view: view === 'plugin' ? (nextId ? 'plugin' : 'home') : view,
+      pluginReady: remaining.find((tab) => tab.id === nextId)?.status === 'ready',
+      pluginError: nextId === activeTabId ? get().pluginError : null,
     })
     pushOrbState(get())
     // 卸载 / 主进程关 Tab 也会走到这里，保证 sessionTabs 同步移除
     scheduleSessionPersist(get())
   },
 
-  /** plugin-error 事件桥：标记 Tab 崩溃态（Tab 保留，显示重试样式） */
-  markTabCrashed: (pluginId) => {
-    const tabId = `t-${pluginId}`
-    set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, crashed: true } : t))
-    }))
-    // 当前激活 Tab 崩溃时立即呈现错误面板（pluginError 由事件桥写入）
-    if (get().activeTabId === tabId) {
-      pushOrbState(get())
-    }
-  },
-
-  loadDevPlugin: async (dirPath) => {
+  loadDevPlugin: async (dirPath, options) => {
     try {
-      // 空路径 → 主进程弹系统目录选择框；加载后停留在开发者页，不跳插件 Tab
-      const plugin = await shellApi.loadDevPlugin(dirPath.trim())
+      // Empty path opens the source picker; successful registration immediately opens the plugin.
+      const plugin = await shellApi.loadDevPlugin(dirPath.trim(), options)
       get().appendLog('info', `[dev] loaded ${plugin.id} from ${plugin.rootPath ?? dirPath}`)
       toastStore.getState().push(`已加载本地插件「${plugin.name}」`)
       await get().refreshPlugins()
+      await get().openPlugin(plugin.id)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       if (msg === 'cancelled') {
@@ -422,24 +339,7 @@ export const useShellStore = create<ShellState>((set, get) => ({
     if (get().view !== 'plugin') backgroundDebugStarts.add(pluginId)
     try {
       await shellApi.openPlugin(pluginId)
-      const { plugins, tabs, view } = get()
-      const target = plugins.find((p) => p.id === pluginId)
-      let tab = tabs.find((t) => t.pluginId === pluginId)
-      if (!tab) {
-        tab = {
-          id: `t-${pluginId}`,
-          pluginId,
-          title: target?.name ?? pluginId,
-          color: target?.color ?? PLUGIN_CATEGORY_COLOR_DEFAULT,
-          glyph: target?.glyph ?? '⌥'
-        }
-        set((s) => ({ tabs: [...s.tabs, tab as PluginTab] }))
-      }
-      // 保持当前壳子视图（开发者/设置）；插件 View 在后台可热更/DevTools
-      set({ activeTabId: tab.id })
-      if (view !== 'plugin') {
-        void shellApi.hidePlugins?.().catch(() => undefined)
-      }
+      if (get().view !== 'plugin') await shellApi.hidePlugins()
       get().appendLog('info', `[dev] debug start ${pluginId}`)
       toastStore.getState().push('调试已启动', 'success')
       pushOrbState(get())
@@ -457,7 +357,6 @@ export const useShellStore = create<ShellState>((set, get) => ({
     try {
       const tabId = `t-${pluginId}`
       await shellApi.closePlugin(tabId)
-      get().removeTabLocal(tabId)
       get().appendLog('info', `[dev] debug stop ${pluginId}`)
       toastStore.getState().push('调试已停止')
     } catch (e) {
@@ -471,7 +370,6 @@ export const useShellStore = create<ShellState>((set, get) => ({
     try {
       const tabId = `t-${pluginId}`
       await shellApi.closePlugin(tabId).catch(() => undefined)
-      get().removeTabLocal(tabId)
       // 主进程卸载会 removeDevPlugin + 重扫；对纯 dev 插件源码目录保留
       if (shellApi.uninstallPlugin) {
         await shellApi.uninstallPlugin(pluginId)
@@ -510,39 +408,32 @@ export const useShellStore = create<ShellState>((set, get) => ({
   },
 }))
 
-/** 主进程激活事件也来自圆轨、迁移和自动恢复；只同步状态，不再次发起激活 IPC。 */
-shellApi.onEvent?.((payload) => {
-  if (payload.type === 'plugin-error') {
-    useShellStore.getState().markTabCrashed(payload.pluginId)
-    return
-  }
-  if (payload.type !== 'plugin-active') return
+/** 唯一的 Tab 投影入口：旧 plugin-active 事件不能覆盖更新后的宿主快照。 */
+const unsubscribeTabEvents = shellApi.onEvent((payload) => {
+  if (payload.type !== 'plugin-tabs' || payload.revision <= lastTabRevision) return
+  lastTabRevision = payload.revision
   const store = useShellStore.getState()
-  if (!payload.tabId) {
-    useShellStore.setState({
-      activeTabId: null,
-      view: store.view === 'plugin' ? 'home' : store.view,
-      pluginReady: false,
-      pluginError: null,
-    })
-  } else {
-    const pid = payload.tabId.startsWith('t-') ? payload.tabId.slice(2) : payload.tabId
-    const existing = store.tabs.find((tab) => tab.pluginId === pid)
-    const keepShellView = store.view !== 'plugin' && backgroundDebugStarts.has(pid)
-    // Quick 固定到主窗或恢复后可能没有 Tab；补齐真实激活项，不创建重复占位。
-    if (!existing) {
-      const summary = store.plugins.find((plugin) => plugin.id === pid)
-      if (summary) store.addPlaceholderTab(pid, summary.name, summary)
-    }
-    useShellStore.setState((current) => ({
-      tabs: current.tabs.map((tab) => tab.pluginId === pid ? { ...tab, lazy: false, crashed: false } : tab),
-      activeTabId: keepShellView ? current.activeTabId : payload.tabId,
-      view: keepShellView ? current.view : 'plugin',
-      pluginReady: !keepShellView,
-      pluginError: null,
-    }))
-    if (keepShellView) void shellApi.hidePlugins?.().catch(() => undefined)
-  }
+  // 新一代实例可能在旧 close IPC 回包之前出现；完整快照始终胜过本地关闭占位。
+  const tabs: ShellTab[] = payload.tabs.map((tab) => {
+    const pluginId = tab.id.startsWith('t-') ? tab.id.slice(2) : tab.id
+    const plugin = store.plugins.find((item) => item.id === pluginId)
+    const previous = store.tabs.find((item) => item.id === tab.id)
+    return { ...tab, pluginId, color: tab.color ?? plugin?.color ?? previous?.color ?? PLUGIN_CATEGORY_COLOR_DEFAULT,
+      icon: tab.icon === null ? null : tab.icon ?? plugin?.icon ?? previous?.icon,
+      glyph: tab.glyph ?? plugin?.glyph ?? previous?.glyph ?? '⌥',
+      lazy: tab.status === 'hibernated', crashed: tab.status === 'error' }
+  })
+  const active = tabs.find((tab) => tab.id === payload.activeTabId)
+  const keepShellView = store.view !== 'plugin' && !!active && backgroundDebugStarts.has(active.pluginId)
+  useShellStore.setState({
+    tabs,
+    activeTabId: active?.id ?? null,
+    view: keepShellView ? store.view : active ? 'plugin' : store.view === 'plugin' ? 'home' : store.view,
+    pluginReady: active?.status === 'ready' && !keepShellView,
+    pluginError: active?.status === 'error' ? store.pluginError ?? '插件启动失败，请重试。' : null,
+  })
+  if (keepShellView) void shellApi.hidePlugins().catch(() => undefined)
   pushOrbState(useShellStore.getState())
   scheduleSessionPersist(useShellStore.getState())
 })
+if (import.meta.hot) import.meta.hot.dispose(unsubscribeTabEvents)

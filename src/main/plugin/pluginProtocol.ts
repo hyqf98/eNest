@@ -5,18 +5,35 @@
  * 被 index.ts（initPluginProtocol）与 PluginHost（registerPluginProtocolForSession）调用。
  * 关键依赖：PluginRegistry（查找 rootPath）、pathsService（数据根）、settingsStore（已选媒体）、@shared/constants（PROTOCOL）。
  */
-import { readFile } from 'node:fs/promises'
-import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { app, protocol, session, type Session } from 'electron'
-import { PROTOCOL, SHELL_PARTITION } from '@shared/constants'
+import { PROTOCOL, SHELL_PARTITION, pluginPartition, FONTS_DIR } from '@shared/constants'
 import { resolvePluginUi } from '@shared/types/plugin'
-import { defaultDataRoot, getAppPaths } from '@main/paths/pathsService'
+import { defaultDataRoot, getAppPaths, getAppPathsRoot } from '@main/paths/pathsService'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { resolveThemeTokens, themeTokensToCss } from '@main/theme/resolveThemeCss'
+import { pluginAssetCache, pluginFileResponse } from './pluginFileResponse'
+import { resolvePluginFile } from './pluginPaths'
+import { getPluginContentSecurityPolicy } from './pluginSessionPolicy'
 
 /** 壳子生成的主题 CSS 虚拟文件名；插件可 <link href="enest://plugin/{id}/__enest_theme.css"> */
 const THEME_CSS_FILE = '__enest_theme.css'
+const FONT_FILE_PREFIX = '__enest_fonts/'
+/** Fonts selected by the user are the only shell-owned files exposed to a plugin. */
+function resolveFontFile(filePath: string): string | null {
+  if (!filePath.startsWith(FONT_FILE_PREFIX)) return null
+  const name = filePath.slice(FONT_FILE_PREFIX.length)
+  if (basename(name) !== name || !/\.(ttf|otf|woff2?)$/i.test(name)) return null
+  if (!(settingsStore.getPluginAppearance().customFonts || []).some(font => font.fileName === name)) return null
+  return join(getAppPathsRoot(), FONTS_DIR, name)
+}
+async function fontResponse(request: Request, path: string): Promise<Response> {
+  const file = resolveFontFile(path)
+  if (!file) return new Response('forbidden', { status: 403 })
+  try { return await fileResponse(request, file, false) } catch { return new Response('not found', { status: 404 }) }
+}
+
 
 /** 为指定插件生成当前主题 CSS（preferredColorScheme 已解析） */
 function buildThemeCssForPlugin(pluginId: string): string {
@@ -45,13 +62,9 @@ const MIME: Record<string, string> = {
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',
-  '.map': 'application/json'
+  '.wasm': 'application/wasm',
+  '.md': 'text/markdown; charset=utf-8'
 }
-
-const DEV_CSP =
-  "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* http://127.0.0.1:*; img-src 'self' data: blob:; connect-src 'self' http://localhost:* http://127.0.0.1:*"
-const PROD_CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'"
 
 /** 在 app ready 前注册 enest:// 为特权协议，使后续 handle 能处理 fetch/CORS */
 export function registerSchemesAsPrivileged(): void {
@@ -63,134 +76,53 @@ export function registerSchemesAsPrivileged(): void {
         secure: true,
         supportFetchAPI: true,
         corsEnabled: true,
-        stream: true
+        stream: true,
+        codeCache: true
       }
     }
   ])
 }
 
-/** 路径穿越防护：decode 后确认 resolve 结果仍在 root 内，否则拒绝 */
-function safeResolve(root: string, relPath: string): string | null {
-  let decoded: string
-  try {
-    decoded = decodeURIComponent(relPath)
-  } catch {
-    return null
-  }
-  if (decoded.includes('\0')) return null
-  const abs = resolve(root, decoded)
-  const rel = relative(root, abs)
-  if (rel.startsWith('..') || isAbsolute(rel)) return null
-  return abs
-}
-
-/** 按扩展名推断 MIME 并返回带 CSP 的 Response */
-async function fileResponse(abs: string, isDev: boolean): Promise<Response> {
-  const mime = MIME[extname(abs).toLowerCase()] ?? 'application/octet-stream'
-  const body = await readFile(abs)
-  return new Response(body, {
-    headers: {
-      'Content-Type': mime,
-      'Content-Security-Policy': isDev ? DEV_CSP : PROD_CSP
-    }
-  })
-}
-
-// ---------------------------------------------------------------------------
-// 插件资产 LRU 缓存
-// 为什么：enest:// 每请求 readFile，插件页反复重载/资源反复拉取时主进程 IO 放大；
-//       只缓存文件 Buffer，MIME 与 CSP 头仍按请求动态生成（媒体端点不缓存）。
-// 失效：key 含 rootPath，reload/升级用新 rootPath 重绑 session 时自然 miss；
-//       手动热重载/重载路径调用 invalidatePluginFileCache(rootPath) 清本缓存，
-//       渲染层侧再用 reloadIgnoringCache 绕过 Chromium 对子资源的 HTTP 缓存。
-// ---------------------------------------------------------------------------
-/** 单文件缓存上限：超过则直读不缓存 */
-const CACHE_MAX_FILE_BYTES = 512 * 1024
-/** 缓存总容量上限 */
-const CACHE_MAX_TOTAL_BYTES = 32 * 1024 * 1024
-/** Map 迭代序 = 插入序；get 时 delete+set 实现 LRU 触碰 */
-const fileCache = new Map<string, Buffer>()
-let fileCacheBytes = 0
-
-function cacheGet(key: string): Buffer | undefined {
-  const hit = fileCache.get(key)
-  if (hit !== undefined) {
-    // LRU 触碰：移到迭代序末尾（最旧在下一次 set 淘汰时最先被删）
-    fileCache.delete(key)
-    fileCache.set(key, hit)
-  }
-  return hit
-}
-
-function cachePut(key: string, body: Buffer): void {
-  if (body.byteLength > CACHE_MAX_FILE_BYTES) return
-  if (fileCache.has(key)) {
-    const old = fileCache.get(key)!
-    fileCache.delete(key)
-    fileCacheBytes -= old.byteLength
-  }
-  fileCache.set(key, body)
-  fileCacheBytes += body.byteLength
-  // 按插入序淘汰最旧条目直到回到容量内
-  while (fileCacheBytes > CACHE_MAX_TOTAL_BYTES && fileCache.size > 0) {
-    const oldestKey = fileCache.keys().next().value as string
-    const oldest = fileCache.get(oldestKey)!
-    fileCache.delete(oldestKey)
-    fileCacheBytes -= oldest.byteLength
-  }
-}
-
-/** 带缓存的文件响应（仅插件资产路径使用；MIME/CSP 头仍动态生成） */
-async function fileResponseCached(
-  rootPath: string,
-  abs: string,
-  isDev: boolean
-): Promise<Response> {
-  const key = `${rootPath}|${abs}`
-  let body = cacheGet(key)
-  if (body === undefined) {
-    body = await readFile(abs)
-    cachePut(key, body)
-  }
-  const mime = MIME[extname(abs).toLowerCase()] ?? 'application/octet-stream'
-  return new Response(body, {
-    headers: {
-      'Content-Type': mime,
-      'Content-Security-Policy': isDev ? DEV_CSP : PROD_CSP
-    }
-  })
-}
-
-/**
- * 失效 enest:// 资产缓存。
- * - 传 rootPath：只清该插件目录下的 key（热重载/文件监视用）
- * - 不传：清空全部（升级/全局场景）
- */
+/** Only the host-owned Buffer LRU is synchronously invalidated; browser storage survives close. */
 export function invalidatePluginFileCache(rootPath?: string): void {
-  if (!rootPath) {
-    fileCache.clear()
-    fileCacheBytes = 0
-    return
-  }
-  const prefix = `${rootPath}|`
-  for (const key of [...fileCache.keys()]) {
-    if (!key.startsWith(prefix)) continue
-    const buf = fileCache.get(key)
-    fileCache.delete(key)
-    if (buf) fileCacheBytes -= buf.byteLength
-  }
-  if (fileCacheBytes < 0) fileCacheBytes = 0
+  pluginAssetCache.invalidate(rootPath)
+}
+
+/** Update/dev-refresh/uninstall only. Empty urls clears this plugin partition's code cache. */
+export async function invalidatePluginCodeCache(pluginId: string, urls?: string[]): Promise<void> {
+  await session.fromPartition(pluginPartition(pluginId)).clearCodeCaches({ urls })
+}
+
+export function getPluginFileCacheStats(): { bytes: number; entries: number; pending: number } {
+  return pluginAssetCache.getStats()
+}
+
+async function fileResponse(
+  request: Request,
+  abs: string,
+  isDev: boolean,
+  root?: string,
+  revision?: string,
+  pluginId?: string
+): Promise<Response> {
+  return pluginFileResponse(request, abs, {
+    mime: MIME[extname(abs).toLowerCase()] ?? 'application/octet-stream',
+    csp: getPluginContentSecurityPolicy({ pluginId: pluginId ?? '', devUrl: pluginId ? pluginRegistry.get(pluginId)?.devUrl : undefined }),
+    dev: isDev,
+    root,
+    revision
+  })
 }
 
 /** 解析 enest://plugin/{pluginId}/{filePath} URL，路径为空时默认 index.html */
 function parsePluginUrl(url: string): { pluginId: string; filePath: string } | null {
   try {
     const u = new URL(url)
-    if (u.protocol !== `${PROTOCOL}:`) return null
+    if (u.protocol !== `${PROTOCOL}:` || u.hostname !== 'plugin') return null
     const parts = u.pathname.split('/').filter(Boolean)
     if (parts.length < 1) return null
     const pluginId = parts[0]
-    const filePath = parts.slice(1).join('/') || 'index.html'
+    const filePath = decodeURIComponent(parts.slice(1).join('/') || 'index.html')
     return { pluginId, filePath }
   } catch {
     return null
@@ -254,7 +186,7 @@ async function handleEnestProtocol(request: Request): Promise<Response> {
   const mediaAbs = resolveMediaRequest(request.url)
   if (mediaAbs) {
     try {
-      return await fileResponse(mediaAbs, !app.isPackaged)
+      return await fileResponse(request, mediaAbs, !app.isPackaged)
     } catch {
       return new Response('not found', { status: 404 })
     }
@@ -262,20 +194,21 @@ async function handleEnestProtocol(request: Request): Promise<Response> {
 
   const parsed = parsePluginUrl(request.url)
   if (!parsed) return new Response('bad request', { status: 400 })
+  if (parsed.filePath.startsWith(FONT_FILE_PREFIX)) return fontResponse(request, parsed.filePath)
   // 主题 CSS 虚拟文件：动态生成，不落盘
   if (parsed.filePath === THEME_CSS_FILE) {
     return new Response(buildThemeCssForPlugin(parsed.pluginId), {
-      headers: { 'Content-Type': 'text/css; charset=utf-8' }
+      headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'no-store' }
     })
   }
   const summary = pluginRegistry.get(parsed.pluginId)
   // 禁用只影响插件执行；图标、截图仍可通过真实安装/开发目录读取。
-  const rootPath = pluginRegistry.getRootPath(parsed.pluginId)
+  const rootPath = pluginRegistry.getAssetRootPath(parsed.pluginId)
   if (!rootPath) return new Response('plugin not found', { status: 404 })
-  const abs = safeResolve(rootPath, parsed.filePath)
+  const abs = await resolvePluginFile(rootPath, parsed.filePath, summary?.devSource === true)
   if (!abs) return new Response('forbidden', { status: 403 })
   try {
-    return await fileResponseCached(rootPath, abs, Boolean(summary?.devUrl))
+      return await fileResponse(request, abs, Boolean(summary?.dev), rootPath, pluginRegistry.getBuildRevision(parsed.pluginId), parsed.pluginId)
   } catch {
     return new Response('not found', { status: 404 })
   }
@@ -313,7 +246,8 @@ export function registerPluginProtocolForSession(
   pluginId: string,
   rootPath: string
 ): void {
-  const isDev = false // session 级始终走生产 CSP，开发态插件走默认 session
+  const summary = pluginRegistry.get(pluginId)
+  const isDev = summary?.dev === true
   // 同一 persist 分区的 session 对象跨「关闭→再打开」复用；protocol.handle
   // 对已注册 scheme 二次调用会抛 "Failed to register protocol"（Electron 36
   // 实测），必须先 unhandle 再注册（幂等，未注册时忽略）
@@ -327,16 +261,17 @@ export function registerPluginProtocolForSession(
     if (!parsed || parsed.pluginId !== pluginId) {
       return new Response('forbidden', { status: 403 })
     }
+    if (parsed.filePath.startsWith(FONT_FILE_PREFIX)) return fontResponse(request, parsed.filePath)
     // 主题 CSS 虚拟文件（session 级 handler 同样支持）
     if (parsed.filePath === THEME_CSS_FILE) {
       return new Response(buildThemeCssForPlugin(pluginId), {
-        headers: { 'Content-Type': 'text/css; charset=utf-8' }
+        headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'no-store' }
       })
     }
-    const abs = safeResolve(rootPath, parsed.filePath)
+    const abs = await resolvePluginFile(rootPath, parsed.filePath, summary?.devSource === true)
     if (!abs) return new Response('forbidden', { status: 403 })
     try {
-      return await fileResponseCached(rootPath, abs, isDev)
+      return await fileResponse(request, abs, isDev, rootPath, pluginRegistry.getBuildRevision(pluginId), pluginId)
     } catch {
       return new Response('not found', { status: 404 })
     }

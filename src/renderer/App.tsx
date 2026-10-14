@@ -38,7 +38,7 @@ export default function App() {
     if (quick) return
     initMotion()
     // 退出/页面隐藏时立即落 sessionTabs（400ms debounce 的兜底，防丢最后一次变更）
-    registerSessionFlushOnHide()
+    const unregisterSessionFlush = registerSessionFlushOnHide()
     // 主题最先水合，减少首屏色相跳变；Tab 样式（圆轨悬浮窗）等 Splash 结束后再同步
     void (async () => {
       await hydrateTheme()
@@ -47,6 +47,7 @@ export default function App() {
       void hydrateAnimLevel()
       void refreshPlugins()
     })()
+    return unregisterSessionFlush
   }, [quick, hydrateTheme, hydrateFont, hydrateI18n, hydrateAnimLevel, refreshPlugins])
 
   // Splash 结束后：水合 Tab 样式，并恢复会话 Tab

@@ -8,7 +8,6 @@ import {
   BrowserWindow,
   desktopCapturer,
   ipcMain,
-  nativeImage,
   screen,
   type IpcMainEvent
 } from 'electron'
@@ -20,27 +19,86 @@ import { resolvePreload } from '@main/window/createShellWindow'
 import { IpcChannels } from '@shared/types/ipc'
 import type { ScreenBounds, ScreenCaptureResult } from '@shared/types/plugin'
 import { logInfo, logWarn } from '@main/logs/logService'
+import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
+
+type RuntimeScope = NonNullable<ReturnType<typeof getRuntimeScope>>
+type RecordingResult = { path: string; size: number; durationMs: number }
+type Deferred<T> = {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (error: Error) => void
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  // Sessions may finish after their owner has gone away, with no IPC caller awaiting them.
+  void promise.catch(() => {})
+  return { promise, resolve, reject }
+}
 
 interface RecordSession {
   id: string
-  win: BrowserWindow
-  withAudio: boolean
+  scope: RuntimeScope
+  win: BrowserWindow | null
+  phase: 'starting' | 'recording' | 'stopping' | 'finished'
   startedAt: number
+  stoppedAt?: number
+  partFile: string
   outFile: string
-  /** 串行化分片写入，保证 webm 时序 */
   appendQueue: Promise<void>
-  resolving?: {
-    resolve: (v: { path: string; size: number; durationMs: number }) => void
-    reject: (e: Error) => void
-  }
-  cancelling?: boolean
+  queuedBytes: number
+  paused: boolean
+  finalizing: boolean
+  deadline?: ReturnType<typeof setTimeout>
+  ready: Deferred<void>
+  result: Deferred<RecordingResult>
+  release: () => void
 }
 
+interface RegionSession {
+  scope: RuntimeScope
+  win: BrowserWindow | null
+  result: Deferred<ScreenBounds | null>
+  release: () => void
+  finished: boolean
+}
+
+const RECORDING_STOP_TIMEOUT_MS = 10_000
+const RECORDING_START_TIMEOUT_MS = 15_000
+const MAX_QUEUED_BYTES = 8 * 1024 * 1024
+const PAUSE_QUEUED_BYTES = 2 * 1024 * 1024
+const RESUME_QUEUED_BYTES = 1024 * 1024
 const recordSessions = new Map<string, RecordSession>()
-let regionOverlay: BrowserWindow | null = null
-let regionResolver:
-  | { resolve: (b: ScreenBounds | null) => void; reject: (e: Error) => void }
-  | null = null
+let regionSession: RegionSession | null = null
+
+function requireScope(pluginId: string): RuntimeScope {
+  const scope = getRuntimeScope(pluginId)
+  if (!scope || !scope.isCurrent() || scope.signal.aborted) {
+    throw new Error('plugin runtime is closed')
+  }
+  return scope
+}
+
+function isCurrent(scope: RuntimeScope): boolean {
+  return scope.isCurrent() && !scope.signal.aborted
+}
+
+/** Closing a runtime aborts capture immediately; detached file finalization has its own deadline. */
+function ownActivity(scope: RuntimeScope, reason: string, dispose: () => void): () => void {
+  const releaseActivity = scope.acquireActivity(reason)
+  const removeDisposer = scope.addDisposer(dispose)
+  scope.signal.addEventListener('abort', dispose, { once: true })
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    scope.signal.removeEventListener('abort', dispose)
+    removeDisposer()
+    releaseActivity()
+  }
+}
 
 function recordingsDir(): string {
   return join(getAppPaths().root, 'recordings')
@@ -100,76 +158,71 @@ export async function captureScreen(opts?: {
   }
 }
 
-function closeRegionOverlay(): void {
-  if (!regionOverlay) return
-  const w = regionOverlay
-  regionOverlay = null
-  if (!w.isDestroyed()) w.destroy()
+function finishRegion(session: RegionSession, bounds: ScreenBounds | null, error?: Error): void {
+  if (session.finished) return
+  session.finished = true
+  if (regionSession === session) regionSession = null
+  session.release()
+  if (session.win && !session.win.isDestroyed()) session.win.destroy()
+  if (error) session.result.reject(error)
+  else session.result.resolve(bounds)
 }
 
 /** 打开全屏区域选择遮罩；用户确认返回设备像素 bounds，取消返回 null */
-export function selectRegion(): Promise<ScreenBounds | null> {
-  if (regionOverlay) {
-    closeRegionOverlay()
-    regionResolver?.resolve(null)
-    regionResolver = null
+export function selectRegion(pluginId: string): Promise<ScreenBounds | null> {
+  const scope = requireScope(pluginId)
+  if (regionSession) finishRegion(regionSession, null)
+  const session: RegionSession = {
+    scope, win: null, result: deferred<ScreenBounds | null>(), release: () => {}, finished: false
   }
-
-  return new Promise<ScreenBounds | null>((resolve, reject) => {
-    regionResolver = { resolve, reject }
-    void (async () => {
-      try {
-        const display = screen.getPrimaryDisplay()
-        const shot = await captureDisplayNative(display)
-        const dataUrl = shot.toDataURL()
-        const { width, height } = shot.getSize()
-
-        const win = new BrowserWindow({
-          x: display.bounds.x,
-          y: display.bounds.y,
-          width: display.bounds.width,
-          height: display.bounds.height,
-          frame: false,
-          transparent: true,
-          resizable: false,
-          movable: false,
-          fullscreen: true,
-          skipTaskbar: true,
-          alwaysOnTop: true,
-          hasShadow: false,
-          show: false,
-          webPreferences: {
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: true,
-            preload: resolvePreload('regionOverlayPreload.js')
-          }
-        })
-        regionOverlay = win
-        win.setAlwaysOnTop(true, 'screen-saver')
-        if (process.platform === 'darwin') {
-          win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  regionSession = session
+  session.release = ownActivity(scope, 'screen region selection', () => finishRegion(session, null))
+  void (async () => {
+    try {
+      const display = screen.getPrimaryDisplay()
+      const shot = await captureDisplayNative(display)
+      if (session.finished || !isCurrent(scope)) return finishRegion(session, null)
+      const { width, height } = shot.getSize()
+      const win = new BrowserWindow({
+        x: display.bounds.x,
+        y: display.bounds.y,
+        width: display.bounds.width,
+        height: display.bounds.height,
+        frame: false,
+        transparent: true,
+        resizable: false,
+        movable: false,
+        fullscreen: true,
+        skipTaskbar: true,
+        alwaysOnTop: true,
+        hasShadow: false,
+        show: false,
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          preload: resolvePreload('regionOverlayPreload.js')
         }
-
-        win.once('closed', () => {
-          if (regionOverlay === win) {
-            regionOverlay = null
-            regionResolver?.resolve(null)
-            regionResolver = null
-          }
-        })
-
-        await win.loadURL(
-          `data:text/html;charset=utf-8,${encodeURIComponent(buildRegionHtml(dataUrl, width, height))}`
-        )
-        win.showInactive()
-        win.focus()
-      } catch (err) {
-        regionResolver = null
-        reject(err as Error)
+      })
+      session.win = win
+      win.setAlwaysOnTop(true, 'screen-saver')
+      if (process.platform === 'darwin') {
+        win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
       }
-    })()
-  })
+      win.once('closed', () => finishRegion(session, null))
+      win.webContents.once('render-process-gone', () => finishRegion(session, null))
+      win.webContents.once('preload-error', (_event, _path, error) => finishRegion(session, null, error))
+      await win.loadURL(
+        `data:text/html;charset=utf-8,${encodeURIComponent(buildRegionHtml(shot.toDataURL(), width, height))}`
+      )
+      if (session.finished || !isCurrent(scope)) return finishRegion(session, null)
+      win.showInactive()
+      win.focus()
+    } catch (error) {
+      finishRegion(session, null, error as Error)
+    }
+  })()
+  return session.result.promise
 }
 
 function buildRegionHtml(dataUrl: string, imgW: number, imgH: number): string {
@@ -218,40 +271,28 @@ addEventListener('keydown',e=>{
 
 function wireRegionIpcOnce(): void {
   if (ipcMain.listenerCount(IpcChannels.PluginRegionConfirm) > 0) return
-  const isRegionSender = (event: IpcMainEvent): boolean =>
-    !!regionOverlay &&
-    !regionOverlay.isDestroyed() &&
-    regionOverlay.webContents.id === event.sender.id
-
-  ipcMain.on(IpcChannels.PluginRegionConfirm, (e: IpcMainEvent, bounds: ScreenBounds) => {
-    if (!isRegionSender(e)) return
-    closeRegionOverlay()
-    const r = regionResolver
-    regionResolver = null
-    if (!r) return
-    if (
-      !bounds ||
-      !Number.isFinite(bounds.width) ||
-      !Number.isFinite(bounds.height) ||
-      bounds.width < 1 ||
-      bounds.height < 1
-    ) {
-      r.resolve(null)
+  const resolveRegion = (event: IpcMainEvent): RegionSession | null => {
+    const session = regionSession
+    return session && !session.finished && isCurrent(session.scope) && session.win &&
+      !session.win.isDestroyed() && session.win.webContents === event.sender &&
+      event.senderFrame === session.win.webContents.mainFrame ? session : null
+  }
+  ipcMain.on(IpcChannels.PluginRegionConfirm, (event: IpcMainEvent, bounds: ScreenBounds) => {
+    const session = resolveRegion(event)
+    if (!session) return
+    if (!bounds || ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) ||
+        bounds.width < 1 || bounds.height < 1) {
+      finishRegion(session, null)
       return
     }
-    r.resolve({
-      x: Math.max(0, Math.floor(bounds.x)),
-      y: Math.max(0, Math.floor(bounds.y)),
-      width: Math.max(1, Math.floor(bounds.width)),
-      height: Math.max(1, Math.floor(bounds.height))
+    finishRegion(session, {
+      x: Math.max(0, Math.floor(bounds.x)), y: Math.max(0, Math.floor(bounds.y)),
+      width: Math.max(1, Math.floor(bounds.width)), height: Math.max(1, Math.floor(bounds.height))
     })
   })
-  ipcMain.on(IpcChannels.PluginRegionCancel, (e: IpcMainEvent) => {
-    if (!isRegionSender(e)) return
-    closeRegionOverlay()
-    const r = regionResolver
-    regionResolver = null
-    r?.resolve(null)
+  ipcMain.on(IpcChannels.PluginRegionCancel, (event: IpcMainEvent) => {
+    const session = resolveRegion(event)
+    if (session) finishRegion(session, null)
   })
 }
 
@@ -265,281 +306,360 @@ video{position:fixed;left:-9999px;top:0}
 const sourceId=${JSON.stringify(sourceId)};
 const withAudio=${withAudio ? 'true' : 'false'};
 const crop=${JSON.stringify(crop)};
-let recorder=null;
-async function boot(){
-  const audioConstraint = withAudio
-    ? { mandatory: { chromeMediaSource: 'system', chromeMediaSourceId: sourceId } }
-    : false;
-  const videoConstraint = {
-    mandatory: {
-      chromeMediaSource: 'desktop',
-      chromeMediaSourceId: sourceId,
-      maxWidth: 4096,
-      maxHeight: 4096,
-      maxFrameRate: 30
-    }
-  };
-  let raw;
-  try {
-    raw = await navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video: videoConstraint });
-  } catch (e1) {
-    try {
-      raw = await navigator.mediaDevices.getUserMedia({ video: videoConstraint });
-      window.recorderBridge?.audioUnavailable(String(e1?.message || e1));
-    } catch (e2) {
-      window.recorderBridge?.failed(String(e2?.message || e2));
-      return;
-    }
-  }
-  const v = document.getElementById('v');
-  v.srcObject = raw;
-  await v.play();
-  const cw = Math.max(1, crop.width|0), ch = Math.max(1, crop.height|0);
-  const canvas = document.createElement('canvas');
-  canvas.width = cw; canvas.height = ch;
-  const ctx = canvas.getContext('2d');
-  let raf = 0;
-  const tick = () => {
-    try {
-      ctx.drawImage(v, crop.x, crop.y, cw, ch, 0, 0, cw, ch);
-    } catch {}
-    raf = requestAnimationFrame(tick);
-  };
-  tick();
-  const out = canvas.captureStream(30);
-  for (const t of raw.getAudioTracks()) out.addTrack(t);
-  const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
-    ? 'video/webm;codecs=vp9,opus'
-    : 'video/webm';
-  recorder = new MediaRecorder(out, { mimeType: mime, videoBitsPerSecond: 4_000_000 });
-  recorder.ondataavailable = (e) => {
-    if (e.data && e.data.size) {
-      e.data.arrayBuffer().then((buf) => window.recorderBridge?.chunk(buf));
-    }
-  };
-  recorder.onstop = () => {
-    cancelAnimationFrame(raf);
-    raw.getTracks().forEach(t => t.stop());
-    out.getTracks().forEach(t => t.stop());
-    window.recorderBridge?.stopped();
-  };
-  recorder.start(250);
-  window.__enestRecorderReady = true;
-  window.recorderBridge?.started();
+let recorder=null, raw=null, out=null, raf=0, frame=0, stopped=false, failed=false;
+let chunks=Promise.resolve(), pendingBytes=0;
+const v=document.getElementById('v');
+function releaseCapture(){
+  cancelAnimationFrame(raf);
+  if(frame&&v.cancelVideoFrameCallback) v.cancelVideoFrameCallback(frame);
+  if(raw) raw.getTracks().forEach(t=>t.stop());
+  if(out) out.getTracks().forEach(t=>t.stop());
+  v.srcObject=null;
 }
-window.recorderCtl = {
-  stop() { try { recorder?.stop(); } catch {} },
-  cancel() { try { recorder?.stop(); } catch {} }
+function fail(error){
+  if(failed)return;
+  failed=true;stopped=true;
+  try{if(recorder&&recorder.state!=='inactive')recorder.stop()}catch{}
+  releaseCapture();
+  window.recorderBridge?.failed(String(error?.message||error));
+}
+function stop(){
+  if(stopped)return;
+  stopped=true;
+  try{if(recorder&&recorder.state!=='inactive')recorder.stop()}catch(e){fail(e)}
+  // End desktop/audio acquisition now; only already encoded chunks may drain afterwards.
+  releaseCapture();
+}
+window.recorderCtl={
+  stop, cancel:stop,
+  pause(){if(!stopped&&recorder?.state==='recording')recorder.pause()},
+  resume(){if(!stopped&&recorder?.state==='paused')recorder.resume()}
 };
-boot();
+async function boot(){
+  try{
+    const videoConstraint={mandatory:{chromeMediaSource:'desktop',chromeMediaSourceId:sourceId,
+      maxWidth:4096,maxHeight:4096,maxFrameRate:30}};
+    try{
+      raw=await navigator.mediaDevices.getUserMedia({
+        audio:withAudio?{mandatory:{chromeMediaSource:'desktop',chromeMediaSourceId:sourceId}}:false,
+        video:videoConstraint
+      });
+    }catch(error){
+      if(stopped) return;
+      if(!withAudio)throw error;
+      raw=await navigator.mediaDevices.getUserMedia({video:videoConstraint});
+      window.recorderBridge?.audioUnavailable(String(error?.message||error));
+    }
+    if(stopped){releaseCapture();return}
+    v.srcObject=raw;
+    await v.play();
+    if(stopped){releaseCapture();return}
+    const cw=Math.max(1,crop.width|0),ch=Math.max(1,crop.height|0);
+    const canvas=document.createElement('canvas');
+    canvas.width=cw;canvas.height=ch;
+    const ctx=canvas.getContext('2d');
+    if(!ctx)throw new Error('recording canvas unavailable');
+    const tick=()=>{
+      if(stopped)return;
+      try{ctx.drawImage(v,crop.x,crop.y,cw,ch,0,0,cw,ch)}catch{}
+      if(v.requestVideoFrameCallback)frame=v.requestVideoFrameCallback(tick);
+      else raf=requestAnimationFrame(tick);
+    };
+    tick();
+    out=canvas.captureStream(30);
+    for(const track of raw.getAudioTracks())out.addTrack(track);
+    const mime=MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+      ?'video/webm;codecs=vp8,opus':'video/webm';
+    recorder=new MediaRecorder(out,{mimeType:mime,videoBitsPerSecond:4_000_000});
+    recorder.ondataavailable=(event)=>{
+      if(failed||!event.data?.size)return;
+      const blob=event.data;
+      if(pendingBytes+blob.size>${MAX_QUEUED_BYTES})return fail(new Error('recording chunk queue exceeded limit'));
+      pendingBytes+=blob.size;
+      // Blob conversion is asynchronous: serialize it before sending, including the final chunk.
+      chunks=chunks.then(async()=>{
+        if(failed)return;
+        const buf=await blob.arrayBuffer();
+        if(!failed)window.recorderBridge?.chunk(buf);
+      }).catch(fail).finally(()=>{pendingBytes-=blob.size});
+    };
+    recorder.onerror=(event)=>fail(event.error||new Error('media recorder failed'));
+    recorder.onstop=()=>{
+      stopped=true;releaseCapture();
+      void chunks.then(()=>{if(!failed)window.recorderBridge?.stopped()}).catch(fail);
+    };
+    recorder.start(250);
+    window.recorderBridge?.started();
+  }catch(error){fail(error)}
+}
+void boot();
 </script></body></html>`
+}
+
+function destroyRecorder(session: RecordSession): void {
+  const win = session.win
+  session.win = null
+  if (win && !win.isDestroyed()) win.destroy()
+}
+
+/** The only terminal transition. Identity is per session, so old cleanup cannot touch a new runtime. */
+function finishRecording(session: RecordSession, result?: RecordingResult, error?: Error): void {
+  if (session.phase === 'finished') return
+  session.phase = 'finished'
+  clearTimeout(session.deadline)
+  session.release()
+  recordSessions.delete(session.id)
+  destroyRecorder(session)
+  const failure = error ?? new Error('recording ended before it was ready')
+  session.ready.reject(failure)
+  if (result) session.result.resolve(result)
+  else {
+    session.result.reject(failure)
+    logWarn('screen', `recording ${session.id}: ${failure.message}`)
+    // A pending initial write/append cannot be cancelled by promises. Remove its file after it settles.
+    void session.appendQueue.catch(() => {}).then(() => rm(session.partFile, { force: true })).catch(() => {})
+  }
+}
+
+function controlRecorder(session: RecordSession, method: 'stop' | 'pause' | 'resume'): void {
+  const win = session.win
+  if (!win || win.isDestroyed()) {
+    finishRecording(session, undefined, new Error('recorder window destroyed'))
+    return
+  }
+  void win.webContents.executeJavaScript(
+    `if(!window.recorderCtl)throw new Error('recorder not ready');window.recorderCtl.${method}()`
+  ).catch((error: Error) => finishRecording(session, undefined, error))
+}
+
+function requestStop(session: RecordSession): void {
+  if (session.phase === 'finished' || session.phase === 'stopping') return
+  if (session.phase === 'starting') {
+    finishRecording(session, undefined, new Error('recording stopped during startup'))
+    return
+  }
+  session.phase = 'stopping'
+  session.stoppedAt = Date.now()
+  clearTimeout(session.deadline)
+  session.deadline = setTimeout(() => {
+    finishRecording(session, undefined, new Error('recording stop timeout'))
+  }, RECORDING_STOP_TIMEOUT_MS)
+  controlRecorder(session, 'stop')
+}
+
+async function finalizeRecording(session: RecordSession): Promise<void> {
+  if (session.finalizing || session.phase === 'finished') return
+  session.finalizing = true
+  // The renderer has stopped acquisition; close it before disk IO, which may take longer.
+  if (session.phase !== 'stopping') {
+    session.phase = 'stopping'
+    session.stoppedAt = Date.now()
+    clearTimeout(session.deadline)
+    session.deadline = setTimeout(() => {
+      finishRecording(session, undefined, new Error('recording stop timeout'))
+    }, RECORDING_STOP_TIMEOUT_MS)
+  }
+  destroyRecorder(session)
+  try {
+    await session.appendQueue
+    if (isFinished(session)) return
+    await rename(session.partFile, session.outFile)
+    // A timeout may have fired while rename/stat was in flight. Never publish that partial result.
+    if (isFinished(session)) {
+      await rm(session.outFile, { force: true })
+      return
+    }
+    const info = await stat(session.outFile)
+    if (isFinished(session)) {
+      await rm(session.outFile, { force: true })
+      return
+    }
+    finishRecording(session, {
+      path: session.outFile, size: info.size,
+      durationMs: (session.stoppedAt ?? Date.now()) - session.startedAt
+    })
+  } catch (error) {
+    await rm(session.outFile, { force: true }).catch(() => {})
+    finishRecording(session, undefined, error as Error)
+  }
+}
+
+function isFinished(session: RecordSession): boolean {
+  return session.phase === 'finished'
 }
 
 function wireRecorderIpcOnce(): void {
   if (ipcMain.listenerCount(IpcChannels.PluginRecorderStarted) > 0) return
-
-  const resolveSession = (event: IpcMainEvent): RecordSession | null => {
-    for (const s of recordSessions.values()) {
-      if (s.win.webContents.id === event.sender.id) return s
+  const resolveSession = (event: IpcMainEvent): RecordSession | undefined => {
+    for (const session of recordSessions.values()) {
+      if (session.win && !session.win.isDestroyed() && session.win.webContents === event.sender &&
+          event.senderFrame === session.win.webContents.mainFrame) {
+        return session
+      }
     }
-    return null
+    return undefined
   }
-
-  ipcMain.on(IpcChannels.PluginRecorderStarted, (e) => {
-    const s = resolveSession(e)
-    if (s) logInfo('screen', `recording started ${s.id}`)
+  ipcMain.on(IpcChannels.PluginRecorderStarted, (event) => {
+    const session = resolveSession(event)
+    if (!session || session.phase !== 'starting') return
+    if (!isCurrent(session.scope)) {
+      finishRecording(session, undefined, new Error('plugin runtime is closed'))
+      return
+    }
+    clearTimeout(session.deadline)
+    session.phase = 'recording'
+    session.startedAt = Date.now()
+    session.ready.resolve()
+    logInfo('screen', `recording started ${session.id}`)
   })
-  ipcMain.on(IpcChannels.PluginRecorderFailed, (e, message: string) => {
-    const s = resolveSession(e)
-    if (!s) return
-    s.resolving?.reject(new Error(`screen record failed: ${message}`))
-    s.resolving = undefined
-    if (!s.win.isDestroyed()) s.win.destroy()
-    recordSessions.delete(s.id)
+  ipcMain.on(IpcChannels.PluginRecorderFailed, (event, message: string) => {
+    const session = resolveSession(event)
+    if (session) finishRecording(session, undefined, new Error(`screen record failed: ${message}`))
   })
-  ipcMain.on(IpcChannels.PluginRecorderAudioUnavailable, (e, message: string) => {
-    logWarn('screen', `system audio unavailable: ${message}`)
+  ipcMain.on(IpcChannels.PluginRecorderAudioUnavailable, (event, message: string) => {
+    if (resolveSession(event)) logWarn('screen', `system audio unavailable: ${message}`)
   })
-  ipcMain.on(IpcChannels.PluginRecorderChunk, (e, buf: ArrayBuffer) => {
-    const s = resolveSession(e)
-    if (!s || s.cancelling) return
+  ipcMain.on(IpcChannels.PluginRecorderChunk, (event, buf: ArrayBuffer) => {
+    const session = resolveSession(event)
+    if (!session || session.finalizing || !(buf instanceof ArrayBuffer)) return
+    if (buf.byteLength + session.queuedBytes > MAX_QUEUED_BYTES) {
+      finishRecording(session, undefined, new Error('recording disk queue exceeded limit'))
+      return
+    }
     const chunk = Buffer.from(buf)
-    s.appendQueue = s.appendQueue.then(async () => {
-      try {
-        await mkdir(recordingsDir(), { recursive: true })
-        await appendFile(join(recordingsDir(), `${s.id}.part`), chunk)
-      } catch (err) {
-        logWarn('screen', `append chunk failed: ${(err as Error).message}`)
+    session.queuedBytes += chunk.byteLength
+    if (!session.paused && session.phase === 'recording' && session.queuedBytes >= PAUSE_QUEUED_BYTES) {
+      session.paused = true
+      controlRecorder(session, 'pause')
+    }
+    session.appendQueue = session.appendQueue.then(async () => {
+      if (isFinished(session)) return
+      await appendFile(session.partFile, chunk)
+    }).catch((error: Error) => {
+      finishRecording(session, undefined, error)
+    }).finally(() => {
+      session.queuedBytes -= chunk.byteLength
+      if (session.paused && session.phase === 'recording' && session.queuedBytes < RESUME_QUEUED_BYTES) {
+        session.paused = false
+        controlRecorder(session, 'resume')
       }
     })
   })
-  ipcMain.on(IpcChannels.PluginRecorderStopped, (e) => {
-    const s = resolveSession(e)
-    if (!s) return
-    void (async () => {
-      const part = join(recordingsDir(), `${s.id}.part`)
-      const out = join(recordingsDir(), `${s.id}.webm`)
-      try {
-        // 等待在途分片全部落盘后再 rename
-        await s.appendQueue
-        if (s.cancelling) {
-          await rm(part, { force: true })
-          s.resolving?.reject(new Error('recording cancelled'))
-        } else {
-          await rename(part, out)
-          const st = await stat(out)
-          s.resolving?.resolve({
-            path: out,
-            size: st.size,
-            durationMs: Date.now() - s.startedAt
-          })
-        }
-      } catch (err) {
-        await rm(part, { force: true }).catch(() => {})
-        s.resolving?.reject(err as Error)
-      } finally {
-        s.resolving = undefined
-        if (!s.win.isDestroyed()) s.win.destroy()
-        recordSessions.delete(s.id)
-      }
-    })()
+  ipcMain.on(IpcChannels.PluginRecorderStopped, (event) => {
+    const session = resolveSession(event)
+    if (session) void finalizeRecording(session)
   })
 }
 
-/** 开始矩形录屏；产物 webm 写入 ~/.eNest/recordings/ */
-export async function startRecording(opts?: {
+/** 开始矩形录屏。启动中占位，避免多个调用跨 await 创建多个录制窗口。 */
+export async function startRecording(pluginId: string, opts?: {
   bounds?: ScreenBounds
   withAudio?: boolean
   displayId?: number
 }): Promise<{ sessionId: string }> {
+  const scope = requireScope(pluginId)
   wireRecorderIpcOnce()
-  if (recordSessions.size > 0) throw new Error('recording already in progress')
-
-  const display = resolveDisplay(opts?.displayId)
-  const full = await captureDisplayNative(display)
-  const fullSize = full.getSize()
-  const crop = opts?.bounds
-    ? boundsToIntersect(opts.bounds, fullSize.width, fullSize.height)
-    : { x: 0, y: 0, width: fullSize.width, height: fullSize.height }
-
-  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } })
-  const sid = String(display.id)
-  const source =
-    sources.find((s) => s.display_id === sid) ??
-    sources.find((s) => s.id.includes(sid)) ??
-    sources[0]
-  if (!source) throw new Error('screen record failed: no display source')
-
-  const sessionId = randomUUID()
-  const withAudio = opts?.withAudio === true
-
-  const win = new BrowserWindow({
-    show: false,
-    width: Math.max(200, crop.width),
-    height: Math.max(120, crop.height),
-    frame: false,
-    skipTaskbar: true,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      preload: resolvePreload('recorderPreload.js')
-    }
-  })
-
+  if ([...recordSessions.values()].some((session) => session.phase === 'starting' || session.phase === 'recording')) {
+    throw new Error('recording already in progress')
+  }
+  const id = randomUUID()
   const session: RecordSession = {
-    id: sessionId,
-    win,
-    withAudio,
-    startedAt: Date.now(),
-    outFile: join(recordingsDir(), `${sessionId}.webm`),
-    appendQueue: Promise.resolve()
+    id, scope, win: null, phase: 'starting', startedAt: Date.now(),
+    partFile: join(recordingsDir(), `${id}.part`), outFile: join(recordingsDir(), `${id}.webm`),
+    appendQueue: Promise.resolve(), queuedBytes: 0, paused: false, finalizing: false,
+    ready: deferred<void>(), result: deferred<RecordingResult>(), release: () => {}
   }
-  recordSessions.set(sessionId, session)
-  // 预创建 part，避免无分片时 rename 失败
-  await mkdir(recordingsDir(), { recursive: true })
-  await writeFile(join(recordingsDir(), `${sessionId}.part`), '')
-
-  await win.loadURL(
-    `data:text/html;charset=utf-8,${encodeURIComponent(buildRecorderHtml(source.id, withAudio, crop))}`
-  )
-
-  return { sessionId }
-}
-
-/** 停止录制并落盘；返回绝对路径 */
-export function stopRecording(sessionId: string): Promise<{
-  path: string
-  size: number
-  durationMs: number
-}> {
-  const s = recordSessions.get(sessionId)
-  if (!s) throw new Error(`recording session not found: ${sessionId}`)
-  if (s.resolving) throw new Error('recording already stopping')
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      s.resolving = undefined
-      if (!s.win.isDestroyed()) s.win.destroy()
-      recordSessions.delete(sessionId)
-      reject(new Error('recording stop timeout'))
-    }, 10_000)
-
-    s.resolving = {
-      resolve: (v) => {
-        clearTimeout(timer)
-        resolve(v)
-      },
-      reject: (err) => {
-        clearTimeout(timer)
-        reject(err)
-      }
-    }
-
-    if (s.win.isDestroyed()) {
-      clearTimeout(timer)
-      s.resolving = undefined
-      recordSessions.delete(sessionId)
-      reject(new Error('recorder window destroyed'))
-      return
-    }
-
-    // recorder 未就绪时主动 failed，避免静默挂起
-    void s.win.webContents
-      .executeJavaScript(
-        `(function(){if(!window.recorderCtl||!window.__enestRecorderReady){window.recorderBridge?.failed('recorder not ready');return}window.recorderCtl.stop()})()`
-      )
-      .catch(() => {
-        clearTimeout(timer)
-        s.resolving = undefined
-        recordSessions.delete(sessionId)
-        reject(new Error('recorder window not ready'))
+  recordSessions.set(id, session)
+  session.release = ownActivity(scope, 'screen recording', () => requestStop(session))
+  session.deadline = setTimeout(() => {
+    finishRecording(session, undefined, new Error('recording startup timeout'))
+  }, RECORDING_START_TIMEOUT_MS)
+  void (async () => {
+    try {
+      const display = resolveDisplay(opts?.displayId)
+      const width = Math.max(1, Math.round(display.size.width * display.scaleFactor))
+      const height = Math.max(1, Math.round(display.size.height * display.scaleFactor))
+      const crop = opts?.bounds ? boundsToIntersect(opts.bounds, width, height) : { x: 0, y: 0, width, height }
+      const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } })
+      if (isFinished(session) || !isCurrent(scope)) return requestStop(session)
+      const sid = String(display.id)
+      const source = sources.find((item) => item.display_id === sid) ?? sources.find((item) => item.id.includes(sid)) ?? sources[0]
+      if (!source) throw new Error('screen record failed: no display source')
+      session.appendQueue = mkdir(recordingsDir(), { recursive: true }).then(async () => {
+        if (!isFinished(session)) await writeFile(session.partFile, '')
       })
-  })
+      await session.appendQueue
+      if (isFinished(session) || !isCurrent(scope)) return requestStop(session)
+      const win = new BrowserWindow({
+        show: false, width: Math.max(200, crop.width), height: Math.max(120, crop.height),
+        frame: false, skipTaskbar: true,
+        webPreferences: {
+          contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false,
+          preload: resolvePreload('recorderPreload.js')
+        }
+      })
+      session.win = win
+      win.once('closed', () => {
+        if (session.win === win) finishRecording(session, undefined, new Error('recorder window closed'))
+      })
+      win.webContents.once('render-process-gone', () => {
+        finishRecording(session, undefined, new Error('recorder renderer exited'))
+      })
+      win.webContents.once('preload-error', (_event, _path, error) => {
+        finishRecording(session, undefined, new Error(`recorder preload failed: ${error.message}`))
+      })
+      // data: pages have an opaque, insecure origin and no mediaDevices. A local
+      // transient document provides a secure context without relaxing the sandbox.
+      const htmlFile = join(recordingsDir(), `.${id}.html`)
+      try {
+        await writeFile(htmlFile, buildRecorderHtml(source.id, opts?.withAudio === true, crop))
+        if (isFinished(session) || !isCurrent(scope)) return requestStop(session)
+        await win.loadFile(htmlFile)
+      } finally {
+        await rm(htmlFile, { force: true })
+      }
+      if (!isCurrent(scope)) requestStop(session)
+    } catch (error) {
+      finishRecording(session, undefined, error as Error)
+    }
+  })()
+  await session.ready.promise
+  return { sessionId: id }
 }
 
-export function cancelRecording(sessionId: string): boolean {
-  const s = recordSessions.get(sessionId)
-  if (!s) return false
-  s.cancelling = true
-  if (!s.win.isDestroyed()) {
-    void s.win.webContents.executeJavaScript('window.recorderCtl?.cancel()').catch(() => {
-      s.win.destroy()
-      recordSessions.delete(sessionId)
-      s.resolving?.reject(new Error('recording cancelled'))
-    })
-  }
+function ownedRecording(pluginId: string, sessionId: string): RecordSession | undefined {
+  const scope = requireScope(pluginId)
+  const session = recordSessions.get(sessionId)
+  if (session && session.scope !== scope) throw new Error('recording belongs to another plugin runtime')
+  return session
+}
+
+/** 停止录制并落盘；重复停止共享同一次收尾。 */
+export function stopRecording(pluginId: string, sessionId: string): Promise<RecordingResult> {
+  const session = ownedRecording(pluginId, sessionId)
+  if (!session) throw new Error(`recording session not found: ${sessionId}`)
+  requestStop(session)
+  return session.result.promise
+}
+
+export function cancelRecording(pluginId: string, sessionId: string): boolean {
+  const session = ownedRecording(pluginId, sessionId)
+  if (!session) return false
+  finishRecording(session, undefined, new Error('recording cancelled'))
   return true
 }
 
 export function disposeScreenService(): void {
-  closeRegionOverlay()
-  for (const s of recordSessions.values()) {
-    s.cancelling = true
-    if (!s.win.isDestroyed()) s.win.destroy()
-    s.resolving?.reject(new Error('app quit'))
+  if (regionSession) finishRegion(regionSession, null)
+  for (const session of recordSessions.values()) {
+    finishRecording(session, undefined, new Error('app quit'))
   }
-  recordSessions.clear()
 }
 
-// 懒注册区域遮罩 IPC
 wireRegionIpcOnce()
+
+/** Shutdown joins already detached saves; each recording owns a 10 second deadline. */
+export async function finishRecordingsForShutdown(): Promise<void> {
+  if (regionSession) finishRegion(regionSession, null)
+  await Promise.allSettled([...recordSessions.values()].map((session) => (requestStop(session), session.result.promise)))
+}

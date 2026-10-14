@@ -119,6 +119,21 @@ export class ContributionRegistry {
   /** 运行时 Quick provider 注册表：`${pluginId}:${providerId}` → meta */
   private quickProviders = new Map<string, QuickProviderContribution & { pluginId: string }>()
 
+  /** Runtime settings registration updates only this section, preserving other slots. */
+  registerSettingsSection(pluginId: string, section: SettingsSectionContribution): void {
+    const db = kvStore.getDatabase()
+    if (!pluginId || !section.id || !versionOk(section) || !ensureInit() || !db) return
+    statementsFor(db)!.upsert.run(pluginId, 'settings', section.id, JSON.stringify(section))
+    sendShellEvent({ type: 'contributions-changed', slot: 'settings', source: pluginId })
+  }
+
+  unregisterSettingsSections(pluginId: string): void {
+    const db = kvStore.getDatabase()
+    if (!ensureInit() || !db) return
+    db.prepare('DELETE FROM contributions WHERE source = ? AND slot = ?').run(pluginId, 'settings')
+    sendShellEvent({ type: 'contributions-changed', slot: 'settings', source: pluginId })
+  }
+
   /**
    * manifest.contributes 声明入库（Registry.scan 后调用）。
    * 每次调用先清掉该插件在全部声明式插槽的旧行（版本升级撤掉某插槽 / 同版本重扫幂等），

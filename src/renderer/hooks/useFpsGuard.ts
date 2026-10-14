@@ -22,12 +22,12 @@ interface FpsBucket {
   frames: number
 }
 
-export function useFpsGuard(): void {
+export function useFpsGuard(enabled = true): void {
   const level = useAnimationLevelStore((s) => s.level)
 
   useEffect(() => {
     // 仅 high 档启用；medium/low 直接不采样（零开销）
-    if (level !== 'high') return
+    if (level !== 'high' || !enabled) return
 
     let raf = 0
     let running = true
@@ -100,5 +100,5 @@ export function useFpsGuard(): void {
     }
     // 依赖 level：降级为 medium 后本 effect 重启，条件不满足即零开销；
     // 用户手动改回 high 时重新进入（fresh degraded 标记），允许再次降级
-  }, [level])
+  }, [level, enabled])
 }

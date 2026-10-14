@@ -7,13 +7,16 @@
 import type { QuickCommand, QuickCommandKind } from '@shared/types/quick'
 import type { PluginManifest, QuickRecentEntry } from '@shared/types/plugin'
 import { pluginProtocolUrl } from '@shared/constants'
-import { matchesSearchTerms, normalizeSearchText } from '@shared/search'
+import { normalizeSearchText } from '@shared/search'
+import { parsePluginCommandPattern } from '@shared/pluginCommands'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
-import { getPluginLaunchAliases } from '@main/hotkey/pluginLaunchHotkeys'
+import { getPluginLaunchAliases, getPluginLaunchAliasRevision } from '@main/hotkey/pluginLaunchHotkeys'
 import { getCachedApps, scanApplications } from './appScanner'
 import { getAppIconDataUrl } from './appLauncher'
 import { searchHistory } from '@main/clipboard/clipboardHistory'
 import { queryQuickProviders } from './quickProviders'
+import { prepareQuickName, scoreQuickName, type QuickNameIndex } from './quickNameMatching'
+import { matchQuickPatterns, type QuickPatternRule } from './quickPatternMatching'
 
 const BUILTIN_ACTIONS: QuickCommand[] = [
   {
@@ -43,81 +46,52 @@ const RECENT_MAX = 20
 /** 空 query 时「最近」权重：半衰约 7 天 */
 const RECENT_HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000
 
-/**
- * 子序列 fuzzy 分：如 `vscode` 匹配 `Visual Studio Code`。
- * 奖励词首/连续命中，惩罚大段间隔；返回 1–48，0 = 不匹配。
- */
-function fuzzySubsequenceScore(text: string, query: string): number {
-  if (!query || !text) return 0
-  if (query.length > text.length) return 0
-  let ti = 0
-  let score = 0
-  let consecutive = 0
-  let firstMatch = -1
-  let prevFound = -1
-  for (let qi = 0; qi < query.length; qi++) {
-    const ch = query[qi]!
-    const found = text.indexOf(ch, ti)
-    if (found < 0) return 0
-    if (firstMatch < 0) firstMatch = found
-    // 词边界（空格/分隔符后或串首）
-    const prev = found > 0 ? text[found - 1]! : ''
-    if (found === 0 || /[\s\-_./\\()]/.test(prev)) score += 8
-    // 连续命中
-    if (prevFound >= 0 && found === prevFound + 1) {
-      consecutive++
-      score += 4 + consecutive
-    } else {
-      consecutive = 0
-      // 间隔惩罚（上限，避免长标题被罚死）
-      if (prevFound >= 0) score -= Math.min(4, found - prevFound - 1)
-    }
-    score += 2
-    prevFound = found
-    ti = found + 1
+interface IndexedName { raw: string; index: QuickNameIndex }
+interface ContentCommand {
+  type: 'regex' | 'over'
+  label: string
+  match?: string
+  regex?: string
+  exclude?: string
+  minLength?: number
+  maxLength?: number
+}
+interface IndexedContent { command: ContentCommand; rule: Omit<QuickPatternRule, 'key'> }
+const normalizedCommands = new WeakMap<QuickCommand, IndexedName[]>()
+const contentCommands = new WeakMap<QuickCommand, IndexedContent[]>()
+
+function normalizedCommand(item: QuickCommand): IndexedName[] {
+  let names = normalizedCommands.get(item)
+  if (!names) {
+    names = [...new Set([item.title, ...(item.aliases ?? [])])].filter(Boolean)
+      .map((raw) => ({ raw, index: prepareQuickName(raw) }))
+    normalizedCommands.set(item, names)
   }
-  // 越早命中、标题越短越优
-  score += Math.max(0, 8 - firstMatch)
-  score += Math.max(0, 10 - Math.floor(text.length / 5))
-  return Math.max(1, Math.min(48, score))
+  return names
 }
 
-/**
- * 命令打分：触发词（alias）精确/前缀最高（uTools），标题次之，子序列 fuzzy 兜底。
- * 返回 score 与可选 keywordHit。
- */
+/** Check every command/alias before choosing a feature's best display label. */
 function scoreCommand(item: QuickCommand, query: string): { score: number; keywordHit?: string } {
-  if (!query) return { score: 1 }
-  const q = normalizeSearchText(query)
-  const t = normalizeSearchText(item.title || '')
-  const s = normalizeSearchText(item.subtitle || '')
-  const aliases = item.aliases ?? []
+  let best = { score: 0, keywordHit: undefined as string | undefined }
+  for (const name of normalizedCommand(item)) {
+    const score = scoreQuickName(name.index, query)
+    if (score > best.score) best = { score, keywordHit: name.raw }
+  }
+  // A nonexact app hit gets a small boost; it can never overtake an exact command.
+  if (item.kind === 'app' && best.score > 0 && best.score < 10000) best.score = Math.min(9999, best.score + 300)
+  return best
+}
 
-  // 触发词优先：键入 cmds/别名直接命中插件
-  for (const raw of aliases) {
-    const a = normalizeSearchText(raw)
-    if (!a) continue
-    if (a === q) return { score: 120, keywordHit: raw }
-    if (q.length >= 1 && a.startsWith(q)) return { score: 110, keywordHit: raw }
-  }
-  if (t === q) return { score: 100 }
-  if (t.startsWith(q)) return { score: 80 }
-  if (t.includes(q)) return { score: 60 }
-  for (const raw of aliases) {
-    const a = normalizeSearchText(raw)
-    if (a.includes(q)) return { score: 55, keywordHit: raw }
-  }
-  if (q.includes(' ') && matchesSearchTerms([t, s, ...aliases].join(' '), q)) return { score: 50 }
-  if (s.includes(q)) return { score: 30 }
-  const titleFuzzy = fuzzySubsequenceScore(t, q)
-  if (titleFuzzy > 0) return { score: 20 + Math.floor(titleFuzzy * 0.5) }
-  for (const raw of aliases) {
-    const af = fuzzySubsequenceScore(normalizeSearchText(raw), q)
-    if (af > 0) return { score: 16 + Math.floor(af * 0.4), keywordHit: raw }
-  }
-  const descFuzzy = fuzzySubsequenceScore(s, q)
-  if (descFuzzy > 0) return { score: 8 + Math.floor(descFuzzy * 0.2) }
-  return { score: 0 }
+function indexContentCommand(command: ContentCommand): IndexedContent | null {
+  if (!command || !['regex', 'over'].includes(command.type) || !command.label?.trim()) return null
+  const expression = command.type === 'regex' ? command.match ?? command.regex : command.exclude
+  const pattern = expression === undefined ? null : parsePluginCommandPattern(expression)
+  if ((command.type === 'regex' && !pattern) || (expression !== undefined && !pattern)) return null
+  return { command, rule: {
+    type: command.type, source: pattern?.source, flags: pattern?.flags,
+    minLength: command.minLength ?? 1,
+    maxLength: command.type === 'over' ? command.maxLength ?? 10000 : undefined
+  } }
 }
 
 /** 空 query 时按最近时间半衰 + 使用次数加权 */
@@ -131,27 +105,40 @@ function recentRank(entry: QuickRecentEntry): number {
 
 /** 已安装 / 开发态插件 manifest（不含未安装的市场 mock） */
 function installedManifests(): PluginManifest[] {
-  return pluginRegistry
-    .list()
-    .filter((s) => s.installed && s.enabled !== false && s.rootPath)
-    .map((s) => pluginRegistry.getManifest(s.id))
-    .filter((m): m is PluginManifest => !!m)
+  return pluginRegistry.getInstalledDescriptors()
+    .filter((entry) => entry.enabled)
+    .map((entry) => entry.manifest)
 }
 
-/** 插件 logo → enest:// 资源 URL；无 logo 返回 undefined */
-function pluginIconUrl(pluginId: string, logo?: string): string | undefined {
-  if (!logo) return undefined
-  // 已是完整 URL（http/data/enest）直接用
-  if (/^(https?:|data:|enest:)/i.test(logo)) return logo
-  return pluginProtocolUrl(pluginId, logo.replace(/^\.?\//, ''))
+/** Canonical manifest icon → version-selected plugin resource. */
+function pluginIconUrl(pluginId: string, icon: string): string {
+  return pluginProtocolUrl(pluginId, icon)
+}
+
+let commandCache: { registry: number; aliases: number; items: QuickCommand[] } | null = null
+let commandCacheHits = 0
+let commandCacheMisses = 0
+let commandCacheBuilds = 0
+
+/** Counts only the static plugin-command snapshot; no command text, aliases or queries escape. */
+export function getCommandCacheMetrics() {
+  return {
+    hits: commandCacheHits, misses: commandCacheMisses, builds: commandCacheBuilds,
+    entries: commandCache?.items.length ?? 0, snapshots: commandCache ? 1 : 0, snapshotCapacity: 1,
+    registryRevision: commandCache?.registry ?? null, aliasRevision: commandCache?.aliases ?? null
+  }
 }
 
 export function buildPluginCommands(): QuickCommand[] {
+  const registry = pluginRegistry.getInstalledRevision()
+  const aliases = getPluginLaunchAliasRevision()
+  if (commandCache?.registry === registry && commandCache.aliases === aliases) { commandCacheHits++; return commandCache.items }
+  commandCacheMisses++
   const items: QuickCommand[] = []
   for (const m of installedManifests()) {
     const pluginId = m.id
     const features = m.features ?? []
-    const icon = pluginIconUrl(pluginId, m.logo)
+    const icon = pluginIconUrl(pluginId, m.icon)
     // 用户自定义触发词（settings.pluginLaunch.aliases）与 manifest cmds 等权参与检索
     const userAliases = getPluginLaunchAliases(pluginId)
     if (features.length === 0) {
@@ -162,35 +149,47 @@ export function buildPluginCommands(): QuickCommand[] {
         subtitle: m.description || '插件',
         pluginId,
         icon,
-        aliases: [...userAliases, m.name, m.id, m.description ?? '']
+        aliases: [...userAliases, m.name, m.id],
+        type: 'text'
       })
       continue
     }
+    const primaryFeature = features.find((feature) => feature.cmds?.some((cmd) => typeof cmd === 'string' && cmd.trim()))
     for (const feature of features) {
       const cmds = Array.isArray(feature.cmds)
-        ? feature.cmds.filter((c) => typeof c === 'string' && c)
+        ? feature.cmds.filter((c): c is string => typeof c === 'string' && Boolean(c.trim()))
         : []
-      // uTools 风格：展示插件名，cmds 全部作为触发关键词
       const explain = feature.explain || cmds.join(' · ')
-      items.push({
+      const item: QuickCommand = {
         kind: 'plugin',
         id: `plugin:${pluginId}:${feature.code}`,
-        title: features.length > 1 && cmds[0] ? `${m.name} · ${cmds[0]}` : m.name,
-        subtitle: explain || '插件',
+        title: cmds[0] || m.name,
+        subtitle: explain ? `${m.name} · ${explain}` : m.name,
         pluginId,
         code: feature.code,
-        aliases: [...cmds, ...userAliases, m.id, m.description ?? ''],
-        icon
-      })
+        aliases: [...cmds, ...(feature === primaryFeature ? [...userAliases, m.name, m.id] : [])],
+        icon,
+        type: 'text'
+      }
+      const content = (feature.cmds ?? []).filter((cmd) => typeof cmd === 'object' && cmd !== null)
+        .map((cmd) => indexContentCommand(cmd as ContentCommand)).filter((cmd): cmd is IndexedContent => cmd !== null)
+      contentCommands.set(item, content)
+      normalizedCommands.set(item, [...new Set(item.aliases)].map((raw) => ({ raw, index: prepareQuickName(raw) })))
+      items.push(item)
     }
   }
+  for (const item of items) normalizedCommand(item)
+  commandCache = { registry, aliases, items }
+  commandCacheBuilds++
   return items
 }
 
+let appCommandCache: { source: ReturnType<typeof getCachedApps>; items: QuickCommand[] } | null = null
 export function buildAppCommands(): QuickCommand[] {
   const cached = getCachedApps()
   if (!cached) return []
-  return cached.apps.map((app) => ({
+  if (appCommandCache?.source === cached) return appCommandCache.items
+  const items: QuickCommand[] = cached.apps.map((app) => ({
     kind: 'app' as const,
     id: `app:${app.path}`,
     title: app.name,
@@ -199,8 +198,12 @@ export function buildAppCommands(): QuickCommand[] {
     icon: app.icon,
     aliases: app.alias ? [app.alias] : undefined,
     /** linux：Icon= 原始值，提图时由 appLauncher 解析（mac/win 忽略） */
-    iconName: app.iconName
+    iconName: app.iconName,
+    type: 'text'
   }))
+  for (const item of items) normalizedCommand(item)
+  appCommandCache = { source: cached, items }
+  return items
 }
 
 /** 为 top 结果异步补应用图标（data URL）；已带 icon 的跳过 */
@@ -237,15 +240,8 @@ function clipboardCommands(
   entries: Array<{ id: string; type: string; preview: string; ts: number; pinned: boolean }>
 ): QuickCommand[] {
   if (entries.length === 0) return []
-  const owner = pluginRegistry
-    .list()
-    .find(
-      (p) =>
-        p.installed !== false &&
-        (Boolean(p.rootPath) || p.dev === true) &&
-        p.enabled !== false &&
-        (p.permissions ?? []).includes('clipboard.history')
-    )
+  const owner = pluginRegistry.getInstalledDescriptors()
+    .find((entry) => entry.enabled && (entry.manifest.permissions ?? []).includes('clipboard.history'))
   const pluginId = owner?.id
   if (!pluginId) return []
   return entries.map((e) => ({
@@ -254,54 +250,98 @@ function clipboardCommands(
     title: e.type === 'image' ? `图片 ${e.preview}` : e.preview,
     subtitle: `剪贴板 · ${e.pinned ? '置顶 · ' : ''}${new Date(e.ts).toLocaleString()}`,
     pluginId,
-    aliases: ['clip', 'clipboard', '剪贴板']
+    aliases: ['clip', 'clipboard', '剪贴板'],
+    group: 'match',
+    type: 'text'
   }))
 }
 
-/** 插件 provider 回传项 → QuickCommand（点击经现有 openPlugin 打开，code 透传） */
+/** 插件 provider 回传项 → QuickCommand（点击经现有 openPlugin 打开，code/payload 透传） */
 function providerCommands(
-  results: Array<{ pluginId: string; providerId: string; items: Array<{ id?: string; title?: string; subtitle?: string; explain?: string; code?: string }> }>
+  results: Array<{ pluginId: string; providerId: string; items: Array<{ id?: string; title?: string; subtitle?: string; explain?: string; code?: string; payload?: unknown }> }>
 ): QuickCommand[] {
   const out: QuickCommand[] = []
+  const enabledIds = new Set(pluginRegistry.getInstalledDescriptors().filter((entry) => entry.enabled).map((entry) => entry.id))
+  const seen = new Set<string>()
   for (const result of results) {
+    if (!enabledIds.has(result.pluginId)) continue
     const manifest = pluginRegistry.getManifest(result.pluginId)
-    const icon = manifest ? pluginIconUrl(result.pluginId, manifest.logo) : undefined
+    const icon = manifest ? pluginIconUrl(result.pluginId, manifest.icon) : undefined
     for (const item of result.items) {
       const title = String(item?.title ?? '').trim()
       if (!title) continue
+      const id = `provider:${result.pluginId}:${result.providerId}:${String(item?.id ?? title)}`
+      if (seen.has(id)) continue
+      seen.add(id)
       out.push({
         kind: 'plugin',
-        id: `provider:${result.pluginId}:${result.providerId}:${String(item?.id ?? title)}`,
+        id,
         title,
         subtitle: String(item?.subtitle ?? item?.explain ?? ''),
         pluginId: result.pluginId,
         code: item?.code ? String(item.code) : undefined,
+        payload: item.payload,
         aliases: [result.providerId],
-        icon
+        icon,
+        group: 'provider',
+        type: 'text'
       })
     }
   }
   return out
 }
 
+let providerSearch: AbortController | null = null
+let staticSearch: AbortController | null = null
+
+async function searchContentCommands(items: QuickCommand[], rawQuery: string, signal: AbortSignal): Promise<QuickCommand[]> {
+  const candidates = items.flatMap((item) => (contentCommands.get(item) ?? []).map((content) => ({ item, ...content })))
+  const keys = await matchQuickPatterns(candidates.map((candidate, key) => ({ ...candidate.rule, key })), rawQuery, signal)
+  return [...keys].map((key) => {
+    const { item, command } = candidates[key]!
+    return { ...item, title: command.label, group: command.type === 'regex' ? 'match' as const : 'recommendation' as const,
+      type: command.type, payload: rawQuery, keywordHit: undefined }
+  })
+}
+
+async function searchProviders(rawQuery: string, recent: QuickRecentEntry[], signal: AbortSignal): Promise<QuickCommand[]> {
+  try {
+    const results = await queryQuickProviders(rawQuery, signal)
+    if (signal.aborted) return []
+    return applyRecentMeta(providerCommands(results), recent)
+  } catch { return [] }
+}
+
 /**
- * 搜索命令（provider 管线）。
- * - 空 query：首页显示最近使用，再补已安装插件、应用和操作
- * - 有 query：内置 pool（actions/插件命令/应用/剪贴板）触发词 > 标题 > fuzzy；
- *   并发追加插件 quick provider 结果（每路 try/catch，超时 500ms 丢弃，不阻塞内置）
+ * Static returns indexed names immediately; enrichment and providers arrive independently.
+ * Long queries still match typed content commands; name indexing stops at 32 characters.
+ * The omitted phase retains the complete-result API for existing consumers.
  */
 export async function searchQuickCommands(
   query: string,
   limit = 20,
   recent: QuickRecentEntry[] = [],
-  kind?: QuickCommandKind
+  kind?: QuickCommandKind,
+  preferredId?: string,
+  phase?: 'static' | 'enriched' | 'providers'
 ): Promise<QuickCommand[]> {
-  if (!getCachedApps()) {
-    await scanApplications(false)
+  const rawQuery = String(query ?? '')
+  const q = normalizeSearchText(rawQuery)
+  const resultLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 20
+  if (phase === 'providers') {
+    providerSearch?.abort()
+    providerSearch = new AbortController()
+    if (!q || kind && kind !== 'plugin') return []
+    return (await searchProviders(rawQuery, recent, providerSearch.signal)).slice(0, resultLimit)
   }
 
-  const q = normalizeSearchText(query || '')
-  const resultLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 20
+  if (phase !== 'enriched') providerSearch?.abort()
+  staticSearch?.abort()
+  const controller = new AbortController()
+  staticSearch = controller
+  const signal = controller.signal
+  if (!getCachedApps() && (!kind || kind === 'app')) await scanApplications(false)
+  if (signal.aborted) return []
   const acceptsKind = (item: QuickCommand): boolean => !kind || item.kind === kind
   const pool = ([
     ...BUILTIN_ACTIONS,
@@ -309,19 +349,11 @@ export async function searchQuickCommands(
     ...buildAppCommands()
   ] as QuickCommand[]).filter(acceptsKind)
 
-  // 内置剪贴板 provider：壳子自身能力，有数据即可搜（失败不阻塞）
-  if (q && (!kind || kind === 'plugin')) {
-    try {
-      pool.push(...clipboardCommands(await searchHistory(q, 6)))
-    } catch {
-      /* 剪贴板历史不可用时静默跳过 */
-    }
-  }
-
   if (!q) {
+    const discoverable = pool.filter((item) => (kind === 'action' || item.kind !== 'action') && normalizedCommand(item).length > 0)
     const recentMap = new Map(recent.map((r) => [r.id, r]))
     // 1) 有使用记录的应用/插件（半衰+频次）
-    const withRecent = pool
+    const withRecent = discoverable
       .filter((item) => recentMap.has(item.id))
       .map((item) => {
         const r = recentMap.get(item.id)!
@@ -329,53 +361,53 @@ export async function searchQuickCommands(
       })
       .sort((a, b) => b.score - a.score)
       .map((s) => s.item)
-    // 未使用过的插件、应用和操作也可直接发现；各类切换在截断前生效。
+    // The default home surfaces apps/plugins; an explicit action filter keeps its own catalog.
     const recentIds = new Set(withRecent.map((i) => i.id))
-    const remaining = pool.filter((item) => !recentIds.has(item.id)).sort((a, b) => {
+    const remaining = discoverable.filter((item) => !recentIds.has(item.id)).sort((a, b) => {
       const order = { plugin: 0, app: 1, action: 2 }
       return order[a.kind] - order[b.kind] || a.title.localeCompare(b.title, 'zh-CN')
     })
     const top = [...withRecent, ...remaining].slice(0, resultLimit)
-    await attachAppIcons(top)
-    return top
+    if (phase !== 'static') await attachAppIcons(top)
+    return signal.aborted ? [] : top
   }
 
-  const scored = pool
+  const scored = (q.length <= 32 ? pool : [])
     .map((item) => {
       const hit = scoreCommand(item, q)
       return {
-        item: hit.keywordHit ? { ...item, keywordHit: hit.keywordHit } : item,
+        item: { ...item, title: item.kind === 'plugin' && hit.keywordHit !== item.pluginId ? hit.keywordHit || item.title : item.title,
+          keywordHit: hit.keywordHit, group: 'best' as const, type: 'text' as const },
         score: hit.score
       }
     })
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score || a.item.title.localeCompare(b.item.title, 'zh-CN'))
 
-  let top = applyRecentMeta(
-    scored.slice(0, resultLimit).map((s) => s.item),
-    recent
-  )
-
-  // 插件 quick provider：并发查询，失败/超时不阻塞内置结果
-  try {
-    const providerItems = !kind || kind === 'plugin' ? providerCommands(await queryQuickProviders(q)) : []
-    if (providerItems.length > 0) {
-      // provider 项给中段分数（低于触发词/标题精确命中，高于 fuzzy 弱命中），
-      // 与内置结果合并重排后仍受 limit 约束
-      const merged = [
-        ...scored.map((s) => ({ item: s.item, score: s.score })),
-        ...providerItems.map((item) => ({ item, score: 34 }))
-      ]
-        .sort((a, b) => b.score - a.score || a.item.title.localeCompare(b.item.title, 'zh-CN'))
-        .map((s) => s.item)
-      top = applyRecentMeta(merged.slice(0, resultLimit), recent)
-    }
-  } catch {
-    /* provider 管线失败不影响内置搜索 */
-  }
-
+  const best = scored.map((hit) => hit.item)
+  const preferred = preferredId ? best.findIndex((item) => item.id === preferredId) : -1
+  if (preferred > 0) best.unshift(best.splice(preferred, 1)[0]!)
+  if (phase === 'static') return applyRecentMeta(best.slice(0, resultLimit), recent)
+  const acceptsContent = !kind || kind === 'plugin'
+  const [content, clipboard, providers] = await Promise.all([
+    acceptsContent ? searchContentCommands(pool, rawQuery, signal) : [],
+    acceptsContent ? searchHistory(q, 6).then(clipboardCommands).catch(() => []) : [],
+    acceptsContent && phase === undefined ? searchProviders(rawQuery, recent, signal) : []
+  ])
+  if (signal.aborted) return []
+  const recentMap = new Map(recent.map((entry) => [entry.id, entry.count]))
+  const byUse = (a: QuickCommand, b: QuickCommand): number => (recentMap.get(b.id) ?? 0) - (recentMap.get(a.id) ?? 0)
+  const contentMatches = content.filter((item) => item.group === 'match').sort(byUse)
+  const recommendations = content.filter((item) => item.group === 'recommendation').sort(byUse)
+  const seen = new Set<string>()
+  const combined = [...best, ...contentMatches, ...clipboard, ...recommendations].filter((item) => {
+    if (seen.has(item.id)) return false
+    seen.add(item.id)
+    return true
+  })
+  const top = applyRecentMeta([...combined, ...providers].slice(0, resultLimit), recent)
   await attachAppIcons(top)
-  return top
+  return signal.aborted ? [] : top
 }
 
 export const QUICK_RECENT_MAX = RECENT_MAX

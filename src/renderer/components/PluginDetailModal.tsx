@@ -8,12 +8,12 @@
  * 使用方：MarketPage（卡片/轮播点击打开）。依赖：MarkdownView、marketMotion、shellApi。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import gsap from 'gsap'
 import type {
   LaunchHotkeyProbeResult,
   PluginLaunchConfig,
   PluginLaunchMode,
   PluginLaunchPatch,
-  PluginPermission,
   PluginSummary
 } from '@shared/types/plugin'
 import { shellApi } from '@renderer/services/shellApi'
@@ -21,38 +21,9 @@ import { playModalIn, playModalOut } from '@renderer/gsap/marketMotion'
 import { MarkdownView } from '@renderer/components/MarkdownView'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { IS_MAC } from '@shared/platform'
-
-/** 权限键 → 中文说明（未收录时原样展示） */
-const PERMISSION_LABELS: Partial<Record<PluginPermission, string>> = {
-  'clipboard.read': '读取剪贴板',
-  'clipboard.write': '写入剪贴板',
-  'clipboard.readImage': '读取剪贴板图片',
-  'clipboard.writeImage': '写入剪贴板图片',
-  'clipboard.history': '读取剪贴板历史',
-  'screen.capture': '屏幕截图',
-  'screen.record': '屏幕录制',
-  'pin.create': '创建贴图窗口',
-  'net.fetch': '发起网络请求',
-  'shell.openExternal': '打开外部链接',
-  'storage.local': '本地存储',
-  notify: '系统通知',
-  'ui.setTitle': '设置标题',
-  'ui.setIcon': '设置图标',
-  'ui.setBadge': '设置角标',
-  'ui.resize': '调整窗口',
-  'ui.toast': '应用内提示',
-  'settings.register': '注册设置',
-  'settings.page': '自定义设置页',
-  hotkey: '全局快捷键',
-  contribute: '功能扩展贡献',
-  'vault.write': '保存连接密钥',
-  'ssh.session': 'SSH 会话',
-  'ssh.exec': 'SSH 命令与监控',
-  'ssh.sftp': 'SSH 文件传输',
-  'db.connect': '数据库连接',
-  'db.query': '执行 SQL 与变更',
-  'db.schema': '浏览库表与代码提示'
-}
+import { permissionLabel } from '@shared/permissionLabels'
+import { requiresUserConsent } from '@shared/pluginPermissionPolicy'
+import { PluginBuiltinCapabilities } from '@renderer/components/PluginBuiltinCapabilities'
 
 type ReadmeStatus = 'loading' | 'ok' | 'empty' | 'error'
 
@@ -158,6 +129,7 @@ function iconBackground(p: PluginSummary): string {
 }
 
 export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
+  const sensitivePermissions = [...new Set(plugin.permissions)].filter(requiresUserConsent)
   const rootRef = useRef<HTMLDivElement>(null)
   const closingRef = useRef(false)
   const [status, setStatus] = useState<ReadmeStatus>('loading')
@@ -182,17 +154,28 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
 
   const disabled = plugin.installed && !enabled
   const updateVersion = plugin.latestVersion
+  const motionContext = useRef<gsap.Context | null>(null)
 
   /** 先播退场，再通知父级卸载 */
   const requestClose = useCallback(() => {
     if (closingRef.current) return
     closingRef.current = true
-    void playModalOut(rootRef.current).then(onClose)
+    motionContext.current?.add(() => {
+      void playModalOut(rootRef.current).then(() => {
+        if (motionContext.current) onClose()
+      })
+    })
   }, [onClose])
 
   // 入场动画
   useEffect(() => {
-    playModalIn(rootRef.current)
+    const context = gsap.context(() => playModalIn(rootRef.current), rootRef)
+    motionContext.current = context
+    closingRef.current = false
+    return () => {
+      motionContext.current = null
+      context.revert()
+    }
   }, [plugin.id])
 
   // plugin 变更时同步 enabled / 图标回退状态
@@ -477,11 +460,7 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
                   {disabled ? t('plugin.disabled') : t('plugin.installed')}
                 </span>
               ) : null}
-              {plugin.permissions.map((perm) => (
-                <span key={perm} className="detail-chip perm" title={perm}>
-                  {PERMISSION_LABELS[perm] ?? perm}
-                </span>
-              ))}
+
             </div>
           </div>
           <div className="detail-actions" data-detail-actions>
@@ -658,6 +637,18 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
         )}
 
         <div className="detail-body" data-detail-body>
+          <section className="detail-capabilities" aria-label="插件能力与授权">
+            <h3>系统与隐私权限</h3>
+            <p className="desc">{sensitivePermissions.length ? '以下操作需要你的授权，安装后可在插件设置中管理。' : '此插件未申请系统或隐私权限。'}</p>
+            {sensitivePermissions.length > 0 ? (
+              <div className="detail-chips">
+                {sensitivePermissions.map((permission) => (
+                  <span key={permission} className="detail-chip perm" title={permission}>{permissionLabel(permission)}</span>
+                ))}
+              </div>
+            ) : null}
+            <PluginBuiltinCapabilities />
+          </section>
           {status === 'loading' && (
             <div className="detail-state">
               <div className="detail-spinner" aria-hidden="true" />
@@ -676,7 +667,7 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
               <span>说明文档读取出错，请稍后重试。</span>
             </div>
           )}
-          {status === 'ok' && <MarkdownView source={readme} />}
+          {status === 'ok' && <MarkdownView source={readme} baseUrl={plugin.readmeUrl} imageMap={plugin.readmeImages} />}
         </div>
       </div>
     </div>

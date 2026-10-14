@@ -1,6 +1,6 @@
 # eNest
 
-插件化桌面壳子（Electron 33+ · React · GSAP · TypeScript）。
+插件化桌面壳子（Electron 44 · React · GSAP · TypeScript）。
 
 ## 快速开始
 
@@ -14,8 +14,8 @@ npm run dev
 | `npm run dev` | 开发模式 |
 | `npm run build` | 编译到 `out/` |
 | `npm run typecheck` | TS 检查 |
-| `npm run e2e:smoke` | Playwright 驱动 Electron 冒烟 |
-| `npm run dev:debug` | 开发 + CDP 9222 |
+| `ENEST_APP_SMOKE=1 node --test src/main/plugin/pluginApp.smoke.test.mjs` | 构建后，独立 profile 的 Electron 冒烟 |
+| `npm run dev:debug` | 开发 + CDP 9331 |
 | `npm run pack:dir` | 本地未安装包目录（`release/`） |
 | `npm run dist` | 当前平台完整安装包 |
 | `npm run dist:win` / `dist:mac` / `dist:linux` | 分平台打包 |
@@ -43,8 +43,8 @@ npm run dev
 
 | 文档 | 内容 |
 |------|------|
-| [docs/engineering/ARCHITECTURE.md](docs/engineering/ARCHITECTURE.md) | **完整技术架构** |
-| [docs/engineering/PLUGIN_SPEC.md](docs/engineering/PLUGIN_SPEC.md) | 插件协议与 zapi |
+| [docs/engineering/ARCHITECTURE.md](docs/engineering/ARCHITECTURE.md) | 当前技术架构 |
+| [docs/engineering/PLUGIN_SPEC.md](docs/engineering/PLUGIN_SPEC.md) | 插件标准与 API 文档入口 |
 | [docs/engineering/DEVELOPMENT.md](docs/engineering/DEVELOPMENT.md) | 目录规范与开发流程 |
 | [docs/engineering/AUTOMATION.md](docs/engineering/AUTOMATION.md) | 自动化 / MCP |
 | [docs/site/](docs/site/) | **官网 + 插件开发静态站**（GitHub Pages） |
@@ -59,9 +59,12 @@ src/preload   shell 与插件预加载桥
 src/renderer  React 壳子 UI
 src/shared    跨进程类型与常量
 assets/       静态资源（应用图标、sql.js wasm）
-plugins-samples/  示例插件
-scripts/      e2e 等脚本
+eNest_plugin/ 独立插件仓库（plugins / packages / scripts / skills）
 ```
+
+插件开发入口：[统一工程与包格式](docs/site/plugin/structure.md)、[调试](docs/site/plugin/debug.md)、[权限](docs/site/plugin/permissions.md)。SDK、共享 kit、构建工具和 AI 开发 skill 在独立插件仓库管理。默认业务数据目录为 `~/.eNest`，保留用户指定的数据根。
+
+壳提供统一能力，业务由插件实现；私有存储、UI、设置和主题等基础能力直接可用，系统与隐私敏感能力按需授权。最近的实现与验证见 [能力与权限收口](docs/engineering/PLUGIN_PERMISSION_CLOSEOUT.md)。
 
 ## 架构一页图
 

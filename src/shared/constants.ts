@@ -107,8 +107,12 @@ export const QUICK_CORNER_RADIUS = 20
 export const QUICK_BORDER_WIDTH = 1
 /** Quick 小窗默认宽度（px） */
 export const QUICK_WIDTH = 720
+/** 默认两行常用网格：64 输入栏 + 184 网格区，无说明页脚。 */
+export const QUICK_HOME_HEIGHT = 248
+export const QUICK_GRID_COLUMNS = 8
+export const QUICK_HOME_ROWS = 2
 /** 仅搜索条时的窗口高度 */
-export const QUICK_MIN_HEIGHT = 72
+export const QUICK_MIN_HEIGHT = 64
 /** Quick 小窗总高度上限（px） */
 export const QUICK_MAX_HEIGHT = 780
 /**
@@ -116,7 +120,7 @@ export const QUICK_MAX_HEIGHT = 780
  * mini 插件 WebContentsView 从 y=QUICK_BAR_AREA_H 铺满剩余高度。
  * 与 QuickLauncherApp 插件态根高度（quick.css [data-mode='plugin']）保持一致。
  */
-export const QUICK_BAR_AREA_H = 72
+export const QUICK_BAR_AREA_H = 64
 /** mini 插件期望高度缺省值（未上报 setHeight / 无 manifest.window.minHeight 时） */
 export const QUICK_PLUGIN_DEFAULT_HEIGHT = 300
 /** mini 插件区域最小高度（防上报异常小值导致内容不可见） */

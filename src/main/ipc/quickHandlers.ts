@@ -1,3 +1,4 @@
+import { handleShellIpc, onShellIpc } from '@main/ipc/ipcSecurity'
 /**
  * quickHandlers — 快捷启动 IPC
  * 职责：注册 quick:* 通道：toggle/hide/search/open/scan-apps/config/hotkeys。
@@ -6,6 +7,9 @@
  * pluginHost、settingsStore、sendShellEvent。
  */
 import { ipcMain } from 'electron'
+import { getQuickWindow } from '@main/window/createQuickWindow'
+import { getQuickInputState, handleQuickInput } from '@main/plugin/quickInputService'
+import type { QuickInputMessage } from '@shared/types/plugin-tools'
 import { IpcChannels } from '@shared/types/ipc'
 import type {
   QuickHotkeyApplyResult,
@@ -14,7 +18,8 @@ import type {
   QuickSearchRequest,
   QuickSearchResult
 } from '@shared/types/quick'
-import type { QuickRecentEntry } from '@shared/types/plugin'
+import type { PluginEnterPayload } from '@shared/types/plugin'
+import { normalizeSearchText } from '@shared/search'
 import { resolveLaunchMode } from '@main/hotkey/pluginLaunchHotkeys'
 import {
   hideQuickWindow,
@@ -59,32 +64,10 @@ async function touchRecent(req: QuickOpenRequest): Promise<void> {
   try {
     const id = recentIdOf(req)
     if (!id) return
-    const general = settingsStore.getAll().general
-    const ql = general.quickLauncher
-    const prev: QuickRecentEntry[] = ql?.recent ?? []
-    const existing = prev.find((r) => r.id === id)
-    const next: QuickRecentEntry[] = [
-      { id, ts: Date.now(), count: (existing?.count ?? 0) + 1 },
-      ...prev.filter((r) => r.id !== id)
-    ].slice(0, QUICK_RECENT_MAX)
-    await settingsStore.setAll({
-      general: {
-        ...general,
-        quickLauncher: {
-          enabled: ql?.enabled ?? true,
-          hotkeys: ql?.hotkeys ?? [],
-          ...ql,
-          recent: next
-        }
-      }
-    })
+    settingsStore.recordQuickUse(id, 'query' in req ? req.query : undefined, QUICK_RECENT_MAX)
   } catch (err) {
     logError('quick', `touchRecent failed: ${(err as Error).message}`)
   }
-}
-
-function readRecent(): QuickRecentEntry[] {
-  return settingsStore.getAll().general.quickLauncher?.recent ?? []
 }
 
 async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
@@ -96,7 +79,13 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
       return { ok: true }
     }
     if (req.kind === 'plugin') {
-      const enter = req.code ? { code: req.code } : undefined
+      const enter: PluginEnterPayload | undefined = req.code || req.type || req.payload !== undefined
+        ? {
+            ...(req.code ? { code: req.code } : {}),
+            ...(req.type ? { type: req.type } : {}),
+            ...(req.payload !== undefined ? { payload: req.payload } : {})
+          }
+        : undefined
       // 容器决策链：显式 container（⌘Enter 强制主窗）> 用户每插件「启动方式」
       // 设置（pluginLaunch[id].mode）> 跟随入口（Quick 打开 → quick 小窗内嵌）。
       // 不再有 manifest form 区分——所有插件都可在小窗内嵌渲染，也可固定主窗。
@@ -134,6 +123,16 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
       sendShellEvent({ type: 'plugins-changed' })
       return { ok: true }
     }
+    if (req.kind === 'plugin-tab') {
+      if (pluginHost.getQuickPlugin() !== req.pluginId) return { ok: false }
+      const contents = pluginHost.getWebContents(req.pluginId)
+      if (!contents || contents.isDestroyed()) return { ok: false }
+      contents.focus()
+      const modifiers: Array<'shift'> = req.shift ? ['shift'] : []
+      contents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab', modifiers })
+      contents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab', modifiers })
+      return { ok: true }
+    }
     if (req.kind === 'action' && req.action === 'refresh-apps') {
       const result = await scanApplications(true)
       if (result.complete) void touchRecent(req)
@@ -163,46 +162,54 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
 }
 
 export function registerQuickHandlers(): void {
-  ipcMain.handle(IpcChannels.QuickToggle, () => {
+  handleShellIpc(IpcChannels.QuickInput, (event, message?: QuickInputMessage) => {
+    if (event.sender.id !== getQuickWindow()?.webContents.id) throw new Error('Quick input sender rejected')
+    return message ? handleQuickInput(message) : getQuickInputState()
+  })
+  handleShellIpc(IpcChannels.QuickToggle, () => {
     toggleQuickWindow()
     return { ok: true }
   })
 
-  ipcMain.handle(IpcChannels.QuickHide, () => {
+  handleShellIpc(IpcChannels.QuickHide, () => {
     hideQuickWindow()
     return { ok: true }
   })
 
-  ipcMain.handle(IpcChannels.QuickSearch, async (_e, payload: QuickSearchRequest) => {
+  handleShellIpc(IpcChannels.QuickSearch, async (_e, payload: QuickSearchRequest) => {
+    const query = String(payload?.query ?? '')
+    const quick = settingsStore.getQuickLauncherSettings()
     const items = await searchQuickCommands(
-      String(payload?.query ?? ''),
+      query,
       payload?.limit ?? 20,
-      readRecent(),
-      payload?.kind === 'app' || payload?.kind === 'plugin' || payload?.kind === 'action' ? payload.kind : undefined
+      quick.recent ?? [],
+      payload?.kind === 'app' || payload?.kind === 'plugin' || payload?.kind === 'action' ? payload.kind : undefined,
+      quick.queryPreferences?.find(entry => entry.query === normalizeSearchText(query))?.id,
+      payload?.phase === 'static' || payload?.phase === 'enriched' || payload?.phase === 'providers' ? payload.phase : undefined
     )
     const result: QuickSearchResult = { items }
     return result
   })
 
-  ipcMain.handle(IpcChannels.QuickOpen, (_e, payload: QuickOpenRequest) => {
+  handleShellIpc(IpcChannels.QuickOpen, (_e, payload: QuickOpenRequest) => {
     return handleOpen(payload)
   })
 
-  ipcMain.handle(IpcChannels.QuickScanApps, async (_e, payload?: { force?: boolean }) => {
+  handleShellIpc(IpcChannels.QuickScanApps, async (_e, payload?: { force?: boolean }) => {
     return scanApplications(payload?.force === true)
   })
 
-  ipcMain.handle(IpcChannels.QuickGetConfig, () => {
+  handleShellIpc(IpcChannels.QuickGetConfig, () => {
     return getQuickHotkeyConfig()
   })
 
-  ipcMain.handle(IpcChannels.QuickProbeHotkey, (_e, payload: { acc?: string }) => {
+  handleShellIpc(IpcChannels.QuickProbeHotkey, (_e, payload: { acc?: string }) => {
     const acc = String(payload?.acc ?? '')
     if (!acc) return { acc: '', free: false, ours: false }
     return probeHotkey(acc)
   })
 
-  ipcMain.handle(IpcChannels.QuickSetHotkeys,
+  handleShellIpc(IpcChannels.QuickSetHotkeys,
     async (_e, payload: { enabled?: boolean; hotkeys?: string[]; activeHotkey?: string }) => {
       const applyResult = applyQuickHotkeys(payload)
       // 持久化槽位列表 + 当前生效键；生效以 registered/activeHotkey 为准
@@ -232,7 +239,7 @@ export function registerQuickHandlers(): void {
   )
 
   // 内容撑开/收起
-  ipcMain.on(IpcChannels.QuickResize, (_e, payload: { height?: number; animate?: boolean }) => {
+  onShellIpc(IpcChannels.QuickResize, (_e, payload: { height?: number; animate?: boolean }) => {
     // 列表上一帧的测量可能晚于插件挂载到达；插件态由 Host 管理尺寸。
     if (pluginHost.getQuickPlugin()) return
     const h = Number(payload?.height)

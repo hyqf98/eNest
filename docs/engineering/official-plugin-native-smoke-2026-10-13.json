@@ -1,0 +1,759 @@
+{
+  "platform": "darwin",
+  "builtAt": "2026-10-13T14:18:04.481Z",
+  "plugins": 35,
+  "permissionMode": "isolated profile; storage/settings/ui/vault/theme allowed, OS/network capabilities denied; no external services started",
+  "reports": [
+    {
+      "id": "com.enest.batch-rename",
+      "version": "1.0.0",
+      "wcId": 2,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 48,
+      "text": "批量重命名\n规则链实时预览 · 确认后执行 · 可撤销\n文件队列\n添加文件\n\n拖入要改名的文件（可多选）\n\n改名只发生在原目录内；同名 / 非法目标不会执行\n\n规则链 按序叠加应用\n+ 添加规则…\n查找替换\n序号\n日期\n大小写转换\n扩展名替换\n还没有规则——添加一条开始预览\n预览\n执行改名\n\n加入文件后这里显示 原名 → 新名 预览",
+      "resources": [],
+      "images": [],
+      "startupMs": 692,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.calculator",
+      "version": "1.2.0",
+      "wcId": 3,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 70,
+      "text": "计算器\n表达式工作台\nRAD\n表达式\n即输即算\n复制结果\n\nEnter 记录 · % 为取模 · 百分比用 ÷100\n\nAns\nMR\nM+\nMC\nM = 0\nsin(\ncos(\ntan(\nsqrt(\n^\n7\n8\n9\n/\nAC\n4\n5\n6\n*\n⌫\n1\n2\n3\n-\n(\n0\n.\n%\n+\n)\nlog(\nln(\nπ\ne\n=\nsqrt / pow / abs\nsin / cos / tan\nln / log / π / e\n计算记录\n导出\n清空未收藏\n收藏\n\n还没有计算记录\n输入表达式后按 Enter，随时回填继续计算。\n\n↑",
+      "resources": [],
+      "images": [],
+      "startupMs": 685,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.ccswitch",
+      "version": "1.0.0",
+      "wcId": 4,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 243,
+      "text": "⇄\n供应商切换\nClaude Code\nClaude Desktop\nCodex CLI\nGemini CLI\nGrok Build\nOpenCode\nOpenClaw\nHermes\nPi\nMiniMax Code\n⌗\nMCP\n❯\n会话\n▤\n用量\n⏱\n备份\n❖\n项目预设\n⚙\n设置\n«\n收起\nClaude Code · 供应商\n切换式：单选启用\n预设库\n导入\n导出\n＋ 新建\n📦\nClaude Code 尚未安装或未初始化\n安装并首次运行该 CLI 后，此处可管理其供应商配置\nMCP 服务器\n统一定义，按应用投射\n导",
+      "resources": [],
+      "images": [],
+      "startupMs": 712,
+      "messages": [
+        {
+          "wcId": 4,
+          "url": "enest://plugin/com.enest.ccswitch/index.html?pid=com.enest.ccswitch&mode=shell",
+          "level": 2,
+          "message": "[ccswitch] agentApps failed: Error: permission denied: config.agent.read"
+        }
+      ],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.clipboard",
+      "version": "1.1.0",
+      "wcId": 5,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 59,
+      "text": "剪贴板\n留住刚刚复制的内容\n偏好设置\n全部\n文本\n图片\n文件\n收藏\n管理\n读取失败\n所有分类\n刷新\n选择记录查看内容\n请选择记录\n全选已载入\n收藏\n删除\n复制\n回贴 ↵\n读取历史失败：permission denied: clipboard.history",
+      "resources": [],
+      "images": [],
+      "startupMs": 687,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.code-shot",
+      "version": "1.0.0",
+      "wcId": 6,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 75,
+      "text": "代码美图\n代码截图\n粘贴代码即刻生成\n复制图片\n保存 PNG\n语言\nJavaScript\nTypeScript\nJSON\nPython\nJava\nGo\nRust\nCSS\nHTML\nSQL\nBash\n纯文本\n读剪贴板文本\n清空\n1\n\n⌘/Ctrl + Enter 复制图片；行号随输入同步。\n\n画布\n窗口标题\n背景\n主题面\n纯色\n透明\n内边距 28 px\n圆角 10 px\n阴影强度 40%\n字号 14 px\n显示行号\n2x 高清导出\n导出\n复制\n另存\n贴图预览\n代码截图设置",
+      "resources": [],
+      "images": [],
+      "startupMs": 689,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.codec",
+      "version": "1.1.0",
+      "wcId": 7,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 40,
+      "text": "编解码\nBase64\nBase64URL\nURL\nHex\nUnicode\nHTML 实体\nJWT 查看\nURL 参数\n编码 →\n即时转换\n逐行处理\nUTF-8\n执行\n输入\n粘贴\n清空\n结果\n回填并反转\n复制\n导出\n所有转换均在本地完成\n⌘/Ctrl + Shift + Enter 执行",
+      "resources": [],
+      "images": [],
+      "startupMs": 687,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.color-picker",
+      "version": "1.1.0",
+      "wcId": 8,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 104,
+      "text": "颜色工作台\n取色器\n选取颜色或输入色值\n屏幕取色\n从图片取色\n#447766\n输入颜色\n收录\n透明度\n100%\nHEX\n#447766\n复制\nRGB\nrgb(68, 119, 102)\n复制\nHSL\nhsl(160, 27%, 37%)\n复制\n最近颜色\n0 色\n清空\n\n屏幕取色或点击「收录」，建立你的常用颜色。\n\n对比度检查\nWCAG 2\n\n当前颜色作为文字色；透明颜色按白色底板合成。\n\n背景颜色\n交换\nAa\n\n读起来清楚，才是好颜色。\n\n5.15:1\n正文达到 AA\n正文 AA 通过\n大字 AA 通过\n正文 AA",
+      "resources": [],
+      "images": [],
+      "startupMs": 683,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.cron",
+      "version": "1.0.0",
+      "wcId": 9,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 158,
+      "text": "Cron 工具\n五域构建 · 自然语言 · 执行预览\n秒级 6 域\n预设库\n预设库\nbuiltin\n每天凌晨 3 点\n0 3 * * *\n工作日早上 9 点\n0 9 * * 1-5\n每小时整点\n0 * * * *\n每 5 分钟\n*/5 * * * *\n每 15 分钟\n*/15 * * * *\n每月 1 号零点\n0 0 1 * *\n每周一 08:30\n30 8 * * 1\n每周日凌晨 2 点\n0 2 * * 0\n每季度首月 1 号\n0 0 1 1,4,7,10 *\n每天 12 点与 18 点\n0 12,18 * * ",
+      "resources": [],
+      "images": [],
+      "startupMs": 694,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.database",
+      "version": "1.1.1",
+      "wcId": 10,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 101,
+      "text": "数据库 Workbench\n连接\n查询\n结构\n资源\n设置\n比较\n命令\n\nCONNECTIONS\n\n连接数据库\n\n选择连接，恢复查询和结果。\n\n新建连接\n从第一个连接开始\n\n密码保存在本机凭据库，查询文档按连接保存。\n\n未选择连接\n未连接\n0 个会话",
+      "resources": [],
+      "images": [],
+      "startupMs": 686,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.diff",
+      "version": "1.0.0",
+      "wcId": 11,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 40,
+      "text": "文本对比\n行内细化\n忽略空白\n忽略大小写\n↑ 上一处\n↓ 下一处\n⇄ 交换\n复制 unified diff\n源文本\n粘贴\n清空\n目标文本\n粘贴\n清空\n差异结果 行级\n差异块以底色标注；⌘↑ / ⌘↓ 或按钮导航\n在两侧粘贴文本开始对比；也可以把本地文件拖到任意一侧。\n选项支持忽略空白 / 忽略大小写 / 行内字符细化，hex 模式按字节 dump 对比。",
+      "resources": [],
+      "images": [],
+      "startupMs": 687,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.dsh",
+      "version": "0.1.0",
+      "wcId": 12,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 10,
+      "text": "未找到 DSH 运行时\n\n本插件自带运行时（安装包即用）；若为开发加载或运行时被移除，可从插件仓库 Release 下载对应平台资产，或安装系统 dsh：npm i -g @deepseek-ai/dsh\n\npermission denied: dsh.connect\n获取运行时\n重新检测",
+      "resources": [],
+      "images": [],
+      "startupMs": 689,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.hash",
+      "version": "1.0.0",
+      "wcId": 13,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 133,
+      "text": "哈希\n加密\nJWT\n输出\nHEX\nBase64\n输入内容\n粘贴\n清空\n拖入文件或点击选择 · 分块计算 SHA-256\nSHA-1\n—\n复制\nSHA-224\n—\n复制\nSHA-256\n—\n复制\nSHA-384\n—\n复制\nSHA-512\n—\n复制\nMD5\n—\n复制",
+      "resources": [],
+      "images": [],
+      "startupMs": 686,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.image-tools",
+      "version": "1.0.0",
+      "wcId": 14,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 150,
+      "text": "图片处理\n图片工具箱\n添加图片开始处理\n添加图片\n从剪贴板\n把图片拖到这里\n\n支持 PNG、JPEG、WebP，可多选；也可从剪贴板粘贴截图\n\n选择文件\n读剪贴板\n图片工具箱设置",
+      "resources": [],
+      "images": [],
+      "startupMs": 689,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.json-tools",
+      "version": "1.1.0",
+      "wcId": 15,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 52,
+      "text": "JSON 工具\n保留数字原始精度\n格式化\n2 空格\n4 空格\n压缩\n校验\n键排序\n转义\n反转义\n粘贴\n清空\n原文\n文本\n树\n差异\n复制\n回填\n导出\n离线处理 · 最大 8 MB\n⌘/Ctrl + Shift + Enter 格式化",
+      "resources": [],
+      "images": [],
+      "startupMs": 694,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.lan-share",
+      "version": "1.0.0",
+      "wcId": 16,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 48,
+      "text": "局域网传件\n同一网络 · 即扫即下 · 到期自动关闭\n\n把文件拖到这里\n\n仅本机局域网可见，需要 6 位取件码才能下载\n\n选择文件\n手机怎么收？\n手机连接同一 Wi-Fi\n扫码或输入地址（含 ?code=）\n浏览器直接下载，无需装 App\n历史记录\n还没有分享记录",
+      "resources": [],
+      "images": [],
+      "startupMs": 684,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.markdown",
+      "version": "1.0.0",
+      "wcId": 17,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 76,
+      "text": "写作、整理、找回\nMarkdown 笔记\n导出 .md\n导出 .html\n设置\n分组\n＋\n收件箱\n1\n笔记\n＋\n欢迎使用 Markdown 笔记\n2026/10/13\n×\nB\nI\nH\n•≡\n1.\n‹›\n⊞\n`x`\n☑\n🖼\n预览\n欢迎\n\n这是一条示例笔记，可以直接改写或删除。\n\n语法速览\n加粗 与 斜体\n行内代码\nconsole.log(\"代码块\")\n表格\t示例\nA\tB\n任务清单\n\n引用与链接\n\n已保存\n61 字 · 21 行\n1 条笔记 · 1 个分组",
+      "resources": [],
+      "images": [],
+      "startupMs": 695,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.middleware",
+      "version": "0.1.0",
+      "wcId": 18,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 52,
+      "text": "＋\n连接\n＋\nKafka\n0\nRabbitMQ\n0\nMQTT\n0\nRocketMQ\n0\n暂无连接 · 左下角新建\n＋ 新建连接\n中间件控制台\nKafka · RabbitMQ · MQTT · RocketMQ 统一管理 —— 连接、Topic、消息溯源、消费组与监控\n＋\n新建连接\n未连接 · 共 0 个已保存连接",
+      "resources": [],
+      "images": [],
+      "startupMs": 688,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.net-kit",
+      "version": "1.0.0",
+      "wcId": 19,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 71,
+      "text": "网络调试台\nHTTP\nTCP\nWebSocket\ndev\nstaging\nprod\n变量\n历史\n集合\nHTTP\n✕\n+ 新会话\n集合\n+ 分组\n▼\n默认分组\n0\n请求构建\ncurl 导入\n导出 curl\n存入集合\nGET\nPOST\nPUT\nPATCH\nDELETE\nHEAD\n发送\nParams\nHeaders\nBody\n断言\n暂无查询参数，点击下方添加\n+ 添加\n响应\n发送请求后在此查看响应 支持流式渲染 · SSE 逐事件 · 断言自动执行\n就绪 · HTTP 流式 / TCP hexdump / WebSock",
+      "resources": [],
+      "images": [],
+      "startupMs": 687,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.password-kit",
+      "version": "1.1.0",
+      "wcId": 20,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 73,
+      "text": "密码工具箱\n密码\nUUID v4\n显示内容\n密码长度\n16\n12 位\n16 位\n24 位\n32 位\n字符集\n 小写 a–z\n 大写 A–Z\n 数字 0–9\n 符号 !@#\n排除易混淆字符 O0oIl1|\n自定义排除字符\n字符池估计上限 99 bits · 每类至少一个字符\n生成数量\n生成\n生成并复制\n\n生成结果\n全部复制\n清空\n\n点击生成，结果会显示在这里。\n也可以直接「生成并复制」。\n\n本次会话最近 8 条\n清空记录\n密码仅在当前会话保留，关闭插件后清除\nEnter 生成 · 点击结果复制",
+      "resources": [],
+      "images": [],
+      "startupMs": 688,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.pomodoro",
+      "version": "1.1.0",
+      "wcId": 21,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 89,
+      "text": "番茄钟\n一次只做一件事\n偏好设置\n专注\n短休息\n长休息\n准备开始\n25:00\n第 1 轮\n停止\n开始专注\n跳过\n25 / 5 经典\n50 / 10 深度\n15 / 3 短冲刺\n专注\n分\n短休息\n分\n关闭插件标签后继续计时。退出 eNest 后暂停，重启可继续。\nSpace 开始 / 暂停\n专注记录\n导出 CSV\n0\n今日完成\n0\n今日分钟\n0\n近七天完成\n三\n四\n五\n六\n日\n一\n二\n第一段专注，从现在开始。\n完成后会在这里留下记录。",
+      "resources": [],
+      "images": [],
+      "startupMs": 686,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.qrcode",
+      "version": "1.1.0",
+      "wcId": 22,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 111,
+      "text": "二维码\n生成\n识别\n批量生成\n本地处理\n内容类型\n文本 / URL\nWi-Fi\n联系人\n邮件\n粘贴\n图像选项\n尺寸\n128\n256\n512\n1024\n纠错\nL · 7%\nM · 15%\nQ · 25%\nH · 30%\n前景\n背景\n\n复制图片\n保存 PNG\n保存 SVG\n\n输入内容开始生成\n\n本次会话已复制 / 保存的记录\n保留四模块白边，建议保持前景与背景高对比\n生成内容不上传",
+      "resources": [],
+      "images": [],
+      "startupMs": 689,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.regex",
+      "version": "1.0.0",
+      "wcId": 23,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 190,
+      "text": "正则工作台\n实时匹配 · 分组 · 替换预览\n速查表 片段库\n片段库\n重置\n手机号\n1[3-9]\\d{9}\n邮箱\n[\\w.+-]+@[\\w-]+\\.[\\w.]+\nURL\nhttps?://[^\\s]+\nIPv4\n(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}\n身份证\n[1-9]\\d{5}(?:19|20)\\d{2}(?:0[1-9]|1[0-2])(?:[0-2]\\d|3[01])\\d{3}[\\dXx]\n",
+      "resources": [],
+      "images": [],
+      "startupMs": 689,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.remote-desktop",
+      "version": "1.0.0",
+      "wcId": 24,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 46,
+      "text": "▣\n远程桌面\n＋ 新建\n测试\n导入\n导出\n▾\n未分组\n0\n全部分组\n远程桌面\n\nVNC 与 RDP 双协议，支持 SSH 隧道直达内网。\n\n连接\n\n还没有连接资产。\n\n新建连接",
+      "resources": [],
+      "images": [],
+      "startupMs": 687,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.screen-assistant",
+      "version": "1.2.0",
+      "wcId": 25,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 114,
+      "text": "截图与录制\n屏幕助手\n准备就绪\n矩形截图\n全屏\n打开图片\n截图标注\n录屏\n贴图管理\n原图历史0\n尚无截图\n复制\n贴图\n导出 PNG\n箭头\n矩形\n文字\n马赛克\n裁剪\n颜色\n粗细\n细\n中\n粗\n撤销\n重做\n\n在图片上拖动，添加箭头。\n\n留住这一刻的画面\n\n框选屏幕或打开本地图片，随后裁剪、标注、复制。\n\n选择截图区域\n原始图片\n恢复原图\n另存标注版本\n最近原图\n全部\n\n截图后可在这里找回原图。\n\n原图保存在本机，标注版本单独保存。\n\n标注草稿自动保留，另存版本不覆盖原图\n截图与录屏设置",
+      "resources": [],
+      "images": [],
+      "startupMs": 684,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.snippets",
+      "version": "1.0.0",
+      "wcId": 26,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 86,
+      "text": "高频代码，一搜即得\n代码片段\n新建片段\n导出\n导入\n导入文件\n示例：fetch 超时封装\njs\n#网络\n#示例\n示例：fetch 超时封装\njs\n#网络\n#示例\n编辑\n删除\nconst res = await fetch(url, { signal: AbortSignal.timeout(${timeoutMs}) })\nif (!res.ok) throw new Error(`HTTP ${res.status}`)\nreturn res.json()\n尚未使用 · 1 个占位符\n复制（填值）\n1 条片段 ·",
+      "resources": [],
+      "images": [],
+      "startupMs": 685,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.ssh",
+      "version": "1.1.1",
+      "wcId": 27,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 306,
+      "text": "⌘\nSSH\n工作台\n连接\n终端\n文件\n资源\n命令 ⌘⇧P\n设置\nSSH\n＋\n↓\n⋯\n全部\n生产\n预发\n开发\n最近\n收藏\n暂无连接\n新建连接\n连接后显示服务器资源\n左右分屏\n上下\n合并\n选择左侧连接，或新建服务器连接\n新建连接\n远程文件\n双栏\n列表\n←\n↑\n↻\n上传\n下载\n新建\n隐藏项\n连接服务器后浏览文件\n未连接\n传输任务\n历史\n常用\n×\n当前\n▾\n⋯\n暂无历史",
+      "resources": [],
+      "images": [],
+      "startupMs": 689,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.sticky-notes",
+      "version": "1.1.0",
+      "wcId": 28,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 37,
+      "text": "备忘录\n留住想法，再慢慢整理\n＋ 新建\n全部\n置顶\n归档\n回收站\n全部标签\n卡片视图\n从模板新建\n会议记录\n行动清单\n想法草稿\n没有匹配的笔记\n记录一句话，让想法有个落点\n导出备份\n导入\n设置\n选择一条笔记，或开始记录",
+      "resources": [],
+      "images": [],
+      "startupMs": 686,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.sysguard",
+      "version": "1.0.0",
+      "wcId": 29,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 32,
+      "text": "进程与端口\n进程\n端口\n曲线\n隐藏系统进程\n刷新\n采样失败：permission denied: sys.inspect 请确认宿主已授权 sys.inspect 权限\n采样失败\n宿主 1s 采样缓存 · 结束进程需二次确认",
+      "resources": [],
+      "images": [],
+      "startupMs": 690,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.theme-demo",
+      "version": "0.1.0",
+      "wcId": 30,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 34,
+      "text": "主题示例\n\n注册 3 个主题包到壳子：2 个走 manifest 声明式，1 个走运行时 enest.theme.register。\n\n暖沙\nlight 模式 · 米白底 + 陶土强调\nmanifest 声明\n靛蓝\ndark 模式 · 靛蓝底 + 雾蓝强调\nmanifest 声明\n墨绿\ndark 模式 · 墨绿底 + 青翠强调（进入本页时运行时注册）\n运行时注册\n验证路径：设置 → 外观 → 主题 下拉应出现以上三个主题包；选中即全壳生效（含本插件页）， 切回「跟随模式」恢复。卸载本插件后，下拉中的三个包应一并清理",
+      "resources": [],
+      "images": [],
+      "startupMs": 689,
+      "messages": [],
+      "theme": {
+        "runtimeRegistered": true,
+        "packIds": [
+          "theme-demo.indigo",
+          "theme-demo.warm-sand",
+          "theme-demo.ink-green"
+        ],
+        "disabledRemovedAllPacks": true
+      },
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.timestamp",
+      "version": "1.1.0",
+      "wcId": 31,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 118,
+      "text": "时间戳\n转换\n批量\n日期计算\n暂停时钟\n\n当前时间\n\n2026-10-13 22:18:00\nAsia/Shanghai\n1791901080 秒\n1791901080441 毫秒\n使用现在\n\n时区速览\n\nUTC\n14:18:00\nAsia/Tokyo\n23:18:00\nEurope/London\n15:18:00\nAmerica/New_York\n10:18:00\n时间戳 / 日期 / 相对时间\n单位\n自动\n秒\n毫秒\n时区\n一小时前\n半小时后\n一天后\n\nAsia/Shanghai\n2026-10-13 22:18",
+      "resources": [],
+      "images": [],
+      "startupMs": 710,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.todos",
+      "version": "1.1.0",
+      "wcId": 32,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 47,
+      "text": "把下一步写下来\n待办清单\n导出\n设置\n清单\n全部清单\n收件箱\n＋ 新建清单\n导入任务\n全部\n今天\n重要\n已完成\n归档\n添加\n这里已整理好\n添加新任务，或换个筛选看看\n完成已选\n归档已选\n归档已完成\n0 条 · 0 待完成\n已保存\n选择任务，安排下一步",
+      "resources": [],
+      "images": [],
+      "startupMs": 686,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.totp",
+      "version": "1.0.0",
+      "wcId": 33,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 60,
+      "text": "两步验证，一瞥即得\n验证器\n添加\n备份\n恢复\n还没有条目\n点「添加」或粘贴 otpauth:// 链接\n0 个账号\n密钥以明文保存在本机 · 备份使用口令加密",
+      "resources": [],
+      "images": [],
+      "startupMs": 686,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.translate",
+      "version": "1.3.0",
+      "wcId": 34,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 79,
+      "text": "翻译\n\n读懂另一种表达\n\n历史与收藏\n设置\n自动检测\n中文\n英语\n日语\n韩语\n法语\n德语\n西班牙语\n俄语\n⇄\n中文\n英语\n日语\n韩语\n法语\n德语\n西班牙语\n俄语\n中\n英\n日\n自动引擎\nGoogle\nMyMemory\n原文\n粘贴清空\n0 / 10000\n译文\n\n                译文会显示在这里\n              \n☆ 收藏\n复制双语\n复制译文\nEnter 翻译 · Shift+Enter 换行\n导出文本\n翻译\n最近翻译\n收藏\n×\n还没有翻译记录\n成功的译文会保存在本机\n导出历史清空未收藏",
+      "resources": [],
+      "images": [],
+      "startupMs": 686,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.enest.unit-convert",
+      "version": "1.0.0",
+      "wcId": 35,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 78,
+      "text": "长度\n面积\n体积\n质量\n温度\n速度\n数据量\n进制\n汇率\n千米\n米\n分米\n厘米\n毫米\n英里\n码\n英尺\n英寸\n海里\n常用换算\n1 英寸 = 2.54 厘米\n1 英里 = 1.609 千米\n1 磅 = 453.59 克\n1 加仑(美) = 3.785 升\n1 亩 = 666.67 m²\n1 GB = 1024 MB\n修改任一行，其余即时联动\n复制全部结果",
+      "resources": [],
+      "images": [],
+      "startupMs": 687,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    },
+    {
+      "id": "com.example.hello",
+      "version": "1.0.1",
+      "wcId": 36,
+      "sandbox": true,
+      "ready": "complete",
+      "bridge": "function",
+      "noNode": true,
+      "nodes": 5,
+      "text": "你好，eNest！\n\n标准插件骨架：全幅渲染，无壳子顶栏。\n\n写入设置\n打开次数（storage）: 0",
+      "resources": [],
+      "images": [],
+      "startupMs": 685,
+      "messages": [],
+      "cleanup": {
+        "instances": 0,
+        "activities": 0,
+        "sessionBytes": 0
+      },
+      "nativeRemaining": 0
+    }
+  ]
+}

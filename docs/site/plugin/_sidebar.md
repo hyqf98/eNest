@@ -12,6 +12,9 @@
   * [TypeScript 类型](api-types.md)
   * [生命周期](lifecycle.md)
   * [UI 集成标准](ui-standard.md)
+  * [双模式工具接口](dual-mode-tools.md)
+  * [主题与综合插件](themes.md)
+  * [宿主开发](host-development.md)
 
 * **参考**
   * [调试与热更新](debug.md)

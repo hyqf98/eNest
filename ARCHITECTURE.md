@@ -1,7 +1,7 @@
 # eNest 插件化桌面壳子 — 架构定稿（决策记录）
 
-> **完整实现架构请读：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**  
-> 本文保留 v0.1 决策过程，供追溯。
+> **完整实现架构请读：[docs/engineering/ARCHITECTURE.md](docs/engineering/ARCHITECTURE.md)**
+> 本文保留 v0.1 决策过程，供追溯，不作为当前开发契约。旧 manifest、加载路径和 preload 约定已由 [当前插件标准](docs/site/plugin/structure.md) 取代。
 
 > 版本：v0.1 · 状态：已确认  
 > 产品名：**eNest** · 协议：`enest://` · 包前缀：`@enest/*`

@@ -15,6 +15,7 @@ import { resolveMediaSrc, useThemeStore } from '@renderer/hooks/useTheme'
 import { shellApi } from '@renderer/services/shellApi'
 import { toastStore } from '@renderer/hooks/useToast'
 import { useI18n } from '@renderer/hooks/useI18n'
+import { backgroundColorStyle } from './backgroundColorStyle'
 
 const TYPE_OPTIONS: { id: BackgroundType; label: string }[] = [
   { id: 'none', label: '无' },
@@ -313,7 +314,7 @@ export function BackgroundPicker() {
               <p className="desc">仍可选用单色铺底</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span className="swatch" style={{ background: customSolid ? cfg.value : 'var(--surface-3)' }} />
+                  <span className="swatch" style={backgroundColorStyle(customSolid ? cfg.value : 'var(--surface-3)')} />
               <input
                 ref={colorInputRef}
                 type="color"

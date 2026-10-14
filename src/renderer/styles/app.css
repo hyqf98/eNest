@@ -323,6 +323,20 @@
   flex-shrink: 0;
 }
 
+.tab-badge {
+  flex: 0 0 auto;
+  max-width: 4.5em;
+  padding: 0.08em 0.4em;
+  border-radius: 0.65em;
+  background: var(--danger);
+  color: white;
+  font-size: 0.7em;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .tab:hover .close,
 .tab.active .close { opacity: 1; }
 .tab .close:hover {
@@ -383,11 +397,6 @@
 }
 
 .tab:hover .retry { opacity: 1; }
-
-/* 崩溃面板重试按钮 */
-.isolate-panel .retry-btn {
-  margin-top: 16px;
-}
 
 /* ========== Stage ========== */
 .stage {
@@ -882,17 +891,6 @@
   flex-shrink: 1;
 }
 
-.plugin-bar .path {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-  flex-shrink: 2;
-}
-
 .plugin-body {
   flex: 1;
   overflow: auto;
@@ -919,31 +917,6 @@
   margin: 0 0 20px;
   color: var(--text-2);
   line-height: 1.6;
-}
-
-.iso-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.iso-tile {
-  padding: 16px;
-  border-radius: var(--radius-md);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-}
-
-.iso-tile strong {
-  display: block;
-  font-size: 13px;
-  margin-bottom: 4px;
-}
-
-.iso-tile span {
-  color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 /* ========== Settings / Dev ========== */
@@ -1101,6 +1074,36 @@
   color: var(--text-3);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.plugin-builtin-capabilities {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.plugin-builtin-capabilities h3,
+.perm-grant-block > h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.plugin-builtin-capabilities h3 span {
+  margin-left: 0.5rem;
+  color: var(--text-3);
+  font-size: 0.85em;
+  font-weight: 400;
+}
+
+.plugin-builtin-capabilities .desc,
+.perm-grant-block > .desc {
+  color: var(--text-3);
+  line-height: 1.6;
+  margin: 0.5rem 0 1rem;
+}
+
+.perm-grant-seg {
+  flex-wrap: wrap;
 }
 
 .field > :last-child:not(div:first-child) {
@@ -2368,10 +2371,6 @@
     padding-left: max(clamp(14px, 2.2vw, 20px), 28px);
   }
 
-  .iso-grid {
-    grid-template-columns: 1fr;
-  }
-
   .bg-grad-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -2380,8 +2379,7 @@
 /* —— ≤720：设置 tabs 横向滚动、字段纵向 —— */
 @media (max-width: 720px) {
 
-  .token-grid,
-  .iso-grid {
+  .token-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2446,10 +2444,6 @@
 
   .plugin-bar {
     padding: 0 12px;
-  }
-
-  .plugin-bar .path {
-    display: none;
   }
 
   .isolate-panel {
@@ -2762,3 +2756,15 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Developer controls wrap with the available panel; paths never widen the window. */
+.dev-source-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr)); gap:.75rem; margin-block:1rem; }
+.dev-source-options label { display:flex; flex-direction:column; gap:.4rem; min-width:0; color:var(--text-2); font-size:.85rem; }
+.dev-source-options input,.dev-source-options select { width:100%; min-width:0; border:1px solid var(--border); border-radius:.5rem; padding:.6rem; color:var(--text); background:var(--surface); font:inherit; }
+.dev-url-field { grid-column:1/-1; }
+.dev-plugin-meta,.dev-load-input { min-width:0; }
+.dev-plugin-path { overflow-wrap:anywhere; white-space:normal; }
+.dev-plugin-actions { flex-wrap:wrap; }
+.dev-load-row { flex-wrap:wrap; }
+@media (max-width: 62rem) { .dev-plugin-item { flex-wrap:wrap; } .dev-plugin-actions { flex-basis:100%; justify-content:flex-start; } }
+.md-image { display:block; width:auto; max-width:100%; height:auto; border-radius:.75rem; margin-block:.75rem; }

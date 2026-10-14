@@ -6,6 +6,7 @@
  * 关键依赖：@shared/types/ipc（通道名与类型）、contextBridge、ipcRenderer。
  */
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { QuickInputMessage, QuickInputState } from '@shared/types/plugin-tools'
 import {
   IpcChannels,
   type InstallJobInfo,
@@ -16,6 +17,7 @@ import {
 } from '@shared/types/ipc'
 import type {
   AppPaths,
+  DevPluginLoadOptions,
   LaunchHotkeyProbeResult,
   MarketInstallResult,
   PluginLaunchConfig,
@@ -68,6 +70,7 @@ export interface ShellSettingsSectionItem {
   key: string
   type: string
   label: string
+  entry?: { code: string; payload?: unknown }
   default?: unknown
   options?: Array<{ label: string; value: unknown }>
 }
@@ -111,6 +114,9 @@ async function expectOk(promise: Promise<{ ok: boolean; error?: string }>): Prom
 
 export interface EnestShellApi {
   getPlugins(): Promise<PluginSummary[]>
+  /** 只读性能采样：仅包含当前应用的进程与插件资源计数。 */
+  getPluginDiagnostics(): Promise<unknown>
+  restoreTabs(ids: string[]): Promise<void>
   openPlugin(id: string, enter?: { code?: string; payload?: unknown }): Promise<void>
   closePlugin(tabId: string): Promise<void>
   activatePlugin(tabId: string): Promise<void>
@@ -168,9 +174,9 @@ export interface EnestShellApi {
   setTheme(
     mode: ThemeMode,
     overrides?: Record<string, string>,
-    extra?: Partial<Pick<ThemeTokens, 'packId' | 'background'>>
+    extra?: Partial<Pick<ThemeTokens, 'packId' | 'background' | 'backgroundSource'>>
   ): Promise<void>
-  loadDevPlugin(dirPath: string): Promise<PluginSummary>
+  loadDevPlugin(dirPath: string, options?: DevPluginLoadOptions): Promise<PluginSummary>
   reloadPlugin(pluginId: string): Promise<void>
   /** 开发者控制台：切换/查询 dev 插件「退出到后台立即结束运行」（enabled 省略为查询） */
   setDevKillOnHide(pluginId: string, enabled?: boolean): Promise<boolean>
@@ -252,7 +258,7 @@ export interface EnestShellApi {
   // —— 快捷启动 Quick ——
   quickToggle(): Promise<void>
   quickHide(): void
-  quickSearch(query: string, limit?: number, kind?: QuickCommandKind): Promise<QuickSearchResult>
+  quickSearch(query: string, limit?: number, kind?: QuickCommandKind, phase?: 'static' | 'enriched' | 'providers'): Promise<QuickSearchResult>
   quickOpen(req: QuickOpenRequest): Promise<QuickOpenResult>
   quickScanApps(force?: boolean): Promise<ApplicationScanResult>
   quickGetConfig(): Promise<QuickHotkeyConfig>
@@ -264,11 +270,14 @@ export interface EnestShellApi {
   quickProbeHotkey(acc: string): Promise<import('@shared/types/quick').QuickHotkeyProbeResult>
   /** 请求主进程按内容高度调整小窗 */
   quickResize(height: number, animate?: boolean): void
+  quickInput(message?: QuickInputMessage): Promise<QuickInputState | boolean | null>
   onQuickShown(cb: () => void): Unsubscribe
 }
 
 const api: EnestShellApi = {
   getPlugins: () => ipcRenderer.invoke(IpcChannels.ShellGetPlugins),
+  getPluginDiagnostics: () => ipcRenderer.invoke(IpcChannels.ShellGetPluginDiagnostics),
+  restoreTabs: (ids) => ipcRenderer.invoke(IpcChannels.ShellRestoreTabs, ids).then(() => undefined),
 
   openPlugin: (id: string, enter?: { code?: string; payload?: unknown }) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellOpenPlugin, id, enter)),
@@ -350,12 +359,13 @@ const api: EnestShellApi = {
       },
       // 始终带上 packId/background 键：显式 undefined 可清除（取消主题包/背景）
       ...(extra && 'packId' in extra ? { packId: extra.packId } : {}),
-      ...(extra && 'background' in extra ? { background: extra.background } : {})
+      ...(extra && 'background' in extra ? { background: extra.background } : {}),
+      ...(extra && 'backgroundSource' in extra ? { backgroundSource: extra.backgroundSource } : {})
     })
   },
 
-  loadDevPlugin: (dirPath: string) =>
-    unwrapOk<PluginSummary>(ipcRenderer.invoke(IpcChannels.ShellLoadDevPlugin, dirPath)),
+  loadDevPlugin: (dirPath: string, options?: DevPluginLoadOptions) =>
+    unwrapOk<PluginSummary>(ipcRenderer.invoke(IpcChannels.ShellLoadDevPlugin, dirPath, options)),
 
   reloadPlugin: (pluginId: string) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellReloadPlugin, pluginId)),
@@ -517,8 +527,8 @@ const api: EnestShellApi = {
   quickHide: () => {
     ipcRenderer.invoke(IpcChannels.QuickHide).catch(() => undefined)
   },
-  quickSearch: (query: string, limit?: number, kind?: QuickCommandKind) =>
-    ipcRenderer.invoke(IpcChannels.QuickSearch, { query, limit, kind }) as Promise<QuickSearchResult>,
+  quickSearch: (query: string, limit?: number, kind?: QuickCommandKind, phase?: 'static' | 'enriched' | 'providers') =>
+    ipcRenderer.invoke(IpcChannels.QuickSearch, { query, limit, kind, phase }) as Promise<QuickSearchResult>,
   quickOpen: (req: QuickOpenRequest) =>
     ipcRenderer.invoke(IpcChannels.QuickOpen, req) as Promise<QuickOpenResult>,
   quickScanApps: (force?: boolean) =>
@@ -538,6 +548,7 @@ const api: EnestShellApi = {
   quickResize: (height: number, animate?: boolean) => {
     ipcRenderer.send(IpcChannels.QuickResize, { height, animate })
   },
+  quickInput: (message?: QuickInputMessage) => ipcRenderer.invoke(IpcChannels.QuickInput, message),
   onQuickShown(cb: () => void): Unsubscribe {
     const handler = () => cb()
     ipcRenderer.on(IpcChannels.QuickShown, handler)

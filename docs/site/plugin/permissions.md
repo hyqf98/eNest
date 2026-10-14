@@ -1,312 +1,102 @@
-# 权限说明
+# 权限、隔离与文件能力
 
-插件的权限门禁分两层：**manifest 静态声明** + **运行时三态授权**。
+权限管理只针对跨出插件自身空间的敏感能力。插件自行实现界面、算法、业务流程和协议逻辑，不需要为每一种功能申请新的宿主接口或权限名；壳提供统一的数据、界面、网络、文件与系统能力。
 
-## 授权模型（静态声明 + 运行时三态）
+**基础能力直接可用**，无需在 `plugin.json.permissions` 声明或弹窗授权。**敏感能力先声明，再由用户授权**；声明不等于授权。完整能力键由 `PluginPermission` 和 manifest schema 维护，基础/敏感分类由 `docs/plugin-permission-policy.json` 同源生成，API 签名见 [类型定义](api-types.md)。
 
-**第一层：manifest 静态声明。** `plugin.json` 的 `permissions` 数组声明插件会用到的能力（白名单 29 项，见下表）。调用未声明权限的方法直接 reject：
+## 基础能力
 
-```text
-permission denied: <perm>
-```
+| 能力 | 边界 |
+| --- | --- |
+| `storage.local` | 本插件私有持久化和 session KV；仍受大小预算约束 |
+| `ui.setTitle/setIcon/setBadge/resize/toast` | 只作用于自己的 Tab、受限容器尺寸和壳内提示 |
+| `settings.register/page`、`settings.get/set` | 本插件设置与入口；不能访问宿主授权表或其它插件设置 |
+| `theme` | 注册自己的主题包；有配额，不能覆盖其它来源，注册不等于自动应用 |
+| `vault.write` | 保存、判断和移除本插件的密钥引用；无明文读取接口，不能访问系统已有凭据 |
 
-**第二层：运行时三态授权。** 每项已声明权限还对应一份 **按插件持久化** 的运行时授权状态：
+密钥库要求系统加密可用；Linux 的 `basic_text` / 未知后端不作为安全存储。保存失败不会降级为简单混淆。旧 XOR 凭据保留原文件并要求重新输入；新 key 最多 128 个 UTF-8 字节、单个 secret 最多 64 KiB，每插件最多 256 条 / 8 MiB 密文，已有超额数据仍可删除或缩减。
 
-| 状态 | 行为 |
-|------|------|
-| `allow` | 直接放行（用户选过「总是允许」） |
-| `ask` | **默认值**。壳子弹出授权弹窗：「本次允许 / 总是允许 / 拒绝」 |
-| `deny` | 直接拒绝，等价未声明 |
+新插件的 `permissions` 只需列出敏感项，纯离线工具可以省略该字段或使用空数组。已有包里声明上述基础能力仍可加载，但这些声明不会产生授权开关；旧版本为基础能力保存的拒绝值不再生效。插件启停仍由用户控制，基础能力不会赋予 Node、任意文件或网络权限。
 
-弹窗细则：
+## 授权与撤权
 
-- 「**本次允许**」：仅本次调用放行，状态保持 `ask`，下次再问；
-- 「**总是允许**」：状态记为 `allow`，此后不再询问；
-- 「**拒绝**」：本次拒绝，且状态 **记住为 `deny`**（后续同权限调用直接 reject，不再弹窗）；可在 **插件设置 → 权限管理** 中改回；
-- **60 秒无响应**：自动按「本次拒绝」处理（状态保持 `ask`，下次调用再弹）。
+每项敏感权限有 `ask`（默认）、`allow`、`deny` 三态。`ask` 时主进程在插件所在主窗或 Quick 窗弹出原生对话框，按顺序处理请求，原生插件视图不会挡住它。所有已安装插件都有设置入口，即使没有声明自己的设置项；原生授权结果会同步更新权限页面。
 
-所有拒绝路径（未声明 / `deny` / 弹窗拒绝）的错误串统一为 `permission denied: <perm>`。
+- 本次允许：仅放行本次调用，仍为 `ask`。
+- 总是允许：保存为 `allow`；之后仍校验 manifest、身份、运行代次及文件能力。
+- 拒绝：保存为 `deny`；可到插件权限设置修改。
+- 超过 60 秒、关闭插件或实例失效：拒绝未完成的请求，不持久化超时决定。
+- 撤权会关闭该插件当前实例并回收已有连接、订阅、文件能力和任务；下次打开使用新授权状态。
 
-?> 静态声明是「能力入口」：不声明则连弹窗机会都没有。合理做法仍是只声明用到的权限——运行时弹窗次数越少，插件体验越顺。
+主进程会验证调用窗口、主 frame、插件 ID、精确 origin 和运行代次。插件或壳 renderer 发送“已同意”不能授予权限。结束进程、修改配置等危险操作还会由宿主展示具体目标并确认；参数 `confirmed: true` 只可能表达插件自身的交互状态，不是用户授权凭据。
 
----
+## 敏感权限
 
-## 权限键全表（当前 29 项）
+| 权限 | 用途 |
+| --- | --- |
+| `clipboard.read` / `clipboard.write` | 系统剪贴板文本读取 / 写入 |
+| `clipboard.readImage` / `clipboard.writeImage` | 系统剪贴板图片读取 / 写入 |
+| `clipboard.history` / `clipboard.paste` | 剪贴板历史 / 向前台应用粘贴 |
+| `timer.background` | 番茄钟等宿主后台计时任务 |
+| `screen.capture` / `screen.record` / `pin.create` | 截图、录屏、置顶贴图 |
+| `net.fetch` | 宿主 HTTP(S) 请求；分片、SSE 仍有字节预算 |
+| `net.socket` | TCP、宿主 WebSocket 客户端和限域连接桥 |
+| `lan.share` | 用户选择文件的限时局域网分享，需有效只读文件句柄 |
+| `fs.read` / `fs.write` | 读取 / 修改用户经原生选择器授权的系统文件 |
+| `fs.rename` | 同目录改名；需要可写句柄，批量操作需宿主确认 |
+| `sys.inspect` / `sys.control` | 查看进程、端口 / 结束具体进程 |
+| `config.agent.read` / `config.agent.write` | 查看白名单 AI CLI 配置与快照 / 修改、恢复配置 |
+| `shell.openExternal` | 系统浏览器打开 http、https、mailto、tel 链接 |
+| `notify` | 操作系统通知 |
+| `hotkey` | 注册影响其它应用的全局热键 |
+| `contribute` | 注册动态 Quick provider，接收全局搜索文本并提供结果；普通声明式入口无需此权限 |
+| `ssh.session` / `ssh.exec` / `ssh.sftp` | SSH 会话 / 命令与指标 / 远程文件操作 |
+| `ssh.agent` | 使用宿主系统 SSH agent；不能提供任意 agent socket 路径 |
+| `db.connect` / `db.query` / `db.schema` | 数据库连接 / 执行与导入 / 结构与补全 |
+| `mw.connect` / `mw.query` / `mw.admin` | 中间件连接 / 查询 / 修改，按 workbench action 校验 |
+| `dsh.connect` / `dsh.chat` / `dsh.admin` | DSH 专属运行时连接 / 对话 / 管理（见边界） |
 
-权限列表随版本演进逐步增加，新增贡献点类权限以更新说明为准。
+主题读取、语言读取、身份读取和纯事件订阅同样无需额外权限。普通声明式入口直接可用；动态 Quick provider 会读取全局搜索文本，因此保留 `contribute` 授权，两类贡献点都由宿主绑定来源。已有 SSH/数据库/中间件等适配 API 保留各自的敏感授权；新业务可组合通用 HTTP、WebSocket、文件句柄等能力实现，不需要把业务功能加到这张表。
 
-| 权限键 | 覆盖的 API | 说明 | 敏感度 |
-|--------|-----------|------|--------|
-| `clipboard.read` | `enest.clipboard.readText()` | 读系统剪贴板纯文本 | 高 |
-| `clipboard.write` | `enest.clipboard.writeText(text)` | 写系统剪贴板纯文本 | 中 |
-| `clipboard.readImage` | `enest.clipboard.readImage()` | 读系统剪贴板图片 | 高 |
-| `clipboard.writeImage` | `enest.clipboard.writeImage(dataUrl)` | 写系统剪贴板图片 | 中 |
-| `clipboard.history` | `enest.clipboard.history.list/get/remove/clear/togglePin` | 读取主机侧剪贴板历史 | 高 |
-| `screen.capture` | `enest.screen.capture()`<br>`enest.screen.selectRegion()` | 屏幕截图 / 区域选择 | 高 |
-| `screen.record` | `enest.screen.record.start/stop/cancel` | 屏幕录制 | 高 |
-| `pin.create` | `enest.pin.open/close/list/closeAll` | 创建置顶贴图窗口 | 中 |
-| `net.fetch` | `enest.net.fetch(req)` | 受控 HTTPS 请求（仅 GET/POST，2MB 上限） | 中 |
-| `shell.openExternal` | `enest.shell.openExternal(url)`<br>`enest.shell.saveTextFile(payload)` | 用系统默认浏览器打开 http(s)/mailto/tel 链接、另存文本文件 | 中 |
-| `storage.local` | `enest.storage.get/set/remove/clear`<br>`enest.storage.session.get/set/remove/clear` | 持久化 KV **与** 会话态 KV（复用同一权限） | 低 |
-| `notify` | `enest.notify({ title, body })` | 操作系统通知 | 低 |
-| `ui.setTitle` | `enest.ui.setTitle(title)`<br>别名 `enest.setTitle` | 修改 Tab 标题 | 低 |
-| `ui.setIcon` | `enest.ui.setIcon(icon)`<br>别名 `enest.setIcon` | 修改 Tab 图标 | 低 |
-| `ui.setBadge` | `enest.ui.setBadge(badge)`<br>别名 `enest.setBadge` | 修改 Tab 角标 | 低 |
-| `ui.resize` | `enest.ui.resize(size)`<br>`enest.ui.setHeight(height)`<br>别名 `enest.resize` | 建议内容尺寸 / Quick 高度上报 | 低 |
-| `ui.toast` | `enest.ui.toast({ message, type? })` | 壳子应用内 Toast | 低 |
-| `settings.register` | `enest.settings.register(section)` | 向壳子设置页注入插件设置分组 | 中 |
-| `settings.page` | （预留） | 自定义设置页嵌入（当前版本暂未启用；设置 item `type: "page"` 需此项） | 中 |
-| `hotkey` | `enest.hotkey.register(acc, opts?)`<br>`enest.hotkey.unregister(acc)` | 注册/注销全局快捷键（每插件上限 4 个；与 Quick 当前生效热键、其它插件启动热键、其它插件运行时热键及系统/其它应用占用互斥；启动键保存前经 `shell:probe-launch-hotkey` 归属探测） | 高 |
-| `contribute` | `enest.contribute.registerQuickProvider(meta)`<br>`enest.contribute.unregisterQuickProvider(id)`<br>`enest.contribute.respondQuickQuery(reqId, items)` | 贡献点（Quick 搜索 provider 注册与查询回传）；`onQuickQuery` 纯订阅不校验；声明式 `contributes` 段无需此权限 | 中 |
-| `theme` | `enest.theme.register(pack)` | 注册主题包到壳子主题下拉（每插件上限 8 包、同 id 只能覆盖自己的、token 值白名单过滤）；manifest `contributes.themePacks` 声明式路径等价，无需声明此权限 | 中 |
-| `vault.write` | `enest.vault.set(key, secret)`<br>`enest.vault.has(keyOrRef)`<br>`enest.vault.remove(keyOrRef)` | 插件密钥保险库写入/存在/删除；`set` 返回 `secretRef`，无明文 get | 高 |
-| `ssh.session` | `enest.ssh.connect(input)`<br>`enest.ssh.write/resize/disconnect`<br>`enest.ssh.listSessions()` | SSH 终端会话生命周期 | 高 |
-| `ssh.exec` | `enest.ssh.exec(input)`<br>`enest.ssh.metrics.start/stop/latest`<br>`enest.ssh.completion.suggest(input)` | 远程命令执行 / 性能采样 / 命令补全 | 高 |
-| `ssh.sftp` | `enest.ssh.sftp.list/download/upload/mkdir/rename/delete/chmod`<br>`enest.ssh.pickLocalFile(opts?)` | SFTP 文件列表、传输与目录/权限操作、本地文件选择 | 高 |
-| `db.connect` | `enest.db.test/open/close/listSessions/pickSqliteFile` | 数据库连接生命周期与 SQLite 文件选择 | 高 |
-| `db.query` | `enest.db.execute/explain/cancel`<br>`enest.db.applyChanges`<br>`enest.db.importPreview/importRun` | SQL 执行、结果集变更与 CSV 导入 | 高 |
-| `db.schema` | `enest.db.schema.tree/describe/ddl`<br>`enest.db.completion.suggest`<br>`enest.db.dialects.list` | 对象树 / 表详情 / DDL / SQL 补全 / 方言词库 | 中 |
+剪贴板历史只有用户实际保存 `clipboard.history=allow` 后才在后台采集；仅在 manifest 声明或选择本次允许不会开启持续监控。撤权后立即重检并停止不再被任何授权插件需要的采集。
 
----
-
-## 无需权限的 API
-
-以下方法 **所有插件可用**，不校验 `permissions`：
-
-| API | 原因 |
-|-----|------|
-| `enest.theme.getTokens()` / `ui.getThemeTokens()` | 主题感知是基础能力 |
-| `enest.ui.onThemeChange(cb)` | 同上 |
-| `enest.i18n.getLocale()` / `onLocaleChange(cb)` | 语言感知是基础能力 |
-| `enest.settings.get(key)` / `set(key, value)` | 读写本插件自己的设置，由 Bridge / SettingsStore 按 pluginId 隔离（仅限注册过的 key） |
-| `enest.on / off` | 事件总线 |
-| `enest.onEnter / onOut / onBeforeClose / onDestroy` | 生命周期 |
-| `enest.contribute.onQuickQuery(cb)` | 纯订阅；门禁在 `registerQuickProvider` |
-| `enest.getPluginId() / getEnterCode()` | 同步身份工具 |
-
-
----
-
-## method → 权限映射（与主进程一致）
-
-壳子内置的方法到权限映射：
-
-| method | 所需权限 |
-|--------|----------|
-| `ui.setTitle` | `ui.setTitle` |
-| `ui.setIcon` | `ui.setIcon` |
-| `ui.setBadge` | `ui.setBadge` |
-| `ui.resize` | `ui.resize` |
-| `ui.toast` | `ui.toast` |
-| `settings.register` | `settings.register` |
-| `settings.get` | — （无需） |
-| `settings.set` | — （无需） |
-| `storage.get` | `storage.local` |
-| `storage.set` | `storage.local` |
-| `storage.remove` | `storage.local` |
-| `storage.clear` | `storage.local` |
-| `storage.session.get` | `storage.local` |
-| `storage.session.set` | `storage.local` |
-| `storage.session.remove` | `storage.local` |
-| `storage.session.clear` | `storage.local` |
-| `clipboard.readText` | `clipboard.read` |
-| `clipboard.writeText` | `clipboard.write` |
-| `clipboard.readImage` | `clipboard.readImage` |
-| `clipboard.writeImage` | `clipboard.writeImage` |
-| `clipboard.history.list` | `clipboard.history` |
-| `clipboard.history.get` | `clipboard.history` |
-| `clipboard.history.remove` | `clipboard.history` |
-| `clipboard.history.clear` | `clipboard.history` |
-| `clipboard.history.togglePin` | `clipboard.history` |
-| `screen.capture` | `screen.capture` |
-| `screen.selectRegion` | `screen.capture` |
-| `screen.record.start` | `screen.record` |
-| `screen.record.stop` | `screen.record` |
-| `screen.record.cancel` | `screen.record` |
-| `pin.open` | `pin.create` |
-| `pin.close` | `pin.create` |
-| `pin.closeAll` | `pin.create` |
-| `pin.list` | `pin.create` |
-| `net.fetch` | `net.fetch` |
-| `shell.saveTextFile` | `shell.openExternal` |
-| `shell.openExternal` | `shell.openExternal` |
-| `notify` | `notify` |
-| `theme.register` | `theme` |
-| `theme.getTokens` | — （无需） |
-| `ui.setHeight` | `ui.resize`（复用，无需单独声明） |
-| `hotkey.register` | `hotkey` |
-| `hotkey.unregister` | `hotkey` |
-| `i18n.getLocale` | — （无需） |
-| `contribute.registerQuickProvider` | `contribute` |
-| `contribute.unregisterQuickProvider` | `contribute` |
-| `contribute.respondQuickQuery` | `contribute` |
-| `contribute.onQuickQuery` | — （纯订阅，无需） |
-| `vault.set` | `vault.write` |
-| `vault.has` | `vault.write` |
-| `vault.remove` | `vault.write` |
-| `ssh.connect` | `ssh.session` |
-| `ssh.write` | `ssh.session` |
-| `ssh.resize` | `ssh.session` |
-| `ssh.disconnect` | `ssh.session` |
-| `ssh.listSessions` | `ssh.session` |
-| `ssh.exec` | `ssh.exec` |
-| `ssh.metrics.start` | `ssh.exec` |
-| `ssh.metrics.stop` | `ssh.exec` |
-| `ssh.metrics.latest` | `ssh.exec` |
-| `ssh.completion.suggest` | `ssh.exec` |
-| `ssh.sftp.list` | `ssh.sftp` |
-| `ssh.sftp.download` | `ssh.sftp` |
-| `ssh.sftp.upload` | `ssh.sftp` |
-| `ssh.sftp.mkdir` | `ssh.sftp` |
-| `ssh.sftp.rename` | `ssh.sftp` |
-| `ssh.sftp.delete` | `ssh.sftp` |
-| `ssh.sftp.chmod` | `ssh.sftp` |
-| `ssh.pickLocalFile` | `ssh.sftp` |
-| `db.test` | `db.connect` |
-| `db.open` | `db.connect` |
-| `db.close` | `db.connect` |
-| `db.listSessions` | `db.connect` |
-| `db.pickSqliteFile` | `db.connect` |
-| `db.pickImportFile` | `db.connect` |
-| `db.execute` | `db.query` |
-| `db.explain` | `db.query` |
-| `db.cancel` | `db.query` |
-| `db.applyChanges` | `db.query` |
-| `db.importPreview` | `db.query` |
-| `db.importRun` | `db.query` |
-| `db.schema.tree` | `db.schema` |
-| `db.schema.describe` | `db.schema` |
-| `db.schema.ddl` | `db.schema` |
-| `db.completion.suggest` | `db.schema` |
-| `db.dialects.list` | `db.schema` |
-
-未出现在映射表中的 method 返回：`unknown method: <method>`。
-
----
-
-## 声明示例
-
-最小权限集（只用标题 + 本地存储 + Toast）：
-
-```json
-{
-  "id": "com.example.hello",
-  "name": "Hello",
-  "version": "1.0.0",
-  "main": "index.html",
-  "permissions": [
-    "ui.setTitle",
-    "storage.local",
-    "ui.toast"
-  ]
-}
-```
-
-完整能力演示：
-
-```json
-{
-  "permissions": [
-    "clipboard.read",
-    "clipboard.write",
-    "shell.openExternal",
-    "storage.local",
-    "notify",
-    "ui.setTitle",
-    "ui.setIcon",
-    "ui.setBadge",
-    "ui.resize",
-    "ui.toast",
-    "settings.register",
-    "theme"
-  ]
-}
-```
-
----
-
-## OS 层权限（系统门禁叠加）
-
-壳子权限只是第一道门；部分能力还要过操作系统自身的授权。**即使插件已被用户 `allow`，OS 层被拒时调用依然失败**。
-
-| 能力 | macOS | Windows | Linux |
-|------|-------|---------|-------|
-| `screen.*`（截屏 / 录屏 / 区域选择） | **TCC 门**：系统「屏幕录制」授权（`getMediaAccessStatus('screen')`）。首次调用弹系统授权框；被拒后需到 系统设置 → 隐私与安全性 → 屏幕录制 开启并 **重启 eNest**；denied 时调用直接报 `os permission denied: screen` | 无额外系统门 | X11 直取；**Wayland 走系统 portal**（壳子已启用 WebRTCPipeWireCapturer，首次经 portal 框选授权） |
-| `notify`（系统通知） | 无额外门（通知中心自管） | 需 AppUserModelID 注册（**壳子已处理**，插件无感） | 桌面通知服务（dbus）自管 |
-| `hotkey`（全局快捷键，常规键） | 无 OS 门 | 无 OS 门 | 无 OS 门；**Wayland 下注册可能受限，部分场景走 portal** |
-| `hotkey`（**媒体键**，macOS） | 需「辅助功能」授权（系统设置 → 隐私与安全性 → 辅助功能） | — | — |
-| `clipboard.*` | 无 OS 门 | 无 OS 门 | 无 OS 门 |
-| `shell.openExternal` / 插件页外链 | 无 OS 门（scheme 限 http/https/mailto/tel） | 无 OS 门 | 无 OS 门 |
-
-?> 排查顺序：先看错误串——`permission denied: <perm>` 是壳子层（声明 / 三态授权问题）；`os permission denied: screen` 是 macOS 系统层（去系统设置开启并重启 eNest）。
-
----
-
-## 处理权限错误
+## 系统文件：句柄，不是路径
 
 ```js
-const api = window.enest // zapi 为 @deprecated 历史别名，计划 v2 移除
-
-try {
-  await api.clipboard.writeText('x')
-} catch (e) {
-  if (String(e.message).startsWith('permission denied:')) {
-    // 两种可能：
-    // 1) manifest 未声明该权限 → 补 plugin.json 的 permissions
-    // 2) 已声明但运行时授权被拒（deny / 弹窗拒绝）→ 引导用户到 插件设置 → 权限管理 改回
-    console.warn('权限被拒', e.message)
-  } else {
-    throw e
-  }
-}
-```
-
-可选的运行时能力探测：
-
-```js
-async function canCall(fn) {
-  try {
-    await fn()
-    return true
-  } catch {
-    return false
-  }
+// manifest 声明 fs.read；默认只能读。
+const [file] = await enest.localFiles.pick({ kind: 'file' })
+if (file) {
+  console.log(file.name, file.displayPath) // 仅展示
+  const contents = await enest.localFiles.read({ handleId: file.id, encoding: 'text' })
+  console.log(contents)
 }
 
-// 探测通常会留下副作用（且可能触发授权弹窗），更稳妥的做法是按 manifest 自己开关 UI
+// 导出/修改需声明 fs.write，宿主显示保存位置。
+const destination = await enest.localFiles.pickSave({ defaultName: 'export.csv' })
 ```
 
-!> **生产插件请勿申请与功能无关的敏感权限。** 授权发生在运行时弹窗，过度申请意味着更频繁的弹窗打扰，用户更容易直接拒绝。
+句柄绑定插件、真实路径、用途和当前运行代次。另一个插件、重载后的旧页面、撤权或关闭后的句柄均无效。不要持久化 `id`，恢复时让用户重新选择。`displayPath`、字符串绝对路径或 DOM 文件输入的 `path` 不能替代能力。浏览器下载和静默直接文件系统访问不获放行；`fromDrop` 最多接收 20 个路径，宿主展示全部候选并由用户确认后才签发句柄，插件自报路径本身不授予权限。
 
----
+- SSH 私钥：选择只读文件，将 `id` 作为 `privateKeyHandleId`。
+- SFTP 上传：`localHandleId`；下载：选择 `{ kind:'directory', access:'write' }`，传 `localDirectoryHandleId`。
+- SQLite / DuckDB：`fileHandleId`；内存数据库用 `database: ':memory:'`。打开读写库需可写句柄，不能用只读句柄升级。
+- CSV：`fileHandleId` 或显式 `csvText`，不接受任意 `filePath`。
+- `shell.saveTextFile` 使用 `fs.write`，不复用外链权限。
 
-## 隔离模型（与权限互补）
+SQLite 使用引擎 authorizer 拦截 ATTACH、文件相关 PRAGMA、扩展等；DuckDB 关闭外部访问并锁定配置，SQL 无法借 `read_csv`、COPY 或扩展访问其它文件。
 
-权限管 **能力门禁**；下面的机制管 **数据与进程隔离**：
+`localFiles.read` 用 `fs.read` 读取已授权的普通文件，`encoding: 'text'` 默认上限为 2 MiB，`'dataUrl'` 默认 16 MiB；`maxBytes` 可调整但最多 32 MiB，同一插件最多两次并发读取。文本导入和图片预览都应使用此接口并显示超限/取消/撤权错误。官方插件的文件按钮通过宿主选择器与读取接口执行；Chromium 的普通文件输入是另一种由用户交互选择文件的机制，Electron 的权限回调不覆盖所有此类输入，不能把回调或页面补丁说成全面拦截。
 
-| 机制 | 说明 |
-|------|------|
-| 独立 partition | `persist:plugin-{id}`，cookie / localStorage / IndexedDB 互不可见 |
-| 自定义协议 | `enest://plugin/{id}/...` 仅映射该插件根目录，拒绝路径穿越 |
-| 统一 preload | 插件无 Node；一切走 `plugin:call` + 权限校验 |
-| 身份校验 | sender 必须属于 PluginHost；伪造 pluginId 被拒 |
-| 关闭策略 | 日常关 Tab **不清** partition 数据；**卸载**时清理 partition + storage（enest.db `plugin_storage` 行） |
+## 页面隔离与网络
 
----
+通用插件在开启 Chromium sandbox、`contextIsolation` 且禁用 Node 集成的 `WebContentsView` 中运行。preload 为自包含 CJS；每插件独立 session。生产代码使用外部 JS 文件，不执行内联脚本。资源协议仅服务入口和 `assets/`，静态源码调试额外服务 `src/` 和 `public/assets` 的固定映射。
 
-## 安全边界（插件做不到的事）
+浏览器原生敏感权限、设备权限、下载、任意导航及直接外联默认拒绝。远程 HTTP 请求用 `enest.net.fetch`，WebSocket 用 `enest.net.websocket`。只有本插件明确配置的开发 origin（含同源 HMR）和宿主签发的实际连接桥可以直连。其它 localhost 端口和其它插件资源不获放行。
 
-- `require('electron')` / 任意 Node API
-- 读写插件根目录之外的文件
-- 直接操作壳子 DOM / React 组件树
-- 调用未声明权限的 API
-- 跨插件读取 partition 或 storage
-- `shell.openExternal` 打开非 http(s) 协议
+**边界**：DSH 已有独立 Node runtime 作为专属附加区保留，不能据此声称其独立运行时被 Chromium 页面沙箱约束。普通插件不能携带可执行 runtime；DSH 业务和外部运行时安全不在通用插件沙箱保证内。
 
----
+## 数据与系统权限
 
-## 相关文档
+插件业务数据通过 `storage` API 保存到宿主管理的 `~/.eNest`（用户显式设置数据根时遵从该设置）。不要自行拼接用户目录。关 Tab 保留持久数据；卸载清理对应 partition、KV、设置与贡献。生命周期和预算见 [生命周期](lifecycle.md)。
 
-- [enest API](api.md) — 各方法的权限标注与错误
-- [错误码](errors.md) — `permission denied` 与其它错误
-- [plugin.json](manifest.md) — 清单字段（含声明式 `contributes` 贡献点段）
+macOS 截屏/录屏还需要系统 TCC，通知、全局热键在不同系统也有自身限制。宿主 `allow` 不会绕过操作系统权限。错误 `permission denied: <key>` 表示宿主门禁；`os permission denied: screen` 表示系统门禁。未实测平台不能仅由 macOS 测试推导通过。

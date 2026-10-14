@@ -9,17 +9,35 @@ import { Fragment, type ReactNode } from 'react'
 interface Props {
   /** Markdown 源文本 */
   source: string
+  /** URL of the version-matched packaged Markdown file. */
+  baseUrl?: string
+  imageMap?: Record<string, string>
 }
 
 /** 链接协议白名单，拦截 javascript: 等危险协议 */
 const SAFE_LINK = /^(https?:\/\/|mailto:)/i
 
+/** Images may only resolve within the same package's market assets. No remote tracking pixels. */
+export function resolveMarkdownImage(raw: string, baseUrl?: string, imageMap?: Record<string, string>): string | undefined {
+  if (!baseUrl || /^(?:[a-z][a-z\d+.-]*:|[\\/])/i.test(raw)) return undefined
+  try {
+    const decoded = decodeURIComponent(raw)
+    if (decoded.split('/').includes('..') || /[\\?#\u0000-\u001f]/.test(decoded)) return undefined
+    const base = new URL(baseUrl)
+    const mapped = base.protocol === 'enest:' ? undefined : imageMap?.[decoded.replace(/^\.\//, '')]
+    const image = new URL(mapped ?? raw, base)
+    const directory = base.pathname.slice(0, base.pathname.lastIndexOf('/') + 1)
+    if (!['enest:', 'https:', 'http:'].includes(base.protocol) || image.protocol !== base.protocol || image.host !== base.host || image.username || image.password || !image.pathname.startsWith(directory) || !/\.(png|jpe?g|webp|gif|svg)$/i.test(image.pathname)) return undefined
+    return image.href
+  } catch { return undefined }
+}
+
 /** 将纯文本按行内 Markdown 标记拆成 React 节点（文本已由 React 自动转义） */
-function parseInline(text: string, keyBase: string): ReactNode[] {
+function parseInline(text: string, keyBase: string, baseUrl?: string, imageMap?: Record<string, string>): ReactNode[] {
   const nodes: ReactNode[] = []
   // 顺序：行内码 → 粗体 → 斜体 → 链接
   const pattern =
-    /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(\[[^\]]+\]\([^)\s]+\))/g
+    /(!\[[^\]]*\]\([^)\s]+\))|(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(\[[^\]]+\]\([^)\s]+\))/g
   let last = 0
   let m: RegExpExecArray | null
   let i = 0
@@ -29,7 +47,13 @@ function parseInline(text: string, keyBase: string): ReactNode[] {
     const token = m[0]
     const key = `${keyBase}-i${i++}`
 
-    if (token.startsWith('`')) {
+    if (token.startsWith('![')) {
+      const close = token.indexOf('](')
+      const label = token.slice(2, close)
+      const raw = token.slice(close + 2, -1)
+      const src = resolveMarkdownImage(raw, baseUrl, imageMap)
+      nodes.push(src ? <img key={key} className="md-image" src={src} alt={label} loading="lazy" /> : <span key={key}>{label}</span>)
+    } else if (token.startsWith('`')) {
       nodes.push(
         <code key={key} className="md-code">
           {token.slice(1, -1)}
@@ -62,7 +86,7 @@ function parseInline(text: string, keyBase: string): ReactNode[] {
 }
 
 /** 将整篇 Markdown 解析为 React 节点数组（块级） */
-function parseMarkdown(source: string): ReactNode[] {
+function parseMarkdown(source: string, baseUrl?: string, imageMap?: Record<string, string>): ReactNode[] {
   const lines = source.replace(/\r\n/g, '\n').split('\n')
   const blocks: ReactNode[] = []
   let i = 0
@@ -109,7 +133,7 @@ function parseMarkdown(source: string): ReactNode[] {
     const heading = /^(#{1,3})\s+(.*)$/.exec(line)
     if (heading) {
       const level = heading[1].length
-      const content = parseInline(heading[2].trim(), `h${key}`)
+      const content = parseInline(heading[2].trim(), `h${key}`, baseUrl, imageMap)
       const Tag = (`h${level + 1}` as 'h2' | 'h3' | 'h4') // 正文内标题从 h2 起，避免与弹窗标题撞级
       push(<Tag className={`md-h md-h${level}`}>{content}</Tag>)
       i += 1
@@ -121,7 +145,7 @@ function parseMarkdown(source: string): ReactNode[] {
       const items: ReactNode[] = []
       while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
         const item = lines[i].replace(/^\s*[-*+]\s+/, '')
-        items.push(<li key={`li${key}-${items.length}`}>{parseInline(item, `li${key}${items.length}`)}</li>)
+        items.push(<li key={`li${key}-${items.length}`}>{parseInline(item, `li${key}${items.length}`, baseUrl, imageMap)}</li>)
         i += 1
       }
       push(<ul className="md-ul">{items}</ul>)
@@ -133,7 +157,7 @@ function parseMarkdown(source: string): ReactNode[] {
       const items: ReactNode[] = []
       while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
         const item = lines[i].replace(/^\s*\d+\.\s+/, '')
-        items.push(<li key={`ol${key}-${items.length}`}>{parseInline(item, `ol${key}${items.length}`)}</li>)
+        items.push(<li key={`ol${key}-${items.length}`}>{parseInline(item, `ol${key}${items.length}`, baseUrl, imageMap)}</li>)
         i += 1
       }
       push(<ol className="md-ol">{items}</ol>)
@@ -155,7 +179,7 @@ function parseMarkdown(source: string): ReactNode[] {
       i += 1
     }
     if (para.length) {
-      push(<p className="md-p">{parseInline(para.join(' '), `p${key}`)}</p>)
+      push(<p className="md-p">{parseInline(para.join(' '), `p${key}`, baseUrl, imageMap)}</p>)
     } else {
       i += 1
     }
@@ -165,6 +189,6 @@ function parseMarkdown(source: string): ReactNode[] {
 }
 
 /** Markdown 正文渲染器 */
-export function MarkdownView({ source }: Props) {
-  return <div className="markdown-body">{parseMarkdown(source)}</div>
+export function MarkdownView({ source, baseUrl, imageMap }: Props) {
+  return <div className="markdown-body">{parseMarkdown(source, baseUrl, imageMap)}</div>
 }

@@ -20,7 +20,7 @@
 
 - eNest 面向**桌面多窗口工作台**：顶部多 Tab，不是全局呼出搜索框为主。
 - 默认**进程 / 会话隔离**，关闭 Tab 立即回收。
-- 当前市场内置官方示例插件，后续将接入远端市场。
+- 市场支持远端 registry 与最终包资源；开发检出可预览本地 dist 的对应版本。
 
 ## 文档结构
 
@@ -39,7 +39,7 @@
 | [示例插件](examples.md) | 可复制的完整示例 + 仓库样例 |
 | [FAQ](faq.md) | 高频问题 |
 
-?> 建议顺序：**快速开始 → plugin.json → enest API → 生命周期 → 示例**。示例见本页与仓库 `plugins-samples/hello`。
+?> 建议顺序：**快速开始 → plugin.json → enest API → 生命周期 → 示例**。实际示例见插件仓库 `plugins/`；从 [主题与综合插件](themes.md) 或 [宿主开发](host-development.md) 进入专项。
 
 ## 下一步
 

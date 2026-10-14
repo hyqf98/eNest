@@ -15,7 +15,7 @@
 
 | 消息 | 触发 | 处理 |
 |------|------|------|
-| `permission denied: <perm>` | 未在 `plugin.json` → `permissions` 声明该能力，或运行时授权为 `deny` / 弹窗被拒 | 未声明→增加对应权限键（`<perm>` 取值见 [权限说明](permissions.md)）；已声明→引导用户到 插件设置 → 权限管理 改回 |
+| `permission denied: <perm>` | 未在 `plugin.json` → `permissions` 声明该敏感能力，或运行时授权为 `deny` / 弹窗被拒 | 未声明→增加对应权限键（`<perm>` 取值见 [权限说明](permissions.md)）；已声明→引导用户到 插件设置 → 权限管理 改回 |
 | `os permission denied: screen` | macOS 系统层屏幕录制（TCC）被拒 | 到 系统设置 → 隐私与安全性 → 屏幕录制 开启 eNest 并 **重启 eNest** |
 | `unknown method: <method>` | 调用了不存在的 method，或主进程映射表未收录 | 核对 [API 参考](api.md) 方法名；升级壳子 |
 | `unauthorized sender` | 发起调用的页面不属于壳子管理的插件 | 正常插件不会出现；检查是否在非插件环境误用 API |
@@ -48,6 +48,13 @@
 | `invalid theme pack: tokens must be an object` | `tokens` 不是对象 |
 | `theme pack id already registered by <src>` | 同 id 已被其它来源（插件 / 内置）注册，只允许覆盖自己的 |
 | `theme pack limit reached for <src> (max 8)` | 本插件已注册 8 个主题包 |
+
+### 私有设置与密钥库
+
+- `reserved plugin settings key`：使用了 `permissionGrants`、`__proto__`、`prototype` 或 `constructor` 等宿主保留键，改用业务设置名。
+- `secure credential storage unavailable`：系统密钥库不可用，解锁或配置系统密钥库后重试；不会静默存明文或混淆数据。
+- `legacy insecure vault secret requires re-entry`：旧 XOR 凭据需要重新输入，原文件保留。
+- vault 大小或数量超限：缩减或删除本插件旧凭据后重试，拒绝的写入不会覆盖已有凭据。
 
 ### 权限错误示例
 
@@ -93,7 +100,7 @@ invalid plugin.json:
 | `字段 main 缺失或不是字符串（必填，HTML 入口相对路径）` | 缺 `main` | 补 HTML 入口 |
 | `字段 description 若存在必须是字符串` | `description` 类型错误 | 改为字符串（建议但不强制填写） |
 | `字段 permissions 若存在必须是字符串数组` | `permissions` 非数组 | 改为数组 |
-| `字段 permissions 含未知权限 "<p>"（白名单见 PLUGIN_PERMISSIONS / plugin-manifest.schema.json）` | 权限不在 29 项白名单内 | 核对 [权限说明](permissions.md) 的权限键拼写 |
+| `字段 permissions 含未知权限 "<p>"（白名单见 PLUGIN_PERMISSIONS / plugin-manifest.schema.json）` | 能力键不在 schema 定义范围内 | 核对 [权限说明](permissions.md) 的权限键拼写 |
 | `字段 engines.enest "<r>" 不支持（仅允许 * / ^x.y.z / >=x.y.z / 精确 x.y.z）` | 版本范围语法不支持 | 简化为四种支持写法之一 |
 | `字段 engines.enest "<r>" 不满足当前壳子版本 <v>` | 壳子版本不在声明范围内 | 升级壳子或放宽范围 |
 | `入口文件 <main> 不存在于插件根目录 <dir>` | `main` 指向的文件缺失 | 检查打包是否漏文件、路径大小写 |
@@ -106,7 +113,7 @@ invalid plugin.json:
 | `invalid plugin.json: not valid JSON` | JSON 语法错误 | 检查逗号、引号、尾逗号 |
 | `invalid plugin.json:` + 上述逐字段列表 | manifest 校验失败（一次收集全部） | 按列表逐条修复 |
 | `plugin not installed: <id>` | 打开未安装插件 | 先安装，或开发者控制台加载本地目录 |
-| `sample not found for plugin: <id>` | 示例包路径无效 | 检查仓库 `plugins-samples/` / monorepo `plugins/` 是否完整 |
+| `sample not found for plugin: <id>` | 本地预览产物不存在 | 在插件仓库构建 `plugins/<id>/dist/`，再刷新预览列表 |
 | `路径不存在: <path>` | 安装源路径为空或不存在 | 核对拖入的文件 / 文件夹 |
 | `不支持的安装包类型: <name>（需要文件夹或 .enestplugin/.zip）` | 扩展名不匹配 | 打成 `.enestplugin` / `.zip`，或直接拖文件夹 |
 | `无法读取安装包: <detail>` | zip 解压 / 读取失败 | 包是否损坏；权限是否足够 |
@@ -146,7 +153,7 @@ invalid plugin.json:
 
 1. **DevTools Console** 是否有 JS 异常（右键 → 检查 / 开发者控制台打开）
 2. `plugin.json` 是否合法、`main` 是否可访问
-3. `permissions` 是否覆盖当前调用的 API
+3. `permissions` 是否覆盖当前调用的敏感 API（基础能力无需声明）
 4. 开发态端口 / `development.main` 是否正确
 5. 是否在 `background: transparent` 时忘了把 `body` 设为透明（视觉问题）
 6. 仍失败：**关 Tab 重开**，或卸载后重新加载本地目录

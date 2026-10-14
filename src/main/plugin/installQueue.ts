@@ -16,7 +16,7 @@ import { basename } from 'node:path'
 import type { InstallJobInfo } from '@shared/types/ipc'
 import { logError, logInfo } from '@main/logs/logService'
 import { getAppPaths } from '@main/paths/pathsService'
-import { installFromZip, installPluginFromPath } from '@main/plugin/PluginInstaller'
+import { beginPluginInstall, installFromZip, installPluginFromPath } from '@main/plugin/PluginInstaller'
 import { downloadPluginPackage } from '@main/plugin/marketClient'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
@@ -26,11 +26,14 @@ import { sendShellEvent } from '@main/window/createShellWindow'
 export const MAX_PARALLEL_INSTALLS = 3
 
 interface InstallJob extends InstallJobInfo {
+  /** Assigned at enqueue time; uninstall also supersedes jobs still waiting to start. */
+  operation: number
   /** 本地路径安装 */
   sourcePath?: string
   /** 远程 URL 安装 */
   sourceUrl?: string
   expectedSha256?: string | null
+  expectedIdentity?: { id: string; version: string }
 }
 
 /** FIFO 等待 + 运行中任务；done/failed 会立刻出队（结果走 toast） */
@@ -78,7 +81,7 @@ async function runLocalJob(job: InstallJob): Promise<{ manifest: { id: string; v
   logInfo('install-queue', `start ${job.name} ← ${sourcePath}`)
   return installPluginFromPath(sourcePath, destRoot, (p, step) => {
     reportProgress(job, p, step)
-  })
+  }, job.operation, (result) => pluginRegistry.publishInstalledBuild(result))
 }
 
 async function runRemoteJob(job: InstallJob): Promise<{ manifest: { id: string; version: string; name: string } }> {
@@ -87,8 +90,9 @@ async function runRemoteJob(job: InstallJob): Promise<{ manifest: { id: string; 
   logInfo('install-queue', `start remote ${job.name} ← ${url}`)
   reportProgress(job, 2, '下载安装包')
   const pkg = await downloadPluginPackage(url, {
+    pluginId: job.expectedIdentity?.id,
     expectedSha256: job.expectedSha256,
-    fileName: `${job.name}.enestplugin`,
+    fileName: job.expectedIdentity ? `${job.expectedIdentity.id}@${job.expectedIdentity.version}.enestplugin` : `${job.name}.enestplugin`,
     onProgress: (p) => {
       const pct = Math.round(p.percent * 0.7)
       reportProgress(job, Math.max(2, pct), p.total ? `下载中 ${pct}%` : '下载中…')
@@ -98,7 +102,7 @@ async function runRemoteJob(job: InstallJob): Promise<{ manifest: { id: string; 
     reportProgress(job, 72, '解压安装')
     const result = await installFromZip(pkg.path, destRoot, (p, step) => {
       reportProgress(job, 72 + Math.round(p * 0.28), step)
-    })
+    }, job.operation, (published) => pluginRegistry.publishInstalledBuild(published), job.expectedIdentity)
     return result
   } finally {
     await pkg.cleanup()
@@ -150,13 +154,14 @@ async function runJob(job: InstallJob): Promise<void> {
 }
 
 /**
- * 入队安装。sourcePath 为本地文件夹或 .enestplugin/.zip 绝对路径。
+ * 入队安装。sourcePath 为标准发布目录或 .enestplugin 绝对路径。
  * 立即返回任务摘要；实际安装异步进行，进度经 shell:event 推送。
  */
 export function enqueueInstall(sourcePath: string): InstallJobInfo {
   const display =
-    basename(sourcePath).replace(/\.enestplugin$/i, '').replace(/\.zip$/i, '') || sourcePath
+    basename(sourcePath).replace(/\.enestplugin$/i, '') || sourcePath
   const job: InstallJob = {
+    operation: beginPluginInstall(),
     id: randomUUID(),
     name: display,
     progress: 0,
@@ -176,15 +181,17 @@ export function enqueueInstall(sourcePath: string): InstallJobInfo {
  */
 export function enqueueInstallFromUrl(
   url: string,
-  opts: { name: string; sha256?: string | null }
+  opts: { name: string; sha256?: string | null; identity?: { id: string; version: string } }
 ): InstallJobInfo {
   const job: InstallJob = {
+    operation: beginPluginInstall(),
     id: randomUUID(),
     name: opts.name || url.split('/').pop() || 'plugin',
     progress: 0,
     status: 'queued',
     sourceUrl: url,
-    expectedSha256: opts.sha256 ?? null
+    expectedSha256: opts.sha256 ?? null,
+    expectedIdentity: opts.identity
   }
   queue.push(job)
   logInfo('install-queue', `enqueue remote ${job.name} ← ${url}`)

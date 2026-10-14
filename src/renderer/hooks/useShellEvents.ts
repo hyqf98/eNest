@@ -9,19 +9,22 @@ import { shellApi } from '@renderer/services/shellApi'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { useThemeStore } from '@renderer/hooks/useTheme'
 import { toastStore } from '@renderer/hooks/useToast'
-import { usePermissionPromptStore } from '@renderer/stores/permissionPromptStore'
 
 function handleEvent(payload: ShellEventPayload): void {
   const store = useShellStore.getState()
   switch (payload.type) {
+    case 'plugin-open-settings':
+      store.setSettingsTab(`p:${payload.pluginId}`)
+      store.setView('settings')
+      break
     case 'plugins-changed':
       void store.refreshPlugins()
       break
     case 'tab-closed':
-      store.removeTabLocal(payload.tabId)
+      // 主进程紧接着发布 plugin-tabs；不使用旧事件猜测接班项。
       break
     case 'plugin-error':
-      store.setPluginError(payload.message)
+      if (store.activeTabId === `t-${payload.pluginId}`) store.setPluginError(payload.message)
       store.appendLog('warn', `[plugin] ${payload.pluginId}: ${payload.message}`)
       toastStore.getState().push(`插件错误：${payload.message}`)
       break
@@ -84,11 +87,6 @@ function handleEvent(payload: ShellEventPayload): void {
       break
     case 'quick-config-changed':
       store.appendLog('info', `[quick] hotkeys: ${payload.hotkeys.join(', ') || '(none)'}`)
-      break
-    case 'permission-request':
-      // 主进程 PermissionService 弹窗请求：入队，由 SettingsPage 挂载的
-      // PermissionPromptModal 渲染队首并回 respondPermissionRequest
-      usePermissionPromptStore.getState().enqueue(payload)
       break
   }
 }

@@ -6,6 +6,7 @@
  */
 import type {
   AppPaths,
+  DevPluginLoadOptions,
   LaunchHotkeyProbeResult,
   MarketInstallResult,
   PluginLaunchConfig,
@@ -19,6 +20,8 @@ import type {
   ThemePack,
   ThemeTokens
 } from '@shared/types/plugin'
+import { PLUGIN_PERMISSIONS } from '@shared/types/plugin'
+import { filterPermissionGrants, requiresUserConsent } from '@shared/pluginPermissionPolicy'
 import type {
   ShellEventPayload,
   InstallJobInfo,
@@ -77,6 +80,9 @@ export interface PluginLaunchSetResult {
 /** preload 注入到渲染进程的完整 shell 能力面 */
 export interface ShellApi {
   getPlugins(): Promise<PluginSummary[]>
+  /** 只读性能采样，浏览器 mock 不提供原生进程数据。 */
+  getPluginDiagnostics(): Promise<unknown>
+  restoreTabs(ids: string[]): Promise<void>
   /** enter.code 透传给插件 onEnter（首页卡片/轨道入口等贡献点打开场景） */
   openPlugin(id: string, enter?: { code?: string; payload?: unknown }): Promise<void>
   closePlugin(tabId: string): Promise<void>
@@ -131,9 +137,9 @@ export interface ShellApi {
   setTheme(
     mode: ThemeMode,
     overrides?: Record<string, string>,
-    extra?: Partial<Pick<ThemeTokens, 'packId' | 'background'>>
+    extra?: Partial<Pick<ThemeTokens, 'packId' | 'background' | 'backgroundSource'>>
   ): Promise<void>
-  loadDevPlugin(dirPath: string): Promise<PluginSummary>
+  loadDevPlugin(dirPath: string, options?: DevPluginLoadOptions): Promise<PluginSummary>
   reloadPlugin(pluginId: string): Promise<void>
   /** 开发者控制台：切换/查询 dev 插件「退出到后台立即结束运行」（mock 恒 false） */
   setDevKillOnHide(pluginId: string, enabled?: boolean): Promise<boolean>
@@ -191,13 +197,12 @@ export interface ShellApi {
   getUpdateState?(): Promise<UpdateStatePayload>
   /** 系统级通知（Electron Notification）；浏览器 mock 用 Web Notification 兜底 */
   systemNotify?(title: string, body?: string): Promise<void>
-  /** —— 运行时权限（壳层三态；mock 分支为内存假实现）—— */
-  /** 响应权限弹窗：once 本次允许 / always 总是允许 / deny 拒绝 */
+  /** Legacy response API; the native host rejects renderer-driven consent. */
   respondPermissionRequest?(
     requestId: string,
     decision: 'once' | 'always' | 'deny'
   ): Promise<void>
-  /** 读插件权限授权表（未设置项语义为 'ask'） */
+  /** Read sensitive permission decisions; missing decisions default to ask. */
   getPluginPermissionGrants?(
     pluginId: string
   ): Promise<Partial<Record<PluginPermission, PluginPermissionGrant>>>
@@ -227,7 +232,7 @@ export interface ShellApi {
   // —— 快捷启动 Quick（Electron preload 提供；mock 可省略）——
   quickToggle?(): Promise<void>
   quickHide?(): void
-  quickSearch?(query: string, limit?: number, kind?: QuickCommandKind): Promise<{ items: QuickCommand[]; total?: number }>
+  quickSearch?(query: string, limit?: number, kind?: QuickCommandKind, phase?: 'static' | 'enriched' | 'providers'): Promise<{ items: QuickCommand[]; total?: number }>
   quickOpen?(req: QuickOpenRequest): Promise<{ ok: boolean; error?: string }>
   quickScanApps?(force?: boolean): Promise<ApplicationScanResult>
   quickGetConfig?(): Promise<QuickHotkeyConfig>
@@ -243,6 +248,7 @@ export interface ShellApi {
     hint?: string
   }>
   quickResize?(height: number, animate?: boolean): void
+  quickInput?(message?: import('@shared/types/plugin-tools').QuickInputMessage): Promise<import('@shared/types/plugin-tools').QuickInputState | boolean | null>
   onQuickShown?(cb: () => void): () => void
 }
 
@@ -253,10 +259,29 @@ function createMockApi(): ShellApi {
   const listeners = new Set<EventCb>()
   let theme = readMockTheme()
   let settings = readMockSettings()
-  const openTabs = new Map<string, PluginTab>()
+  const openTabs = new Map<string, PluginTab & { status: 'ready' | 'hibernated' }>()
+  let activeTabId: string | null = null
+  let tabRevision = 0
 
   const emit = (payload: ShellEventPayload): void => {
     for (const cb of listeners) cb(payload)
+  }
+
+  const publishTabs = (): void => emit({
+    type: 'plugin-tabs', revision: ++tabRevision, activeTabId,
+    tabs: [...openTabs.values()].map(({ id, title, status }) => ({ id, title, status }))
+  })
+  const closeMockTab = (tabId: string): void => {
+    const tabs = [...openTabs.values()]
+    const index = tabs.findIndex((tab) => tab.id === tabId)
+    if (index >= 0) openTabs.delete(tabs[index].pluginId)
+    if (activeTabId === tabId) {
+      activeTabId = tabs[index + 1]?.id ?? tabs[index - 1]?.id ?? null
+      const next = [...openTabs.values()].find((tab) => tab.id === activeTabId)
+      if (next) next.status = 'ready'
+    }
+    emit({ type: 'tab-closed', tabId })
+    publishTabs()
   }
 
   const mockPaths: AppPaths = {
@@ -271,6 +296,21 @@ function createMockApi(): ShellApi {
   return {
     async getPlugins() {
       return mockRegistry.getPlugins()
+    },
+    async getPluginDiagnostics() {
+      return {
+        sampledAt: Date.now(), platform: 'browser-mock',
+        host: { logicalTabs: openTabs.size, activeTabId }, processes: []
+      }
+    },
+    async restoreTabs(ids) {
+      for (const id of ids) {
+        const plugin = mockRegistry.getById(id)
+        if (!plugin?.installed || plugin.enabled === false || openTabs.has(id)) continue
+        openTabs.set(id, { id: `t-${id}`, pluginId: id, title: plugin.name,
+          color: plugin.color, glyph: plugin.glyph, icon: plugin.icon, badge: '', status: 'hibernated' })
+      }
+      publishTabs()
     },
     async openPlugin(id, _enter) {
       const plugin = mockRegistry.getById(id)
@@ -290,21 +330,27 @@ function createMockApi(): ShellApi {
         title: installed.name,
         color: installed.color,
         glyph: installed.glyph,
+        icon: installed.icon,
+        badge: '',
+        status: 'ready',
       })
+      activeTabId = `t-${id}`
+      publishTabs()
+      emit({ type: 'plugin-ready', pluginId: id, generation: tabRevision })
     },
     async closePlugin(tabId) {
-      for (const [key, tab] of openTabs) {
-        if (tab.id === tabId) {
-          openTabs.delete(key)
-          break
-        }
-      }
+      closeMockTab(tabId)
     },
-    async activatePlugin() {
-      /* mock no-op */
+    async activatePlugin(tabId) {
+      const tab = [...openTabs.values()].find((item) => item.id === tabId)
+      if (!tab) return
+      tab.status = 'ready'
+      activeTabId = tabId
+      publishTabs()
     },
     async hidePlugins() {
-      /* mock no-op */
+      activeTabId = null
+      publishTabs()
     },
     async setPluginInset() {
       /* mock no-op */
@@ -333,6 +379,7 @@ function createMockApi(): ShellApi {
     },
     async uninstallPlugin(id) {
       const name = mockRegistry.getById(id)?.name ?? id
+      closeMockTab(`t-${id}`)
       mockRegistry.uninstall(id)
       mockRegistry.setEnabled(id, true)
       emit({ type: 'uninstall-result', pluginId: id, name, ok: true })
@@ -367,6 +414,7 @@ function createMockApi(): ShellApi {
         overrides: theme.overrides,
         packId: theme.packId,
         background: theme.background,
+        backgroundSource: theme.backgroundSource,
         packs: [],
       }
     },
@@ -382,7 +430,9 @@ function createMockApi(): ShellApi {
       if (overrides) theme.overrides[resolvedKey] = overrides
       theme.mode = mode
       if (extra && 'packId' in extra) theme.packId = extra.packId ?? undefined
-      if (extra && 'background' in extra) theme.background = extra.background ?? undefined
+      if (extra && 'backgroundSource' in extra) theme.backgroundSource = extra.backgroundSource
+      if (theme.backgroundSource === 'pack') delete theme.background
+      else if (extra && 'background' in extra) theme.background = extra.background ?? undefined
       writeMockTheme(theme)
       emit({ type: 'theme-changed', mode })
       if (extra?.packId !== undefined || extra?.background !== undefined) {
@@ -522,9 +572,9 @@ function createMockApi(): ShellApi {
         `维护者：${author}　·　欢迎在反馈区提交问题。`,
         '',
         '```ts',
-        '// 示例：与壳子桥接',
-        'const shell = window.enestShell',
-        'await shell?.getPlugins()',
+        '// 示例：使用插件自己的数据存储',
+        'const api = window.enest',
+        "await api.storage.set('draft', { text: 'Hello eNest' })",
         '```',
         '',
         '更多说明见 [eNest 开发文档](https://example.com/enest/docs)。',
@@ -652,15 +702,33 @@ function createMockApi(): ShellApi {
         /* ignore */
       }
     },
-    // —— 运行时权限 mock：内存授权表，弹窗链路不生效（浏览器无主进程仲裁）——
+    // Browser settings mirror the native persistence contract; consent dialogs stay native-only.
     async respondPermissionRequest(_requestId, _decision) {
-      /* mock no-op */
+      throw new Error('权限请求仅由原生对话框处理')
     },
-    async getPluginPermissionGrants(_pluginId) {
-      return {}
+    async getPluginPermissionGrants(pluginId) {
+      settings = readMockSettings()
+      const bag = settings.plugins?.[pluginId]
+      const grants = filterPermissionGrants(bag?.permissionGrants)
+      if (bag?.permissionGrants && JSON.stringify(bag.permissionGrants) !== JSON.stringify(grants)) {
+        settings = { ...settings, plugins: { ...settings.plugins, [pluginId]: { ...bag, permissionGrants: grants } } }
+        writeMockSettings(settings)
+      }
+      return grants
     },
-    async setPluginPermissionGrant(_pluginId, _permission, _grant) {
-      /* mock no-op */
+    async setPluginPermissionGrant(pluginId, permission, grant) {
+      const plugin = mockRegistry.getById(pluginId)
+      if (!plugin?.installed || !plugin.permissions.includes(permission) || !PLUGIN_PERMISSIONS.includes(permission) || !requiresUserConsent(permission)) {
+        throw new Error('只能管理已安装插件声明的系统与隐私权限')
+      }
+      if (!['ask', 'allow', 'deny'].includes(grant)) throw new Error('无效的授权状态')
+      settings = readMockSettings()
+      const bag = settings.plugins?.[pluginId] ?? {}
+      const grants = { ...filterPermissionGrants(bag.permissionGrants), [permission]: grant }
+      settings = { ...settings, plugins: { ...settings.plugins, [pluginId]: { ...bag, permissionGrants: grants } } }
+      writeMockSettings(settings)
+      emit({ type: 'permission-grants-changed', pluginId, grants })
+      if (grant !== 'allow' && openTabs.has(pluginId)) closeMockTab(`t-${pluginId}`)
     },
     async openScreenCaptureSettings() {
       /* mock no-op */
@@ -698,6 +766,7 @@ function createMockApi(): ShellApi {
     quickResize() {
       /* mock：浏览器无小窗高度 */
     },
+    async quickInput() { return null },
     async quickOpen() {
       return { ok: false, error: 'mock' }
     },

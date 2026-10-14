@@ -6,7 +6,7 @@
  * 关键依赖：pathsService、mockMarket（市场元数据）、PluginInstaller（manifest 解析）、
  * marketClient（远程列表与资产下载）、pluginEnabledStore（启用状态）。
  */
-import { cp, mkdir, readdir, rm, stat } from 'node:fs/promises'
+import { readdir, rm, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
@@ -14,13 +14,14 @@ import type {
   PluginContributes,
   PluginManifest,
   PluginSummary,
+  PluginUiConfig,
   ThemePack
 } from '@shared/types/plugin'
 import { resolvePluginUi } from '@shared/types/plugin'
 import { pluginProtocolUrl } from '@shared/constants'
 import { getAppPaths } from '@main/paths/pathsService'
-import { MOCK_MARKET_PLUGINS, mockToSummary, shortNameOf } from '@main/plugin/mockMarket'
-import { installFromDirectory, installFromZip } from '@main/plugin/PluginInstaller'
+import { MOCK_MARKET_PLUGINS, mockToSummary } from '@main/plugin/mockMarket'
+import { installFromDirectory, installFromFolder, installFromZip, withInstallLock, beginPluginInstall, type InstallResult } from '@main/plugin/PluginInstaller'
 import {
   downloadPluginPackage,
   fetchRemoteMarket,
@@ -36,6 +37,7 @@ import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { themePackRegistry } from '@main/theme/themePacks'
 import { sendShellEvent } from '@main/window/createShellWindow'
 import { logInfo, logWarn } from '@main/logs/logService'
+import { readPluginBuildRevision } from './pluginInstallTasks'
 import {
   manifestCategory,
   manifestScreenshots,
@@ -47,27 +49,35 @@ export interface InstalledPlugin {
   manifest: PluginManifest
   rootPath: string
   version: string
+  buildRevision?: string
+}
+
+export interface InstalledPluginDescriptor {
+  readonly id: string
+  readonly manifest: PluginManifest
+  readonly ui: PluginUiConfig
+  rootPath: string
+  buildRevision: string
+  enabled: boolean
+  dev: boolean
+}
+
+function freezeDescriptor<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    for (const child of Object.values(value)) freezeDescriptor(child)
+    Object.freeze(value)
+  }
+  return value
 }
 
 function pluginsRoot(): string {
   return getAppPaths().plugins
 }
 
-function samplesRoot(): string {
-  return join(app.getAppPath(), 'plugins-samples')
-}
-
-function monorepoPluginsRoot(): string {
-  return join(app.getAppPath(), 'eNest_plugin', 'plugins')
-}
-
-/** 解析本地示例安装源：优先 monorepo plugins/{id}，再回退 plugins-samples/{short} */
+/** Local installation consumes the same built output as a release archive. */
 function resolveSampleDir(id: string): string | null {
-  const mono = join(monorepoPluginsRoot(), id)
-  if (existsSync(mono)) return mono
-  const short = join(samplesRoot(), shortNameOf(id))
-  if (existsSync(short)) return short
-  return null
+  const path = join(app.getAppPath(), 'eNest_plugin', 'plugins', id, 'dist')
+  return existsSync(join(path, 'plugin.json')) ? path : null
 }
 
 /**
@@ -86,12 +96,10 @@ export function compareVersions(a: string, b: string): number {
   return 0
 }
 
-/** logo 优先、icon 兜底；manifest 本地路径按磁盘原名编码，不受 devUrl 影响。 */
+/** manifest icon 按磁盘原名编码，不受 devUrl 影响。 */
 function manifestIconUrl(manifest: PluginManifest): string | undefined {
-  const logo = manifest.logo || manifest.icon
-  if (typeof logo !== 'string' || !logo) return undefined
-  if (/^(https?:|data:|enest:)/i.test(logo)) return logo
-  const path = logo.replace(/^\.?\//, '').split('/').map(encodeURIComponent).join('/')
+  if (typeof manifest.icon !== 'string' || !manifest.icon) return undefined
+  const path = manifest.icon.split('/').map(encodeURIComponent).join('/')
   return pluginProtocolUrl(manifest.id, path)
 }
 
@@ -113,6 +121,7 @@ function manifestToSummary(
     glyph: market?.glyph ?? manifest.name.slice(0, 1),
     icon: manifestIconUrl(manifest),
     screenshots: manifestScreenshots(manifest),
+    readmeUrl: manifest.market?.readme ? pluginProtocolUrl(manifest.id, manifest.market.readme) : undefined,
     featured: typeof manifest.market?.featured === 'boolean' ? manifest.market.featured : undefined,
     permissions: manifest.permissions ?? [],
     installed: true,
@@ -156,6 +165,7 @@ function withUpdateHint(summary: PluginSummary, remote: MarketPluginSummary | un
 
 export class PluginRegistry {
   private installed = new Map<string, InstalledPlugin>()
+  private localPreviews = new Map<string, InstalledPlugin>()
   private dev = new Map<string, PluginSummary>()
   private devManifests = new Map<string, PluginManifest>()
   /** 远程 eNest_plugin 市场缓存；断网时沿用上次成功结果 */
@@ -167,6 +177,66 @@ export class PluginRegistry {
   private remoteFetchInFlight: Promise<void> | null = null
   /** ensureInstalled 进行中的远程下载，避免并发重复拉同一插件 */
   private installing = new Map<string, Promise<PluginSummary>>()
+  private scanInFlight: Promise<void> | null = null
+  private scanRequested = 0
+  private installedRevision = 0
+  private mutationRevision = 0
+  private installedEnabledSignature = ''
+  private buildEpochs = new Map<string, number>()
+  private descriptors: readonly InstalledPluginDescriptor[] | null = null
+  private descriptorCacheHits = 0
+  private descriptorCacheMisses = 0
+  private descriptorCacheBuilds = 0
+  /** Preserve source order across manifest updates, disable and asynchronous disk writes. */
+  private themeTasks = new Map<string, Promise<void>>()
+  private themeEpochs = new Map<string, number>()
+
+  private changed(): void {
+    this.installedRevision++
+    this.mutationRevision++
+    this.descriptors = null
+  }
+
+  getInstalledRevision(): number { return this.installedRevision }
+
+  /** Sampling never builds descriptors and includes no manifests or filesystem paths. */
+  getDescriptorCacheMetrics() {
+    return {
+      hits: this.descriptorCacheHits, misses: this.descriptorCacheMisses,
+      builds: this.descriptorCacheBuilds, entries: this.descriptors?.length ?? 0,
+      snapshots: this.descriptors ? 1 : 0, snapshotCapacity: 1,
+      installedRevision: this.installedRevision
+    }
+  }
+
+  getBuildRevision(id: string): string {
+    const plugin = this.installed.get(id) ?? this.localPreviews.get(id)
+    const base = this.dev.has(id)
+      ? `dev:${this.dev.get(id)?.rootPath ?? ''}`
+      : plugin?.buildRevision ?? `${plugin?.version ?? ''}:${plugin?.rootPath ?? ''}`
+    return `${base}:${this.buildEpochs.get(id) ?? 0}`
+  }
+
+  /** Explicit dev reload/update invalidates generations observed by pending opens and asset reads. */
+  invalidateBuildRevision(id: string): string {
+    this.buildEpochs.set(id, (this.buildEpochs.get(id) ?? 0) + 1)
+    this.changed()
+    return this.getBuildRevision(id)
+  }
+
+  /** Installed data only: no remote-market merge or full settings clone in the keystroke path. */
+  getInstalledDescriptors(): readonly InstalledPluginDescriptor[] {
+    if (this.descriptors) { this.descriptorCacheHits++; return this.descriptors }
+    this.descriptorCacheMisses++
+    this.descriptors = Object.freeze([...new Set([...this.installed.keys(), ...this.dev.keys()])].flatMap((id) => {
+      const manifest = this.getManifest(id)
+      const rootPath = this.getRootPath(id)
+      return manifest && rootPath ? [freezeDescriptor({ id, manifest: structuredClone(manifest), ui: resolvePluginUi(manifest.ui), rootPath, buildRevision: this.getBuildRevision(id), enabled: isEnabledSync(id), dev: this.dev.has(id) })] : []
+    }))
+    this.descriptorCacheBuilds++
+    return this.descriptors
+  }
+
 
 /**
  * manifest.contributes 声明入库（禁用插件除外；启用/安装路径同样调用）。
@@ -175,8 +245,10 @@ export class PluginRegistry {
 private syncContributes(manifest: PluginManifest, enabled: boolean): void {
   try {
     if (enabled) {
+      const previousThemeIds = contributionRegistry.listSlot<ThemePack>('theme-packs')
+        .filter(entry => entry.source === manifest.id).map(entry => entry.id)
       contributionRegistry.registerManifestContributes(manifest.id, manifest.contributes)
-      this.applyThemePackContributions(manifest.id)
+      this.applyThemePackContributions(manifest.id, previousThemeIds)
     } else {
       // 禁用插件的声明式贡献不显示
       contributionRegistry.unregisterBySource(manifest.id)
@@ -195,81 +267,159 @@ private syncContributes(manifest: PluginManifest, enabled: boolean): void {
  * 异步 fire-and-forget：syncContributes 为同步调用点（scan/启用/安装），
  * 注册失败仅记日志，不阻塞注册表主路径。
  */
-  private applyThemePackContributions(pluginId: string): void {
-    void (async () => {
-      const entries = contributionRegistry.listSlot<ThemePack>('theme-packs')
+  private enqueueThemeMutation(pluginId: string, mutation: (isLatest: () => boolean) => Promise<void>): void {
+    const epoch = (this.themeEpochs.get(pluginId) ?? 0) + 1
+    this.themeEpochs.set(pluginId, epoch)
+    const task = (this.themeTasks.get(pluginId) ?? Promise.resolve()).catch(() => {}).then(() =>
+      mutation(() => this.themeEpochs.get(pluginId) === epoch)
+    ).catch((error) => logWarn('registry', `theme sync failed for ${pluginId}: ${(error as Error).message}`))
+    this.themeTasks.set(pluginId, task)
+    void task.finally(() => {
+      if (this.themeTasks.get(pluginId) === task) {
+        this.themeTasks.delete(pluginId)
+        this.themeEpochs.delete(pluginId)
+      }
+    })
+  }
+
+  private applyThemePackContributions(pluginId: string, previousIds: string[]): void {
+    // Snapshot the contribution rows now; a later manifest update may replace the DB rows.
+    const entries = contributionRegistry.listSlot<ThemePack>('theme-packs').filter(entry => entry.source === pluginId)
+    this.enqueueThemeMutation(pluginId, async (isLatest) => {
+      const desired = new Set(entries.map(entry => entry.id))
+      // Retirement must run even for superseded operations, so a skipped intermediate
+      // update cannot strand a pack from an earlier manifest. Runtime-only packs survive.
+      let changed = false
+      for (const id of previousIds) {
+        if (!desired.has(id) && themePackRegistry.get(id)?.source === pluginId) {
+          changed = await themePackRegistry.remove(id) || changed
+        }
+      }
       let registered = 0
       for (const entry of entries) {
-        if (entry.source !== pluginId) continue
+        if (!isLatest()) break
         try {
-          await themePackRegistry.register({ ...entry.data, source: pluginId })
+          await themePackRegistry.registerPlugin(entry.data, pluginId)
           registered++
         } catch (err) {
           logWarn('registry', `theme pack "${entry.id}" from ${pluginId} rejected: ${(err as Error).message}`)
         }
       }
-      if (registered > 0) {
+      if (isLatest() && (registered > 0 || changed)) {
         logInfo('registry', `theme packs registered from manifest: ${pluginId} (${registered})`)
         sendShellEvent({ type: 'theme-packs-changed' })
       }
-    })()
+    })
   }
 
 /** 禁用插件：移除其声明式注册的主题包并广播（卸载路径已有 removeBySource，此处补禁用） */
 private removeThemePackContributions(pluginId: string): void {
-  void (async () => {
+  this.enqueueThemeMutation(pluginId, async (isLatest) => {
     try {
       const removed = await themePackRegistry.removeBySource(pluginId)
-      if (removed.length > 0) {
+      if (removed.length > 0 && isLatest()) {
         logInfo('registry', `theme packs removed on disable: ${pluginId} (${removed.length})`)
         sendShellEvent({ type: 'theme-packs-changed' })
       }
     } catch (err) {
       logWarn('registry', `remove theme packs failed for ${pluginId}: ${(err as Error).message}`)
     }
-  })()
+  })
 }
 
 /** 扫描 userData/plugins 下所有已安装插件，解析 manifest 并缓存到内存 */
-  async scan(): Promise<void> {
-    this.installed.clear()
-    // 先加载禁用集合，保证 list/get 能立刻带上 enabled
-    await loadDisabledIds()
-    const root = pluginsRoot()
-    if (!existsSync(root)) {
+  scan(): Promise<void> {
+    this.scanRequested++
+    if (this.scanInFlight) return this.scanInFlight
+    const task = (async () => {
+      let request: number
+      do {
+        request = this.scanRequested
+        const mutation = this.mutationRevision
+        await loadDisabledIds()
+        const next = new Map<string, InstalledPlugin>()
+        const root = pluginsRoot()
+        let ids: string[]
+        try { ids = await readdir(root) } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          ids = []
+        }
+        for (const id of ids) {
+          if (id.startsWith('.')) continue // unpublished staging/rollback directories
+          const idDir = join(root, id)
+          try {
+            if (!(await stat(idDir)).isDirectory()) continue
+            const versions = (await readdir(idDir)).filter((name) => !name.startsWith('.')).sort(compareVersions).reverse()
+            for (const version of versions) {
+              const pluginDir = join(idDir, version)
+              try {
+                const manifest = await installFromDirectory(pluginDir, { metadataOnly: true })
+                if (manifest.id !== id || manifest.version !== version) throw new Error('安装目录必须为 plugins/<id>/<version>')
+                const buildRevision = await readPluginBuildRevision(pluginDir)
+                next.set(manifest.id, { manifest, rootPath: pluginDir, version: manifest.version, buildRevision })
+                break
+              } catch (error) {
+                logWarn('registry', `scan skip ${id}/${version}: ${(error as Error).message}`)
+              }
+            }
+          } catch (error) {
+            logWarn('registry', `scan skip ${id}: ${(error as Error).message}`)
+          }
+        }
+        // An installation/dev mutation won the race. Never publish the stale disk snapshot.
+        if (mutation !== this.mutationRevision) {
+          this.scanRequested++
+          continue
+        }
+        const previous = this.installed
+        this.installed = next // one atomic publication: readers never see an empty/partial catalog
+        const fingerprint = (items: Map<string, InstalledPlugin>) => JSON.stringify([...items].map(([id, item]) => [id, item.rootPath, item.buildRevision, item.version]).sort())
+        const enabledSignature = JSON.stringify([...next.keys()].sort().map((id) => [id, isEnabledSync(id)]))
+        if (fingerprint(previous) !== fingerprint(next) || enabledSignature !== this.installedEnabledSignature) this.changed()
+        else this.descriptors = null // enabled state may have been reloaded
+        this.installedEnabledSignature = enabledSignature
+        for (const id of previous.keys()) {
+          if (!next.has(id) && !this.dev.has(id)) {
+            contributionRegistry.unregisterBySource(id)
+            this.removeThemePackContributions(id)
+          }
+        }
+        for (const [id, item] of next) {
+          if (this.dev.has(id)) continue
+          if (previous.get(id)?.buildRevision !== item.buildRevision || !previous.has(id)) {
+            this.syncContributes(item.manifest, isEnabledSync(id))
+          }
+        }
+      } while (request !== this.scanRequested)
+      await this.scanLocalPreviews()
       void this.refreshRemoteMarket()
-      return
-    }
-    let ids: string[]
-    try {
-      ids = await readdir(root)
-    } catch {
-      return
-    }
-    for (const id of ids) {
-      const idDir = join(root, id)
-      try {
-        if (!(await stat(idDir)).isDirectory()) continue
-        const versions = await readdir(idDir)
-        if (versions.length === 0) continue
-        const version = versions.sort().at(-1)!
-        const pluginDir = join(idDir, version)
-        const manifest = await installFromDirectory(pluginDir)
-        this.installed.set(manifest.id, {
-          manifest,
-          rootPath: pluginDir,
-          version: manifest.version
-        })
-        // 贡献点声明入库（声明式注册不依赖插件运行；禁用插件除外）
-        this.syncContributes(manifest, isEnabledSync(manifest.id))
-      } catch (err) {
-        // 无效插件跳过但记录具体原因，不再静默
-        logWarn('registry', `scan skip ${id}: ${(err as Error).message}`)
-      }
-    }
-    // 启动后异步拉取远程市场，不阻塞 scan
-    void this.refreshRemoteMarket()
+    })()
+    this.scanInFlight = task
+    void task.finally(() => { if (this.scanInFlight === task) this.scanInFlight = null }).catch(() => {})
+    return task
   }
+
+  /** Development checkout previews are built packages, never runnable registry entries. */
+  private async scanLocalPreviews(): Promise<void> {
+    if (app.isPackaged) return
+    const root = join(app.getAppPath(), 'eNest_plugin', 'plugins')
+    const next = new Map<string, InstalledPlugin>()
+    let ids: string[]
+    try { ids = await readdir(root) } catch { return }
+    for (const id of ids) {
+      const path = join(root, id, 'dist')
+      if (!existsSync(join(path, 'plugin.json'))) continue
+      try {
+        const manifest = await installFromDirectory(path, { metadataOnly: true })
+        if (manifest.id !== id) continue
+        next.set(id, { manifest, rootPath: path, version: manifest.version, buildRevision: String((await stat(join(path, 'plugin.json'))).mtimeMs) })
+      } catch (error) { logWarn('market', `invalid local package ${id}: ${(error as Error).message}`) }
+    }
+    this.localPreviews = next
+  }
+
+  getAssetRootPath(id: string): string | null { return this.getRootPath(id) ?? this.localPreviews.get(id)?.rootPath ?? null }
+  getAssetManifest(id: string): PluginManifest | null { return this.getManifest(id) ?? this.localPreviews.get(id)?.manifest ?? null }
 
   /** 拉取 eNest_plugin registry；成功则覆盖 remoteMarket */
   async refreshRemoteMarket(force = false): Promise<void> {
@@ -316,6 +466,7 @@ private removeThemePackContributions(pluginId: string): void {
       ...this.remoteMarket.map((entry) => entry.id),
       ...MOCK_MARKET_PLUGINS.map((entry) => entry.id),
       ...this.installed.keys(),
+      ...this.localPreviews.keys(),
       ...this.dev.keys()
     ])
     return [...ids].flatMap((id) => {
@@ -340,6 +491,7 @@ private removeThemePackContributions(pluginId: string): void {
           category: manifestCategory(manifest) ?? dev.category,
           icon: manifestIconUrl(manifest) ?? dev.icon,
           screenshots: manifestScreenshots(manifest),
+          readmeUrl: manifest.market?.readme ? pluginProtocolUrl(id, manifest.market.readme) : undefined,
           featured: typeof manifest.market?.featured === 'boolean' ? manifest.market.featured : undefined,
           contributes: normalizeContributes(manifest.contributes)
         } : {})
@@ -351,6 +503,8 @@ private removeThemePackContributions(pluginId: string): void {
       const summary = manifestToSummary(installed.manifest, installed.rootPath)
       return withUpdateHint(mergeMarketMetadata(summary, remote), remote)
     }
+    const preview = this.localPreviews.get(id)
+    if (preview) return { ...manifestToSummary(preview.manifest, preview.rootPath), installed: false, rootPath: undefined }
     if (remote) return remoteToSummary(remote, isEnabledSync(id))
     return mockToSummary(false).find((summary) => summary.id === id) ?? null
   }
@@ -378,6 +532,7 @@ private removeThemePackContributions(pluginId: string): void {
     await persistPluginEnabled(id, enabled)
     // 禁用集合变更后 list/get 需立刻反映
     await loadDisabledIds()
+    this.changed()
     // 贡献点：禁用即撤下声明式贡献，启用即按当前 manifest 重放
     const manifest = this.getManifest(id)
     if (manifest) this.syncContributes(manifest, enabled)
@@ -386,6 +541,16 @@ private removeThemePackContributions(pluginId: string): void {
     const summary = this.get(id)
     if (!summary) throw new Error(`plugin not found: ${id}`)
     return summary
+  }
+
+  /** Installer calls this before releasing the same-id package lock. */
+  publishInstalledBuild(result: InstallResult): void {
+    this.installed.set(result.manifest.id, {
+      manifest: result.manifest, rootPath: result.dest,
+      version: result.manifest.version || '0.0.0', buildRevision: result.buildRevision
+    })
+    this.changed()
+    this.syncContributes(result.manifest, isEnabledSync(result.manifest.id))
   }
 
 /** 从内置示例目录安装插件到 userData/plugins，已安装则直接返回 */
@@ -397,13 +562,7 @@ private removeThemePackContributions(pluginId: string): void {
     if (!src) {
       throw new Error(`sample not found for plugin: ${id}`)
     }
-    const manifest = await installFromDirectory(src)
-    const version = manifest.version || '0.0.0'
-    const dest = join(pluginsRoot(), manifest.id, version)
-    await mkdir(dest, { recursive: true })
-    await cp(src, dest, { recursive: true })
-    this.installed.set(manifest.id, { manifest, rootPath: dest, version })
-    this.syncContributes(manifest, true)
+    const { manifest } = await installFromFolder(src, pluginsRoot(), undefined, undefined, (result) => this.publishInstalledBuild(result))
     return this.get(manifest.id)!
   }
 
@@ -419,8 +578,10 @@ private removeThemePackContributions(pluginId: string): void {
     if (!remote?.assetUrl) {
       throw new Error(`no remote asset for plugin: ${id}`)
     }
+    const operation = beginPluginInstall()
     onProgress?.(2, '下载安装包')
     const pkg = await downloadPluginPackage(remote.assetUrl, {
+      pluginId: id,
       expectedSha256: remote.assetSha256,
       fileName: `${id}@${remote.version}.enestplugin`,
       onProgress: (p) => {
@@ -438,15 +599,11 @@ private removeThemePackContributions(pluginId: string): void {
       onProgress?.(72, '解压安装')
       const result = await installFromZip(pkg.path, pluginsRoot(), (p, step) => {
         onProgress?.(72 + Math.round(p * 0.28), step)
-      })
-      this.installed.set(result.manifest.id, {
-        manifest: result.manifest,
-        rootPath: result.dest,
-        version: result.manifest.version || '0.0.0'
-      })
-      this.syncContributes(result.manifest, true)
+      }, operation, (published) => this.publishInstalledBuild(published), { id, version: remote.version })
       // 安装成功后清理同 id 下更旧的版本目录（保留刚写入的）
-      await this.cleanupOldVersions(result.manifest.id, result.dest)
+      await withInstallLock(result.manifest.id, async () => {
+        if (this.installed.get(result.manifest.id)?.rootPath === result.dest) await this.cleanupOldVersions(result.manifest.id, result.dest)
+      })
       onProgress?.(100, '安装完成')
       return this.get(result.manifest.id)!
     } finally {
@@ -474,6 +631,7 @@ private removeThemePackContributions(pluginId: string): void {
 /** 注册开发态插件（不落盘，仅内存） */
   addDevPlugin(summary: PluginSummary, manifest?: PluginManifest): PluginSummary {
     this.dev.set(summary.id, summary)
+    this.invalidateBuildRevision(summary.id)
     if (manifest) {
       this.devManifests.set(summary.id, manifest)
       this.syncContributes(manifest, true)
@@ -484,6 +642,7 @@ private removeThemePackContributions(pluginId: string): void {
   removeDevPlugin(id: string): void {
     this.dev.delete(id)
     this.devManifests.delete(id)
+    this.changed()
     // 开发态卸载：撤下其声明式贡献（含声明式主题包）
     contributionRegistry.unregisterBySource(id)
     this.removeThemePackContributions(id)

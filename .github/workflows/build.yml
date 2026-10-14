@@ -31,7 +31,7 @@ jobs:
             platform: mac
           - os: windows-latest
             platform: win
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             platform: linux
 
     runs-on: ${{ matrix.os }}
@@ -52,6 +52,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Install Linux native helper build dependencies
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libglib2.0-dev libjson-glib-dev libx11-dev libxtst-dev patchelf
 
       - name: Install dependencies
         run: npm ci
