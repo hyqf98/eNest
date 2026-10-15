@@ -11,6 +11,8 @@
  *   - --shell-scale（0.85–1.1）微调内容密度；流式 token 见 tokens.css（--page-pad）
  *   - 响应式断点 1440+ / 1200 / 960 / 720 / 520 / 400
  */
+@import './pluginArtwork.css';
+
 /* ========== Frame ========== */
 .app {
   position: relative;

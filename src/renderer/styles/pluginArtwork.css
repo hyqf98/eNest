@@ -1,0 +1,31 @@
+/* Compatibility canvas for the original transparent, pale-line built-in icons.
+   New packages carry their own backdrop. Match only these known legacy assets:
+   opaque/color artwork, third-party plugins and OS application icons stay intact. */
+:is(.plugin-icon img, .detail-icon img, .quick-icon-tile.kind-plugin img, img.orb-icon, .detached-icon img):is(
+  [src*="com.enest.batch-rename"],
+  [src*="com.enest.code-shot"],
+  [src*="com.enest.codec"],
+  [src*="com.enest.color-picker"],
+  [src*="com.enest.cron"],
+  [src*="com.enest.diff"],
+  [src*="com.enest.hash"],
+  [src*="com.enest.image-tools"],
+  [src*="com.enest.json-tools"],
+  [src*="com.enest.lan-share"],
+  [src*="com.enest.markdown"],
+  [src*="com.enest.net-kit"],
+  [src*="com.enest.password-kit"],
+  [src*="com.enest.pomodoro"],
+  [src*="com.enest.qrcode"],
+  [src*="com.enest.regex"],
+  [src*="com.enest.snippets"],
+  [src*="com.enest.sticky-notes"],
+  [src*="com.enest.sysguard"],
+  [src*="com.enest.timestamp"],
+  [src*="com.enest.todos"],
+  [src*="com.enest.totp"],
+  [src*="com.enest.unit-convert"]
+) {
+  background-color: #1c2330;
+  border-radius: inherit;
+}

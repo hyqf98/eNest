@@ -22,6 +22,8 @@ import { useShellStore } from '@renderer/stores/shellStore'
 import { permissionLabel } from '@shared/permissionLabels'
 import { requiresUserConsent } from '@shared/pluginPermissionPolicy'
 import { PluginBuiltinCapabilities } from '@renderer/components/PluginBuiltinCapabilities'
+import { PluginScreenshotGallery } from '@renderer/components/PluginScreenshotGallery'
+import { PluginIcon } from '@renderer/components/PluginIcon'
 
 type ReadmeStatus = 'loading' | 'ok' | 'empty' | 'error'
 
@@ -31,13 +33,6 @@ interface Props {
   onClose: () => void
   /** 安装完成后打开插件（sample 同步安装成功时调用） */
   onInstall: (id: string) => void
-}
-
-/** 插件品牌色推导渐变底色（暗端混入色）：无对应主题 token，品牌色本身即数据 */
-const ICON_BG_DARK_MIX = '#111'
-
-function iconBackground(p: PluginSummary): string {
-  return `linear-gradient(145deg, ${p.color}, color-mix(in srgb, ${p.color} 50%, ${ICON_BG_DARK_MIX}))`
 }
 
 export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
@@ -52,9 +47,6 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
   const [actionError, setActionError] = useState<string | null>(null)
   /** 本地可变副本：启用切换后立刻反映，不必等父级刷新 */
   const [enabled, setEnabled] = useState(plugin.enabled !== false)
-  /** 图标加载失败时回退 glyph 色块 */
-  const [iconFailed, setIconFailed] = useState(false)
-  const showIcon = Boolean(plugin.icon) && !iconFailed
   const { t } = useI18n()
 
   // —— 快捷启动配置（仅已安装插件；settings.pluginLaunch[id]）——
@@ -88,11 +80,10 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
     }
   }, [plugin.id])
 
-  // plugin 变更时同步 enabled / 图标回退状态
+  // plugin 变更时同步 enabled
   useEffect(() => {
     setEnabled(plugin.enabled !== false)
     setActionError(null)
-    setIconFailed(false)
   }, [plugin.id, plugin.enabled, plugin.icon])
 
   // 快捷启动配置加载：settings.pluginLaunch[plugin.id]
@@ -303,23 +294,8 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
         aria-labelledby="plugin-detail-title"
       >
         <header className="detail-header" data-detail-header>
-          <div
-            className="detail-icon"
-            data-detail-icon
-            style={{ background: iconBackground(plugin), ...(disabled ? { opacity: 0.6 } : null) }}
-          >
-            {showIcon ? (
-              <img
-                src={plugin.icon}
-                alt={plugin.name}
-                loading="lazy"
-                draggable={false}
-                onError={() => setIconFailed(true)}
-                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }}
-              />
-            ) : (
-              plugin.glyph
-            )}
+          <div data-detail-icon style={disabled ? { opacity: 0.6 } : undefined}>
+            <PluginIcon className="detail-icon" src={plugin.icon} glyph={plugin.glyph} alt={plugin.name} />
           </div>
           <div className="detail-meta" data-detail-meta>
             <h2 id="plugin-detail-title">{plugin.name}</h2>
@@ -391,86 +367,87 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
           )}
         </header>
 
-        {plugin.installed && shellApi.setPluginLaunch && (
-          <section className="detail-launch" data-detail-launch aria-label="快捷启动设置">
-            <div className="detail-launch-head">
-              <h3>快捷启动</h3>
-              <span className="detail-launch-hint">搜索启动偏好与 Quick 搜索触发词</span>
-            </div>
-
-            <div className="detail-launch-row">
-              <span className="detail-launch-label">启动方式</span>
-              <div className="detail-launch-seg" role="radiogroup" aria-label="启动方式">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={!launchCfg?.mode}
-                  className={!launchCfg?.mode ? 'active' : ''}
-                  disabled={savingLaunch}
-                  title="Quick 打开进小窗，主窗打开进大窗"
-                  onClick={() => void saveLaunch({ mode: null })}
-                >
-                  跟随入口
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={launchCfg?.mode === 'quick'}
-                  className={launchCfg?.mode === 'quick' ? 'active' : ''}
-                  disabled={savingLaunch}
-                  title="Quick 搜索打开时进入小窗口"
-                  onClick={() => void saveLaunch({ mode: 'quick' })}
-                >
-                  小窗口
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={launchCfg?.mode === 'shell'}
-                  className={launchCfg?.mode === 'shell' ? 'active' : ''}
-                  disabled={savingLaunch}
-                  title="Quick 搜索打开时进入主窗口 Tab"
-                  onClick={() => void saveLaunch({ mode: 'shell' })}
-                >
-                  主窗口
-                </button>
-              </div>
-            </div>
-
-            <div className="detail-launch-row">
-              <span className="detail-launch-label">快捷键</span>
-              <button type="button" className="btn btn-ghost" onClick={() => {
-                onClose()
-                const store = useShellStore.getState()
-                store.setShortcutPluginFilter(plugin.id)
-                store.setSettingsTab('quick')
-                store.setView('settings')
-              }}>管理此插件的快捷键</button>
-              <span className="detail-launch-hint">每条绑定可独立选择启动位置</span>
-            </div>
-
-            <div className="detail-launch-row">
-              <span className="detail-launch-label">触发词</span>
-              <input
-                className="detail-launch-aliases"
-                type="text"
-                value={aliasDraft}
-                placeholder="自定义 Quick 搜索触发词，用「、」或空格分隔"
-                disabled={savingLaunch}
-                onChange={(e) => setAliasDraft(e.target.value)}
-                onBlur={commitAliases}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    commitAliases()
-                  }
-                }}
-              />
-            </div>
-          </section>
-        )}
-
         <div className="detail-body" data-detail-body>
+          <PluginScreenshotGallery key={plugin.id} name={plugin.name} screenshots={plugin.screenshots} />
+          {plugin.installed && shellApi.setPluginLaunch && (
+            <section className="detail-launch" data-detail-launch aria-label="快捷启动设置">
+              <div className="detail-launch-head">
+                <h3>快捷启动</h3>
+                <span className="detail-launch-hint">搜索启动偏好与 Quick 搜索触发词</span>
+              </div>
+
+              <div className="detail-launch-row">
+                <span className="detail-launch-label">启动方式</span>
+                <div className="detail-launch-seg" role="radiogroup" aria-label="启动方式">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={!launchCfg?.mode}
+                    className={!launchCfg?.mode ? 'active' : ''}
+                    disabled={savingLaunch}
+                    title="Quick 打开进小窗，主窗打开进大窗"
+                    onClick={() => void saveLaunch({ mode: null })}
+                  >
+                    跟随入口
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={launchCfg?.mode === 'quick'}
+                    className={launchCfg?.mode === 'quick' ? 'active' : ''}
+                    disabled={savingLaunch}
+                    title="Quick 搜索打开时进入小窗口"
+                    onClick={() => void saveLaunch({ mode: 'quick' })}
+                  >
+                    小窗口
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={launchCfg?.mode === 'shell'}
+                    className={launchCfg?.mode === 'shell' ? 'active' : ''}
+                    disabled={savingLaunch}
+                    title="Quick 搜索打开时进入主窗口 Tab"
+                    onClick={() => void saveLaunch({ mode: 'shell' })}
+                  >
+                    主窗口
+                  </button>
+                </div>
+              </div>
+
+              <div className="detail-launch-row">
+                <span className="detail-launch-label">快捷键</span>
+                <button type="button" className="btn btn-ghost" onClick={() => {
+                  onClose()
+                  const store = useShellStore.getState()
+                  store.setShortcutPluginFilter(plugin.id)
+                  store.setSettingsTab('quick')
+                  store.setView('settings')
+                }}>管理此插件的快捷键</button>
+                <span className="detail-launch-hint">每条绑定可独立选择启动位置</span>
+              </div>
+
+              <div className="detail-launch-row">
+                <span className="detail-launch-label">触发词</span>
+                <input
+                  className="detail-launch-aliases"
+                  type="text"
+                  value={aliasDraft}
+                  placeholder="自定义 Quick 搜索触发词，用「、」或空格分隔"
+                  disabled={savingLaunch}
+                  onChange={(e) => setAliasDraft(e.target.value)}
+                  onBlur={commitAliases}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      commitAliases()
+                    }
+                  }}
+                />
+              </div>
+            </section>
+          )}
+
           <section className="detail-capabilities" aria-label="插件能力与授权">
             <h3>系统与隐私权限</h3>
             <p className="desc">{sensitivePermissions.length ? '以下操作需要你的授权，安装后可在插件设置中管理。' : '此插件未申请系统或隐私权限。'}</p>
@@ -501,7 +478,7 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
               <span>说明文档读取出错，请稍后重试。</span>
             </div>
           )}
-          {status === 'ok' && <MarkdownView source={readme} baseUrl={plugin.readmeUrl} imageMap={plugin.readmeImages} />}
+          {status === 'ok' && <MarkdownView source={readme} baseUrl={plugin.readmeUrl} imageMap={plugin.readmeImages} omitImages={plugin.screenshots} />}
         </div>
       </div>
     </div>

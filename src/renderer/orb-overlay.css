@@ -1,3 +1,5 @@
+@import './styles/pluginArtwork.css';
+
 /* orb-overlay — 透明悬浮视图；窗口宽度固定，展开只切 class */
 /* 主题：token 变量（--surface/--text-2/--danger/--border-strong…）由主进程随 orb-state 注入；
    未到达时按 data-theme 用近似兜底。注意：不要设置 color-scheme ——
