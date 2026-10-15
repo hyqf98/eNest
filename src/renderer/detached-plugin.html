@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-anim="medium" data-mode="shell" data-status="loading">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>eNest</title>
+  </head>
+  <body>
+    <header class="detached-titlebar">
+      <button id="plugin-grip" class="detached-grip" type="button" title="拖动图标或名称，收回主窗口或小窗口">
+        <span class="detached-icon"><img id="plugin-icon" alt="" draggable="false" hidden /><span id="plugin-glyph" aria-hidden="true">⌥</span></span>
+        <span id="plugin-title">插件</span><span id="plugin-badge" hidden></span>
+      </button>
+      <span class="detached-drag-space" aria-hidden="true"></span>
+      <span id="plugin-status" class="detached-status" role="status" aria-live="polite"></span>
+      <button id="retry" class="detached-action" type="button" hidden>重试</button>
+      <div class="detached-dock" role="group" aria-label="收回插件">
+        <button id="dock-shell" class="detached-action detached-icon-action" type="button" title="收回主窗口" aria-label="收回主窗口">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 20h10m-5-4v4"/></svg>
+        </button>
+        <button id="dock-quick" class="detached-action detached-icon-action" type="button" title="收回小窗口" aria-label="收回小窗口">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18M7 7.5h.01"/></svg>
+        </button>
+      </div>
+      <div class="detached-controls" role="group" aria-label="窗口控制">
+        <button id="pin-window" class="detached-action detached-icon-action" type="button" title="置顶窗口" aria-label="置顶窗口" aria-pressed="false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16 9V4l1-1H7l1 1v5l-3 3v3h14v-3l-3-3ZM12 15v7"/></svg>
+        </button>
+        <button id="minimize" type="button" aria-label="最小化" title="最小化"><span>−</span></button>
+        <button id="maximize" type="button" aria-label="最大化或还原" title="最大化或还原"><span>□</span></button>
+        <button id="close" type="button" aria-label="关闭插件" title="关闭插件"><span>×</span></button>
+      </div>
+    </header>
+    <div id="quick-bar" class="detached-quick-bar" role="search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
+      <input id="plugin-input" type="text" autocomplete="off" spellcheck="false" aria-label="插件输入" placeholder="该插件未启用输入" disabled />
+      <button id="focus-plugin" type="button" title="聚焦插件内容（Tab）" aria-label="聚焦插件内容" disabled>Tab ↵</button>
+    </div>
+    <main id="plugin-placeholder" class="detached-placeholder" hidden>
+      <button id="activate" class="detached-open" type="button">点击打开插件</button>
+    </main>
+    <div class="detached-loading" role="status" aria-live="polite">正在启动插件…</div>
+    <div id="window-notice" class="detached-notice" role="status" aria-live="polite" hidden></div>
+    <script type="module" src="/detached-plugin.ts"></script>
+  </body>
+</html>

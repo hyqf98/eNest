@@ -126,13 +126,13 @@ enest.onModeChange((mode) => applyMode(mode))
 }
 ```
 
-`height` / `minHeight` 是 Quick 初次挂载的**内容区**高度建议与下限。Quick 外框统一为 720px，工作区不足时缩小；`width` / `minWidth` 保留兼容但不改变 Quick 的宽度。未声明高度时使用壳子默认内容高度。实际尺寸受当前显示器可用工作区限制，顶部输入条和边框由壳子另行计算，插件不要把它们加进内容高度。
+Quick 默认呼出显示两行常用项，总高 248px；搜索随结果数量调整高度，最多 545px。进入插件后才统一展开为 720 × 545px：输入区 64px、内容区 480px、底边 1px。插件实际视口为 718 × 480px；屏幕工作区不足时整体缩小。manifest 的 `window.width` / `height` / `minWidth` / `minHeight` 保留兼容，不改变 Quick 外框。
 
-- `await enest.ui.resize({ width, height })`：Quick 中仅即时更新高度建议，支持只传高度；主窗中仅记录，不改变用户主窗口大小。
-- `await enest.ui.setHeight(height)`：只更新内容高度，与 `resize({ height })` 等价。
+- `await enest.ui.resize({ width, height })`：保留兼容调用及参数校验，支持只传高度；不改变 Quick 或主窗尺寸。
+- `await enest.ui.setHeight(height)`：与 `resize({ height })` 等价，调用成功不改变固定视口。
 - 两个接口都是无需声明或授权的基础能力，单位均为 CSS px，参数必须是正有限数。
 - 显示器空间不足时，插件应响应实际 viewport 大小并自行滚动。不要假定 Quick 永远是 720px 宽，也不要假定同一入口只能在小窗运行。
-- 壳子不根据 `body.scrollHeight` 循环撑大窗口。内容很长时应使用内部滚动；需要用户自定宽高时，可在插件设置中保存偏好后调用 `resize`。
+- 壳子不根据 `body.scrollHeight` 撑大窗口。内容很长时使用内部滚动；需要更大空间时，提供固定到主窗入口。
 
 ### 双入口共用的响应式布局
 
@@ -147,12 +147,12 @@ html, body, #app { width: 100%; height: 100%; margin: 0; }
 }
 ```
 
-Canvas / 图表可监听 `ResizeObserver` 或 `window.resize`，使用实际内容区宽高重绘。主窗口放大、Quick 调整尺寸或固定到主窗都会改变 viewport，无需重新加载插件——固定到主窗是容器迁移（`mode-change`），插件按 `getLaunchMode()` 切换小窗 / 桌面两套样式即可。
+Canvas / 图表可监听 `ResizeObserver` 或 `window.resize`，使用实际内容区宽高重绘。主窗口放大、Quick 所在屏幕工作区缩小或固定到主窗都会改变 viewport，无需重新加载插件——固定到主窗是容器迁移（`mode-change`），插件按 `getLaunchMode()` 切换小窗 / 桌面两套样式即可。
 
 ```js
-// 尺寸是插件自己的用户偏好，不要把占满视口的根节点高度反复回传。
-async function applyPreferredSize({ width = 760, height = 400 }) {
-  await enest.ui.resize({ width, height })
+// 需要更大工作区时，将已有插件视图固定到主窗。
+async function expandWorkspace() {
+  await enest.ui.openInShell()
 }
 ```
 

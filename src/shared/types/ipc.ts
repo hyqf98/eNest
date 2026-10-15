@@ -1,3 +1,4 @@
+import type { AccountLoginSession } from '@shared/types/account'
 /**
  * shared/types/ipc — IPC 通道与负载类型定义
  * 职责：定义主进程 / preload / 渲染进程三方共用的通道名常量与请求/响应类型。
@@ -9,7 +10,8 @@ import type {
   PluginLaunchConfig,
   PluginLaunchMode,
   PluginPermission,
-  PluginPermissionGrant
+  PluginPermissionGrant,
+  UserProfile
 } from './plugin'
 import type { QuickPluginModeInfo } from './quick'
 import type { SshPluginEvent } from './ssh-db'
@@ -17,12 +19,23 @@ import type { MwMessage } from './mw-workbench'
 import type { DshWorkbenchEvent } from './dsh-workbench'
 import type { QuickInputState, QuickInputAction } from './plugin-tools'
 import type { FocusTimerSnapshot } from './focus-timer'
+import type { ShellNotice } from './notice'
+import type { PluginShortcutsSnapshot } from './shortcuts'
 
 /**
  * IPC 通道常量 — 主进程 / preload / 渲染进程共用。
  * 约定：全部为 request-response（invoke），事件推送走 `shell:event`。
  */
 export const IpcChannels = {
+  PluginWindowState: 'window:plugin-state',
+  PluginWindowCommand: 'window:plugin-command',
+  PluginWindowEvent: 'window:plugin-event',
+  PluginDragBegin: 'window:plugin-drag-begin',
+  PluginDragArm: 'window:plugin-drag-arm',
+  PluginDragUpdate: 'window:plugin-drag-update',
+  PluginDragEnd: 'window:plugin-drag-end',
+  PluginDragTargets: 'window:plugin-drag-targets',
+  PluginDragEvent: 'window:plugin-drag-event',
   /** 壳子 → 主进程 */
   ShellGetPlugins: 'shell:get-plugins',
   ShellOpenPlugin: 'shell:open-plugin',
@@ -49,6 +62,7 @@ export const IpcChannels = {
   ShellGetTheme: 'shell:get-theme',
   ShellSetTheme: 'shell:set-theme',
   ShellLoadDevPlugin: 'shell:load-dev-plugin',
+  ShellForgetDevPlugin: 'shell:forget-dev-plugin',
   /** 开发者控制台：切换 dev 插件「退出到后台立即结束运行」（对齐 uTools） */
   ShellSetDevKillOnHide: 'shell:set-dev-kill-on-hide',
   ShellReloadPlugin: 'shell:reload-plugin',
@@ -89,10 +103,15 @@ export const IpcChannels = {
   /** 启用/禁用已安装插件（持久化到 plugins/disabled.json） */
   ShellSetPluginEnabled: 'shell:set-plugin-enabled',
 
-  /** 每插件快捷启动配置：启动方式 / 全局启动热键（含接管） / 自定义触发词 */
+  /** 每插件 Quick 搜索偏好：启动方式 / 自定义触发词 */
   ShellSetPluginLaunch: 'shell:set-plugin-launch',
-  /** 启动热键录制探测：返回占用归属（插件启动键/Quick 键/插件运行时键/系统） */
-  ShellProbeLaunchHotkey: 'shell:probe-launch-hotkey',
+  ShellGetPluginShortcuts: 'shell:get-plugin-shortcuts',
+  ShellSavePluginShortcut: 'shell:save-plugin-shortcut',
+  ShellRemovePluginShortcut: 'shell:remove-plugin-shortcut',
+  ShellProbePluginShortcut: 'shell:probe-plugin-shortcut',
+  ShellLaunchPluginShortcut: 'shell:launch-plugin-shortcut',
+  ShellBeginShortcutCapture: 'shell:begin-shortcut-capture',
+  ShellEndShortcutCapture: 'shell:end-shortcut-capture',
 
   /** 从市场安装/更新插件：本地 sample 优先，否则远程 assetUrl 下载入队 */
   ShellInstallMarketPlugin: 'shell:install-market-plugin',
@@ -102,6 +121,20 @@ export const IpcChannels = {
   ShellDownloadUpdate: 'shell:download-update',
   ShellInstallUpdate: 'shell:install-update',
   ShellGetUpdateState: 'shell:get-update-state',
+
+  /** 更新重启前：查询插件未保存数据 / 广播一键保存（save.requested 通知） */
+  ShellGetPluginsDirty: 'shell:get-plugins-dirty',
+  ShellSaveAllPlugins: 'shell:save-all-plugins',
+
+  /** GitHub 个人资料（浏览器授权码流 PKCE / 设备流兜底：登录 / 取消 / 读取 / 退出） */
+  ShellAccountState: 'shell:account-state',
+  ShellAccountLogin: 'shell:account-login',
+  ShellAccountCancel: 'shell:account-cancel',
+  ShellAccountLogout: 'shell:account-logout',
+  ShellGithubLogin: 'shell:github-login',
+  ShellGithubCancelLogin: 'shell:github-cancel-login',
+  ShellGetProfile: 'shell:get-profile',
+  ShellGithubLogout: 'shell:github-logout',
 
   /** 系统级通知（Electron Notification） */
   ShellSystemNotify: 'shell:system-notify',
@@ -183,6 +216,7 @@ export type ShellEventPayload =
   | { type: 'plugin-open-settings'; pluginId: string }
   | { type: 'plugins-changed' }
   | { type: 'plugin-ready'; pluginId: string; generation: number }
+  | { type: 'plugin-log'; pluginId: string; level: 'info' | 'warn'; message: string }
   | { type: 'plugin-tabs'; revision: number; tabs: Array<{id: string; title: string; icon?: string | null; glyph?: string; color?: string; badge?: string; status: 'loading' | 'ready' | 'error' | 'hibernated'}>; activeTabId: string | null }
   | { type: 'tab-closed'; tabId: string }
   | { type: 'plugin-error'; pluginId: string; message: string }
@@ -205,6 +239,12 @@ export type ShellEventPayload =
   | { type: 'uninstall-result'; pluginId: string; name: string; ok: boolean; error?: string }
   /** 自动更新状态变更（检查 / 下载进度 / 就绪 / 错误） */
   | { type: 'update-status'; state: UpdateStatePayload }
+  /** GitHub 个人资料变化（登录成功 / 启动刷新 / 退出）；轨道头像与设置页即时更新 */
+  | { type: 'profile-changed'; profile: UserProfile | null }
+  /** Provider-neutral account progress; retained GitHub event below supports older clients. */
+  | { type: 'account-login-status'; providerId: string; phase: 'pending' | 'authorized' | 'error' | 'cancelled'; message?: string }
+  /** 兼容 GitHub 登录进度 */
+  | { type: 'github-login-status'; phase: 'pending' | 'authorized' | 'error' | 'cancelled'; message?: string }
   /** 悬浮窗请求主壳回首页 */
   | { type: 'go-home' }
   /** 悬浮窗请求主壳切换视图 */
@@ -216,6 +256,7 @@ export type ShellEventPayload =
   | { type: 'quick-config-changed'; enabled: boolean; hotkeys: string[]; activeHotkey?: string }
   /** 某插件的快捷启动配置变更（启动方式/热键/触发词）；渲染层据此刷新命令面与详情 */
   | { type: 'plugin-launch-changed'; pluginId: string; config: PluginLaunchConfig | null }
+  | { type: 'plugin-shortcuts-changed'; snapshot: PluginShortcutsSnapshot }
   /** 命令面要求壳子切换视图 */
   | { type: 'quick-open-view'; view: 'home' | 'settings' | 'dev' }
   /**
@@ -257,6 +298,12 @@ export interface OrbRailState {
     mode: 'light' | 'dark'
     tokens: Record<string, string>
   }
+  /** 已连接账号（dock 设置钮默认显示头像）；未登录为 null */
+  profile: {
+    name: string | null
+    /** data URL（主进程预取缓存），渲染端不发起远程请求 */
+    avatar: string | null
+  } | null
   tabs: Array<{
     id: string
     pluginId: string
@@ -290,6 +337,41 @@ export interface ProxyTestResult {
   ok: boolean
   latencyMs?: number
   error?: string
+}
+
+/** 插件未保存数据快照（shell:get-plugins-dirty 响应） */
+export interface PluginDirtyState {
+  items: Array<{
+    pluginId: string
+    /** 展示名（Tab 标题兜底 manifest 名） */
+    name: string
+    /** 插件经 enest.setDirty 上报的脏标记 */
+    dirty: boolean
+  }>
+}
+
+/** 一键保存结果（shell:save-all-plugins 响应） */
+export interface PluginSaveSummary {
+  /** 参与保存的运行中插件数 */
+  total: number
+  /** ack 成功（含无监听器直通）的插件数 */
+  acked: number
+  /** 超时 / 失败未确认的插件数 */
+  timedOut: number
+  /** 请求前上报为脏的插件数 */
+  dirtyBefore: number
+}
+
+/** shell:github-login 响应：mode=web（回环授权码流，免输码）或 mode=device（设备流） */
+export type GithubLoginSessionPayload = AccountLoginSession
+
+/** shell:get-profile 响应 */
+export interface GithubProfileState {
+  user: UserProfile | null
+  /** 已保存加密 token（启动刷新用） */
+  hasToken: boolean
+  /** 授权回调 / 设备流轮询等待中 */
+  polling: boolean
 }
 
 /** 更新状态推送到渲染层的负载 */
@@ -365,9 +447,6 @@ export type PluginEventPayload =
       done?: boolean
       error?: string
     }
-  /** 中间件控制台事件（mw.*）：tail 实时消息与连接/监听错误 */
-  | { type: 'mw.data'; sessionKey: string; tailId: string; message: MwMessage }
-  | { type: 'mw.error'; sessionKey?: string; tailId?: string; error: string }
   /** DSH 驾驶舱事件（dsh.*）：web 进程就绪/端口重设、sdk JSON-RPC 通知、热更新进度（com.enest.dsh） */
   | { type: 'dsh.event'; event: DshWorkbenchEvent }
   /**
@@ -391,6 +470,11 @@ export type PluginEventPayload =
   | { type: 'lan.request'; shareId: string; file: string; ip: string; ts: number }
   /** 分享关停（到期 / stop / 插件关闭）；reason 见 lanShareService */
   | { type: 'lan.stopped'; shareId: string; reason: string }
+  /**
+   * 壳统一通知（关键节点标准信封）：enest.onNotice / enest.on('shell-notice')。
+   * topic 见 ShellNoticeDataMap（update.* / save.requested / app.before-quit / appearance.changed）。
+   */
+  | { type: 'shell-notice'; notice: ShellNotice }
 
 /** mw.* 事件负载别名（mwSessionManager → 插件 WebContents） */
 export type MwPluginEvent =

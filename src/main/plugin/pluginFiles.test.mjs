@@ -16,7 +16,7 @@ const adapters = {
     "import {state} from 'test-state';export const getAppPaths=()=>({data:state.root});",
   '@main/window/createQuickWindow':
     "import {state} from 'test-state';export const getQuickWindow=()=>null;export const acquireQuickInteraction=()=>{state.leases++;let live=true;return()=>{if(live){live=false;state.leases--}}};",
-  '@main/window/createShellWindow': 'export const getMainWindow=()=>null;',
+  '@main/plugin/PluginHost': 'export const pluginHost={ getContainerWindow:()=>null, acquireWindowInteraction:()=>()=>{} };',
   'node:fs/promises':
     "import * as fs from 'fs/promises';import {state} from 'test-state';export const {readFile,readdir,stat,rename,rm}=fs;export async function mkdir(...args){if(state.mkdirGate)await state.mkdirGate(...args);return fs.mkdir(...args)};export async function writeFile(...args){state.writes.push(args[0]);if(state.writeGate)await state.writeGate(...args);return fs.writeFile(...args)}",
 }

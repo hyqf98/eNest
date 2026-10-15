@@ -1,5 +1,5 @@
 /** Only this module talks to the bundled fixed-operation platform helper. */
-import { app, clipboard } from 'electron'
+import { app, ClipboardItem, clipboard } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -125,7 +125,7 @@ export async function writeNativeFiles(paths: string[], signal?: AbortSignal): P
   signal?.throwIfAborted()
   if (process.platform !== 'linux') { if (!(await request<boolean>('writeFiles', { paths }, 3000, signal))) throw new Error('系统拒绝复制文件'); return }
   const content = formatFileUris(paths)
-  try { await clipboard.write([new Electron.ClipboardItem({ 'text/uri-list': new Blob([content], { type: 'text/uri-list' }) })]) }
+  try { await clipboard.write([new ClipboardItem({ 'text/uri-list': new Blob([content], { type: 'text/uri-list' }) })]) }
   catch { signal?.throwIfAborted(); if (!(await request<boolean>('writeFiles', { paths }, 3000, signal))) throw new Error('系统拒绝复制文件') }
 }
 export function disposeNativeClipboard(): void { captureRevision++; helper?.kill(); helper = null; target = null; rejectPending(new Error('应用正在退出')) }

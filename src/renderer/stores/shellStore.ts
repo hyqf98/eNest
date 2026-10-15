@@ -3,7 +3,7 @@ import type { DevPluginLoadOptions } from '@shared/types/plugin'
  * shellStore — 壳子全局状态（zustand）
  * 管理视图切换、插件列表、Tab 生命周期、搜索/筛选条件、插件就绪/错误与开发者日志。
  * 异步动作通过 shellApi 与 main/preload 交互；Toast 经 toastStore 推送。
- * Tab 会话：打开/关闭/激活后 debounce 写入 settings.sessionTabs，启动时 hydrateSessionTabs 恢复
+ * Tab 会话由主进程统一持久化，启动时 hydrateSessionTabs 恢复
  * （惰性：仅上次 active 插件真正孵化，其余 Tab 以占位条目进入列表，点击时再 openPlugin）。
  * 崩溃态：plugin-error 事件标记 tab.crashed，Tab 按钮显示重试样式，点击重新 openPlugin。
  * 依赖：shellApi、toastStore。
@@ -29,72 +29,11 @@ function pushOrbState(state: {
   }).catch(() => undefined)
 }
 
-/** Tab 会话持久化 debounce（ms）；避免连续开关 Tab 时刷 IPC */
-const SESSION_PERSIST_MS = 400
-let sessionPersistTimer: ReturnType<typeof setTimeout> | null = null
 /** 开发页后台启动仍会收到宿主的激活事件；该请求不切走当前壳子页面。 */
 const backgroundDebugStarts = new Set<string>()
 const closingTabs = new Set<string>()
 let lastTabRevision = -1
 let sessionRestore: Promise<void> | null = null
-let sessionHydrated = false
-
-/** debounce 将当前 tabs / active 写入 settings.sessionTabs（仅插件，不含壳子页） */
-function scheduleSessionPersist(state: {
-  tabs: ShellTab[]
-  activeTabId: string | null
-}): void {
-  latestSession = state
-  sessionDirty = true
-  // Early deep links/IPC can open and close plugins while Splash is visible.
-  // Keep that projection in memory until the saved startup session has been read.
-  if (!sessionHydrated) return
-  if (sessionPersistTimer) clearTimeout(sessionPersistTimer)
-  sessionPersistTimer = setTimeout(() => {
-    sessionPersistTimer = null
-    flushSessionPersist()
-  }, SESSION_PERSIST_MS)
-}
-
-/** 最近一次待落盘的会话快照与脏标记（pagehide 兜底用） */
-let latestSession: { tabs: ShellTab[]; activeTabId: string | null } | null = null
-let sessionDirty = false
-
-function flushSessionPersist(): void {
-  const snap = latestSession
-  if (!sessionHydrated || !snap || !sessionDirty) return
-  sessionDirty = false
-  const sessionTabs = snap.tabs.map((t) => ({ pluginId: t.pluginId, title: t.title }))
-  const active = snap.tabs.find((t) => t.id === snap.activeTabId)
-  void shellApi
-    .setSettings({
-      general: { sessionTabs, sessionActivePluginId: active?.pluginId ?? '' }
-    })
-    .catch(() => undefined)
-}
-
-/**
- * 页面卸载/隐藏时立即落 session（退出路径兜底）：
- * 400ms debounce 在窗口销毁时来不及触发，会丢最后一次 Tab 变更；
- * before-quit 阶段主进程有 ~2s 异步清理窗，此处 invoke 大概率能到达并被 flushNow 落盘。
- */
-export function registerSessionFlushOnHide(): () => void {
-  const flush = () => {
-    if (sessionPersistTimer) {
-      clearTimeout(sessionPersistTimer)
-      sessionPersistTimer = null
-    }
-    flushSessionPersist()
-  }
-  window.addEventListener('pagehide', flush)
-  const onVisibility = () => { if (document.visibilityState === 'hidden') flush() }
-  document.addEventListener('visibilitychange', onVisibility)
-  return () => {
-    window.removeEventListener('pagehide', flush)
-    document.removeEventListener('visibilitychange', onVisibility)
-  }
-}
-
 /** 市场分段：浏览全部 vs 已安装 */
 export type Seg = 'browse' | 'installed'
 
@@ -114,6 +53,7 @@ interface ShellState {
   category: string
   seg: Seg
   settingsTab: string
+  shortcutPluginFilter: string | null
   pluginReady: boolean
   pluginError: string | null
   /** Tab 呈现方式：classic 顶栏 / orb 左侧悬浮圆轨 */
@@ -125,10 +65,11 @@ interface ShellState {
   setCategory: (c: string) => void
   setSeg: (s: Seg) => void
   setSettingsTab: (t: string) => void
+  setShortcutPluginFilter: (pluginId: string | null) => void
   setPluginError: (msg: string | null) => void
   setTabStyle: (style: TabStyle) => void
   hydrateTabStyle: () => Promise<void>
-  /** 启动时从 settings.sessionTabs 惰性恢复 Tab 列表（仅上次 active 真正孵化） */
+  /** 启动时恢复 Tab 与独立窗外壳，用户主动打开后才加载插件。 */
   hydrateSessionTabs: () => Promise<void>
   appendLog: (level: 'info' | 'dim' | 'warn', text: string) => void
 
@@ -164,6 +105,7 @@ export const useShellStore = create<ShellState>((set, get) => ({
   category: '全部',
   seg: 'browse',
   settingsTab: 'general',
+  shortcutPluginFilter: null,
   pluginReady: false,
   pluginError: null,
   tabStyle: 'classic',
@@ -184,6 +126,7 @@ export const useShellStore = create<ShellState>((set, get) => ({
   setCategory: (category) => set({ category }),
   setSeg: (seg) => set({ seg }),
   setSettingsTab: (settingsTab) => set({ settingsTab }),
+  setShortcutPluginFilter: (shortcutPluginFilter) => set({ shortcutPluginFilter }),
   setPluginError: (msg) => set({ pluginError: msg }),
 
   setTabStyle: (style) => {
@@ -212,11 +155,8 @@ export const useShellStore = create<ShellState>((set, get) => ({
   },
 
   /**
-   * 启动惰性恢复：sessionTabs 全量回填 Tab 列表（保持顺序），但仅对
-   * sessionActivePluginId 对应插件真正 openPlugin 孵化渲染进程；
-   * 其余 Tab 以「占位条目」进入列表（lazy 标记，点击时才 openPlugin），
-   * 避免 10+ 插件时启动一次性孵化全部进程。未安装的静默跳过；
-   * active 插件缺失/打开失败则回首页（占位 Tab 仍保留，可手动点开）。
+   * 主进程按会话历史恢复逻辑 Tab 和独立窗外壳。包括上次激活的插件，
+   * 全部等待用户主动打开才创建内容 WebContents，避免多插件启动风暴。
    * 依赖 refreshPlugins 先完成（App 在 splash 后调用）。
    */
   hydrateSessionTabs: () => {
@@ -226,17 +166,10 @@ export const useShellStore = create<ShellState>((set, get) => ({
         const settings = await shellApi.getSettings()
         if (get().plugins.length === 0) await get().refreshPlugins()
         const ids = (settings.general?.sessionTabs ?? []).map((tab) => tab.pluginId).filter(Boolean)
-        // 主进程验证和持有逻辑 Tab；恢复不会创建 WebContents。
+        // 主进程验证窗口归属；恢复仅创建必要的轻量标题栏，不加载插件。
         await shellApi.restoreTabs(ids)
-        const activePid = settings.general?.sessionActivePluginId
-        if (activePid && get().tabs.some((tab) => tab.pluginId === activePid)) {
-          await get().openPlugin(activePid)
-        }
       } catch (error) {
         get().appendLog('warn', `[host] session restore failed: ${String(error)}`)
-      } finally {
-        sessionHydrated = true
-        if (sessionDirty) scheduleSessionPersist(get())
       }
     })()
     return sessionRestore
@@ -312,7 +245,6 @@ export const useShellStore = create<ShellState>((set, get) => ({
     })
     pushOrbState(get())
     // 卸载 / 主进程关 Tab 也会走到这里，保证 sessionTabs 同步移除
-    scheduleSessionPersist(get())
   },
 
   loadDevPlugin: async (dirPath, options) => {
@@ -370,10 +302,7 @@ export const useShellStore = create<ShellState>((set, get) => ({
     try {
       const tabId = `t-${pluginId}`
       await shellApi.closePlugin(tabId).catch(() => undefined)
-      // 主进程卸载会 removeDevPlugin + 重扫；对纯 dev 插件源码目录保留
-      if (shellApi.uninstallPlugin) {
-        await shellApi.uninstallPlugin(pluginId)
-      }
+      await shellApi.forgetDevPlugin(pluginId)
       await get().refreshPlugins()
       get().appendLog('info', `[dev] removed ${pluginId}`)
       toastStore.getState().push('已从开发列表移除', 'success')
@@ -434,6 +363,5 @@ const unsubscribeTabEvents = shellApi.onEvent((payload) => {
   })
   if (keepShellView) void shellApi.hidePlugins().catch(() => undefined)
   pushOrbState(useShellStore.getState())
-  scheduleSessionPersist(useShellStore.getState())
 })
 if (import.meta.hot) import.meta.hot.dispose(unsubscribeTabEvents)

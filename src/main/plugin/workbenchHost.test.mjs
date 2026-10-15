@@ -10,16 +10,16 @@ const root = fileURLToPath(new URL('../../../', import.meta.url))
 const adapters = {
   electron: `
     const icon = { isEmpty: () => false };
-    export const state = { result: {canceled:true,filePaths:[]}, parent:null, drags:[], focus:0 };
+    export const state = { result: {canceled:true,filePaths:[]}, parent:null, drags:[], focus:0, windowLocks:0, failWindowLease:false, failMessage:false };
     export const app = { getFileIcon: async () => icon };
     export const nativeImage = { createEmpty: () => icon, createFromBuffer: () => icon };
-    export const dialog = { showOpenDialog: async (parent) => { state.parent=parent; return state.pending || state.result }, showMessageBox: async () => ({ response: 1 }) };
+    export const dialog = { showOpenDialog: async (parent) => { state.parent=parent; return state.pending || state.result }, showMessageBox: () => { if(state.failMessage)throw Error('native dialog failed');return Promise.resolve({ response: 1 }) } };
     export const shell = { showItemInFolder: () => {} };
   `,
   '@main/plugin/PluginHost': `
     import {state} from 'electron';
     export const parent = {id:'quick-window', isDestroyed:()=>false};
-    export const pluginHost = { getContainerWindow: () => parent,
+    export const pluginHost = { getContainerWindow: () => parent, acquireWindowInteraction: () => { if(state.failWindowLease)throw Error('window moving');state.windowLocks++;let active=true;return ()=>{if(active){active=false;state.windowLocks--}} },
       getWebContents: () => ({isDestroyed:()=>false,startDrag:item=>state.drags.push(item)}) };
   `,
   '@main/window/createQuickWindow': `
@@ -123,10 +123,12 @@ test('native drag requires caller-owned prepared files and holds activity until 
     assert.equal(api.startLocalDrag('drag',exportId),true)
     assert.equal(api.hasPluginActivity('drag'),true)
     assert.equal(api.state.focus,1)
+    assert.equal(api.state.windowLocks,1)
     assert.deepEqual(api.state.drags.at(-1).files,[await realpath(file)])
     api.endLocalDrag('drag');api.endLocalDrag('drag')
     assert.equal(api.hasPluginActivity('drag'),false)
     assert.equal(api.state.focus,0)
+    assert.equal(api.state.windowLocks,0)
     await writeFile(join(dir,'other.txt'),'other');await rm(file);await symlink(join(dir,'other.txt'),file)
     assert.throws(()=>api.startLocalDrag('drag',exportId),/changed/)
     api.releaseLocalFiles('drag')
@@ -155,5 +157,23 @@ test('a picker completing after plugin teardown cannot grant files to its replac
     delete api.state.pending
     api.releaseLocalFiles('stale-picker')
     await rm(dir,{recursive:true,force:true})
+  }
+})
+
+test('window migration rejection and a synchronous native dialog failure leave no leases', async () => {
+  try {
+    api.state.failWindowLease = true
+    await assert.rejects(api.pickLocalSaveFile('moving-save'), /window moving/)
+    assert.equal(api.hasPluginActivity('moving-save'), false)
+    assert.equal(api.state.focus, 0)
+    assert.equal(api.state.windowLocks, 0)
+    api.state.failWindowLease = false
+    api.state.failMessage = true
+    await assert.rejects(api.localFilesFromDrop('drop-failure', ['/fixture.txt']), /native dialog failed/)
+    assert.equal(api.state.focus, 0)
+    assert.equal(api.state.windowLocks, 0)
+  } finally {
+    api.state.failWindowLease = false; api.state.failMessage = false
+    api.releaseLocalFiles('moving-save'); api.releaseLocalFiles('drop-failure')
   }
 })

@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import type { BackgroundConfig, ThemePack } from '@shared/types/plugin'
 import { isPluginAssetPath } from '@shared/pluginContract'
+import { validateBackgroundEffects } from '@shared/backgroundEffects'
 import { getAppPaths } from '@main/paths/pathsService'
 import { logWarn } from '@main/logs/logService'
 
@@ -132,6 +133,17 @@ function cleanBackground(pack: ThemePack): void {
   else delete pack.background
 }
 
+function cleanBackgroundEffects(pack: ThemePack, fromDisk = false): void {
+  if (pack.backgroundEffects === undefined) return
+  try {
+    pack.backgroundEffects = validateBackgroundEffects(pack.backgroundEffects, pack.source)
+  } catch (error) {
+    if (!fromDisk) throw error
+    delete pack.backgroundEffects
+    logWarn('theme', `${pack.source}: 非法背景动效声明已剔除`)
+  }
+}
+
 export class ThemePackRegistry {
   private packs = new Map<string, ThemePack>()
   private persistTail: Promise<void> = Promise.resolve()
@@ -146,10 +158,15 @@ export class ThemePackRegistry {
       for (const item of list) {
         if (!isThemePack(item)) continue
         const source = item.source || 'enest.builtin'
+        if (typeof source !== 'string') continue
+        const existing = this.packs.get(item.id)
+        if (existing && existing.source !== source) continue
+        if (source !== 'enest.builtin' && !existing && this.countBySource(source) >= MAX_PACKS_PER_SOURCE) continue
         const tokens = sanitizeTokens(source, item.tokens)
         if (tokens) {
           const saved = { ...item, source, tokens }
           cleanBackground(saved)
+          cleanBackgroundEffects(saved, true)
           this.packs.set(item.id, saved)
         }
       }
@@ -216,6 +233,7 @@ export class ThemePackRegistry {
     }
     saved.tokens = tokens
     cleanBackground(saved)
+    cleanBackgroundEffects(saved)
 
     this.packs.set(saved.id, saved)
     await this.persist()

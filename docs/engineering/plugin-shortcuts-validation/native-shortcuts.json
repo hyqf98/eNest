@@ -1,0 +1,77 @@
+{
+  "platform": "darwin",
+  "artifacts": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-shortcuts-artifacts-COxTWj",
+  "measurements": [
+    {
+      "bindings": 1,
+      "visibleWarm": {
+        "count": 20,
+        "p50": 13.986708000000363,
+        "p95": 39.16741700000057
+      },
+      "hiddenWarm": {
+        "count": 20,
+        "p50": 56.35833400000047,
+        "p95": 92.91041699999914
+      },
+      "cold": {
+        "count": 5,
+        "p50": 193.58324999999968,
+        "p95": 207.65670899999895
+      }
+    },
+    {
+      "bindings": 10,
+      "visibleWarm": {
+        "count": 20,
+        "p50": 13.739540999999008,
+        "p95": 31.792083000000275
+      },
+      "hiddenWarm": {
+        "count": 20,
+        "p50": 53.29125000000022,
+        "p95": 552.1381249999977
+      },
+      "cold": {
+        "count": 5,
+        "p50": 187.31329099999857,
+        "p95": 196.3961249999993
+      }
+    },
+    {
+      "bindings": 50,
+      "visibleWarm": {
+        "count": 20,
+        "p50": 13.125374999999622,
+        "p95": 28.78416699999798
+      },
+      "hiddenWarm": {
+        "count": 20,
+        "p50": 60.46062499999971,
+        "p95": 561.3892909999995
+      },
+      "cold": {
+        "count": 5,
+        "p50": 164.06216700000004,
+        "p95": 188.77208299999984
+      }
+    }
+  ],
+  "screenshots": [
+    "shortcut-settings.png"
+  ],
+  "realSystemHotkey": true,
+  "nativeRecorderAndUiSave": true,
+  "conflictKeepsOriginal": true,
+  "firstColdMs": 492.89587500000016,
+  "reusedView": true,
+  "detachedReturnsToBoundPosition": true,
+  "hiddenMainSystemHotkey": true,
+  "classicAndOrb": true,
+  "disableEnable": true,
+  "finalBindings": 50,
+  "quickPersistenceAndIndependentToggle": true,
+  "restartPersistence": true,
+  "uninstallCleanup": true,
+  "status": "pass"
+}

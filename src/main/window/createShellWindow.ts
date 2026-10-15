@@ -18,6 +18,7 @@ import {
 } from 'electron'
 import { APP_NAME, SHELL_PARTITION, TITLEBAR_HEIGHT, PLUGIN_BAR_HEIGHT, pluginChromeBarHeight } from '@shared/constants'
 import { IpcChannels, type ShellEventPayload } from '@shared/types/ipc'
+import { readMainWindowState, trackMainWindowState } from '@main/window/mainWindowState'
 
 let mainWindow: BaseWindow | null = null
 let shellView: WebContentsView | null = null
@@ -36,7 +37,7 @@ function iconRoots(): string[] {
 }
 
 /** 窗口 icon：必须是 PNG/ICO（Electron 不接受 ICNS，会 throw） */
-function resolveWindowIcon(): string | undefined {
+export function resolveWindowIcon(): string | undefined {
   const png = 'enest-icon-256.png'
   for (const root of iconRoots()) {
     const p = join(root, png)
@@ -90,9 +91,11 @@ function applyShellBounds(win: BaseWindow, view: WebContentsView): void {
 /** 创建无边框圆角壳子主窗口并挂载 shell WebContentsView，窗口就绪后显示 */
 export function createShellWindow(): BaseWindow {
   const windowIcon = resolveWindowIcon()
+  const restored = readMainWindowState()
   const win = new BaseWindow({
     width: 1200,
     height: 800,
+    ...restored?.bounds,
     minWidth: 900,
     minHeight: 600,
     show: false,
@@ -117,6 +120,7 @@ export function createShellWindow(): BaseWindow {
     }
   })
 
+  const contents = view.webContents
   win.contentView.addChildView(view)
   applyShellBounds(win, view)
   loadRenderer(view)
@@ -126,13 +130,17 @@ export function createShellWindow(): BaseWindow {
     applyShellBounds(mainWindow, shellView)
   })
 
-  view.webContents.once('did-finish-load', () => {
-    win.show()
+  contents.once('did-finish-load', () => {
+    if (win.isDestroyed()) return
+    if (restored?.maximized) win.maximize()
+    if (restored?.minimized) { win.showInactive(); win.minimize() }
+    else win.show()
+    trackMainWindowState(win)
   })
 
   win.on('closed', () => {
     // BaseWindow 不负责销毁子 WebContents；摘引用前显式结束 renderer。
-    if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false })
+    if (!contents.isDestroyed()) contents.close({ waitForBeforeUnload: false })
     mainWindow = null
     shellView = null
   })
@@ -208,12 +216,21 @@ export function setQuickEventSink(fn: ((payload: ShellEventPayload) => void) | n
  * 向壳子渲染进程推送 shell:event 事件，窗口已销毁时静默忽略。
  * Quick 插件态、目录与共享外观额外转发给 Quick 小窗 wc。
  */
+let detachedAppearanceSink: (() => void) | null = null
+export function setDetachedAppearanceSink(sink: (() => void) | null): void { detachedAppearanceSink = sink }
+const appearanceSettings = new Set(['locale', 'animationLevel', 'fontFamily', 'fontFamilyEn', 'fontSizeScale', 'customFonts'])
+
 export function sendShellEvent(payload: ShellEventPayload): void {
+  if (payload.type === 'theme-changed' || payload.type === 'theme-packs-changed' || payload.type === 'settings-changed' && payload.generalKeys.some(key => appearanceSettings.has(key))) {
+    try { detachedAppearanceSink?.() } catch { /* independent chrome may be retiring */ }
+  }
   const wc = getShellWebContents()
   if (wc && !wc.isDestroyed()) wc.send(IpcChannels.ShellEvent, payload)
   // Quick 是独立文档，只同步自身插件态、目录与共享外观；不转发主窗口的 Tab 状态。
   if (
     payload.type === 'quick-plugin-mode' ||
+    payload.type === 'plugin-ready' ||
+    payload.type === 'plugin-error' ||
     payload.type === 'quick-input' ||
     payload.type === 'quick-focus-search' ||
     payload.type === 'plugins-changed' ||

@@ -12,7 +12,6 @@ import { getQuickInputState, handleQuickInput } from '@main/plugin/quickInputSer
 import type { QuickInputMessage } from '@shared/types/plugin-tools'
 import { IpcChannels } from '@shared/types/ipc'
 import type {
-  QuickHotkeyApplyResult,
   QuickOpenRequest,
   QuickOpenResult,
   QuickSearchRequest,
@@ -20,14 +19,14 @@ import type {
 } from '@shared/types/quick'
 import type { PluginEnterPayload } from '@shared/types/plugin'
 import { normalizeSearchText } from '@shared/search'
-import { resolveLaunchMode } from '@main/hotkey/pluginLaunchHotkeys'
+import { launchPlugin } from '@main/launcher/pluginLauncher'
 import {
   hideQuickWindow,
   setQuickContentHeight,
   toggleQuickWindow
 } from '@main/window/createQuickWindow'
 import {
-  applyQuickHotkeys,
+  saveQuickHotkeys,
   getQuickHotkeyConfig,
   probeHotkey
 } from '@main/hotkey/quickHotkey'
@@ -86,29 +85,13 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
             ...(req.payload !== undefined ? { payload: req.payload } : {})
           }
         : undefined
-      // 容器决策链：显式 container（⌘Enter 强制主窗）> 用户每插件「启动方式」
-      // 设置（pluginLaunch[id].mode）> 跟随入口（Quick 打开 → quick 小窗内嵌）。
-      // 不再有 manifest form 区分——所有插件都可在小窗内嵌渲染，也可固定主窗。
-      const container =
-        req.container === 'quick' || req.container === 'shell'
-          ? req.container
-          : resolveLaunchMode(req.pluginId) ?? 'quick'
-      if (container === 'quick') {
-        // Quick 小窗保持可见：插件 view 挂窗内（PluginHost 挂载 + 高度自适应 +
-        // quick-plugin-mode 推送渲染层切插件态）
-        const tabId = await pluginHost.openPlugin(req.pluginId, enter, { container: 'quick' })
-        logInfo('quick', `plugin open ${req.pluginId} (quick)${req.code ? ` code=${req.code}` : ''}`)
-        void touchRecent(req)
-        return { ok: true, tabId }
-      }
-      await pluginHost.openPlugin(req.pluginId, enter, { container: 'shell' })
-      // 主窗路径同样先退场 quick 插件（openPlugin 的容器迁移已在 Host 内完成，
-      // 这里只兜底清掉残留的其它 quick 挂载）
-      hideQuickWindow()
-      focusMainWindow()
-      sendShellEvent({ type: 'plugins-changed' })
+      const result = await launchPlugin({
+        pluginId: req.pluginId, source: 'quick', enter,
+        mode: req.container === 'quick' || req.container === 'shell' ? req.container : undefined
+      })
+      if (!result.ok) return { ok: false, error: result.error }
       void touchRecent(req)
-      return { ok: true }
+      return { ok: true, tabId: req.pluginId }
     }
     if (req.kind === 'plugin-escape') {
       // 插件态 Esc：回列表（view 隐藏保留进程，走休眠策略）
@@ -164,6 +147,7 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
 export function registerQuickHandlers(): void {
   handleShellIpc(IpcChannels.QuickInput, (event, message?: QuickInputMessage) => {
     if (event.sender.id !== getQuickWindow()?.webContents.id) throw new Error('Quick input sender rejected')
+    if (message && message.pluginId !== pluginHost.getQuickPlugin()) throw new Error('Quick input owner rejected')
     return message ? handleQuickInput(message) : getQuickInputState()
   })
   handleShellIpc(IpcChannels.QuickToggle, () => {
@@ -210,37 +194,12 @@ export function registerQuickHandlers(): void {
   })
 
   handleShellIpc(IpcChannels.QuickSetHotkeys,
-    async (_e, payload: { enabled?: boolean; hotkeys?: string[]; activeHotkey?: string }) => {
-      const applyResult = applyQuickHotkeys(payload)
-      // 持久化槽位列表 + 当前生效键；生效以 registered/activeHotkey 为准
-      const general = settingsStore.getAll().general
-      const persistHotkeys = applyResult.hotkeys
-      const persistActive = applyResult.activeHotkey ?? ''
-      await settingsStore.setAll({
-        general: {
-          ...general,
-          quickLauncher: {
-            ...general.quickLauncher,
-            enabled: applyResult.enabled,
-            hotkeys: persistHotkeys,
-            activeHotkey: persistActive
-          }
-        }
-      })
-      sendShellEvent({
-        type: 'quick-config-changed',
-        enabled: applyResult.enabled,
-        hotkeys: persistHotkeys,
-        activeHotkey: persistActive
-      })
-      const result: QuickHotkeyApplyResult = applyResult
-      return result
-    }
+    (_e, payload: { enabled?: boolean; hotkeys?: string[]; activeHotkey?: string }) => saveQuickHotkeys(payload)
   )
 
-  // 内容撑开/收起
+  // 列表根据内容测量伸缩；插件始终使用宿主分配的最大内容区。
   onShellIpc(IpcChannels.QuickResize, (_e, payload: { height?: number; animate?: boolean }) => {
-    // 列表上一帧的测量可能晚于插件挂载到达；插件态由 Host 管理尺寸。
+    // 列表上一帧的测量可能晚于插件挂载到达，无需再次布局原生插件。
     if (pluginHost.getQuickPlugin()) return
     const h = Number(payload?.height)
     if (!Number.isFinite(h) || h <= 0) return

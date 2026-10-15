@@ -5,9 +5,10 @@ import { build } from 'esbuild'
 async function fixture() {
   const adapters = {
     mqtt: 'export default {};',
+    amqplib: 'export async function connect(){throw new Error("network disabled in fixture")}',
     '@main/middleware/httpRequest': `export const calls=[]; export let answer={}; export const respond=value=>{answer=value}; export async function mwHttpJson(url,options){calls.push({url,options});return answer};export const mwHttp=mwHttpJson;`
   }
-  const result = await build({stdin:{resolveDir:process.cwd(),contents:"export {mqttDriver} from '@main/middleware/drivers/mqtt';export {rocketmqDriver} from '@main/middleware/drivers/rocketmq';export {calls,respond} from '@main/middleware/httpRequest';"},tsconfig:'tsconfig.node.json',bundle:true,write:false,platform:'node',format:'esm',plugins:[{name:'offline-services',setup(b){b.onResolve({filter:/.*/},({path})=>path in adapters?{path,namespace:'stub'}:undefined);b.onLoad({filter:/.*/,namespace:'stub'},({path})=>({contents:adapters[path]}))}}]})
+  const result = await build({stdin:{resolveDir:process.cwd(),contents:"export {mqttDriver} from '@main/middleware/drivers/mqtt';export {rocketmqDriver} from '@main/middleware/drivers/rocketmq';export {rabbitmqDriver} from '@main/middleware/drivers/rabbitmq';export {calls,respond} from '@main/middleware/httpRequest';"},tsconfig:'tsconfig.node.json',bundle:true,write:false,platform:'node',format:'esm',plugins:[{name:'offline-services',setup(b){b.onResolve({filter:/.*/},({path})=>path in adapters?{path,namespace:'stub'}:undefined);b.onLoad({filter:/.*/,namespace:'stub'},({path})=>({contents:adapters[path]}))}}]})
   return import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text + `\n// ${Math.random()}`).toString('base64'))
 }
 
@@ -27,7 +28,7 @@ test('EMQX queries carry the detected management endpoint and credentials', asyn
 })
 
 test('RocketMQ key and message-id query inputs match the plugin form contract', async () => {
-  const c=await fixture(),h={runtime:{base:'https://dashboard.test'}}
+  const c=await fixture(),h={config:{},runtime:{base:'https://dashboard.test'}}
   c.respond({status:0,data:{msgList:[{msgId:'one',topic:'events',body:'test'}]}})
   const keyed=await c.rocketmqDriver.messagesQuery(h,{topic:'events',from:'key',key:'order/1'})
   assert.equal(keyed[0].messageId,'one')
@@ -37,4 +38,23 @@ test('RocketMQ key and message-id query inputs match the plugin form contract', 
   assert.equal(byId[0].messageId,'two')
   assert.match(c.calls.at(-1).url,/viewMessage.query\?msgId=two$/)
   await assert.rejects(c.rocketmqDriver.messagesQuery(h,{topic:'events',from:'id'}),/messageId/)
+})
+
+test('middleware HTTP drivers verify certificates unless a connection explicitly opts out', async () => {
+  const c = await fixture()
+  c.respond({ status: 200 })
+  for (const [driver, endpoint] of [
+    [c.rabbitmqDriver, { managementUrl: 'https://fixture.invalid' }],
+    [c.rocketmqDriver, { dashboardUrl: 'https://fixture.invalid' }]
+  ]) {
+    for (const tlsRejectUnauthorized of [undefined, true, false]) {
+      await driver.test({ ...endpoint, tlsRejectUnauthorized }, 'synthetic')
+      assert.equal(c.calls.at(-1).options.insecureTls, tlsRejectUnauthorized === false)
+    }
+  }
+  for (const insecureTls of [undefined, false, true]) {
+    c.respond({ data: [] })
+    await c.mqttDriver.clientsList({ runtime: { mgmt: { version: 'v5', base: 'https://fixture.invalid', username: 'fixture', password: 'synthetic', insecureTls } } }, {})
+    assert.equal(c.calls.at(-1).options.insecureTls, insecureTls === true)
+  }
 })

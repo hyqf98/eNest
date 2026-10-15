@@ -1,0 +1,1553 @@
+{
+  "platform": "darwin",
+  "artifacts": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-detached-artifacts-45Vgty",
+  "roundtrips": [
+    {
+      "index": 0,
+      "detachIncludingChromeLoadMs": 193.94020799999998,
+      "dockMs": 31.09720900000002,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 1,
+      "detachIncludingChromeLoadMs": 147.06004099999973,
+      "dockMs": 19.198875000000044,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 2,
+      "detachIncludingChromeLoadMs": 145.8687500000001,
+      "dockMs": 40.41558400000031,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 3,
+      "detachIncludingChromeLoadMs": 163.0172080000002,
+      "dockMs": 29.11108299999978,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 4,
+      "detachIncludingChromeLoadMs": 145.98933399999987,
+      "dockMs": 25.993207999999868,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 5,
+      "detachIncludingChromeLoadMs": 147.92808300000024,
+      "dockMs": 24.310207999999875,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 6,
+      "detachIncludingChromeLoadMs": 157.63999999999987,
+      "dockMs": 29.120249999999942,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 7,
+      "detachIncludingChromeLoadMs": 146.3694999999998,
+      "dockMs": 22.124333000000206,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 8,
+      "detachIncludingChromeLoadMs": 147.25708399999985,
+      "dockMs": 25.854457999999795,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 9,
+      "detachIncludingChromeLoadMs": 156.58616599999914,
+      "dockMs": 16.112750000000233,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 10,
+      "detachIncludingChromeLoadMs": 156.61041699999987,
+      "dockMs": 19.582917000000634,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 11,
+      "detachIncludingChromeLoadMs": 162.10491699999966,
+      "dockMs": 26.77770799999962,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 12,
+      "detachIncludingChromeLoadMs": 221.1078749999997,
+      "dockMs": 67.23991699999988,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 13,
+      "detachIncludingChromeLoadMs": 205.4369999999999,
+      "dockMs": 56.59779200000048,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 14,
+      "detachIncludingChromeLoadMs": 182.60404199999994,
+      "dockMs": 46.228000000000065,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 15,
+      "detachIncludingChromeLoadMs": 194.4762499999997,
+      "dockMs": 34.93220800000017,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 16,
+      "detachIncludingChromeLoadMs": 179.18558399999984,
+      "dockMs": 36.60358300000007,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 17,
+      "detachIncludingChromeLoadMs": 172.99637500000063,
+      "dockMs": 44.52020900000025,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 18,
+      "detachIncludingChromeLoadMs": 211.15441699999974,
+      "dockMs": 32.76229200000034,
+      "wcId": 2,
+      "generation": 1
+    },
+    {
+      "index": 19,
+      "detachIncludingChromeLoadMs": 166.7373750000006,
+      "dockMs": 36.90949999999975,
+      "wcId": 2,
+      "generation": 1
+    }
+  ],
+  "screenshots": [
+    {
+      "pluginId": "com.enest.smoke.detached-a",
+      "layout": "shell",
+      "part": "chrome",
+      "path": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-detached-artifacts-45Vgty/shell-detached-chrome.png",
+      "note": "Separate native WebContents capture; not a composited OS window screenshot"
+    },
+    {
+      "pluginId": "com.enest.smoke.detached-a",
+      "layout": "shell",
+      "part": "plugin",
+      "path": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-detached-artifacts-45Vgty/shell-detached-plugin.png",
+      "note": "Separate native WebContents capture; not a composited OS window screenshot"
+    },
+    {
+      "pluginId": "com.enest.smoke.detached-a",
+      "part": "chrome",
+      "path": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-detached-artifacts-45Vgty/detached-a-chrome.png",
+      "note": "Separate native WebContents capture; not a composited OS window screenshot"
+    },
+    {
+      "pluginId": "com.enest.smoke.detached-a",
+      "part": "plugin",
+      "path": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-detached-artifacts-45Vgty/detached-a-plugin.png",
+      "note": "Separate native WebContents capture; not a composited OS window screenshot"
+    },
+    {
+      "pluginId": "com.enest.smoke.detached-b",
+      "part": "chrome",
+      "path": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-detached-artifacts-45Vgty/detached-b-chrome.png",
+      "note": "Separate native WebContents capture; not a composited OS window screenshot"
+    },
+    {
+      "pluginId": "com.enest.smoke.detached-b",
+      "part": "plugin",
+      "path": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-detached-artifacts-45Vgty/detached-b-plugin.png",
+      "note": "Separate native WebContents capture; not a composited OS window screenshot"
+    },
+    {
+      "pluginId": "com.enest.smoke.detached-a",
+      "part": "restored-lazy",
+      "path": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-detached-artifacts-45Vgty/restored-lazy-chrome.png"
+    }
+  ],
+  "inputIsolation": true,
+  "nativePointerCrossScreen": false,
+  "blurHideIsolated": true,
+  "beforeClose": {
+    "contents": [
+      {
+        "id": 26,
+        "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/detached-plugin.html?pluginId=com.enest.smoke.detached-b&mode=quick&theme=light"
+      },
+      {
+        "id": 25,
+        "url": "enest://plugin/com.enest.smoke.detached-b/index.html?pid=com.enest.smoke.detached-b&mode=quick"
+      },
+      {
+        "id": 2,
+        "url": "enest://plugin/com.enest.smoke.detached-a/index.html?pid=com.enest.smoke.detached-a&mode=shell"
+      },
+      {
+        "id": 24,
+        "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/detached-plugin.html?pluginId=com.enest.smoke.detached-a&mode=quick&theme=light"
+      },
+      {
+        "id": 23,
+        "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html?surface=quick"
+      },
+      {
+        "id": 1,
+        "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html"
+      }
+    ],
+    "windows": [
+      {
+        "id": 24,
+        "title": "Detached B — eNest",
+        "visible": true,
+        "minimized": false,
+        "maximized": false,
+        "alwaysOnTop": false,
+        "bounds": {
+          "x": 1379,
+          "y": 127,
+          "width": 718,
+          "height": 580
+        },
+        "views": [
+          {
+            "wcId": 26,
+            "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/detached-plugin.html?pluginId=com.enest.smoke.detached-b&mode=quick&theme=light",
+            "pluginId": null,
+            "chromePluginId": "com.enest.smoke.detached-b",
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 718,
+              "height": 580
+            },
+            "visible": true
+          },
+          {
+            "wcId": 25,
+            "url": "enest://plugin/com.enest.smoke.detached-b/index.html?pid=com.enest.smoke.detached-b&mode=quick",
+            "pluginId": "com.enest.smoke.detached-b",
+            "chromePluginId": null,
+            "bounds": {
+              "x": 0,
+              "y": 100,
+              "width": 718,
+              "height": 480
+            },
+            "visible": true
+          }
+        ]
+      },
+      {
+        "id": 23,
+        "title": "Detached A — eNest",
+        "visible": true,
+        "minimized": false,
+        "maximized": false,
+        "alwaysOnTop": false,
+        "bounds": {
+          "x": 1379,
+          "y": 127,
+          "width": 718,
+          "height": 580
+        },
+        "views": [
+          {
+            "wcId": 24,
+            "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/detached-plugin.html?pluginId=com.enest.smoke.detached-a&mode=quick&theme=light",
+            "pluginId": null,
+            "chromePluginId": "com.enest.smoke.detached-a",
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 718,
+              "height": 580
+            },
+            "visible": true
+          },
+          {
+            "wcId": 2,
+            "url": "enest://plugin/com.enest.smoke.detached-a/index.html?pid=com.enest.smoke.detached-a&mode=shell",
+            "pluginId": "com.enest.smoke.detached-a",
+            "chromePluginId": null,
+            "bounds": {
+              "x": 0,
+              "y": 100,
+              "width": 718,
+              "height": 480
+            },
+            "visible": true
+          }
+        ]
+      },
+      {
+        "id": 22,
+        "title": "eNest Quick",
+        "visible": true,
+        "minimized": false,
+        "maximized": false,
+        "alwaysOnTop": true,
+        "bounds": {
+          "x": 920,
+          "y": 323,
+          "width": 720,
+          "height": 248
+        },
+        "views": [
+          {
+            "wcId": 23,
+            "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html?surface=quick",
+            "pluginId": null,
+            "chromePluginId": null,
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 720,
+              "height": 248
+            },
+            "visible": true
+          }
+        ]
+      },
+      {
+        "id": 1,
+        "title": "eNest",
+        "visible": false,
+        "minimized": false,
+        "maximized": false,
+        "alwaysOnTop": false,
+        "bounds": {
+          "x": 680,
+          "y": 256,
+          "width": 1200,
+          "height": 800
+        },
+        "views": [
+          {
+            "wcId": 1,
+            "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html",
+            "pluginId": null,
+            "chromePluginId": null,
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 1200,
+              "height": 800
+            },
+            "visible": true
+          }
+        ]
+      }
+    ]
+  },
+  "afterClose": {
+    "contents": [
+      {
+        "id": 23,
+        "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html?surface=quick"
+      },
+      {
+        "id": 1,
+        "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html"
+      }
+    ],
+    "windows": [
+      {
+        "id": 22,
+        "title": "eNest Quick",
+        "visible": true,
+        "minimized": false,
+        "maximized": false,
+        "alwaysOnTop": true,
+        "bounds": {
+          "x": 920,
+          "y": 323,
+          "width": 720,
+          "height": 248
+        },
+        "views": [
+          {
+            "wcId": 23,
+            "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html?surface=quick",
+            "pluginId": null,
+            "chromePluginId": null,
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 720,
+              "height": 248
+            },
+            "visible": true
+          }
+        ]
+      },
+      {
+        "id": 1,
+        "title": "eNest",
+        "visible": false,
+        "minimized": false,
+        "maximized": false,
+        "alwaysOnTop": false,
+        "bounds": {
+          "x": 680,
+          "y": 256,
+          "width": 1200,
+          "height": 800
+        },
+        "views": [
+          {
+            "wcId": 1,
+            "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html",
+            "pluginId": null,
+            "chromePluginId": null,
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 1200,
+              "height": 800
+            },
+            "visible": true
+          }
+        ]
+      }
+    ]
+  },
+  "finalDiagnostics": {
+    "sampledAt": 1791978564069,
+    "platform": "darwin",
+    "host": {
+      "opening": 0,
+      "closing": 0,
+      "hibernated": 0,
+      "logicalTabs": 0,
+      "lazyDetached": 0,
+      "restoringDetached": 0,
+      "tabPresentations": 0,
+      "retiring": 0,
+      "entries": []
+    },
+    "resources": [],
+    "assets": {
+      "bytes": 129893,
+      "entries": 30,
+      "pending": 0,
+      "hits": 23,
+      "misses": 30,
+      "sharedReads": 0,
+      "evictions": 0,
+      "staleReads": 0,
+      "maxBytes": 33554432,
+      "maxFileBytes": 524288
+    },
+    "session": {
+      "bytes": 0,
+      "residentBytes": 0,
+      "plugins": 0,
+      "pluginLimit": 8388608,
+      "globalLimit": 67108864
+    },
+    "localStorage": {
+      "cacheBytes": 0,
+      "dirtyKeys": 0,
+      "dirtyBytes": 0,
+      "pluginDirtyLimit": 8388608,
+      "globalDirtyLimit": 67108864,
+      "maxKeyBytes": 1024,
+      "hits": 0,
+      "misses": 0,
+      "evictions": 0,
+      "plugins": 0,
+      "lastFlushError": null
+    },
+    "caches": {
+      "descriptors": {
+        "hits": 0,
+        "misses": 1,
+        "builds": 1,
+        "entries": 21,
+        "snapshots": 1,
+        "snapshotCapacity": 1,
+        "installedRevision": 1
+      },
+      "commands": {
+        "hits": 8,
+        "misses": 1,
+        "builds": 1,
+        "entries": 21,
+        "snapshots": 1,
+        "snapshotCapacity": 1,
+        "registryRevision": 1,
+        "aliasRevision": 1
+      },
+      "theme": {
+        "hits": 188,
+        "misses": 1,
+        "builds": 1,
+        "evictions": 0,
+        "entries": 1,
+        "capacity": 2
+      }
+    },
+    "utilities": [],
+    "renderers": [],
+    "processes": [
+      {
+        "pid": 8168,
+        "type": "Browser",
+        "cpu": {
+          "cumulativeCPUUsage": 4.22541,
+          "percentCPUUsage": 7.225265544599994,
+          "idleWakeupsPerSecond": 43
+        },
+        "memory": {
+          "workingSetSize": 244464,
+          "peakWorkingSetSize": 251776
+        }
+      },
+      {
+        "pid": 8170,
+        "type": "GPU",
+        "cpu": {
+          "cumulativeCPUUsage": 2.82996,
+          "percentCPUUsage": 5.731423787039233,
+          "idleWakeupsPerSecond": 176
+        },
+        "memory": {
+          "workingSetSize": 128320,
+          "peakWorkingSetSize": 136272
+        }
+      },
+      {
+        "pid": 8171,
+        "type": "Utility",
+        "cpu": {
+          "cumulativeCPUUsage": 0.141628,
+          "percentCPUUsage": 0.06549112051803566,
+          "idleWakeupsPerSecond": 0
+        },
+        "memory": {
+          "workingSetSize": 44432,
+          "peakWorkingSetSize": 49200
+        }
+      },
+      {
+        "pid": 8174,
+        "type": "Tab",
+        "cpu": {
+          "cumulativeCPUUsage": 2.206751,
+          "percentCPUUsage": 2.676386458292158,
+          "idleWakeupsPerSecond": 47
+        },
+        "memory": {
+          "workingSetSize": 248448,
+          "peakWorkingSetSize": 264432
+        }
+      },
+      {
+        "pid": 8199,
+        "type": "Tab",
+        "cpu": {
+          "cumulativeCPUUsage": 0.405932,
+          "percentCPUUsage": 1.1677729700201973,
+          "idleWakeupsPerSecond": 36
+        },
+        "memory": {
+          "workingSetSize": 127536,
+          "peakWorkingSetSize": 133312
+        }
+      }
+    ]
+  },
+  "matrix": [
+    {
+      "logicalPlugins": 1,
+      "livePlugins": 1,
+      "coldDetachMs": 206.695291,
+      "dockMs": 21.73254199999974,
+      "metrics": [
+        {
+          "pid": 8168,
+          "type": "Browser",
+          "cpu": {
+            "cumulativeCPUUsage": 4.357525,
+            "percentCPUUsage": 5.230173199635369,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 245792,
+            "peakWorkingSetSize": 251776
+          }
+        },
+        {
+          "pid": 8170,
+          "type": "GPU",
+          "cpu": {
+            "cumulativeCPUUsage": 2.975726,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 127360,
+            "peakWorkingSetSize": 136272
+          }
+        },
+        {
+          "pid": 8171,
+          "type": "Utility",
+          "cpu": {
+            "cumulativeCPUUsage": 0.143906,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 44464,
+            "peakWorkingSetSize": 49200
+          }
+        },
+        {
+          "pid": 8174,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 2.336408,
+            "percentCPUUsage": 0.8571966842501884,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 249632,
+            "peakWorkingSetSize": 264432
+          }
+        },
+        {
+          "pid": 8199,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.423925,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 127616,
+            "peakWorkingSetSize": 133312
+          }
+        },
+        {
+          "pid": 8206,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.109069,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101184,
+            "peakWorkingSetSize": 101248
+          }
+        }
+      ],
+      "note": "Command-driven native migration and process metrics; physical drag frame latency is not measured"
+    },
+    {
+      "logicalPlugins": 6,
+      "livePlugins": 6,
+      "coldDetachMs": 143.75070799999958,
+      "dockMs": 10.999166999999943,
+      "metrics": [
+        {
+          "pid": 8168,
+          "type": "Browser",
+          "cpu": {
+            "cumulativeCPUUsage": 4.691445,
+            "percentCPUUsage": 6.349146961987429,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 248912,
+            "peakWorkingSetSize": 251776
+          }
+        },
+        {
+          "pid": 8170,
+          "type": "GPU",
+          "cpu": {
+            "cumulativeCPUUsage": 3.263305,
+            "percentCPUUsage": 6.062247795546257,
+            "idleWakeupsPerSecond": 299
+          },
+          "memory": {
+            "workingSetSize": 126400,
+            "peakWorkingSetSize": 136272
+          }
+        },
+        {
+          "pid": 8171,
+          "type": "Utility",
+          "cpu": {
+            "cumulativeCPUUsage": 0.172719,
+            "percentCPUUsage": 0.24656306037059175,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 46080,
+            "peakWorkingSetSize": 49200
+          }
+        },
+        {
+          "pid": 8174,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 2.498722,
+            "percentCPUUsage": 4.468815279021188,
+            "idleWakeupsPerSecond": 149
+          },
+          "memory": {
+            "workingSetSize": 250544,
+            "peakWorkingSetSize": 264432
+          }
+        },
+        {
+          "pid": 8199,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.462549,
+            "percentCPUUsage": 1.8538530332389327,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 127376,
+            "peakWorkingSetSize": 133312
+          }
+        },
+        {
+          "pid": 8206,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.109637,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101200,
+            "peakWorkingSetSize": 101248
+          }
+        },
+        {
+          "pid": 8210,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.106028,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101072,
+            "peakWorkingSetSize": 101136
+          }
+        },
+        {
+          "pid": 8211,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.108284,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101488,
+            "peakWorkingSetSize": 101488
+          }
+        },
+        {
+          "pid": 8212,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.108525,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101536,
+            "peakWorkingSetSize": 101536
+          }
+        },
+        {
+          "pid": 8213,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.112027,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101456,
+            "peakWorkingSetSize": 101456
+          }
+        },
+        {
+          "pid": 8214,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.109992,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101584,
+            "peakWorkingSetSize": 101584
+          }
+        }
+      ],
+      "note": "Command-driven native migration and process metrics; physical drag frame latency is not measured"
+    },
+    {
+      "logicalPlugins": 10,
+      "livePlugins": 6,
+      "coldDetachMs": 158.83945900000072,
+      "dockMs": 26.862499999999272,
+      "metrics": [
+        {
+          "pid": 8168,
+          "type": "Browser",
+          "cpu": {
+            "cumulativeCPUUsage": 5.03896,
+            "percentCPUUsage": 7.84131123114174,
+            "idleWakeupsPerSecond": 186
+          },
+          "memory": {
+            "workingSetSize": 251792,
+            "peakWorkingSetSize": 252176
+          }
+        },
+        {
+          "pid": 8170,
+          "type": "GPU",
+          "cpu": {
+            "cumulativeCPUUsage": 3.54307,
+            "percentCPUUsage": 5.182464454976303,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 126704,
+            "peakWorkingSetSize": 136272
+          }
+        },
+        {
+          "pid": 8171,
+          "type": "Utility",
+          "cpu": {
+            "cumulativeCPUUsage": 0.204281,
+            "percentCPUUsage": 0.33187938554902335,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 47328,
+            "peakWorkingSetSize": 49200
+          }
+        },
+        {
+          "pid": 8174,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 2.62205,
+            "percentCPUUsage": 0.8821855435401252,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 251504,
+            "peakWorkingSetSize": 264432
+          }
+        },
+        {
+          "pid": 8199,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.496497,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 127328,
+            "peakWorkingSetSize": 133312
+          }
+        },
+        {
+          "pid": 8213,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.11236,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101488,
+            "peakWorkingSetSize": 101488
+          }
+        },
+        {
+          "pid": 8214,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.110297,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101584,
+            "peakWorkingSetSize": 101584
+          }
+        },
+        {
+          "pid": 8216,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.109114,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101744,
+            "peakWorkingSetSize": 101808
+          }
+        },
+        {
+          "pid": 8217,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.113167,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101552,
+            "peakWorkingSetSize": 101616
+          }
+        },
+        {
+          "pid": 8218,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.10507,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101568,
+            "peakWorkingSetSize": 101632
+          }
+        },
+        {
+          "pid": 8220,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.108006,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101520,
+            "peakWorkingSetSize": 101568
+          }
+        }
+      ],
+      "note": "Command-driven native migration and process metrics; physical drag frame latency is not measured"
+    },
+    {
+      "logicalPlugins": 20,
+      "livePlugins": 6,
+      "coldDetachMs": 172.059874999999,
+      "dockMs": 45.21808400000009,
+      "metrics": [
+        {
+          "pid": 8168,
+          "type": "Browser",
+          "cpu": {
+            "cumulativeCPUUsage": 5.818554,
+            "percentCPUUsage": 6.346033239259956,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 255024,
+            "peakWorkingSetSize": 257568
+          }
+        },
+        {
+          "pid": 8170,
+          "type": "GPU",
+          "cpu": {
+            "cumulativeCPUUsage": 4.169007,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 121008,
+            "peakWorkingSetSize": 136272
+          }
+        },
+        {
+          "pid": 8171,
+          "type": "Utility",
+          "cpu": {
+            "cumulativeCPUUsage": 0.284888,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 50528,
+            "peakWorkingSetSize": 50528
+          }
+        },
+        {
+          "pid": 8174,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 3.018747,
+            "percentCPUUsage": 0.948,
+            "idleWakeupsPerSecond": 320
+          },
+          "memory": {
+            "workingSetSize": 252576,
+            "peakWorkingSetSize": 264432
+          }
+        },
+        {
+          "pid": 8199,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.574374,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 127984,
+            "peakWorkingSetSize": 133312
+          }
+        },
+        {
+          "pid": 8227,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.104511,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101440,
+            "peakWorkingSetSize": 101440
+          }
+        },
+        {
+          "pid": 8228,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.109505,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101472,
+            "peakWorkingSetSize": 101472
+          }
+        },
+        {
+          "pid": 8230,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.110531,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101632,
+            "peakWorkingSetSize": 101632
+          }
+        },
+        {
+          "pid": 8231,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.1141,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101776,
+            "peakWorkingSetSize": 101840
+          }
+        },
+        {
+          "pid": 8232,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.108505,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101632,
+            "peakWorkingSetSize": 101632
+          }
+        },
+        {
+          "pid": 8233,
+          "type": "Tab",
+          "cpu": {
+            "cumulativeCPUUsage": 0.107482,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "memory": {
+            "workingSetSize": 101616,
+            "peakWorkingSetSize": 101664
+          }
+        }
+      ],
+      "note": "Command-driven native migration and process metrics; physical drag frame latency is not measured"
+    }
+  ],
+  "matrixAfterClose": {
+    "contents": [
+      {
+        "id": 23,
+        "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html?surface=quick"
+      },
+      {
+        "id": 1,
+        "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html"
+      }
+    ],
+    "windows": [
+      {
+        "id": 22,
+        "title": "eNest Quick",
+        "visible": true,
+        "minimized": false,
+        "maximized": false,
+        "alwaysOnTop": true,
+        "bounds": {
+          "x": 920,
+          "y": 323,
+          "width": 720,
+          "height": 248
+        },
+        "views": [
+          {
+            "wcId": 23,
+            "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html?surface=quick",
+            "pluginId": null,
+            "chromePluginId": null,
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 720,
+              "height": 248
+            },
+            "visible": true
+          }
+        ]
+      },
+      {
+        "id": 1,
+        "title": "eNest",
+        "visible": true,
+        "minimized": false,
+        "maximized": false,
+        "alwaysOnTop": false,
+        "bounds": {
+          "x": 680,
+          "y": 256,
+          "width": 1200,
+          "height": 800
+        },
+        "views": [
+          {
+            "wcId": 1,
+            "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html",
+            "pluginId": null,
+            "chromePluginId": null,
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 1200,
+              "height": 800
+            },
+            "visible": true
+          }
+        ]
+      }
+    ]
+  },
+  "recovery": {
+    "before": {
+      "locale": "zh-CN",
+      "hardwareAcceleration": true,
+      "closeBehavior": "quit",
+      "tabStyle": "classic",
+      "animationLevel": "high",
+      "fontFamily": "",
+      "fontFamilyEn": "",
+      "fontSizeScale": 1,
+      "customFonts": [],
+      "sessionTabs": [
+        {
+          "pluginId": "com.enest.smoke.detached-a",
+          "title": "Detached A",
+          "detached": {
+            "bounds": {
+              "x": 80,
+              "y": 90,
+              "width": 760,
+              "height": 560
+            },
+            "maximized": false,
+            "minimized": false,
+            "alwaysOnTop": true,
+            "mode": "shell"
+          }
+        },
+        {
+          "pluginId": "com.enest.smoke.detached-b",
+          "title": "Detached B",
+          "detached": {
+            "bounds": {
+              "x": 1379,
+              "y": 127,
+              "width": 718,
+              "height": 580
+            },
+            "maximized": false,
+            "minimized": true,
+            "alwaysOnTop": false,
+            "mode": "quick"
+          }
+        },
+        {
+          "pluginId": "com.enest.smoke.detached-matrix-4",
+          "title": "Detached B",
+          "detached": {
+            "bounds": {
+              "x": 1360,
+              "y": 127,
+              "width": 1200,
+              "height": 800
+            },
+            "maximized": true,
+            "minimized": false,
+            "alwaysOnTop": false,
+            "mode": "shell"
+          }
+        },
+        {
+          "pluginId": "com.enest.smoke.detached-matrix-3",
+          "title": "Detached B"
+        }
+      ],
+      "sessionActivePluginId": "com.enest.smoke.detached-matrix-3",
+      "proxy": {
+        "type": "none"
+      },
+      "quickLauncher": {
+        "enabled": false,
+        "recent": [
+          {
+            "id": "plugin:com.enest.smoke.detached-transient:",
+            "ts": 1791978568427,
+            "count": 1
+          },
+          {
+            "id": "plugin:com.enest.smoke.detached-b:",
+            "ts": 1791978568016,
+            "count": 2
+          }
+        ]
+      },
+      "splashBackground": {
+        "type": "brand",
+        "opacity": 0.55
+      },
+      "mainWindowState": {
+        "bounds": {
+          "x": 50,
+          "y": 60,
+          "width": 1000,
+          "height": 700
+        },
+        "maximized": false,
+        "minimized": false
+      }
+    },
+    "transientId": "com.enest.smoke.detached-transient",
+    "after": {
+      "opening": 0,
+      "closing": 0,
+      "hibernated": 0,
+      "logicalTabs": 1,
+      "lazyDetached": 3,
+      "restoringDetached": 0,
+      "tabPresentations": 0,
+      "retiring": 0,
+      "entries": []
+    },
+    "settings": {
+      "locale": "zh-CN",
+      "hardwareAcceleration": true,
+      "closeBehavior": "quit",
+      "tabStyle": "classic",
+      "animationLevel": "high",
+      "fontFamily": "",
+      "fontFamilyEn": "",
+      "fontSizeScale": 1,
+      "customFonts": [],
+      "sessionTabs": [
+        {
+          "pluginId": "com.enest.smoke.detached-a",
+          "title": "Detached A",
+          "detached": {
+            "bounds": {
+              "x": 80,
+              "y": 90,
+              "width": 760,
+              "height": 560
+            },
+            "maximized": false,
+            "minimized": false,
+            "alwaysOnTop": true,
+            "mode": "shell"
+          }
+        },
+        {
+          "pluginId": "com.enest.smoke.detached-b",
+          "title": "Detached B",
+          "detached": {
+            "bounds": {
+              "x": 1379,
+              "y": 127,
+              "width": 718,
+              "height": 580
+            },
+            "maximized": false,
+            "minimized": false,
+            "alwaysOnTop": false,
+            "mode": "quick"
+          }
+        },
+        {
+          "pluginId": "com.enest.smoke.detached-matrix-4",
+          "title": "Detached B",
+          "detached": {
+            "bounds": {
+              "x": 1360,
+              "y": 127,
+              "width": 1200,
+              "height": 800
+            },
+            "maximized": true,
+            "minimized": false,
+            "alwaysOnTop": false,
+            "mode": "shell"
+          }
+        },
+        {
+          "pluginId": "com.enest.smoke.detached-matrix-3",
+          "title": "Detached B"
+        }
+      ],
+      "sessionActivePluginId": "com.enest.smoke.detached-matrix-3",
+      "proxy": {
+        "type": "none"
+      },
+      "quickLauncher": {
+        "enabled": false,
+        "recent": [
+          {
+            "id": "plugin:com.enest.smoke.detached-transient:",
+            "ts": 1791978568427,
+            "count": 1
+          },
+          {
+            "id": "plugin:com.enest.smoke.detached-b:",
+            "ts": 1791978568016,
+            "count": 2
+          }
+        ]
+      },
+      "splashBackground": {
+        "type": "brand",
+        "opacity": 0.55
+      },
+      "mainWindowState": {
+        "bounds": {
+          "x": 50,
+          "y": 60,
+          "width": 1000,
+          "height": 700
+        },
+        "maximized": false,
+        "minimized": false
+      }
+    },
+    "native": {
+      "contents": [
+        {
+          "id": 4,
+          "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/detached-plugin.html?pluginId=com.enest.smoke.detached-matrix-4&mode=shell&theme=light&lazy=1"
+        },
+        {
+          "id": 3,
+          "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/detached-plugin.html?pluginId=com.enest.smoke.detached-b&mode=quick&theme=light&lazy=1"
+        },
+        {
+          "id": 2,
+          "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/detached-plugin.html?pluginId=com.enest.smoke.detached-a&mode=shell&theme=light&lazy=1"
+        },
+        {
+          "id": 1,
+          "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html"
+        }
+      ],
+      "windows": [
+        {
+          "id": 4,
+          "title": "Detached B — eNest",
+          "visible": true,
+          "minimized": false,
+          "maximized": true,
+          "alwaysOnTop": false,
+          "bounds": {
+            "x": 1360,
+            "y": 127,
+            "width": 1200,
+            "height": 800
+          },
+          "views": [
+            {
+              "wcId": 4,
+              "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/detached-plugin.html?pluginId=com.enest.smoke.detached-matrix-4&mode=shell&theme=light&lazy=1",
+              "pluginId": null,
+              "chromePluginId": "com.enest.smoke.detached-matrix-4",
+              "bounds": {
+                "x": 0,
+                "y": 0,
+                "width": 2560,
+                "height": 1332
+              },
+              "visible": true
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Detached B — eNest",
+          "visible": false,
+          "minimized": true,
+          "maximized": false,
+          "alwaysOnTop": false,
+          "bounds": {
+            "x": 1379,
+            "y": 127,
+            "width": 718,
+            "height": 580
+          },
+          "views": [
+            {
+              "wcId": 3,
+              "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/detached-plugin.html?pluginId=com.enest.smoke.detached-b&mode=quick&theme=light&lazy=1",
+              "pluginId": null,
+              "chromePluginId": "com.enest.smoke.detached-b",
+              "bounds": {
+                "x": 0,
+                "y": 0,
+                "width": 718,
+                "height": 580
+              },
+              "visible": true
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Detached A — eNest",
+          "visible": true,
+          "minimized": false,
+          "maximized": false,
+          "alwaysOnTop": true,
+          "bounds": {
+            "x": 80,
+            "y": 90,
+            "width": 760,
+            "height": 560
+          },
+          "views": [
+            {
+              "wcId": 2,
+              "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/detached-plugin.html?pluginId=com.enest.smoke.detached-a&mode=shell&theme=light&lazy=1",
+              "pluginId": null,
+              "chromePluginId": "com.enest.smoke.detached-a",
+              "bounds": {
+                "x": 0,
+                "y": 0,
+                "width": 760,
+                "height": 560
+              },
+              "visible": true
+            }
+          ]
+        },
+        {
+          "id": 1,
+          "title": "eNest",
+          "visible": true,
+          "minimized": false,
+          "maximized": false,
+          "alwaysOnTop": false,
+          "bounds": {
+            "x": 50,
+            "y": 60,
+            "width": 1000,
+            "height": 700
+          },
+          "views": [
+            {
+              "wcId": 1,
+              "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/index.html",
+              "pluginId": null,
+              "chromePluginId": null,
+              "bounds": {
+                "x": 0,
+                "y": 0,
+                "width": 1000,
+                "height": 700
+              },
+              "visible": true
+            }
+          ]
+        }
+      ]
+    },
+    "passed": true
+  },
+  "passed": true,
+  "stderr": "[8170:1014/194920.155484:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8170:1014/194920.606461:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8168:1014/194920.814032:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8170:1014/194920.823634:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8170:1014/194921.074119:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8168:1014/194921.260485:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8170:1014/194921.274031:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8168:1014/194924.012027:ERROR:base/process/process_mac.cc:53] task_policy_set TASK_CATEGORY_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194924.012044:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194924.044821:ERROR:base/process/process_mac.cc:53] task_policy_set TASK_CATEGORY_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194924.044838:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8170:1014/194924.189826:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8170:1014/194924.426892:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8170:1014/194924.555639:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8170:1014/194924.810124:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8170:1014/194924.943183:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8170:1014/194925.055680:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8170:1014/194925.357764:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8170:1014/194925.490326:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8170:1014/194925.606489:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8168:1014/194925.620296:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8170:1014/194925.738975:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8170:1014/194926.206887:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8168:1014/194926.211269:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8170:1014/194926.344605:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8170:1014/194926.456529:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8168:1014/194926.476580:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194926.595818:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8170:1014/194926.706181:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8168:1014/194927.022155:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8170:1014/194927.142627:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8170:1014/194927.156917:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8168:1014/194927.571404:ERROR:base/process/process_mac.cc:53] task_policy_set TASK_CATEGORY_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194927.571418:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194927.593777:ERROR:base/process/process_mac.cc:53] task_policy_set TASK_CATEGORY_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194927.593791:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194927.602403:ERROR:base/process/process_mac.cc:53] task_policy_set TASK_CATEGORY_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194927.602416:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194927.609887:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n2026-10-14 19:49:28.323 [WARN] [registry] remote market empty or unreachable, keep local/mock\n[8170:1014/194929.267442:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\nDebugger ending on ws://127.0.0.1:64730/51385009-aac4-4627-b9b3-3de0daa727ba\nFor help, see: https://nodejs.org/learn/getting-started/debugging\n[8168:1014/194930.521414:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194930.540596:ERROR:base/process/process_mac.cc:53] task_policy_set TASK_CATEGORY_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194930.540612:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194930.540617:ERROR:base/process/process_mac.cc:53] task_policy_set TASK_CATEGORY_POLICY: (os/kern) invalid argument (4)\n[8168:1014/194930.540620:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8245:1014/194936.188523:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8246:1014/194937.006715:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8246:1014/194937.023702:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.\n[8245:1014/194937.117006:ERROR:base/process/process_mac.cc:53] task_policy_set TASK_CATEGORY_POLICY: (os/kern) invalid argument (4)\n[8245:1014/194937.117053:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n[8245:1014/194937.122276:ERROR:base/process/process_mac.cc:53] task_policy_set TASK_CATEGORY_POLICY: (os/kern) invalid argument (4)\n[8245:1014/194937.122300:ERROR:base/process/process_mac.cc:98] task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)\n",
+  "stdout": "2026-10-14 19:49:16.422 [INFO] [main] registry ok\n2026-10-14 19:49:16.423 [INFO] [main] dev plugins restored\n2026-10-14 19:49:16.457 [INFO] [main] protocol ok\n2026-10-14 19:49:16.585 [INFO] [main] window ok\n2026-10-14 19:49:16.587 [INFO] [quick] ipc handlers registered\n2026-10-14 19:49:16.587 [INFO] [main] ipc ok\n2026-10-14 19:49:16.588 [INFO] [main] quick launcher ok\n2026-10-14 19:49:16.589 [INFO] [main] clipboard history ok\n2026-10-14 19:49:16.590 [INFO] [update] skip init — not packaged\n2026-10-14 19:49:16.590 [INFO] [main] update service ok\n2026-10-14 19:49:16.653 [INFO] [quick] apps scanned: 96 complete=true\n2026-10-14 19:49:16.927 [INFO] [lifecycle] com.enest.smoke.detached-a: installed → opening (open)\n2026-10-14 19:49:16.931 [INFO] [plugin] open com.enest.smoke.detached-a tab=com.enest.smoke.detached-a\n2026-10-14 19:49:17.034 [INFO] [lifecycle] com.enest.smoke.detached-a: opening → ready (load-ok)\n2026-10-14 19:49:17.034 [INFO] [lifecycle] com.enest.smoke.detached-a: ready → active (activate)\n2026-10-14 19:49:21.286 [INFO] [quick] ensureQuickWindow: creating BaseWindow\n2026-10-14 19:49:21.303 [INFO] [quick] ensureQuickWindow: BaseWindow ok (renderer lazy)\n2026-10-14 19:49:21.517 [INFO] [quick] present done visible=true bounds={\"x\":920,\"y\":323,\"width\":720,\"height\":248}\n2026-10-14 19:49:22.089 [INFO] [lifecycle] com.enest.smoke.detached-b: installed → opening (open)\n2026-10-14 19:49:22.101 [INFO] [quick] present done visible=true bounds={\"x\":920,\"y\":323,\"width\":720,\"height\":248}\n2026-10-14 19:49:22.306 [INFO] [lifecycle] com.enest.smoke.detached-b: opening → ready (load-ok)\n2026-10-14 19:49:22.307 [INFO] [lifecycle] com.enest.smoke.detached-b: ready → active (activate)\n2026-10-14 19:49:22.656 [INFO] [plugin] open com.enest.smoke.detached-a tab=com.enest.smoke.detached-a\n2026-10-14 19:49:23.767 [INFO] [lifecycle] com.enest.smoke.detached-a: active → background (deactivate)\n2026-10-14 19:49:23.768 [INFO] [lifecycle] com.enest.smoke.detached-a: background → active (activate)\n2026-10-14 19:49:23.994 [INFO] [lifecycle] com.enest.smoke.detached-a: active → closing (close: tab-close)\n2026-10-14 19:49:24.030 [INFO] [lifecycle] com.enest.smoke.detached-b: active → closing (close: tab-close)\n2026-10-14 19:49:24.076 [INFO] [lifecycle] com.enest.smoke.detached-a: installed → opening (open)\n2026-10-14 19:49:24.079 [INFO] [plugin] open com.enest.smoke.detached-a tab=com.enest.smoke.detached-a\n2026-10-14 19:49:24.174 [INFO] [lifecycle] com.enest.smoke.detached-a: opening → ready (load-ok)\n2026-10-14 19:49:24.175 [INFO] [lifecycle] com.enest.smoke.detached-a: ready → active (activate)\n2026-10-14 19:49:24.440 [INFO] [lifecycle] com.enest.smoke.detached-b: installed → opening (open)\n2026-10-14 19:49:24.441 [INFO] [lifecycle] com.enest.smoke.detached-a: active → background (deactivate)\n2026-10-14 19:49:24.443 [INFO] [plugin] open com.enest.smoke.detached-b tab=com.enest.smoke.detached-b\n2026-10-14 19:49:24.541 [INFO] [lifecycle] com.enest.smoke.detached-b: opening → ready (load-ok)\n2026-10-14 19:49:24.542 [INFO] [lifecycle] com.enest.smoke.detached-b: ready → active (activate)\n2026-10-14 19:49:24.559 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: installed → opening (open)\n2026-10-14 19:49:24.560 [INFO] [lifecycle] com.enest.smoke.detached-b: active → background (deactivate)\n2026-10-14 19:49:24.562 [INFO] [plugin] open com.enest.smoke.detached-matrix-3 tab=com.enest.smoke.detached-matrix-3\n2026-10-14 19:49:24.665 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: opening → ready (load-ok)\n2026-10-14 19:49:24.666 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: ready → active (activate)\n2026-10-14 19:49:24.677 [INFO] [lifecycle] com.enest.smoke.detached-matrix-4: installed → opening (open)\n2026-10-14 19:49:24.678 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: active → background (deactivate)\n2026-10-14 19:49:24.680 [INFO] [plugin] open com.enest.smoke.detached-matrix-4 tab=com.enest.smoke.detached-matrix-4\n2026-10-14 19:49:24.791 [INFO] [lifecycle] com.enest.smoke.detached-matrix-4: opening → ready (load-ok)\n2026-10-14 19:49:24.791 [INFO] [lifecycle] com.enest.smoke.detached-matrix-4: ready → active (activate)\n2026-10-14 19:49:24.797 [INFO] [lifecycle] com.enest.smoke.detached-matrix-5: installed → opening (open)\n2026-10-14 19:49:24.798 [INFO] [lifecycle] com.enest.smoke.detached-matrix-4: active → background (deactivate)\n2026-10-14 19:49:24.800 [INFO] [plugin] open com.enest.smoke.detached-matrix-5 tab=com.enest.smoke.detached-matrix-5\n2026-10-14 19:49:24.924 [INFO] [lifecycle] com.enest.smoke.detached-matrix-5: opening → ready (load-ok)\n2026-10-14 19:49:24.925 [INFO] [lifecycle] com.enest.smoke.detached-matrix-5: ready → active (activate)\n2026-10-14 19:49:24.931 [INFO] [lifecycle] com.enest.smoke.detached-matrix-6: installed → opening (open)\n2026-10-14 19:49:24.932 [INFO] [lifecycle] com.enest.smoke.detached-matrix-5: active → background (deactivate)\n2026-10-14 19:49:24.934 [INFO] [plugin] open com.enest.smoke.detached-matrix-6 tab=com.enest.smoke.detached-matrix-6\n2026-10-14 19:49:25.044 [INFO] [lifecycle] com.enest.smoke.detached-matrix-6: opening → ready (load-ok)\n2026-10-14 19:49:25.045 [INFO] [lifecycle] com.enest.smoke.detached-matrix-6: ready → active (activate)\n2026-10-14 19:49:25.181 [INFO] [lifecycle] com.enest.smoke.detached-matrix-5: background → active (activate)\n2026-10-14 19:49:25.207 [INFO] [lifecycle] com.enest.smoke.detached-matrix-5: active → background (deactivate)\n2026-10-14 19:49:25.230 [INFO] [lifecycle] com.enest.smoke.detached-matrix-7: installed → opening (open)\n2026-10-14 19:49:25.231 [INFO] [lifecycle] com.enest.smoke.detached-matrix-6: active → background (deactivate)\n2026-10-14 19:49:25.234 [INFO] [plugin] open com.enest.smoke.detached-matrix-7 tab=com.enest.smoke.detached-matrix-7\n2026-10-14 19:49:25.238 [INFO] [lifecycle] com.enest.smoke.detached-a: background → hibernated (hibernate)\n2026-10-14 19:49:25.340 [INFO] [lifecycle] com.enest.smoke.detached-matrix-7: opening → ready (load-ok)\n2026-10-14 19:49:25.341 [INFO] [lifecycle] com.enest.smoke.detached-matrix-7: ready → active (activate)\n2026-10-14 19:49:25.352 [INFO] [lifecycle] com.enest.smoke.detached-matrix-8: installed → opening (open)\n2026-10-14 19:49:25.353 [INFO] [lifecycle] com.enest.smoke.detached-matrix-7: active → background (deactivate)\n2026-10-14 19:49:25.355 [INFO] [plugin] open com.enest.smoke.detached-matrix-8 tab=com.enest.smoke.detached-matrix-8\n2026-10-14 19:49:25.357 [INFO] [lifecycle] com.enest.smoke.detached-b: background → hibernated (hibernate)\n2026-10-14 19:49:25.478 [INFO] [lifecycle] com.enest.smoke.detached-matrix-8: opening → ready (load-ok)\n2026-10-14 19:49:25.478 [INFO] [lifecycle] com.enest.smoke.detached-matrix-8: ready → active (activate)\n2026-10-14 19:49:25.483 [INFO] [lifecycle] com.enest.smoke.detached-matrix-9: installed → opening (open)\n2026-10-14 19:49:25.483 [INFO] [lifecycle] com.enest.smoke.detached-matrix-8: active → background (deactivate)\n2026-10-14 19:49:25.487 [INFO] [plugin] open com.enest.smoke.detached-matrix-9 tab=com.enest.smoke.detached-matrix-9\n2026-10-14 19:49:25.489 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: background → hibernated (hibernate)\n2026-10-14 19:49:25.597 [INFO] [lifecycle] com.enest.smoke.detached-matrix-9: opening → ready (load-ok)\n2026-10-14 19:49:25.598 [INFO] [lifecycle] com.enest.smoke.detached-matrix-9: ready → active (activate)\n2026-10-14 19:49:25.612 [INFO] [lifecycle] com.enest.smoke.detached-matrix-10: installed → opening (open)\n2026-10-14 19:49:25.613 [INFO] [lifecycle] com.enest.smoke.detached-matrix-9: active → background (deactivate)\n2026-10-14 19:49:25.615 [INFO] [plugin] open com.enest.smoke.detached-matrix-10 tab=com.enest.smoke.detached-matrix-10\n2026-10-14 19:49:25.618 [INFO] [lifecycle] com.enest.smoke.detached-matrix-4: background → hibernated (hibernate)\n2026-10-14 19:49:25.722 [INFO] [lifecycle] com.enest.smoke.detached-matrix-10: opening → ready (load-ok)\n2026-10-14 19:49:25.722 [INFO] [lifecycle] com.enest.smoke.detached-matrix-10: ready → active (activate)\n2026-10-14 19:49:25.877 [INFO] [lifecycle] com.enest.smoke.detached-matrix-9: background → active (activate)\n2026-10-14 19:49:25.917 [INFO] [lifecycle] com.enest.smoke.detached-matrix-9: active → background (deactivate)\n2026-10-14 19:49:25.944 [INFO] [lifecycle] com.enest.smoke.detached-matrix-11: installed → opening (open)\n2026-10-14 19:49:25.945 [INFO] [lifecycle] com.enest.smoke.detached-matrix-10: active → background (deactivate)\n2026-10-14 19:49:25.947 [INFO] [plugin] open com.enest.smoke.detached-matrix-11 tab=com.enest.smoke.detached-matrix-11\n2026-10-14 19:49:25.950 [INFO] [lifecycle] com.enest.smoke.detached-matrix-5: background → hibernated (hibernate)\n2026-10-14 19:49:26.066 [INFO] [lifecycle] com.enest.smoke.detached-matrix-11: opening → ready (load-ok)\n2026-10-14 19:49:26.067 [INFO] [lifecycle] com.enest.smoke.detached-matrix-11: ready → active (activate)\n2026-10-14 19:49:26.074 [INFO] [lifecycle] com.enest.smoke.detached-matrix-12: installed → opening (open)\n2026-10-14 19:49:26.075 [INFO] [lifecycle] com.enest.smoke.detached-matrix-11: active → background (deactivate)\n2026-10-14 19:49:26.078 [INFO] [plugin] open com.enest.smoke.detached-matrix-12 tab=com.enest.smoke.detached-matrix-12\n2026-10-14 19:49:26.079 [INFO] [lifecycle] com.enest.smoke.detached-matrix-6: background → hibernated (hibernate)\n2026-10-14 19:49:26.192 [INFO] [lifecycle] com.enest.smoke.detached-matrix-12: opening → ready (load-ok)\n2026-10-14 19:49:26.193 [INFO] [lifecycle] com.enest.smoke.detached-matrix-12: ready → active (activate)\n2026-10-14 19:49:26.200 [INFO] [lifecycle] com.enest.smoke.detached-matrix-13: installed → opening (open)\n2026-10-14 19:49:26.201 [INFO] [lifecycle] com.enest.smoke.detached-matrix-12: active → background (deactivate)\n2026-10-14 19:49:26.204 [INFO] [plugin] open com.enest.smoke.detached-matrix-13 tab=com.enest.smoke.detached-matrix-13\n2026-10-14 19:49:26.206 [INFO] [lifecycle] com.enest.smoke.detached-matrix-7: background → hibernated (hibernate)\n2026-10-14 19:49:26.323 [INFO] [lifecycle] com.enest.smoke.detached-matrix-13: opening → ready (load-ok)\n2026-10-14 19:49:26.324 [INFO] [lifecycle] com.enest.smoke.detached-matrix-13: ready → active (activate)\n2026-10-14 19:49:26.330 [INFO] [lifecycle] com.enest.smoke.detached-matrix-14: installed → opening (open)\n2026-10-14 19:49:26.331 [INFO] [lifecycle] com.enest.smoke.detached-matrix-13: active → background (deactivate)\n2026-10-14 19:49:26.333 [INFO] [plugin] open com.enest.smoke.detached-matrix-14 tab=com.enest.smoke.detached-matrix-14\n2026-10-14 19:49:26.336 [INFO] [lifecycle] com.enest.smoke.detached-matrix-8: background → hibernated (hibernate)\n2026-10-14 19:49:26.452 [INFO] [lifecycle] com.enest.smoke.detached-matrix-14: opening → ready (load-ok)\n2026-10-14 19:49:26.453 [INFO] [lifecycle] com.enest.smoke.detached-matrix-14: ready → active (activate)\n2026-10-14 19:49:26.459 [INFO] [lifecycle] com.enest.smoke.detached-matrix-15: installed → opening (open)\n2026-10-14 19:49:26.460 [INFO] [lifecycle] com.enest.smoke.detached-matrix-14: active → background (deactivate)\n2026-10-14 19:49:26.462 [INFO] [plugin] open com.enest.smoke.detached-matrix-15 tab=com.enest.smoke.detached-matrix-15\n2026-10-14 19:49:26.471 [INFO] [lifecycle] com.enest.smoke.detached-matrix-9: background → hibernated (hibernate)\n2026-10-14 19:49:26.569 [INFO] [lifecycle] com.enest.smoke.detached-matrix-15: opening → ready (load-ok)\n2026-10-14 19:49:26.570 [INFO] [lifecycle] com.enest.smoke.detached-matrix-15: ready → active (activate)\n2026-10-14 19:49:26.583 [INFO] [lifecycle] com.enest.smoke.detached-matrix-16: installed → opening (open)\n2026-10-14 19:49:26.584 [INFO] [lifecycle] com.enest.smoke.detached-matrix-15: active → background (deactivate)\n2026-10-14 19:49:26.586 [INFO] [plugin] open com.enest.smoke.detached-matrix-16 tab=com.enest.smoke.detached-matrix-16\n2026-10-14 19:49:26.589 [INFO] [lifecycle] com.enest.smoke.detached-matrix-10: background → hibernated (hibernate)\n2026-10-14 19:49:26.699 [INFO] [lifecycle] com.enest.smoke.detached-matrix-16: opening → ready (load-ok)\n2026-10-14 19:49:26.699 [INFO] [lifecycle] com.enest.smoke.detached-matrix-16: ready → active (activate)\n2026-10-14 19:49:26.711 [INFO] [lifecycle] com.enest.smoke.detached-matrix-17: installed → opening (open)\n2026-10-14 19:49:26.713 [INFO] [lifecycle] com.enest.smoke.detached-matrix-16: active → background (deactivate)\n2026-10-14 19:49:26.716 [INFO] [plugin] open com.enest.smoke.detached-matrix-17 tab=com.enest.smoke.detached-matrix-17\n2026-10-14 19:49:26.719 [INFO] [lifecycle] com.enest.smoke.detached-matrix-11: background → hibernated (hibernate)\n2026-10-14 19:49:26.850 [INFO] [lifecycle] com.enest.smoke.detached-matrix-17: opening → ready (load-ok)\n2026-10-14 19:49:26.851 [INFO] [lifecycle] com.enest.smoke.detached-matrix-17: ready → active (activate)\n2026-10-14 19:49:26.856 [INFO] [lifecycle] com.enest.smoke.detached-matrix-18: installed → opening (open)\n2026-10-14 19:49:26.857 [INFO] [lifecycle] com.enest.smoke.detached-matrix-17: active → background (deactivate)\n2026-10-14 19:49:26.861 [INFO] [plugin] open com.enest.smoke.detached-matrix-18 tab=com.enest.smoke.detached-matrix-18\n2026-10-14 19:49:26.865 [INFO] [lifecycle] com.enest.smoke.detached-matrix-12: background → hibernated (hibernate)\n2026-10-14 19:49:26.992 [INFO] [lifecycle] com.enest.smoke.detached-matrix-18: opening → ready (load-ok)\n2026-10-14 19:49:26.992 [INFO] [lifecycle] com.enest.smoke.detached-matrix-18: ready → active (activate)\n2026-10-14 19:49:26.999 [INFO] [lifecycle] com.enest.smoke.detached-matrix-19: installed → opening (open)\n2026-10-14 19:49:27.000 [INFO] [lifecycle] com.enest.smoke.detached-matrix-18: active → background (deactivate)\n2026-10-14 19:49:27.002 [INFO] [plugin] open com.enest.smoke.detached-matrix-19 tab=com.enest.smoke.detached-matrix-19\n2026-10-14 19:49:27.005 [INFO] [lifecycle] com.enest.smoke.detached-matrix-13: background → hibernated (hibernate)\n2026-10-14 19:49:27.124 [INFO] [lifecycle] com.enest.smoke.detached-matrix-19: opening → ready (load-ok)\n2026-10-14 19:49:27.124 [INFO] [lifecycle] com.enest.smoke.detached-matrix-19: ready → active (activate)\n2026-10-14 19:49:27.131 [INFO] [lifecycle] com.enest.smoke.detached-matrix-20: installed → opening (open)\n2026-10-14 19:49:27.132 [INFO] [lifecycle] com.enest.smoke.detached-matrix-19: active → background (deactivate)\n2026-10-14 19:49:27.134 [INFO] [plugin] open com.enest.smoke.detached-matrix-20 tab=com.enest.smoke.detached-matrix-20\n2026-10-14 19:49:27.136 [INFO] [lifecycle] com.enest.smoke.detached-matrix-14: background → hibernated (hibernate)\n2026-10-14 19:49:27.243 [INFO] [lifecycle] com.enest.smoke.detached-matrix-20: opening → ready (load-ok)\n2026-10-14 19:49:27.243 [INFO] [lifecycle] com.enest.smoke.detached-matrix-20: ready → active (activate)\n2026-10-14 19:49:27.402 [INFO] [lifecycle] com.enest.smoke.detached-matrix-19: background → active (activate)\n2026-10-14 19:49:27.438 [INFO] [lifecycle] com.enest.smoke.detached-matrix-19: active → background (deactivate)\n2026-10-14 19:49:27.479 [INFO] [lifecycle] com.enest.smoke.detached-a: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.481 [INFO] [lifecycle] com.enest.smoke.detached-b: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.484 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.486 [INFO] [lifecycle] com.enest.smoke.detached-matrix-4: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.491 [INFO] [lifecycle] com.enest.smoke.detached-matrix-5: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.494 [INFO] [lifecycle] com.enest.smoke.detached-matrix-6: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.504 [INFO] [lifecycle] com.enest.smoke.detached-matrix-7: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.510 [INFO] [lifecycle] com.enest.smoke.detached-matrix-8: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.517 [INFO] [lifecycle] com.enest.smoke.detached-matrix-9: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.520 [INFO] [lifecycle] com.enest.smoke.detached-matrix-10: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.526 [INFO] [lifecycle] com.enest.smoke.detached-matrix-11: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.532 [INFO] [lifecycle] com.enest.smoke.detached-matrix-12: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.534 [INFO] [lifecycle] com.enest.smoke.detached-matrix-13: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.538 [INFO] [lifecycle] com.enest.smoke.detached-matrix-14: hibernated → closed (close: tab-close)\n2026-10-14 19:49:27.545 [INFO] [lifecycle] com.enest.smoke.detached-matrix-15: background → closing (close: tab-close)\n2026-10-14 19:49:27.563 [INFO] [lifecycle] com.enest.smoke.detached-matrix-16: background → closing (close: tab-close)\n2026-10-14 19:49:27.578 [INFO] [lifecycle] com.enest.smoke.detached-matrix-17: background → closing (close: tab-close)\n2026-10-14 19:49:27.587 [INFO] [lifecycle] com.enest.smoke.detached-matrix-18: background → closing (close: tab-close)\n2026-10-14 19:49:27.595 [INFO] [lifecycle] com.enest.smoke.detached-matrix-19: background → closing (close: tab-close)\n2026-10-14 19:49:27.603 [INFO] [lifecycle] com.enest.smoke.detached-matrix-20: active → closing (close: tab-close)\n2026-10-14 19:49:27.674 [INFO] [lifecycle] com.enest.smoke.detached-a: installed → opening (open)\n2026-10-14 19:49:27.679 [INFO] [plugin] open com.enest.smoke.detached-a tab=com.enest.smoke.detached-a\n2026-10-14 19:49:27.787 [INFO] [lifecycle] com.enest.smoke.detached-a: opening → ready (load-ok)\n2026-10-14 19:49:27.788 [INFO] [lifecycle] com.enest.smoke.detached-a: ready → active (activate)\n2026-10-14 19:49:27.999 [INFO] [lifecycle] com.enest.smoke.detached-b: installed → opening (open)\n2026-10-14 19:49:28.008 [INFO] [quick] present done visible=true bounds={\"x\":920,\"y\":323,\"width\":720,\"height\":248}\n2026-10-14 19:49:28.188 [INFO] [lifecycle] com.enest.smoke.detached-b: opening → ready (load-ok)\n2026-10-14 19:49:28.189 [INFO] [lifecycle] com.enest.smoke.detached-b: ready → active (activate)\n2026-10-14 19:49:28.404 [INFO] [lifecycle] com.enest.smoke.detached-transient: installed → opening (open)\n2026-10-14 19:49:28.413 [INFO] [quick] present done visible=true bounds={\"x\":920,\"y\":323,\"width\":720,\"height\":248}\n2026-10-14 19:49:28.617 [INFO] [lifecycle] com.enest.smoke.detached-transient: opening → ready (load-ok)\n2026-10-14 19:49:28.617 [INFO] [lifecycle] com.enest.smoke.detached-transient: ready → active (activate)\n2026-10-14 19:49:28.649 [INFO] [lifecycle] com.enest.smoke.detached-matrix-4: installed → opening (open)\n2026-10-14 19:49:28.654 [INFO] [plugin] open com.enest.smoke.detached-matrix-4 tab=com.enest.smoke.detached-matrix-4\n2026-10-14 19:49:29.207 [INFO] [lifecycle] com.enest.smoke.detached-b: active → background (deactivate)\n2026-10-14 19:49:29.238 [INFO] [lifecycle] com.enest.smoke.detached-matrix-4: opening → ready (load-ok)\n2026-10-14 19:49:29.239 [INFO] [lifecycle] com.enest.smoke.detached-matrix-4: ready → active (activate)\n2026-10-14 19:49:29.901 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: installed → opening (open)\n2026-10-14 19:49:29.908 [INFO] [plugin] open com.enest.smoke.detached-matrix-3 tab=com.enest.smoke.detached-matrix-3\n2026-10-14 19:49:30.077 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: opening → ready (load-ok)\n2026-10-14 19:49:30.082 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: ready → active (activate)\n2026-10-14 19:49:30.500 [INFO] [main] shutdown begin (before-quit)\n2026-10-14 19:49:30.505 [INFO] [lifecycle] com.enest.smoke.detached-a: active → closing (close: app-quit)\n2026-10-14 19:49:30.507 [INFO] [lifecycle] com.enest.smoke.detached-b: background → closing (close: app-quit)\n2026-10-14 19:49:30.508 [INFO] [lifecycle] com.enest.smoke.detached-transient: active → closing (close: app-quit)\n2026-10-14 19:49:30.511 [INFO] [lifecycle] com.enest.smoke.detached-matrix-4: active → closing (close: app-quit)\n2026-10-14 19:49:30.511 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: active → closing (close: app-quit)\n2026-10-14 19:49:30.590 [INFO] [main] close → allow (shutting down)\n2026-10-14 19:49:31.210 [INFO] [main] registry ok\n2026-10-14 19:49:31.210 [INFO] [main] dev plugins restored\n2026-10-14 19:49:31.219 [INFO] [main] protocol ok\n2026-10-14 19:49:31.326 [INFO] [main] window ok\n2026-10-14 19:49:31.327 [INFO] [quick] ipc handlers registered\n2026-10-14 19:49:31.327 [INFO] [main] ipc ok\n2026-10-14 19:49:31.328 [INFO] [main] quick launcher ok\n2026-10-14 19:49:31.330 [INFO] [main] clipboard history ok\n2026-10-14 19:49:31.330 [INFO] [update] skip init — not packaged\n2026-10-14 19:49:31.331 [INFO] [main] update service ok\n2026-10-14 19:49:31.390 [INFO] [quick] apps scanned: 96 complete=true\n2026-10-14 19:49:36.179 [INFO] [lifecycle] com.enest.smoke.detached-matrix-4: installed → closed (close: tab-close)\n2026-10-14 19:49:36.599 [INFO] [lifecycle] com.enest.smoke.detached-a: installed → opening (open)\n2026-10-14 19:49:36.731 [INFO] [lifecycle] com.enest.smoke.detached-a: opening → ready (load-ok)\n2026-10-14 19:49:36.732 [INFO] [lifecycle] com.enest.smoke.detached-a: ready → active (activate)\n2026-10-14 19:49:36.750 [INFO] [lifecycle] com.enest.smoke.detached-b: installed → opening (open)\n2026-10-14 19:49:36.758 [INFO] [plugin] open com.enest.smoke.detached-b tab=com.enest.smoke.detached-b\n2026-10-14 19:49:36.862 [INFO] [lifecycle] com.enest.smoke.detached-b: opening → ready (load-ok)\n2026-10-14 19:49:36.863 [INFO] [lifecycle] com.enest.smoke.detached-b: ready → active (activate)\n2026-10-14 19:49:36.881 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: hibernated, wake on activate\n2026-10-14 19:49:36.883 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: installed → opening (open)\n2026-10-14 19:49:36.996 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: opening → ready (load-ok)\n2026-10-14 19:49:36.997 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: ready → active (activate)\n2026-10-14 19:49:37.007 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: active → background (deactivate)\n2026-10-14 19:49:37.020 [INFO] [lifecycle] com.enest.smoke.detached-a: active → closing (close: tab-close)\n2026-10-14 19:49:37.021 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: background → active (activate)\n2026-10-14 19:49:37.104 [INFO] [lifecycle] com.enest.smoke.detached-b: active → closing (close: tab-close)\n2026-10-14 19:49:37.116 [INFO] [lifecycle] com.enest.smoke.detached-matrix-3: active → closing (close: tab-close)\n"
+}

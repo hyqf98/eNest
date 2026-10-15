@@ -54,7 +54,7 @@ function rt(h: MwDriverHandle): RmqRuntime {
 function vhostPath(h: MwDriverHandle): string { return encodeURIComponent(rt(h).vhost || '/') }
 
 function auth(h: MwDriverHandle) {
-  return { basicAuth: { username: rt(h).username, password: rt(h).password }, insecureTls: true }
+  return { basicAuth: { username: rt(h).username, password: rt(h).password }, insecureTls: h.config.tlsRejectUnauthorized === false }
 }
 
 function amqpUrlOf(config: MwConnectionConfig, password?: string): string {
@@ -133,7 +133,7 @@ export const rabbitmqDriver: MwDriver = {
     try {
       const base = (config.managementUrl ?? '').replace(/\/$/, '')
       if (!/^https?:\/\//.test(base)) throw new Error('管理端点必须以 http(s):// 开头')
-      await mwHttpJson(`${base}/api/overview`, { basicAuth: { username: config.username ?? 'guest', password: password ?? 'guest' }, insecureTls: true, timeoutMs: 8000 })
+      await mwHttpJson(`${base}/api/overview`, { basicAuth: { username: config.username ?? 'guest', password: password ?? 'guest' }, insecureTls: config.tlsRejectUnauthorized === false, timeoutMs: 8000 })
       return { ok: true, message: '已连接管理面', latencyMs: Date.now() - started }
     } catch (error) {
       return { ok: false, message: `RabbitMQ 管理面连接失败：${(error as Error).message}`, latencyMs: Date.now() - started }
@@ -144,7 +144,7 @@ export const rabbitmqDriver: MwDriver = {
     const base = (config.managementUrl ?? '').replace(/\/$/, '')
     if (!/^https?:\/\//.test(base)) throw new Error('管理端点必须以 http(s):// 开头')
     const overview = await mwHttpJson<{ rabbitmq_version?: string; node?: string }>(`${base}/api/overview`, {
-      basicAuth: { username: config.username ?? 'guest', password: password ?? 'guest' }, insecureTls: true
+      basicAuth: { username: config.username ?? 'guest', password: password ?? 'guest' }, insecureTls: config.tlsRejectUnauthorized === false
     })
     const handle: MwDriverHandle = {
       kind: 'rabbitmq', raw: { version: overview?.rabbitmq_version }, config, readOnly: false, password,

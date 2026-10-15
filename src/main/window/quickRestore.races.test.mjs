@@ -85,3 +85,13 @@ test('a later hide invalidates recovery even while its runtime remains current',
   assert.equal(await showing, false)
   assert.equal(api.state.constructed, 0)
 })
+
+test('destroy invalidates a pending show before the window has been constructed', async () => {
+  const waiting = gate()
+  api.state.capture = () => waiting.promise
+  const showing = api.showQuickWindow(() => true)
+  api.destroyQuickWindow()
+  waiting.release()
+  assert.equal(await showing, false)
+  assert.equal(api.state.constructed, 0)
+})

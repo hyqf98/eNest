@@ -7,8 +7,10 @@
 import { create } from 'zustand'
 import type { BackgroundConfig, ThemeMode, ThemePack, ThemeTokens } from '@shared/types/plugin'
 import { resolveThemePalette, THEME_TOKEN_PRESETS } from '@shared/theme/presets'
+import { DEFAULT_BACKGROUND_EFFECT, resolveThemeBackground } from '@shared/backgroundEffects'
 import { shellApi } from '@renderer/services/shellApi'
 import { toastStore } from '@renderer/hooks/useToast'
+import { notify } from '@renderer/services/notifyService'
 
 /** light/dark 预设颜色 Token（取自 @shared 单一来源）+ 中文标签（system 解析后套用对应预设） */
 const THEME_PRESETS = {
@@ -136,6 +138,7 @@ interface ThemeState {
   packs: ThemePack[]
   packId: string | null
   background: BackgroundConfig | null
+  backgroundEffect: string
   /** Undefined preserves unmarked legacy snapshots until the user chooses a source. */
   backgroundSource?: 'user' | 'pack'
   hydrated: boolean
@@ -148,28 +151,49 @@ interface ThemeState {
   resetMode: () => Promise<void>
   applyPack: (packId: string | null) => Promise<void>
   setBackground: (bg: BackgroundConfig | null) => Promise<void>
+  setBackgroundEffect: (id: string) => Promise<void>
 }
 
-async function persistTheme(state: {
+type PersistedThemeState = {
   mode: ThemeMode
   overrides: OverridesMap
   packId: string | null
   background: BackgroundConfig | null
+  backgroundEffect: string
   backgroundSource?: 'user' | 'pack'
-}): Promise<void> {
+}
+
+let themeWriteQueue: Promise<void> = Promise.resolve()
+let themeMutationVersion = 0
+let savedBackgroundEffect: string = DEFAULT_BACKGROUND_EFFECT
+
+function effectSelection(value: unknown): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_BACKGROUND_EFFECT
+}
+
+function persistTheme(state: PersistedThemeState): Promise<void> {
   const resolved = resolveThemeMode(state.mode)
   const modeOverrides = state.overrides[resolved] ?? {}
   // 始终带上 packId/background 键：null → undefined，供主进程显式清除
-  await shellApi.setTheme(state.mode, modeOverrides, {
+  const extra = {
     packId: state.packId ?? undefined,
     // Pack backgrounds are derived from the current sanitized registry, never copied into user settings.
     background: state.backgroundSource === 'pack' ? undefined : state.background ?? undefined,
     backgroundSource: state.backgroundSource,
+    backgroundEffect: state.backgroundEffect,
+  }
+  // Every appearance mutation shares one queue so a slower earlier write cannot win.
+  const writing = themeWriteQueue.then(async () => {
+    await shellApi.setTheme(state.mode, modeOverrides, extra)
+    savedBackgroundEffect = state.backgroundEffect
   })
+  themeWriteQueue = writing.catch(() => undefined)
+  return writing
 }
 
 let mqListenerAttached = false
 let themeReadVersion = 0
+let themePackReadVersion = 0
 
 function attachSystemListener(get: () => ThemeState, set: (p: Partial<ThemeState>) => void): void {
   const mq = matchMediaDark()
@@ -196,6 +220,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   packs: [],
   packId: null,
   background: null,
+  backgroundEffect: DEFAULT_BACKGROUND_EFFECT,
   hydrated: false,
 
   hydrate: async () => {
@@ -205,22 +230,26 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
   refresh: async () => {
     const version = ++themeReadVersion
+    const packVersion = ++themePackReadVersion
     attachSystemListener(get, set)
     try {
+      // theme-changed can arrive before the IPC acknowledgement. Read after local writes settle.
+      await themeWriteQueue
+      if (version !== themeReadVersion) return
       const t = (await shellApi.getTheme()) as ThemeTokens & { packs?: ThemePack[] }
       if (version !== themeReadVersion) return
       const mode: ThemeMode =
         t.mode === 'dark' || t.mode === 'system' || t.mode === 'light' ? t.mode : 'light'
       const resolved = resolveThemeMode(mode)
       const overrides = (t.overrides ?? {}) as OverridesMap
-      const packs = t.packs ?? []
+      const packs = packVersion === themePackReadVersion ? t.packs ?? [] : get().packs
       const packId = t.packId ?? null
       const pack = packId ? packs.find((p) => p.id === packId) : undefined
       const backgroundSource = t.backgroundSource
-      const background = backgroundSource === 'pack' ? pack?.background ?? null
-        : backgroundSource === 'user' ? t.background ?? null
-        : t.background ?? pack?.background ?? null
+      const backgroundEffect = effectSelection(t.backgroundEffect)
+      const background = resolveThemeBackground(t, packs)
       const tokens = applyToDom(resolved, overrides[resolved] ?? {}, pack?.tokens)
+      savedBackgroundEffect = backgroundEffect
       set({
         mode,
         resolved,
@@ -229,6 +258,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
         packs,
         packId,
         background,
+        backgroundEffect,
         backgroundSource,
         hydrated: true,
       })
@@ -243,8 +273,10 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
   /** 重新拉取主题包列表（插件 theme.register / 卸载后壳子事件触发） */
   refreshPacks: async () => {
+    const version = ++themePackReadVersion
     try {
       const t = (await shellApi.getTheme()) as ThemeTokens & { packs?: ThemePack[] }
+      if (version !== themePackReadVersion) return
       const packs = t.packs ?? []
       const s = get()
       const pack = s.packId ? packs.find((p) => p.id === s.packId) : undefined
@@ -257,13 +289,14 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
   setMode: async (mode) => {
     themeReadVersion++
-    const { overrides, packs, packId, background, backgroundSource } = get()
+    themeMutationVersion++
+    const { overrides, packs, packId } = get()
     const resolved = resolveThemeMode(mode)
     const pack = packId ? packs.find((p) => p.id === packId) : undefined
     // 切换模式时若主题包绑定了 mode，保留 pack tokens；否则仍套用
     const tokens = applyToDom(resolved, overrides[resolved] ?? {}, pack?.tokens)
     set({ mode, resolved, tokens })
-    await persistTheme({ mode, overrides, packId, background, backgroundSource })
+    await persistTheme(get())
     toastStore.getState().push(
       mode === 'system'
         ? `已切换到跟随系统（当前${THEME_PRESETS[resolved].label}）`
@@ -273,51 +306,70 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
   setToken: (key, value) => {
     themeReadVersion++
-    const { mode, overrides, packs, packId, background, backgroundSource } = get()
+    themeMutationVersion++
+    const { mode, overrides, packs, packId } = get()
     const resolved = resolveThemeMode(mode)
     const modeOverrides = { ...(overrides[resolved] ?? {}), [key]: value }
     const next: OverridesMap = { ...overrides, [resolved]: modeOverrides }
     const pack = packId ? packs.find((p) => p.id === packId) : undefined
     const tokens = applyToDom(resolved, modeOverrides, pack?.tokens)
     set({ overrides: next, tokens })
-    void persistTheme({ mode, overrides: next, packId, background, backgroundSource })
+    void persistTheme(get()).catch(() => notify.error('主题设置未保存，请重试'))
   },
 
   resetMode: async () => {
     themeReadVersion++
-    const { mode, overrides, packs, packId, background, backgroundSource } = get()
+    themeMutationVersion++
+    const { mode, overrides, packs, packId } = get()
     const resolved = resolveThemeMode(mode)
     const next: OverridesMap = { ...overrides, [resolved]: {} }
     const pack = packId ? packs.find((p) => p.id === packId) : undefined
     const tokens = applyToDom(resolved, {}, pack?.tokens)
     set({ overrides: next, tokens })
-    await persistTheme({ mode, overrides: next, packId, background, backgroundSource })
+    await persistTheme(get())
     toastStore.getState().push('已重置当前模式的颜色 Token')
   },
 
   applyPack: async (packId) => {
     themeReadVersion++
+    themeMutationVersion++
     const { mode, overrides, packs } = get()
     const resolved = resolveThemeMode(mode)
     const pack = packId ? packs.find((p) => p.id === packId) : undefined
     const nextBackground = pack?.background ?? null
     const tokens = applyToDom(resolved, overrides[resolved] ?? {}, pack?.tokens)
     set({ packId, tokens, background: nextBackground, backgroundSource: 'pack' })
-    await persistTheme({ mode, overrides, packId, background: nextBackground, backgroundSource: 'pack' })
+    await persistTheme(get())
     toastStore.getState().push(pack ? `已应用主题包「${pack.name}」` : '已取消主题包')
   },
 
   setBackground: async (bg) => {
     themeReadVersion++
-    const { mode, overrides, packId } = get()
+    themeMutationVersion++
     // 先同步 DOM 与 store，保证切换即时可见（不受 IPC 延迟影响）
-    const active = !!bg && bg.type !== 'none' && !!bg.value
+    const active = get().backgroundEffect !== 'none' || (!!bg && bg.type !== 'none' && !!bg.value)
     document.documentElement.classList.toggle('has-bg-media', active)
     set({ background: bg, backgroundSource: 'user' })
     try {
-      await persistTheme({ mode, overrides, packId, background: bg, backgroundSource: 'user' })
+      await persistTheme(get())
     } catch {
-      /* 持久化失败不影响本地即时预览 */
+      notify.error('背景设置未保存，请重试')
+    }
+  },
+
+  setBackgroundEffect: async (id) => {
+    themeReadVersion++
+    const version = ++themeMutationVersion
+    const backgroundEffect = effectSelection(id)
+    set({ backgroundEffect })
+    try {
+      await persistTheme(get())
+    } catch (error) {
+      // Only the latest failed selection may roll back; an older request must never undo a newer click.
+      if (version === themeMutationVersion && get().backgroundEffect === backgroundEffect) {
+        set({ backgroundEffect: savedBackgroundEffect })
+      }
+      throw error
     }
   },
 }))
@@ -331,11 +383,13 @@ export function useTheme() {
   const packs = useThemeStore((s) => s.packs)
   const packId = useThemeStore((s) => s.packId)
   const background = useThemeStore((s) => s.background)
+  const backgroundEffect = useThemeStore((s) => s.backgroundEffect)
   const setMode = useThemeStore((s) => s.setMode)
   const setToken = useThemeStore((s) => s.setToken)
   const resetMode = useThemeStore((s) => s.resetMode)
   const applyPack = useThemeStore((s) => s.applyPack)
   const setBackground = useThemeStore((s) => s.setBackground)
+  const setBackgroundEffect = useThemeStore((s) => s.setBackgroundEffect)
   const hydrate = useThemeStore((s) => s.hydrate)
   return {
     mode,
@@ -345,11 +399,13 @@ export function useTheme() {
     packs,
     packId,
     background,
+    backgroundEffect,
     setMode,
     setToken,
     resetMode,
     applyPack,
     setBackground,
+    setBackgroundEffect,
     hydrate,
   }
 }

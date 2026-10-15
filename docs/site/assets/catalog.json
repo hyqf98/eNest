@@ -1,0 +1,281 @@
+[
+  {
+    "id": "com.enest.batch-rename",
+    "name": "批量重命名",
+    "description": "拖入多文件，查找替换 / 序号 / 日期 / 大小写 / 扩展名规则链实时预览，确认后批量改名，支持撤销。",
+    "category": "其它",
+    "slug": "batch-rename",
+    "icon": "assets/plugins/batch-rename.svg"
+  },
+  {
+    "id": "com.enest.calculator",
+    "name": "计算器",
+    "description": "科学计算、Ans 与内存寄存器、可收藏的本地计算历史。",
+    "category": "效率",
+    "slug": "calculator",
+    "icon": "assets/plugins/calculator.svg"
+  },
+  {
+    "id": "com.enest.ccswitch",
+    "name": "供应商切换",
+    "description": "AI CLI 供应商切换台：10 应用配置管理、50+ 预设、MCP 同步、会话浏览与用量统计（复刻 cc-switch）",
+    "category": "开发",
+    "slug": "ccswitch",
+    "icon": "assets/plugins/ccswitch.svg"
+  },
+  {
+    "id": "com.enest.clipboard",
+    "name": "剪贴板",
+    "description": "搜索文本、图片与文件历史；快捷回贴，桌面预览与批量整理。",
+    "category": "效率",
+    "slug": "clipboard",
+    "icon": "assets/plugins/clipboard.svg",
+    "screenshot": "assets/screens/clipboard.webp"
+  },
+  {
+    "id": "com.enest.code-shot",
+    "name": "代码截图",
+    "description": "粘贴代码生成高亮截图卡片：多语言着色、跟随主题配色、macOS 窗口栏样式，复制 / 保存 PNG / 2x 高清。",
+    "category": "设计",
+    "slug": "code-shot",
+    "icon": "assets/plugins/code-shot.svg"
+  },
+  {
+    "id": "com.enest.codec",
+    "name": "编解码",
+    "description": "Base64、URL、Hex、Unicode、HTML 编解码与 JWT、URL 参数查看。",
+    "category": "开发",
+    "slug": "codec",
+    "icon": "assets/plugins/codec.svg"
+  },
+  {
+    "id": "com.enest.codex-pets",
+    "name": "Codex 宠物市场",
+    "description": "浏览 codex-pets.net 社区宠物画廊：搜索、排序、标签筛选与分页；逐帧 sprite 预览与光标跟随动效；一键安装宠物包到本机 Codex（自动检测 ~/.codex），并管理已安装宠物。",
+    "category": "开发",
+    "slug": "codex-pets",
+    "icon": "assets/plugins/codex-pets.svg"
+  },
+  {
+    "id": "com.enest.color-picker",
+    "name": "取色器",
+    "description": "屏幕与图片精准取色，支持 HEX/RGB/HSL 透明颜色、WCAG 对比度检查、命名色板与 CSS/JSON 导出。",
+    "category": "设计",
+    "slug": "color-picker",
+    "icon": "assets/plugins/color-picker.svg"
+  },
+  {
+    "id": "com.enest.cron",
+    "name": "Cron 工具",
+    "description": "五域可视化构建、表达式与自然语言互转、未来执行预览、预设库与 crontab 导出。",
+    "category": "开发",
+    "slug": "cron",
+    "icon": "assets/plugins/cron.svg"
+  },
+  {
+    "id": "com.enest.database",
+    "name": "数据库",
+    "description": "多数据库工作台：离线编辑器、查询与结果编辑、结构关系、资源中心和只读数据比较",
+    "category": "开发",
+    "slug": "database",
+    "icon": "assets/plugins/database.svg",
+    "screenshot": "assets/screens/database.webp"
+  },
+  {
+    "id": "com.enest.diff",
+    "name": "文本对比",
+    "description": "双栏 LCS 行级对比、行内字符细化、差异导航计数、hex 字节对比与 unified diff 导出。",
+    "category": "开发",
+    "slug": "diff",
+    "icon": "assets/plugins/diff.svg"
+  },
+  {
+    "id": "com.enest.dsh",
+    "name": "DSH 驾驶舱",
+    "description": "DeepSeek Harness 会话驾驶舱：小窗查看多会话进度并快速对话，大桌面嵌入完整 DSH Web UI；自带运行时（零本地依赖）与热更新、profile 管理、一键备份升级回退",
+    "category": "开发",
+    "slug": "dsh",
+    "icon": "assets/plugins/dsh.svg"
+  },
+  {
+    "id": "com.enest.hash",
+    "name": "哈希与加密",
+    "description": "多算法同屏哈希（SHA 家族/MD5）、HMAC、AES-GCM 与 RSA 加解密签名、JWT 解码、hex/base64 输出。",
+    "category": "开发",
+    "slug": "hash",
+    "icon": "assets/plugins/hash.svg"
+  },
+  {
+    "id": "com.enest.image-tools",
+    "name": "图片工具箱",
+    "description": "图片压缩、格式转换、批量缩放、裁剪旋转、文字水印、EXIF 查看、色板提取与贴图预览。",
+    "category": "媒体",
+    "slug": "image-tools",
+    "icon": "assets/plugins/image-tools.svg"
+  },
+  {
+    "id": "com.enest.json-tools",
+    "name": "JSON 工具",
+    "description": "无损数字 JSON 格式化、校验、树浏览、搜索、键排序与差异比较。",
+    "category": "开发",
+    "slug": "json-tools",
+    "icon": "assets/plugins/json-tools.svg"
+  },
+  {
+    "id": "com.enest.lan-share",
+    "name": "局域网传件",
+    "description": "同一 Wi-Fi 下把文件发给手机：取件码 + 二维码即扫即下，限时自动关闭，下载实时日志。",
+    "category": "其它",
+    "slug": "lan-share",
+    "icon": "assets/plugins/lan-share.svg"
+  },
+  {
+    "id": "com.enest.markdown",
+    "name": "Markdown 笔记",
+    "description": "分组笔记树、实时预览、全文搜索、图片附件、模板与导出；Quick 速记直落收件箱。",
+    "category": "效率",
+    "slug": "markdown",
+    "icon": "assets/plugins/markdown.svg",
+    "screenshot": "assets/screens/markdown.webp"
+  },
+  {
+    "id": "com.enest.middleware",
+    "name": "中间件控制台",
+    "description": "Kafka / RabbitMQ / MQTT / RocketMQ 统一控制台：连接管理、Topic 与队列、消息查询溯源与实时监听、消费组与监控",
+    "category": "开发",
+    "slug": "middleware",
+    "icon": "assets/plugins/middleware.svg",
+    "screenshot": "assets/screens/middleware.webp"
+  },
+  {
+    "id": "com.enest.net-kit",
+    "name": "网络调试台",
+    "description": "HTTP / TCP / WebSocket 调试工作台：流式响应与 SSE、十六进制字节流、编解码策略、断言、curl 导入导出、集合与历史",
+    "category": "开发",
+    "slug": "net-kit",
+    "icon": "assets/plugins/net-kit.svg",
+    "screenshot": "assets/screens/net-kit.webp"
+  },
+  {
+    "id": "com.enest.password-kit",
+    "name": "密码工具箱",
+    "description": "随机密码与 UUID v4 批量生成，字符排除、结果遮罩和复制格式。",
+    "category": "效率",
+    "slug": "password-kit",
+    "icon": "assets/plugins/password-kit.svg"
+  },
+  {
+    "id": "com.enest.pomodoro",
+    "name": "番茄钟",
+    "description": "主进程后台专注计时，长短休息、阶段记录与本地统计。",
+    "category": "效率",
+    "slug": "pomodoro",
+    "icon": "assets/plugins/pomodoro.svg"
+  },
+  {
+    "id": "com.enest.qrcode",
+    "name": "二维码",
+    "description": "二维码模板、PNG/SVG 导出、批量图集及多图离线识别。",
+    "category": "效率",
+    "slug": "qrcode",
+    "icon": "assets/plugins/qrcode.svg"
+  },
+  {
+    "id": "com.enest.regex",
+    "name": "正则工作台",
+    "description": "正则实时匹配高亮、捕获分组、替换预览、常用片段库与元字符速查。",
+    "category": "开发",
+    "slug": "regex",
+    "icon": "assets/plugins/regex.svg"
+  },
+  {
+    "id": "com.enest.remote-desktop",
+    "name": "远程桌面",
+    "description": "VNC / RDP 远程桌面：资产管理、SSH 隧道、多会话画布、剪贴板互通与连接诊断",
+    "category": "开发",
+    "slug": "remote-desktop",
+    "icon": "assets/plugins/remote-desktop.svg"
+  },
+  {
+    "id": "com.enest.screen-assistant",
+    "name": "屏幕助手",
+    "description": "截图与原图历史、裁剪箭头文字马赛克标注、区域录屏和贴图管理；小窗快速操作，桌面展开完整编辑。",
+    "category": "媒体",
+    "slug": "screen-assistant",
+    "icon": "assets/plugins/screen-assistant.svg",
+    "screenshot": "assets/screens/screen-assistant.webp"
+  },
+  {
+    "id": "com.enest.snippets",
+    "name": "代码片段",
+    "description": "代码片段库：语法标签着色、占位符模板、Quick 即搜即复制、导入导出与使用排序。",
+    "category": "开发",
+    "slug": "snippets",
+    "icon": "assets/plugins/snippets.svg"
+  },
+  {
+    "id": "com.enest.ssh",
+    "name": "SSH管理",
+    "description": "SSH 工作台：快速连接、终端提示、远程文件、三平台资源与进程端口、服务容器、传输和隧道",
+    "category": "开发",
+    "slug": "ssh",
+    "icon": "assets/plugins/ssh.svg"
+  },
+  {
+    "id": "com.enest.sticky-notes",
+    "name": "备忘录",
+    "description": "快速记录、Markdown 预览、标签整理、归档回收与本地备份。",
+    "category": "效率",
+    "slug": "sticky-notes",
+    "icon": "assets/plugins/sticky-notes.svg"
+  },
+  {
+    "id": "com.enest.sysguard",
+    "name": "进程与端口",
+    "description": "本机进程与监听端口巡检：双表联动、搜索、收藏置顶、结束进程危险确认、CPU·内存 60 秒滚动曲线",
+    "category": "效率",
+    "slug": "sysguard",
+    "icon": "assets/plugins/sysguard.svg"
+  },
+  {
+    "id": "com.enest.timestamp",
+    "name": "时间戳",
+    "description": "时间戳与时区转换、批量转换、日期加减与时间差。",
+    "category": "开发",
+    "slug": "timestamp",
+    "icon": "assets/plugins/timestamp.svg"
+  },
+  {
+    "id": "com.enest.todos",
+    "name": "待办清单",
+    "description": "任务清单、截止日期、子任务与标签；快捷记录，桌面完整整理。",
+    "category": "效率",
+    "slug": "todos",
+    "icon": "assets/plugins/todos.svg"
+  },
+  {
+    "id": "com.enest.totp",
+    "name": "验证器",
+    "description": "TOTP 两步验证：otpauth 导入、倒计时环出码、点击复制、分组搜索与口令加密备份。",
+    "category": "效率",
+    "slug": "totp",
+    "icon": "assets/plugins/totp.svg"
+  },
+  {
+    "id": "com.enest.translate",
+    "name": "翻译",
+    "description": "多引擎翻译、语言切换、本地历史与收藏、双语复制导出。",
+    "category": "效率",
+    "slug": "translate",
+    "icon": "assets/plugins/translate.svg",
+    "screenshot": "assets/screens/translate.webp"
+  },
+  {
+    "id": "com.enest.unit-convert",
+    "name": "单位与汇率",
+    "description": "长度/面积/体积/质量/温度/速度/数据量/进制/汇率同屏联动换算，人民币大写。",
+    "category": "效率",
+    "slug": "unit-convert",
+    "icon": "assets/plugins/unit-convert.svg"
+  }
+]

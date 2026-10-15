@@ -14,10 +14,3 @@
 :root[data-theme='dark'] .ambient-particles.ambient-flow {
   color: color-mix(in srgb, var(--text, #dce8e3) 72%, var(--accent, #7fbdac));
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .ambient-particles.ambient-flow,
-  .splash-field {
-    display: none !important;
-  }
-}

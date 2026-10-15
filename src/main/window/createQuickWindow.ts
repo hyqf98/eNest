@@ -11,14 +11,13 @@ import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
  */
 import { capturePasteTarget } from '@main/clipboard/nativeClipboard'
 import { join } from 'node:path'
-import { app, BaseWindow, screen, systemPreferences, View, WebContentsView } from 'electron'
+import { app, BaseWindow, screen, View, WebContentsView } from 'electron'
 import {
   QUICK_BAR_AREA_H,
   QUICK_BORDER_WIDTH,
   QUICK_CORNER_RADIUS,
+  QUICK_HEIGHT,
   QUICK_HOME_HEIGHT,
-  QUICK_MAX_HEIGHT,
-  QUICK_MIN_HEIGHT,
   QUICK_WIDTH,
   SHELL_PARTITION
 } from '@shared/constants'
@@ -55,8 +54,7 @@ class QuickWindow extends BaseWindow {
 
 let quickWindow: QuickWindow | null = null
 let quickPluginSurface: View | null = null
-let revealTimer: ReturnType<typeof setTimeout> | null = null
-let reveal: { start: number; duration: number; level: string; fromHeight: number } | null = null
+const quickRendererUrls = new WeakMap<QuickWindow, string>()
 
 /** One native outer contour; the plugin's own top edge must stay square. */
 export function getQuickPluginParent(): View | null { return quickPluginSurface }
@@ -71,47 +69,17 @@ function layoutQuickContents(): void {
 function layoutQuickSurface(): void {
   if (!quickWindow || quickWindow.isDestroyed() || !quickPluginSurface) return
   const { width, height } = quickWindow.getContentBounds()
-  let visibleHeight = height
-  if (reveal) {
-    const t = Math.min(1, (performance.now() - reveal.start) / reveal.duration)
-    const progress = t === 1 ? 1 : reveal.level === 'medium'
-      ? 1 - Math.pow(2, -10 * t) : 1 - Math.pow(1 - t, reveal.level === 'low' ? 2 : 4)
-    visibleHeight = Math.round(reveal.fromHeight + (height - reveal.fromHeight) * progress)
-    if (t === 1) reveal = null
-  }
-  // Only this plain View changes. Neither the native window nor plugin viewport
-  // is resized per frame, so plugin layout/ResizeObserver work stays constant.
-  quickPluginSurface.setBounds({ x: 0, y: 0, width, height: visibleHeight })
+  // 搜索与插件始终共用完整表面，切换时不能从输入条高度重新裁切展开。
+  quickPluginSurface.setBounds({ x: 0, y: 0, width, height })
 }
 
 export function finishQuickPluginReveal(): void {
-  if (revealTimer) clearTimeout(revealTimer)
-  revealTimer = null
-  reveal = null
   layoutQuickSurface()
-}
-
-export function revealQuickPlugin(fromHeight = QUICK_BAR_AREA_H): void {
-  finishQuickPluginReveal()
-  if (!quickWindow?.isVisible() || systemPreferences.getAnimationSettings().prefersReducedMotion) return
-  const level = settingsStore.getAll().general.animationLevel || 'medium'
-  // Same duration tiers as marketMotion.d(0.28); native clipping uses no renderer IPC per frame.
-  const duration = level === 'low' ? 182.4 : level === 'high' ? 322 : 308
-  reveal = { start: performance.now(), duration, level, fromHeight }
-  const frame = (): void => {
-    revealTimer = null
-    layoutQuickSurface()
-    if (reveal) revealTimer = setTimeout(frame, 16)
-  }
-  frame()
 }
 
 let lastPushedAnim = ''
 let currentTargetHeight = QUICK_HOME_HEIGHT
-let currentTargetWidth = QUICK_WIDTH
 const WORK_AREA_INSET = 16
-const QUICK_MIN_WIDTH = 480
-const QUICK_MAX_WIDTH = 1200
 /** blur 宽限截止：在此之前只抢焦点、不 hide */
 let blurGuardUntil = 0
 /** toggle 防抖 */
@@ -154,7 +122,7 @@ export function setQuickPluginRelayout(fn: (() => void) | null): void {
 export function getQuickPluginBounds(): Electron.Rectangle {
   const bounds = quickWindow && !quickWindow.isDestroyed()
     ? quickWindow.getContentBounds()
-    : { width: currentTargetWidth, height: currentTargetHeight }
+    : { width: QUICK_WIDTH, height: currentTargetHeight }
   return {
     x: QUICK_BORDER_WIDTH,
     y: QUICK_BAR_AREA_H,
@@ -179,24 +147,31 @@ function loadQuickRenderer(win: QuickWindow): void {
   if (devUrl) {
     const url = new URL(devUrl)
     url.searchParams.set('surface', 'quick')
+    quickRendererUrls.set(win, url.href)
     registerTrustedSurface(win.webContents, 'quick', url.href)
-    void win.webContents.loadURL(url.href)
+    void win.webContents.loadURL(url.href).catch(error => logError('quick', `renderer load failed: ${String(error)}`))
   } else {
     const file = join(app.getAppPath(), 'out', 'renderer', 'index.html')
+    const url = pathToFileURL(file)
+    url.searchParams.set('surface', 'quick')
+    quickRendererUrls.set(win, url.href)
     registerTrustedSurface(win.webContents, 'quick', pathToFileURL(file).href)
     void win.webContents.loadFile(file, {
       query: { surface: 'quick' }
-    })
+    }).catch(error => logError('quick', `renderer load failed: ${String(error)}`))
   }
+}
+
+function isQuickRendererReady(win: QuickWindow): boolean {
+  const expected = quickRendererUrls.get(win)
+  return !!expected && !win.webContents.isDestroyed() && !win.webContents.isLoadingMainFrame() && win.webContents.getURL() === expected
 }
 
 /** 窗口不得越过当前屏幕工作区；小屏幕仍允许完整显示搜索栏。 */
 function clampQuickSize(workArea: Electron.Rectangle): { width: number; height: number } {
-  const maxWidth = Math.max(1, Math.min(QUICK_MAX_WIDTH, workArea.width - WORK_AREA_INSET * 2))
-  const maxHeight = Math.max(1, Math.min(QUICK_MAX_HEIGHT, workArea.height - WORK_AREA_INSET * 2))
   return {
-    width: Math.min(maxWidth, Math.max(Math.min(QUICK_MIN_WIDTH, maxWidth), currentTargetWidth)),
-    height: Math.min(maxHeight, Math.max(Math.min(QUICK_MIN_HEIGHT, maxHeight), currentTargetHeight))
+    width: Math.min(QUICK_WIDTH, Math.max(1, workArea.width - WORK_AREA_INSET * 2)),
+    height: Math.min(currentTargetHeight, Math.max(1, workArea.height - WORK_AREA_INSET * 2))
   }
 }
 
@@ -211,43 +186,40 @@ function positionOnCursorScreen(win: QuickWindow): void {
 }
 
 /**
- * 一次性调整原生窗口；壳与插件共用的父 View 按动画档位揭示。
- * 避免透明 NSWindow 上逐帧 setBounds 引起合成闪烁/原生崩溃；隐藏时仅记住建议尺寸。
+ * 壳决定高度：默认两行，搜索按内容伸缩，插件使用统一展开高度。
+ * 宽度始终固定；插件 manifest 和 ui.resize 不参与这里的尺寸决策。
  */
 export function setQuickContentSize(size: { width?: number; height?: number }): void {
-  // Quick 共享固定宽度，仅在小屏工作区不足时缩小。插件只控制内容高度。
-  currentTargetWidth = QUICK_WIDTH
-  if (Number.isFinite(size.height) && size.height! > 0) currentTargetHeight = Math.round(size.height!)
+  if (Number.isFinite(size.height) && size.height! > 0) {
+    currentTargetHeight = Math.min(QUICK_HEIGHT, Math.max(QUICK_BAR_AREA_H + QUICK_BORDER_WIDTH, Math.round(size.height!)))
+  }
   const win = quickWindow
   if (!win || win.isDestroyed() || !win.isVisible()) return
   const bounds = win.getBounds()
   const { workArea } = screen.getDisplayMatching(bounds)
   const target = clampQuickSize(workArea)
-  if (bounds.width === target.width && bounds.height === target.height) return
   const x = Math.round(Math.max(workArea.x + WORK_AREA_INSET, Math.min(
     bounds.x + (bounds.width - target.width) / 2,
     workArea.x + workArea.width - target.width - WORK_AREA_INSET)))
   const y = Math.round(Math.max(workArea.y + WORK_AREA_INSET, Math.min(
     bounds.y, workArea.y + workArea.height - target.height - WORK_AREA_INSET)))
+  if (bounds.width === target.width && bounds.height === target.height && bounds.x === x && bounds.y === y) return
   try {
-    const fromHeight = quickPluginSurface?.getBounds().height ?? bounds.height
     win.setBounds({ x, y, ...target })
     layoutQuickContents()
     relayoutQuickPlugins?.()
-    if (target.height > fromHeight) revealQuickPlugin(fromHeight)
-    else finishQuickPluginReveal()
   } catch (err) {
     logError('quick', `resize failed: ${(err as Error).message}`)
   }
 }
 
 export function setQuickContentHeight(height: number, _animate?: boolean): void {
-  // _animate：旧调用兼容；窗口一次对齐，父 View 统一裁切壳与插件。
+  // 仅列表态接收 renderer 测量；quickHandlers 会拦截插件态的迟到请求。
   if (!Number.isFinite(height) || height <= 0) return
   setQuickContentSize({ height })
 }
 
-/** show 后再对齐子视图，兼容跨显示器和隐藏期间的插件尺寸更新。 */
+/** show 后再对齐子视图，兼容跨显示器工作区变化。 */
 export function applyQuickHeightAfterShow(): void {
   const win = quickWindow
   if (!win || win.isDestroyed() || !win.isVisible()) return
@@ -313,6 +285,10 @@ export function ensureQuickWindow(): QuickWindow {
     }
   })
 
+  const fitWorkArea = (): void => setQuickContentSize({})
+  screen.on('display-metrics-changed', fitWorkArea)
+  screen.on('display-removed', fitWorkArea)
+
   win.webContents.on('render-process-gone', (_e, details) => {
     logError('quick', `render-process-gone: ${details.reason} exitCode=${details.exitCode}`)
   })
@@ -364,9 +340,8 @@ export function ensureQuickWindow(): QuickWindow {
 
   win.on('close', () => quickPluginHiddenHook?.())
   win.on('closed', () => {
-    if (revealTimer) clearTimeout(revealTimer)
-    revealTimer = null
-    reveal = null
+    screen.removeListener('display-metrics-changed', fitWorkArea)
+    screen.removeListener('display-removed', fitWorkArea)
     quickPluginSurface = null
     if (pendingBlurTimer) clearTimeout(pendingBlurTimer)
     pendingBlurTimer = null
@@ -432,6 +407,62 @@ function presentAndFocus(win: QuickWindow): void {
 
 export function getQuickShowRevision(): number { return showRevision }
 
+/** Prepare a docking destination without resetting its owner or changing native focus. */
+export async function prepareQuickWindowForPlugin(canPrepare: () => boolean = () => true): Promise<boolean> {
+  if (!canPrepare()) return false
+  const revision = showRevision
+  const win = ensureQuickWindow(), wc = win.webContents
+  const current = () => revision === showRevision && canPrepare() && quickWindow === win && !win.isDestroyed() && !wc.isDestroyed()
+  if (!current()) return false
+  if (isQuickRendererReady(win)) return true
+  const ready = await new Promise<boolean>(resolve => {
+    let settled = false
+    const finish = (success: boolean) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      wc.removeListener('did-finish-load', loaded)
+      wc.removeListener('did-stop-loading', loaded)
+      wc.removeListener('did-fail-load', failed)
+      wc.removeListener('destroyed', destroyed)
+      resolve(success)
+    }
+    // A fresh WebContents can finish its initial about:blank document while the
+    // requested renderer is still navigating. Only the destination document is ready.
+    const loaded = () => { if (isQuickRendererReady(win)) finish(true) }
+    const failed = (_event: unknown, _code: number, _description: string, _url: string, isMainFrame: boolean) => { if (isMainFrame) finish(false) }
+    const destroyed = () => finish(false)
+    const timer = setTimeout(() => finish(false), 5000)
+    wc.on('did-finish-load', loaded)
+    wc.on('did-stop-loading', loaded)
+    wc.on('did-fail-load', failed)
+    wc.once('destroyed', destroyed)
+    try { if (!quickRendererUrls.has(win) || !wc.isLoadingMainFrame()) loadQuickRenderer(win) }
+    catch { finish(false) }
+  })
+  return ready && current()
+}
+
+/** Commit relocation only after native presentation succeeds; never resets the owner. */
+export function presentQuickWindowForPlugin(commit?: () => void): boolean {
+  const win = quickWindow
+  if (!win || win.isDestroyed() || !isQuickRendererReady(win)) return false
+  const wasVisible = win.isVisible()
+  if (!wasVisible) ++showRevision
+  presentAndFocus(win)
+  if (!win.isVisible()) return false
+  win.webContents.focus()
+  // Send the reset before the committed owner publishes its plugin mode/input.
+  if (!wasVisible) win.webContents.send(IpcChannels.QuickShown)
+  try { commit?.() }
+  catch (error) {
+    if (!wasVisible && !win.isDestroyed()) win.hide()
+    throw error
+  }
+  pushAnimLevel()
+  return true
+}
+
 export async function showQuickWindow(canShow: () => boolean = () => true): Promise<boolean> {
   if (!canShow()) return false
   logInfo('quick', 'showQuickWindow enter')
@@ -441,10 +472,9 @@ export async function showQuickWindow(canShow: () => boolean = () => true): Prom
   try {
     const win = ensureQuickWindow()
     logInfo('quick', `ensureQuickWindow ok destroyed=${win.isDestroyed()}`)
-    // 每次呼出显示空搜索词的两行常用项，避免先闪过仅输入栏的一帧。
+    // 每次呼出恢复两行常用项，避免先闪过上次插件的展开高度。
     quickPluginResetHook?.()
     currentTargetHeight = QUICK_HOME_HEIGHT
-    currentTargetWidth = QUICK_WIDTH
     const wc = quickWindow?.webContents
     const afterPresent = (): void => {
       try {
@@ -477,7 +507,7 @@ export async function showQuickWindow(canShow: () => boolean = () => true): Prom
       wc.once('did-finish-load', () => {
         if (revision !== showRevision || !canShow()) return
         try {
-          if (!quickWindow || quickWindow.isDestroyed()) return
+          if (quickWindow !== win || win.isDestroyed()) return
           presentAndFocus(win)
           afterPresent()
           applyQuickHeightAfterShow()
@@ -507,7 +537,7 @@ export async function showQuickWindow(canShow: () => boolean = () => true): Prom
 
 /**
  * PluginHost 注入的「呼出前重置」回调：隐藏原生插件视图并回到空搜索态。
- * 插件进程与主动上报的尺寸仍保留，再次显式打开时复用。
+ * 插件进程仍保留，再次显式打开时复用。
  */
 let quickPluginResetHook: (() => void) | null = null
 
@@ -567,6 +597,7 @@ export function toggleQuickWindow(): void {
 }
 
 export function destroyQuickWindow(): void {
+  showRevision++
   if (pendingBlurTimer) {
     clearTimeout(pendingBlurTimer)
     pendingBlurTimer = null

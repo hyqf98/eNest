@@ -203,45 +203,29 @@ export function resolvePluginUi(ui?: Partial<PluginUiConfig> | null): PluginUiCo
 }
 
 /**
- * 插件启动方式（= 运行时挂载容器）：
+ * 插件布局模式，与宿主窗口位置分离：
  * - quick：Quick 小窗内嵌，渲染在输入框下方（小窗适配样式）
  * - shell：主窗大窗 Tab（桌面适配样式）
  * 不再有「大小插件」类型区分：同一插件两种入口样式并存，
  * 壳子启动时经 URL ?mode= / onEnter 载荷 / getLaunchMode() 传给插件，插件自选渲染样式。
+ * 拖出独立窗口保留原模式；收回 Quick / 主窗时才切换为接收位置的模式。
  */
 export type PluginLaunchMode = 'quick' | 'shell'
 
 /**
  * 每插件「快捷启动」用户配置（settings.pluginLaunch[pluginId]）：
- * 启动方式覆盖项 + 全局启动热键 + 自定义触发词。
+ * Quick 搜索启动方式覆盖项与自定义触发词。
  */
 export interface PluginLaunchConfig {
   /**
    * 启动方式覆盖：quick 小窗启动 / shell 大窗启动；
-   * 缺省 = 跟随入口（Quick 打开进小窗，主窗打开进大窗）。仅影响 Quick 入口与热键启动。
+   * 缺省 = 跟随入口（Quick 打开进小窗，主窗打开进大窗）。插件快捷键使用各自的 mode。
    */
   mode?: PluginLaunchMode
-  /** 全局启动热键（accelerator）；按下按 mode（缺省 quick）唤起插件 */
+  /** @deprecated 只读取旧数据迁移；新绑定保存在 pluginShortcuts。 */
   hotkey?: string
   /** 自定义触发词：并入 Quick 搜索索引，与 manifest features[].cmds 等权 */
   aliases?: string[]
-}
-
-/**
- * 启动热键录制探测结果（归属链：插件启动键 → Quick 键 → 插件运行时键 → 系统）。
- * status=eNest-quick 不可接管（引导去 Quick 设置换键）；plugin-launch/plugin-runtime 可经确认接管。
- */
-export interface LaunchHotkeyProbeResult {
-  acc: string
-  status: 'free' | 'system' | 'eNest-quick' | 'plugin-launch' | 'plugin-runtime'
-  /** 占用方插件 id（status=plugin-launch / plugin-runtime） */
-  ownerPluginId?: string
-  /** 占用方显示名（插件名；eNest-quick 为「快捷启动热键」） */
-  ownerLabel?: string
-  /** status=system 的常见系统占用提示 */
-  hint?: string
-  /** 是否可接管（plugin-launch / plugin-runtime 为 true） */
-  takeoverable?: boolean
 }
 
 // —— 插件贡献点（Contribution Points，插槽化架构）——
@@ -385,7 +369,7 @@ export interface PluginManifest {
    */
   net?: { allowInsecure?: boolean }
   permissions?: PluginPermission[]
-  /** 插件内容区尺寸建议（CSS px）；Quick 宽度固定，仅采用高度并按屏幕工作区限制，主窗由用户控制。 */
+  /** 兼容旧插件的内容尺寸建议（CSS px）；Quick 使用固定视口，仅随屏幕工作区缩小，主窗由用户控制。 */
   window?: { width?: number; height?: number; minWidth?: number; minHeight?: number }
   features?: PluginFeature[]
   development?: { main?: string }
@@ -487,6 +471,36 @@ export interface BackgroundConfig {
   fit: 'cover' | 'contain'
 }
 
+/** 宿主提供的背景动效与启动 Logo 编排。插件不能注入脚本或 shader。 */
+export type BackgroundEffectPreset = 'fold' | 'aurora' | 'orbit' | 'ripple' | 'tunnel'
+
+export interface BackgroundEffectBase {
+  /** 主题包内唯一的安全短 ID（字母开头，最多 48 字符）。 */
+  id: string
+  name: string
+  description?: string
+  /** 启动 Logo 的编排；未指定时由宿主按背景选择。 */
+  logoStyle?: BackgroundEffectPreset
+}
+
+export type BackgroundEffectDefinition = BackgroundEffectBase & (
+  | {
+    renderer: 'preset'
+    preset: BackgroundEffectPreset
+    /** 三个六位 hex 颜色：背景主色、次色、高光色。 */
+    colors?: [string, string, string]
+    /** 速度倍率，0.25–2；缺省为 1。 */
+    speed?: number
+  }
+  | {
+    renderer: 'video'
+    /** 仅允许本插件 enest://plugin/<id>/assets/... 的 mp4/webm。 */
+    video: string
+    /** 本插件的 png/jpeg/webp/avif/gif 静态封面。 */
+    poster?: string
+  }
+)
+
 /** 可由主题插件动态注册的主题包 */
 export interface ThemePack {
   id: string
@@ -496,6 +510,8 @@ export interface ThemePack {
   mode: ThemeMode
   tokens: Record<string, string>
   background?: BackgroundConfig
+  /** 最多 8 个声明式动效；随主题包来源注册、禁用和卸载。 */
+  backgroundEffects?: BackgroundEffectDefinition[]
 }
 
 export interface ThemeTokens {
@@ -506,6 +522,8 @@ export interface ThemeTokens {
   background?: BackgroundConfig
   /** user 为用户自选；pack 从当前主题包派生。旧版未标记值保留，不能推定来源。 */
   backgroundSource?: 'user' | 'pack'
+  /** 全局背景动效选择；内置默认 tunnel，none 关闭，插件项使用宿主生成的命名空间 ID。 */
+  backgroundEffect?: string
 }
 
 /** Tab 呈现方式：classic 顶栏条 / orb 左侧悬浮圆形轨道 */
@@ -575,11 +593,24 @@ export interface SplashBackgroundConfig {
   opacity?: number
 }
 
-/** 会话恢复：单条已打开插件 Tab 的轻量引用 */
+/** Native window history uses screen DIP, with normal bounds even when maximized. */
+export interface PluginWindowGeometry {
+  bounds: { x: number; y: number; width: number; height: number }
+  maximized?: boolean
+  minimized?: boolean
+  alwaysOnTop?: boolean
+}
+
+export interface DetachedWindowSession extends PluginWindowGeometry {
+  mode: PluginLaunchMode
+}
+
+/** 会话恢复：单条已打开插件的轻量引用；缺省仍为主窗口 Tab。 */
 export interface SessionTabRef {
   pluginId: string
   /** 显示名缓存；恢复时以已安装插件最新 name 为准 */
   title?: string
+  detached?: DetachedWindowSession
 }
 
 /** 允许的界面字号档（相对基准 14px 的倍率） */
@@ -606,16 +637,42 @@ export interface GeneralSettings {
   fontSizeScale?: number
   /** 已上传的自定义字体元数据列表 */
   customFonts?: CustomFontMeta[]
-  /** 会话恢复：上次打开的插件 Tab 列表（仅插件，不含壳子页） */
+  /** 会话恢复：未关闭的主窗 Tab / 独立窗插件（不含壳子页和临时 Quick）。 */
   sessionTabs?: SessionTabRef[]
-  /** 会话恢复：上次激活的插件 id；空/缺失则回首页 */
+  /** 上次激活的插件 id，仅记录历史，不在启动时加载插件。 */
   sessionActivePluginId?: string
+  /** 主窗口的普通位置、尺寸与最大化 / 最小化状态。 */
+  mainWindowState?: PluginWindowGeometry
   /** 网络代理；缺省/none 为直连，变更经 session.setProxy 即时生效 */
   proxy?: ProxyConfig
   /** 快捷启动（Quick 小窗）配置 */
   quickLauncher?: QuickLauncherSettings
   /** 启动 Splash 背景；缺省 = brand 品牌色 */
   splashBackground?: SplashBackgroundConfig
+}
+
+/** GitHub 账号个人资料（设置 profile 段 user 字段；access token 单独加密存储，不落设置） */
+export interface UserProfile {
+  /** GitHub 用户名（@login） */
+  login: string
+  /** 显示名（可为空） */
+  name: string | null
+  /** GitHub 上的原始头像 URL（仅记录来源） */
+  avatarUrl: string | null
+  /** 主进程预取并缓存的头像 data URL（≤256KB），轨道/设置页离线直渲染 */
+  avatarDataUrl: string | null
+  /** 主页 https://github.com/{login} */
+  htmlUrl: string | null
+  /** 本次授权完成时间（ms） */
+  connectedAt: number
+}
+
+/** 设置 → 个人资料段（已连接账号与兼容字段） */
+export interface ProfileSettings {
+  /** @deprecated 历史配置字段，仅保留数据兼容。登录使用发布方构建配置。 */
+  githubClientId?: string
+  /** 已连接的账号信息；未登录为空 */
+  user?: UserProfile
 }
 
 export interface AppPaths {
@@ -632,7 +689,7 @@ export type PluginLaunchSettings = Record<string, PluginLaunchConfig>
 
 /**
  * setPluginLaunch 增量写入载荷：
- * mode 传 null = 清除启动方式（回到「跟随入口」）；hotkey 传空串 = 清除热键；
+ * mode 传 null = 清除搜索启动方式（回到「跟随入口」）；旧 hotkey 字段拒绝写入；
  * aliases 传空数组 = 清除触发词。
  */
 export type PluginLaunchPatch = Omit<Partial<PluginLaunchConfig>, 'mode'> & {

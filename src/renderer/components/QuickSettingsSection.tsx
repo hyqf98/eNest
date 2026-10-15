@@ -1,115 +1,78 @@
-/**
- * QuickSettingsSection — 设置 → 快捷启动
- * 启用开关 + 三张触发键卡片；点击哪张，就只注册哪一枚（互斥）。
- */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { QuickHotkeyConfig } from '@shared/types/quick'
 import { shellApi } from '@renderer/services/shellApi'
-import { toastStore } from '@renderer/hooks/useToast'
+import { notify } from '@renderer/services/notifyService'
 import { HotkeyPresetCards } from './HotkeyPresetCards'
+import { PluginShortcutSettings } from './PluginShortcutSettings'
+import './shortcutSettings.css'
 
 export function QuickSettingsSection() {
-  const [enabled, setEnabled] = useState(true)
-  const [hotkeys, setHotkeys] = useState<string[]>(['Alt+Space', 'Control+Space'])
-  const [activeHotkey, setActiveHotkey] = useState('Alt+Space')
-  const [platform, setPlatform] = useState('darwin')
+  const [config, setConfig] = useState<QuickHotkeyConfig | null>(null)
+  const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        if (!shellApi.quickGetConfig) return
-        const cfg = await shellApi.quickGetConfig()
-        if (cancelled) return
-        setEnabled(cfg.enabled)
-        const filled = [...(cfg.hotkeys ?? [])]
-        if (!filled.includes('Alt+Space')) filled.unshift('Alt+Space')
-        if (!filled.includes('Control+Space')) filled.push('Control+Space')
-        setHotkeys(filled)
-        const active =
-          cfg.activeHotkey && filled.includes(cfg.activeHotkey)
-            ? cfg.activeHotkey
-            : (filled.find((h) => !!h) ?? '')
-        setActiveHotkey(active)
-        setPlatform(cfg.platform)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
+  const [saving, setSaving] = useState(false)
+  const busy = useRef(false)
+  const request = useRef(0)
+  const refresh = useCallback(async () => {
+    const revision = ++request.current
+    try {
+      if (!shellApi.quickGetConfig) throw new Error('当前版本不支持 Quick 快捷键设置')
+      const next = await shellApi.quickGetConfig()
+      if (revision === request.current) { setConfig(next); setError('') }
+    } catch (cause) {
+      if (revision === request.current) setError((cause as Error).message)
+    } finally {
+      if (revision === request.current) setLoading(false)
     }
   }, [])
+  useEffect(() => {
+    void refresh()
+    const off = shellApi.onEvent(payload => {
+      if (payload.type === 'plugin-shortcuts-changed') void refresh()
+    })
+    return () => { request.current++; off() }
+  }, [refresh])
 
-  const applyHotkeys = useCallback(
-    async (nextEnabled: boolean, nextHotkeys: string[], nextActive: string) => {
-      if (!shellApi.quickSetHotkeys) return
-      setEnabled(nextEnabled)
-      setHotkeys(nextHotkeys)
-      setActiveHotkey(nextActive)
-      const result = await shellApi.quickSetHotkeys({
-        enabled: nextEnabled,
-        hotkeys: nextHotkeys,
-        activeHotkey: nextActive
-      })
-      if (result.failed.length > 0 && result.registered.length === 0) {
-        toastStore.getState().push(`快捷键注册失败：${result.failed.join('、')}`, 'error')
-      } else if (result.failed.length > 0) {
-        toastStore
-          .getState()
-          .push(`已切换；若无效可能是被占用：${result.failed.join('、')}`, 'warn')
-      } else {
-        toastStore
-          .getState()
-          .push(`已生效：${result.activeHotkey || nextActive}`, 'success')
-      }
-      setHotkeys(result.hotkeys)
-      setEnabled(result.enabled)
-      if (result.activeHotkey) setActiveHotkey(result.activeHotkey)
-    },
-    []
-  )
+  const apply = async (enabled: boolean, hotkeys: string[], activeHotkey: string): Promise<void> => {
+    if (busy.current || !shellApi.quickSetHotkeys) return
+    busy.current = true
+    setSaving(true)
+    setError('')
+    try {
+      const result = await shellApi.quickSetHotkeys({ enabled, hotkeys, activeHotkey })
+      // The authoritative result may retain the old key when replacement failed.
+      setConfig(current => ({ ...current!, enabled: result.enabled, hotkeys: result.hotkeys,
+        activeHotkey: result.activeHotkey, registered: result.registered, error: result.error }))
+      if (!result.ok) setError(result.error || `快捷键注册失败：${result.failed.join('、')}`)
+      else if (!enabled) notify.success('Quick 呼出键已关闭，插件绑定仍可使用')
+      else if (result.registered.length) notify.success(`Quick 呼出键已生效：${result.activeHotkey}`)
+      else notify.info(result.error || '配置已保存，快捷键暂未生效')
+    } catch (cause) { setError((cause as Error).message) }
+    finally { busy.current = false; setSaving(false) }
+  }
 
   return (
-    <div className="s-card">
-      <h2>快捷启动</h2>
-      <p className="hint">
-        全局呼出命令面板，搜索本地应用与插件指令。点击卡片设为当前生效快捷键（仅注册选中的这一枚）。
-      </p>
-
-      <div className="field">
-        <div>
-          <div className="label">启用全局快捷键</div>
-          <p className="desc">关闭后仍可通过托盘或后续入口打开小窗</p>
-        </div>
-        <button
-          type="button"
-          className={`switch${enabled ? ' on' : ''}`}
-          aria-pressed={enabled}
-          onClick={() => void applyHotkeys(!enabled, hotkeys, activeHotkey)}
-        />
-      </div>
-
-      <div className="quick-hotkey-block">
-        <div className="quick-hotkey-head">
-          <div className="label">触发快捷键</div>
-          <p className="desc">点选哪一张，就只有那一枚生效。支持 Ctrl / Alt / Shift / ⌘。</p>
-        </div>
-        {loading ? (
-          <div className="hotkey-cards">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="hotkey-card empty loading" />
-            ))}
+    <div className="shortcut-settings">
+      <section className="s-card" aria-label="Quick 呼出键">
+        <h2>Quick 呼出键</h2>
+        <p className="hint">打开搜索小窗口，查找应用和插件。下方插件绑定可直接启动插件，无需搜索。</p>
+        {loading ? <p className="hint" role="status">正在读取快捷键…</p> : config && <>
+          <div className="field">
+            <div><div className="label">启用 Quick 呼出键</div><p className="desc">仅控制搜索小窗口的呼出键，不影响插件快捷键</p></div>
+            <button type="button" className={`switch${config.enabled ? ' on' : ''}`} aria-label="启用 Quick 呼出键"
+              aria-pressed={config.enabled} disabled={saving}
+              onClick={() => void apply(!config.enabled, config.hotkeys, config.activeHotkey ?? '')} />
           </div>
-        ) : (
-          <HotkeyPresetCards
-            hotkeys={hotkeys}
-            platform={platform}
-            activeHotkey={activeHotkey}
-            onChange={(next, nextActive) => void applyHotkeys(enabled, next, nextActive)}
-          />
-        )}
-      </div>
+          <div className="quick-hotkey-block">
+            <HotkeyPresetCards hotkeys={config.hotkeys} activeHotkey={config.activeHotkey ?? ''}
+              registered={config.registered ?? []} disabled={saving}
+              onChange={(keys, active) => void apply(config.enabled, keys, active)} />
+          </div>
+          {config.error && !error && <p className="shortcut-error" role="status">{config.error}</p>}
+        </>}
+        {error && <p className="shortcut-error" role="alert">{error} {!config && <button type="button" className="btn btn-ghost" onClick={() => void refresh()}>重试</button>}</p>}
+      </section>
+      <PluginShortcutSettings />
     </div>
   )
 }

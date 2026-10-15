@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createServer } from 'node:net'
+import { createServer, Server } from 'node:net'
 import { build } from 'esbuild'
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
@@ -86,6 +86,41 @@ test('socketBridge 全链路：connect → send/echo → net.data 事件 → clo
   } finally {
     echo.close()
   }
+})
+
+test('socketSend defaults to UTF-8 even for base64-shaped protocol commands; binary is explicit', async () => {
+  const { pluginId, scope } = makeScope()
+  const received = []
+  const server = createServer(socket => socket.on('data', data => received.push(data)))
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const { socketId } = await api.socketConnect(pluginId, { host: '127.0.0.1', port: server.address().port })
+    for (const command of ['PING', 'USER', 'HELO']) assert.equal(api.socketSend(pluginId, socketId, command).sent, 4)
+    assert.equal(api.socketSend(pluginId, socketId, 'AAH/', 'base64').sent, 3)
+    assert.throws(() => api.socketSend(pluginId, socketId, 'not base64!', 'base64'), /base64/)
+    assert.throws(() => api.socketSend(pluginId, socketId, 'PING', 'auto'), /encoding/)
+    const deadline = Date.now() + 2000
+    while (Buffer.concat(received).length < 15 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10))
+    assert.deepEqual(Buffer.concat(received), Buffer.concat([Buffer.from('PINGUSERHELO'), Buffer.from([0, 1, 255])]))
+  } finally { await scope.dispose(); server.close() }
+})
+
+test('failed WebSocket bridge listening releases the bridge and the next call binds a real port', async () => {
+  const { pluginId, scope } = makeScope()
+  const server = createServer()
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const listen = Server.prototype.listen
+  try {
+    const { socketId } = await api.socketConnect(pluginId, { host: '127.0.0.1', port: server.address().port })
+    Server.prototype.listen = function () { queueMicrotask(() => this.emit('error', Error('fixture listen failed'))); return this }
+    await assert.rejects(api.socketServeWs(pluginId, socketId), /fixture listen failed/)
+    Server.prototype.listen = listen
+    const opening = api.socketServeWs(pluginId, socketId)
+    await assert.rejects(api.socketServeWs(pluginId, socketId), /still starting/)
+    const endpoint = await opening
+    assert.ok(endpoint.port > 0)
+    assert.ok(endpoint.url.startsWith(`ws://127.0.0.1:${endpoint.port}/`))
+  } finally { Server.prototype.listen = listen; await scope.dispose(); server.close() }
 })
 
 test('socketBridge：连接拒绝错误可读；未知 socket 拒绝', async () => {

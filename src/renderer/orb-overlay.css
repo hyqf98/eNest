@@ -161,6 +161,11 @@ body {
 }
 
 .orb-panel::-webkit-scrollbar { display: none; }
+.orb-tab { touch-action: none; }
+.orb-tab .orb-face { cursor: grab; }
+.orb-rail.plugin-drag-session .orb-panel { transform: none; opacity: 1; transition: none; }
+.orb-rail.plugin-drag-session .orb-item { opacity: 1; transform: none; transition-delay: 0s !important; }
+.orb-rail.plugin-drag-session .orb-face { transform: none; }
 
 .orb-rail.expanded .orb-panel {
   opacity: 1;
@@ -367,6 +372,56 @@ body {
   margin-left: 0;
   width: 40px;
   height: 40px;
+  overflow: hidden;
+}
+
+/* dock 双层：默认头像（未登录 user 图形占位），hover / 设置页激活时切换为设置图标 */
+.orb-dock-layer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  transition:
+    opacity 190ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 190ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.orb-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  pointer-events: none;
+  display: block;
+}
+
+.orb-avatar-img[hidden] { display: none; }
+
+.orb-avatar-glyph { color: var(--text-2, #5c6578); }
+
+.orb-dock-icon {
+  opacity: 0;
+  transform: rotate(-40deg) scale(0.55);
+}
+
+.orb-settings:hover .orb-dock-avatar,
+.orb-settings:focus-visible .orb-dock-avatar,
+.orb-settings.active .orb-dock-avatar {
+  opacity: 0;
+  transform: scale(0.55);
+}
+
+.orb-settings:hover .orb-dock-icon,
+.orb-settings:focus-visible .orb-dock-icon,
+.orb-settings.active .orb-dock-icon {
+  opacity: 1;
+  transform: none;
+}
+
+/* low 档：切换不做过渡，直接跳变 */
+:root[data-anim="low"] .orb-dock-layer {
+  transition: none;
 }
 
 /* 设置钮不显示选中态外圈（与顶部 Tab 模式的设置入口保持一致） */
@@ -436,12 +491,24 @@ body {
   transform: scale(1.16);
 }
 
+/* Drag owns transforms through GSAP. This outranks every intensity tier so CSS
+ * cannot add a second transform interpolation behind pointer-driven movement. */
+:root[data-anim] .orb-rail.plugin-drag-session .orb-panel { transition: none; }
+:root[data-anim] .orb-rail.plugin-drag-session .orb-item {
+  transition: opacity var(--orb-feedback-duration, 180ms) ease;
+  transition-delay: 0s;
+}
+:root[data-anim] .orb-rail.plugin-drag-session .orb-face {
+  transform: none;
+  transition: background var(--orb-feedback-duration, 180ms) ease;
+}
+
 /* 系统减少动态只取消运动，选中/悬停的外圈始终保留。 */
 @media (prefers-reduced-motion: reduce) {
   .orb-rail *, .orb-rail *::before, .orb-rail *::after {
     transition: none !important;
   }
-  .orb-panel, .orb-item,
+  .orb-panel, .orb-rail:not(.plugin-drag-session) .orb-item,
   .orb-rail .orb-face:hover,
   .orb-rail .orb-face:active,
   .orb-rail .orb-face:focus-visible,

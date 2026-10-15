@@ -1,6 +1,6 @@
 /** Kafka 驱动（kafkajs 直连）。运行于 mwUtility。
  * 查询/监听共用无 autoCommit 的临时 consumer（随机 groupId，绝不污染业务消费位点）。 */
-import { Kafka, ConfigResourceTypes, type Admin, type Consumer, type Producer, type KafkaMessage, type SASLOptions } from 'kafkajs'
+import kafkajs, { type Kafka as KafkaClient, type Admin, type Consumer, type Producer, type KafkaMessage, type SASLOptions } from 'kafkajs'
 import type {
   MwClient,
   MwConnectionConfig,
@@ -17,6 +17,9 @@ import type {
 } from '@shared/types/mw-workbench'
 import type { MwDriver, MwDriverContext, MwDriverHandle, MwTestResult } from '@main/middleware/types'
 import { unsupported } from '@main/middleware/types'
+
+// KafkaJS is CommonJS; its computed exports are not available as ESM named imports.
+const { Kafka, ConfigResourceTypes } = kafkajs
 
 const CAPS: Record<string, { state: 'available' | 'unsupported'; reason?: string }> = {
   topicCrud: { state: 'available' },
@@ -40,7 +43,7 @@ const CAPS: Record<string, { state: 'available' | 'unsupported'; reason?: string
 
 /** 惰性资源池：admin 常驻，producer/query consumer 按需 */
 interface KafkaRuntime {
-  kafka: Kafka
+  kafka: KafkaClient
   admin: Admin
   producer?: Producer
   liveConsumers: Set<Consumer>
@@ -88,7 +91,7 @@ function mapMessage(topic: string, partition: number, message: KafkaMessage): Mw
   }
 }
 
-function buildClient(config: MwConnectionConfig, password?: string, suffix = ''): Kafka {
+function buildClient(config: MwConnectionConfig, password?: string, suffix = ''): KafkaClient {
   const mechanism = config.saslMechanism ?? 'none'
   const sasl = (mechanism === 'none' ? undefined : mechanism === 'oauthbearer'
     ? (() => { throw new Error('oauthbearer 暂不支持，请使用 SCRAM/PLAIN 或提交需求') })()
@@ -136,30 +139,42 @@ async function queryConsumer(
       } else start = low
       targets.set(p.partition, Math.max(low, start))
     }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let idle: ReturnType<typeof setTimeout> | undefined
+    let seekTimer: ReturnType<typeof setTimeout> | undefined
+    const clearTimers = () => { clearTimeout(timer); clearTimeout(idle); clearTimeout(seekTimer) }
     await new Promise<void>((resolve, reject) => {
       let settled = false
-      let received = 0
-      const finish = () => { if (!settled) { settled = true; resolve() } }
-      const timer = setTimeout(finish, 20000)
-      const idle = setTimeout(finish, 4000)
-      const markIdle = () => { clearTimeout(idle); setTimeout(finish, 2500) }
+      const finish = (error?: unknown) => {
+        if (settled) return
+        settled = true
+        clearTimers()
+        if (error !== undefined) reject(error)
+        else resolve()
+      }
+      timer = setTimeout(finish, 20000)
+      idle = setTimeout(finish, 4000)
+      // 每条消息都替换空闲截止时间；不能遗留旧 timer 提前结束活跃查询。
+      const markIdle = () => { clearTimeout(idle); idle = setTimeout(finish, 2500) }
       consumer.run({
         autoCommit: false,
         eachMessage: async ({ topic, partition, message }) => {
+          if (settled) return
           if (input.partition !== undefined && partition !== input.partition) return
           if (input.keyContains && !(message.key?.toString('utf8') ?? '').includes(input.keyContains)) { markIdle(); return }
           messages.push(mapMessage(topic, partition, message))
           markIdle()
-          if (messages.length >= max) { clearTimeout(timer); finish() }
+          if (messages.length >= max) finish()
         }
-      }).catch(reject)
+      }).catch(finish)
       // seek 必须在 run 之后；对未分配分区 kafkajs 会排队应用
-      setTimeout(() => {
+      seekTimer = setTimeout(() => {
+        if (settled) return
         for (const [partition, offset] of targets) {
           try { consumer.seek({ topic: input.topic, partition, offset: String(offset) }) } catch { /* 分区可能未分配，忽略 */ }
         }
       }, 80)
-    }).finally(() => clearTimeout(undefined))
+    }).finally(clearTimers)
     if (input.keyContains && messages.length < max && !input.partition) {
       // key 过滤导致不足时不再补拉：Kafka 无 key 索引，完整扫描代价过高
     }

@@ -31,6 +31,7 @@ import { settingsStore } from '@main/settings/SettingsStore'
 import { themePackRegistry } from '@main/theme/themePacks'
 import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { clearFocusTimer } from '@main/timer/focusTimerService'
+import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
 
 export interface UninstallResult {
   ok: boolean
@@ -106,6 +107,7 @@ async function uninstallLocked(id: string): Promise<UninstallResult> {
   }
 
   // 5) 删除 ~/.eNest/plugins/{id} 整棵版本树
+  let pluginFilesRemoved = false
   try {
     const pluginDir = join(getAppPaths().plugins, id)
     if (existsSync(pluginDir)) {
@@ -114,10 +116,24 @@ async function uninstallLocked(id: string): Promise<UninstallResult> {
     } else {
       logInfo('uninstall', `plugin dir already absent ${pluginDir}`)
     }
+    pluginFilesRemoved = true
   } catch (err) {
     const msg = `remove plugin dir failed: ${(err as Error).message}`
     errors.push(msg)
     logError('uninstall', `${id} ${msg}`)
+  }
+
+  // 删除失败时保留仍安装着的插件设置；成功移除后不让同 ID 重装继承授权。
+  if (pluginFilesRemoved) {
+    try {
+      await settingsStore.removePluginSettings(id)
+      revalidateClipboardPolling()
+      logInfo('uninstall', `cleared plugin settings and permissions ${id}`)
+    } catch (err) {
+      const msg = `clear plugin settings failed: ${(err as Error).message}`
+      errors.push(msg)
+      logWarn('uninstall', `${id} ${msg}`)
+    }
   }
 
   // 6) 清空 storage.local（enest.db plugin_storage 行）+ 会话快照；兼容删除旧 JSON 与迁移残留

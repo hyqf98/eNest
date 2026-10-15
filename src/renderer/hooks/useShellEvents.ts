@@ -13,6 +13,9 @@ import { toastStore } from '@renderer/hooks/useToast'
 function handleEvent(payload: ShellEventPayload): void {
   const store = useShellStore.getState()
   switch (payload.type) {
+    case 'plugin-log':
+      store.appendLog(payload.level, `[${payload.pluginId}] ${payload.message}`)
+      break
     case 'plugin-open-settings':
       store.setSettingsTab(`p:${payload.pluginId}`)
       store.setView('settings')
@@ -32,7 +35,7 @@ function handleEvent(payload: ShellEventPayload): void {
       toastStore.getState().push(payload.message, payload.toastType ?? 'info')
       break
     case 'theme-changed':
-      /* useTheme owns DOM apply; event is informational */
+      void useThemeStore.getState().refresh()
       break
     case 'theme-packs-changed':
       // 插件 theme.register / 卸载后刷新设置页主题包下拉

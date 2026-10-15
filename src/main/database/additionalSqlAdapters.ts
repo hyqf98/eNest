@@ -1,3 +1,5 @@
+import { pinMssqlSession } from '@main/database/mssqlSession'
+import type { QueryResult } from '@shared/types/ssh-db'
 import type { DbDriver } from '@main/database/drivers'
 import { adapterBase, endpoint, objectResult, tableResult } from '@main/database/adapterUtils'
 import { normalizeLimit, quoteIdentifier, sqlTokens, wireValue, ResultBudget } from '@main/database/queryPolicy'
@@ -46,14 +48,24 @@ export function oracleAdapter(): DbDriver {
     const oracle = await import('oracledb'), started = Date.now(), max = normalizeLimit(opts?.maxRows), connection = h.raw as import('oracledb').Connection
     const abort = () => { void driver.cancel!(h) }; opts?.signal?.throwIfAborted(); opts?.signal?.addEventListener('abort', abort, { once: true })
     connection.callTimeout = opts?.timeoutMs || 30000
+    const hadActualTransaction = connection.transactionInProgress
     try {
-      const result = await connection.execute(sql, (opts?.params || []) as import('oracledb').BindParameters, { resultSet: true, outFormat: oracle.OUT_FORMAT_ARRAY, autoCommit: !h.runtime?.transaction && !h.readOnly,
+      const result = await connection.execute<unknown[]>(sql, (opts?.params || []) as import('oracledb').BindParameters, { resultSet: true, outFormat: oracle.OUT_FORMAT_ARRAY, autoCommit: !h.runtime?.transaction && !h.readOnly,
         fetchTypeHandler: metadata => metadata.dbType === oracle.DB_TYPE_NUMBER ? { type: oracle.STRING } : undefined })
-      const rows: unknown[][] = []
-      try { if (result.resultSet) { rows.push(...await result.resultSet.getRows(max + 1) as unknown[][]) } }
-      finally { if (result.resultSet) await result.resultSet.close() }
-      return { ...tableResult(sql, started, result.metaData?.map(m => m.name) || [], rows, max), affectedRows: result.rowsAffected }
-    } finally { opts?.signal?.removeEventListener('abort', abort) }
+      const cursors = [result.resultSet, ...(result.implicitResults || [])].filter((cursor): cursor is import('oracledb').ResultSet<unknown[]> => !!cursor && 'getRows' in cursor && typeof cursor.getRows === 'function')
+      const results: QueryResult[] = []
+      try {
+        for (const cursor of cursors) results.push(tableResult(sql, started, cursor.metaData?.map(column => column.name) || [], await cursor.getRows(max + 1) as unknown[][], max))
+      } finally { await Promise.allSettled(cursors.map(cursor => cursor.close())) }
+      const first = results[0] || tableResult(sql, started, result.metaData?.map(column => column.name) || [], [], max)
+      first.affectedRows = result.rowsAffected
+      return { ...first, ...(results.length > 1 ? { results } : {}) }
+    } finally {
+      opts?.signal?.removeEventListener('abort', abort)
+      // Failed PL/SQL may leave pending writes even with autoCommit enabled. Keep an
+      // accessible commit/rollback entry; a virtual BEGIN with no DML remains active.
+      if (!h.readOnly && (connection.transactionInProgress || hadActualTransaction)) h.runtime!.transaction = !!connection.transactionInProgress
+    }
   }
   driver.transaction = async (h, operation) => {
     const connection = h.raw as import('oracledb').Connection
@@ -73,34 +85,67 @@ export function mssqlAdapter(): DbDriver {
     const mssql = await import('mssql')
     const pool = await new mssql.ConnectionPool({ server: config.host || '127.0.0.1', port: config.port ?? 1433, user: config.username, password, database: config.database,
       connectionTimeout: 10000, requestTimeout: 30000, pool: { max: 5, min: 0 }, options: { encrypt: config.options?.ssl !== false, trustServerCertificate: config.options?.rejectUnauthorized === false, appName: 'eNest', readOnlyIntent: !!config.options?.readOnly } }).connect()
-    return { id: 'mssql', raw: pool, config, password, database: config.database, readOnly: !!config.options?.readOnly, runtime: {} }
+    try { const session = await pinMssqlSession(pool); return { id: 'mssql', raw: pool, config, password, database: config.database, readOnly: !!config.options?.readOnly, runtime: { session, transaction: false } } }
+    catch (error) { await pool.close(); throw error }
   }
-  driver.close = async h => { await (h.raw as import('mssql').ConnectionPool).close(); h.closed = true }
+  driver.close = async h => { try { if (h.runtime?.transaction) await driver.transaction!(h, 'rollback') } finally { (h.runtime!.session as Awaited<ReturnType<typeof pinMssqlSession>>).release(); await (h.raw as import('mssql').ConnectionPool).close(); h.closed = true } }
   driver.cancel = async h => { const request = h.runtime?.request as import('mssql').Request | undefined; if (!request) return false; request.cancel(); return true }
+  const refreshTransaction = async (h: Parameters<DbDriver['execute']>[0]) => {
+    const mssql = await import('mssql'), parent = (h.runtime!.session as Awaited<ReturnType<typeof pinMssqlSession>>).parent
+    const request = new mssql.Request(parent)
+    const timeout = setTimeout(() => request.cancel(), 2000)
+    let state: import('mssql').IResult<{ transaction_depth: number }>
+    try { state = await request.query('SELECT @@TRANCOUNT AS transaction_depth') }
+    finally { clearTimeout(timeout) }
+    const depth = Number(state.recordset[0]?.transaction_depth || 0)
+    h.runtime!.transactionDepth = depth; h.runtime!.transaction = depth > 0
+  }
   driver.execute = async (h, sql, opts) => {
     const mssql = await import('mssql'), started = Date.now(), max = normalizeLimit(opts?.maxRows)
-    const request = h.runtime?.transactionHandle ? new mssql.Request(h.runtime.transactionHandle as import('mssql').Transaction) : new mssql.Request(h.raw as import('mssql').ConnectionPool)
+    const parent = (h.runtime!.session as Awaited<ReturnType<typeof pinMssqlSession>>).parent
+    const request = new mssql.Request(parent)
     h.runtime!.request = request; request.stream = true; request.arrayRowMode = true
     if (opts?.params) for (const [key, value] of Object.entries(opts.params)) request.input(key, value)
     const abort = () => request.cancel(); opts?.signal?.throwIfAborted(); opts?.signal?.addEventListener('abort', abort, { once: true })
     try {
-      return await new Promise((resolve, reject) => {
-        const rows: unknown[][] = []; const budget = new ResultBudget(); let names: string[] = [], capped = false, failure: unknown
-        request.on('recordset', columns => { const metadata = Object.values(columns) as Array<{ name: string; type: unknown }>; names = metadata.map(column => column.name); if (metadata.some(column => [mssql.Decimal,mssql.Numeric,mssql.Money,mssql.SmallMoney].includes(column.type as never))) { failure = new Error('For exact SQL Server decimal/money values, CAST those columns AS varchar(80) in the query; this client cannot preserve their precision automatically'); request.cancel() } })
-        request.on('row', row => {
-          if (rows.length >= max) { capped = true; request.cancel(); return }
-          if (failure) return
-          try { const safe = (row as unknown[]).map(wireValue); budget.add(safe); rows.push(safe) } catch (error) { failure = error; request.cancel() }
+      return await new Promise<QueryResult>((resolve, reject) => {
+        const results: QueryResult[] = [], budget = new ResultBudget()
+        let current: QueryResult | undefined, failure: unknown
+        request.on('recordset', columns => {
+          const metadata = Object.values(columns) as Array<{ name: string; type: unknown }>
+          current = tableResult(sql, started, metadata.map(column => column.name), [], max); results.push(current)
+          if (metadata.some(column => [mssql.Decimal, mssql.Numeric, mssql.Money, mssql.SmallMoney].includes(column.type as never))) { failure = new Error('For exact SQL Server decimal/money values, CAST those columns AS varchar(80) in the query; this client cannot preserve their precision automatically'); request.cancel() }
         })
-        request.on('error', error => { if (failure || !capped || opts?.signal?.aborted) reject(failure || error) })
-        request.on('done', result => failure ? reject(failure) : resolve({ ...tableResult(sql, started, names, rows, max), truncated: capped, affectedRows: result.rowsAffected.reduce((a: number, b: number) => a + b, 0) }))
-        void request.query(sql).catch(error => { if (failure) reject(failure); else if (capped && !opts?.signal?.aborted) resolve({ ...tableResult(sql, started, names, rows, max), truncated: true }); else reject(error) })
+        request.on('row', row => {
+          if (failure || !current) return
+          if (current.rows.length >= max) { current.truncated = true; return }
+          try { const safe = (row as unknown[]).map(wireValue); budget.add(safe); current.rows.push(safe); current.rowCount++ }
+          catch (error) { failure = error; request.cancel() }
+        })
+        request.on('error', error => { failure ||= error })
+        request.on('done', result => {
+          if (failure) { reject(failure); return }
+          for (const item of results) item.durationMs = Date.now() - started
+          const first = results[0] || tableResult(sql, started, [], [], max)
+          first.affectedRows = result.rowsAffected.reduce((a: number, b: number) => a + b, 0)
+          resolve({ ...first, ...(results.length > 1 ? { results } : {}) })
+        })
+        // batch preserves DECLARE/temp-table scope and CREATE PROCEDURE batch rules.
+        // Reaching a row display limit discards extra rows; it never cancels later writes.
+        void request.batch(sql).catch(error => reject(failure || error))
       })
-    } finally { opts?.signal?.removeEventListener('abort', abort); h.runtime!.request = undefined }
+    } finally {
+      opts?.signal?.removeEventListener('abort', abort)
+      h.runtime!.request = undefined
+      // A procedure or XACT_ABORT may finish a transaction even on an error. Probe on the
+      // same physical session before exposing the console's commit/rollback state again.
+      try { await refreshTransaction(h) }
+      catch { h.closed = true; throw new Error('SQL Server transaction state is unavailable; reconnect this console') }
+    }
   }
   driver.transaction = async (h, operation) => {
-    if (operation === 'begin') { if (h.runtime?.transactionHandle) throw new Error('Transaction already active'); const mssql = await import('mssql'); const transaction = new mssql.Transaction(h.raw as import('mssql').ConnectionPool); await transaction.begin(); h.runtime!.transactionHandle = transaction; h.runtime!.transaction = true }
-    else { const transaction = h.runtime?.transactionHandle as import('mssql').Transaction | undefined; if (!transaction) throw new Error('No active transaction'); if (operation === 'commit') await transaction.commit(); else await transaction.rollback(); h.runtime!.transactionHandle = undefined; h.runtime!.transaction = false }
+    if ((operation === 'begin') === !!h.runtime?.transaction) throw new Error(operation === 'begin' ? 'Transaction already active' : 'No active transaction')
+    await driver.execute(h, operation === 'begin' ? 'BEGIN TRANSACTION' : operation === 'commit' ? 'COMMIT TRANSACTION' : 'ROLLBACK TRANSACTION')
   }
   driver.listSchemas = async h => (await driver.execute(h, 'SELECT name FROM sys.schemas')).rows.map(r => String(r[0]))
   driver.listTables = async (h, scope) => (await driver.execute(h, 'SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = @schema', { params: { schema: scope.schema || 'dbo' } })).rows.map(r => ({ name: String(r[0]), type: r[1] === 'VIEW' ? 'view' : 'table', schema: scope.schema || 'dbo' }))

@@ -8,7 +8,10 @@
 import type { AnimationLevel } from '@shared/types/plugin'
 import type { OrbRailState } from '@shared/types/ipc'
 import { LUCIDE_PATHS, lucideSvgMarkup } from '@renderer/icons.paths'
+import { applyLevelToDefaults } from '@renderer/gsap/marketMotion'
+import { bindPluginDragSource, bindPluginDropTarget } from '@renderer/services/pluginWindowDrag'
 import './orb-overlay.css'
+import '@renderer/styles/plugin-window-drag.css'
 
 type OrbState = OrbRailState
 type Part = 'rail' | 'dock'
@@ -37,6 +40,7 @@ function currentAnimLevel(): AnimationLevel {
 }
 
 function applyAnimLevel(level: AnimationLevel): void {
+  applyLevelToDefaults(level)
   if (document.documentElement.dataset.anim !== level) {
     document.documentElement.dataset.anim = level
   }
@@ -91,11 +95,15 @@ let state: OrbState = {
   activeTabId: null,
   animationLevel: 'medium',
   theme: { mode: 'light', tokens: {} },
+  profile: null,
   tabs: []
 }
 let expanded = false
 let closeTimer: number | null = null
 let narrowTimer: number | null = null
+let dragActive = false
+let dropTarget: ReturnType<typeof bindPluginDropTarget> | null = null
+const dragDisposers: Array<() => void> = []
 
 function cancelClose(): void {
   if (closeTimer != null) {
@@ -105,6 +113,7 @@ function cancelClose(): void {
 }
 
 function scheduleClose(): void {
+  if (dragActive) return
   cancelClose()
   closeTimer = window.setTimeout(() => setExpanded(false), COLLAPSE_DELAY_MS)
 }
@@ -121,11 +130,12 @@ function applyExpanded(): void {
   root.classList.toggle('expanded', expanded)
   // 入列错落；收起不加 delay，整列一起退更跟手
   root.querySelectorAll<HTMLElement>('.orb-item').forEach((el, i) => {
-    el.style.transitionDelay = expanded ? `${itemStaggerMs(i)}ms` : '0ms'
+    el.style.transitionDelay = expanded && !dragActive ? `${itemStaggerMs(i)}ms` : '0ms'
   })
 }
 
 function setExpanded(v: boolean): void {
+  if (!v && dragActive) return
   if (expanded === v) return
   expanded = v
   if (v) {
@@ -143,10 +153,12 @@ function setExpanded(v: boolean): void {
       void shell?.setOrbRailExpanded?.(false).catch(() => undefined)
     }, narrowDelayMs())
   }
+  dropTarget?.refresh()
 }
 
-/** dock 设置钮（Lucide settings，16px / 1.6 描边，与壳子 chrome 图标同源） */
+/** dock 设置钮：默认显示账号头像（未登录为 user 图形占位），hover / 设置页激活时切换为设置图标 */
 const SETTINGS_ICON = lucideSvgMarkup(LUCIDE_PATHS.settings)
+const USER_ICON = lucideSvgMarkup(LUCIDE_PATHS.user)
 
 function buildChrome(): void {
   root.innerHTML =
@@ -163,7 +175,11 @@ function buildChrome(): void {
       : `
     <div class="orb-dock" id="orb-dock">
       <button type="button" class="orb-face orb-settings" data-settings="1" title="设置" aria-label="设置">
-        ${SETTINGS_ICON}
+        <span class="orb-dock-layer orb-dock-avatar">
+          <img class="orb-avatar-img" alt="" draggable="false" hidden />
+          <span class="orb-avatar-glyph">${USER_ICON}</span>
+        </span>
+        <span class="orb-dock-layer orb-dock-icon">${SETTINGS_ICON}</span>
       </button>
     </div>
   `
@@ -188,7 +204,22 @@ let previousDots = ''
 
 function syncPanel(): void {
   if (PART !== 'rail') {
-    root.querySelector('[data-settings]')?.classList.toggle('active', state.view === 'settings')
+    const btn = root.querySelector('[data-settings]')
+    if (btn) {
+      const active = state.view === 'settings'
+      btn.classList.toggle('active', active)
+      const avatar = state.profile?.avatar ?? ''
+      const img = btn.querySelector<HTMLImageElement>('.orb-avatar-img')
+      const glyph = btn.querySelector<HTMLElement>('.orb-avatar-glyph')
+      if (img && glyph) {
+        if (avatar && (img.getAttribute('src') ?? '') !== avatar) img.src = avatar
+        img.hidden = !avatar
+        glyph.hidden = Boolean(avatar)
+      }
+      const label = state.profile?.name
+      btn.setAttribute('title', label ? `${label} · 设置` : '设置')
+      btn.setAttribute('aria-label', label ? `${label} · 设置` : '设置')
+    }
     return
   }
   const panel = document.getElementById('orb-panel')
@@ -208,6 +239,7 @@ function syncPanel(): void {
   const items: OrbItemSpec[] = [{ key: 'home', kind: 'home', title: '首页', active: homeActive }]
   for (const tab of state.tabs) {
     items.push({ key: `tab:${tab.id}`, kind: 'tab', tabId: tab.id, title: tab.title,
+      pluginId: tab.pluginId,
       color: tab.color, glyph: tab.glyph, icon: tab.icon, badge: tab.badge,
       active: tab.id === state.activeTabId && state.view === 'plugin' })
   }
@@ -269,6 +301,7 @@ function syncPanel(): void {
       panelItems.set(item.key, node)
     }
     node.className = `orb-item orb-${item.kind === 'separator' ? 'contrib-sep' : item.kind}${item.active ? ' active' : ''}`
+    if (item.kind === 'tab' && item.pluginId) node.dataset.pluginId = item.pluginId
     const face = node.querySelector<HTMLButtonElement>('.orb-face')
     if (face) {
       face.title = item.title ?? ''
@@ -297,6 +330,40 @@ function syncPanel(): void {
     if (panel.children[index] !== node) panel.insertBefore(node, panel.children[index] ?? null)
   })
   applyExpanded()
+  dropTarget?.refresh()
+}
+
+function bindDrag(): void {
+  if (PART !== 'rail') return
+  const zone = document.getElementById('orb-tabs-zone')
+  const panel = document.getElementById('orb-panel')
+  if (!zone || !panel) return
+  dragDisposers.push(bindPluginDragSource(zone, target => {
+    if (target.closest('[data-close]')) return null
+    const item = target.closest<HTMLElement>('[data-plugin-id]')
+    // Capture the actionable button: capturing its wrapper retargets ordinary clicks away from data-activate.
+    const element = item?.querySelector<HTMLElement>('[data-activate]')
+    return element && item?.dataset.pluginId ? { element, pluginId: item.dataset.pluginId } : null
+  }))
+  dropTarget = bindPluginDropTarget(zone, {
+    kind: 'shell', axis: 'y', scroller: panel,
+    enabled: () => state.tabStyle === 'orb',
+    items: () => Array.from(panel.querySelectorAll<HTMLElement>('[data-plugin-id]')),
+    onFeedback(event) {
+      const changed = dragActive !== event.active
+      dragActive = event.active
+      root.classList.toggle('plugin-drag-session', dragActive)
+      if (dragActive) { cancelClose(); cancelNarrow(); setExpanded(true) }
+      else if (changed) scheduleClose()
+      if (changed) { applyExpanded(); dropTarget?.refresh() }
+    }
+  })
+  dragDisposers.push(() => { dropTarget?.dispose(); dropTarget = null })
+}
+
+function disposeDrag(): void {
+  cancelClose(); cancelNarrow()
+  for (const dispose of dragDisposers.splice(0)) dispose()
 }
 
 function bindEvents(): void {
@@ -387,6 +454,7 @@ async function boot(): Promise<void> {
   root.className = 'orb-rail'
   buildChrome()
   bindEvents()
+  bindDrag()
 
   shell?.onOrbEvent?.((payload) => {
     if (payload?.state) applyState(payload.state)
@@ -400,6 +468,7 @@ async function boot(): Promise<void> {
         activeTabId: s.activeTabId,
         animationLevel: isAnimLevel(s.animationLevel) ? s.animationLevel : 'medium',
         theme: (s.theme as OrbState['theme']) ?? { mode: 'light', tokens: {} },
+        profile: (s.profile as OrbState['profile']) ?? null,
         tabs: (s.tabs as OrbState['tabs']) ?? [],
         contribEntries: (s.contribEntries as OrbState['contribEntries']) ?? []
       })
@@ -411,3 +480,5 @@ async function boot(): Promise<void> {
 }
 
 void boot()
+window.addEventListener('pagehide', disposeDrag, { once: true })
+if (import.meta.hot) import.meta.hot.dispose(disposeDrag)

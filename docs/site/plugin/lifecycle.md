@@ -23,6 +23,8 @@
 
 `beforeClose` / `beforeSuspend` 中保存必要草稿并等待 Promise。无异步工作时 preload 通过 microtask 确认，不使用固定 50ms 延迟。关闭有期限；休眠保存失败时不应静默丢弃业务状态。不要把关闭回调用作唯一数据保存时机。
 
+数据保存双保险（详见 [API — 壳通知](api.md#壳通知shellnotice)）：编辑时 `enest.setDirty(true)`、落盘后置 `false`，壳子更新重启前据此检测未保存数据；`enest.onSaveRequested(cb)` 在壳一键保存（`save.requested` 通知）时触发，回调返回 Promise，settle 后壳才继续（超时兜底放行）。保存必须幂等——`save.requested`、`beforeClose`、`beforeSuspend` 可能对同一数据先后触发。
+
 `storage.session` 用于同一逻辑会话的临时状态和休眠恢复；重载、关闭、应用重启是否保留由会话身份及构建修订控制，不能替代持久存储。需要重启保留的数据使用 `enest.storage.get/set`（基础能力，无需声明或授权）；生产包更新不恢复旧构建的不兼容检查点。
 
 ## 宿主预算

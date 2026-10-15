@@ -31,3 +31,16 @@ test('surface navigation is pinned and safe shell links cannot create privileged
  assert.equal(api.calls.length,0)
  assert.deepEqual(wc.open({url:'https://example.com/help'}),{action:'deny'});assert.deepEqual(api.calls,['https://example.com/help'])
 })
+
+test('detached chrome has only the seven instance-window commands, no shell read or write access', () => {
+ const {event} = surface('detached')
+ for (const channel of ['PluginWindowState', 'PluginWindowCommand', 'PluginDragBegin', 'PluginDragArm', 'PluginDragUpdate', 'PluginDragEnd', 'PluginDragTargets']) {
+  assert.doesNotThrow(() => api.assertSurfaceSender(event, api.IpcChannels[channel]))
+ }
+ for (const channel of ['ShellGetSettings', 'ShellGetPlugins', 'ShellSetSettings', 'WindowClose', 'QuickInput', 'ShellOpenPlugin']) {
+  assert.throws(() => api.assertSurfaceSender(event, api.IpcChannels[channel]), /capability/)
+ }
+ assert.equal(api.getTrustedSurfaceRole(event.sender.id), 'detached')
+ event.sender.emit('destroyed')
+ assert.equal(api.getTrustedSurfaceRole(event.sender.id), null)
+})

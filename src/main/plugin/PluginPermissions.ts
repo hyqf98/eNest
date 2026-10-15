@@ -41,14 +41,16 @@ export async function confirmPluginOperation(pluginId: string, message: string, 
   if (confirmationPending.has(scope)) throw new Error('another operation is awaiting native confirmation')
   confirmationPending.add(scope)
   let releaseInteraction = (): void => {}
+  let releaseWindow = (): void => {}
   try {
     const [{ dialog }, { pluginHost }, { acquireQuickInteraction }] = await Promise.all([
       import('electron'), import('@main/plugin/PluginHost'), import('@main/window/createQuickWindow')
     ])
     const win = pluginHost.getContainerWindow(pluginId)
     if (!scope.isCurrent() || scope.isClosing || !win || win.isDestroyed()) throw new Error('plugin runtime unavailable')
+    releaseWindow = pluginHost.acquireWindowInteraction(pluginId)
     releaseInteraction = acquireQuickInteraction()
     const result = await dialog.showMessageBox(win, { type: 'warning', message, detail: `插件：${pluginId}\n${detail.slice(0, 1000)}`, buttons: ['取消', '确认操作'], defaultId: 0, cancelId: 0, signal: scope.signal })
     if (result.response !== 1 || !scope.isCurrent() || scope.isClosing) throw new Error('operation cancelled')
-  } finally { releaseInteraction(); confirmationPending.delete(scope) }
+  } finally { releaseWindow(); releaseInteraction(); confirmationPending.delete(scope) }
 }

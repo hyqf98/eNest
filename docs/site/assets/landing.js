@@ -1,510 +1,438 @@
-/**
- * eNest 官网 — 零依赖交互
- * 导航 / Hero 编排（fonts.ready 门控逐行揭示）/ 光标聚光 / 磁性 CTA /
- * 滚动揭示双轨（IO + view-timeline）/ 剧场场景 FLIP / VT 主题切换 / 壳子微动效
- * 动效原则：只动 transform / opacity / 颜色；reduced-motion 一律跳终态。
- */
-(function () {
+/* Native scroll is the driver. One active-scene frame loop; no wheel interception. */
+(() => {
   "use strict";
-
-  function ready(fn) {
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", fn);
-    } else {
-      fn();
+  const root = document.documentElement;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+  const desktop = matchMedia("(min-width: 900px) and (min-height: 650px)");
+  const clamp = (value, min = 0, max = 1) =>
+    Math.min(max, Math.max(min, value));
+  const motion = {
+    high: { duration: 340, enter: 850 },
+    medium: { duration: 280, enter: 450 },
+    low: { duration: 0, enter: 0 },
+  };
+  const duration = () => motion[root.dataset.anim || "high"].duration;
+  const animate = (element, frames, options = {}) => {
+    if (!element?.animate || reduce.matches) return;
+    return element.animate(frames, {
+      duration: duration(),
+      easing: "cubic-bezier(.22,1,.36,1)",
+      ...options,
+    });
+  };
+  root.classList.add("has-js");
+  const nav = document.querySelector(".nav-links");
+  const navToggle = document.querySelector(".nav-toggle");
+  const closeNav = () => {
+    nav?.classList.remove("is-open");
+    navToggle?.setAttribute("aria-expanded", "false");
+  };
+  navToggle?.addEventListener("click", () => {
+    const open = !nav.classList.contains("is-open");
+    nav.classList.toggle("is-open", open);
+    navToggle.setAttribute("aria-expanded", String(open));
+  });
+  nav?.addEventListener("click", (event) => {
+    if (event.target.closest("a")) closeNav();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && nav?.classList.contains("is-open")) {
+      closeNav();
+      navToggle.focus();
     }
-  }
-
-  ready(function () {
-    initTheme();
-    initNav();
-    initHeroIntro();
-    initSpotlight();
-    initMagnetic();
-    initReveal();
-    initRail();
-    initWaterfallCards();
-    initTheater();
-    initIsoFocus();
-    initHeroTabs();
   });
 
-  function reduceMotion() {
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  }
-
-  function finePointer() {
-    return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-  }
-
-  /* ——— 主题：默认跟随系统；切换走 View Transition 圆形扩散 ——— */
-  function initTheme() {
-    var root = document.documentElement;
-    var stored = null;
-    try {
-      stored = localStorage.getItem("enest-site-theme");
-    } catch (e) {}
-
-    function systemTheme() {
-      return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-    }
-
-    function apply(theme) {
-      root.setAttribute("data-theme", theme);
-    }
-
-    apply(stored === "light" || stored === "dark" ? stored : systemTheme());
-
-    try {
-      window
-        .matchMedia("(prefers-color-scheme: light)")
-        .addEventListener("change", function (e) {
-          var cur = null;
-          try {
-            cur = localStorage.getItem("enest-site-theme");
-          } catch (err) {}
-          if (cur !== "light" && cur !== "dark") {
-            apply(e.matches ? "light" : "dark");
-          }
-        });
-    } catch (e) {}
-
-    /** VT 扩散：clip-path circle 从点击坐标扩到最远角；不支持/reduced-motion 瞬切 */
-    function applyWithReveal(theme, x, y) {
-      var canVT =
-        document.startViewTransition &&
-        !reduceMotion() &&
-        typeof CSS !== "undefined" &&
-        CSS.supports &&
-        CSS.supports("view-transition-name: root");
-
-      if (!canVT) {
-        apply(theme);
+  const dialog = document.querySelector(".image-dialog");
+  let returnFocus;
+  document.querySelectorAll("[data-zoom]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!dialog?.showModal) {
+        window.open(button.dataset.zoom, "_blank", "noopener");
         return;
       }
-
-      var r = Math.hypot(
-        Math.max(x, window.innerWidth - x),
-        Math.max(y, window.innerHeight - y)
-      );
-
-      var transition = document.startViewTransition(function () {
-        apply(theme);
-      });
-
-      transition.ready.then(function () {
-        root.classList.add("is-vt-expanding");
-        root.style.setProperty("--vt-x", x + "px");
-        root.style.setProperty("--vt-y", y + "px");
-        root.style.setProperty("--vt-r", r + "px");
-      });
-      transition.finished.finally(function () {
-        root.classList.remove("is-vt-expanding");
-        root.style.removeProperty("--vt-x");
-        root.style.removeProperty("--vt-y");
-        root.style.removeProperty("--vt-r");
-      });
+      returnFocus = button;
+      const img = dialog.querySelector("img");
+      img.src = button.dataset.zoom;
+      img.alt = button.dataset.caption;
+      dialog.querySelector("h2").textContent = button.dataset.caption;
+      dialog.showModal();
+    });
+  });
+  dialog
+    ?.querySelector("[data-close-dialog]")
+    .addEventListener("click", () => dialog.close());
+  dialog?.addEventListener("click", (event) => {
+    if (event.target === dialog) {
+      const rect = dialog.getBoundingClientRect();
+      if (
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom
+      )
+        dialog.close();
     }
+  });
+  dialog?.addEventListener("close", () =>
+    returnFocus?.focus({ preventScroll: true }),
+  );
 
-    document.querySelectorAll("[data-theme-toggle]").forEach(function (btn) {
-      btn.addEventListener("click", function (e) {
-        var next = root.getAttribute("data-theme") === "light" ? "dark" : "light";
-        var rect = btn.getBoundingClientRect();
-        var x = e.clientX || rect.left + rect.width / 2;
-        var y = e.clientY || rect.top + rect.height / 2;
-        applyWithReveal(next, x, y);
-        try {
-          localStorage.setItem("enest-site-theme", next);
-        } catch (err) {}
-      });
-    });
-  }
-
-  /* ——— Hero 编排：fonts.ready 后逐行揭示（中文渲染关键），整条时间线 ≤1.6s ———
-     CSS 掩码 + transition-delay 承担 stagger；JS 只做 armed→played 两拍切换。
-     reduced-motion：CSS 闸门已保证终态，直接跳过。 */
-  function initHeroIntro() {
-    var hero = document.getElementById("hero");
-    if (!hero) return;
-    if (reduceMotion()) return;
-
-    hero.classList.add("is-armed"); // 进入待播态：行沉底、fade 元素隐身
-
-    var play = function () {
-      // 双 rAF：确保浏览器先把 armed 的起始态渲染出来再播放
-      requestAnimationFrame(function () {
-        requestAnimationFrame(function () {
-          hero.classList.add("is-played");
-        });
-      });
-    };
-
-    if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(play);
-      // 兜底：字体加载异常时 800ms 内强制开播
-      window.setTimeout(play, 800);
-    } else {
-      play();
-    }
-  }
-
-  /* ——— 光标聚光：rAF + lerp 把 --mx/--my 写进 hero，CSS 出 600px 品牌色光束 ——— */
-  function initSpotlight() {
-    var hero = document.getElementById("hero");
-    if (!hero) return;
-    if (reduceMotion() || !finePointer()) return;
-
-    var tx = 0, ty = 0, cx = 0, cy = 0, started = false, rafId = 0;
-
-    function tick() {
-      cx += (tx - cx) * 0.1;
-      cy += (ty - cy) * 0.1;
-      hero.style.setProperty("--mx", cx.toFixed(1) + "px");
-      hero.style.setProperty("--my", cy.toFixed(1) + "px");
-      if (Math.abs(tx - cx) < 0.5 && Math.abs(ty - cy) < 0.5) {
-        started = false;
-        return; // 收敛即停帧，pointermove 再唤醒
-      }
-      rafId = requestAnimationFrame(tick);
-    }
-
-    hero.addEventListener("pointermove", function (e) {
-      var rect = hero.getBoundingClientRect();
-      tx = e.clientX - rect.left;
-      ty = e.clientY - rect.top;
-      if (!started) {
-        started = true;
-        hero.classList.add("is-spotlit");
-        rafId = requestAnimationFrame(tick);
-      }
-    });
-    hero.addEventListener("pointerleave", function () {
-      hero.classList.remove("is-spotlit");
-    });
-  }
-
-  /* ——— 磁性主 CTA：仅 hero 主按钮；位移 ≤ 尺寸 25%，rAF lerp 0.1 ——— */
-  function initMagnetic() {
-    if (reduceMotion() || !finePointer()) return;
-
-    document.querySelectorAll(".btn-magnetic").forEach(function (btn) {
-      var tx = 0, ty = 0, ox = 0, oy = 0, running = false;
-
-      function tick() {
-        ox += (tx - ox) * 0.1;
-        oy += (ty - oy) * 0.1;
-        btn.style.transform =
-          "translate3d(" + ox.toFixed(2) + "px," + oy.toFixed(2) + "px,0)";
-        if (Math.abs(tx - ox) < 0.1 && Math.abs(ty - oy) < 0.1) {
-          running = false;
-          return;
-        }
-        requestAnimationFrame(tick);
-      }
-
-      function wake() {
-        if (!running) {
-          running = true;
-          requestAnimationFrame(tick);
-        }
-      }
-
-      btn.addEventListener("pointermove", function (e) {
-        var rect = btn.getBoundingClientRect();
-        var bx = rect.left + rect.width / 2;
-        var by = rect.top + rect.height / 2;
-        var dx = e.clientX - bx;
-        var dy = e.clientY - by;
-        var limit = Math.min(rect.width, rect.height) * 0.25;
-        var len = Math.hypot(dx, dy) || 1;
-        var clamped = Math.min(len, limit);
-        tx = (dx / len) * clamped;
-        ty = (dy / len) * clamped;
-        wake();
-      });
-      btn.addEventListener("pointerleave", function () {
-        tx = 0;
-        ty = 0;
-        wake();
-      });
-    });
-  }
-
-  /* ——— 一次性滚动揭示：IO threshold 0.15，触发即 unobserve ——— */
-  function observeOnce(nodes, className, options) {
-    if (!nodes.length) return;
-    if (!("IntersectionObserver" in window)) {
-      nodes.forEach(function (el) {
-        el.classList.add(className);
-      });
-      return;
-    }
-    var io = new IntersectionObserver(
-      function (entries) {
-        entries.forEach(function (entry) {
-          if (entry.isIntersecting) {
-            entry.target.classList.add(className);
-            io.unobserve(entry.target);
-          }
-        });
-      },
-      options || { threshold: 0.15 }
-    );
-    nodes.forEach(function (el) {
-      io.observe(el);
-    });
-  }
-
-  function initReveal() {
-    observeOnce(document.querySelectorAll(".reveal"), "is-in");
-  }
-
-  /* ——— 产品横滑：拖拽 + 滚轮横向 ——— */
-  function initRail() {
-    var rail = document.getElementById("rail");
-    if (!rail) return;
-
-    var down = false;
-    var startX = 0;
-    var scrollLeft = 0;
-
-    rail.addEventListener("pointerdown", function (e) {
-      if (e.pointerType === "mouse" && e.button !== 0) return;
-      down = true;
-      rail.classList.add("is-dragging");
-      startX = e.clientX;
-      scrollLeft = rail.scrollLeft;
-      try {
-        rail.setPointerCapture(e.pointerId);
-      } catch (err) {}
-    });
-    rail.addEventListener("pointermove", function (e) {
-      if (!down) return;
-      var dx = e.clientX - startX;
-      rail.scrollLeft = scrollLeft - dx;
-    });
-    function endDrag() {
-      down = false;
-      rail.classList.remove("is-dragging");
-    }
-    rail.addEventListener("pointerup", endDrag);
-    rail.addEventListener("pointercancel", endDrag);
-    rail.addEventListener("pointerleave", function () {
-      if (down) endDrag();
-    });
-    rail.addEventListener(
-      "wheel",
-      function (e) {
-        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-          rail.scrollLeft += e.deltaY;
-          e.preventDefault();
-        }
-      },
-      { passive: false }
-    );
-  }
-
-  function initNav() {
-    var nav = document.querySelector(".site-nav");
-    if (!nav) return;
-
-    var onScroll = function () {
-      nav.classList.toggle("is-scrolled", window.scrollY > 8);
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-
-    var toggle = nav.querySelector(".nav-toggle");
-    if (!toggle) return;
-    toggle.addEventListener("click", function () {
-      var open = nav.classList.toggle("is-open");
-      toggle.setAttribute("aria-expanded", open ? "true" : "false");
-    });
-    nav.querySelectorAll(".nav-links a").forEach(function (link) {
-      link.addEventListener("click", function () {
-        nav.classList.remove("is-open");
-        toggle.setAttribute("aria-expanded", "false");
-      });
-    });
-  }
-
-  /* ——— 瀑布卡片：错列落入（旧列视差已删） ——— */
-  function initWaterfallCards() {
-    var cards = document.querySelectorAll(".wf-card");
-    if (!cards.length) return;
-
-    if (!("IntersectionObserver" in window) || reduceMotion()) {
-      cards.forEach(function (el) {
-        el.classList.add("is-in");
-      });
-      return;
-    }
-
-    var io = new IntersectionObserver(
-      function (entries) {
-        entries.forEach(function (entry) {
-          if (!entry.isIntersecting) return;
-          var el = entry.target;
-          var delay = Number(el.getAttribute("data-delay") || 0);
-          window.setTimeout(function () {
-            el.classList.add("is-in");
-          }, delay);
-          io.unobserve(el);
-        });
-      },
-      { threshold: 0.15 }
-    );
-    cards.forEach(function (el) {
-      io.observe(el);
-    });
-  }
-
-  /* ——— 剧场：场景滚动驱动舞台（tab 内容切换走 FLIP：First→Last→Invert→Play） ——— */
-  function initTheater() {
-    var scenes = document.querySelectorAll(".band[data-scene], .scene[data-scene]");
-    var tabs = document.querySelectorAll("[data-stage-tab]");
-    var title = document.getElementById("stage-title");
-    var status = document.getElementById("stage-status");
-    var searchLabel = document.getElementById("stage-search-label");
-    if (!scenes.length) return;
-
-    var copy = [
-      { title: "插件市场", status: "市场就绪", search: "搜索插件、作者、标签…", tab: 0 },
-      { title: "并行工作", status: "2 个 Tab 运行中", search: "切换到剪贴板 / JSON…", tab: 1 },
-      { title: "快捷启动", status: "⌥Space 小窗", search: "输入以搜索…", tab: 2 },
-      { title: "主题预览", status: "跟随系统", search: "切换深色 / 浅色…", tab: 0 }
-    ];
-
-    var FLIP_EASE = "cubic-bezier(.2,.8,.2,1)";
-
-    /** 对舞台内文字节点做 FLIP：First 记 rect → Last 改文案 → Invert 反演 → Play。
-        等位切换（rect 不变）退化为恒定 y:16 fade 入场，保证每次切换都有可感反馈。 */
-    function flipSwap(mutate) {
-      var stage = document.getElementById("stage-app");
-      if (!stage || reduceMotion() || !stage.animate) {
-        mutate();
-        return;
-      }
-
-      // First：记录将变文案的元素当前位置
-      var targets = [];
-      if (title) targets.push(title);
-      if (status) targets.push(status);
-      if (searchLabel) targets.push(searchLabel);
-      var first = targets.map(function (el) {
-        return el.getBoundingClientRect();
-      });
-
-      // Last：切换内容
-      mutate();
-
-      // Invert + Play：位置有变则反演 transform；无变化则走 16px 入场
-      targets.forEach(function (el, i) {
-        var last = el.getBoundingClientRect();
-        var dx = first[i].left - last.left;
-        var dy = first[i].top - last.top;
-        var sx = first[i].width / (last.width || 1);
-        var fromTransform;
-        var fromOpacity;
-        if (Math.abs(dx) > 1 || Math.abs(dy) > 1 || Math.abs(sx - 1) > 0.01) {
-          fromTransform = "translate3d(" + dx + "px," + dy + "px,0) scale(" + sx + ")";
-          fromOpacity = 0.4;
-        } else {
-          fromTransform = "translate3d(0,16px,0)";
-          fromOpacity = 0;
-        }
-        el.animate(
-          [
-            { transform: fromTransform, opacity: fromOpacity },
-            { transform: "translate3d(0,0,0) scale(1)", opacity: 1 }
-          ],
-          {
-            duration: 350,
-            delay: i * 45, // 内容卡片 stagger 30-60ms
-            easing: FLIP_EASE,
-            fill: "backwards" // delay 期间保持起始帧
-          }
+  const tools = [...document.querySelectorAll(".tool")];
+  document.querySelectorAll("[data-filter]").forEach((button) =>
+    button.addEventListener("click", () => {
+      document
+        .querySelectorAll("[data-filter]")
+        .forEach((item) =>
+          item.setAttribute("aria-pressed", String(item === button)),
         );
+      let count = 0;
+      tools.forEach((tool) => {
+        tool.hidden =
+          button.dataset.filter !== "全部" &&
+          tool.dataset.category !== button.dataset.filter;
+        if (!tool.hidden) count++;
       });
-    }
-
-    function applyScene(idx) {
-      var data = copy[idx] || copy[0];
-      flipSwap(function () {
-        if (title) title.textContent = data.title;
-        if (status) status.textContent = data.status;
-        if (searchLabel) searchLabel.textContent = data.search;
-        tabs.forEach(function (t) {
-          t.classList.toggle("active", Number(t.getAttribute("data-stage-tab")) === data.tab);
-        });
-      });
-      scenes.forEach(function (s) {
-        s.classList.toggle("is-on", Number(s.getAttribute("data-scene")) === idx);
-      });
-    }
-
-    if (!("IntersectionObserver" in window)) {
-      applyScene(0);
-      return;
-    }
-
-    var io = new IntersectionObserver(
-      function (entries) {
-        entries.forEach(function (entry) {
-          if (!entry.isIntersecting) return;
-          var idx = Number(entry.target.getAttribute("data-scene") || 0);
-          applyScene(idx);
-        });
-      },
-      { root: null, rootMargin: "-35% 0px -45% 0px", threshold: 0 }
+      document.querySelector(".catalog-count").textContent = `${count} 个工具`;
+      document.querySelector(".catalog-empty").hidden = count > 0;
+      animate(document.querySelector(".tool-grid"), [
+        { opacity: 0.5, transform: "translateY(6px)" },
+        { opacity: 1, transform: "translateY(0)" },
+      ]);
+    }),
+  );
+  // Preview choices are explicit, never replaced by a timer or the scroll stage.
+  document.querySelectorAll("[data-preview]").forEach((button) => {
+    button.setAttribute(
+      "aria-pressed",
+      String(button.classList.contains("is-selected")),
     );
-    scenes.forEach(function (s) {
-      io.observe(s);
+    button.addEventListener("click", () => {
+      const panel = button.closest(".scene-panel");
+      panel.dataset.previewChosen = "true";
+      panel.querySelectorAll("[data-preview]").forEach((item) => {
+        item.classList.toggle("is-selected", item === button);
+        item.setAttribute("aria-pressed", String(item === button));
+      });
+      const imageButton = panel.querySelector("[data-zoom]");
+      const image = imageButton.querySelector("img");
+      imageButton.dataset.zoom = `assets/screens/${button.dataset.preview}.webp`;
+      imageButton.dataset.caption = button.dataset.title;
+      imageButton.setAttribute("aria-label", `放大${button.dataset.title}`);
+      image.src = imageButton.dataset.zoom;
+      image.alt = button.dataset.title;
+      image.style.removeProperty("transform");
+      panel.querySelector("[data-preview-title]").textContent =
+        button.dataset.title;
+      panel.querySelector("[data-preview-description]").textContent =
+        button.dataset.description;
+      animate(imageButton, [
+        { opacity: 0.4, transform: "translateY(8px)" },
+        { opacity: 1, transform: "translateY(0)" },
+      ]);
     });
-    applyScene(0);
-  }
+  });
+  const appearanceStage = document.querySelector("[data-appearance-stage]");
+  let appearanceChosen = false;
+  const setAppearance = (value) => {
+    if (!appearanceStage || appearanceStage.dataset.appearanceStage === value)
+      return;
+    appearanceStage.dataset.appearanceStage = value;
+    document
+      .querySelectorAll("[data-appearance]")
+      .forEach((button) =>
+        button.setAttribute(
+          "aria-pressed",
+          String(button.dataset.appearance === value),
+        ),
+      );
+    const button = appearanceStage.querySelector("[data-zoom]");
+    const path = `assets/screens/${value === "light" ? "shell" : `shell-${value}`}.webp`;
+    const label = `eNest ${value === "light" ? "明亮" : value === "dark" ? "深色" : "氛围"}主题工作台`;
+    button.dataset.zoom = path;
+    button.dataset.caption = label;
+    button.setAttribute("aria-label", `放大${label}`);
+    button.querySelector("img").src = path;
+    button.querySelector("img").alt = label;
+  };
+  document.querySelectorAll("[data-appearance]").forEach((button) =>
+    button.addEventListener("click", () => {
+      appearanceChosen = true;
+      setAppearance(button.dataset.appearance);
+    }),
+  );
 
-  /* ——— 隔离四宫格：焦点轮换 ——— */
-  function initIsoFocus() {
-    var cells = document.querySelectorAll(".iso-cell");
-    if (cells.length < 2) return;
-    if (reduceMotion()) return;
-
-    var i = 0;
-    window.setInterval(function () {
-      cells.forEach(function (c) {
-        c.classList.remove("is-focus");
+  const chapters = [...document.querySelectorAll("[data-chapter]")];
+  if (!chapters.length || !("IntersectionObserver" in window)) return;
+  const heroWindow = document.querySelector(".hero-window");
+  const heroTop = document.querySelector(".hero-top");
+  const modules = [...document.querySelectorAll(".module")];
+  const formButtons = [...document.querySelectorAll("[data-form]")];
+  const formPanels = [...document.querySelectorAll("[data-form-panel]")];
+  const sceneButtons = [...document.querySelectorAll("[data-scene]")];
+  const scenePanels = [...document.querySelectorAll("[data-scene-panel]")];
+  let immersive = false,
+    frame = 0,
+    lastY = NaN,
+    dirty = true,
+    formIndex = -1,
+    sceneIndex = -1;
+  const active = new Set();
+  const navHeight = () =>
+    parseFloat(getComputedStyle(root).getPropertyValue("--nav-h")) || 76;
+  const selectPanel = (buttons, panels, index) => {
+    buttons.forEach((button, i) => {
+      button.classList.toggle("is-selected", i === index);
+      if (i === index) button.setAttribute("aria-current", "step");
+      else button.removeAttribute("aria-current");
+    });
+    panels.forEach((panel, i) => {
+      panel.classList.toggle("is-current", i === index);
+      panel.inert = immersive && i !== index;
+      if (immersive && i !== index) panel.setAttribute("aria-hidden", "true");
+      else panel.removeAttribute("aria-hidden");
+    });
+  };
+  const paint = (chapter, progress) => {
+    chapter.dataset.progress = progress.toFixed(3);
+    switch (chapter.dataset.chapter) {
+      case "assembly": {
+        const p = clamp(progress / 0.75);
+        heroWindow.style.transform = `translateY(${p * 18}px) rotateX(${3 * (1 - p)}deg) rotateY(${-2 * (1 - p)}deg) rotateZ(${-1 * (1 - p)}deg) scale(${1 + p * 0.08})`;
+        heroTop.style.transform = `translateY(${-p * 14}px)`;
+        modules.forEach((module, index) => {
+          // Each module travels toward the edge of the same work surface.
+          const directions = [
+            [38, 25, -8],
+            [-38, 25, 8],
+            [24, -18, 6],
+            [-24, -18, -6],
+            [0, -12, -4],
+            [0, -12, 4],
+          ];
+          const [x, y, r] = directions[index];
+          module.style.transform = `translate(${x * p}px,${y * p}px) rotate(${r * (1 - p)}deg) scale(${1 - p * 0.12})`;
+        });
+        break;
+      }
+      case "forms": {
+        const index = Math.min(2, Math.floor(progress * 3));
+        if (index !== formIndex) {
+          formIndex = index;
+          selectPanel(formButtons, formPanels, index);
+        }
+        const local = (progress * 3) % 1;
+        const visual = formPanels[index].querySelector(".screenshot");
+        visual.style.transform = `perspective(1400px) rotateY(${(1 - clamp(local / 0.7)) * -4}deg) translateX(${(1 - clamp(local / 0.7)) * 14}px)`;
+        break;
+      }
+      case "scenarios": {
+        const index = progress < 0.5 ? 0 : 1;
+        if (index !== sceneIndex) {
+          sceneIndex = index;
+          selectPanel(sceneButtons, scenePanels, index);
+        }
+        const p = index === 0 ? progress * 2 : (progress - 0.5) * 2;
+        scenePanels[index].querySelector(".scene-media").style.transform =
+          `perspective(1600px) rotateY(${-3 * (1 - p)}deg) translateY(${-8 * p}px)`;
+        if (!scenePanels[index].dataset.previewChosen) {
+          const image = scenePanels[index].querySelector(".screenshot img");
+          image.style.transformOrigin =
+            index === 0 ? "50% 40%" : `65% ${30 + 45 * p}%`;
+          image.style.transform = `scale(${1 + 0.12 * clamp((p - 0.15) / 0.65)})`;
+        }
+        break;
+      }
+      case "personal": {
+        const p = clamp(progress);
+        appearanceStage.style.transform = `perspective(1500px) rotateY(${-4 + 8 * p}deg) translateY(${-15 * p}px)`;
+        if (!appearanceChosen)
+          setAppearance(p < 0.34 ? "light" : p < 0.67 ? "dark" : "ambient");
+        break;
+      }
+    }
+  };
+  const tick = () => {
+    frame = 0;
+    if (!immersive || document.hidden || !active.size) return;
+    if (dirty || lastY !== window.scrollY) {
+      lastY = window.scrollY;
+      dirty = false;
+      const header = navHeight();
+      active.forEach((chapter) => {
+        const rect = chapter.getBoundingClientRect();
+        const distance = Math.max(
+          1,
+          rect.height - (window.innerHeight - header),
+        );
+        paint(chapter, clamp((header - rect.top) / distance));
       });
-      i = (i + 1) % cells.length;
-      cells[i].classList.add("is-focus");
-    }, 2200);
-  }
-
-  /* ——— 壳子仿真：Hero Tab 轮换高亮（触达即停，避免注意力干扰） ——— */
-  function initHeroTabs() {
-    var windowEl = document.getElementById("hero-app");
-    if (!windowEl) return;
-    if (reduceMotion()) return;
-
-    var tabs = windowEl.querySelectorAll(".app-tab");
-    if (tabs.length < 2) return;
-
-    var idx = 0;
-    var stopped = false;
-    window.setInterval(function () {
-      if (stopped) return;
-      idx = (idx + 1) % tabs.length;
-      tabs.forEach(function (t, i) {
-        t.classList.toggle("active", i === idx);
+    }
+  };
+  const wake = () => {
+    dirty = true;
+    if (!frame && immersive && !document.hidden)
+      frame = requestAnimationFrame(tick);
+  };
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) active.add(entry.target);
+      else active.delete(entry.target);
+    });
+    wake();
+  });
+  chapters.forEach((chapter) => observer.observe(chapter));
+  const configure = () => {
+    immersive =
+      desktop.matches && !reduce.matches && !!Element.prototype.animate;
+    root.dataset.anim = reduce.matches ? "low" : immersive ? "high" : "medium";
+    root.classList.toggle("immersive", immersive);
+    cancelAnimationFrame(frame);
+    frame = 0;
+    formIndex = -1;
+    sceneIndex = -1;
+    if (!immersive) {
+      [
+        heroWindow,
+        heroTop,
+        appearanceStage,
+        ...modules,
+        ...document.querySelectorAll(
+          ".scene-media,.scene-media img,.form-panel .screenshot",
+        ),
+      ].forEach((element) => element?.style.removeProperty("transform"));
+      [...formPanels, ...scenePanels].forEach((panel) => {
+        panel.inert = false;
+        panel.removeAttribute("aria-hidden");
       });
-    }, 3200);
-    // 用户视线离开 hero 后停止轮换
-    window.addEventListener(
-      "scroll",
-      function () {
-        if (!stopped && window.scrollY > window.innerHeight) stopped = true;
-      },
-      { passive: true }
+    }
+    wake();
+  };
+  const goToBeat = (chapter, p, smooth = true) => {
+    const header = navHeight();
+    window.scrollTo({
+      top:
+        window.scrollY +
+        chapter.getBoundingClientRect().top -
+        header +
+        p * (chapter.offsetHeight - (innerHeight - header)),
+      behavior: reduce.matches || !smooth ? "instant" : "smooth",
+    });
+    wake();
+  };
+  formButtons.forEach((button, index) =>
+    button.addEventListener("click", (event) => {
+      if (
+        !immersive ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return;
+      event.preventDefault();
+      history.pushState(null, "", button.hash);
+      goToBeat(document.querySelector(".forms"), [0.08, 0.45, 0.8][index]);
+    }),
+  );
+  sceneButtons.forEach((button, index) =>
+    button.addEventListener("click", (event) => {
+      if (
+        !immersive ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return;
+      event.preventDefault();
+      history.pushState(null, "", button.hash);
+      goToBeat(document.querySelector(".scenarios"), index ? 0.65 : 0.15);
+    }),
+  );
+  const restoreHash = () => {
+    if (!immersive) return;
+    const forms = ["#quick", "#workspace", "#detached"];
+    const scenes = ["#everyday", "#development"];
+    if (forms.includes(location.hash))
+      goToBeat(
+        document.querySelector(".forms"),
+        [0.08, 0.45, 0.8][forms.indexOf(location.hash)],
+        false,
+      );
+    else if (scenes.includes(location.hash))
+      goToBeat(
+        document.querySelector(".scenarios"),
+        scenes.indexOf(location.hash) ? 0.65 : 0.15,
+        false,
+      );
+    wake();
+  };
+  reduce.addEventListener("change", configure);
+  desktop.addEventListener("change", configure);
+  window.addEventListener("resize", wake);
+  window.addEventListener("scroll", wake, { passive: true });
+  window.addEventListener("pageshow", wake);
+  window.addEventListener("hashchange", restoreHash);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      cancelAnimationFrame(frame);
+      frame = 0;
+    } else wake();
+  });
+  document
+    .querySelectorAll("img")
+    .forEach((img) => img.addEventListener("load", wake));
+  document.fonts?.ready.then(wake);
+  if ("ResizeObserver" in window) {
+    const sizes = new ResizeObserver(wake);
+    chapters.forEach((chapter) => sizes.observe(chapter));
+  }
+  configure();
+  // Native fragment scrolling runs after the document loads. Restore a stage
+  // beat afterwards so an overlaid figure cannot send a deep link to Quick.
+  if (document.readyState === "complete") requestAnimationFrame(restoreHash);
+  else
+    window.addEventListener("load", () => requestAnimationFrame(restoreHash), {
+      once: true,
+    });
+  // Opening choreography is bounded and leaves content visible if interrupted.
+  if (!reduce.matches) {
+    animate(
+      heroWindow,
+      [
+        { opacity: 0.5, translate: "0 18px" },
+        { opacity: 1, translate: "0 0" },
+      ],
+      { duration: motion[root.dataset.anim].enter },
     );
+    modules.forEach((module, index) =>
+      animate(
+        module,
+        [
+          { opacity: 0, translate: `0 ${20 + index * 3}px` },
+          { opacity: 1, translate: "0 0" },
+        ],
+        { duration: 450, delay: index * 55, fill: "backwards" },
+      ),
+    );
+    const closing = document.querySelector(".closing-mark");
+    const reveal = new IntersectionObserver(
+      (entries) =>
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            animate(
+              closing,
+              [
+                { rotate: "-12deg", translate: "0 25px" },
+                { rotate: "0deg", translate: "0 0" },
+              ],
+              { duration: 450 },
+            );
+            reveal.unobserve(entry.target);
+          }
+        }),
+      { threshold: 0.5 },
+    );
+    if (closing) reveal.observe(closing);
   }
 })();

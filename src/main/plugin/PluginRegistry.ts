@@ -190,11 +190,27 @@ export class PluginRegistry {
   /** Preserve source order across manifest updates, disable and asynchronous disk writes. */
   private themeTasks = new Map<string, Promise<void>>()
   private themeEpochs = new Map<string, number>()
+  private installedListeners = new Set<() => void>()
+  private installedNotificationPending = false
+
+  onInstalledChanged(listener: () => void): () => void {
+    this.installedListeners.add(listener)
+    return () => this.installedListeners.delete(listener)
+  }
 
   private changed(): void {
     this.installedRevision++
     this.mutationRevision++
     this.descriptors = null
+    if (!this.installedNotificationPending && this.installedListeners.size) {
+      this.installedNotificationPending = true
+      queueMicrotask(() => {
+        this.installedNotificationPending = false
+        for (const listener of this.installedListeners) {
+          try { listener() } catch (error) { logWarn('registry', `installed listener failed: ${String(error)}`) }
+        }
+      })
+    }
   }
 
   getInstalledRevision(): number { return this.installedRevision }

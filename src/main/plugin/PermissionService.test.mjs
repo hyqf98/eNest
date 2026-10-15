@@ -1,73 +1,339 @@
-import test from 'node:test'
+import test, { afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
 import { fileURLToPath } from 'node:url'
+
 const root = fileURLToPath(new URL('../../../', import.meta.url))
-const grants = new Map(), prompts=[]
-globalThis.__permissionFixture={grants,prompts,polling:0}
-const bundle=await build({ stdin:{contents:"export * from '@main/plugin/PermissionService';export { BUILTIN_PLUGIN_CAPABILITIES } from '@shared/pluginPermissionPolicy';",resolveDir:root},tsconfig:root+'tsconfig.node.json',bundle:true,write:false,format:'esm',platform:'node',plugins:[{name:'fixture',setup(b){
-  b.onResolve({filter:/^@main\/plugin\/PermissionService$/},()=>({path:root+'src/main/plugin/PermissionService.ts'}))
-  b.onResolve({filter:/^(electron|@main\/)/},args=>({path:args.path,namespace:'fixture'}))
-  b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:`
-    const f=globalThis.__permissionFixture;
-    const win={isDestroyed:()=>false,isMinimized:()=>false,show:()=>{}};
-    export const pluginHost={getContainerWindow:()=>win}; export const getMainWindow=()=>win; export const acquireQuickInteraction=()=>()=>{};
-    export const settingsStore={getPermissionGrant:(id,p)=>f.grants.get(id+':'+p)||'ask',setPermissionGrant:async(id,p,v)=>f.grants.set(id+':'+p,v)};
-    export const logWarn=()=>{};export const revalidateClipboardPolling=()=>f.polling++;
-    export const dialog={showMessageBox:(_win,options)=>new Promise(resolve=>{const prompt={options,resolve};f.prompts.push(prompt);options.signal.addEventListener('abort',()=>resolve({response:0}),{once:true})})};
-  `}))
-}}]})
-const {PermissionService,BUILTIN_PLUGIN_CAPABILITIES}=await import('data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].text).toString('base64'))
-async function next(count){for(let i=0;i<50;i++){if(prompts.length>=count)return prompts[count-1];await new Promise(r=>setTimeout(r,1))}throw new Error('missing native prompt')}
+const fixture = {
+  grants: new Map(), manifests: new Map(), prompts: [], writes: [], polling: 0, ignoreAbort: false
+}
+globalThis.__permissionFixture = fixture
 
-test('native consent: renderer forgery denied; once not persisted; always persisted',async()=>{
-  const service=new PermissionService()
-  const first=service.request('first','fs.read','read file')
-  const prompt=await next(1)
-  assert.equal(service.resolveRequest('forged','always'),false)
-  assert.equal(prompt.options.defaultId,0)
-  assert.equal(prompt.options.cancelId,0)
-  prompt.resolve({response:1})
-  assert.equal(await first,true)
-  assert.equal(grants.has('first:fs.read'),false)
-  const second=service.request('first','fs.read','read file')
-  ;(await next(2)).resolve({response:2})
-  assert.equal(await second,true)
-  assert.equal(grants.get('first:fs.read'),'allow')
-  assert.equal(await service.request('first','fs.read','again'),true)
-  assert.equal(prompts.length,2)
+const bundle = await build({
+  stdin: {
+    contents: `
+      export * from '@main/plugin/PermissionService';
+      export { createRuntimeScope } from '@main/plugin/PluginRuntimeScope';
+      export { BUILTIN_PLUGIN_CAPABILITIES } from '@shared/pluginPermissionPolicy';
+      export { permissionLabel } from '@shared/permissionLabels';
+    `,
+    resolveDir: root
+  },
+  tsconfig: root + 'tsconfig.node.json',
+  bundle: true,
+  write: false,
+  format: 'esm',
+  platform: 'node',
+  plugins: [{
+    name: 'permission-fixture',
+    setup(builder) {
+      builder.onResolve({ filter: /^@main\/plugin\/(PermissionService|PluginRuntimeScope)$/ }, ({ path }) => ({
+        path: root + 'src/main/plugin/' + path.split('/').at(-1) + '.ts'
+      }))
+      builder.onResolve({ filter: /^(electron|@main\/)/ }, ({ path }) => ({ path, namespace: 'fixture' }))
+      builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: `
+        const f = globalThis.__permissionFixture;
+        const win = { isDestroyed: () => false, isMinimized: () => false, show: () => {} };
+        export const pluginHost = { getContainerWindow: () => win, acquireWindowInteraction: () => { f.dialogLeases = (f.dialogLeases || 0) + 1; let done = false; return () => { if (!done) { done = true; f.dialogLeases--; } } } };
+        export const pluginRegistry = { getManifest: id => f.manifests.get(id) };
+        export const getMainWindow = () => win;
+        export const acquireQuickInteraction = () => () => {};
+        export const settingsStore = {
+          getPermissionGrant: (id, permission) => f.grants.get(id + ':' + permission) ?? 'ask',
+          setPermissionGrant: async (id, permission, value) => {
+            f.writes.push({ id, permission, value });
+            f.grants.set(id + ':' + permission, value);
+          }
+        };
+        export const logWarn = () => {};
+        export const revalidateClipboardPolling = () => f.polling++;
+        export const dialog = {
+          showMessageBox: (_win, options) => new Promise(resolve => {
+            const prompt = { options, resolve };
+            f.prompts.push(prompt);
+            options.signal.addEventListener('abort', () => {
+              if (!f.ignoreAbort) resolve({ response: 0 });
+            }, { once: true });
+          })
+        };
+      ` }))
+    }
+  }]
 })
 
-test('native consent: global queue serialized; closing plugin aborts active and queued requests',async()=>{
-  const service=new PermissionService(), before=prompts.length
-  const a=service.request('closing','fs.write','write'), b=service.request('closing','fs.read','read'), c=service.request('next','fs.read','read')
-  const active=await next(before+1)
-  assert.equal(prompts.length,before+1)
-  service.cancelFor('closing')
-  assert.equal(await a,false); assert.equal(await b,false)
-  assert.equal(active.options.signal.aborted,true)
-  ;(await next(before+2)).resolve({response:0})
-  assert.equal(await c,false)
-  assert.equal(grants.get('next:fs.read'),'deny')
+const { PermissionService, createRuntimeScope, BUILTIN_PLUGIN_CAPABILITIES, permissionLabel } = await import(
+  'data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].text).toString('base64')
+)
+const scopes = []
+let generation = 0
+
+function plugin(id, permissions, name = id) {
+  fixture.manifests.set(id, { id, name, permissions })
+  const scope = createRuntimeScope({ pluginId: id, generation: ++generation, wcId: generation })
+  scopes.push(scope)
+  return scope
+}
+
+function grant(id, permission, value) {
+  fixture.grants.set(id + ':' + permission, value)
+}
+
+const flush = () => new Promise(resolve => setImmediate(resolve))
+
+async function promptAt(index = 0) {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (fixture.prompts[index]) return fixture.prompts[index]
+    await flush()
+  }
+  throw new Error(`Missing native permission prompt ${index + 1}`)
+}
+
+function listedPermissions(prompt) {
+  return prompt.options.detail.split('\n').filter(line => line.startsWith('• '))
+}
+
+afterEach(async () => {
+  await Promise.all(scopes.splice(0).map(scope => scope.dispose()))
+  for (const prompt of fixture.prompts) prompt.resolve({ response: 0 })
+  await flush()
+  assert.equal(fixture.dialogLeases || 0, 0, 'native dialog relocation leases are released')
+  fixture.grants.clear()
+  fixture.manifests.clear()
+  fixture.prompts.length = 0
+  fixture.writes.length = 0
+  fixture.polling = 0
+  fixture.ignoreAbort = false
 })
 
-test('built-in capabilities never prompt, even when an older install saved deny or ask',async()=>{
-  const service=new PermissionService(), before=prompts.length
-  for(const permission of BUILTIN_PLUGIN_CAPABILITIES) {
-    for(const previous of [undefined,'ask','deny']) {
-      grants.set('builtin:'+permission,previous)
-      assert.equal(await service.request('builtin',permission,'own plugin capability'),true,permission)
+test('one native consent includes all declared undecided sensitive capabilities', async () => {
+  const service = new PermissionService()
+  const scope = plugin('grouped', ['config.agent.read', 'net.fetch', 'config.agent.read', 'storage.local', 'config.agent.write', 'notify', 'future.capability'], '示例插件')
+  grant('grouped', 'config.agent.write', 'deny')
+  grant('grouped', 'notify', 'allow')
+
+  const read = service.request('grouped', 'config.agent.read', 'read file')
+  const prompt = await promptAt()
+  assert.equal(scope.activityCount, 1)
+  assert.equal(service.resolveRequest('forged', 'always'), false)
+  assert.match(prompt.options.message, /示例插件/)
+  assert.deepEqual(listedPermissions(prompt), ['config.agent.read', 'net.fetch'].map(permission => `• ${permissionLabel(permission)}`))
+  assert.equal(prompt.options.defaultId, 0)
+  assert.equal(prompt.options.cancelId, 0)
+
+  prompt.resolve({ response: 1 })
+  assert.equal(await read, true)
+  assert.equal(await service.request('grouped', 'net.fetch', 'fetch'), true)
+  assert.equal(await service.request('grouped', 'config.agent.write', 'write'), false)
+  assert.equal(fixture.prompts.length, 1)
+  assert.equal(scope.activityCount, 0)
+  assert.equal(fixture.writes.length, 0)
+  assert.equal(fixture.grants.get('grouped:config.agent.write'), 'deny')
+})
+
+test('concurrent requests deduplicate the same permission and share the grouped decision', async () => {
+  const service = new PermissionService()
+  const scope = plugin('concurrent', ['config.agent.read', 'config.agent.write', 'net.fetch'])
+  const read = service.request('concurrent', 'config.agent.read', 'read')
+  assert.equal(service.request('concurrent', 'config.agent.read', 'read again'), read)
+  const write = service.request('concurrent', 'config.agent.write', 'write')
+  const fetch = service.request('concurrent', 'net.fetch', 'fetch')
+  const prompt = await promptAt()
+  assert.equal(fixture.prompts.length, 1)
+  prompt.resolve({ response: 1 })
+  assert.deepEqual(await Promise.all([read, write, fetch]), [true, true, true])
+  assert.equal(fixture.prompts.length, 1)
+  assert.equal(scope.activityCount, 0)
+})
+
+test('allow for this run is reused without persistence and expires when close or hibernate recreates the scope', async () => {
+  const service = new PermissionService()
+  let scope = plugin('temporary', ['config.agent.read'])
+  for (const index of [0, 1, 2]) {
+    const request = service.request('temporary', 'config.agent.read', 'read')
+    ;(await promptAt(index)).resolve({ response: 1 })
+    assert.equal(await request, true)
+    assert.equal(await service.request('temporary', 'config.agent.read', 'same run'), true)
+    assert.equal(fixture.prompts.length, index + 1)
+    assert.equal(fixture.grants.size, 0)
+    if (index < 2) {
+      scope.markClosing()
+      assert.equal(await service.request('temporary', 'config.agent.read', 'closing run'), false)
+      await scope.dispose()
+      scope = plugin('temporary', ['config.agent.read'])
     }
   }
-  assert.equal(prompts.length,before)
+  assert.equal(fixture.writes.length, 0)
 })
 
-test('system capabilities retain saved denial and an unknown capability never auto-allows',async()=>{
-  const service=new PermissionService(), before=prompts.length
-  grants.set('restricted:fs.read','deny')
-  assert.equal(await service.request('restricted','fs.read','external file'),false)
-  assert.equal(prompts.length,before)
-  const future=service.request('restricted','future.system.capability','unknown system capability')
-  ;(await next(before+1)).resolve({response:0})
-  assert.equal(await future,false)
+test('remembered consent persists the group and is reused by a new service and runtime', async () => {
+  const service = new PermissionService()
+  const scope = plugin('remembered', ['config.agent.read', 'clipboard.history'])
+  const request = service.request('remembered', 'config.agent.read', 'read')
+  ;(await promptAt()).resolve({ response: 2 })
+  assert.equal(await request, true)
+  assert.deepEqual(fixture.writes, [
+    { id: 'remembered', permission: 'config.agent.read', value: 'allow' },
+    { id: 'remembered', permission: 'clipboard.history', value: 'allow' }
+  ])
+  assert.equal(fixture.polling, 1)
+
+  await scope.dispose()
+  plugin('remembered', ['config.agent.read', 'clipboard.history'])
+  const reloadedService = new PermissionService()
+  assert.equal(await reloadedService.request('remembered', 'config.agent.read', 'read'), true)
+  assert.equal(await reloadedService.request('remembered', 'clipboard.history', 'history'), true)
+  assert.equal(fixture.prompts.length, 1)
+})
+
+test('not now denies the current runtime without persisting or repeating prompts', async () => {
+  const service = new PermissionService()
+  const scope = plugin('declined', ['config.agent.read', 'config.agent.write'])
+  const read = service.request('declined', 'config.agent.read', 'read')
+  const write = service.request('declined', 'config.agent.write', 'write')
+  ;(await promptAt()).resolve({ response: 0 })
+  assert.deepEqual(await Promise.all([read, write]), [false, false])
+  assert.equal(await service.request('declined', 'config.agent.read', 'retry'), false)
+  assert.equal(fixture.prompts.length, 1)
+  assert.equal(fixture.grants.size, 0)
+  assert.equal(fixture.writes.length, 0)
+
+  await scope.dispose()
+  plugin('declined', ['config.agent.read', 'config.agent.write'])
+  const retry = service.request('declined', 'config.agent.write', 'new run')
+  ;(await promptAt(1)).resolve({ response: 1 })
+  assert.equal(await retry, true)
+})
+
+test('built-in private capabilities never prompt, including legacy deny and ask grants', async () => {
+  const service = new PermissionService()
+  plugin('builtin', [])
+  for (const permission of BUILTIN_PLUGIN_CAPABILITIES) {
+    for (const previous of [undefined, 'ask', 'deny']) {
+      grant('builtin', permission, previous)
+      assert.equal(await service.request('builtin', permission, 'own plugin capability'), true, permission)
+    }
+  }
+  assert.equal(fixture.prompts.length, 0)
+  assert.equal(fixture.writes.length, 0)
+})
+
+test('user-selected file handles and plugin-owned timers stay available without declarations despite legacy denials', async () => {
+  const service = new PermissionService()
+  plugin('default-available', [])
+  for (const permission of ['fs.read', 'fs.write', 'timer.background']) {
+    grant('default-available', permission, 'deny')
+    assert.equal(await service.request('default-available', permission, 'already scoped capability'), true, permission)
+  }
+  assert.equal(fixture.prompts.length, 0)
+  assert.equal(fixture.writes.length, 0)
+})
+
+test('unknown, undeclared and missing-runtime requests are rejected without consent', async () => {
+  const service = new PermissionService()
+  plugin('restricted', ['config.agent.read', 'future.system.capability'])
+  grant('restricted', 'config.agent.read', 'deny')
+  grant('restricted', 'future.system.capability', 'allow')
+  assert.equal(await service.request('restricted', 'config.agent.read', 'denied'), false)
+  assert.equal(await service.request('restricted', 'future.system.capability', 'unknown'), false)
+  assert.equal(await service.request('restricted', 'config.agent.write', 'not declared'), false)
+  assert.equal(await service.request('missing', 'config.agent.read', 'no runtime'), false)
+  assert.equal(fixture.prompts.length, 0)
+  assert.equal(fixture.writes.length, 0)
+})
+
+test('settings denial while a dialog is open takes precedence over remembered consent', async () => {
+  const service = new PermissionService()
+  plugin('settings-change', ['config.agent.read', 'config.agent.write', 'net.fetch'])
+  grant('settings-change', 'config.agent.write', 'deny')
+  const request = service.request('settings-change', 'config.agent.read', 'read')
+  const prompt = await promptAt()
+  grant('settings-change', 'config.agent.read', 'deny')
+  prompt.resolve({ response: 2 })
+  assert.equal(await request, false)
+  assert.equal(fixture.grants.get('settings-change:config.agent.read'), 'deny')
+  assert.equal(fixture.grants.get('settings-change:config.agent.write'), 'deny')
+  assert.equal(fixture.grants.get('settings-change:net.fetch'), 'allow')
+  assert.deepEqual(fixture.writes, [{ id: 'settings-change', permission: 'net.fetch', value: 'allow' }])
+})
+
+test('canceling a plugin aborts its active and queued requests while allowing the global queue to continue', async () => {
+  const service = new PermissionService()
+  const closingScope = plugin('closing', ['config.agent.read', 'config.agent.write'])
+  plugin('next', ['net.fetch'])
+  const read = service.request('closing', 'config.agent.read', 'read')
+  const write = service.request('closing', 'config.agent.write', 'write')
+  const next = service.request('next', 'net.fetch', 'fetch')
+  const active = await promptAt()
+  assert.equal(fixture.prompts.length, 1)
+  service.cancelFor('closing')
+  assert.deepEqual(await Promise.all([read, write]), [false, false])
+  assert.equal(active.options.signal.aborted, true)
+  assert.equal(closingScope.activityCount, 0)
+  active.resolve({ response: 2 })
+  ;(await promptAt(1)).resolve({ response: 1 })
+  assert.equal(await next, true)
+  assert.equal(fixture.writes.length, 0)
+  assert.equal(fixture.prompts.length, 2)
+})
+
+test('a delayed allow after runtime destruction cannot grant access to its replacement', async () => {
+  fixture.ignoreAbort = true
+  const service = new PermissionService()
+  const oldScope = plugin('replaced', ['config.agent.read'])
+  const oldRequest = service.request('replaced', 'config.agent.read', 'old run')
+  const oldPrompt = await promptAt()
+  await oldScope.dispose()
+  assert.equal(await oldRequest, false)
+  assert.equal(oldPrompt.options.signal.aborted, true)
+
+  const newScope = plugin('replaced', ['config.agent.read'])
+  const newRequest = service.request('replaced', 'config.agent.read', 'new run')
+  oldPrompt.resolve({ response: 2 })
+  const newPrompt = await promptAt(1)
+  assert.equal(fixture.grants.size, 0)
+  assert.equal(fixture.writes.length, 0)
+  assert.equal(newScope.activityCount, 1)
+  newPrompt.resolve({ response: 0 })
+  assert.equal(await newRequest, false)
+  assert.equal(newScope.activityCount, 0)
+})
+
+test('newly declared permissions need a new consent and cannot join an already visible dialog', async () => {
+  const service = new PermissionService()
+  plugin('expanded', ['config.agent.read'])
+  const read = service.request('expanded', 'config.agent.read', 'read')
+  const initial = await promptAt()
+  fixture.manifests.set('expanded', { id: 'expanded', name: 'expanded', permissions: ['config.agent.read', 'config.agent.write'] })
+  const write = service.request('expanded', 'config.agent.write', 'new capability')
+  initial.resolve({ response: 2 })
+  assert.equal(await read, true)
+
+  const additional = await promptAt(1)
+  assert.deepEqual(listedPermissions(additional), [`• ${permissionLabel('config.agent.write')}`])
+  assert.equal(fixture.grants.has('expanded:config.agent.write'), false)
+  additional.resolve({ response: 1 })
+  assert.equal(await write, true)
+  assert.equal(fixture.grants.has('expanded:config.agent.write'), false)
+  assert.equal(fixture.prompts.length, 2)
+})
+
+test('timeout cancels queued requests for the same runtime without saving a decision', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const service = new PermissionService()
+  const scope = plugin('timed-out', ['config.agent.read', 'config.agent.write'])
+  const read = service.request('timed-out', 'config.agent.read', 'read')
+  const write = service.request('timed-out', 'config.agent.write', 'write')
+  const active = await promptAt()
+  t.mock.timers.tick(60_000)
+  await flush()
+  assert.equal(await read, false)
+  assert.equal(fixture.prompts.length, 1)
+  assert.equal(await write, false)
+  assert.equal(active.options.signal.aborted, true)
+  assert.equal(scope.activityCount, 0)
+  assert.equal(fixture.writes.length, 0)
+
+  const retry = service.request('timed-out', 'config.agent.read', 'explicit retry')
+  ;(await promptAt(1)).resolve({ response: 1 })
+  assert.equal(await retry, true)
 })

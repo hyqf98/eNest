@@ -1,7 +1,7 @@
 ---
 feature: quick-launcher
 status: delivered
-updated: 2026-10-13
+updated: 2026-10-14
 ---
 
 # Quick Launcher
@@ -21,7 +21,7 @@ Quick 是独立于桌面主窗口的快捷启动面板。顶部搜索框沿用�
 | 从主窗打开（市场 / 圆轨 / Tab） | 恒为主窗 Tab（shell 容器），即使该插件之前在 Quick 打开 |
 | 重新扫描应用 | 刷新应用索引，保留 Quick 供继续搜索 |
 
-Quick 打开决策链：显式 container（⌘/Ctrl+Enter 强制主窗）> `settings.pluginLaunch[id].mode` > `'quick'`（跟随入口）。主窗入口恒为 shell，`mode` 仅影响 Quick 打开与热键启动。未安装或禁用的插件不进入可执行搜索结果。
+Quick 打开决策链：显式 container（⌘/Ctrl+Enter 强制主窗）> `settings.pluginLaunch[id].mode` > `'quick'`（跟随入口）。主窗入口恒为 shell；插件快捷键使用各条绑定自己的启动位置。未安装或禁用的插件不进入可执行搜索结果。
 
 ## 搜索
 
@@ -55,26 +55,26 @@ Quick 打开决策链：显式 container（⌘/Ctrl+Enter 强制主窗）> `sett
 
 Quick 使用透明无框 `BaseWindow`，其内部共享一个原生圆角 `View`，统一裁切壳页面和插件 `WebContentsView`。外轮廓始终为 20px 圆角，输入条与内容连接处保持直边；插件区不能依赖壳页面 CSS 裁切。
 
-默认宽度 720px，仅在当前屏幕工作区不足时缩小。输入条恒为 64px，常用网格两行默认总高度 248px；搜索随内容撑开、超限滚动，插件按自身建议调整高度。插件宽度建议不会改变 Quick 外框。
+宽度统一为 720px。默认呼出与返回首页时为两行常用项，总高度 248px；搜索随内容伸缩，最高 545px，超出部分内部滚动。进入插件后统一展开到 545px：输入区 64px、内容区 480px、底边 1px。插件声明及尺寸上报不改变插件态高度，仅屏幕工作区不足时缩小。
 
-原生窗口只调整一次目标尺寸，向下展开时动画改变共享父 View 的可见高度，不逐帧调整窗口或插件视口，避免额外重排。失焦隐藏保留窗口；`BaseWindow` 关闭时显式销毁壳 WebContents。
+共享父 View 始终展示完整窗口，进入插件时不再从输入栏高度裁切展开。工作区变化时一次性适配原生窗口并重排插件；失焦隐藏保留窗口，重新呼出恢复两行高度。`BaseWindow` 关闭时显式销毁壳 WebContents。
 
 主题、字体、主题包和动画设置沿用主壳子的持久化设置并接收即时更新。
 
 ## 插件布局与尺寸
 
-壳子只分配插件内容区，插件控制自己内部的布局、滚动、搜索和用户尺寸偏好。禁止依赖固定 720px 宽度；桌面与 Quick 都应按实际 viewport 响应式渲染。
+壳子只分配插件内容区，插件控制自己内部的布局、滚动和搜索。禁止依赖固定 720px 宽度；桌面与 Quick 都应按实际 viewport 响应式渲染。
 
 ```jsonc
 {
   "window": { "width": 760, "height": 400, "minWidth": 480, "minHeight": 240 },
-  "permissions": ["ui.resize"]
+  "permissions": []
 }
 ```
 
-- `height` / `minHeight`：Quick 内容区的高度建议与下限；`width` / `minWidth` 保留兼容，但不改变 Quick 的固定宽度。主窗尺寸由用户控制。
-- `enest.ui.resize({ width?, height? })`、`enest.ui.setHeight(height)`：Quick 仅即时调整高度，主窗只记录建议，不强制改变用户的窗口。
-- 实际尺寸同时受壳子上限与当前屏幕工作区限制；超出内容由插件内部滚动。
+- manifest 的 `window` 尺寸字段保留兼容，不改变 Quick 的固定外框；标准插件视口为 718 × 480px。主窗尺寸由用户控制。
+- `enest.ui.resize({ width?, height? })`、`enest.ui.setHeight(height)`：基础能力，保留参数校验和成功返回，不改变 Quick 或主窗尺寸。
+- 实际尺寸受当前屏幕工作区限制；超出内容由插件内部滚动。
 - 尺寸不再由 `body.scrollHeight` 轮询撑大，避免百分比根布局反复增高。
 - 固定到主窗或主窗缩放时无需重载，插件可通过 CSS 断点 / ResizeObserver 响应。
 
@@ -87,28 +87,20 @@ Quick 使用透明无框 `BaseWindow`，其内部共享一个原生圆角 `View`
 - `enest.getLaunchMode()` 返回当前模式（URL 初始值 + 事件实时更新）；`enest.onModeChange(cb)` 订阅变更，同时经 `mode-change` 事件推送 `{ type: 'mode-change', mode }`。
 - quick ↔ shell 容器迁移（⌘Enter 固定到主窗等）**不重载页面**；URL `?mode=` 只是初始值，运行时以 `getLaunchMode()` / `onModeChange` 为准。
 
-## 每插件快捷启动（热键 / 触发词 / 冲突接管）
+## 插件快捷键与搜索偏好
 
-用户可为每个插件配置启动方式覆盖项与快捷启动入口，持久化在 `settings.pluginLaunch[pluginId]`：
+设置 → 快捷键集中管理 Quick 呼出键与插件绑定。插件详情的快捷键入口跳转到此处并筛选当前插件；详情中的搜索启动方式与触发词仍保存为 `pluginLaunch[id].mode/aliases`。
 
-```jsonc
-{
-  "mode": "quick",        // 'quick' | 'shell'，仅影响 Quick 打开与热键启动；缺省 = 跟随入口
-  "hotkey": "Alt+T",      // 全局启动热键：按下按该插件启动方式唤起（缺省 quick）
-  "aliases": ["待办", "todo"] // 自定义触发词，并入 Quick 搜索索引，与 manifest features[].cmds 等权
-}
-```
+`settings.pluginShortcuts` 是绑定列表，每条为 `{ id, pluginId, accelerator, mode: 'quick' | 'shell', enabled }`。同一插件可以绑定多组组合键，分别直接进入小窗口和主窗口。已有实例保留页面和任务并迁移到绑定位置；已分离的独立窗也按明确绑定收回。原生对话框阻止迁移时提示并保留现状。关闭绑定只暂停全局键，设置页仍可点击“立即启动”。
 
-设置 UI 在插件详情弹窗「快捷启动」区。
-
-热键冲突检测走 `shell:probe-launch-hotkey`，返回归属：
-
-- `status`: `'free' | 'system' | 'eNest-quick' | 'plugin-launch' | 'plugin-runtime'`（附 `ownerPluginId` / `ownerLabel` / `hint` / `takeoverable`）。
-- 归属链：其它插件启动键 → Quick 当前生效键 → 插件运行时热键（`hotkey.register`）→ 系统。
-- 插件启动键 / 插件运行时键冲突可「接管」：经用户确认后顶掉对方；Quick 当前生效键不可接管，引导用户去 Quick 设置改键。
-- 保存走 `shell:set-plugin-launch`（带 takeover 标志）。
-
-更多示例见 [插件 UI 标准](../../site/plugin/ui-standard.md)。独立插件仓库的 manifest schema 同步支持这些字段。
+- 旧 `pluginLaunch[id].hotkey` 在设置加载时迁移一次，沿用旧 mode，缺省 quick；同次删除旧字段。搜索偏好与插件数据保留。
+- 专用接口为 `shell:get-plugin-shortcuts`、`shell:save-plugin-shortcut`、`shell:remove-plugin-shortcut`、`shell:probe-plugin-shortcut`、`shell:launch-plugin-shortcut`。普通设置写入不能修改绑定或原生注册。
+- 冲突返回 `free | system | quick | shortcut | runtime | invalid` 与占用方，要求换键；不提供接管。等价修饰键统一规范化。
+- 运行状态为已生效、已关闭、插件禁用／缺失、冲突、录制期间暂停；单独经 `plugin-shortcuts-changed` 推送，不持久化。注册失败保留原配置和旧键。
+- 插件绑定与 Quick 呼出键在确认原生注册后同步提交设置；写盘失败回滚。若旧键已被外部应用占用而无法恢复，撤销未保存的新键并显示冲突，不能报告保存成功。
+- 录制通过 `shell:begin-shortcut-capture` / `shell:end-shortcut-capture` 持有主壳文档的临时令牌，暂停本应用三类热键。主键释放后恢复，Esc、失焦、销毁与 30 秒超时都清理。
+- 禁用插件保留配置并释放键，启用或重新安装时差量验证；卸载成功删除关联绑定。插件关闭或休眠不释放用户启动键。
+- 绑定注册不预加载插件、不轮询；启动服务合并连按、遵从最后位置意图，复用原 WebContentsView。直接小窗启动等待文档就绪并捕获原外部粘贴目标，不先重置搜索列表。
 
 ## 键盘与焦点
 
@@ -122,7 +114,7 @@ Quick 使用透明无框 `BaseWindow`，其内部共享一个原生圆角 `View`
 
 ## 全局快捷键
 
-持久化在 `general.quickLauncher`：`enabled`、候选 `hotkeys`、唯一 `activeHotkey`。设置页可录制、探测占用并选择生效键。运行时只注册一枚选中快捷键，失败尝试候选并返回真实注册结果；界面不能把失败注册显示为成功。
+持久化在 `general.quickLauncher`：`enabled`、候选 `hotkeys`、唯一 `activeHotkey`。运行时只注册一枚选中快捷键。用户改键失败时保留旧键与旧配置，启动初始化可尝试既有候选；界面单独展示实际注册结果。Quick 呼出键开关不影响插件绑定。所有全局键要求 eNest 仍在运行，主窗口隐藏到托盘后继续可用。
 
 ## 验证
 
@@ -131,3 +123,4 @@ Quick 使用透明无框 `BaseWindow`，其内部共享一个原生圆角 `View`
 - `npm run build`：应用构建。
 - Quick 透明边缘需用真实 Electron 窗口核验：浅色、深色、结果展开与清空后，圆角外的像素 alpha 应为 0，主体应可见。仅 CSS 预览或 `setBorderRadius` 调用成功不能证明原生底板已透明。
 - 圆角、原生插件嵌入、跨宿主迁移和快捷键焦点需在真实 Electron 验证。
+- 本次统一快捷键设置的实际平台、测试结果、性能口径和未覆盖项见 [插件快捷键验收报告](../../engineering/plugin-shortcuts-validation.md)。

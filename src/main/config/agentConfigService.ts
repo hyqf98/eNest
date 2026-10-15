@@ -47,6 +47,14 @@ export interface AgentAdapter {
    * 缺省接受 sessionDirs 下任意相对路径（不越过根、拒绝 .. 与符号链接）。
    */
   sessionMatch?(relPath: string): boolean
+  /**
+   * 资产根目录白名单（agent.listAssets/writeAssets/deleteAssets 进入的前提；
+   * 缺省 dirname(configPaths[0])）。配置文件本身不受资产通道影响：
+   * 命中 configPaths 的相对路径一律拒绝，必须走 agent.write 的合并语义。
+   */
+  assetRoot?: string
+  /** 资产通道允许操作的一级子目录白名单（空则该应用不开放资产通道） */
+  assetSubdirs?: string[]
 }
 
 const HOME = homedir()
@@ -89,6 +97,9 @@ export const AGENT_ADAPTERS: AgentAdapter[] = [
     configPaths: [join(HOME, '.codex', 'config.toml'), join(HOME, '.codex', 'auth.json')],
     formats: ['toml', 'json'],
     sessionDirs: [join(HOME, '.codex', 'sessions'), join(HOME, '.codex', 'archived_sessions')],
+    // 资产通道：pets 子目录（Codex 桌面宠物包 = pets/<id>/{pet.json,spritesheet.webp}）
+    assetRoot: join(HOME, '.codex'),
+    assetSubdirs: ['pets'],
     // 活跃 = auth.json 存在登录材料（tokens 或 OPENAI_API_KEY）
     isActive: () => {
       const authPath = join(HOME, '.codex', 'auth.json')
@@ -484,7 +495,7 @@ export interface AgentWriteInputPayload {
   app: string
   /** 顶层键 → 新值；`$file` 特殊键指定目标文件名（如 codex 的 "auth.json"） */
   changes: Record<string, unknown>
-  /** 危险写确认（写系统将落盘用户配置，插件 UI 必须先弹确认） */
+  /** 宿主 IPC 完成权限校验后设置；插件传入的值不能替代授权。 */
   confirmed?: boolean
 }
 
@@ -803,4 +814,199 @@ function readHandle(fd: number, buffer: Buffer): { bytesRead: number } {
 }
 function closeHandle(fd: number): void {
   try { closeSync(fd) } catch { /* 已关闭 */ }
+}
+
+// —— 资产文件通道（agent.listAssets / agent.writeAssets / agent.deleteAssets）——
+// 面向「向 AI CLI 应用数据目录安装资产文件」的通用受控通道（如 Codex 桌面宠物包）。
+// 边界：只进入 adapter 声明的 assetRoot + assetSubdirs 一级子目录；相对路径拒绝
+// 绝对路径 / ../ 逃逸 / 反斜杠 / 编码分隔符 / 隐藏段；命中 configPaths 一律拒绝
+// （配置文件只能走 agent.write 的最小侵入合并）；写操作复用 pluginHandlers
+// 的 config.agent.write 授权，删除仍需确认具体目标；confirmed 是服务内部前置条件。
+
+/** 单次 writeAssets 文件数上限 */
+const ASSETS_WRITE_MAX_FILES = 20
+/** 单个资产文件大小上限（8MB，覆盖 ~2MB spritesheet 量级） */
+const ASSETS_WRITE_MAX_FILE_BYTES = 8 * 1024 * 1024
+/** 单次 writeAssets 总字节上限 */
+const ASSETS_WRITE_MAX_TOTAL_BYTES = 32 * 1024 * 1024
+/** listAssets 单次返回条目上限 */
+const ASSETS_LIST_MAX_ENTRIES = 2000
+
+function assetRootOf(adapter: AgentAdapter): string {
+  return adapter.assetRoot ?? dirnameOf(adapter.configPaths[0])
+}
+
+/**
+ * 校验并解析资产相对路径 → 绝对路径（纯函数，单测覆盖）。
+ * 允许空串（表示 assetRoot 本身，仅 listAssets 可用）；非空时首段必须命中
+ * assetSubdirs，且最终路径不得命中 adapter 的任何 configPaths。
+ */
+export function resolveAssetTarget(adapter: AgentAdapter, rel: string, forList = false): { abs: string; root: string } {
+  const root = assetRootOf(adapter)
+  if (!adapter.assetSubdirs || adapter.assetSubdirs.length === 0) {
+    throw new Error(`app "${adapter.app}" has no asset directories`)
+  }
+  if (typeof rel !== 'string') throw new Error('path must be a string')
+  const clean = rel.trim()
+  if (clean === '') {
+    if (!forList) throw new Error('path required (empty only allowed for listing)')
+    return { abs: root, root }
+  }
+  if (clean !== rel || rel.includes('\\') || /%[0-9a-f]{2}/i.test(rel)) {
+    throw new Error('path must be a plain relative path')
+  }
+  const segs = rel.split('/').filter(s => s.length > 0)
+  if (segs.length === 0) throw new Error('path required')
+  if (segs.some(s => s === '.' || s === '..' || s.startsWith('.'))) {
+    throw new Error('path must not contain dot segments or hidden names')
+  }
+  if (!adapter.assetSubdirs.includes(segs[0])) {
+    throw new Error(`path must start with one of: ${adapter.assetSubdirs.join(', ')}`)
+  }
+  const abs = join(root, ...segs)
+  if (adapter.configPaths.some(p => p === abs)) {
+    throw new Error('config files must go through agent.write (minimal merge)')
+  }
+  return { abs, root }
+}
+
+export interface AgentAssetEntry {
+  name: string
+  isDir: boolean
+  size: number
+  modifiedAt: number
+}
+
+export interface AgentListAssetsResult {
+  app: string
+  root: string
+  path: string
+  entries: AgentAssetEntry[]
+  truncated: boolean
+}
+
+export function agentListAssets(_pluginId: string, input: { app: string; path?: string }): AgentListAssetsResult {
+  const adapter = findAdapter(String(input?.app ?? ''))
+  const rel = String(input?.path ?? '')
+  const { abs, root } = resolveAssetTarget(adapter, rel, true)
+  if (!existsSync(abs)) return { app: adapter.app, root, path: rel, entries: [], truncated: false }
+  let dirents: Dirent[]
+  try {
+    dirents = readdirSync(abs, { withFileTypes: true })
+  } catch (err) {
+    throw new Error(`cannot list "${rel}": ${(err as Error).message}`)
+  }
+  const entries: AgentAssetEntry[] = []
+  for (const entry of dirents.slice(0, ASSETS_LIST_MAX_ENTRIES)) {
+    const target = join(abs, entry.name)
+    let size = 0
+    let modifiedAt = 0
+    try {
+      const st = statSync(target)
+      size = st.size
+      modifiedAt = Math.round(st.mtimeMs)
+    } catch {
+      /* 单条 stat 失败按 0 处理 */
+    }
+    entries.push({ name: entry.name, isDir: entry.isDirectory(), size, modifiedAt })
+  }
+  return {
+    app: adapter.app,
+    root,
+    path: rel,
+    entries,
+    truncated: dirents.length > ASSETS_LIST_MAX_ENTRIES
+  }
+}
+
+export interface AgentAssetInput {
+  /** 相对 assetRoot 的路径（首段必须命中 assetSubdirs） */
+  path: string
+  /** 文本内容（utf-8）与 contentBase64 二选一 */
+  contentText?: string
+  contentBase64?: string
+}
+
+export interface AgentWriteAssetsResultPayload {
+  ok: boolean
+  app: string
+  written: string[]
+  /** 覆盖了已存在文件时的快照 id（未覆盖任何文件为 null） */
+  backupId: string | null
+}
+
+export function agentWriteAssets(_pluginId: string, input: { app: string; assets: AgentAssetInput[]; confirmed?: boolean }): AgentWriteAssetsResultPayload {
+  const adapter = findAdapter(String(input?.app ?? ''))
+  if (input?.confirmed !== true) throw new Error('请先确认写入资产文件')
+  const assets = Array.isArray(input.assets) ? input.assets : []
+  if (assets.length === 0) throw new Error('assets required')
+  if (assets.length > ASSETS_WRITE_MAX_FILES) throw new Error(`too many files (max ${ASSETS_WRITE_MAX_FILES})`)
+  const targets: Array<{ abs: string; rel: string; data: Buffer }> = []
+  let total = 0
+  const seen = new Set<string>()
+  for (const asset of assets) {
+    const rel = String(asset?.path ?? '')
+    const { abs } = resolveAssetTarget(adapter, rel)
+    if (seen.has(abs)) throw new Error(`duplicate path "${rel}"`)
+    seen.add(abs)
+    const hasText = typeof asset.contentText === 'string'
+    const hasB64 = typeof asset.contentBase64 === 'string'
+    if (hasText === hasB64) throw new Error(`asset "${rel}" needs exactly one of contentText / contentBase64`)
+    const data = hasText
+      ? Buffer.from(asset.contentText as string, 'utf-8')
+      : Buffer.from(asset.contentBase64 as string, 'base64')
+    if (data.length === 0) throw new Error(`asset "${rel}" is empty`)
+    if (data.length > ASSETS_WRITE_MAX_FILE_BYTES) throw new Error(`asset "${rel}" exceeds 8 MiB`)
+    total += data.length
+    if (total > ASSETS_WRITE_MAX_TOTAL_BYTES) throw new Error('assets exceed 32 MiB total')
+    targets.push({ abs, rel, data })
+  }
+  // 覆盖前快照：只备份将被覆盖且已存在的文件（防止快照区被大图撑爆）
+  let backupId: string | null = null
+  const overwritten = targets.filter(t => existsSync(t.abs))
+  if (overwritten.length > 0) {
+    backupId = new Date().toISOString().replace(/[:]/g, '.')
+    const dir = join(backupDir(adapter.app), backupId)
+    mkdirSync(dir, { recursive: true })
+    for (const t of overwritten) {
+      try {
+        writeFileSync(join(dir, t.rel.replace(/\//g, '__')), readFileSync(t.abs))
+      } catch (err) {
+        logWarn('agent-config', `asset backup failed for ${t.abs}: ${(err as Error).message}`)
+      }
+    }
+  }
+  for (const t of targets) {
+    mkdirSync(dirnameOf(t.abs), { recursive: true })
+    writeFileSync(t.abs, t.data)
+  }
+  if (backupId) pruneBackups(adapter.app)
+  return { ok: true, app: adapter.app, written: targets.map(t => t.rel), backupId }
+}
+
+export interface AgentDeleteAssetsResultPayload {
+  ok: boolean
+  app: string
+  deleted: string[]
+}
+
+export function agentDeleteAssets(_pluginId: string, input: { app: string; paths: string[]; confirmed?: boolean }): AgentDeleteAssetsResultPayload {
+  const adapter = findAdapter(String(input?.app ?? ''))
+  if (input?.confirmed !== true) throw new Error('请先确认删除资产文件')
+  const paths = Array.isArray(input.paths) ? input.paths.map(p => String(p ?? '')) : []
+  if (paths.length === 0) throw new Error('paths required')
+  if (paths.length > ASSETS_WRITE_MAX_FILES) throw new Error(`too many paths (max ${ASSETS_WRITE_MAX_FILES})`)
+  const targets: Array<{ abs: string; rel: string }> = []
+  const seen = new Set<string>()
+  for (const rel of paths) {
+    const { abs } = resolveAssetTarget(adapter, rel)
+    if (seen.has(abs)) continue
+    seen.add(abs)
+    if (!existsSync(abs)) throw new Error(`path not found: ${rel}`)
+    targets.push({ abs, rel })
+  }
+  for (const t of targets) {
+    rmSync(t.abs, { recursive: true, force: true })
+  }
+  return { ok: true, app: adapter.app, deleted: targets.map(t => t.rel) }
 }

@@ -349,3 +349,102 @@ export function playModalOut(root: HTMLElement | null): Promise<void> {
     ).to(backdrop, { autoAlpha: 0, duration: msToSec(t.duration.fast), ease: 'power1.in' }, 0.04)
   })
 }
+
+/** 更新弹框入场（锚点 data-update-*；结构对齐 playModalIn，段落更少更轻） */
+export function playUpdateDialogIn(root: HTMLElement | null): void {
+  if (!root) return
+  const t = tokens()
+  const q = gsap.utils.selector(root)
+  const backdrop = q('[data-update-backdrop]')
+  const modal = q('[data-update-modal]')
+  const parts = [
+    ...q('[data-update-header]'),
+    ...q('[data-update-body]'),
+    ...q('[data-update-status]'),
+    ...q('[data-update-actions]'),
+  ]
+
+  if (t.level === 'low') {
+    gsap.set([backdrop, modal, parts], { autoAlpha: 1, clearProps: 'transform' })
+    return
+  }
+
+  const tl = gsap.timeline({ defaults: { ease: t.ease.soft } })
+  tl.fromTo(backdrop, { autoAlpha: 0 }, { autoAlpha: 1, duration: msToSec(t.duration.standard) })
+
+  if (t.level === 'high') {
+    tl.fromTo(
+      modal,
+      { autoAlpha: 0, scale: 0.98, y: dy(16), transformOrigin: '50% 40%' },
+      {
+        autoAlpha: 1,
+        scale: 1,
+        y: 0,
+        duration: msToSec(t.duration.slow) * 0.95,
+        ease: t.ease.overshoot,
+        clearProps: 'transform',
+      },
+      0.04,
+    ).fromTo(
+      parts,
+      { autoAlpha: 0, y: dy(12) },
+      {
+        autoAlpha: 1,
+        y: 0,
+        duration: d(0.34),
+        stagger: { each: t.stagger.tightGrid, from: 'start' },
+        clearProps: 'transform',
+      },
+      0.18,
+    )
+    return
+  }
+
+  tl.fromTo(
+    modal,
+    { autoAlpha: 0, scale: t.scaleFrom, y: dy(18) },
+    { autoAlpha: 1, scale: 1, y: 0, duration: d(0.4), clearProps: 'transform' },
+    0.04,
+  ).fromTo(
+    parts,
+    { autoAlpha: 0, y: dy(10) },
+    {
+      autoAlpha: 1,
+      y: 0,
+      duration: d(0.3),
+      stagger: { each: t.stagger.tightGrid, from: 'start' },
+      clearProps: 'transform',
+    },
+    0.12,
+  )
+}
+
+/** 更新弹框退场；low 档直接放行 */
+export function playUpdateDialogOut(root: HTMLElement | null): Promise<void> {
+  return new Promise((resolve) => {
+    if (!root) {
+      resolve()
+      return
+    }
+    const t = tokens()
+    if (t.level === 'low') {
+      resolve()
+      return
+    }
+    const q = gsap.utils.selector(root)
+    const backdrop = q('[data-update-backdrop]')
+    const modal = q('[data-update-modal]')
+    const tl = gsap.timeline({ onComplete: () => resolve() })
+    tl.to(
+      modal,
+      {
+        autoAlpha: 0,
+        scale: 0.96,
+        y: dy(10),
+        duration: msToSec(t.duration.fast) * 1.1,
+        ease: t.ease.exit,
+      },
+      0,
+    ).to(backdrop, { autoAlpha: 0, duration: msToSec(t.duration.fast), ease: 'power1.in' }, 0.04)
+  })
+}

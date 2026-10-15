@@ -54,6 +54,9 @@ function once(
           res.resume()
           const next = new URL(location, url)
           if (next.protocol !== 'http:' && next.protocol !== 'https:') return reject(new Error(`unsupported redirect: ${next.protocol}`))
+          // 管理端点由连接配置明确指定。禁止跨源/HTTPS 降级跳转，避免认证头、
+          // Cookie 及表单密码等 body 被发送到用户未选择的服务器。
+          if (next.origin !== url.origin) return reject(new Error('middleware redirect must stay on the configured origin (HTTPS downgrade is not allowed)'))
           resolve(once(next, { ...opts, body: opts.method === 'GET' ? undefined : opts.body }, redirectsLeft - 1))
           return
         }

@@ -1,36 +1,46 @@
 /** Source registration is independent of installation. Framework servers own HMR. */
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { dialog } from 'electron'
-import { installFromDirectory } from '@main/plugin/PluginInstaller'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import type { DevPluginLoadOptions, PluginSummary } from '@shared/types/plugin'
 import { resolvePluginUi } from '@shared/types/plugin'
-import { normalizePluginDevUrl } from '@shared/pluginContract'
 import { pluginCategoryColor } from '@shared/constants'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { dropDevPluginRecord, readDevPluginRecords, upsertDevPluginRecord } from './devPluginsStore'
+import { resolveDevPluginEntry } from './devPluginEntry'
 
-export async function loadDevPlugin(dirPath: string, options: DevPluginLoadOptions = {}, persist = true): Promise<PluginSummary> {
+async function prepareDevPlugin(dirPath: string, options: DevPluginLoadOptions = {}) {
   const sourcePath = resolve(dirPath)
-  const preview = options.preview === 'dist' ? 'dist' : 'source'
-  const rootPath = preview === 'dist' ? join(sourcePath, 'dist') : sourcePath
-  const manifest = await installFromDirectory(rootPath, { source: preview === 'source' })
-  const devUrl = preview === 'source' ? normalizePluginDevUrl(options.url ?? manifest.development?.main) : undefined
+  const { rootPath, manifest, devUrl, devSource } = await resolveDevPluginEntry(sourcePath, options)
   const category = manifest.category ?? '开发'
   const summary: PluginSummary = {
     id: manifest.id, name: manifest.name, version: manifest.version,
     description: manifest.description ?? '', author: manifest.author ?? '', category,
     installs: 'dev', color: pluginCategoryColor(category), glyph: manifest.name.slice(0, 1),
     permissions: manifest.permissions ?? [], installed: true,
-    rootPath, sourcePath, devUrl, devSource: preview === 'source', dev: true,
+    rootPath, sourcePath, devUrl, devSource, dev: true,
     ui: resolvePluginUi(manifest.ui)
   }
+  return { summary, manifest }
+}
+
+/** Recheck automatic selection on reload without closing or changing placement. */
+export async function prepareDevPluginReload(plugin: PluginSummary) {
+  if (!plugin.dev || !plugin.sourcePath) return null
+  const record = (await readDevPluginRecords()).find(record => record.id === plugin.id)
+  const prepared = await prepareDevPlugin(plugin.sourcePath, record ? { url: record.url, preview: record.preview } : {})
+  if (prepared.summary.id !== plugin.id) throw new Error('插件源码的 id 已变化，请重新加载该目录')
+  return prepared
+}
+
+export async function loadDevPlugin(dirPath: string, options: DevPluginLoadOptions = {}, persist = true): Promise<PluginSummary> {
+  const { summary, manifest } = await prepareDevPlugin(dirPath, options)
   const { pluginHost } = await import('@main/plugin/PluginHost')
   if (pluginHost.isOpen(manifest.id)) await pluginHost.closePlugin(manifest.id, 'tab-close')
   const registered = pluginRegistry.addDevPlugin(summary, manifest)
-  if (persist) await upsertDevPluginRecord(manifest.id, sourcePath, options)
-  logInfo('dev', `loaded ${manifest.id}: ${devUrl ?? rootPath}`)
+  if (persist) await upsertDevPluginRecord(manifest.id, summary.sourcePath!, options)
+  logInfo('dev', `loaded ${manifest.id}: ${summary.devUrl ?? summary.rootPath}`)
   return registered
 }
 

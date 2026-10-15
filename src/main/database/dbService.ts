@@ -40,7 +40,10 @@ import {
   setCatalog
 } from '@main/database/completion'
 import { listDialects } from '@main/database/dialects'
-import { isReadQuery, splitSql, normalizeLimit, sqlTokens } from '@main/database/queryPolicy'
+import { isReadQuery, normalizeLimit, ResultBudget } from '@main/database/queryPolicy'
+import { planSqlScript } from '@main/database/sqlScript'
+import type { SqlScriptUnit } from '@main/database/sqlScript'
+import { transactionCommand, validateExecutionPlan } from '@main/database/executionPolicy'
 import { isStructuredRead, DRIVER_FAMILIES, supportsIsolatedReadOnly } from '@main/database/driverCatalog'
 import { nativeCompletion } from '@main/database/nativeCompletion'
 import { rowChangeSql } from '@main/database/rowChanges'
@@ -193,7 +196,7 @@ export async function dbTransaction(pluginId: string, input: { sessionKey: strin
   if (!['begin','commit','rollback'].includes(input.operation)) throw new Error('Invalid transaction operation')
   if (!driver.transaction) throw new Error('Transactions are not supported by this driver')
   if (s.running.size || s.busyOperation) throw new Error('Wait for the active query before changing transaction state')
-  return inSession(s, 'transaction control', async () => { await driver.transaction!(s.handle, input.operation); return { active: input.operation === 'begin' } })
+  return inSession(s, 'transaction control', async () => { await driver.transaction!(s.handle, input.operation); return { active: !!s.handle.runtime?.transaction } })
 }
 
 export async function dbExecute(pluginId: string, input: DbExecuteInput): Promise<QueryResult> {
@@ -204,10 +207,14 @@ export async function dbExecute(pluginId: string, input: DbExecuteInput): Promis
   if (input.surface === 'quick' && s.handle.runtime?.transaction) throw new Error('Quick needs a separate console while a desktop transaction is active')
   if (input.surface === 'quick' && (!s.readOnly || !supportsIsolatedReadOnly(s.driverId))) throw new Error('Quick requires an independent read-only console supported by this driver; reopen with options.readOnly=true or continue in the desktop workspace')
   const structuredRead = isStructuredRead(s.driverId, sql)
-  const read = structuredRead ?? isReadQuery(sql)
+  const dialect = DRIVER_FAMILIES[s.driverId] || driver.dialect
+  const plan: SqlScriptUnit[] = structuredRead === undefined ? planSqlScript(sql, dialect) : [{ sql, start: 0, end: sql.length, contentEnd: sql.length, line: 1, endLine: 1, kind: 'statement', delimiter: ';' }]
+  if (structuredRead === undefined) validateExecutionPlan(plan, dialect, !!s.handle.runtime?.transaction, !!driver.transaction)
+  const statements = plan.filter(unit => unit.kind !== 'directive')
+  if (!statements.length) throw new Error('Query text contains no executable SQL')
+  const read = structuredRead ?? isReadQuery(sql, dialect)
   if ((s.readOnly || input.surface === 'quick') && !read) throw new Error('Read-only/Quick console rejects writes; continue in the desktop workspace')
   if (!read) assertWriteConfirmed(s, input.confirmed, 'database write')
-  const statements = structuredRead === undefined ? splitSql(sql) : [sql]
   if (input.surface === 'quick' && statements.length !== 1) throw new Error('Quick accepts one read-only statement at a time')
   if (input.params && statements.length !== 1) throw new Error('Parameters require one statement per execution')
   const runId = input.executionId || `run_${++sessionSeq}`
@@ -220,23 +227,30 @@ export async function dbExecute(pluginId: string, input: DbExecuteInput): Promis
   const timeout = setTimeout(() => controller.abort(new Error('Query timed out')), Math.max(100, Math.min(600000, input.timeoutMs || 30000)))
   const results: QueryResult[] = []
   try {
-    for (const statement of statements) {
+    const budget = new ResultBudget()
+    for (const [index, unit] of statements.entries()) {
       controller.signal.throwIfAborted()
-      const command = structuredRead === undefined ? sqlTokens(statement).trim().toUpperCase() : ''
-      let result: QueryResult
-      if (/^(SET\s+(?:(?:SESSION|LOCAL|GLOBAL)\s+)?(?:@@(?:SESSION\.)?)?AUTOCOMMIT|XA\s|PREPARE\s+TRANSACTION)/.test(command)) throw new Error('Use the transaction toolbar or BEGIN/COMMIT/ROLLBACK so this console can track transaction ownership')
-      if (/^(BEGIN(?:\s+(?:TRANSACTION|WORK))?|START\s+TRANSACTION|COMMIT(?:\s+WORK)?|END(?:\s+WORK)?|ROLLBACK(?:\s+WORK)?|ABORT)$/.test(command)) {
-        if (!driver.transaction) throw new Error('Transactions unsupported by this driver')
-        await driver.transaction(s.handle, command.startsWith('BEGIN') || command.startsWith('START') ? 'begin' : command.startsWith('COMMIT') || command.startsWith('END') ? 'commit' : 'rollback')
-        result = { columns: [], rows: [], rowCount: 0, durationMs: 0, sql: statement }
-      } else {
-        if (/^(BEGIN|START\s+TRANSACTION|COMMIT|END|ABORT)\b/.test(command) || /^ROLLBACK\b/.test(command) && !/^ROLLBACK\s+TO\b/.test(command)) throw new Error('Unsupported transaction variant; use the transaction toolbar or plain BEGIN/COMMIT/ROLLBACK')
-        result = await driver.execute(s.handle, statement, { maxRows: normalizeLimit(input.maxRows, input.surface === 'quick'), timeoutMs: input.timeoutMs, params: input.params, signal: controller.signal, executionId: runId })
+      try {
+        if (structuredRead === undefined) validateExecutionPlan([unit], dialect, !!s.handle.runtime?.transaction, !!driver.transaction)
+        const control = structuredRead === undefined ? transactionCommand(unit, dialect) : undefined
+        let result: QueryResult
+        if (control) {
+          await driver.transaction!(s.handle, control)
+          result = { columns: [], rows: [], rowCount: 0, durationMs: 0, sql: unit.sql }
+        } else result = await driver.execute(s.handle, unit.sql, { maxRows: normalizeLimit(input.maxRows, input.surface === 'quick'), timeoutMs: input.timeoutMs, params: input.params, signal: controller.signal, executionId: runId })
+        if (sessions.get(s.sessionKey) !== s || active.aborted || controller.signal.aborted) throw new Error('database query cancelled')
+        // A procedure/batch may return multiple recordsets. Keep their independent schemas
+        // and the single originating execution id instead of nesting/mixing their rows.
+        for (const recordset of result.results || [result]) {
+          recordset.executionId = runId; recordset.transactionActive = !!s.handle.runtime?.transaction
+          for (const row of recordset.rows) budget.add(row)
+          results.push(recordset)
+        }
+        if (!read) invalidateCatalog(s.sessionKey)
+      } catch (error) {
+        if (controller.signal.aborted) throw error
+        throw new Error(`SQL unit ${index + 1} (lines ${unit.line}–${unit.endLine}): ${error instanceof Error ? error.message : String(error)}`)
       }
-      if (sessions.get(s.sessionKey) !== s || active.aborted || controller.signal.aborted) throw new Error('database query cancelled')
-      result.executionId = runId; result.transactionActive = !!s.handle.runtime?.transaction
-      if (!read) invalidateCatalog(s.sessionKey)
-      results.push(result)
     }
     const first = results[0] || { columns: [], rows: [], rowCount: 0, durationMs: 0 }
     return { ...first, executionId: runId, transactionActive: !!s.handle.runtime?.transaction, ...(results.length > 1 ? { results } : {}) }
@@ -247,7 +261,7 @@ export async function dbExecute(pluginId: string, input: DbExecuteInput): Promis
 export async function dbExplain(pluginId: string, input: { sessionKey: string; sql: string }): Promise<QueryResult> {
   const s = requireSession(pluginId, input.sessionKey)
   if (!getDriver(s.driverId).explain) throw new Error('Execution plan unavailable for this driver')
-  if (!isReadQuery(input.sql)) throw new Error('Execution plan only accepts read queries')
+  if (!isReadQuery(input.sql, DRIVER_FAMILIES[s.driverId])) throw new Error('Execution plan only accepts read queries')
   return dbExecute(pluginId, { ...input, sql: `${s.driverId === 'sqlite' ? 'EXPLAIN QUERY PLAN' : 'EXPLAIN'} ${input.sql}` })
 }
 

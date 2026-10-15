@@ -98,13 +98,15 @@ test('closing a background tab while in settings does not navigate', async () =>
   assert.equal(store.getState().activeTabId, null)
 })
 
-test('restore registers logical tabs once before opening only the saved active plugin', async () => {
+test('restore keeps even the saved active plugin lazy until the user opens its tab', async () => {
   const { store, calls } = fixture()
   await Promise.all([store.getState().hydrateSessionTabs(), store.getState().hydrateSessionTabs()])
-  assert.equal(JSON.stringify(calls), JSON.stringify([['restore', ['a', 'b']], ['open', 'b']]))
+  assert.equal(JSON.stringify(calls), JSON.stringify([['restore', ['a', 'b']]]))
   assert.equal(store.getState().tabs.length, 2)
   assert.ok(store.getState().tabs.every(tab => tab.lazy))
   assert.equal(store.getState().pluginReady, false)
+  await store.getState().activateTab('t-b')
+  assert.equal(JSON.stringify(calls), JSON.stringify([['restore', ['a', 'b']], ['activate', 't-b']]))
 })
 
 test('early plugin open and close cannot overwrite startup settings or resurrect the transient tab', async () => {
@@ -118,8 +120,7 @@ test('early plugin open and close cannot overwrite startup settings or resurrect
   assert.equal(JSON.stringify(calls), JSON.stringify([['restore', []]]))
   assert.equal(store.getState().tabs.length, 0)
   flushTimers()
-  assert.equal(persisted.length, 1)
-  assert.equal(JSON.stringify(persisted[0].general), JSON.stringify({ sessionTabs: [], sessionActivePluginId: '' }))
+  assert.equal(persisted.length, 0, 'renderer projections never overwrite the host-owned global session')
 })
 
 test('tab projection carries package images and authoritative title/glyph/badge overrides to orb', () => {
@@ -135,4 +136,14 @@ test('tab projection carries package images and authoritative title/glyph/badge 
   assert.equal(store.getState().tabs[0].glyph, '✓')
   emit({ type: 'plugin-tabs', revision: 4, tabs: [{ id: 't-a', title: 'a', icon: 'enest://plugin/a/assets/market/icon.svg', glyph: 'a', badge: '', status: 'ready' }], activeTabId: 't-a' })
   assert.equal(store.getState().tabs[0].icon, 'enest://plugin/a/assets/market/icon.svg'); assert.equal(store.getState().tabs[0].badge, '')
+})
+
+
+test('removing a development registration preserves installed packages and plugin data', async () => {
+  const f = fixture()
+  f.api.forgetDevPlugin = async id => f.calls.push(['forget', id])
+  f.api.uninstallPlugin = async () => { throw new Error('developer removal must never invoke uninstall') }
+  await f.store.getState().removeDevPlugin('a')
+  assert.deepEqual(f.calls, [['close', 't-a'], ['forget', 'a']])
+  assert.match(f.store.getState().devLogs.at(-1).text, /removed a/)
 })

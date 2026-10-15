@@ -9,7 +9,7 @@ const noopExports = (names) =>
 const adapters = {
   'test-state':
     'export const state={current:"plugin",container:"quick",revision:0,paste:null,show:null,shown:0,opened:[]};',
-  '@main/plugin/PluginHost': `import {state} from 'test-state';export const pluginHost={getQuickPlugin:()=>state.current,getContainer:()=>state.container,openPlugin:async(id)=>{state.opened.push(id);state.current=id}};`,
+  '@main/plugin/PluginHost': `import {state} from 'test-state';export const pluginHost={getQuickPlugin:()=>state.current,getContainer:()=>state.container,getPlacement:()=>({kind:state.container}),getPlacementRevision:()=>state.container,openPlugin:async(id)=>{state.opened.push(id);state.current=id}};`,
   '@main/plugin/quickInputService': noopExports([
     'bindQuickInputHost',
     'clearQuickInput',

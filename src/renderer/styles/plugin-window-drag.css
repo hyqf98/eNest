@@ -1,0 +1,7 @@
+.plugin-dragging, .plugin-dragging * { cursor: grabbing !important; user-select: none !important; }
+.plugin-drag-source { opacity: .4 !important; }
+.plugin-drag-session .tab:active, .plugin-drag-session .orb-face:active { transform: none; }
+.plugin-drop-ready { box-shadow: inset 0 0 0 1px var(--accent, #bd542b); }
+.plugin-drop-indicator { position: fixed; z-index: 2147483647; border-radius: 2px; background: var(--accent, #bd542b); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #bd542b) 16%, transparent); pointer-events: none; }
+.plugin-drop-indicator[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .plugin-drag-session * { transition-duration: 0s !important; } }

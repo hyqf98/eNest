@@ -1,3 +1,8 @@
+import type {
+  PluginShortcutBinding, PluginShortcutInput, PluginShortcutsSnapshot,
+  PluginShortcutMutationResult, PluginShortcutLaunchResult, ShortcutProbeResult
+} from '@shared/types/shortcuts'
+import type { AccountState, AccountLoginResult } from '@shared/types/account'
 /**
  * shellPreload — 壳子渲染层预加载脚本
  * 职责：通过 contextBridge 向壳子渲染层暴露 window.enestShell API，
@@ -6,19 +11,23 @@
  * 关键依赖：@shared/types/ipc（通道名与类型）、contextBridge、ipcRenderer。
  */
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { exposePluginWindowBridge } from './pluginWindowBridge'
 import type { QuickInputMessage, QuickInputState } from '@shared/types/plugin-tools'
 import {
   IpcChannels,
   type InstallJobInfo,
   type OrbRailState,
   type PluginCallTraceEntry,
+  type PluginDirtyState,
+  type PluginSaveSummary,
+  type GithubLoginSessionPayload,
+  type GithubProfileState,
   type ShellEventPayload,
   type UpdateStatePayload
 } from '@shared/types/ipc'
 import type {
   AppPaths,
   DevPluginLoadOptions,
-  LaunchHotkeyProbeResult,
   MarketInstallResult,
   PluginLaunchConfig,
   PluginLaunchPatch,
@@ -52,6 +61,7 @@ export interface ShellSettingsData {
   plugins?: Record<string, Record<string, unknown>>
   /** 每插件快捷启动配置表（键 = pluginId）；读取用，写入走 setPluginLaunch */
   pluginLaunch?: Record<string, PluginLaunchConfig>
+  pluginShortcuts?: PluginShortcutBinding[]
   [key: string]: unknown
 }
 
@@ -59,8 +69,6 @@ export interface ShellSettingsData {
 export interface PluginLaunchSetResult {
   ok: boolean
   error?: string
-  /** 冲突探测详情（失败时供渲染层展示归属与接管选项） */
-  probe?: LaunchHotkeyProbeResult
   /** 成功后的最终配置（空配置为 null） */
   config?: PluginLaunchConfig | null
 }
@@ -146,6 +154,7 @@ export interface EnestShellApi {
     activeTabId: string | null
     animationLevel: string
     theme: { mode: string; tokens: Record<string, string> }
+    profile?: OrbRailState['profile']
     tabs: unknown[]
     contribEntries?: OrbRailState['contribEntries']
   }>
@@ -153,17 +162,17 @@ export interface EnestShellApi {
   uninstallPlugin(pluginId: string): Promise<void>
   /** 启用/禁用已安装插件（持久化）；成功返回更新后的 summary */
   setPluginEnabled(pluginId: string, enabled: boolean): Promise<PluginSummary>
-  /** 启动热键录制探测：返回占用归属（free/system/eNest-quick/plugin-launch/plugin-runtime） */
-  probeLaunchHotkey(
-    acc: string,
-    excludePluginId?: string
-  ): Promise<LaunchHotkeyProbeResult>
-  /** 写入单插件快捷启动配置（启动方式/热键/触发词）；冲突返回 probe，takeover 接管。
-   *  patch.mode 传 null = 清除启动方式（回到「跟随入口」）；hotkey 传空串 = 清除 */
+  getPluginShortcuts(): Promise<PluginShortcutsSnapshot>
+  savePluginShortcut(input: PluginShortcutInput): Promise<PluginShortcutMutationResult>
+  removePluginShortcut(id: string): Promise<PluginShortcutMutationResult>
+  probePluginShortcut(accelerator: string, excludeId?: string): Promise<ShortcutProbeResult>
+  launchPluginShortcut(id: string): Promise<PluginShortcutLaunchResult>
+  beginShortcutCapture(): Promise<{ token: string }>
+  endShortcutCapture(token: string): Promise<void>
+  /** 搜索启动偏好；快捷键绑定使用独立服务。 */
   setPluginLaunch(
     pluginId: string,
-    patch: PluginLaunchPatch,
-    opts?: { takeover?: boolean }
+    patch: PluginLaunchPatch
   ): Promise<PluginLaunchSetResult>
   /** 从市场安装/更新：sample 优先，否则远程入队；force 强制走远程更新 */
   installMarketPlugin(
@@ -174,9 +183,10 @@ export interface EnestShellApi {
   setTheme(
     mode: ThemeMode,
     overrides?: Record<string, string>,
-    extra?: Partial<Pick<ThemeTokens, 'packId' | 'background' | 'backgroundSource'>>
+    extra?: Partial<Pick<ThemeTokens, 'packId' | 'background' | 'backgroundSource' | 'backgroundEffect'>>
   ): Promise<void>
   loadDevPlugin(dirPath: string, options?: DevPluginLoadOptions): Promise<PluginSummary>
+  forgetDevPlugin(pluginId: string): Promise<void>
   reloadPlugin(pluginId: string): Promise<void>
   /** 开发者控制台：切换/查询 dev 插件「退出到后台立即结束运行」（enabled 省略为查询） */
   setDevKillOnHide(pluginId: string, enabled?: boolean): Promise<boolean>
@@ -222,6 +232,22 @@ export interface EnestShellApi {
   /** 安装已下载的更新并重启应用 */
   installUpdate(): Promise<UpdateStatePayload>
   getUpdateState(): Promise<UpdateStatePayload>
+  /** 更新重启前：运行中插件的未保存数据快照（enest.setDirty 上报） */
+  getPluginsDirty(): Promise<PluginDirtyState>
+  /** 一键保存：广播 save.requested 通知并等待插件 ack（超时兜底放行） */
+  saveAllPlugins(): Promise<PluginSaveSummary>
+  /** 宿主登录方式、当前账号与可恢复的授权会话 */
+  getAccountState(): Promise<AccountState>
+  loginAccount(providerId: string): Promise<AccountLoginResult>
+  cancelAccountLogin(providerId: string): Promise<void>
+  logoutAccount(providerId: string): Promise<void>
+  githubLogin(): Promise<{ ok: true; data: GithubLoginSessionPayload } | { ok: false; error: string }>
+  /** 兼容接口：取消浏览器授权或设备码登录 */
+  githubCancelLogin(): Promise<{ ok: boolean }>
+  /** 读取个人资料状态（用户 / token / 轮询中） */
+  getGithubProfile(): Promise<GithubProfileState>
+  /** 退出登录：清除加密 token 与资料 */
+  githubLogout(): Promise<{ ok: boolean }>
   /** 系统级通知（Electron Notification） */
   systemNotify(title: string, body?: string): Promise<void>
   /** —— 运行时权限（壳层三态）—— */
@@ -311,6 +337,7 @@ const api: EnestShellApi = {
       activeTabId: string | null
       animationLevel: string
       theme: { mode: string; tokens: Record<string, string> }
+      profile?: OrbRailState['profile']
       tabs: unknown[]
       contribEntries?: OrbRailState['contribEntries']
     }>,
@@ -323,20 +350,15 @@ const api: EnestShellApi = {
       ipcRenderer.invoke(IpcChannels.ShellSetPluginEnabled, pluginId, enabled)
     ),
 
-  probeLaunchHotkey: (acc: string, excludePluginId?: string) =>
-    ipcRenderer.invoke(IpcChannels.ShellProbeLaunchHotkey, acc, excludePluginId) as Promise<LaunchHotkeyProbeResult>,
-
-  setPluginLaunch: (
-    pluginId: string,
-    patch: PluginLaunchPatch,
-    opts?: { takeover?: boolean }
-  ) =>
-    ipcRenderer.invoke(
-      IpcChannels.ShellSetPluginLaunch,
-      pluginId,
-      patch,
-      opts
-    ) as Promise<PluginLaunchSetResult>,
+  getPluginShortcuts: () => ipcRenderer.invoke(IpcChannels.ShellGetPluginShortcuts),
+  savePluginShortcut: input => ipcRenderer.invoke(IpcChannels.ShellSavePluginShortcut, input),
+  removePluginShortcut: id => ipcRenderer.invoke(IpcChannels.ShellRemovePluginShortcut, id),
+  probePluginShortcut: (accelerator, excludeId) => ipcRenderer.invoke(IpcChannels.ShellProbePluginShortcut, accelerator, excludeId),
+  launchPluginShortcut: id => ipcRenderer.invoke(IpcChannels.ShellLaunchPluginShortcut, id),
+  beginShortcutCapture: () => ipcRenderer.invoke(IpcChannels.ShellBeginShortcutCapture),
+  endShortcutCapture: token => ipcRenderer.invoke(IpcChannels.ShellEndShortcutCapture, token),
+  setPluginLaunch: (pluginId, patch) =>
+    ipcRenderer.invoke(IpcChannels.ShellSetPluginLaunch, pluginId, patch) as Promise<PluginLaunchSetResult>,
 
   installMarketPlugin: (pluginId: string, opts?: { force?: boolean }) =>
     unwrapOk<MarketInstallResult>(
@@ -360,12 +382,16 @@ const api: EnestShellApi = {
       // 始终带上 packId/background 键：显式 undefined 可清除（取消主题包/背景）
       ...(extra && 'packId' in extra ? { packId: extra.packId } : {}),
       ...(extra && 'background' in extra ? { background: extra.background } : {}),
-      ...(extra && 'backgroundSource' in extra ? { backgroundSource: extra.backgroundSource } : {})
+      ...(extra && 'backgroundSource' in extra ? { backgroundSource: extra.backgroundSource } : {}),
+      ...(extra && 'backgroundEffect' in extra ? { backgroundEffect: extra.backgroundEffect } : {})
     })
   },
 
   loadDevPlugin: (dirPath: string, options?: DevPluginLoadOptions) =>
     unwrapOk<PluginSummary>(ipcRenderer.invoke(IpcChannels.ShellLoadDevPlugin, dirPath, options)),
+
+  forgetDevPlugin: (pluginId: string) =>
+    expectOk(ipcRenderer.invoke(IpcChannels.ShellForgetDevPlugin, pluginId)),
 
   reloadPlugin: (pluginId: string) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellReloadPlugin, pluginId)),
@@ -459,6 +485,25 @@ const api: EnestShellApi = {
     ipcRenderer.invoke(IpcChannels.ShellInstallUpdate) as Promise<UpdateStatePayload>,
   getUpdateState: () =>
     ipcRenderer.invoke(IpcChannels.ShellGetUpdateState) as Promise<UpdateStatePayload>,
+  getPluginsDirty: () =>
+    ipcRenderer.invoke(IpcChannels.ShellGetPluginsDirty) as Promise<PluginDirtyState>,
+  saveAllPlugins: () =>
+    ipcRenderer.invoke(IpcChannels.ShellSaveAllPlugins) as Promise<PluginSaveSummary>,
+  getAccountState: () => ipcRenderer.invoke(IpcChannels.ShellAccountState),
+  loginAccount: (providerId) => ipcRenderer.invoke(IpcChannels.ShellAccountLogin, providerId),
+  cancelAccountLogin: (providerId) => ipcRenderer.invoke(IpcChannels.ShellAccountCancel, providerId),
+  logoutAccount: (providerId) => ipcRenderer.invoke(IpcChannels.ShellAccountLogout, providerId),
+  githubLogin: () =>
+    ipcRenderer.invoke(IpcChannels.ShellGithubLogin) as Promise<{
+      ok: true
+      data: GithubLoginSessionPayload
+    } | { ok: false; error: string }>,
+  githubCancelLogin: () =>
+    ipcRenderer.invoke(IpcChannels.ShellGithubCancelLogin) as Promise<{ ok: boolean }>,
+  getGithubProfile: () =>
+    ipcRenderer.invoke(IpcChannels.ShellGetProfile) as Promise<GithubProfileState>,
+  githubLogout: () =>
+    ipcRenderer.invoke(IpcChannels.ShellGithubLogout) as Promise<{ ok: boolean }>,
 
   systemNotify: async (title: string, body?: string) => {
     await expectOk(ipcRenderer.invoke(IpcChannels.ShellSystemNotify, title, body))
@@ -557,3 +602,4 @@ const api: EnestShellApi = {
 }
 
 contextBridge.exposeInMainWorld('enestShell', api)
+exposePluginWindowBridge()

@@ -249,3 +249,40 @@ test('agentSessionsRead: 真实临时目录读取 + 行解析 + 上限（经 HOM
   // （通过不存在的 claude-code projects 文件确认 not found 而非崩溃）
   assert.throws(() => api.agentSessionsRead('test', { app: 'claude-code', file: 'projects/proj/no-such.jsonl' }), /not found/)
 })
+
+test('resolveAssetTarget: codex pets 白名单内相对路径通过', () => {
+  const { abs } = api.resolveAssetTarget(api.AGENT_ADAPTERS.find(a => a.app === 'codex'), 'pets/bedro/pet.json')
+  assert.ok(abs.includes(joinSep(['pets', 'bedro', 'pet.json'])), abs)
+})
+
+test('resolveAssetTarget: 逃逸 / 隐藏段 / 反斜杠 / 编码分隔符 / 绝对路径全部拒绝', () => {
+  const codex = api.AGENT_ADAPTERS.find(a => a.app === 'codex')
+  for (const bad of ['../x.json', 'pets/../config.toml', 'pets/.env', 'pets\\a', 'pets/%2e%2e', '/etc/passwd', 'sessions/x']) {
+    assert.throws(() => api.resolveAssetTarget(codex, bad), /must|required|cannot/, bad)
+  }
+  // 空段被规范化（与 sessions 通道一致，无逃逸风险）
+  const { abs } = api.resolveAssetTarget(codex, 'pets//x//pet.json')
+  assert.ok(abs.includes(joinSep(['pets', 'x', 'pet.json'])), abs)
+})
+
+test('resolveAssetTarget: 未开放资产通道的应用拒绝', () => {
+  const claude = api.AGENT_ADAPTERS.find(a => a.app === 'claude-code')
+  assert.throws(() => api.resolveAssetTarget(claude, 'pets/x'), /no asset directories/)
+})
+
+test('resolveAssetTarget: 空串仅 list 模式允许（列根）', () => {
+  const codex = api.AGENT_ADAPTERS.find(a => a.app === 'codex')
+  assert.doesNotThrow(() => api.resolveAssetTarget(codex, '', true))
+  assert.throws(() => api.resolveAssetTarget(codex, '', false), /path required/)
+})
+
+test('agentListAssets / agentWriteAssets / agentDeleteAssets: confirmed 门禁与未知应用', () => {
+  assert.throws(() => api.agentListAssets('t', { app: 'nope', path: 'pets' }), /unknown app/)
+  assert.throws(() => api.agentWriteAssets('t', { app: 'codex', assets: [{ path: 'pets/x/a.json', contentText: '1' }] }), /请先确认/)
+  assert.throws(() => api.agentDeleteAssets('t', { app: 'codex', paths: ['pets/x'] }), /请先确认/)
+  assert.throws(() => api.agentWriteAssets('t', { app: 'codex', confirmed: true, assets: [] }), /assets required/)
+})
+
+function joinSep(segs) {
+  return segs.join('/')
+}

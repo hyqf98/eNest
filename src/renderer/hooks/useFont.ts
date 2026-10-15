@@ -167,10 +167,6 @@ function cssFontValue(family: string): string {
  * 拼接中英字体栈：Latin 字符优先命中英文栈，CJK 回落中文栈。
  * en 为空时原样返回 cjk（兼容旧版单栈行为）。
  */
-/**
- * 拼接中英字体栈：Latin 字符优先命中英文栈，CJK 回落中文栈。
- * en 为空时原样返回 cjk（兼容旧版单栈行为）。
- */
 function composeFontStack(en: string, cjk: string): string {
   if (!en) return cjk
   if (!cjk) return en
@@ -505,6 +501,8 @@ export const useFontStore = create<FontState>((set, get) => ({
     } catch {
       /* 继续尝试应用，浏览器可能已缓存 */
     }
+    // 文件读取期间可能已被删除；迟到的加载结果不得重新选中已移除字体。
+    if (!get().customFonts.some((font) => font.id === meta.id && font.fileName === meta.fileName)) return
     const css = cssFontValue(meta.family)
     const { fontFamilyEn } = get()
     applyFontToDom(fontFamilyEn, css)
@@ -593,13 +591,11 @@ export const useFontStore = create<FontState>((set, get) => ({
   },
 
   removeCustomFont: async (fontId) => {
-    const state = get()
-    const meta = state.customFonts.find((c) => c.id === fontId)
+    const meta = get().customFonts.find((c) => c.id === fontId)
     if (!meta) return
     fontReadVersion++
     set({ hydrating: false })
     customFontLoads.delete(`${meta.id}:${meta.fileName}:${meta.family}`)
-    const customFonts = state.customFonts.filter((c) => c.id !== fontId)
 
     try {
       if (isMockShell) {
@@ -611,24 +607,23 @@ export const useFontStore = create<FontState>((set, get) => ({
       /* 文件删除失败仍从列表移除 */
     }
 
-    let fontFamily = state.fontFamily
-    let customFontId = state.customFontId
-
-    if (state.customFontId === fontId) {
+    // 删除文件期间仍可切换字体或删除其他条目，只修改完成时的最新状态。
+    const state = get()
+    if (!state.customFonts.some((font) => font.id === fontId)) return
+    fontReadVersion++
+    const customFonts = state.customFonts.filter((font) => font.id !== fontId)
+    const resetSelection = state.customFontId === fontId
+    if (resetSelection) {
       // 回退到默认栈（保留英文槽）
-      fontFamily = ''
-      customFontId = null
       applyFontToDom(state.fontFamilyEn, '')
     }
-
     set({
       customFonts,
-      fontFamily,
-      customFontId,
-      cjkPresetId: customFontId ? state.cjkPresetId : null,
+      hydrating: false,
+      ...(resetSelection ? { fontFamily: '', customFontId: null, cjkPresetId: null, presetId: null } : {}),
     })
     try {
-      await persistGeneral({ fontFamily, customFonts })
+      await persistGeneral({ customFonts, ...(resetSelection ? { fontFamily: '' } : {}) })
       toastStore.getState().push(t('settings.font.removed', { name: meta.name }))
     } catch {
       toastStore.getState().push(t('settings.font.saveFailed'), 'error')

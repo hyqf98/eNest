@@ -52,6 +52,9 @@ test('session denies browser permission prompts, device access, downloads and ar
   let cancelled = false; hooks['will-download']({preventDefault:()=>{cancelled=true}}); assert.equal(cancelled,true)
   hooks['file-system-access-restricted']({}, {}, decision => assert.equal(decision, 'deny'))
   hooks.before({url:'file:///tmp/test', resourceType:'xhr'}, result => assert.equal(result.cancel,true))
+  for (const type of ['window', 'browserView', 'webview']) hooks.before({url:'devtools://devtools/bundled/devtools_app.html',resourceType:'mainFrame',webContents:{getType:()=>type}}, result => assert.equal(result.cancel,true))
+  hooks.before({url:'devtools://devtools/bundled/devtools_app.html',resourceType:'mainFrame',webContents:{getType:()=> 'remote'}}, result => assert.equal(result.cancel,false))
+  hooks.before({url:'https://example.com/admin',resourceType:'mainFrame',webContents:{getType:()=> 'remote'}}, result => assert.equal(result.cancel,true))
   hooks.headers({url:'http://127.0.0.1:5173/',resourceType:'mainFrame',responseHeaders:{'content-security-policy':['default-src *']}}, result => {
     assert.equal(result.responseHeaders['content-security-policy'],undefined)
     assert.match(result.responseHeaders['Content-Security-Policy'][0], /wasm-unsafe-eval/)

@@ -10,9 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import type {
-  LaunchHotkeyProbeResult,
   PluginLaunchConfig,
-  PluginLaunchMode,
   PluginLaunchPatch,
   PluginSummary
 } from '@shared/types/plugin'
@@ -20,98 +18,12 @@ import { shellApi } from '@renderer/services/shellApi'
 import { playModalIn, playModalOut } from '@renderer/gsap/marketMotion'
 import { MarkdownView } from '@renderer/components/MarkdownView'
 import { useI18n } from '@renderer/hooks/useI18n'
-import { IS_MAC } from '@shared/platform'
+import { useShellStore } from '@renderer/stores/shellStore'
 import { permissionLabel } from '@shared/permissionLabels'
 import { requiresUserConsent } from '@shared/pluginPermissionPolicy'
 import { PluginBuiltinCapabilities } from '@renderer/components/PluginBuiltinCapabilities'
 
 type ReadmeStatus = 'loading' | 'ok' | 'empty' | 'error'
-
-/** 录制中的热键探测状态：acc + 归属结果 */
-interface HotkeyProbeState {
-  acc: string
-  result: LaunchHotkeyProbeResult
-}
-
-/**
- * 键盘事件 → Electron accelerator（如 Alt+Space / CommandOrControl+Shift+J）。
- * 无修饰键、仅 Shift 修饰或无法识别主键时返回 null（不能注册为全局热键）。
- */
-function eventToAccelerator(e: KeyboardEvent): string | null {
-  const mods: string[] = []
-  if (e.metaKey) mods.push(IS_MAC ? 'Command' : 'Super')
-  if (e.ctrlKey) mods.push('Control')
-  if (e.altKey) mods.push('Alt')
-  if (e.shiftKey) mods.push('Shift')
-  const code = e.code
-  let key = ''
-  if (/^Key[A-Z]$/.test(code)) key = code.slice(3)
-  else if (/^Digit\d$/.test(code)) key = code.slice(5)
-  else if (/^F\d{1,2}$/.test(code)) key = code
-  else {
-    const named: Record<string, string> = {
-      Space: 'Space',
-      Tab: 'Tab',
-      Backquote: '`',
-      Minus: '-',
-      Equal: '=',
-      BracketLeft: '[',
-      BracketRight: ']',
-      Semicolon: ';',
-      Quote: "'",
-      Comma: ',',
-      Period: '.',
-      Slash: '/',
-      Backslash: '\\',
-      ArrowUp: 'Up',
-      ArrowDown: 'Down',
-      ArrowLeft: 'Left',
-      ArrowRight: 'Right'
-    }
-    key = named[code] ?? ''
-  }
-  if (!key) return null
-  // 纯主键 / 仅 Shift：会吞掉正常键盘输入，不允许注册
-  if (mods.length === 0) return null
-  if (mods.length === 1 && mods[0] === 'Shift') return null
-  return [...mods, key].join('+')
-}
-
-/** accelerator → 展示文案（Command → ⌘ 等平台化） */
-function formatAccelerator(acc: string): string {
-  if (!IS_MAC) return acc.replace(/\+/g, ' + ')
-  return acc
-    .split('+')
-    .map((part) =>
-      part === 'Command'
-        ? '⌘'
-        : part === 'Alt'
-          ? '⌥'
-          : part === 'Shift'
-            ? '⇧'
-            : part === 'Control'
-              ? '⌃'
-              : part
-    )
-    .join(' ')
-}
-
-/** 探测结果 → 冲突描述文案 */
-function describeProbe(probe: HotkeyProbeState): string {
-  const { result } = probe
-  switch (result.status) {
-    case 'free':
-      return '可用'
-    case 'eNest-quick':
-      return `与快捷启动（Quick）热键冲突，请先到 设置 → 快捷启动 更换 Quick 热键`
-    case 'plugin-launch':
-      return `已被插件「${result.ownerLabel}」的启动热键占用，可接管`
-    case 'plugin-runtime':
-      return `已被插件「${result.ownerLabel}」的运行时热键占用，可接管`
-    default:
-      return `无法注册${result.hint ? `：${result.hint}` : '：被系统或其他应用占用'}`
-  }
-}
 
 interface Props {
   plugin: PluginSummary
@@ -147,8 +59,6 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
 
   // —— 快捷启动配置（仅已安装插件；settings.pluginLaunch[id]）——
   const [launchCfg, setLaunchCfg] = useState<PluginLaunchConfig | null>(null)
-  const [recording, setRecording] = useState(false)
-  const [probeState, setProbeState] = useState<HotkeyProbeState | null>(null)
   const [savingLaunch, setSavingLaunch] = useState(false)
   const [aliasDraft, setAliasDraft] = useState('')
 
@@ -188,8 +98,6 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
   // 快捷启动配置加载：settings.pluginLaunch[plugin.id]
   useEffect(() => {
     let cancelled = false
-    setProbeState(null)
-    setRecording(false)
     setLaunchCfg(null)
     if (!plugin.installed) return
     void shellApi
@@ -342,22 +250,20 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
     }
   }
 
-  // —— 快捷启动：写入与热键录制 ——
+  // —— 搜索启动偏好 ——
 
-  /** 统一保存入口；失败时展示 probe 冲突详情（可接管项由 UI 提供接管按钮） */
+  /** 搜索入口偏好与触发词独立于快捷键的启动位置。 */
   const saveLaunch = useCallback(
     async (
-      patch: PluginLaunchPatch,
-      opts?: { takeover?: boolean }
+      patch: PluginLaunchPatch
     ): Promise<boolean> => {
       if (!shellApi.setPluginLaunch || savingLaunch) return false
       setSavingLaunch(true)
-      setProbeState(null)
+      setActionError(null)
       try {
-        const result = await shellApi.setPluginLaunch(plugin.id, patch, opts)
+        const result = await shellApi.setPluginLaunch(plugin.id, patch)
         if (!result.ok) {
-          if (result.probe) setProbeState({ acc: result.probe.acc, result: result.probe })
-          else setActionError(result.error ?? '保存失败')
+          setActionError(result.error ?? '保存失败')
           return false
         }
         setLaunchCfg(result.config ?? null)
@@ -371,38 +277,6 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
     },
     [plugin.id, savingLaunch]
   )
-
-  /** 录制开始：监听下一次组合键（Esc 取消；无效组合继续等待） */
-  const startRecording = useCallback(() => {
-    if (recording) return
-    setProbeState(null)
-    setRecording(true)
-  }, [recording])
-
-  useEffect(() => {
-    if (!recording) return
-    const onKey = (e: KeyboardEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      if (e.key === 'Escape') {
-        setRecording(false)
-        return
-      }
-      const acc = eventToAccelerator(e)
-      if (!acc) return // 修饰键单独按下 / 无效主键：继续等待
-      setRecording(false)
-      // 探测归属：free 直接保存；冲突展示详情（可接管项出现「接管并保存」按钮）
-      void shellApi.probeLaunchHotkey?.(acc, plugin.id).then((result) => {
-        if (result.status === 'free') {
-          void saveLaunch({ hotkey: acc })
-        } else {
-          setProbeState({ acc, result })
-        }
-      })
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [recording, plugin.id, saveLaunch])
 
   /** 触发词保存：、/,/空格 分隔，去空去重 */
   const commitAliases = useCallback(() => {
@@ -521,7 +395,7 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
           <section className="detail-launch" data-detail-launch aria-label="快捷启动设置">
             <div className="detail-launch-head">
               <h3>快捷启动</h3>
-              <span className="detail-launch-hint">启动方式、全局热键与 Quick 搜索触发词</span>
+              <span className="detail-launch-hint">搜索启动偏好与 Quick 搜索触发词</span>
             </div>
 
             <div className="detail-launch-row">
@@ -544,7 +418,7 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
                   aria-checked={launchCfg?.mode === 'quick'}
                   className={launchCfg?.mode === 'quick' ? 'active' : ''}
                   disabled={savingLaunch}
-                  title="Quick 与热键唤起时内嵌小窗（输入框下方渲染）"
+                  title="Quick 搜索打开时进入小窗口"
                   onClick={() => void saveLaunch({ mode: 'quick' })}
                 >
                   小窗口
@@ -555,65 +429,25 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
                   aria-checked={launchCfg?.mode === 'shell'}
                   className={launchCfg?.mode === 'shell' ? 'active' : ''}
                   disabled={savingLaunch}
-                  title="Quick 与热键唤起时进入主窗大窗 Tab"
+                  title="Quick 搜索打开时进入主窗口 Tab"
                   onClick={() => void saveLaunch({ mode: 'shell' })}
                 >
-                  大窗口
+                  主窗口
                 </button>
               </div>
             </div>
 
             <div className="detail-launch-row">
-              <span className="detail-launch-label">全局热键</span>
-              <div className="detail-launch-hotkey">
-                {recording ? (
-                  <span className="detail-launch-recording">按下组合键，Esc 取消…</span>
-                ) : launchCfg?.hotkey ? (
-                  <kbd className="detail-launch-kbd">{formatAccelerator(launchCfg.hotkey)}</kbd>
-                ) : (
-                  <span className="detail-launch-empty">未设置</span>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  disabled={savingLaunch || recording}
-                  onClick={startRecording}
-                >
-                  {launchCfg?.hotkey ? '重新录制' : '录制热键'}
-                </button>
-                {launchCfg?.hotkey && !recording && (
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    disabled={savingLaunch}
-                    onClick={() => void saveLaunch({ hotkey: '' })}
-                  >
-                    清除
-                  </button>
-                )}
-              </div>
+              <span className="detail-launch-label">快捷键</span>
+              <button type="button" className="btn btn-ghost" onClick={() => {
+                onClose()
+                const store = useShellStore.getState()
+                store.setShortcutPluginFilter(plugin.id)
+                store.setSettingsTab('quick')
+                store.setView('settings')
+              }}>管理此插件的快捷键</button>
+              <span className="detail-launch-hint">每条绑定可独立选择启动位置</span>
             </div>
-
-            {probeState && (
-              <div className="detail-launch-probe" role="alert" data-status={probeState.result.status}>
-                <span>{describeProbe(probeState)}</span>
-                {probeState.result.takeoverable && (
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={savingLaunch}
-                    onClick={() => void saveLaunch({ hotkey: probeState.acc }, { takeover: true })}
-                  >
-                    接管并保存
-                  </button>
-                )}
-                {!probeState.result.takeoverable && probeState.result.status !== 'free' && (
-                  <button type="button" className="btn btn-ghost" onClick={() => setProbeState(null)}>
-                    知道了
-                  </button>
-                )}
-              </div>
-            )}
 
             <div className="detail-launch-row">
               <span className="detail-launch-label">触发词</span>

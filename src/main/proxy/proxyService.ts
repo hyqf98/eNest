@@ -45,10 +45,18 @@ export function normalizeProxy(raw: unknown): ProxyConfig {
 export function buildProxyRules(config: ProxyConfig): string {
   const c = normalizeProxy(config)
   if (c.type === 'none') return ''
-  if (c.type === 'http') return `http://${c.host}:${c.port};https://${c.host}:${c.port}`
-  if (c.type === 'socks5') return `socks5://${c.host}:${c.port}`
+  if (c.type === 'http' || c.type === 'socks5') return buildProxyEnvUrl(c)
   // custom：用户填完整 URL（http:// / https:// / socks5:// / socks://）
   return c.url ?? ''
+}
+
+/** Node/子进程代理变量只接受单个代理 URL，不能传 Chromium 的分号规则串。 */
+export function buildProxyEnvUrl(config: ProxyConfig): string {
+  const c = normalizeProxy(config)
+  if (c.type === 'none') return ''
+  if (c.type === 'custom') return c.url ?? ''
+  const host = c.host!.includes(':') && !c.host!.startsWith('[') ? `[${c.host}]` : c.host
+  return `${c.type}://${host}:${c.port}`
 }
 
 /** 从配置中解析可 TCP 探测的 host:port（custom 支持 scheme://[user:pass@]host:port） */
@@ -90,7 +98,7 @@ function restoreEnv(): void {
   envSnapshot = null
 }
 
-function applyEnv(rules: string): void {
+function applyEnv(proxyUrl: string): void {
   if (!envSnapshot) {
     envSnapshot = {
       HTTP_PROXY: process.env.HTTP_PROXY,
@@ -99,14 +107,14 @@ function applyEnv(rules: string): void {
       NO_PROXY: process.env.NO_PROXY
     }
   }
-  if (!rules) {
+  if (!proxyUrl) {
     restoreEnv()
     return
   }
   // Node 侧 undici / electron-updater 部分路径会读环境变量
-  process.env.HTTP_PROXY = rules
-  process.env.HTTPS_PROXY = rules
-  process.env.ALL_PROXY = rules
+  process.env.HTTP_PROXY = proxyUrl
+  process.env.HTTPS_PROXY = proxyUrl
+  process.env.ALL_PROXY = proxyUrl
   process.env.NO_PROXY = process.env.NO_PROXY ?? 'localhost,127.0.0.1'
 }
 
@@ -131,7 +139,7 @@ export async function applyProxy(config: ProxyConfig): Promise<ProxyConfig> {
   const next = normalizeProxy(config)
   current = next
   const rules = buildProxyRules(next)
-  applyEnv(rules)
+  applyEnv(buildProxyEnvUrl(next))
 
   const targets: Electron.Session[] = [session.defaultSession, session.fromPartition(SHELL_PARTITION)]
   // 已安装插件 partition（含尚未创建 session 的，fromPartition 会惰性创建）

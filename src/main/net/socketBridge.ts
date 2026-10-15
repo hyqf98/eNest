@@ -531,18 +531,16 @@ export interface SocketSendResult {
 export function socketSend(
   pluginId: string,
   socketId: string,
-  data: string
+  data: string,
+  encoding: 'utf8' | 'base64' = 'utf8'
 ): SocketSendResult {
   const entry = requireOwnedSocket(pluginId, socketId)
   if (entry.status !== 'connected') throw new Error('socket not connected')
   if (typeof data !== 'string' || data.length === 0) throw new Error('data required (base64 or utf8)')
-  // base64 优先：形如合法 base64 且长度对齐则按二进制发送；否则按 utf8 文本
-  let buf: Buffer
-  if (data.length % 4 === 0 && data.length > 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(data)) {
-    buf = Buffer.from(data, 'base64')
-  } else {
-    buf = Buffer.from(data, 'utf8')
-  }
+  if (encoding !== 'utf8' && encoding !== 'base64') throw new Error('encoding must be utf8 or base64')
+  // Text such as PING is also syntactically valid base64. Binary callers must opt in.
+  if (encoding === 'base64' && (data.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data))) throw new Error('invalid base64 data')
+  const buf = Buffer.from(data, encoding)
   if (buf.byteLength > refillSendTokens(entry)) {
     throw new Error(`send rate limited (${SEND_RATE_BYTES_PER_SEC} B/s per socket)`)
   }
@@ -764,6 +762,7 @@ export async function socketServeWs(
   const entry = requireOwnedSocket(pluginId, socketId)
   if (entry.status !== 'connected') throw new Error('socket not connected')
   if (entry.wsBridge && !entry.wsBridge.closed) {
+    if (!entry.wsBridge.port) throw new Error('socket bridge is still starting')
     // 复用既有桥：刷新 token 防泄漏（旧 url 立即失效）
     const token = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
     entry.wsBridge.token = token
@@ -857,6 +856,7 @@ export async function socketServeWs(
     })
   })
   server.on('close', () => { for (const client of clients) client.destroy(); clients.clear() })
+  server.on('error', () => closeWsBridge(ws, 1011))
   ws.server = server
   entry.wsBridge = ws
   const port = await new Promise<number>((resolve, reject) => {
@@ -866,6 +866,10 @@ export async function socketServeWs(
       server.removeListener('error', reject)
       resolve((server.address() as net.AddressInfo).port)
     })
+  }).catch(error => {
+    closeWsBridge(ws, 1011)
+    if (entry.wsBridge === ws) entry.wsBridge = undefined
+    throw error
   })
   ws.port = port
   if (!isSocketCurrent(entry)) { closeWsBridge(ws, 1001); throw new Error('socket runtime closed') }

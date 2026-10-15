@@ -87,6 +87,7 @@ export interface QuickPluginModeInfo {
   pluginId: string
   /** 插件显示名（Tab 标题兜底） */
   title: string
+  loading?: boolean
 }
 
 /** 本地已安装应用扫描项 */
@@ -114,6 +115,9 @@ export interface QuickHotkeyConfig {
   activeHotkey?: string
   /** 最近一次用来呼出小窗的 accelerator；无则空串 */
   lastUsedHotkey?: string
+  /** Actual OS registrations; selection alone does not imply availability. */
+  registered?: string[]
+  error?: string
 }
 
 export interface QuickHotkeyApplyResult {

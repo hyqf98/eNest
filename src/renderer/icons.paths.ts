@@ -37,4 +37,6 @@ export const LUCIDE_PATHS = {
   rotateCw:
     '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  user:
+    '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
 } as const

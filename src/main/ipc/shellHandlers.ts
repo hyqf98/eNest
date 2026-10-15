@@ -1,4 +1,6 @@
+import { getAccountState, loginAccount, cancelAccountLogin, logoutAccount } from '@main/auth/accountAuthService'
 import { handleShellIpc, onShellIpc } from '@main/ipc/ipcSecurity'
+import { registerShortcutHandlers } from '@main/ipc/shortcutHandlers'
 /**
  * shellHandlers — 壳子 IPC 处理器
  * 职责：注册壳子渲染层所有 invoke/on 通道（插件列表、打开/关闭/激活、主题、设置、
@@ -15,11 +17,20 @@ import { dialog, ipcMain, Notification } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
 import { APP_NAME, FONTS_DIR, toTabId } from '@shared/constants'
 import type { DevPluginLoadOptions, PluginLaunchConfig, PluginLaunchPatch, ThemeTokens } from '@shared/types/plugin'
-import { pickAndLoadDevPlugin } from '@main/dev/DevConsole'
+import { forgetDevPlugin, pickAndLoadDevPlugin } from '@main/dev/DevConsole'
 import { setDevPluginKillOnHide } from '@main/dev/devPluginsStore'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, getAppPathsRoot } from '@main/paths/pathsService'
 import { pluginHost } from '@main/plugin/PluginHost'
+import { broadcastNotice } from '@main/plugin/shellNotices'
+import {
+  startGithubLogin,
+  cancelGithubLogin,
+  logoutGithub,
+  getProfileUser,
+  hasGithubToken,
+  isLoginPolling
+} from '@main/auth/githubAuthService'
 import { resolvePluginFile } from '@main/plugin/pluginPaths'
 import { fetchMarketReadme } from '@main/plugin/marketClient'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
@@ -33,7 +44,6 @@ import { stopFocusTimer } from '@main/timer/focusTimerService'
 import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
 import { broadcastPluginLocale, getPluginCallTrace } from '@main/ipc/pluginHandlers'
 import {
-  probeLaunchHotkey,
   setPluginLaunch,
   releasePluginLaunchHotkey,
   clearPluginLaunch,
@@ -112,8 +122,9 @@ async function readPluginReadme(pluginId: string): Promise<string> {
 
 /** 注册壳子渲染层所有 IPC 通道处理器 */
 export function registerShellHandlers(): void {
+  registerShortcutHandlers()
   handleShellIpc(IpcChannels.ShellGetPluginDiagnostics, () => getPluginDiagnostics())
-  handleShellIpc(IpcChannels.ShellRestoreTabs, (_e, ids: string[]) => { pluginHost.restoreTabs(Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : []) })
+  handleShellIpc(IpcChannels.ShellRestoreTabs, (_e, ids: string[]) => pluginHost.restoreTabs(Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : []))
   handleShellIpc(IpcChannels.ShellGetPlugins, () => pluginRegistry.list())
 
   handleShellIpc(
@@ -192,8 +203,8 @@ export function registerShellHandlers(): void {
       if (!id) return { ok: false, error: 'plugin id required' }
       logInfo('ipc', `shell:uninstall-plugin ${id}`)
       const result = await uninstallPlugin(id)
-      // 卸载即清快捷启动配置（热键/触发词/启动方式）并释放启动热键
-      await clearPluginLaunch(id)
+      // A failed uninstall must retain the user's bindings and preferences.
+      if (result.ok) await clearPluginLaunch(id)
       // 卸载可能移除最后一个 clipboard.history 持有者，重算轮询
       revalidateClipboardPolling()
       return result.ok ? { ok: true } : { ok: false, error: result.error }
@@ -236,33 +247,18 @@ export function registerShellHandlers(): void {
     }
   )
 
-  /**
-   * shell:probe-launch-hotkey — 启动热键录制探测：返回占用归属
-   * （free / system / eNest-quick / plugin-launch / plugin-runtime），
-   * 渲染层据此展示冲突详情与「接管」选项。
-   */
-  handleShellIpc(
-    IpcChannels.ShellProbeLaunchHotkey,
-    (_e, acc: string, excludePluginId?: string) =>
-      probeLaunchHotkey(String(acc ?? ''), excludePluginId ? String(excludePluginId) : undefined)
-  )
-
-  /**
-   * shell:set-plugin-launch — 写入单插件快捷启动配置（启动方式/热键/触发词）。
-   * 热键冲突时返回 probe 供渲染层展示；takeover=true 才执行接管（UI 须先经用户确认）。
-   */
+  /** Quick 搜索的启动方式与触发词；全局快捷键由独立接口管理。 */
   handleShellIpc(
     IpcChannels.ShellSetPluginLaunch,
     async (
       _e,
       pluginId: string,
-      patch: PluginLaunchPatch,
-      opts?: { takeover?: boolean }
+      patch: PluginLaunchPatch
     ) => {
       try {
         const id = String(pluginId ?? '').trim()
         if (!id) return { ok: false, error: 'plugin id required' }
-        return await setPluginLaunch(id, patch ?? {}, opts)
+        return await setPluginLaunch(id, patch ?? {})
       } catch (err) {
         logWarn('ipc', `shell:set-plugin-launch failed: ${(err as Error).message}`)
         return { ok: false, error: (err as Error).message }
@@ -350,6 +346,7 @@ export function registerShellHandlers(): void {
     const saved = await settingsStore.setTheme(theme)
     // 壳子主题变更后，向所有已打开的 themeAware 插件广播新 Token
     pluginHost.broadcastTheme()
+    broadcastNotice('appearance.changed', { kind: 'theme' })
     // 圆轨/设置钮为独立视图，主题需单独推送
     setOrbTheme()
     return saved
@@ -378,6 +375,20 @@ export function registerShellHandlers(): void {
     return { ok: true }
   })
 
+  handleShellIpc(IpcChannels.ShellForgetDevPlugin, async (_e, pluginId: string) => {
+    if (typeof pluginId !== 'string' || !pluginRegistry.get(pluginId)?.dev) return { ok: false, error: '开发插件不存在' }
+    try {
+      await pluginHost.closePlugin(pluginId, 'tab-close')
+      await forgetDevPlugin(pluginId)
+      pluginHost.setKillOnHide(pluginId, false)
+      pluginRegistry.removeDevPlugin(pluginId)
+      await pluginRegistry.scan()
+      revalidateClipboardPolling()
+      sendShellEvent({ type: 'plugins-changed' })
+      return { ok: true }
+    } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) } }
+  })
+
   /** dev 插件「退出即杀」开关：内存生效 + 持久化 dev.json；enabled 省略时仅查询当前状态 */
   handleShellIpc(IpcChannels.ShellSetDevKillOnHide, (_e, pluginId: string, enabled?: boolean) => {
     try {
@@ -395,10 +406,11 @@ export function registerShellHandlers(): void {
   /** plugin:call 调用跟踪环形缓冲读取（DevConsole「调用跟踪」面板轮询用） */
   handleShellIpc(IpcChannels.ShellGetPluginTrace, () => getPluginCallTrace())
 
-  handleShellIpc(IpcChannels.ShellOpenDevTools, (_e, tabId?: string) => {
+  handleShellIpc(IpcChannels.ShellOpenDevTools, async (_e, tabId?: string) => {
     const target = tabId ?? pluginHost.getActive()
     if (target) {
-      pluginHost.openDevTools(target, 'detach')
+      try { await pluginHost.openDevTools(target, 'detach') }
+      catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) } }
     } else {
       getShellWebContents()?.openDevTools({ mode: 'detach' })
     }
@@ -408,6 +420,15 @@ export function registerShellHandlers(): void {
   handleShellIpc(IpcChannels.ShellGetSettings, () => settingsStore.getAll())
 
   handleShellIpc(IpcChannels.ShellSetSettings, async (_e, partial) => {
+    // A renderer only sees its own tab projection; it cannot overwrite the global session.
+    if (partial?.general && typeof partial.general === 'object') {
+      const { sessionTabs: _tabs, sessionActivePluginId: _active, mainWindowState: _window, ...general } = partial.general
+      if (general.quickLauncher && typeof general.quickLauncher === 'object') {
+        const { enabled: _enabled, hotkeys: _hotkeys, activeHotkey: _hotkey, ...preferences } = general.quickLauncher
+        general.quickLauncher = { ...settingsStore.getQuickLauncherSettings(), ...preferences }
+      }
+      partial = { ...partial, general }
+    }
     // locale 变更检测：变化时向所有已打开插件广播 locale-change
     // （preload → enest.i18n.onLocaleChange）
     const prevLocale = settingsStore.getAll().general.locale
@@ -424,9 +445,16 @@ export function registerShellHandlers(): void {
     // 动画档位变更即时推给 orb 悬浮窗（独立文档，不随主壳 data-anim 联动）
     const lvl = (partial as { general?: { animationLevel?: unknown } } | undefined)?.general
       ?.animationLevel
-    if (lvl === 'low' || lvl === 'medium' || lvl === 'high') { setOrbAnimationLevel(lvl); pluginHost.broadcastTheme() }
+    if (lvl === 'low' || lvl === 'medium' || lvl === 'high') {
+      setOrbAnimationLevel(lvl)
+      pluginHost.broadcastTheme()
+      broadcastNotice('appearance.changed', { kind: 'animation' })
+    }
     const generalPatch = (partial as { general?: Record<string, unknown> } | undefined)?.general
-    if (generalPatch && ['fontFamily', 'fontFamilyEn', 'fontSizeScale', 'customFonts'].some(key => key in generalPatch)) pluginHost.broadcastTheme()
+    if (generalPatch && ['fontFamily', 'fontFamilyEn', 'fontSizeScale', 'customFonts'].some(key => key in generalPatch)) {
+      pluginHost.broadcastTheme()
+      broadcastNotice('appearance.changed', { kind: 'font' })
+    }
     return result
   })
 
@@ -627,6 +655,43 @@ export function registerShellHandlers(): void {
   handleShellIpc(IpcChannels.ShellDownloadUpdate, () => downloadUpdate())
   handleShellIpc(IpcChannels.ShellInstallUpdate, () => quitAndInstallUpdate())
   handleShellIpc(IpcChannels.ShellGetUpdateState, () => getUpdateState())
+
+  /** 更新重启前：插件未保存数据快照 / 一键保存（save.requested 通知 + ack 等待） */
+  handleShellIpc(IpcChannels.ShellGetPluginsDirty, () => ({ items: pluginHost.getDirtySnapshot() }))
+  handleShellIpc(IpcChannels.ShellSaveAllPlugins, () => pluginHost.requestSaveAll('update'))
+
+  // Provider-based account bridge; legacy GitHub endpoints remain compatible.
+  handleShellIpc(IpcChannels.ShellAccountState, () => getAccountState())
+  handleShellIpc(IpcChannels.ShellAccountLogin, (_event, providerId: unknown) => loginAccount(providerId))
+  handleShellIpc(IpcChannels.ShellAccountCancel, (_event, providerId: unknown) => cancelAccountLogin(providerId))
+  handleShellIpc(IpcChannels.ShellAccountLogout, (_event, providerId: unknown) => logoutAccount(providerId))
+
+  // —— GitHub 个人资料 ——
+
+  handleShellIpc(
+    IpcChannels.ShellGithubLogin,
+    async () => {
+      try {
+        const session = await startGithubLogin()
+        return { ok: true, data: session }
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
+  handleShellIpc(IpcChannels.ShellGithubCancelLogin, () => {
+    cancelGithubLogin()
+    return { ok: true }
+  })
+  handleShellIpc(IpcChannels.ShellGetProfile, () => ({
+    user: getProfileUser(),
+    hasToken: hasGithubToken(),
+    polling: isLoginPolling()
+  }))
+  handleShellIpc(IpcChannels.ShellGithubLogout, () => {
+    logoutGithub()
+    return { ok: true }
+  })
 
   onShellIpc(IpcChannels.WindowMinimize, () => getMainWindow()?.minimize())
   onShellIpc(IpcChannels.WindowMaximize, () => {

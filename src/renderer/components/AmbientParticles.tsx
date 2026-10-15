@@ -1,21 +1,16 @@
-/** Theme-aware flowing light shared with the launch screen. */
-import { useEffect, useRef } from 'react'
-import { useAnimationLevelStore, useReducedMotion } from '@renderer/hooks/useAnimationLevel'
-import { startAmbientFlow } from '@renderer/gsap/ambientFlow'
+/** Compatibility slot: Quick and shell use the same selected background. */
+import { useBackgroundEffect } from '@renderer/hooks/useBackgroundEffect'
+import { useThemeStore } from '@renderer/hooks/useTheme'
+import { backgroundAtmosphereStyle } from './backgroundAtmosphere'
+import { BackgroundEffect } from './BackgroundEffect'
 import '@renderer/styles/ambient.css'
 
 export function AmbientParticles({ paused = false }: { paused?: boolean }) {
-  const level = useAnimationLevelStore((s) => s.level)
-  const reducedMotion = useReducedMotion()
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas || reducedMotion || paused) return
-    return startAmbientFlow(canvas, { level })
-  }, [level, reducedMotion, paused])
-
-  if (reducedMotion) return null
-
-  return <canvas ref={canvasRef} className="ambient-particles ambient-flow" aria-hidden />
+  const effect = useBackgroundEffect()
+  const background = useThemeStore((state) => state.background)
+  const atmosphere = backgroundAtmosphereStyle(background)
+  if (effect) return <BackgroundEffect effect={effect} paused={paused} className="ambient-particles ambient-flow" />
+  return atmosphere ? <div className="ambient-particles ambient-flow" aria-hidden>
+    <div className="background-atmosphere" style={atmosphere} />
+  </div> : null
 }

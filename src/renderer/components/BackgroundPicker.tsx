@@ -16,6 +16,8 @@ import { shellApi } from '@renderer/services/shellApi'
 import { toastStore } from '@renderer/hooks/useToast'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { backgroundColorStyle } from './backgroundColorStyle'
+import { backgroundAtmosphereStyle } from './backgroundAtmosphere'
+import { BackgroundEffectsPicker } from './BackgroundEffectsPicker'
 
 const TYPE_OPTIONS: { id: BackgroundType; label: string }[] = [
   { id: 'none', label: '无' },
@@ -115,7 +117,10 @@ function matchGradientId(value: string): string | null {
 export function BackgroundPicker() {
   const background = useThemeStore((s) => s.background)
   const setBackground = useThemeStore((s) => s.setBackground)
-  const { t } = useI18n()
+  const backgroundEffect = useThemeStore((s) => s.backgroundEffect)
+  const { t, locale } = useI18n()
+  const english = locale === 'en-US'
+  const hasEffect = backgroundEffect !== 'none'
   const [picking, setPicking] = useState(false)
   const colorInputRef = useRef<HTMLInputElement>(null)
 
@@ -225,7 +230,7 @@ export function BackgroundPicker() {
       void setBackground({ ...cfg, type })
       return
     }
-    void setBackground({ ...cfg, type, value: cfg.value || '' })
+    void setBackground({ ...cfg, type, value: '' })
     void pickFile(type)
   }
 
@@ -263,12 +268,15 @@ export function BackgroundPicker() {
 
   return (
     <div className="s-card">
-      <h2>背景</h2>
-      <p className="hint">壳子背景与启动画面统一在此配置</p>
+      <h2>{english ? 'Background' : '背景'}</h2>
+      <BackgroundEffectsPicker />
+      <div className="bg-merge-divider" />
 
-      <div className="bg-section-label">壳子背景</div>
+      <div className="bg-section-label">{english ? 'Atmosphere & custom background' : '氛围色与自定义背景'}</div>
       <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-        预设氛围渐变，或图片 / 循环视频；可调不透明度
+        {hasEffect
+          ? english ? 'Colors and gradients tint the current effect immediately across startup, the workspace and Quick. Images and videos appear when effects are off.' : '氛围色与渐变会立即叠加到当前动效，启动、工作区和 Quick 同步变化。图片和视频在关闭动效后显示。'
+          : english ? 'Choose a color, image or looping video and adjust its opacity.' : '预设氛围渐变，或图片 / 循环视频；可调不透明度'}
       </p>
 
       <div className="bg-type-row" role="radiogroup" aria-label="背景类型">
@@ -311,7 +319,7 @@ export function BackgroundPicker() {
           <div className="field">
             <div>
               <div className="label">自定义色</div>
-              <p className="desc">仍可选用单色铺底</p>
+              <p className="desc">{hasEffect ? '叠加到当前动效，切换后立即预览' : '选择单色铺底，立即应用到背景'}</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span className="swatch" style={backgroundColorStyle(customSolid ? cfg.value : 'var(--surface-3)')} />
@@ -352,16 +360,16 @@ export function BackgroundPicker() {
         <>
           <div className="field">
             <div>
-              <div className="label">不透明度</div>
-              <p className="desc">{Math.round(cfg.opacity * 100)}%（降低以免干扰内容）</p>
+              <div className="label">{hasEffect && cfg.type === 'color' ? '氛围强度' : '不透明度'}</div>
+              <p className="desc">{Math.round(cfg.opacity * 100)}%{hasEffect && cfg.type === 'color' ? '（保留动效细节，可实时调节叠色）' : '（降低以免干扰内容）'}</p>
             </div>
             <input
               type="range"
-              min={0.15}
+              min={0}
               max={1}
               step={0.05}
               value={cfg.opacity}
-              aria-label="背景不透明度"
+              aria-label={hasEffect && cfg.type === 'color' ? '氛围强度' : '背景不透明度'}
               onChange={(e) => patch({ opacity: Number(e.target.value) })}
             />
           </div>
@@ -408,6 +416,11 @@ export function BackgroundPicker() {
       {/* —— 启动画面：与壳子背景同卡片 —— */}
       <div className="bg-merge-divider" />
       <div className="bg-section-label">{t('settings.splash.title')}</div>
+      {hasEffect || backgroundAtmosphereStyle(background) ? (
+        <p className="hint bg-effects-unified-note">{english
+          ? 'The selected effect and atmosphere colors also apply to startup. Turn effects off and clear atmosphere colors to use a separate startup background.'
+          : '所选背景动效和氛围色会统一应用到启动画面。关闭动效并清除氛围色后，可单独配置启动背景。'}</p>
+      ) : <>
       <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
         {t('settings.splash.hint')}
       </p>
@@ -499,6 +512,7 @@ export function BackgroundPicker() {
           {t('settings.splash.localOnly')} <code>{shortName(splash.value)}</code>
         </p>
       )}
+      </>}
     </div>
   )
 }

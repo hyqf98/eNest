@@ -11,6 +11,7 @@ import { SettingsPage } from '@renderer/pages/SettingsPage'
 import { PluginHostChrome } from '@renderer/pages/PluginHostChrome'
 import { InstallDropHost } from '@renderer/components/InstallDropOverlay'
 import { InstallProgressPanel } from '@renderer/components/InstallProgressPanel'
+import { UpdateDialog } from '@renderer/components/UpdateDialog'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { useShellEvents } from '@renderer/hooks/useShellEvents'
 
@@ -58,6 +59,8 @@ export function ShellLayout() {
       {/* orb：左侧圆轨在独立透明悬浮窗，主壳不渲染，避免占宽白条 */}
       <InstallDropHost />
       <InstallProgressPanel />
+      {/* 应用更新弹框（available/downloaded 状态由设置页入口触发打开） */}
+      <UpdateDialog />
     </div>
   )
 }

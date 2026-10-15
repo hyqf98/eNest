@@ -3,12 +3,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { CSSProperties, KeyboardEvent } from 'react'
 import gsap from 'gsap'
 import type { QuickCommand, QuickCommandKind, QuickOpenRequest, QuickPluginModeInfo } from '@shared/types/quick'
-import { QUICK_BAR_AREA_H, QUICK_CORNER_RADIUS, QUICK_GRID_COLUMNS, QUICK_HOME_HEIGHT, QUICK_HOME_ROWS } from '@shared/constants'
+import { QUICK_BAR_AREA_H, QUICK_BORDER_WIDTH, QUICK_CONTENT_HEIGHT, QUICK_CORNER_RADIUS, QUICK_GRID_COLUMNS, QUICK_HEIGHT, QUICK_HOME_HEIGHT, QUICK_HOME_ROWS } from '@shared/constants'
 import { IS_MAC } from '@shared/platform'
-import { d, dy, ease } from '@renderer/gsap/marketMotion'
+import { d, ease } from '@renderer/gsap/marketMotion'
 import { shellApi } from '@renderer/services/shellApi'
-import enestIcon from '@renderer/assets/enest-icon.png'
+import enestIcon from '@renderer/assets/enest-mark.png'
 import { useAppearanceSync } from '@renderer/hooks/useAppearanceSync'
+import { bindPluginDragSource, bindPluginDropTarget } from '@renderer/services/pluginWindowDrag'
+import '@renderer/styles/plugin-window-drag.css'
 import { AmbientParticles } from './AmbientParticles'
 import { SearchField } from './SearchField'
 import { ChevronLeftIcon, HouseIcon, RotateCwIcon, SearchIcon, SettingsIcon } from './icons'
@@ -89,6 +91,18 @@ export function QuickLauncherApp() {
   }, [])
 
   useEffect(() => {
+    const bar = rootRef.current?.querySelector<HTMLElement>('.quick-search-bar')
+    if (!bar) return
+    const source = bindPluginDragSource(bar, target => {
+      const element = target.closest<HTMLElement>('.quick-plugin-grip')
+      const pluginId = modeRef.current?.pluginId
+      return element && pluginId ? { element, pluginId } : null
+    })
+    const target = bindPluginDropTarget(bar, { kind: 'quick' })
+    return () => { source(); target.dispose() }
+  }, [])
+
+  useEffect(() => {
     const version = ++searchVersion.current
     if (pluginMode || composing) return
     setBusy(true)
@@ -152,6 +166,11 @@ export function QuickLauncherApp() {
         inputRevision.current++
         pluginInputRef.current = event.state; setPluginInput(event.state)
         if (event.state) setQuery(event.state.value)
+      } else if (event.type === 'plugin-ready' && modeRef.current?.pluginId === event.pluginId) {
+        setPluginMode(current => current ? { ...current, loading: false } : current)
+      } else if (event.type === 'plugin-error' && modeRef.current?.pluginId === event.pluginId) {
+        setPluginMode(current => current ? { ...current, loading: false } : current)
+        setError(event.message)
       } else if (event.type === 'quick-focus-search') {
         inputRef.current?.focus()
         inputRef.current?.select()
@@ -184,20 +203,39 @@ export function QuickLauncherApp() {
     const el = panelRef.current
     if (!el || pluginMode) return
     const ctx = gsap.context(() => {
-      gsap.fromTo(el, { opacity: 0, y: dy(7) }, { opacity: 1, y: 0, duration: d(0.28), ease: ease('power2.out') })
+      gsap.fromTo(el, { opacity: 0 }, { opacity: 1, duration: d(0.28), ease: ease('power2.out') })
     }, el)
     return () => ctx.revert()
   }, [showResults, searching, kind, shown])
 
   useLayoutEffect(() => {
-    if (pluginMode || !rootRef.current) return
-    const root = rootRef.current
-    const resize = () => shellApi.quickResize?.(Math.ceil(root.getBoundingClientRect().height), false)
-    const observer = new ResizeObserver(resize)
-    observer.observe(root)
-    resize()
-    return () => observer.disconnect()
-  }, [pluginMode, shown])
+    const panel = panelRef.current
+    if (!panel || pluginMode) return
+    let frame = 0
+    let lastHeight = 0
+    const measure = () => {
+      frame = 0
+      const style = getComputedStyle(panel)
+      // Measure intrinsic children: the viewport clips the panel before native
+      // resize, and its scrollHeight can retain the previous window's height.
+      const contentHeight = Array.from(panel.children).reduce((height, child) => height + child.getBoundingClientRect().height, 0)
+      const height = searching
+        ? Math.min(QUICK_HEIGHT, Math.ceil(QUICK_BAR_AREA_H + contentHeight + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + QUICK_BORDER_WIDTH))
+        : QUICK_HOME_HEIGHT
+      if (height !== lastHeight) {
+        lastHeight = height
+        void shellApi.quickResize?.(height)
+      }
+    }
+    const scheduleMeasure = () => {
+      if (!frame) frame = requestAnimationFrame(measure)
+    }
+    const observer = new ResizeObserver(scheduleMeasure)
+    observer.observe(panel)
+    for (const child of panel.children) observer.observe(child)
+    measure()
+    return () => { observer.disconnect(); cancelAnimationFrame(frame) }
+  }, [pluginMode, searching, shown, visibleItems.length])
 
   useLayoutEffect(() => {
     // Restore by ID before paint: inserted match groups must not move selection
@@ -329,13 +367,19 @@ export function QuickLauncherApp() {
   const modifier = IS_MAC ? '⌘' : 'Ctrl'
 
   return <div ref={rootRef} className="quick-root" data-mode={pluginMode ? 'plugin' : 'list'} data-expanded="true" data-home={!searching && !pluginMode}
-    style={{ '--quick-bar-h': `${QUICK_BAR_AREA_H}px`, '--quick-radius': `${QUICK_CORNER_RADIUS}px`, '--quick-home-h': `${QUICK_HOME_HEIGHT}px`, '--quick-grid-columns': QUICK_GRID_COLUMNS, '--quick-home-rows': QUICK_HOME_ROWS } as CSSProperties} onKeyDown={onKeyDown}>
+    style={{ '--quick-bar-h': `${QUICK_BAR_AREA_H}px`, '--quick-border-w': `${QUICK_BORDER_WIDTH}px`, '--quick-home-h': `${QUICK_HOME_HEIGHT}px`, '--quick-content-max-h': `${QUICK_CONTENT_HEIGHT}px`, '--quick-radius': `${QUICK_CORNER_RADIUS}px`, '--quick-grid-columns': QUICK_GRID_COLUMNS, '--quick-home-rows': QUICK_HOME_ROWS } as CSSProperties} onKeyDown={onKeyDown}>
     <div className="quick-shell">
-      {showResults && <AmbientParticles />}
+      <AmbientParticles />
       <div className="quick-search-bar" role="search" data-tools={pluginMode ? 'plugin' : categoriesOpen ? 'expanded' : 'collapsed'}>
         <SearchField value={query} onChange={changeQuery} inputRef={inputRef}
           placeholder={pluginMode ? pluginInput?.placeholder || '搜索其它应用或插件…' : kind === 'app' ? '搜索软件…' : kind === 'plugin' ? '搜索插件…' : kind === 'action' ? '搜索系统操作…' : '搜索应用、插件与指令…'}
-          leading={pluginMode ? <button type="button" className="quick-search-leading quick-plugin-back" onClick={() => void escapePlugin()} title={`返回全局搜索 · ${pluginMode.title}（Esc）`} aria-label="返回全局搜索"><ChevronLeftIcon size={20} /></button> : <span className="quick-search-leading" aria-hidden><SearchIcon size={19} /></span>}
+          leading={pluginMode ? <>
+            <button type="button" className="quick-search-leading quick-plugin-back" onClick={() => void escapePlugin()} title={`返回全局搜索 · ${pluginMode.title}（Esc）`} aria-label="返回全局搜索"><ChevronLeftIcon size={20} /></button>
+            <button type="button" className="quick-plugin-grip" title={`拖出「${pluginMode.title}」成为独立窗口；点击也可分离`} aria-label={`将${pluginMode.title}独立显示`}
+              onClick={() => void window.enestWindows?.command({ action: 'detach', pluginId: pluginMode.pluginId }).then(result => { if (!result.ok) setError(result.error || '无法创建独立窗口') }).catch(() => setError('无法创建独立窗口'))}>
+              <span aria-hidden="true">⠿</span><span>{pluginMode.title}</span>
+            </button>
+          </> : <span className="quick-search-leading" aria-hidden><SearchIcon size={19} /></span>}
           trailing={<span className="search-shortcut" aria-hidden />}
           accessory={<span className="quick-input-status">{!pluginMode && (busy || backgroundBusy) && <span className="quick-spinner" aria-label="搜索中" />}</span>}
           inputProps={{ role: 'combobox', 'aria-expanded': showResults, 'aria-controls': showResults ? 'quick-results' : undefined, 'aria-activedescendant': showResults && selected && !busy ? `quick-item-${index}` : undefined,
@@ -365,6 +409,7 @@ export function QuickLauncherApp() {
 
       </div>
       {error && (showResults || pluginMode) && <div className="quick-error" role="alert">{error}<button type="button" onClick={() => setRevision((v) => v + 1)}>重试</button></div>}
+      {pluginMode?.loading && !error && <div className="quick-plugin-loading" role="status" aria-live="polite"><span className="quick-spinner" aria-hidden="true" /><span>正在启动 {pluginMode.title}…</span></div>}
       {showResults && <>
         <div className="quick-panel" data-home={!searching} ref={panelRef}>
           <div id="quick-results" className="quick-results" role="listbox" aria-label={searching ? '搜索结果' : '常用应用与插件'} aria-busy={busy}>

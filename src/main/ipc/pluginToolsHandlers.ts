@@ -26,14 +26,23 @@ let bound = false
 export function bindPluginTools(): void {
   if (bound) return
   bound = true
-  bindQuickInputHost({ current: () => pluginHost.getQuickPlugin(), send: (id, event) => pluginHost.sendEvent(id, event), dismiss: id => pluginHost.dismissQuickPlugin(id) })
+  bindQuickInputHost({
+    current: () => pluginHost.getQuickPlugin(),
+    owns: id => pluginHost.isQuickInputOwner(id),
+    detached: id => pluginHost.getPlacement(id).kind === 'detached',
+    publish: (id, event) => pluginHost.sendSurfaceEvent(id, event),
+    focus: id => { pluginHost.focusPlugin(id) },
+    send: (id, event) => pluginHost.sendEvent(id, event),
+    dismiss: id => pluginHost.dismissQuickPlugin(id)
+  })
   onClipboardHistoryChange(() => pluginHost.broadcastEvent({ type: 'clipboard-history-change' }))
 }
 function pasteOwner(pluginId: string): PasteOwner {
-  const scope = getRuntimeScope(pluginId), container = pluginHost.getContainer(pluginId)
+  const scope = getRuntimeScope(pluginId), container = pluginHost.getPlacement(pluginId).kind
+  const placementRevision = pluginHost.getPlacementRevision(pluginId)
   let revision = getQuickShowRevision(), hidden = false
-  const runtimeCurrent = () => !!scope?.isCurrent() && !scope.isClosing && pluginHost.getContainer(pluginId) === container
-  const isCurrent = () => runtimeCurrent() && getQuickShowRevision() === revision && (container !== 'quick' || (hidden ? !pluginHost.getQuickPlugin() : pluginHost.getQuickPlugin() === pluginId))
+  const runtimeCurrent = () => !!scope?.isCurrent() && !scope.isClosing && pluginHost.getPlacementRevision(pluginId) === placementRevision
+  const isCurrent = () => runtimeCurrent() && (container !== 'quick' || getQuickShowRevision() === revision && (hidden ? !pluginHost.getQuickPlugin() : pluginHost.getQuickPlugin() === pluginId))
   return {
     isCurrent,
     beforePaste() {

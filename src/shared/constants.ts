@@ -100,6 +100,13 @@ export const BEFORE_CLOSE_ACK_TIMEOUT_MS = 1500
 /** 插件 preload 侧本地兜底上限（ms）：本地超时也按已 ack 上报，避免与主进程超时赛跑 */
 export const BEFORE_CLOSE_ACK_LOCAL_CAP_MS = 2000
 
+// —— save.requested 一键保存：窗口比 beforeClose 宽（数据持久化可能大于 1.5s） ——
+
+/** 主进程等待插件 save.requested ack 的超时（ms） */
+export const SAVE_REQUEST_ACK_TIMEOUT_MS = 5000
+/** 插件 preload 侧 save.requested 本地防悬挂上限（ms）；主进程超时是真正兜底（配对约定） */
+export const SAVE_REQUEST_ACK_LOCAL_CAP_MS = 5000
+
 // —— Quick 快捷小窗尺寸（createQuickWindow / PluginHost quick 容器共用）——
 
 /** Quick 展开面板圆角与内容边框；mini 原生视图按同一轮廓裁切。 */
@@ -107,24 +114,19 @@ export const QUICK_CORNER_RADIUS = 20
 export const QUICK_BORDER_WIDTH = 1
 /** Quick 小窗默认宽度（px） */
 export const QUICK_WIDTH = 720
-/** 默认两行常用网格：64 输入栏 + 184 网格区，无说明页脚。 */
+/** 默认呼出与返回列表时，仅展示两行常用项。 */
 export const QUICK_HOME_HEIGHT = 248
 export const QUICK_GRID_COLUMNS = 8
 export const QUICK_HOME_ROWS = 2
-/** 仅搜索条时的窗口高度 */
-export const QUICK_MIN_HEIGHT = 64
-/** Quick 小窗总高度上限（px） */
-export const QUICK_MAX_HEIGHT = 780
 /**
  * Quick 插件态输入条区域高度：quick 渲染层绘制的顶栏（返回/输入/固定）。
  * mini 插件 WebContentsView 从 y=QUICK_BAR_AREA_H 铺满剩余高度。
- * 与 QuickLauncherApp 插件态根高度（quick.css [data-mode='plugin']）保持一致。
+ * 与 QuickLauncherApp 的 --quick-bar-h 保持一致。
  */
 export const QUICK_BAR_AREA_H = 64
-/** mini 插件期望高度缺省值（未上报 setHeight / 无 manifest.window.minHeight 时） */
-export const QUICK_PLUGIN_DEFAULT_HEIGHT = 300
-/** mini 插件区域最小高度（防上报异常小值导致内容不可见） */
-export const QUICK_PLUGIN_MIN_HEIGHT = 120
+/** 插件统一使用最大内容高度；搜索按内容展开，最多达到同一上限。 */
+export const QUICK_CONTENT_HEIGHT = 480
+export const QUICK_HEIGHT = QUICK_BAR_AREA_H + QUICK_CONTENT_HEIGHT + QUICK_BORDER_WIDTH
 
 // —— 插件宿主资源策略（休眠 / LRU / crash 自愈）——
 

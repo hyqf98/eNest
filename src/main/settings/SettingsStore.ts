@@ -18,9 +18,11 @@ import type {
   PluginLaunchSettings,
   PluginPermission,
   PluginPermissionGrant,
+  ProfileSettings,
   QuickLauncherSettings,
   ThemeMode,
-  ThemeTokens
+  ThemeTokens,
+  UserProfile
 } from '@shared/types/plugin'
 import { getDefaultSettingsPath, setAppPathsRoot } from '@main/paths/pathsService'
 import { kvStore } from '@main/db/sqliteService'
@@ -28,6 +30,8 @@ import { sendShellEvent } from '@main/window/createShellWindow'
 import { normalizeSearchText } from '@shared/search'
 import { filterPermissionGrants, isBuiltinCapability } from '@shared/pluginPermissionPolicy'
 import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
+import type { PluginShortcutBinding } from '@shared/types/shortcuts'
+import { migratePluginShortcuts } from './pluginShortcutMigration'
 
 /** 通用设置：以 shared 契约为准，保留历史 openAtLogin 扩展字段 */
 export type GeneralSettings = SharedGeneralSettings & {
@@ -48,8 +52,11 @@ export interface SettingsData {
   theme: ThemeTokens
   general: GeneralSettings
   plugins: Record<string, Record<string, unknown>>
-  /** 每插件快捷启动配置（启动方式/启动热键/触发词）；键 = pluginId */
+  /** 每插件 Quick 搜索偏好（启动方式/触发词）；键 = pluginId */
   pluginLaunch: PluginLaunchSettings
+  pluginShortcuts: PluginShortcutBinding[]
+  /** 个人资料段（GitHub OAuth 配置 + 已连接账号；token 不在此处） */
+  profile: ProfileSettings
 }
 
 const DEFAULTS: SettingsData = {
@@ -71,11 +78,20 @@ const DEFAULTS: SettingsData = {
     splashBackground: { type: 'brand', opacity: 0.55 }
   },
   plugins: {},
-  pluginLaunch: {}
+  pluginLaunch: {},
+  pluginShortcuts: [],
+  profile: {}
 }
 
 /** settings 表中的唯一行键 */
 const SETTINGS_ROW_KEY = 'app'
+
+function validateBackgroundEffectSelection(value: unknown): void {
+  if (value !== undefined && (typeof value !== 'string' || value.length > 1024
+    || !value.trim() || /[\u0000-\u001f\u007f]/.test(value))) {
+    throw new Error('invalid background effect')
+  }
+}
 
 function anchorPath(): string {
   return getDefaultSettingsPath()
@@ -86,6 +102,7 @@ function isLegacyFullSettings(raw: Partial<SettingsData> | null): boolean {
   if (!raw) return false
   if (raw.theme !== undefined) return true
   if (raw.plugins !== undefined && Object.keys(raw.plugins).length > 0) return true
+  if (raw.pluginLaunch !== undefined || raw.pluginShortcuts !== undefined) return true
   const generalKeys = Object.keys(raw.general ?? {})
   return generalKeys.some((k) => k !== 'dataRoot')
 }
@@ -196,16 +213,22 @@ export class SettingsStore {
       // 库不可用时继续沿用旧文件内容
       this.data = this.mergeDefaults(raw)
     }
+    // Persist removal of legacy hotkey fields before registering the migrated bindings.
+    if (Object.values((this.fileFallback ? raw : stored)?.pluginLaunch ?? {})
+      .some(config => config && Object.hasOwn(config, 'hotkey'))) this.flushNow()
   }
 
   /** 合并默认值与存量数据（浅合并，theme.overrides 单独保底） */
   private mergeDefaults(raw: Partial<SettingsData> | null): SettingsData {
     if (!raw) return structuredClone(DEFAULTS)
+    const migrated = migratePluginShortcuts(raw.pluginLaunch, raw.pluginShortcuts)
     return {
       theme: { ...DEFAULTS.theme, ...raw.theme, overrides: raw.theme?.overrides ?? {} },
       general: { ...DEFAULTS.general, ...raw.general },
       plugins: { ...raw.plugins },
-      pluginLaunch: { ...raw.pluginLaunch }
+      pluginLaunch: migrated.pluginLaunch,
+      pluginShortcuts: migrated.pluginShortcuts,
+      profile: { ...DEFAULTS.profile, ...raw.profile }
     }
   }
 
@@ -249,6 +272,14 @@ export class SettingsStore {
 
   getPluginLaunchRevision(): number { return this.pluginLaunchRevision }
 
+  /** 写入/清除已连接账号（githubAuthService 专用；事件由服务侧发布） */
+  setProfileUser(user: UserProfile | null): void {
+    this.ensureLoaded()
+    if (user) this.data.profile.user = user
+    else delete this.data.profile.user
+    this.schedulePersist()
+  }
+
   getPluginLaunchSettings(): PluginLaunchSettings {
     this.ensureLoaded()
     return structuredClone(this.data.pluginLaunch ?? {})
@@ -259,6 +290,44 @@ export class SettingsStore {
     return structuredClone(this.data.pluginLaunch?.[id])
   }
 
+  getPluginShortcuts(): PluginShortcutBinding[] {
+    this.ensureLoaded()
+    return structuredClone(this.data.pluginShortcuts)
+  }
+
+  /** Shortcut service only: generic settings updates cannot change native registrations. */
+  setPluginShortcuts(bindings: PluginShortcutBinding[]): void {
+    this.ensureLoaded()
+    this.commitShortcutSettings({ ...this.data, pluginShortcuts: structuredClone(bindings) })
+  }
+
+  /** Quick's native key and saved selection must commit as one user operation. */
+  setQuickHotkeys(config: { enabled: boolean; hotkeys: string[]; activeHotkey: string }): void {
+    this.ensureLoaded()
+    this.commitShortcutSettings({ ...this.data, general: {
+      ...this.data.general,
+      quickLauncher: { ...this.data.general.quickLauncher, ...structuredClone(config) }
+    } })
+  }
+
+  private commitShortcutSettings(next: SettingsData): void {
+    // Native registration and persisted configuration form one user operation.
+    // Do not acknowledge a save that a deferred writer could silently lose.
+    if (this.fileFallback) {
+      const file = anchorPath()
+      mkdirSync(dirname(file), { recursive: true })
+      const tmp = `${file}.tmp`
+      writeFileSync(tmp, JSON.stringify(next, null, 2), 'utf-8')
+      renameSync(tmp, file)
+    } else if (!writeSettingsRow(next)) {
+      // Falling back to the anchor here would be misleading: the next boot gives
+      // an existing database row priority over that file. Keep the old binding.
+      throw new Error('快捷键设置写入失败，已保留原配置；请检查数据目录是否可写')
+    }
+    this.data = next
+    if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null }
+  }
+
   getTheme(): ThemeTokens {
     this.ensureLoaded()
     return structuredClone(this.data.theme)
@@ -266,6 +335,7 @@ export class SettingsStore {
 
   /** 更新主题 mode / overrides / packId / background，持久化后推送 theme-changed */
   async setTheme(theme: Partial<ThemeTokens>): Promise<ThemeTokens> {
+    validateBackgroundEffectSelection(theme.backgroundEffect)
     if (theme.backgroundSource !== undefined && theme.backgroundSource !== 'user' && theme.backgroundSource !== 'pack') {
       throw new Error('invalid background source')
     }
@@ -287,6 +357,7 @@ export class SettingsStore {
     // 用 `in` 判断：显式传 undefined/null 可清除 packId / background（取消主题包/背景）
     if ('packId' in theme) this.data.theme.packId = theme.packId
     if ('backgroundSource' in theme) this.data.theme.backgroundSource = theme.backgroundSource
+    if ('backgroundEffect' in theme) this.data.theme.backgroundEffect = theme.backgroundEffect
     if (this.data.theme.backgroundSource === 'pack') delete this.data.theme.background
     else if ('background' in theme) this.data.theme.background = theme.background
     this.schedulePersist()
@@ -295,7 +366,8 @@ export class SettingsStore {
   }
 
   /** 浅合并更新 theme/general/plugins 并持久化；dataRoot 变更即时生效 */
-  async setAll(partial: Partial<SettingsData>): Promise<SettingsData> {
+  async setAll(partial: Partial<Omit<SettingsData, 'general'>> & { general?: Partial<GeneralSettings> }): Promise<SettingsData> {
+    validateBackgroundEffectSelection(partial.theme?.backgroundEffect)
     this.ensureLoaded()
     const prevRoot = this.data.general.dataRoot as string | undefined
     if (partial.theme) this.data.theme = { ...this.data.theme, ...partial.theme }
@@ -311,8 +383,16 @@ export class SettingsStore {
       this.pluginLaunchRevision++
       for (const [id, cfg] of Object.entries(partial.pluginLaunch)) {
         if (cfg === null) delete this.data.pluginLaunch[id]
-        else this.data.pluginLaunch[id] = { ...(this.data.pluginLaunch[id] ?? {}), ...cfg }
+        else {
+          const { hotkey: _legacyHotkey, ...preferences } = cfg
+          this.data.pluginLaunch[id] = { ...(this.data.pluginLaunch[id] ?? {}), ...preferences }
+        }
       }
+    }
+    // profile 浅合并（githubClientId 等；user 字段由 githubAuthService 经 setProfileUser 管理）
+    if (partial.profile) {
+      const { user: _incomingUser, ...rest } = partial.profile
+      this.data.profile = { ...this.data.profile, ...rest, user: this.data.profile.user }
     }
     if (partial.general && 'dataRoot' in partial.general) {
       setAppPathsRoot(this.data.general.dataRoot ?? null)
@@ -344,6 +424,15 @@ export class SettingsStore {
     if (!this.data.plugins[pluginId]) this.data.plugins[pluginId] = {}
     this.data.plugins[pluginId][key] = value
     this.schedulePersist()
+  }
+
+  /** 卸载时移除插件设置与宿主授权，重装同一 ID 必须重新授权。 */
+  async removePluginSettings(pluginId: string): Promise<void> {
+    this.ensureLoaded()
+    if (!Object.hasOwn(this.data.plugins, pluginId)) return
+    delete this.data.plugins[pluginId]
+    this.schedulePersist()
+    sendShellEvent({ type: 'permission-grants-changed', pluginId, grants: {} })
   }
 
   // —— 运行时权限授权（壳层三态；存 plugins[pluginId].permissionGrants）——
@@ -395,7 +484,10 @@ export class SettingsStore {
     this.pluginLaunchRevision++
     if (!this.data.pluginLaunch) this.data.pluginLaunch = {}
     if (config === null) delete this.data.pluginLaunch[pluginId]
-    else this.data.pluginLaunch[pluginId] = config
+    else {
+      const { hotkey: _legacyHotkey, ...preferences } = config
+      this.data.pluginLaunch[pluginId] = preferences
+    }
     this.schedulePersist()
   }
 

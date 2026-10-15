@@ -1,0 +1,67 @@
+{
+  "date": "2026-10-14",
+  "platform": "darwin",
+  "arch": "arm64",
+  "electron": "44.4.3",
+  "feature": "Icon controls, always-on-top and lazy window history restoration",
+  "checks": {
+    "typecheck": true,
+    "build": true,
+    "focused": {
+      "pass": 116,
+      "fail": 0,
+      "skip": 1
+    },
+    "nativeChromeUi": {
+      "pass": 11,
+      "fail": 0
+    },
+    "detachedNativeSmoke": true,
+    "quickNativeSmoke": true,
+    "fullSuiteSnapshot": {
+      "total": 493,
+      "pass": 473,
+      "fail": 4,
+      "skip": 16,
+      "failures": [
+        "pluginCommands.test.mjs: installation fixture missing manifest fields",
+        "useTheme.test.mjs: 3 fixture failures from missing backgroundEffects module"
+      ]
+    }
+  },
+  "startup": {
+    "opening": 0,
+    "closing": 0,
+    "hibernated": 0,
+    "logicalTabs": 1,
+    "lazyDetached": 3,
+    "restoringDetached": 0,
+    "tabPresentations": 0,
+    "retiring": 0,
+    "entries": []
+  },
+  "restoredIndependentWindows": 3,
+  "mainTabPlaceholders": 1,
+  "migrationRoundtrips": 20,
+  "nativeRecovery": {
+    "passed": true,
+    "bounds": true,
+    "layout": true,
+    "pin": true,
+    "maximize": true,
+    "minimize": true,
+    "mainGeometry": true,
+    "noRuntimeUntilExplicitActivation": true,
+    "lazyCloseDoesNotLaunch": true
+  },
+  "evidence": {
+    "detached": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-detached-artifacts-YZmCqA/detached-window-evidence.json",
+    "quick": "/var/folders/h8/10lgg_wn1xg5h9yvsjlgcbrr0000gn/T/enest-quick-smoke-artifacts-b4sGl7/quick-window-evidence.json"
+  },
+  "limitations": [
+    "Windows hardware not tested",
+    "Physical pointer/mixed-DPI/FPS acceptance not measured",
+    "Command-driven smoke isolates Quick blur-hide in test process",
+    "All-tests result is a workspace snapshot with unrelated background-effect work in progress"
+  ]
+}

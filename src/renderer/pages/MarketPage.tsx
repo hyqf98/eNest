@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { useI18n } from '@renderer/hooks/useI18n'
-import { SearchBox } from '@renderer/components/SearchBox'
+import { HomeSearch } from '@renderer/components/HomeSearch'
 import { CategoryChips } from '@renderer/components/CategoryChips'
 import { SegmentTabs } from '@renderer/components/SegmentTabs'
 import { FeaturedCarousel } from '@renderer/components/FeaturedCarousel'
@@ -105,17 +105,17 @@ export function MarketPage() {
     .slice(0, 5), [plugins])
 
   const showFeatured = seg === 'browse' && category === '全部' && !query.trim()
+  const searching = Boolean(query.trim())
   const detailPlugin = detailId ? plugins.find((p) => p.id === detailId) ?? null : null
   const handleOpen = (id: string) => { void openPlugin(id) }
 
   return (
     <section className="page page-home" aria-label={t('nav.market')}>
       <div className="home-scroll" ref={scrollRef}>
-        <header className="market-search-header">
-          <h1 className="sr-only">{t('market.browse')}</h1>
-          <SearchBox value={query} onChange={setQuery} />
-        </header>
+        <HomeSearch value={query} onChange={setQuery} plugins={plugins} onDetail={setDetailId}
+          onBrowseAll={() => { setQuery(''); setCategory('全部'); setSeg('browse') }} />
 
+        {!searching && <>
         {showFeatured && carouselItems.length > 0 && (
           <FeaturedCarousel items={carouselItems} onOpen={handleOpen} onDetail={setDetailId} paused={detailId !== null} />
         )}
@@ -180,6 +180,7 @@ export function MarketPage() {
             </div>
           </section>
         )}
+        </>}
       </div>
       {detailPlugin && <PluginDetailModal plugin={detailPlugin} onClose={() => setDetailId(null)} onInstall={handleOpen} />}
     </section>

@@ -50,7 +50,7 @@ export const PERMISSION_LABELS: Record<PluginPermission, string> = {
   'sys.control': '终止系统进程',
   'ssh.agent': '使用本机 SSH Agent 认证',
   'config.agent.read': '读取指定 AI CLI 配置与会话',
-  'config.agent.write': '修改指定 AI CLI 配置',
+  'config.agent.write': '修改指定 AI 应用配置与资产文件',
   'sys.inspect': '查看系统进程与端口',
   theme: '注册主题包'
 }

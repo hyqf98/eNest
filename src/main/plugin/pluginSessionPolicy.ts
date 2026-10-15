@@ -76,7 +76,13 @@ export function configurePluginSession(ses: Session, policy: PluginSessionPolicy
   ses.setPermissionCheckHandler(() => false)
   ses.setDevicePermissionHandler(() => false)
   ses.setDisplayMediaRequestHandler((_request, callback) => callback({}))
-  ses.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !pluginRequestAllowed(policy, details.url, details.resourceType) }))
+  ses.webRequest.onBeforeRequest((details, callback) => {
+    // Electron's inspector shares the inspected session. Its own native remote
+    // WebContents must be able to load bundled UI; plugin pages get no exemption.
+    const inspectorResource = details.url.startsWith('devtools://devtools/bundled/') &&
+      details.webContents?.getType() === 'remote'
+    callback({ cancel: !inspectorResource && !pluginRequestAllowed(policy, details.url, details.resourceType) })
+  })
   // Remote development servers do not pass through pluginProtocol; enforce the same document policy here.
   ses.webRequest.onHeadersReceived((details, callback) => {
     const headers = { ...details.responseHeaders }

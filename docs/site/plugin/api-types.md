@@ -18,6 +18,22 @@ export interface EnestPluginApi {
         width?: number;
         height?: number;
     }): Promise<boolean>;
+    /**
+     * 上报未保存数据标记（基础能力，无需声明或授权）：编辑时置 true、持久化完成后置 false。
+     * 壳子更新重启前的脏检测与一键保存依赖此标记；不上报则视为无未保存数据。
+     */
+    setDirty(dirty: boolean): Promise<boolean>;
+    /**
+     * 订阅壳统一通知（ShellNotice 标准信封）：不传 topic 收全量；
+     * 传 topic 只收该主题（data 按 ShellNoticeDataMap 收窄）。未知 topic 自动过滤。
+     */
+    onNotice(cb: (notice: ShellNotice) => void): Unsubscribe;
+    onNotice<T extends ShellNoticeTopic>(topic: T, cb: (notice: ShellNotice<T>) => void): Unsubscribe;
+    /**
+     * 壳请求立即保存数据（save.requested 通知，更新重启 / 退出前触发）：
+     * 回调里持久化并返回 Promise，settle 后自动 ack（主进程 deadlineMs 超时兜底）；保存需幂等。
+     */
+    onSaveRequested(cb: (event: SaveRequestedEvent) => void | Promise<unknown>): Unsubscribe;
     /** UI 命名空间：与 PLUGIN_SPEC 的 enest.ui.* 对齐 */
     ui: {
         /** Classic/orb Tab title, up to 120 characters; empty restores the manifest name. */
@@ -26,13 +42,13 @@ export interface EnestPluginApi {
         setIcon(icon: string): Promise<boolean>;
         /** Classic/orb badge: integer 0–999999 or text up to 8 characters; empty clears it. */
         setBadge(badge: string | number): Promise<boolean>;
-        /** 内容区尺寸建议（CSS px）；Quick 即时调整，主窗仅记录并保持用户窗口尺寸。基础能力，无需声明或授权。 */
+        /** 兼容尺寸建议接口（CSS px）；Quick 使用固定视口，主窗由用户控制，调用成功不改变窗口尺寸。基础能力，无需声明或授权。 */
         resize(size: {
             width?: number;
             height?: number;
         }): Promise<boolean>;
         /**
-         * 期望内容高度（px）：Quick 内嵌容器据此调小窗高度；主窗 Tab 场景仅记录。
+         * 兼容内容高度建议（px）；Quick 与主窗均不据此改变窗口尺寸。
          * 基础能力，无需声明或授权。
          */
         setHeight(height: number): Promise<boolean>;
@@ -199,7 +215,10 @@ export interface EnestPluginApi {
         capabilities(): Promise<ClipboardCapabilities>;
         requestPermission(): Promise<ClipboardCapabilities>;
         readText(): Promise<string>;
-        writeText(text: string): Promise<boolean>;
+        /** excludeFromHistory protects this write from eNest's own history collector. */
+        writeText(text: string, options?: {
+            excludeFromHistory?: boolean;
+        }): Promise<boolean>;
         readImage(): Promise<{
             dataUrl: string;
             width: number;
@@ -322,8 +341,8 @@ export interface EnestPluginApi {
                 tls?: boolean;
                 timeoutMs?: number;
             }): Promise<NetSocketHandle>;
-            /** 发送数据（base64 优先识别，否则按 utf8 文本）；受 1MB/s 令牌桶限速 */
-            send(socketId: string, data: string): Promise<{
+            /** 默认 UTF-8 文本；二进制须显式指定 base64。受 1MB/s 令牌桶限速。 */
+            send(socketId: string, data: string, encoding?: 'utf8' | 'base64'): Promise<{
                 sent: number;
             }>;
             /** 关闭连接（插件侧主动关闭；插件关闭时宿主自动释放） */
@@ -433,6 +452,15 @@ export interface EnestPluginApi {
                 maxBytes?: number;
             }): Promise<AgentSessionsReadResult>;
         };
+        /** 资产通道：列白名单应用数据目录（如 codex 的 pets/；path 空串列根） */
+        listAssets(input: {
+            app: string;
+            path?: string;
+        }): Promise<AgentListAssetsResult>;
+        /** 资产通道：写资产文件（宿主权限校验后落盘，覆盖前自动快照） */
+        writeAssets(input: AgentWriteAssetsInput): Promise<AgentWriteAssetsResult>;
+        /** 资产通道：删除资产文件 / 目录（宿主原生确认后执行，不可恢复） */
+        deleteAssets(input: AgentDeleteAssetsInput): Promise<AgentDeleteAssetsResult>;
     };
     /** 本机进程与端口查看（sys.inspect，1s 缓存）/ 终止（sys.control） */
     sys: {
@@ -882,6 +910,45 @@ export type AgentSessionsReadResult = {
     readBytes: number;
     truncated: boolean;
     lines: AgentSessionLine[];
+};
+
+/** agent.listAssets 返回 */
+export type AgentListAssetsResult = {
+    app: string;
+    root: string;
+    path: string;
+    entries: AgentAssetEntry[];
+    truncated: boolean;
+};
+
+/** agent.writeAssets 载荷（宿主权限校验后落盘） */
+export type AgentWriteAssetsInput = {
+    app: string;
+    assets: AgentAssetInput[];
+    confirmed?: boolean;
+};
+
+/** agent.writeAssets 返回 */
+export type AgentWriteAssetsResult = {
+    ok: boolean;
+    app: string;
+    written: string[];
+    /** 覆盖了已存在文件时的快照 id（未覆盖为 null） */
+    backupId: string | null;
+};
+
+/** agent.deleteAssets 载荷 */
+export type AgentDeleteAssetsInput = {
+    app: string;
+    paths: string[];
+    confirmed?: boolean;
+};
+
+/** agent.deleteAssets 返回 */
+export type AgentDeleteAssetsResult = {
+    ok: boolean;
+    app: string;
+    deleted: string[];
 };
 
 /** sys.processes 条目 */
@@ -1411,6 +1478,77 @@ export type MwWorkbenchRequest =
     };
 };
 
+/**
+ * v1 已注册 topic → data 类型映射。
+ * 扩展约定：topic 命名 `<域>.<节点>`；新增关键节点在此追加条目，
+ * 并同步 docs/site/plugin/api.md 的「壳通知」topic 表。
+ */
+export interface ShellNoticeDataMap {
+    /** 检查到新版本（尚未下载） */
+    'update.available': {
+        currentVersion: string;
+        latestVersion: string;
+    };
+    /** 更新包下载完成，可安装 */
+    'update.downloaded': {
+        version: string;
+    };
+    /** 即将退出并安装（最后保存机会；随后 before-quit / beforeClose 还会各来一次） */
+    'update.installing': {
+        version: string;
+    };
+    /** 检查 / 下载 / 安装出错 */
+    'update.error': {
+        message: string;
+    };
+    /**
+     * 壳请求插件立即保存数据（更新重启 / 退出前 / 手触发）。
+     * 插件在 enest.onSaveRequested 回调里持久化并返回 Promise；
+     * Promise settle 后 preload 自动 ack，主进程等待（超时兜底）。
+     */
+    'save.requested': {
+        reason: ShellSaveReason;
+        operationId: string;
+        deadlineMs: number;
+    };
+    /** 应用即将退出（before-quit；插件随后还会收到 beforeClose(app-quit)） */
+    'app.before-quit': {
+        reason: string;
+    };
+    /** 主题 / 字体 / 动画档变更（theme 细节另见 theme-change 事件） */
+    'appearance.changed': {
+        kind: ShellAppearanceKind;
+    };
+}
+
+/** topic 字面量联合（新增 DataMap 条目后自动收窄） */
+export type ShellNoticeTopic = keyof ShellNoticeDataMap;
+
+/** 壳统一通知信封（v1） */
+export interface ShellNotice<T extends ShellNoticeTopic = ShellNoticeTopic> {
+    /** 信封结构版本；插件遇到不认识的版本应忽略该通知 */
+    v: 1;
+    /** 会话内单调递增序号（主进程内存计数器，重启归零；仅用于排序/去重诊断） */
+    seq: number;
+    /** 事件产生时间（ISO 8601） */
+    ts: string;
+    /** 来源标识；v1 恒为 'shell'，预留给未来非壳来源 */
+    source: 'shell';
+    /** 通知主题（点分命名空间，如 'update.available'） */
+    topic: T;
+    /** 按 topic 约定的负载；未知 topic 时插件应忽略 */
+    data: ShellNoticeDataMap[T];
+}
+
+/** enest.onSaveRequested 回调参数 */
+export interface SaveRequestedEvent {
+    reason: ShellSaveReason;
+    /** 建议完成保存的时限（ms，与主进程等待窗口一致） */
+    deadlineMs: number;
+    /** 本次保存请求的唯一标识（诊断用） */
+    operationId: string;
+}
+
 export type QuickInputAction = 'next' | 'previous' | 'submit' | 'clear';
 
 export interface QuickInputConfig {
@@ -1480,11 +1618,12 @@ export interface ClipboardHistoryEntry {
 }
 
 /**
- * 插件启动方式（= 运行时挂载容器）：
+ * 插件布局模式，与宿主窗口位置分离：
  * - quick：Quick 小窗内嵌，渲染在输入框下方（小窗适配样式）
  * - shell：主窗大窗 Tab（桌面适配样式）
  * 不再有「大小插件」类型区分：同一插件两种入口样式并存，
  * 壳子启动时经 URL ?mode= / onEnter 载荷 / getLaunchMode() 传给插件，插件自选渲染样式。
+ * 拖出独立窗口保留原模式；收回 Quick / 主窗时才切换为接收位置的模式。
  */
 export type PluginLaunchMode = 'quick' | 'shell';
 
@@ -1497,6 +1636,8 @@ export interface ThemePack {
     mode: ThemeMode;
     tokens: Record<string, string>;
     background?: BackgroundConfig;
+    /** 最多 8 个声明式动效；随主题包来源注册、禁用和卸载。 */
+    backgroundEffects?: BackgroundEffectDefinition[];
 }
 
 /** SSH / Database 插件宿主 API 共享类型（Spec docs/compose/spec/ssh-db-plugins.md） */
@@ -1931,6 +2072,21 @@ export type AgentSessionLine = {
     truncated: boolean;
 };
 
+/** agent.listAssets 条目 */
+export type AgentAssetEntry = {
+    name: string;
+    isDir: boolean;
+    size: number;
+    modifiedAt: number;
+};
+
+/** agent.writeAssets 单文件载荷（contentText / contentBase64 二选一） */
+export type AgentAssetInput = {
+    path: string;
+    contentText?: string;
+    contentBase64?: string;
+};
+
 export interface DbTablePage {
     table: TableRef;
     offset?: number;
@@ -2150,6 +2306,22 @@ export interface MwBindingCreateInput {
     arguments?: Record<string, unknown>;
 }
 
+/**
+ * 壳统一通知（ShellNotice）— 壳软件关键节点事件的标准信封。
+ *
+ * 设计目标：壳的所有关键节点（更新、保存、退出、外观……）按同一 JSON 结构广播，
+ * 插件按 topic 订阅自己关心的通知；未来新增节点只在 ShellNoticeDataMap 上扩展，
+ * 不改变信封字段。插件收到未知 topic / 未知版本时应忽略。
+ *
+ * 通道：主进程 → 插件 webContents（plugin:event，payload.type === 'shell-notice'）。
+ * 消费：enest.onNotice(cb) / enest.onNotice(topic, cb) / enest.on('shell-notice', cb)。
+ */
+/** 通知触发保存的原因 */
+export type ShellSaveReason = 'update' | 'app-quit' | 'manual';
+
+/** 外观关键节点类型（appearance.changed 的 kind） */
+export type ShellAppearanceKind = 'theme' | 'font' | 'animation';
+
 export interface ClipboardSourceApp {
     name: string;
     id?: string;
@@ -2175,6 +2347,25 @@ export interface BackgroundConfig {
     /** cover | contain */
     fit: 'cover' | 'contain';
 }
+
+export type BackgroundEffectDefinition = BackgroundEffectBase & ({
+    renderer: 'preset';
+    preset: BackgroundEffectPreset;
+    /** 三个六位 hex 颜色：背景主色、次色、高光色。 */
+    colors?: [
+        string,
+        string,
+        string
+    ];
+    /** 速度倍率，0.25–2；缺省为 1。 */
+    speed?: number;
+} | {
+    renderer: 'video';
+    /** 仅允许本插件 enest://plugin/<id>/assets/... 的 mp4/webm。 */
+    video: string;
+    /** 本插件的 png/jpeg/webp/avif/gif 静态封面。 */
+    poster?: string;
+});
 
 // —— SSH ——
 export type SshAuthType = 'password' | 'key' | 'agent' | 'keyboard-interactive';
@@ -2324,6 +2515,18 @@ export interface MwEmqxMgmt {
 
 /** 背景类型：无 / 纯色 / 静态图 / 动效视频（mp4/webm，类 Wallpaper Engine） */
 export type BackgroundType = 'none' | 'color' | 'image' | 'video';
+
+/** 宿主提供的背景动效与启动 Logo 编排。插件不能注入脚本或 shader。 */
+export type BackgroundEffectPreset = 'fold' | 'aurora' | 'orbit' | 'ripple' | 'tunnel';
+
+export interface BackgroundEffectBase {
+    /** 主题包内唯一的安全短 ID（字母开头，最多 48 字符）。 */
+    id: string;
+    name: string;
+    description?: string;
+    /** 启动 Logo 的编排；未指定时由宿主按背景选择。 */
+    logoStyle?: BackgroundEffectPreset;
+}
 
 export type SshCompletionKind = 'cmd' | 'flag' | 'path' | 'history' | 'snippet';
 

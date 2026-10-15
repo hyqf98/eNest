@@ -23,7 +23,8 @@ import type { SshWorkbenchRequest } from '@shared/types/ssh-workbench'
 import type { DbWorkbenchRequest } from '@shared/types/db-workbench'
 import type { MwWorkbenchRequest } from '@shared/types/mw-workbench'
 import type { DshWorkbenchEvent, DshWorkbenchRequest } from '@shared/types/dsh-workbench'
-import { BEFORE_CLOSE_ACK_LOCAL_CAP_MS } from '@shared/constants'
+import { BEFORE_CLOSE_ACK_LOCAL_CAP_MS, SAVE_REQUEST_ACK_LOCAL_CAP_MS } from '@shared/constants'
+import type { ShellNotice, ShellNoticeDataMap, ShellNoticeTopic, SaveRequestedEvent, SaveRequestedData } from '@shared/types/notice'
 import {
   IpcChannels,
   type PluginCallRequest,
@@ -183,8 +184,8 @@ function emitAndCollectPromises(event: string, data: unknown): Promise<unknown>[
   return pending
 }
 
-/** 发送 beforeClose ack；通道可能已随销毁关闭，失败静默（主进程有超时兜底） */
-function sendBeforeCloseAck(event: 'beforeClose' | 'beforeSuspend', operationId: string, success = true): void {
+/** 发送 beforeClose / save-requested ack；通道可能已随销毁关闭，失败静默（主进程有超时兜底） */
+function sendBeforeCloseAck(event: 'beforeClose' | 'beforeSuspend' | 'save-requested', operationId: string, success = true): void {
   try {
     ipcRenderer.send(IpcChannels.PluginLifecycleAck, { event, operationId, success })
   } catch {
@@ -194,6 +195,9 @@ function sendBeforeCloseAck(event: 'beforeClose' | 'beforeSuspend', operationId:
 
 /** Toast 类型：info 默认，success/warn/error 带强调色 */
 export type PluginToastType = 'info' | 'success' | 'warn' | 'error'
+
+/** 壳统一通知类型再导出（信封 / topic 映射 / save.requested 事件） */
+export type { ShellNotice, ShellNoticeDataMap, ShellNoticeTopic, SaveRequestedEvent } from '@shared/types/notice'
 
 /** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗） */
 export type PluginEnterEvent = PluginEnterPayload & {
@@ -434,6 +438,60 @@ export type AgentSessionsReadResult = {
   lines: AgentSessionLine[]
 }
 
+/** agent.listAssets 条目 */
+export type AgentAssetEntry = {
+  name: string
+  isDir: boolean
+  size: number
+  modifiedAt: number
+}
+
+/** agent.listAssets 返回 */
+export type AgentListAssetsResult = {
+  app: string
+  root: string
+  path: string
+  entries: AgentAssetEntry[]
+  truncated: boolean
+}
+
+/** agent.writeAssets 单文件载荷（contentText / contentBase64 二选一） */
+export type AgentAssetInput = {
+  path: string
+  contentText?: string
+  contentBase64?: string
+}
+
+/** agent.writeAssets 载荷（宿主权限校验后落盘） */
+export type AgentWriteAssetsInput = {
+  app: string
+  assets: AgentAssetInput[]
+  confirmed?: boolean
+}
+
+/** agent.writeAssets 返回 */
+export type AgentWriteAssetsResult = {
+  ok: boolean
+  app: string
+  written: string[]
+  /** 覆盖了已存在文件时的快照 id（未覆盖为 null） */
+  backupId: string | null
+}
+
+/** agent.deleteAssets 载荷 */
+export type AgentDeleteAssetsInput = {
+  app: string
+  paths: string[]
+  confirmed?: boolean
+}
+
+/** agent.deleteAssets 返回 */
+export type AgentDeleteAssetsResult = {
+  ok: boolean
+  app: string
+  deleted: string[]
+}
+
 /** sys.processes 条目 */
 export type SysProcessInfo = {
   pid: number
@@ -464,6 +522,22 @@ export interface EnestPluginApi {
   setIcon(icon: string): Promise<boolean>
   setBadge(badge: string | number): Promise<boolean>
   resize(size: { width?: number; height?: number }): Promise<boolean>
+  /**
+   * 上报未保存数据标记（基础能力，无需声明或授权）：编辑时置 true、持久化完成后置 false。
+   * 壳子更新重启前的脏检测与一键保存依赖此标记；不上报则视为无未保存数据。
+   */
+  setDirty(dirty: boolean): Promise<boolean>
+  /**
+   * 订阅壳统一通知（ShellNotice 标准信封）：不传 topic 收全量；
+   * 传 topic 只收该主题（data 按 ShellNoticeDataMap 收窄）。未知 topic 自动过滤。
+   */
+  onNotice(cb: (notice: ShellNotice) => void): Unsubscribe
+  onNotice<T extends ShellNoticeTopic>(topic: T, cb: (notice: ShellNotice<T>) => void): Unsubscribe
+  /**
+   * 壳请求立即保存数据（save.requested 通知，更新重启 / 退出前触发）：
+   * 回调里持久化并返回 Promise，settle 后自动 ack（主进程 deadlineMs 超时兜底）；保存需幂等。
+   */
+  onSaveRequested(cb: (event: SaveRequestedEvent) => void | Promise<unknown>): Unsubscribe
   /** UI 命名空间：与 PLUGIN_SPEC 的 enest.ui.* 对齐 */
   ui: {
     /** Classic/orb Tab title, up to 120 characters; empty restores the manifest name. */
@@ -472,10 +546,10 @@ export interface EnestPluginApi {
     setIcon(icon: string): Promise<boolean>
     /** Classic/orb badge: integer 0–999999 or text up to 8 characters; empty clears it. */
     setBadge(badge: string | number): Promise<boolean>
-    /** 内容区尺寸建议（CSS px）；Quick 即时调整，主窗仅记录并保持用户窗口尺寸。基础能力，无需声明或授权。 */
+    /** 兼容尺寸建议接口（CSS px）；Quick 使用固定视口，主窗由用户控制，调用成功不改变窗口尺寸。基础能力，无需声明或授权。 */
     resize(size: { width?: number; height?: number }): Promise<boolean>
     /**
-     * 期望内容高度（px）：Quick 内嵌容器据此调小窗高度；主窗 Tab 场景仅记录。
+     * 兼容内容高度建议（px）；Quick 与主窗均不据此改变窗口尺寸。
      * 基础能力，无需声明或授权。
      */
     setHeight(height: number): Promise<boolean>
@@ -606,7 +680,8 @@ export interface EnestPluginApi {
     capabilities(): Promise<ClipboardCapabilities>
     requestPermission(): Promise<ClipboardCapabilities>
     readText(): Promise<string>
-    writeText(text: string): Promise<boolean>
+    /** excludeFromHistory protects this write from eNest's own history collector. */
+    writeText(text: string, options?: { excludeFromHistory?: boolean }): Promise<boolean>
     readImage(): Promise<{ dataUrl: string; width: number; height: number } | null>
     writeImage(dataUrl: string): Promise<boolean>
     history: {
@@ -683,8 +758,8 @@ export interface EnestPluginApi {
         tls?: boolean
         timeoutMs?: number
       }): Promise<NetSocketHandle>
-      /** 发送数据（base64 优先识别，否则按 utf8 文本）；受 1MB/s 令牌桶限速 */
-      send(socketId: string, data: string): Promise<{ sent: number }>
+      /** 默认 UTF-8 文本；二进制须显式指定 base64。受 1MB/s 令牌桶限速。 */
+      send(socketId: string, data: string, encoding?: 'utf8' | 'base64'): Promise<{ sent: number }>
       /** 关闭连接（插件侧主动关闭；插件关闭时宿主自动释放） */
       close(socketId: string): Promise<boolean>
       /** 本插件全部 socket 概览（含 ws 桥端口） */
@@ -766,6 +841,12 @@ export interface EnestPluginApi {
       /** 逐行读会话文件（默认上限 512KB/文件；尾半行丢弃） */
       read(input: { app: string; file: string; maxBytes?: number }): Promise<AgentSessionsReadResult>
     }
+    /** 资产通道：列白名单应用数据目录（如 codex 的 pets/；path 空串列根） */
+    listAssets(input: { app: string; path?: string }): Promise<AgentListAssetsResult>
+    /** 资产通道：写资产文件（宿主权限校验后落盘，覆盖前自动快照） */
+    writeAssets(input: AgentWriteAssetsInput): Promise<AgentWriteAssetsResult>
+    /** 资产通道：删除资产文件 / 目录（宿主原生确认后执行，不可恢复） */
+    deleteAssets(input: AgentDeleteAssetsInput): Promise<AgentDeleteAssetsResult>
   }
   /** 本机进程与端口查看（sys.inspect，1s 缓存）/ 终止（sys.control） */
   sys: {
@@ -934,6 +1015,27 @@ const api: EnestPluginApi = {
   setIcon: (icon: string) => call<boolean>('ui.setIcon', [icon]),
   setBadge: (badge: string | number) => call<boolean>('ui.setBadge', [badge]),
   resize: (size: { width?: number; height?: number }) => call<boolean>('ui.resize', [size]),
+  setDirty: (dirty: boolean) => call<boolean>('state.setDirty', [dirty]),
+  onNotice(
+    topicOrCb: string | ((notice: ShellNotice) => void),
+    maybeCb?: (notice: ShellNotice) => void
+  ): Unsubscribe {
+    const topic = typeof topicOrCb === 'string' ? topicOrCb : null
+    const cb = typeof topicOrCb === 'string' ? maybeCb : topicOrCb
+    if (typeof cb !== 'function') return () => {}
+    const handler: Listener = (data) => {
+      const notice = data as ShellNotice
+      if (!notice || typeof notice !== 'object' || typeof notice.topic !== 'string') return
+      if (topic === null || notice.topic === topic) cb(notice)
+    }
+    api.on('shell-notice', handler)
+    return () => api.off('shell-notice', handler)
+  },
+  onSaveRequested(cb) {
+    const handler: Listener = (data) => cb(data as SaveRequestedEvent)
+    api.on('save-requested', handler)
+    return () => api.off('save-requested', handler)
+  },
   ui: {
     setTitle: (title: string) => call<boolean>('ui.setTitle', [title]),
     setIcon: (icon: string) => call<boolean>('ui.setIcon', [icon]),
@@ -1051,7 +1153,7 @@ const api: EnestPluginApi = {
     capabilities: () => call('clipboard.capabilities'),
     requestPermission: () => call('clipboard.requestPermission'),
     readText: () => call<string>('clipboard.readText'),
-    writeText: (text: string) => call<boolean>('clipboard.writeText', [text]),
+    writeText: (text, options) => call<boolean>('clipboard.writeText', [text, options]),
     readImage: () => call<{ dataUrl: string; width: number; height: number } | null>('clipboard.readImage'),
     writeImage: (dataUrl: string) => call<boolean>('clipboard.writeImage', [dataUrl]),
     history: {
@@ -1125,8 +1227,8 @@ const api: EnestPluginApi = {
         tls?: boolean
         timeoutMs?: number
       }) => call<NetSocketHandle>('net.socket.connect', [input]),
-      send: (socketId: string, data: string) =>
-        call<{ sent: number }>('net.socket.send', [socketId, data]),
+      send: (socketId, data, encoding = 'utf8') =>
+        call<{ sent: number }>('net.socket.send', [socketId, data, encoding]),
       close: (socketId: string) => call<boolean>('net.socket.close', [socketId]),
       list: () => call<NetSocketListItem[]>('net.socket.list'),
       serveWs: (socketId: string) => call<NetWsEndpoint>('net.socket.serveWs', [socketId])
@@ -1204,7 +1306,16 @@ const api: EnestPluginApi = {
       list: (app: string) => call<AgentSessionsListResult[]>('agent.sessions.list', [app]),
       read: (input: { app: string; file: string; maxBytes?: number }) =>
         call<AgentSessionsReadResult>('agent.sessions.read', [input])
-    }
+    },
+    /** 资产通道：列白名单应用数据目录（如 codex 的 pets/） */
+    listAssets: (input: { app: string; path?: string }) =>
+      call<AgentListAssetsResult>('agent.listAssets', [input]),
+    /** 资产通道：写资产文件（宿主权限校验后落盘，覆盖前自动快照） */
+    writeAssets: (input: AgentWriteAssetsInput) =>
+      call<AgentWriteAssetsResult>('agent.writeAssets', [input]),
+    /** 资产通道：删除资产文件 / 目录（宿主原生确认后执行） */
+    deleteAssets: (input: AgentDeleteAssetsInput) =>
+      call<AgentDeleteAssetsResult>('agent.deleteAssets', [input])
   },
   sys: {
     processes: () => call<SysProcessInfo[]>('sys.processes'),
@@ -1455,76 +1566,156 @@ ipcRenderer.on(IpcChannels.PluginLifecycle, (_e, message: PluginLifecycleMessage
 // 主题/热键/语言/Quick 查询广播（PluginHost.broadcastTheme 等 → PluginEvent 通道）
 ipcRenderer.on(IpcChannels.PluginEvent, (_e, payload: PluginEventPayload) => {
   if (!payload || typeof payload !== 'object') return
-  if (payload.type === 'quick-input-change') {
-    emit(payload.type, payload.value)
-  } else if (payload.type === 'quick-input-action') {
-    emit(payload.type, payload.action)
-  } else if (payload.type === 'settings-change') {
-    emit(payload.type, { key: payload.key, value: payload.value })
-  } else if (payload.type === 'clipboard-history-change') {
-    emit(payload.type, undefined)
-  } else if (payload.type === 'focus-timer-change') {
-    emit(payload.type, payload.snapshot)
-  } else if (payload.type === 'theme-change') {
-    emit('theme-change', { mode: payload.mode, tokens: payload.tokens })
-  } else if (payload.type === 'hotkey') {
-    emit('hotkey', { accelerator: payload.accelerator } satisfies PluginHotkeyEvent)
-  } else if (payload.type === 'locale-change') {
-    emit('locale-change', { locale: payload.locale } satisfies PluginLocaleChangeEvent)
-  } else if (payload.type === 'mode-change') {
-    // 启动方式变更（quick ↔ shell 迁移不重载）：更新真值并通知插件切换入口样式
-    currentLaunchMode = payload.mode
-    emit('mode-change', { mode: payload.mode } satisfies PluginModeChangeEvent)
-  } else if (payload.type === 'quick-query') {
-    // Quick 搜索 provider 查询：enest.contribute.onQuickQuery / enest.on('quick-query')
-    emit('quick-query', { reqId: payload.reqId, query: payload.query })
-  } else if (payload.type === 'dsh.event') {
-    // DSH 驾驶舱事件：enest.dsh.onDshEvent / enest.on('dsh.event')
-    emit('dsh.event', payload.event)
-  } else if (
-    payload.type === 'ssh.data' ||
-    payload.type === 'ssh.exit' ||
-    payload.type === 'ssh.error' ||
-    payload.type === 'ssh.metrics'
-  ) {
-    // SSH 会话事件：enest.on('ssh.data'|'ssh.exit'|'ssh.error'|'ssh.metrics')
-    emit(payload.type, payload)
-  } else if (payload.type === 'net.data') {
-    // net.socket 数据分片：enest.net.onNetData / enest.on('net.data')
-    emit('net.data', { socketId: payload.socketId, chunk: payload.chunk } satisfies NetDataEvent)
-  } else if (payload.type === 'net.close') {
-    // net.socket 关闭：enest.net.onNetClose / enest.on('net.close')
-    emit('net.close', { socketId: payload.socketId, reason: payload.reason } satisfies NetCloseEvent)
-  } else if (payload.type === 'net.chunk') {
-    // net.fetch 流式分片 / SSE 行：enest.net.onChunk / enest.on('net.chunk')
-    emit('net.chunk', {
-      reqId: payload.reqId,
-      chunk: payload.chunk,
-      ...(payload.done !== undefined ? { done: payload.done } : {}),
-      ...(payload.error !== undefined ? { error: payload.error } : {})
-    } satisfies NetChunkEvent)
-  } else if (payload.type === 'ssh.transfer') {
-    // SFTP 传输进度：enest.ssh.onSshTransfer / enest.on('ssh.transfer')
-    emit('ssh.transfer', {
-      sessionId: payload.sessionId,
-      direction: payload.direction,
-      path: payload.path,
-      transferred: payload.transferred,
-      total: payload.total,
-      ...(payload.done !== undefined ? { done: payload.done } : {}),
-      ...(payload.error !== undefined ? { error: payload.error } : {})
-    } satisfies SshTransferEvent)
-  } else if (payload.type === 'lan.request') {
-    // 局域网传件下载请求：enest.net.share.onRequest / enest.on('lan.request')
-    emit('lan.request', {
-      shareId: payload.shareId,
-      file: payload.file,
-      ip: payload.ip,
-      ts: payload.ts
-    } satisfies LanRequestEvent)
-  } else if (payload.type === 'lan.stopped') {
-    // 分享关停（到期 / stop / 插件关闭）：enest.net.share.onStopped / enest.on('lan.stopped')
-    emit('lan.stopped', { shareId: payload.shareId, reason: payload.reason } satisfies LanStoppedEvent)
+  switch (payload.type) {
+    case 'quick-input-change': {
+      emit(payload.type, payload.value)
+      break
+    }
+    case 'quick-input-action': {
+      emit(payload.type, payload.action)
+      break
+    }
+    case 'settings-change': {
+      emit(payload.type, { key: payload.key, value: payload.value })
+      break
+    }
+    case 'clipboard-history-change': {
+      emit(payload.type, undefined)
+      break
+    }
+    case 'focus-timer-change': {
+      emit(payload.type, payload.snapshot)
+      break
+    }
+    case 'theme-change': {
+      emit('theme-change', { mode: payload.mode, tokens: payload.tokens })
+      break
+    }
+    case 'hotkey': {
+      emit('hotkey', { accelerator: payload.accelerator } satisfies PluginHotkeyEvent)
+      break
+    }
+    case 'locale-change': {
+      emit('locale-change', { locale: payload.locale } satisfies PluginLocaleChangeEvent)
+      break
+    }
+    case 'mode-change': {
+      // 启动方式变更（quick ↔ shell 迁移不重载）：更新真值并通知插件切换入口样式
+      currentLaunchMode = payload.mode
+      emit('mode-change', { mode: payload.mode } satisfies PluginModeChangeEvent)
+      break
+    }
+    case 'quick-query': {
+      // Quick 搜索 provider 查询：enest.contribute.onQuickQuery / enest.on('quick-query')
+      emit('quick-query', { reqId: payload.reqId, query: payload.query })
+      break
+    }
+    case 'dsh.event': {
+      // DSH 驾驶舱事件：enest.dsh.onDshEvent / enest.on('dsh.event')
+      emit('dsh.event', payload.event)
+      break
+    }
+    case 'ssh.data':
+    case 'ssh.exit':
+    case 'ssh.error':
+    case 'ssh.auth':
+    case 'ssh.metrics': {
+      // SSH 会话事件：enest.on('ssh.data'|'ssh.exit'|'ssh.error'|'ssh.metrics')
+      emit(payload.type, payload)
+      break
+    }
+    case 'net.data': {
+      // net.socket 数据分片：enest.net.onNetData / enest.on('net.data')
+      emit('net.data', { socketId: payload.socketId, chunk: payload.chunk } satisfies NetDataEvent)
+      break
+    }
+    case 'net.close': {
+      // net.socket 关闭：enest.net.onNetClose / enest.on('net.close')
+      emit('net.close', { socketId: payload.socketId, reason: payload.reason } satisfies NetCloseEvent)
+      break
+    }
+    case 'net.chunk': {
+      // net.fetch 流式分片 / SSE 行：enest.net.onChunk / enest.on('net.chunk')
+      emit('net.chunk', {
+        reqId: payload.reqId,
+        chunk: payload.chunk,
+        ...(payload.done !== undefined ? { done: payload.done } : {}),
+        ...(payload.error !== undefined ? { error: payload.error } : {})
+      } satisfies NetChunkEvent)
+      break
+    }
+    case 'ssh.transfer': {
+      // SFTP 传输进度：enest.ssh.onSshTransfer / enest.on('ssh.transfer')
+      emit('ssh.transfer', {
+        sessionId: payload.sessionId,
+        direction: payload.direction,
+        path: payload.path,
+        transferred: payload.transferred,
+        total: payload.total,
+        ...(payload.done !== undefined ? { done: payload.done } : {}),
+        ...(payload.error !== undefined ? { error: payload.error } : {})
+      } satisfies SshTransferEvent)
+      break
+    }
+    case 'lan.request': {
+      // 局域网传件下载请求：enest.net.share.onRequest / enest.on('lan.request')
+      emit('lan.request', {
+        shareId: payload.shareId,
+        file: payload.file,
+        ip: payload.ip,
+        ts: payload.ts
+      } satisfies LanRequestEvent)
+      break
+    }
+    case 'lan.stopped': {
+      // 分享关停（到期 / stop / 插件关闭）：enest.net.share.onStopped / enest.on('lan.stopped')
+      emit('lan.stopped', { shareId: payload.shareId, reason: payload.reason } satisfies LanStoppedEvent)
+      break
+    }
+    case 'shell-notice': {
+      // 壳统一通知：enest.onNotice / enest.on('shell-notice')；save.requested 带确认语义
+      emit('shell-notice', payload.notice)
+      if (payload.notice?.topic === 'save.requested') {
+        const data = payload.notice.data as SaveRequestedData
+        // 与 beforeClose 同款 ack：等 save-requested 回调返回的 Promise settle 后上报
+        const pending = emitAndCollectPromises('save-requested', {
+          reason: data.reason,
+          deadlineMs: data.deadlineMs,
+          operationId: data.operationId
+        } satisfies SaveRequestedEvent)
+        let acked = false
+        const ackOnce = (success = true) => {
+          if (acked) return
+          acked = true
+          sendBeforeCloseAck('save-requested', data.operationId, success)
+        }
+        if (pending.length > 0) {
+          const cap = setTimeout(() => ackOnce(false), SAVE_REQUEST_ACK_LOCAL_CAP_MS)
+          Promise.allSettled(pending).then((results) => {
+            clearTimeout(cap)
+            ackOnce(results.every((result) => result.status === 'fulfilled'))
+          })
+        } else {
+          queueMicrotask(() => ackOnce())
+        }
+      }
+      break
+    }
+    case 'mw.data':
+    case 'mw.error':
+      emit(payload.type, payload)
+      break
+    case 'net.websocket.message':
+      emit(payload.type, { socketId: payload.socketId, data: payload.data, binary: payload.binary })
+      break
+    case 'net.websocket.close':
+      emit(payload.type, { socketId: payload.socketId, code: payload.code, reason: payload.reason })
+      break
+    default: {
+      // Every declared host event must have a bridge; unknown runtime payloads are ignored.
+      const unhandled: never = payload
+      void unhandled
+    }
   }
 })
 

@@ -120,7 +120,15 @@
     transition: none;
   }
 
-  .splash-field {
-    display: none;
-  }
 }
+
+.splash-close {
+  position: absolute; top: 24px; right: 24px; z-index: 3;
+  border: 1px solid color-mix(in srgb, var(--splash-text) 22%, transparent);
+  border-radius: 8px; padding: 8px 14px;
+  background: color-mix(in srgb, var(--splash-bg) 75%, transparent);
+  color: var(--splash-text); cursor: pointer;
+}
+.splash-close:focus-visible { outline: 2px solid var(--splash-accent); outline-offset: 4px; }
+
+.splash[data-ready="false"] .splash-stage { opacity: 0; }

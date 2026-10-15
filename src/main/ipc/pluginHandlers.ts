@@ -9,13 +9,13 @@ import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
 /**
  * pluginHandlers — 插件 IPC 调用分发器
  * 职责：接收插件 preload 发起的 `plugin:call`，校验发送者身份与权限，按 method 分发到具体实现；
- *       转发 `plugin:lifecycle-ack`（beforeClose 确认）到 PluginHost。
+ *       转发 `plugin:lifecycle-ack`（关闭、休眠、保存确认）到 PluginHost。
  * 被 registerPluginHandlers 在 index.ts 中注册。
  * 关键依赖：PluginHost（识别 sender）、PluginPermissions（权限断言）、SettingsStore、
  * PluginSettingsBridge、themePacks、pluginStorage（storage.local 落 enest.db）、
  * quickHotkey（Quick 热键冲突预检，经 pluginRuntimeHotkeys 间接使用）。
  */
-import { clipboard, ipcMain, nativeImage, Notification, shell, net as electronNet } from 'electron'
+import { ClipboardItem, clipboard, ipcMain, nativeImage, Notification, shell, net as electronNet } from 'electron'
 import { APP_NAME, EXTERNAL_URL_PROTOCOLS } from '@shared/constants'
 import type {
   PermissionGrantSetPayload,
@@ -66,7 +66,8 @@ import {
   lanShareList
 } from '@main/net/lanShareService'
 import { renameLocalFile, renameLocalFiles, resolveLocalFileHandle, pickLocalSaveFile } from '@main/plugin/localFiles'
-import { agentApps, agentRead, agentWrite, agentBackups, agentRestore, agentSessionsList, agentSessionsRead } from '@main/config/agentConfigService'
+import { agentApps, agentRead, agentWrite, agentBackups, agentRestore, agentSessionsList, agentSessionsRead, agentListAssets, agentWriteAssets, agentDeleteAssets } from '@main/config/agentConfigService'
+import type { AgentAssetInput } from '@main/config/agentConfigService'
 import { sysProcesses, sysPorts, sysKill } from '@main/sys/sysInspectService'
 import { mwWorkbenchCall, mwWorkbenchPermission } from '@main/middleware/workbench'
 import type { MwWorkbenchRequest } from '@shared/types/mw-workbench'
@@ -110,7 +111,7 @@ import {
   getHistoryEntry,
   listHistory,
   noteExternalImage,
-  noteExternalText,
+  writeHistoryAwareText,
   removeHistoryEntry,
   togglePinHistoryEntry
 } from '@main/clipboard/clipboardHistory'
@@ -180,6 +181,8 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'ui.setTitle': 'ui.setTitle',
   'ui.setIcon': 'ui.setIcon',
   'ui.setBadge': 'ui.setBadge',
+  // 未保存标记上报：基础能力（插件自身状态，无需声明/授权）
+  'state.setDirty': null,
   'ui.resize': 'ui.resize',
   'ui.setHeight': 'ui.resize',
   'ui.openInShell': null,
@@ -280,7 +283,8 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'db.schema.describe': 'db.schema',
   'db.schema.ddl': 'db.schema',
   'db.completion.suggest': 'db.schema',
-  'db.dialects.list': 'db.schema',
+  // Static driver metadata exposes no connection, credentials or user data.
+  'db.dialects.list': null,
   'db.pickImportFile': 'fs.read',
   // mw.workbench 权限按 action 动态判 mw.connect/mw.query/mw.admin（见下方 required 解析）
   'mw.workbench': 'mw.admin',
@@ -302,17 +306,21 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'lan.share.stop': 'lan.share',
   'fs.rename': 'fs.rename',
   'fs.renameBatch': 'fs.rename',
-  'agent.apps': 'config.agent.read',
+  // Application availability only; reading actual configurations stays gated.
+  'agent.apps': null,
   'agent.read': 'config.agent.read',
   'agent.write': 'config.agent.write',
   'agent.backups': 'config.agent.read',
   'agent.restore': 'config.agent.write',
   'agent.sessions.list': 'config.agent.read',
   'agent.sessions.read': 'config.agent.read',
+  'agent.listAssets': 'config.agent.read',
+  'agent.writeAssets': 'config.agent.write',
+  'agent.deleteAssets': 'config.agent.write',
   'sys.processes': 'sys.inspect',
   'sys.ports': 'sys.inspect',
   'sys.kill': 'sys.control',
-  // 导出落盘：复用 shell.openExternal 权限（两插件均已声明）
+  // 保存位置由原生选择器确认；fs.write 不再另弹通用授权框。
   'shell.saveTextFile': 'fs.write'
 }
 
@@ -521,6 +529,12 @@ async function dispatch(
     case 'ui.setBadge': {
       return pluginHost.setBadge(pluginId, args[0])
     }
+    case 'state.setDirty': {
+      // 插件未保存标记（基础能力）：更新重启前的脏检测与一键保存依赖此上报
+      if (typeof args[0] !== 'boolean') throw new Error('setDirty expects a boolean')
+      pluginHost.setPluginDirty(pluginId, args[0])
+      return true
+    }
     case 'ui.resize': {
       const size = args[0] as { width?: number; height?: number } | undefined
       if (!size || typeof size !== 'object') throw new Error('invalid size')
@@ -543,7 +557,7 @@ async function dispatch(
       const message = String(payload.message ?? '')
       if (!message) throw new Error('toast message required')
       const toastType = payload.type
-      sendShellEvent({
+      pluginHost.sendSurfaceEvent(pluginId, {
         type: 'plugin-toast',
         pluginId,
         message,
@@ -645,8 +659,9 @@ async function dispatch(
     }
     case 'clipboard.writeText': {
       const txt = String(args[0] ?? '')
-      await clipboard.writeText(txt)
-      noteExternalText(txt)
+      const options = args[1] as { excludeFromHistory?: unknown } | undefined
+      if (options !== undefined && (!options || typeof options !== 'object' || Array.isArray(options) || (options.excludeFromHistory !== undefined && typeof options.excludeFromHistory !== 'boolean'))) throw new Error('invalid clipboard write options')
+      await writeHistoryAwareText(txt, { excludeFromHistory: options?.excludeFromHistory === true }, getRuntimeScope(pluginId)?.signal)
       return true
     }
     case 'clipboard.readImage': {
@@ -670,7 +685,7 @@ async function dispatch(
       if (img.isEmpty()) throw new Error('invalid image data')
       // Electron 44：writeImage 移除，经 write([ClipboardItem])（Blob）写图
       const blob = new Blob([new Uint8Array(img.toPNG())], { type: 'image/png' })
-      await clipboard.write([new Electron.ClipboardItem({ 'image/png': blob })])
+      await clipboard.write([new ClipboardItem({ 'image/png': blob })])
       noteExternalImage(img)
       return true
     }
@@ -744,7 +759,9 @@ async function dispatch(
     }
     case 'net.socket.send': {
       const o = asObj(args)
-      return socketSend(pluginId, argStr(args, 'socketId', 0), argStr(args, 'data', 1))
+      const encoding = asObj(args).encoding ?? args[2] ?? 'utf8'
+      if (encoding !== 'utf8' && encoding !== 'base64') throw new Error('encoding must be utf8 or base64')
+      return socketSend(pluginId, argStr(args, 'socketId', 0), argStr(args, 'data', 1), encoding)
     }
     case 'net.socket.close': {
       return socketClose(pluginId, argStr(args, 'socketId', 0))
@@ -815,7 +832,8 @@ async function dispatch(
     }
     case 'agent.write': {
       const o = asObj(args)
-      await confirmPluginOperation(pluginId, '修改 AI CLI 配置？', `应用：${String(o.app ?? args[0] ?? '')}\n修改字段：${Object.keys((o.changes ?? args[1] ?? {}) as object).join(', ')}`)
+      // config.agent.write consent is checked before dispatch; ordinary writes
+      // keep whitelist/snapshot validation without a second permission dialog.
       return agentWrite(pluginId, {
         app: o.app != null ? String(o.app) : String(args[0] ?? ''),
         changes: (o.changes ?? args[1]) as Record<string, unknown>,
@@ -842,6 +860,36 @@ async function dispatch(
         app: o.app != null ? String(o.app) : String(args[0] ?? ''),
         file: o.file != null ? String(o.file) : String(args[1] ?? ''),
         maxBytes: o.maxBytes != null ? Number(o.maxBytes) : undefined
+      })
+    }
+    case 'agent.listAssets': {
+      const o = asObj(args)
+      return agentListAssets(pluginId, {
+        app: o.app != null ? String(o.app) : String(args[0] ?? ''),
+        path: o.path != null ? String(o.path) : ''
+      })
+    }
+    case 'agent.writeAssets': {
+      const o = asObj(args)
+      const assets = (Array.isArray(o.assets) ? o.assets : []).map(a => ({
+        path: String((a as { path?: unknown })?.path ?? ''),
+        contentText: typeof (a as { contentText?: unknown })?.contentText === 'string' ? (a as { contentText: string }).contentText : undefined,
+        contentBase64: typeof (a as { contentBase64?: unknown })?.contentBase64 === 'string' ? (a as { contentBase64: string }).contentBase64 : undefined
+      })) as AgentAssetInput[]
+      return agentWriteAssets(pluginId, {
+        app: o.app != null ? String(o.app) : String(args[0] ?? ''),
+        assets,
+        confirmed: true
+      })
+    }
+    case 'agent.deleteAssets': {
+      const o = asObj(args)
+      const paths = (Array.isArray(o.paths) ? o.paths : []).map(p => String(p ?? ''))
+      await confirmPluginOperation(pluginId, '删除 AI CLI 应用资产文件？', `应用：${String(o.app ?? args[0] ?? '')}\n目标：\n${paths.join('\n')}\n\n删除后不可恢复。`)
+      return agentDeleteAssets(pluginId, {
+        app: o.app != null ? String(o.app) : String(args[0] ?? ''),
+        paths,
+        confirmed: true
       })
     }
     case 'sys.processes': {
@@ -998,9 +1046,10 @@ async function dispatch(
       const defaultName = String(o.defaultName || o.filename || args[0] || 'export.txt')
       const scope = getRuntimeScope(pluginId)
       if (!scope || !scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
+      const releaseWindow = pluginHost.acquireWindowInteraction(pluginId)
       const releaseActivity = scope.acquireActivity('file:export')
       const releaseFocus = acquireQuickInteraction()
-      const release = () => { releaseFocus(); releaseActivity() }
+      const release = () => { releaseWindow(); releaseFocus(); releaseActivity() }
       scope.signal.addEventListener('abort', release, { once: true })
       const assertCurrent = () => {
         if (!scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
@@ -1409,13 +1458,13 @@ export function registerPluginHandlers(): void {
     }
   )
 
-  // beforeClose ack：插件 preload 在收到 beforeClose 后可回 ack，Host 解除等待
+  // beforeClose / beforeSuspend / save-requested share owner- and operation-bound acknowledgements.
   ipcMain.on(
     IpcChannels.PluginLifecycleAck,
     (event, payload?: { event?: string; operationId?: string; success?: boolean }) => {
       const hostPluginId = pluginHost.getPluginIdByWebContentsId(event.sender.id)
       if (!hostPluginId || event.senderFrame !== event.sender.mainFrame || !isPluginPageUrl(event.senderFrame.url, hostPluginId, pluginRegistry.get(hostPluginId)?.devUrl)) return
-      if (payload?.event === 'beforeClose' || payload?.event === 'beforeSuspend') {
+      if (payload?.event === 'beforeClose' || payload?.event === 'beforeSuspend' || payload?.event === 'save-requested') {
         pluginHost.ackBeforeClose(hostPluginId, event.sender.id, payload.operationId, payload.success !== false)
       }
     }

@@ -7,6 +7,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useShellStore } from '@renderer/stores/shellStore'
+import { useUpdateDialogStore } from '@renderer/stores/updateDialogStore'
+import { ProfileSection } from '@renderer/components/ProfileSection'
 import { ThemeSettingsSection } from '@renderer/components/ThemeSettingsSection'
 import { FontSettingsSection } from '@renderer/components/FontSettingsSection'
 import { AnimationSettingsSection } from '@renderer/components/AnimationSettingsSection'
@@ -112,7 +114,7 @@ function PluginPermissionBlock({
   return (
     <div className="plugin-settings-section perm-grant-block">
       <h3 className="label">系统与隐私权限</h3>
-      <p className="desc">敏感操作可设为允许、每次询问或拒绝。文件访问仍限定于你选择并授权的文件。</p>
+      <p className="desc">首次使用时统一授权，记住后不再重复询问；也可逐项设为允许、询问或拒绝。文件访问仍限定于你选择并授权的文件。</p>
       {sensitive.length === 0 ? <p className="desc">此插件未申请系统或隐私权限。</p> : null}
       {sensitive.map((perm) => (
         <Field key={perm} label={permissionLabel(perm)}>
@@ -202,8 +204,9 @@ export function SettingsPage() {
   const [loadingGeneral, setLoadingGeneral] = useState(true)
   const [updateState, setUpdateState] = useState<UpdateStatePayload | null>(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
-  const updateBusy = useRef(false)
   const checkingRef = useRef(false)
+  const openUpdateDialog = useUpdateDialogStore((s) => s.openDialog)
+  const restartAfterSave = useUpdateDialogStore((s) => s.restartAfterSave)
 
   const [proxyType, setProxyType] = useState<ProxyType>('none')
   const [proxyHost, setProxyHost] = useState('')
@@ -420,15 +423,8 @@ export function SettingsPage() {
         const st = payload.state.status
         // 通知只在事件侧提示一次，避免与 handleCheckUpdate 结果回调重复
         if (st === 'available') {
-          toastStore.getState().push(
-            t('toasts.updateAvailable', { version: payload.state.latestVersion ?? '' })
-          )
-          if (shellApi.downloadUpdate && !updateBusy.current) {
-            updateBusy.current = true
-            void shellApi.downloadUpdate().finally(() => {
-              updateBusy.current = false
-            })
-          }
+          // 弹框接管：展示 Release Notes + 用户点击「立即更新」后才开始下载
+          openUpdateDialog()
         } else if (st === 'not-available' && checkingRef.current) {
           toastStore.getState().push(t('toasts.updateNone'))
           checkingRef.current = false
@@ -443,7 +439,7 @@ export function SettingsPage() {
       cancelled = true
       off()
     }
-  }, [t])
+  }, [t, openUpdateDialog])
 
   const handleCheckUpdate = useCallback(() => {
     const check = shellApi.checkForUpdates
@@ -472,9 +468,8 @@ export function SettingsPage() {
   }, [t])
 
   const handleInstallUpdate = useCallback(() => {
-    if (!shellApi.installUpdate) return
-    void shellApi.installUpdate()
-  }, [])
+    void restartAfterSave()
+  }, [restartAfterSave])
 
   const handleLocale = useCallback(
     (next: Locale) => {
@@ -612,8 +607,9 @@ export function SettingsPage() {
 
   const TABS = [
     { id: 'general', label: t('settings.tabs.general') },
+    { id: 'profile', label: locale === 'en-US' ? 'Account' : '个人资料' },
     { id: 'appearance', label: t('settings.tabs.appearance') },
-    { id: 'quick', label: '快捷启动' },
+    { id: 'quick', label: '快捷键' },
     { id: 'dev', label: t('settings.tabs.dev') },
   ] as const
 
@@ -636,6 +632,7 @@ export function SettingsPage() {
           onChange={setSettingsTab}
         />
 
+        {settingsTab === 'profile' && <ProfileSection />}
         {settingsTab === 'general' && (
           <Card title={t('settings.general.title')} hint={t('settings.general.hint')}>
             <Field label={t('settings.general.language')} desc={t('settings.general.languageDesc')}>
@@ -786,6 +783,11 @@ export function SettingsPage() {
                     ? t('settings.general.checkingUpdate')
                     : t('settings.general.checkUpdate')}
                 </button>
+                {(updateState?.status === 'available' || updateState?.status === 'downloaded') && (
+                  <button className="btn btn-ghost btn-sm" type="button" onClick={openUpdateDialog}>
+                    {t('settings.general.viewUpdateNotes')}
+                  </button>
+                )}
                 {updateState?.status === 'downloaded' && (
                   <button className="btn btn-primary btn-sm" type="button" onClick={handleInstallUpdate}>
                     {t('settings.general.installUpdate')}
@@ -912,13 +914,13 @@ export function SettingsPage() {
             }
             return (
               <Card title={p.name}>
-                <PluginPermissionBlock
+                {!['com.enest.database', 'com.enest.ssh'].includes(p.id) && <PluginPermissionBlock
                   pluginId={p.id}
                   permissions={p.permissions ?? []}
                   grants={permissionGrants[p.id] ?? {}}
                   saving={permissionSaving}
                   onChange={handlePermissionGrant}
-                />
+                />}
                 {sections.length === 0 ? (
                   <p className="desc">{t('settings.pluginSection.empty')}</p>
                 ) : (

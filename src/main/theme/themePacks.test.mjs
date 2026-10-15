@@ -18,12 +18,13 @@ function load(file, mocks = {}) {
   return module.exports
 }
 const contract = load('../../shared/pluginContract.ts')
+const backgroundEffects = load('../../shared/backgroundEffects.ts', { '@shared/pluginContract': contract })
 test('plugin theme tokens cannot inject selectors or non-token root properties, including persisted packs', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'enest-theme-tokens-'))
   const mocks = {
     '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
     '@main/logs/logService': { logWarn() {} },
-    '@shared/pluginContract': contract
+    '@shared/backgroundEffects': backgroundEffects, '@shared/pluginContract': contract
   }
   const js = ts.transpileModule(readFileSync(new URL('./themePacks.ts', import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
@@ -56,7 +57,7 @@ test('concurrent theme sources serialize atomic registry writes and leave valid 
   const mocks = {
     '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
     '@main/logs/logService': { logWarn() {} },
-    '@shared/pluginContract': contract,
+    '@shared/backgroundEffects': backgroundEffects, '@shared/pluginContract': contract,
     'node:fs/promises': { ...fs, writeFile: async (...args) => {
       active++; maximum = Math.max(maximum, active)
       try { await new Promise(resolve => setTimeout(resolve, 5)); return await writeFile(...args) }
@@ -84,7 +85,7 @@ test('plugin themes cannot use shell backgrounds for remote, local-file or cross
   const directory = await mkdtemp(join(tmpdir(), 'enest-theme-background-'))
   const { ThemePackRegistry } = load('./themePacks.ts', {
     '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
-    '@main/logs/logService': { logWarn() {} }, '@shared/pluginContract': contract
+    '@main/logs/logService': { logWarn() {} }, '@shared/backgroundEffects': backgroundEffects, '@shared/pluginContract': contract
   })
   const source = 'com.test.theme', pack = { id: 'background', name: 'Background', source, tokens: { '--accent': '#fff' } }
   const bad = [
@@ -125,7 +126,7 @@ test('plugin theme sources cannot impersonate built-ins or bypass per-source quo
   const directory = await mkdtemp(join(tmpdir(), 'enest-theme-owner-'))
   const { ThemePackRegistry } = load('./themePacks.ts', {
     '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
-    '@main/logs/logService': { logWarn() {} }, '@shared/pluginContract': contract
+    '@main/logs/logService': { logWarn() {} }, '@shared/backgroundEffects': backgroundEffects, '@shared/pluginContract': contract
   })
   try {
     const registry = new ThemePackRegistry(), pack = { id: 'fixture', name: 'Fixture', source: 'enest.builtin', tokens: {} }
@@ -137,5 +138,74 @@ test('plugin theme sources cannot impersonate built-ins or bypass per-source quo
       assert.equal(saved.source, 'com.test.theme')
     }
     await assert.rejects(registry.registerPlugin({ ...pack, id: 'excess' }, 'com.test.theme'), /theme pack limit/)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('background effects register with bound ownership, survive reload, and disappear with source GC', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'enest-theme-effects-'))
+  const { ThemePackRegistry } = load('./themePacks.ts', {
+    '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
+    '@main/logs/logService': { logWarn() {} }, '@shared/pluginContract': contract, '@shared/backgroundEffects': backgroundEffects
+  })
+  const source = 'com.test.effects'
+  const pack = { id: 'effects', name: 'Effects', source: 'enest.builtin', mode: 'dark', tokens: {}, backgroundEffects: [
+    { id: 'tunnel', name: 'Custom tunnel', renderer: 'preset', preset: 'tunnel', colors: ['#071B20', '#3AD7AE', '#F5DCA1'], speed: 0.75 },
+    { id: 'film', name: 'Film', renderer: 'video', video: `enest://plugin/${source}/assets/film.webm`, poster: `enest://plugin/${source}/assets/film.webp`, logoStyle: 'fold' }
+  ] }
+  try {
+    const registry = new ThemePackRegistry()
+    const saved = await registry.registerPlugin(pack, source)
+    assert.equal(saved.source, source)
+    assert.deepEqual(saved.backgroundEffects, pack.backgroundEffects)
+    const id = backgroundEffects.getPluginBackgroundEffectId(source, pack.id, 'tunnel')
+    assert.equal(backgroundEffects.resolveBackgroundEffect(id, registry.list()).source, source)
+    assert.equal(backgroundEffects.resolveBackgroundEffect('tunnel', registry.list()).source, undefined)
+    await assert.rejects(registry.registerPlugin({ ...pack, backgroundEffects: [{ ...pack.backgroundEffects[1], video: 'enest://plugin/com.other.plugin/assets/film.mp4' }] }, source), /belong/)
+    await assert.rejects(registry.registerPlugin({ ...pack, backgroundEffects: [{ ...pack.backgroundEffects[0], speed: Infinity }] }, source), /speed/)
+    await assert.rejects(registry.registerPlugin({ ...pack, backgroundEffects: [pack.backgroundEffects[0], pack.backgroundEffects[0]] }, source), /duplicate/)
+    await assert.rejects(registry.registerPlugin({ ...pack, backgroundEffects: Array.from({ length: 9 }, (_, i) => ({ ...pack.backgroundEffects[0], id: `item${i}` })) }, source), /at most 8/)
+    assert.deepEqual(registry.get(pack.id), saved, 'failed updates must leave the previous pack intact')
+    const reloaded = new ThemePackRegistry()
+    await reloaded.load()
+    assert.deepEqual(reloaded.get(pack.id), saved)
+    await reloaded.registerPlugin({ id: 'other', name: 'Other', tokens: {}, backgroundEffects: [{ id: 'tunnel', name: 'Other tunnel', renderer: 'preset', preset: 'tunnel' }] }, 'com.other.plugin')
+    await assert.rejects(reloaded.registerPlugin(pack, 'com.other.plugin'), /already registered by/)
+    assert.deepEqual(await reloaded.removeBySource(source), [pack.id])
+    assert.equal(backgroundEffects.resolveBackgroundEffect(id, reloaded.list()).id, 'tunnel')
+    assert.equal(reloaded.get('other').source, 'com.other.plugin')
+    const afterGc = new ThemePackRegistry()
+    await afterGc.load()
+    assert.equal(afterGc.get(pack.id), null)
+    assert.equal(backgroundEffects.listBackgroundEffects(afterGc.list()).length, 6)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('persisted background definitions are revalidated and do not bypass owner or source quotas', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'enest-theme-effects-disk-'))
+  const { ThemePackRegistry } = load('./themePacks.ts', {
+    '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
+    '@main/logs/logService': { logWarn() {} }, '@shared/pluginContract': contract, '@shared/backgroundEffects': backgroundEffects
+  })
+  const source = 'com.test.effects'
+  const base = { id: 'safe', name: 'Safe', source, tokens: { '--accent': '#123456' }, backgroundEffects: [{ id: 'preset', name: 'Preset', renderer: 'preset', preset: 'fold' }] }
+  try {
+    await writeFile(join(directory, 'registry.json'), JSON.stringify([
+      base,
+      { ...base, source: 'com.other.plugin', name: 'Spoofed owner' },
+      { ...base, id: 'remote', backgroundEffects: [{ id: 'film', name: 'Film', renderer: 'video', video: 'https://example.test/film.mp4' }] },
+      { ...base, id: 'shader', backgroundEffects: [{ ...base.backgroundEffects[0], shader: 'void main(){}' }] },
+      { ...base, id: 'wrong-owner', backgroundEffects: [{ id: 'film', name: 'Film', renderer: 'video', video: 'enest://plugin/com.other.plugin/assets/film.mp4' }] },
+      ...Array.from({ length: 8 }, (_, i) => ({ ...base, id: `extra${i}` }))
+    ]))
+    const registry = new ThemePackRegistry()
+    await registry.load()
+    assert.equal(registry.get('safe').source, source)
+    assert.equal(registry.get('safe').name, 'Safe')
+    for (const id of ['remote', 'shader', 'wrong-owner']) {
+      assert.equal(registry.get(id).backgroundEffects, undefined)
+      assert.deepEqual(registry.get(id).tokens, base.tokens)
+    }
+    assert.equal(registry.countBySource(source), 8)
+    assert.equal(registry.get('extra7'), null)
   } finally { await rm(directory, { recursive: true, force: true }) }
 })

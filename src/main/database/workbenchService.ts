@@ -151,8 +151,8 @@ export async function dbWorkbenchService(pluginId: string, request: DbWorkbenchR
         const original = requireSession(pluginId, side.sessionKey)
         if (!supportsIsolatedReadOnly(original.driverId)) throw new Error('This driver cannot open an isolated read-only comparison connection')
         if (original.config.filePath === ':memory:' || original.config.sqlitePath === ':memory:' || original.driverId === 'duckdb' && !original.config.filePath) throw new Error('In-memory databases cannot be compared through an independent connection; save a database file first')
-        if (isStructuredRead(original.driverId, side.sql) === undefined && splitSql(side.sql).length !== 1) throw new Error('Compare one read-only statement per side')
-        if (!(isStructuredRead(original.driverId, side.sql) ?? isReadQuery(side.sql))) throw new Error('Data comparison only accepts read queries')
+        if (isStructuredRead(original.driverId, side.sql) === undefined && splitSql(side.sql, DRIVER_FAMILIES[original.driverId]).length !== 1) throw new Error('Compare one read-only statement per side')
+        if (!(isStructuredRead(original.driverId, side.sql) ?? isReadQuery(side.sql, DRIVER_FAMILIES[original.driverId]))) throw new Error('Data comparison only accepts read queries')
         const clone = await dbOpen(pluginId, { config: { ...original.config, readOnly: true, ephemeralSecret: original.handle.password || original.config.ephemeralSecret, options: { ...original.config.options, readOnly: true } } })
         try { return await dbExecute(pluginId, { sessionKey: clone.sessionKey, sql: side.sql, maxRows: normalizeLimit(request.input.maxRows) }) }
         finally { await dbClose(pluginId, clone.sessionKey) }

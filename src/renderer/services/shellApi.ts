@@ -1,3 +1,8 @@
+import type {
+  PluginShortcutInput, PluginShortcutsSnapshot,
+  PluginShortcutMutationResult, PluginShortcutLaunchResult, ShortcutProbeResult
+} from '@shared/types/shortcuts'
+import type { AccountState, AccountLoginResult } from '@shared/types/account'
 /**
  * shellApi — 渲染进程与主进程/preload 的桥接层
  * 统一暴露插件生命周期、主题、设置、路径、文件选择、README、硬件加速、DevTools 与窗口控制 API。
@@ -7,7 +12,6 @@
 import type {
   AppPaths,
   DevPluginLoadOptions,
-  LaunchHotkeyProbeResult,
   MarketInstallResult,
   PluginLaunchConfig,
   PluginLaunchPatch,
@@ -20,6 +24,7 @@ import type {
   ThemePack,
   ThemeTokens
 } from '@shared/types/plugin'
+import { createShortcutMock } from './shortcutMock'
 import { PLUGIN_PERMISSIONS } from '@shared/types/plugin'
 import { filterPermissionGrants, requiresUserConsent } from '@shared/pluginPermissionPolicy'
 import type {
@@ -27,7 +32,11 @@ import type {
   InstallJobInfo,
   PluginCallTraceEntry,
   ProxyTestResult,
-  UpdateStatePayload
+  UpdateStatePayload,
+  PluginDirtyState,
+  PluginSaveSummary,
+  GithubLoginSessionPayload,
+  GithubProfileState
 } from '@shared/types/ipc'
 import type {
   ApplicationScanResult,
@@ -71,8 +80,6 @@ export interface ProxySetResult {
 export interface PluginLaunchSetResult {
   ok: boolean
   error?: string
-  /** 冲突探测详情（失败时供渲染层展示归属与接管选项） */
-  probe?: LaunchHotkeyProbeResult
   /** 成功后的最终配置（空配置为 null） */
   config?: PluginLaunchConfig | null
 }
@@ -112,6 +119,7 @@ export interface ShellApi {
     activeTabId: string | null
     animationLevel: string
     theme: { mode: string; tokens: Record<string, string> }
+    profile?: import('@shared/types/ipc').OrbRailState['profile']
     tabs: unknown[]
     contribEntries?: import('@shared/types/ipc').OrbRailState['contribEntries']
   }>
@@ -119,14 +127,17 @@ export interface ShellApi {
   uninstallPlugin?(pluginId: string): Promise<void>
   /** 启用/禁用已安装插件（持久化）；成功返回更新后的 summary */
   setPluginEnabled?(pluginId: string, enabled: boolean): Promise<PluginSummary>
-  /** 启动热键录制探测：返回占用归属（free/system/eNest-quick/plugin-launch/plugin-runtime） */
-  probeLaunchHotkey?(acc: string, excludePluginId?: string): Promise<LaunchHotkeyProbeResult>
-  /** 写入单插件快捷启动配置（启动方式/热键/触发词）；冲突返回 probe，takeover 接管。
-   *  patch.mode 传 null = 清除启动方式（回到「跟随入口」）；hotkey 传空串 = 清除 */
+  getPluginShortcuts(): Promise<PluginShortcutsSnapshot>
+  savePluginShortcut(input: PluginShortcutInput): Promise<PluginShortcutMutationResult>
+  removePluginShortcut(id: string): Promise<PluginShortcutMutationResult>
+  probePluginShortcut(accelerator: string, excludeId?: string): Promise<ShortcutProbeResult>
+  launchPluginShortcut(id: string): Promise<PluginShortcutLaunchResult>
+  beginShortcutCapture(): Promise<{ token: string }>
+  endShortcutCapture(token: string): Promise<void>
+  /** 搜索启动偏好；快捷键绑定使用独立服务。 */
   setPluginLaunch?(
     pluginId: string,
-    patch: PluginLaunchPatch,
-    opts?: { takeover?: boolean }
+    patch: PluginLaunchPatch
   ): Promise<PluginLaunchSetResult>
   /** 从市场安装/更新：sample 优先，否则远程入队；force 强制走远程更新 */
   installMarketPlugin?(
@@ -137,9 +148,10 @@ export interface ShellApi {
   setTheme(
     mode: ThemeMode,
     overrides?: Record<string, string>,
-    extra?: Partial<Pick<ThemeTokens, 'packId' | 'background' | 'backgroundSource'>>
+    extra?: Partial<Pick<ThemeTokens, 'packId' | 'background' | 'backgroundSource' | 'backgroundEffect'>>
   ): Promise<void>
   loadDevPlugin(dirPath: string, options?: DevPluginLoadOptions): Promise<PluginSummary>
+  forgetDevPlugin(pluginId: string): Promise<void>
   reloadPlugin(pluginId: string): Promise<void>
   /** 开发者控制台：切换/查询 dev 插件「退出到后台立即结束运行」（mock 恒 false） */
   setDevKillOnHide(pluginId: string, enabled?: boolean): Promise<boolean>
@@ -195,6 +207,22 @@ export interface ShellApi {
   downloadUpdate?(): Promise<UpdateStatePayload>
   installUpdate?(): Promise<UpdateStatePayload>
   getUpdateState?(): Promise<UpdateStatePayload>
+  /** 更新重启前：运行中插件未保存数据快照（浏览器 mock 返回空） */
+  getPluginsDirty?(): Promise<PluginDirtyState>
+  /** 一键保存（save.requested 通知 + ack 等待）；mock 返回全 0 汇总 */
+  saveAllPlugins?(): Promise<PluginSaveSummary>
+  /** 宿主登录方式、当前账号与可恢复的授权会话；mock 返回未登录 */
+  getAccountState(): Promise<AccountState>
+  loginAccount(providerId: string): Promise<AccountLoginResult>
+  cancelAccountLogin(providerId: string): Promise<void>
+  logoutAccount(providerId: string): Promise<void>
+  githubLogin?(): Promise<{ ok: true; data: GithubLoginSessionPayload } | { ok: false; error: string }>
+  /** 兼容接口：取消浏览器授权或设备码登录 */
+  githubCancelLogin?(): Promise<{ ok: boolean }>
+  /** 读取个人资料状态；mock 返回未登录 */
+  getGithubProfile?(): Promise<GithubProfileState>
+  /** 退出 GitHub 登录 */
+  githubLogout?(): Promise<{ ok: boolean }>
   /** 系统级通知（Electron Notification）；浏览器 mock 用 Web Notification 兜底 */
   systemNotify?(title: string, body?: string): Promise<void>
   /** Legacy response API; the native host rejects renderer-driven consent. */
@@ -266,6 +294,13 @@ function createMockApi(): ShellApi {
   const emit = (payload: ShellEventPayload): void => {
     for (const cb of listeners) cb(payload)
   }
+
+  const shortcuts = createShortcutMock({
+    read: readMockSettings,
+    write: next => { settings = next; writeMockSettings(next) },
+    plugins: () => mockRegistry.getPlugins(),
+    publish: snapshot => emit({ type: 'plugin-shortcuts-changed', snapshot })
+  })
 
   const publishTabs = (): void => emit({
     type: 'plugin-tabs', revision: ++tabRevision, activeTabId,
@@ -382,21 +417,42 @@ function createMockApi(): ShellApi {
       closeMockTab(`t-${id}`)
       mockRegistry.uninstall(id)
       mockRegistry.setEnabled(id, true)
+      shortcuts.removePlugin(id)
       emit({ type: 'uninstall-result', pluginId: id, name, ok: true })
       emit({ type: 'plugins-changed' })
     },
     async setPluginEnabled(id, enabled) {
       const summary = mockRegistry.setEnabled(id, enabled !== false)
       if (!summary) throw new Error(`plugin not found: ${id}`)
+      shortcuts.publish()
       emit({ type: 'plugins-changed' })
       return summary
     },
-    async probeLaunchHotkey(acc) {
-      // mock：浏览器无 globalShortcut，一律视为空闲
-      return { acc, status: 'free' as const }
+    getPluginShortcuts: async () => shortcuts.snapshot(),
+    savePluginShortcut: async input => shortcuts.save(input),
+    removePluginShortcut: async id => shortcuts.remove(id),
+    probePluginShortcut: async (accelerator, excludeId) => shortcuts.probe(accelerator, excludeId),
+    launchPluginShortcut: async id => {
+      const binding = shortcuts.snapshot().bindings.find(item => item.id === id)
+      if (!binding) return { ok: false, error: '快捷键绑定不存在' }
+      const plugin = mockRegistry.getById(binding.pluginId)
+      if (!plugin?.installed || plugin.enabled === false) return { ok: false, error: '插件不可用' }
+      return { ok: false, error: '浏览器预览不支持原生窗口启动，请在 eNest 中验证' }
     },
-    async setPluginLaunch(_id, _patch) {
-      return { ok: false, error: 'mock' }
+    beginShortcutCapture: async () => shortcuts.beginCapture(),
+    endShortcutCapture: async token => shortcuts.endCapture(token),
+    async setPluginLaunch(id, patch) {
+      if ('hotkey' in patch) return { ok: false, error: '请在快捷键设置中管理插件绑定' }
+      settings = readMockSettings()
+      const next = { ...(settings.pluginLaunch?.[id] ?? {}) }
+      if ('mode' in patch) {
+        if (patch.mode === null) delete next.mode
+        else next.mode = patch.mode
+      }
+      if (patch.aliases) next.aliases = [...new Set(patch.aliases.map(value => value.trim()).filter(Boolean))]
+      settings = { ...settings, pluginLaunch: { ...settings.pluginLaunch, [id]: next } }
+      writeMockSettings(settings)
+      return { ok: true, config: next }
     },
     async installMarketPlugin(id) {
       const existing = mockRegistry.getById(id)
@@ -415,10 +471,16 @@ function createMockApi(): ShellApi {
         packId: theme.packId,
         background: theme.background,
         backgroundSource: theme.backgroundSource,
+        backgroundEffect: theme.backgroundEffect,
         packs: [],
       }
     },
     async setTheme(mode, overrides, extra) {
+      const selection = extra?.backgroundEffect
+      if (selection !== undefined && (typeof selection !== 'string' || selection.length > 1024
+        || !selection.trim() || /[\u0000-\u001f\u007f]/.test(selection))) {
+        throw new Error('invalid background effect')
+      }
       const resolvedKey =
         mode === 'system'
           ? typeof window !== 'undefined' &&
@@ -431,6 +493,7 @@ function createMockApi(): ShellApi {
       theme.mode = mode
       if (extra && 'packId' in extra) theme.packId = extra.packId ?? undefined
       if (extra && 'backgroundSource' in extra) theme.backgroundSource = extra.backgroundSource
+      if (extra && 'backgroundEffect' in extra) theme.backgroundEffect = extra.backgroundEffect
       if (theme.backgroundSource === 'pack') delete theme.background
       else if (extra && 'background' in extra) theme.background = extra.background ?? undefined
       writeMockTheme(theme)
@@ -464,6 +527,9 @@ function createMockApi(): ShellApi {
       }
       return dev
     },
+    async forgetDevPlugin() {
+      /* mock no-op */
+    },
     async reloadPlugin() {
       /* mock no-op */
     },
@@ -480,6 +546,10 @@ function createMockApi(): ShellApi {
       return { ...settings }
     },
     async setSettings(partial) {
+      if ('pluginShortcuts' in partial || 'pluginLaunch' in partial || 'quick' in partial) {
+        throw new Error('快捷键和启动偏好必须使用专用设置接口')
+      }
+      settings = readMockSettings()
       settings = {
         ...settings,
         ...partial,
@@ -692,6 +762,30 @@ function createMockApi(): ShellApi {
         packaged: false
       }
     },
+    async getPluginsDirty() {
+      return { items: [] }
+    },
+    async saveAllPlugins() {
+      return { total: 0, acked: 0, timedOut: 0, dirtyBefore: 0 }
+    },
+    async getAccountState() {
+      return { user: null, providerId: null, providers: [{ id: 'github', name: 'GitHub', available: false }], pendingProviderId: null, session: null }
+    },
+    async loginAccount() { return { ok: false as const, error: '请在 eNest 桌面应用内登录' } },
+    async cancelAccountLogin() {},
+    async logoutAccount() {},
+    async githubLogin() {
+      return { ok: false as const, error: 'GitHub 登录仅在 eNest 应用内可用' }
+    },
+    async githubCancelLogin() {
+      return { ok: true }
+    },
+    async getGithubProfile() {
+      return { user: null, hasToken: false, polling: false }
+    },
+    async githubLogout() {
+      return { ok: true }
+    },
     async systemNotify(title, body) {
       // 浏览器 mock：尝试 Web Notification，失败静默
       try {
@@ -773,19 +867,11 @@ function createMockApi(): ShellApi {
     async quickScanApps() {
       return { apps: [], complete: false, errors: ['mock'] }
     },
-    async quickGetConfig() {
-      return { enabled: false, hotkeys: [], platform: 'darwin' as const, activeHotkey: '' }
-    },
-    async quickSetHotkeys() {
-      return {
-        ok: false,
-        enabled: false,
-        hotkeys: [],
-        registered: [],
-        failed: [],
-        activeHotkey: '',
-        error: 'mock'
-      }
+    quickGetConfig: async () => shortcuts.quickConfig(),
+    quickSetHotkeys: async patch => shortcuts.setQuick(patch),
+    quickProbeHotkey: async acc => {
+      const probe = shortcuts.probe(acc, undefined, true)
+      return { acc: probe.accelerator, free: probe.status === 'free', ours: false, hint: probe.hint }
     },
   }
 }

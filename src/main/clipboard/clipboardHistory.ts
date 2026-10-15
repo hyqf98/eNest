@@ -7,7 +7,7 @@
  * 图片降本：剪贴板持续是同一张图时，先做廉价指纹（toBitmap 字节数 + 采样字节）比对，
  *           指纹未变则跳过 toPNG 全量 + sha1。
  */
-import { clipboard, nativeImage, shell } from 'electron'
+import { ClipboardItem, clipboard, nativeImage, shell } from 'electron'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { readNativeFiles, writeNativeFiles, nativeClipboardSource, pasteToOriginal, isNativeClipboardBusy } from '@main/clipboard/nativeClipboard'
 import type { PasteOwner } from '@main/clipboard/nativeClipboard'
@@ -36,7 +36,7 @@ async function readClipboardImage(): Promise<Electron.NativeImage | null> {
 async function writeClipboardImage(img: Electron.NativeImage): Promise<void> {
   const png = img.toPNG()
   const blob = new Blob([new Uint8Array(png)], { type: 'image/png' })
-  await clipboard.write([new Electron.ClipboardItem({ 'image/png': blob })])
+  await clipboard.write([new ClipboardItem({ 'image/png': blob })])
 }
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -75,6 +75,11 @@ let loadPromise: Promise<void> | null = null
 let writeQueue: Promise<void> = Promise.resolve()
 let polling = false
 let lastFilesHash = ''
+// Invalidate asynchronous captures before a host write, not after the clipboard promise settles.
+let clipboardWriteRevision = 0
+let pendingClipboardWrites = 0
+let clipboardWrites: Promise<void> = Promise.resolve()
+let excludedTextHash = ''
 const changes = new Set<() => void>()
 export function onClipboardHistoryChange(callback: () => void): () => void { changes.add(callback); return () => changes.delete(callback) }
 function changed(): void { for (const listener of changes) listener() }
@@ -174,8 +179,9 @@ function publicEntry(e: StoredEntry): ClipboardHistoryEntry {
   return rest
 }
 
-async function pushText(text: string): Promise<void> {
+async function pushText(text: string, current: () => boolean): Promise<void> {
   const source = await sourceApp()
+  if (!current() || textHash(text) === excludedTextHash) return
   if (excluded(source)) { lastTextHash = textHash(text); return }
   const hash = textHash(text)
   lastTextHash = hash
@@ -206,8 +212,9 @@ async function pushText(text: string): Promise<void> {
   await trimAndPersist()
 }
 
-async function pushImage(image: Electron.NativeImage, fingerprint: string): Promise<void> {
+async function pushImage(image: Electron.NativeImage, fingerprint: string, current: () => boolean): Promise<void> {
   const source = await sourceApp()
+  if (!current()) return
   if (excluded(source)) { lastImageFingerprint = fingerprint; return }
   // 先记指纹：超大图跳过入库后，后续轮询仍可凭指纹避免 toPNG 全量 + sha1
   lastImageFingerprint = fingerprint
@@ -272,17 +279,22 @@ async function trimAndPersist(): Promise<void> {
 }
 
 async function pollOnce(): Promise<void> {
-  if (polling || isNativeClipboardBusy() || preferences().monitoring === false) return
+  if (polling || pendingClipboardWrites || isNativeClipboardBusy() || preferences().monitoring === false) return
   polling = true
+  const revision = clipboardWriteRevision
+  const current = (): boolean => revision === clipboardWriteRevision && pendingClipboardWrites === 0
   try {
   await ensureLoaded()
+  if (!current()) return
   try {
     const paths = await readNativeFiles()
+    if (!current()) return
     if (paths.length) {
       const hash = textHash(JSON.stringify(paths))
       if (hash !== lastFilesHash) {
         lastFilesHash = hash; lastTextHash = ''; lastImageFingerprint = ''
         const source = await sourceApp()
+        if (!current()) return
         if (!excluded(source)) {
           const existing = entries.find(e => e.type === 'files' && e.hash === hash)
           const item: StoredEntry = existing ?? { id: randomUUID(), type: 'files', pinned: false, ts: Date.now(), preview: paths.map(path => basename(path)).join('、') }
@@ -296,18 +308,22 @@ async function pollOnce(): Promise<void> {
     lastFilesHash = ''
     // Electron 44：clipboard 图片走 Web 化 read() → ClipboardItem(Blob)，不再有 readImage()
     const img = await readClipboardImage()
+    if (!current()) return
     if (img && !img.isEmpty()) {
       // 廉价指纹优先：剪贴板持续是同一张图时，避免每轮 toPNG 全量 + sha1
       const fp = imageFingerprint(img)
       if (fp !== lastImageFingerprint || lastTextHash) {
-        await pushImage(img, fp)
+        await pushImage(img, fp, current)
         logInfo('clipboard', 'history captured image')
       }
       return
     }
     const text = await clipboard.readText()
+    if (!current()) return
+    if (textHash(text) === excludedTextHash) return
+    excludedTextHash = ''
     if (text && textHash(text) !== lastTextHash) {
-      await pushText(text)
+      await pushText(text, current)
       logInfo('clipboard', `history captured text (${text.length})`)
     }
   } catch (err) {
@@ -403,7 +419,7 @@ export async function copyHistoryEntry(id: string, options: { paths?: boolean; p
   signal?.throwIfAborted()
   if (entry.type === 'files') {
     const paths = entry.files?.map(file => file.path) ?? []
-    if (options.paths) { const text = paths.join('\n'); await clipboard.writeText(text); noteExternalText(text); return true }
+    if (options.paths) { await writeHistoryAwareText(paths.join('\n'), {}, signal); return true }
     for (const path of paths) if (!existsSync(path)) throw new Error(`文件已移动或删除：${basename(path)}`)
     await writeNativeFiles(paths, signal); lastFilesHash = textHash(JSON.stringify(paths))
   } else if (entry.type === 'image') {
@@ -412,7 +428,7 @@ export async function copyHistoryEntry(id: string, options: { paths?: boolean; p
     await writeClipboardImage(image); noteExternalImage(image)
   } else {
     const text = entry.text || entry.preview
-    await clipboard.writeText(text); noteExternalText(text)
+    await writeHistoryAwareText(text, {}, signal)
   }
   return true
 }
@@ -483,8 +499,29 @@ export async function togglePinHistoryEntry(id: string): Promise<ClipboardHistor
   return publicEntry(e)
 }
 
-/** 主动推送：插件写入剪贴板后不必等轮询 */
+/** Serialize host writes and keep sensitive values out of captures already awaiting OS reads. */
+export function writeHistoryAwareText(text: string, options: { excludeFromHistory?: boolean } = {}, signal?: AbortSignal): Promise<void> {
+  pendingClipboardWrites++
+  clipboardWriteRevision++
+  const write = clipboardWrites.catch(() => {}).then(async () => {
+    signal?.throwIfAborted()
+    const previous = excludedTextHash
+    excludedTextHash = options.excludeFromHistory ? textHash(text) : ''
+    try {
+      await clipboard.writeText(text)
+      noteExternalText(text)
+    } catch (error) {
+      excludedTextHash = previous
+      throw error
+    }
+  }).finally(() => { pendingClipboardWrites--; clipboardWriteRevision++ })
+  clipboardWrites = write
+  return write
+}
+
+/** Align deduplication after a host write; this does not append an entry to history. */
 export function noteExternalText(text: string): void {
+  clipboardWriteRevision++
   lastTextHash = textHash(text)
   lastFilesHash = ''
   lastImageHash = ''

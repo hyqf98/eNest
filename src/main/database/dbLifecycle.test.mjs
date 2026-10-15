@@ -12,16 +12,21 @@ function load(file, mocks) {
   new Function('require', 'module', 'exports', js)(name => mocks[name] ?? require(name), module, module.exports)
   return module.exports
 }
+const scriptParser = load('./sqlScript.ts', {})
+const queryPolicy = load('./queryPolicy.ts', { '@main/database/sqlScript': scriptParser })
+const executionPolicy = load('./executionPolicy.ts', { '@main/database/sqlScript': scriptParser })
 function fixture(driver) {
   let catalogWrites = 0
   const api = load('./dbService.ts', {
     '@main/database/drivers': { getDriver: () => driver, DEFAULT_MAX_ROWS: 1000 },
     '@main/database/completion': { getCatalog: () => null, setCatalog: () => catalogWrites++, invalidateCatalog() {}, buildCompletion: () => ({}), isWriteSql: () => false, isDdlSql: () => false },
     '@main/database/dialects': { listDialects: () => [] },
-    '@main/database/queryPolicy': load('./queryPolicy.ts', {}),
+    '@main/database/queryPolicy': queryPolicy,
+    '@main/database/sqlScript': scriptParser,
+    '@main/database/executionPolicy': executionPolicy,
     '@main/database/driverCatalog': load('./driverCatalog.ts', {}),
     '@main/database/nativeCompletion': load('./nativeCompletion.ts', {}),
-    '@main/database/rowChanges': load('./rowChanges.ts', { '@main/database/queryPolicy': load('./queryPolicy.ts', {}) })
+    '@main/database/rowChanges': load('./rowChanges.ts', { '@main/database/queryPolicy': queryPolicy })
   })
   return { api, catalogWrites: () => catalogWrites }
 }
@@ -270,4 +275,36 @@ test('DB handle resolution keeps read-only selection read-only in native driver 
   reply(child,request,sessionInfo())
   await opening
   const closing=api.dbClose('plugin','session');reply(child,child.messages.at(-1),true);await closing
+})
+
+test('script preflight rejects malformed later input before any driver execution', async () => {
+  let requests = 0
+  const { api } = fixture({ open: async () => ({ ...handle(), id: 'mysql', runtime: {} }), close: async () => {}, execute: async () => { requests++; return { columns: [], rows: [], rowCount: 0, durationMs: 0 } } })
+  const { sessionKey } = await api.dbOpen('plugin', { driver: 'mysql' })
+  await assert.rejects(api.dbExecute('plugin', { sessionKey, sql: 'UPDATE audit SET n=1;\nDELIMITER invalid\nSELECT 1;' }), /Invalid DELIMITER/)
+  await assert.rejects(api.dbExecute('plugin', { sessionKey, sql: 'UPDATE audit SET n=1; /* unterminated' }), /Unterminated/)
+  assert.equal(requests, 0)
+})
+
+test('a procedure opening a transaction blocks a later implicit-commit DDL on the live state', async () => {
+  const requests = [], runtime = { transaction: false }
+  const { api } = fixture({ open: async () => ({ ...handle(), id: 'mysql', runtime }), close: async () => {}, transaction: async () => {}, execute: async (_h, sql) => { requests.push(sql); runtime.transaction = true; return { columns: [], rows: [], rowCount: 0, durationMs: 0 } } })
+  const { sessionKey } = await api.dbOpen('plugin', { driver: 'mysql' })
+  await assert.rejects(api.dbExecute('plugin', { sessionKey, sql: 'CALL p();\nCREATE TABLE should_not_commit(id INT);' }), /SQL unit 2.*implicitly commit/)
+  assert.deepEqual(requests, ['CALL p()'])
+  assert.equal(api.dbListSessions('plugin')[0].transactionActive, true)
+})
+
+test('SQL Server batches and nested driver recordsets retain their own schemas and one execution owner', async () => {
+  const requests = []
+  const { api } = fixture({ open: async () => ({ ...handle(), id: 'mssql', runtime: {} }), close: async () => {}, execute: async (_h, sql) => {
+    requests.push(sql)
+    const first = { columns: [{ name: 'left' }], rows: [[1]], rowCount: 1, durationMs: 0 }
+    return { ...first, results: [first, { columns: [{ name: 'right' }], rows: [[2]], rowCount: 1, durationMs: 0 }] }
+  } })
+  const { sessionKey } = await api.dbOpen('plugin', { driver: 'mssql' })
+  const result = await api.dbExecute('plugin', { sessionKey, executionId: 'one_owner', sql: 'DECLARE @v INT=1; SELECT @v AS left; SELECT 2 AS right;\nGO' })
+  assert.equal(requests.length, 1); assert.match(requests[0], /^DECLARE.*SELECT.*SELECT/); assert.doesNotMatch(requests[0], /GO/)
+  assert.deepEqual(result.results.map(item => item.columns[0].name), ['left', 'right'])
+  assert.ok(result.results.every(item => item.executionId === 'one_owner'))
 })

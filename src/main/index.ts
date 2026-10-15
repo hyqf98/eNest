@@ -19,12 +19,15 @@ import { kvStore } from '@main/db/sqliteService'
 import { flushAll } from '@main/db/pluginStorage'
 import { themePackRegistry } from '@main/theme/themePacks'
 import { createShellWindow } from '@main/window/createShellWindow'
+import { flushMainWindowState } from '@main/window/mainWindowState'
 import {
   destroyOrbRailViews,
   layoutOrbRailViews
 } from '@main/window/orbRailViews'
 import { destroyQuickWindow } from '@main/window/createQuickWindow'
 import { pluginHost } from '@main/plugin/PluginHost'
+import { broadcastNotice } from '@main/plugin/shellNotices'
+import { refreshProfileOnBoot } from '@main/auth/githubAuthService'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { applyProxyFromSettings } from '@main/proxy/proxyService'
@@ -32,6 +35,9 @@ import { restoreDevPlugins } from '@main/dev/DevConsole'
 import { registerShellHandlers } from '@main/ipc/shellHandlers'
 import { registerPluginHandlers } from '@main/ipc/pluginHandlers'
 import { registerQuickHandlers } from '@main/ipc/quickHandlers'
+import { registerPluginWindowHandlers } from '@main/ipc/pluginWindowHandlers'
+import { cancelPluginWindowDrag } from '@main/window/pluginWindowDrag'
+import { destroyAllDetachedWindows } from '@main/window/detachedPluginWindows'
 import { disposeQuickPatternMatching } from '@main/launcher/quickPatternMatching'
 import { initQuickHotkeys, disposeQuickHotkeys } from '@main/hotkey/quickHotkey'
 import {
@@ -90,6 +96,7 @@ let shuttingDown = false
 function beginShutdown(reason: string): void {
   if (!shuttingDown) {
     shuttingDown = true
+    flushMainWindowState(true)
     logInfo('main', `shutdown begin (${reason})`)
   }
   // 无论是否重复触发，都立刻释放热键
@@ -111,6 +118,7 @@ function handleFatalSignal(sig: NodeJS.Signals | string): void {
   }
   try {
     shutdownFocusTimersSync()
+    pluginHost.prepareSessionShutdown()
     flushAll()
     settingsStore.flushNow()
   } catch {
@@ -261,9 +269,10 @@ void app.whenReady().then(async () => {
         return
       }
       logInfo('main', 'close → quit (closeBehavior=quit)')
+      e.preventDefault()
+      app.quit()
     })
     win.on('closed', () => {
-      pluginHost.destroyAll()
       destroyOrbRailViews()
       if (shuttingDown || quitting) return
       const behavior = settingsStore.getAll().general?.closeBehavior ?? 'minimize-tray'
@@ -279,12 +288,13 @@ void app.whenReady().then(async () => {
     registerShellHandlers()
     registerPluginHandlers()
     registerQuickHandlers()
+    registerPluginWindowHandlers()
     logInfo('main', 'ipc ok')
 
     // 快捷启动：注册全局热键 + 后台扫描；小窗懒创建（首次呼出时）
     // 不要在这里 ensureQuickWindow()：透明小窗按需创建，避免启动阶段并发初始化原生窗口。
     initQuickHotkeys()
-    // 每插件启动热键（settings.pluginLaunch；独立注册表，不随插件休眠释放）
+    // 用户插件绑定（settings.pluginShortcuts；不随插件关闭或休眠释放）
     initPluginLaunchHotkeys()
     void scanApplications(false)
     logInfo('main', 'quick launcher ok')
@@ -294,6 +304,9 @@ void app.whenReady().then(async () => {
 
     initUpdateService()
     logInfo('main', 'update service ok')
+
+    // 有保存的 GitHub token 则静默刷新资料（401 自动登出）；失败不影响启动
+    void refreshProfileOnBoot().catch(() => { /* best effort */ })
 
     app.on('activate', () => {
       if (shuttingDown || quitting) return
@@ -324,6 +337,8 @@ app.on('before-quit', (event) => {
   if (quitting) return
   quitting = true
   event.preventDefault()
+  pluginHost.prepareSessionShutdown()
+  cancelPluginWindowDrag()
   // Ordinary runtime cleanup takes 1.5s; recording finalization owns a separate 10s limit.
   const forceTimer = setTimeout(() => {
     logWarn('main', 'before-quit cleanup timeout → force exit')
@@ -340,6 +355,8 @@ app.on('before-quit', (event) => {
   stopClipboardHistory()
   disposeNativeClipboard()
   disposePinService()
+  // 壳统一通知：应用即将退出（插件随后收到 beforeClose(app-quit)）
+  broadcastNotice('app.before-quit', { reason: 'quit' })
   // 先 destroyAll 再销毁 Quick 小窗：Quick 内嵌插件的 webContents 仍存活，
   // 能真正收到 beforeClose 并 flush；若先毁小窗，向已销毁目标只能空等 ack
   void Promise.allSettled([pluginHost.destroyAll(), disposePluginInstallWorkers(), disposeQuickPatternMatching(), shutdownFocusTimers().catch(error => logWarn('timer', `shutdown save failed: ${String(error)}`))])
@@ -348,6 +365,7 @@ app.on('before-quit', (event) => {
     .then(() => {
       disposeScreenService()
       destroyQuickWindow()
+      destroyAllDetachedWindows()
     })
     .finally(() => {
       clearTimeout(forceTimer)

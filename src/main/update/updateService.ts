@@ -10,6 +10,7 @@ import electronUpdater from 'electron-updater'
 import type { UpdateInfo, ProgressInfo } from 'electron-updater'
 import { logError, logInfo, logWarn } from '@main/logs/logService'
 import { sendShellEvent } from '@main/window/createShellWindow'
+import { broadcastNotice } from '@main/plugin/shellNotices'
 
 const { autoUpdater } = electronUpdater
 
@@ -101,6 +102,7 @@ export function initUpdateService(): void {
       progress: 0,
       error: undefined
     })
+    broadcastNotice('update.available', { currentVersion: app.getVersion(), latestVersion: info.version })
   })
 
   autoUpdater.on('update-not-available', (info: UpdateInfo) => {
@@ -131,11 +133,13 @@ export function initUpdateService(): void {
       downloaded: true,
       error: undefined
     })
+    broadcastNotice('update.downloaded', { version: info.version })
   })
 
   autoUpdater.on('error', (err: Error) => {
     logError('update', err.stack || err.message)
     setState({ status: 'error', error: err.message })
+    broadcastNotice('update.error', { message: err.message })
   })
 
   logInfo('update', `updater ready version=${app.getVersion()}`)
@@ -191,6 +195,8 @@ export function quitAndInstallUpdate(): UpdateState {
     return { ...state }
   }
   logInfo('update', 'quitAndInstall')
+  // 最后保存机会通知；随后 before-quit → beforeClose(app-quit) 还会各 flush 一次（保存需幂等）
+  broadcastNotice('update.installing', { version: state.latestVersion ?? '' })
   // isSilent=false → 用户可见安装流程；isForceRunAfter=true → 安装后自动启动
   setImmediate(() => {
     autoUpdater.quitAndInstall(false, true)

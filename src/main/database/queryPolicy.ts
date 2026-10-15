@@ -1,58 +1,24 @@
-/** Pure SQL boundary/security helpers. Strings, quoted identifiers and comments never become commands. */
-export function sqlTokens(sql: string, keepIdentifiers = false): string {
-  let out = '', i = 0
-  while (i < sql.length) {
-    const c = sql[i]!, n = sql[i + 1]
-    if (c === '-' && n === '-' || c === '#') {
-      while (i < sql.length && sql[i] !== '\n') { out += ' '; i++ }
-    } else if (c === '/' && n === '*') {
-      if (sql[i + 2] === '!') throw new Error('Executable SQL comments are not accepted; use explicit statements')
-      i += 2; out += '  '; let depth = 1
-      while (i < sql.length && depth) {
-        if (sql.slice(i, i + 2) === '/*') { depth++; i += 2; out += '  ' }
-        else if (sql.slice(i, i + 2) === '*/') { depth--; i += 2; out += '  ' }
-        else { out += ' '; i++ }
-      }
-      if (depth) throw new Error('Unterminated SQL comment')
-    } else if (c === "'" || c === '"' || c === '`' || c === '[') {
-      const q = c === '[' ? ']' : c, identifier = keepIdentifiers && c !== "'"; out += ' '; i++; let closed = false
-      while (i < sql.length) {
-        if (sql[i] === '\\') { out += '  '; i += 2; continue }
-        if (sql[i] === q) {
-          if (sql[i + 1] === q) { out += '  '; i += 2; continue }
-          out += ' '; i++; closed = true; break
-        }
-        out += identifier ? sql[i] : ' '; i++
-      }
-      if (!closed) throw new Error('Unterminated SQL quoted value')
-    } else if (c === '$' && /^\$[a-zA-Z_0-9]*\$/.test(sql.slice(i))) {
-      const tag = /^\$[a-zA-Z_0-9]*\$/.exec(sql.slice(i))![0]
-      const end = sql.indexOf(tag, i + tag.length)
-      if (end < 0) throw new Error('Unterminated dollar-quoted SQL value')
-      const length = end + tag.length - i; out += ' '.repeat(length); i += length
-    } else { out += c; i++ }
-  }
-  return out
+import { assertValidScript, maskSql, planSqlScript } from '@main/database/sqlScript'
+
+/** Strings, quoted identifiers and comments never become executable commands. */
+export function sqlTokens(sql: string, keepIdentifiers = false, dialect = 'generic'): string {
+  return maskSql(sql, dialect, keepIdentifiers)
 }
 
-export function splitSql(sql: string): string[] {
-  const tokens = sqlTokens(sql), statements: string[] = []; let start = 0
-  for (let i = 0; i <= tokens.length; i++) {
-    if (i === tokens.length || tokens[i] === ';') {
-      if (tokens.slice(start, i).trim()) statements.push(sql.slice(start, i).trim())
-      start = i + 1
-    }
-  }
-  return statements
+export function splitSql(sql: string, dialect = 'generic'): string[] {
+  const plan = planSqlScript(sql, dialect)
+  assertValidScript(plan)
+  return plan.filter(unit => unit.kind !== 'directive').map(unit => unit.sql)
 }
 
-export function isReadQuery(sql: string): boolean {
-  const statements = splitSql(sql)
+export function isReadQuery(sql: string, dialect = 'generic'): boolean {
+  const statements = splitSql(sql, dialect)
   if (!statements.length) return false
-  return statements.every((statement) => {
-    const text = sqlTokens(statement, true).trim()
-    if (!/^(SELECT|WITH|SHOW|DESCRIBE|DESC|EXPLAIN|VALUES|PRAGMA)\b/i.test(text)) return false
-    if (/\b(INSERT|UPDATE|DELETE|REPLACE|MERGE|UPSERT|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|CALL|COPY|LOAD|ATTACH|DETACH|VACUUM|INTO|LOCK|UNLOCK|NEXTVAL|SETVAL|PG_TERMINATE_BACKEND|PG_CANCEL_BACKEND|PG_RELOAD_CONF|PG_ROTATE_LOGFILE|PG_LOG_BACKEND_MEMORY_CONTEXTS|PG_NOTIFY|DBLINK_EXEC|LO_IMPORT|LO_EXPORT|PG_READ_FILE|PG_WRITE_FILE|SYS_EXEC|SYS_EVAL|GET_LOCK|RELEASE_LOCK)\b/i.test(text)) return false
+  return statements.every(statement => {
+    const text = sqlTokens(statement, true, dialect).trim()
+    // A SQL Server request can contain several statements in a single GO batch.
+    if (!sqlTokens(statement, false, dialect).split(';').filter(part => part.trim()).every(part => /^(SELECT|WITH|SHOW|DESCRIBE|DESC|EXPLAIN|VALUES|PRAGMA)\b/i.test(part.trim()))) return false
+    if (/\b(INSERT|UPDATE|DELETE|REPLACE|MERGE|UPSERT|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|CALL|EXEC|EXECUTE|COPY|LOAD|ATTACH|DETACH|VACUUM|INTO|LOCK|UNLOCK|NEXTVAL|SETVAL|PG_TERMINATE_BACKEND|PG_CANCEL_BACKEND|PG_RELOAD_CONF|PG_ROTATE_LOGFILE|PG_LOG_BACKEND_MEMORY_CONTEXTS|PG_NOTIFY|DBLINK_EXEC|LO_IMPORT|LO_EXPORT|PG_READ_FILE|PG_WRITE_FILE|SYS_EXEC|SYS_EVAL|GET_LOCK|RELEASE_LOCK)\b/i.test(text)) return false
     if (/^PRAGMA\b/i.test(text) && !/^PRAGMA\s+(?:\w+\.)?(table_info|table_xinfo|index_list|index_info|index_xinfo|foreign_key_list|database_list|page_count|page_size|freelist_count|compile_options|integrity_check|quick_check)\b/i.test(text)) return false
     return true
   })

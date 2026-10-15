@@ -1,17 +1,12 @@
-/**
- * Splash — 冷启动全屏动画
- * 职责：首次进入时展示与应用图标同构的六边形「巢」动画，结束后卸载。
- * 动画强度：三档均有分层流光，密度、流速和视差逐级增强。
- * 启动背景：settings.general.splashBackground（brand / none 主题色 / image 自定义图）。
- * 主题色：none 时读 CSS 变量 --bg/--accent/--text，缺失回落品牌墨绿/鼠尾草。
- * 依赖：gsap、splashMotion、useTheme、useAnimationLevel、shellApi。
- */
-import { useEffect, useRef, useState } from 'react'
+/** The selected global background and its matching part-by-part logo assembly. */
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { SplashBackgroundConfig } from '@shared/types/plugin'
 import { playSplash, type SplashHandles } from '@renderer/gsap/splashMotion'
 import { resolveMediaSrc, useThemeStore } from '@renderer/hooks/useTheme'
 import { useAnimationLevelStore, useReducedMotion } from '@renderer/hooks/useAnimationLevel'
-import { startAmbientFlow } from '@renderer/gsap/ambientFlow'
+import { BackgroundEffect } from '@renderer/components/BackgroundEffect'
+import { backgroundAtmosphereStyle } from '@renderer/components/backgroundAtmosphere'
+import { useBackgroundEffect } from '@renderer/hooks/useBackgroundEffect'
 import { shellApi } from '@renderer/services/shellApi'
 
 /** 品牌兜底（与 splash.css 注释一致） */
@@ -40,9 +35,14 @@ function applySplashTokens(root: HTMLElement, mode: 'brand' | 'theme'): void {
   root.style.setProperty('--splash-text', readCssVar('--text', BRAND.text))
 }
 
-export function Splash({ onDone }: { onDone: () => void }) {
+export function Splash({ onDone, preview = false }: { onDone: () => void; preview?: boolean }) {
   const rootRef = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const effect = useBackgroundEffect()
+  const background = useThemeStore((state) => state.background)
+  const atmosphere = backgroundAtmosphereStyle(background)
+  const hasUnifiedBackground = Boolean(effect || atmosphere)
+  const themeHydrated = useThemeStore((state) => state.hydrated)
+  const animationHydrated = useAnimationLevelStore((state) => state.hydrated)
   const handlesRef = useRef<SplashHandles | null>(null)
   const [ready, setReady] = useState(false)
   const [settingsReady, setSettingsReady] = useState(false)
@@ -107,42 +107,45 @@ export function Splash({ onDone }: { onDone: () => void }) {
   useEffect(() => {
     const root = rootRef.current
     if (!root || !settingsReady) return
-    const mode = splashBg.type === 'none' ? 'theme' : 'brand'
+    const mode = hasUnifiedBackground || splashBg.type === 'none' ? 'theme' : 'brand'
     applySplashTokens(root, mode)
     const observer = new MutationObserver(() => applySplashTokens(root, mode))
     observer.observe(document.documentElement, {
       attributes: true, attributeFilter: ['style', 'data-theme'],
     })
     return () => observer.disconnect()
-  }, [settingsReady, splashBg.type])
+  }, [settingsReady, splashBg.type, hasUnifiedBackground])
 
-  // The same flowing-light engine keeps the launch screen and workspace visually connected.
-  useEffect(() => {
-    if (!settingsReady || reducedMotion) return
-    const canvas = canvasRef.current
-    if (!canvas) return
-    return startAmbientFlow(canvas, { level, launch: true })
-  }, [settingsReady, level, reducedMotion])
-
-  useEffect(() => {
-    if (!ready || !settingsReady || !handlesRef.current) return
+  useLayoutEffect(() => {
+    if (!themeHydrated || !animationHydrated || !ready || !settingsReady || !handlesRef.current) return
     if (reducedMotion) {
-      onDoneRef.current()
+      if (!preview) onDoneRef.current()
       return
     }
-    return playSplash(handlesRef.current, () => onDoneRef.current(), level)
-  }, [ready, settingsReady, level, reducedMotion])
+    return playSplash(handlesRef.current, () => onDoneRef.current(), level, effect?.logoStyle ?? (effect?.renderer === 'preset' ? effect.preset : 'fold'))
+  }, [ready, settingsReady, themeHydrated, animationHydrated, level, reducedMotion, effect, preview])
+
+  useEffect(() => {
+    if (!preview) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onDoneRef.current() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [preview])
 
   const photo =
-    splashBg.type === 'image' && splashBg.value ? resolveMediaSrc(splashBg.value) : null
+    !hasUnifiedBackground && splashBg.type === 'image' && splashBg.value ? resolveMediaSrc(splashBg.value) : null
   const photoSrc = photo?.playable ? photo.src : ''
   const photoOpacity = typeof splashBg.opacity === 'number' ? splashBg.opacity : 0.55
 
   return (
     <div
-      className={`splash splash--${level}${splashBg.type === 'none' ? ' splash--theme' : ''}${splashBg.type === 'image' ? ' splash--photo' : ''}`}
+      className={`splash splash--${level}${hasUnifiedBackground ? ' splash--effect' : ''}${splashBg.type === 'none' ? ' splash--theme' : ''}${!hasUnifiedBackground && splashBg.type === 'image' ? ' splash--photo' : ''}`}
       ref={rootRef}
-      aria-hidden
+      data-ready={settingsReady && themeHydrated && animationHydrated}
+      role={preview ? 'dialog' : undefined}
+      aria-modal={preview || undefined}
+      aria-label={preview ? '启动画面预览' : undefined}
+      aria-hidden={!preview || undefined}
     >
       <div className="splash-bg" />
       {photoSrc && (
@@ -154,7 +157,9 @@ export function Splash({ onDone }: { onDone: () => void }) {
           }}
         />
       )}
-      <canvas ref={canvasRef} className="splash-field" aria-hidden />
+      {settingsReady && themeHydrated && animationHydrated && effect && <BackgroundEffect effect={effect} className="splash-field" launch />}
+      {settingsReady && themeHydrated && animationHydrated && !effect && atmosphere && <div className="background-atmosphere" style={atmosphere} aria-hidden="true" />}
+      {preview && <button className="splash-close" type="button" autoFocus onClick={onDone} aria-label="关闭预览">关闭预览 ×</button>}
       <div className="splash-stage">
         <svg className="splash-mark" viewBox="0 0 200 200" width="132" height="132">
           {/* 开口六边形巢 */}

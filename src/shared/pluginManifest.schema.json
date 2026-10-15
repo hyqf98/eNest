@@ -256,7 +256,7 @@
     },
     "window": {
       "type": "object",
-      "description": "Quick 内容区高度建议与下限；宽度固定720px并受工作区限制，width/minWidth保留兼容；主窗由用户控制",
+      "description": "兼容旧插件的尺寸建议；Quick插件态外框固定720×545px，仅按屏幕工作区缩小；主窗由用户控制",
       "properties": {
         "width": {
           "type": "number",
@@ -538,8 +538,19 @@
           "type": "array",
           "description": "主题包（并入统一语义，等价运行时 enest.theme.register；source 强制绑插件 id）",
           "items": {
-            "type": "object"
-          }
+            "type": "object",
+            "properties": {
+              "backgroundEffects": {
+                "type": "array",
+                "maxItems": 8,
+                "description": "声明式背景动效：宿主预设或本插件视频，id 必须在当前主题包内唯一；source 由宿主绑定并检查资源归属",
+                "items": {
+                  "$ref": "#/$defs/backgroundEffect"
+                }
+              }
+            }
+          },
+          "maxItems": 8
         },
         "quickProviders": {
           "type": "array",
@@ -551,5 +562,127 @@
       }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "backgroundEffect": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "name",
+            "renderer",
+            "preset"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,47}$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "logoStyle": {
+              "type": "string",
+              "enum": [
+                "fold",
+                "aurora",
+                "orbit",
+                "ripple",
+                "tunnel"
+              ]
+            },
+            "renderer": {
+              "const": "preset"
+            },
+            "preset": {
+              "type": "string",
+              "enum": [
+                "fold",
+                "aurora",
+                "orbit",
+                "ripple",
+                "tunnel"
+              ]
+            },
+            "colors": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              }
+            },
+            "speed": {
+              "type": "number",
+              "minimum": 0.25,
+              "maximum": 2
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "name",
+            "renderer",
+            "video"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,47}$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "logoStyle": {
+              "type": "string",
+              "enum": [
+                "fold",
+                "aurora",
+                "orbit",
+                "ripple",
+                "tunnel"
+              ]
+            },
+            "renderer": {
+              "const": "video"
+            },
+            "video": {
+              "type": "string",
+              "maxLength": 2048,
+              "pattern": "^enest://plugin/[a-z0-9]+(?:\\.[a-z0-9-]+)+/assets/(?:[^./?#\\\\\\u0000-\\u001f][^/?#\\\\\\u0000-\\u001f]*/)*[^./?#\\\\\\u0000-\\u001f][^/?#\\\\\\u0000-\\u001f]*\\.([mM][pP]4|[wW][eE][bB][mM])$"
+            },
+            "poster": {
+              "type": "string",
+              "maxLength": 2048,
+              "pattern": "^enest://plugin/[a-z0-9]+(?:\\.[a-z0-9-]+)+/assets/(?:[^./?#\\\\\\u0000-\\u001f][^/?#\\\\\\u0000-\\u001f]*/)*[^./?#\\\\\\u0000-\\u001f][^/?#\\\\\\u0000-\\u001f]*\\.([pP][nN][gG]|[jJ][pP][eE]?[gG]|[wW][eE][bB][pP]|[aA][vV][iI][fF]|[gG][iI][fF])$"
+            }
+          }
+        }
+      ]
+    }
+  }
 }

@@ -7,10 +7,11 @@
  * - 激活：active.json 标记 + `--version` 健康检查，失败自动回退标记。
  * - 一键备份升级：停进程 → home 全量备份 → 下载/激活 → 健康检查；
  *   任一步失败恢复备份并回退激活（回滚日志随事件推送）。
- * 关键依赖：node:fs、undici fetch（代理经 proxyService 进程 env）、
+ * 关键依赖：node:fs、electron net.fetch（使用 proxyService 配置的 defaultSession）、
  * dshRuntimeStore、dshProfileService（备份）、dshRuntimeService（停进程）。
  */
 import { spawn } from 'node:child_process'
+import { net } from 'electron'
 import { createHash } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
@@ -56,7 +57,7 @@ interface GithubAsset {
 }
 
 async function fetchJson(url: string): Promise<unknown> {
-  const res = await fetch(url, { headers: { accept: 'application/vnd.github+json' } })
+  const res = await net.fetch(url, { headers: { accept: 'application/vnd.github+json' } })
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`)
   return res.json()
 }
@@ -109,7 +110,7 @@ async function downloadToFile(pluginId: string, url: string, dest: string, expec
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS)
   try {
-    const res = await fetch(url, { signal: controller.signal })
+    const res = await net.fetch(url, { signal: controller.signal })
     if (!res.ok || !res.body) throw new Error(`下载失败: HTTP ${res.status}`)
     const total = Number(res.headers.get('content-length') ?? 0)
     let received = 0
@@ -163,7 +164,7 @@ export async function installRuntimeVersion(pluginId: string, version: string): 
   try {
     let sha256: string | undefined
     try {
-      const res = await fetch(`${remote.assetUrl}.sha256`)
+      const res = await net.fetch(`${remote.assetUrl}.sha256`)
       if (res.ok) sha256 = (await res.text()).trim()
     } catch {
       /* 边车缺失时跳过校验（Release 可控） */
@@ -188,9 +189,10 @@ async function healthCheck(root: string): Promise<boolean> {
   const bin = runtimeBinAt(root)
   if (!bin) return false
   return new Promise(resolve => {
-    const child = spawn(process.execPath, ['--version'], {
+    const child = spawn(process.execPath, [bin, '--version'], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', DSH_HOME: dshDataDirs().dshHome },
-      stdio: ['ignore', 'pipe', 'pipe']
+      // 检查只取退出码；不要留未消费的 pipe，让启动日志填满缓冲后卡住。
+      stdio: 'ignore'
     })
     const timer = setTimeout(() => {
       child.kill('SIGKILL')

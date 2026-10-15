@@ -20,9 +20,12 @@ const require = createRequire(import.meta.url)
 const execFileAsync = promisify(execFile)
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const pluginId = 'com.enest.smoke.quick-window'
+const largePluginId = 'com.enest.smoke.quick-window-large'
 const barHeight = 64
 const homeHeight = 248
+const quickHeight = 545
 const quickWidth = 720
+const workAreaInset = 16
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 async function poll(read, accepts, label, timeout = 15000) {
@@ -38,9 +41,40 @@ async function poll(read, accepts, label, timeout = 15000) {
   throw new Error(`${label}: ${lastError?.message || JSON.stringify(value)}`)
 }
 
+function expectedGeometry(workArea, contentHeight = quickHeight) {
+  const width = Math.max(1, Math.min(quickWidth, workArea.width - workAreaInset * 2))
+  const height = Math.max(1, Math.min(contentHeight, quickHeight, workArea.height - workAreaInset * 2))
+  return {
+    width, height,
+    surface: { x: 0, y: 0, width, height },
+    plugin: { x: 1, y: barHeight, width: Math.max(0, width - 2), height: Math.max(0, height - barHeight - 1) }
+  }
+}
+
+function assertNativeGeometry(state, label, contentHeight) {
+  assert.ok(state, `${label}: Quick window exists`)
+  const expected = expectedGeometry(state.workArea, contentHeight)
+  assert.equal(state.contentBounds.width, expected.width, `${label}: fixed width`)
+  assert.equal(state.contentBounds.height, expected.height, `${label}: height follows the current surface`)
+  assert.equal(state.bounds.width, expected.width, `${label}: native outer width`)
+  assert.equal(state.bounds.height, expected.height, `${label}: native outer height`)
+  assert.equal(state.shells.length, 1, `${label}: one shell WebContentsView`)
+  assert.deepEqual(state.shells[0].bounds, expected.surface, `${label}: shell fills current window`)
+  for (const container of state.containers) {
+    assert.deepEqual(container.bounds, expected.surface, `${label}: native parent never clips to a search-bar reveal`)
+  }
+  for (const plugin of state.plugins.filter(plugin => plugin.visible)) {
+    assert.deepEqual(plugin.bounds, expected.plugin, `${label}: plugin fills space below 64px bar`)
+    for (const parent of plugin.ancestors) {
+      assert.equal(parent.visible, true, `${label}: plugin ancestors remain visible`)
+      assert.deepEqual(parent.bounds, expected.surface, `${label}: native plugin parent fills the window`)
+    }
+  }
+}
+
 /** All access starts at Electron's own window/WebContents inventory, not page order. */
 function createQuickHarness(app, id, artifacts) {
-  const evaluate = (target, code) => app.evaluate(({ webContents }, { target, code, id }) => {
+  const evaluate = (target, code, targetPluginId = id) => app.evaluate(({ webContents }, { target, code, id }) => {
     const wc = webContents.getAllWebContents().find(contents => {
       if (contents.isDestroyed()) return false
       try {
@@ -52,35 +86,43 @@ function createQuickHarness(app, id, artifacts) {
     })
     if (!wc) throw new Error(`Missing ${target} WebContents`)
     return wc.executeJavaScript(code)
-  }, { target, code, id })
+  }, { target, code, id: targetPluginId })
 
-  const nativeState = () => app.evaluate(({ BaseWindow }, id) => {
+  const nativeState = () => app.evaluate(({ BaseWindow, screen }, ids) => {
     const win = BaseWindow.getAllWindows().find(candidate => {
       try { return candidate.getTitle() === 'eNest Quick' || new URL(candidate.webContents?.getURL()).searchParams.get('surface') === 'quick' } catch { return false }
     })
     if (!win) return null
-    const plugins = []
+    const plugins = [], shells = [], containers = []
     // Accumulate local offsets and ancestor visibility. This also works when a
     // native clipping/shape View is inserted between contentView and the plugin.
-    function visit(view, parentX, parentY, parentVisible, isRoot = false) {
+    function visit(view, parentX, parentY, parentVisible, ancestors = [], isRoot = false) {
       const bounds = view.getBounds()
       const x = isRoot ? 0 : parentX + bounds.x
       const y = isRoot ? 0 : parentY + bounds.y
       const visible = parentVisible && view.getVisible()
       const wc = view.webContents
+      const absoluteBounds = { x, y, width: bounds.width, height: bounds.height }
       if (wc && !wc.isDestroyed()) {
         try {
           const url = new URL(wc.getURL())
-          if (url.searchParams.get('pid') === id || (url.protocol === 'enest:' && url.hostname === id)) {
-            plugins.push({ wcId: wc.id, visible, localBounds: bounds, bounds: { x, y, width: bounds.width, height: bounds.height } })
+          const pluginId = ids.find(id => url.searchParams.get('pid') === id || (url.protocol === 'enest:' && url.hostname === id))
+          if (pluginId) {
+            plugins.push({ pluginId, wcId: wc.id, visible, localBounds: bounds, bounds: absoluteBounds, ancestors })
+          } else if (url.searchParams.get('surface') === 'quick') {
+            shells.push({ wcId: wc.id, visible, bounds: absoluteBounds, ancestors })
           }
         } catch { /* The main renderer may not have a URL yet. */ }
+      } else if (!isRoot) {
+        containers.push({ visible, bounds: absoluteBounds })
       }
-      for (const child of view.children) visit(child, x, y, visible)
+      const nextAncestors = isRoot ? ancestors : [...ancestors, { visible, bounds: absoluteBounds }]
+      for (const child of view.children) visit(child, x, y, visible, nextAncestors)
     }
-    visit(win.contentView, 0, 0, true, true)
-    return { windowId: win.id, visible: win.isVisible(), focused: win.isFocused(), bounds: win.getBounds(), contentBounds: win.getContentBounds(), plugins }
-  }, id)
+    visit(win.contentView, 0, 0, true, [], true)
+    return { windowId: win.id, visible: win.isVisible(), focused: win.isFocused(), bounds: win.getBounds(), contentBounds: win.getContentBounds(),
+      workArea: screen.getDisplayMatching(win.getBounds()).workArea, plugins, shells, containers }
+  }, [id, largePluginId])
 
   const domState = () => evaluate('quick', `(() => {
     const root = document.querySelector('.quick-root');
@@ -95,6 +137,7 @@ function createQuickHarness(app, id, artifacts) {
     return { mode: root.dataset.mode, expanded: root.dataset.expanded, query: input.value,
       bar: { top: rect.top, bottom: rect.bottom, height: rect.height, ...style(bar) },
       input: { ...style(input), width: input.getBoundingClientRect().width, height: input.getBoundingClientRect().height, fontSize: getComputedStyle(input).fontSize }, buttons: [...bar.querySelectorAll('button')].map(button => ({ label: button.getAttribute('aria-label') || button.title, ...style(button) })),
+      grip: (() => { const grip = bar.querySelector('.quick-plugin-grip'); if (!grip) return null; const bounds = grip.getBoundingClientRect(); return { ...style(grip), left: bounds.left, right: bounds.right, width: bounds.width, gap: parseFloat(getComputedStyle(bar).columnGap) || 0 }; })(),
       resultsVisible: Boolean(document.querySelector('#quick-results')),
       footerVisible: Boolean(document.querySelector('.quick-footer')),
       marketIconLoaded: Boolean(document.querySelector('.quick-market img')?.naturalWidth),
@@ -167,7 +210,7 @@ function createQuickHarness(app, id, artifacts) {
   return { evaluate, nativeState, domState, key, screenshot }
 }
 
-test('Quick joins its search bar to native plugin content keeps two home rows, stable geometry, and restores global search with Escape', {
+test('Quick keeps a 248px home, content-sized search and fixed 545px plugins through Escape and migration', {
   skip: process.env.ENEST_QUICK_SMOKE !== '1', timeout: 180000
 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'enest-quick-smoke-'))
@@ -179,20 +222,30 @@ test('Quick joins its search bar to native plugin content keeps two home rows, s
   let app, harness, stderr = '', stdout = '', failure
   try {
     await mkdir(artifacts, { recursive: true })
-    const fixture = join(dataRoot, 'plugins', pluginId, '1.0.0')
-    await mkdir(join(fixture, 'assets/market/screenshots'), { recursive: true })
+    for (const [id, name, window] of [
+      [pluginId, 'Quick layout smoke', { width: 640, height: 120 }],
+      [largePluginId, 'Quick large layout fixture', { width: 1600, height: 1600 }]
+    ]) {
+      const fixture = join(dataRoot, 'plugins', id, '1.0.0')
+      await mkdir(join(fixture, 'assets/market/screenshots'), { recursive: true })
       await writeFile(join(fixture, 'assets/market/icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#257"/></svg>')
       await writeFile(join(fixture, 'assets/market/README.md'), '# Isolated smoke fixture')
       await writeFile(join(fixture, 'assets/market/screenshots/preview.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'))
-    await writeFile(join(fixture, 'plugin.json'), JSON.stringify({
-      id: pluginId, name: 'Quick layout smoke', description: 'Isolated native Quick layout smoke fixture', version: '1.0.0', main: 'index.html', icon: 'assets/market/icon.svg', market: {readme: 'assets/market/README.md', screenshots: ['assets/market/screenshots/preview.png']}, permissions: [],
-      features: [{ code: 'main', cmds: ['Quick layout smoke', 'quick-content'] }, { code: 'regex', cmds: [{ type: 'regex', label: '内容匹配', match: '/^\\s*quick-content\\s*$/i' }] }, { code: 'over', cmds: [{ type: 'over', label: '处理输入文本' }] }],
-      window: { width: 640, height: 300 }, ui: { chrome: 'none', background: 'opaque', themeAware: false }
-    }))
-    await writeFile(join(fixture, 'index.html'), `<!doctype html><html><head><meta charset="utf-8"><title>Quick native fixture</title>
+      await writeFile(join(fixture, 'plugin.json'), JSON.stringify({
+        id, name, description: 'Isolated native Quick layout smoke fixture', version: '1.0.0', main: 'index.html', icon: 'assets/market/icon.svg', market: {readme: 'assets/market/README.md', screenshots: ['assets/market/screenshots/preview.png']}, permissions: [],
+        features: id === pluginId ? [
+          { code: 'main', cmds: ['Quick layout smoke', 'quick-content'] },
+          { code: 'regex', cmds: [{ type: 'regex', label: '内容匹配', match: '/^\\s*quick-content\\s*$/i' }] },
+          { code: 'over', cmds: [{ type: 'over', label: '处理输入文本', exclude: '/^__no_quick_smoke_results__$/'}] },
+          ...Array.from({ length: 24 }, (_, index) => ({ code: `many-${index}`, cmds: [`smoke-many-${index}`] }))
+        ] : [{ code: 'main', cmds: ['quick-large-fixture'] }],
+        window, ui: { chrome: 'none', background: 'opaque', themeAware: false }
+      }))
+      await writeFile(join(fixture, 'index.html'), `<!doctype html><html><head><meta charset="utf-8"><title>Quick native fixture</title>
       <style>html,body{margin:0;width:100%;height:100%;background:#e5f4ef;color:#143f32;font:16px system-ui}header{height:28px;background:#0f766e;color:white}p{margin:24px}</style></head>
-      <body><header>Plugin top edge · native viewport 718 × 300</header><p>Quick lifecycle and geometry fixture.</p><script src="assets/fixture.js"></script></body></html>`)
-    await writeFile(join(fixture, 'assets/fixture.js'), "window.__quickSmokeReady = typeof window.enest?.quickInput?.configure === 'function'; window.__quickSmokeEnters = []; window.enest.onEnter(event => window.__quickSmokeEnters.push(event));")
+      <body><header>Plugin top edge · native viewport 718 × 480</header><p>Quick lifecycle and geometry fixture.</p><script src="assets/fixture.js"></script></body></html>`)
+      await writeFile(join(fixture, 'assets/fixture.js'), "window.__quickSmokeReady = typeof window.enest?.quickInput?.configure === 'function'; window.__quickSmokeEnters = []; window.enest.onEnter(event => window.__quickSmokeEnters.push(event));")
+    }
     await writeFile(join(dataRoot, 'settings.json'), JSON.stringify({
       theme: { mode: 'light', overrides: {} },
       general: { animationLevel: 'high', quickLauncher: { enabled: false }, closeBehavior: 'quit', tabStyle: 'classic', sessionTabs: [] }, plugins: {}
@@ -211,6 +264,7 @@ test('Quick joins its search bar to native plugin content keeps two home rows, s
     await poll(() => evaluate('shell', 'typeof window.enestShell?.quickToggle'), value => value === 'function', 'Main shell preload')
     const installed = await evaluate('shell', 'window.enestShell.getPlugins()')
     assert.ok(installed.some(plugin => plugin.id === pluginId && plugin.installed), JSON.stringify(installed))
+    assert.ok(installed.some(plugin => plugin.id === largePluginId && plugin.installed), JSON.stringify(installed))
     // Native keyboard tests activate this isolated app. Ignore unrelated physical
     // typing on the shared desktop; allow only the harness's native key events.
     // insertText below still exercises Chromium input and the React query path.
@@ -227,12 +281,53 @@ test('Quick joins its search bar to native plugin content keeps two home rows, s
     evidence.physicalKeyboardIsolated = true
     await evaluate('shell', 'window.enestShell.quickToggle()')
     await poll(domState, state => state?.mode === 'list', 'Quick renderer')
-    await poll(nativeState, state => state?.visible && state.contentBounds.height === homeHeight && state.contentBounds.width === quickWidth, 'Initial two-row Quick height')
+    const initial = await poll(nativeState, state => {
+      if (!state?.visible) return false
+      const expected = expectedGeometry(state.workArea, homeHeight)
+      return state.contentBounds.height === expected.height && state.contentBounds.width === expected.width
+    }, 'Initial two-row Quick geometry')
+    const expected = expectedGeometry(initial.workArea)
+    const expectedHome = expectedGeometry(initial.workArea, homeHeight)
+    evidence.expectedGeometry = { home: expectedHome, plugin: expected }
+    assertNativeGeometry(initial, 'initial', homeHeight)
     // This smoke measures geometry, content routing and keyboard behavior. Other
     // desktop tasks can activate a different application while screenshots run;
     // disable only blur-hide for this isolated test window, not in production.
-    await app.evaluate(({ BaseWindow }) => {
-      BaseWindow.getAllWindows().find(win => win.getTitle() === 'eNest Quick').removeAllListeners('blur')
+    await app.evaluate(({ BaseWindow, screen }) => {
+      const win = BaseWindow.getAllWindows().find(win => win.getTitle() === 'eNest Quick')
+      win.removeAllListeners('blur')
+      // Record actual native mutations, including between asynchronous snapshots.
+      // Delegate unchanged to Electron so the smoke observes real clipping/reveal
+      // behavior instead of masking a transient 64px parent surface.
+      win.__quickSmokeGeometryChanges = []
+      const record = (role, bounds) => win.__quickSmokeGeometryChanges.push({
+        role, bounds: { ...bounds }, contentBounds: win.getContentBounds(), workArea: screen.getDisplayMatching(win.getBounds()).workArea
+      })
+      const tracked = new WeakSet()
+      const attached = target => {
+        const find = view => view === target || view.children.some(find)
+        return find(win.contentView)
+      }
+      const track = (view, isRoot = false) => {
+        if (tracked.has(view)) return
+        tracked.add(view)
+        if (!isRoot) {
+          const role = view.webContents === win.webContents ? 'shell' : view.webContents ? 'plugin' : 'container'
+          if (role !== 'plugin') record(role, view.getBounds())
+          const originalSetBounds = view.setBounds.bind(view)
+          view.setBounds = bounds => {
+            const result = originalSetBounds(bounds)
+            if (attached(view)) record(role, view.getBounds())
+            return result
+          }
+        }
+        const originalAddChildView = view.addChildView.bind(view)
+        view.addChildView = (child, ...args) => { track(child); return originalAddChildView(child, ...args) }
+        for (const child of view.children) track(child)
+      }
+      track(win.contentView, true)
+      const originalSetBounds = win.setBounds.bind(win)
+      win.setBounds = (...args) => { const result = originalSetBounds(...args); record('window', win.getContentBounds()); return result }
     })
     evidence.blurHideIsolated = true
     await evaluate('quick', `window.__quickSmokeKeys = []; document.addEventListener('keydown', event => {
@@ -243,22 +338,44 @@ test('Quick joins its search bar to native plugin content keeps two home rows, s
     const record = async label => {
       const snapshot = { label, dom: await domState(), native: await nativeState() }
       evidence.snapshots.push(snapshot)
+      const height = snapshot.dom.mode === 'plugin' ? quickHeight
+        : snapshot.dom.query === '' ? homeHeight : Math.ceil(snapshot.dom.surfaceBottom)
+      assertNativeGeometry(snapshot.native, label, height)
       return snapshot
     }
-    const openFixture = async (settled = true) => {
-      const result = await evaluate('quick', `window.enestShell.quickOpen(${JSON.stringify({ kind: 'plugin', pluginId, container: 'quick' })})`)
+    const typeQuery = async query => {
+      await app.evaluate(async ({ app: electronApp, BaseWindow, webContents }, query) => {
+        const wc = webContents.getAllWebContents().find(contents => {
+          try { return new URL(contents.getURL()).searchParams.get('surface') === 'quick' } catch { return false }
+        })
+        electronApp.focus({ steal: true })
+        BaseWindow.getAllWindows().find(win => win.getTitle() === 'eNest Quick').focus()
+        wc.focus()
+        await wc.executeJavaScript("(() => { window.__quickSmokeAllowText = true; const input = document.querySelector('.quick-search-bar input'); input.readOnly = false; input.focus(); input.select() })()")
+        await wc.insertText(query)
+        await wc.executeJavaScript("window.__quickSmokeAllowText = false; document.querySelector('.quick-search-bar input').readOnly = true")
+      }, query)
+      await poll(domState, state => state?.query === query, 'Chromium input reached search state')
+    }
+    const openFixture = async (settled = true, targetPluginId = pluginId) => {
+      const result = await evaluate('quick', `window.enestShell.quickOpen(${JSON.stringify({ kind: 'plugin', pluginId: targetPluginId, container: 'quick' })})`)
       assert.equal(result.ok, true, JSON.stringify(result))
       await poll(domState, state => state?.mode === 'plugin', 'Plugin mode published')
-      await poll(() => evaluate('plugin', 'window.__quickSmokeReady'), Boolean, 'Plugin production preload')
+      await poll(() => evaluate('plugin', 'window.__quickSmokeReady', targetPluginId), Boolean, 'Plugin production preload')
       if (settled) {
-        await poll(nativeState, state => state?.visible && state.plugins.length === 1 && state.plugins[0].visible && state.plugins[0].bounds.y === barHeight && state.plugins[0].bounds.width === quickWidth - 2 && state.plugins[0].bounds.height === 300, 'Native plugin settled geometry')
+        await poll(nativeState, state => {
+          const visible = state?.plugins.filter(plugin => plugin.visible) ?? []
+          return state?.visible && visible.length === 1 && visible[0].pluginId === targetPluginId &&
+            visible[0].bounds.y === barHeight && visible[0].bounds.width === expected.plugin.width && visible[0].bounds.height === expected.plugin.height
+        }, 'Native plugin fixed geometry')
         // Native animation can report target bounds before presentation catches up.
         await pause(650)
       }
+      await record(`plugin-open-${targetPluginId}-${settled ? 'settled' : 'immediate'}`)
     }
     const assertBlankLauncher = async label => {
       await poll(domState, state => state?.mode === 'list' && state.query === '' && state.resultsVisible, `${label}: blank global search`)
-      await poll(nativeState, state => state?.visible && state.contentBounds.height === homeHeight && state.contentBounds.width === quickWidth && state.plugins.every(plugin => !plugin.visible), `${label}: collapsed native view`)
+      await poll(nativeState, state => state?.visible && state.contentBounds.height === expectedHome.height && state.contentBounds.width === expectedHome.width && state.plugins.every(plugin => !plugin.visible), `${label}: plugin hidden and two-row home restored`)
       // Observe past the high-animation duration to catch stale completion callbacks
       // that expand a dismissed plugin or resize the launcher a second time.
       for (let sample = 0; sample < 4; sample++) {
@@ -268,8 +385,8 @@ test('Quick joins its search bar to native plugin content keeps two home rows, s
         assert.equal(dom.query, '')
         assert.equal(dom.resultsVisible, true)
         assert.equal(native.visible, true)
-        assert.equal(native.contentBounds.height, homeHeight)
-        assert.equal(native.contentBounds.width, quickWidth)
+        assert.equal(native.contentBounds.height, expectedHome.height)
+        assert.equal(native.contentBounds.width, expectedHome.width)
         assert.ok(native.plugins.every(plugin => !plugin.visible), JSON.stringify(native))
       }
     }
@@ -291,45 +408,41 @@ test('Quick joins its search bar to native plugin content keeps two home rows, s
     assert.equal(home.dom.marketIconLoaded, true)
     evidence.screenshots.push(await screenshot('quick-home-two-rows'))
 
-    // Global results share the same 64px search edge and expand the native
-    // container to the rendered surface, without a blank strip in between.
-    await app.evaluate(async ({ app: electronApp, BaseWindow, webContents }) => {
-      const wc = webContents.getAllWebContents().find(contents => {
-        try { return new URL(contents.getURL()).searchParams.get('surface') === 'quick' } catch { return false }
-      })
-      electronApp.focus({ steal: true })
-      BaseWindow.getAllWindows().find(win => win.getTitle() === 'eNest Quick').focus()
-      wc.focus()
-      await wc.executeJavaScript("(() => { window.__quickSmokeAllowText = true; const input = document.querySelector('.quick-search-bar input'); input.readOnly = false; input.focus() })()")
-      await wc.insertText('Quick layout smoke')
-      await wc.executeJavaScript("window.__quickSmokeAllowText = false; document.querySelector('.quick-search-bar input').readOnly = true")
-    })
-    await poll(domState, state => state?.resultsVisible && state.resultCount > 0, 'Global search fixture result')
-    await poll(nativeState, state => state?.visible && state.contentBounds.height > barHeight, 'Global results expanded window')
+    // Search result height follows its DOM surface, capped at the plugin height.
+    await typeQuery('__no_quick_smoke_results__')
+    await poll(domState, state => state?.query === '__no_quick_smoke_results__' && !state.enriching && state.resultCount === 0, 'Empty search results settled')
+    await pause(650)
+    await record('empty-search-results')
+    await key('quick')
+    await key('quick', 'keyUp')
+    await assertBlankLauncher('empty-search-cleared')
+
+    await typeQuery('smoke-many')
+    await poll(domState, state => state?.query === 'smoke-many' && !state.enriching && state.resultCount > 16, 'Multiple search result rows')
+    await pause(650)
+    await record('many-search-results')
+    await key('quick')
+    await key('quick', 'keyUp')
+    await assertBlankLauncher('many-search-cleared')
+
+    await typeQuery('Quick layout smoke')
+    await poll(domState, state => state?.resultsVisible && state.resultCount > 0 && state.resultCount <= 3, 'Short global search result set')
     await poll(() => evaluate('quick', "document.querySelectorAll('.quick-result-group').length"), count => count >= 2, 'Static search plus content recommendation')
     await pause(650)
     const searchResults = await record('global-search-results')
-    assert.equal(searchResults.native.contentBounds.width, quickWidth)
+    assert.equal(searchResults.native.contentBounds.width, expected.width)
+    assert.equal(searchResults.native.contentBounds.height,
+      expectedGeometry(searchResults.native.workArea, Math.ceil(searchResults.dom.surfaceBottom)).height)
     assert.equal(searchResults.dom.input.fontSize, home.dom.input.fontSize)
     assert.equal(searchResults.dom.input.width, home.dom.input.width)
     assert.equal(searchResults.dom.bar.bottom, barHeight)
     assert.equal(searchResults.dom.panelTop, barHeight)
-    assert.equal(searchResults.native.contentBounds.height, Math.ceil(searchResults.dom.surfaceBottom))
+    assert.ok(searchResults.native.contentBounds.height <= expected.height)
     evidence.screenshots.push(await screenshot('quick-global-results'))
     await key('quick')
     await key('quick', 'keyUp')
     await assertBlankLauncher('global-search-cleared')
-    await app.evaluate(async ({ app: electronApp, BaseWindow, webContents }) => {
-      const wc = webContents.getAllWebContents().find(contents => {
-        try { return new URL(contents.getURL()).searchParams.get('surface') === 'quick' } catch { return false }
-      })
-      electronApp.focus({ steal: true })
-      BaseWindow.getAllWindows().find(win => win.getTitle() === 'eNest Quick').focus()
-      wc.focus()
-      await wc.executeJavaScript("(() => { window.__quickSmokeAllowText = true; const input = document.querySelector('.quick-search-bar input'); input.readOnly = false; input.focus() })()")
-      await wc.insertText('  quick-content  ')
-      await wc.executeJavaScript("window.__quickSmokeAllowText = false; document.querySelector('.quick-search-bar input').readOnly = true")
-    })
+    await typeQuery('  quick-content  ')
     const groupTitles = await poll(() => evaluate('quick', "[...document.querySelectorAll('.quick-section-head h2')].map(el => el.textContent)"), titles => titles?.length === 3, 'Name, regex and recommendation groups')
     assert.deepEqual(groupTitles, ['最佳搜索结果', '最佳匹配', '匹配推荐'])
     await pause(650)
@@ -344,10 +457,12 @@ test('Quick joins its search bar to native plugin content keeps two home rows, s
 
     await openFixture()
     const expanded = await record('expanded')
-    assert.equal(expanded.native.contentBounds.width, quickWidth)
+    assert.equal(expanded.native.contentBounds.width, expected.width)
     assert.equal(expanded.dom.input.fontSize, home.dom.input.fontSize)
     assert.equal(expanded.dom.input.height, home.dom.input.height)
-    assert.equal(expanded.dom.input.width, home.dom.input.width)
+    assert.ok(expanded.dom.grip && expanded.dom.grip.width > 0, 'plugin mode exposes its tear-out grip')
+    assert.equal(expanded.dom.grip.appRegion, 'no-drag')
+    assert.ok(Math.abs(home.dom.input.width - expanded.dom.input.width - expanded.dom.grip.width - expanded.dom.grip.gap) <= 1, 'only the grip and its gap reduce the input width')
     assert.equal(expanded.dom.marketIconLoaded, true)
     assert.equal(expanded.dom.bar.top, 0)
     assert.equal(expanded.dom.bar.bottom, barHeight)
@@ -359,6 +474,21 @@ test('Quick joins its search bar to native plugin content keeps two home rows, s
     assert.ok(expanded.dom.buttons.length > 0)
     assert.ok(expanded.dom.buttons.every(button => button.appRegion === 'no-drag'), JSON.stringify(expanded.dom.buttons))
     evidence.screenshots.push(await screenshot('quick-expanded'))
+
+    for (const [label, code] of [
+      ['resize-small', 'window.enest.ui.resize({ width: 320, height: 80 })'],
+      ['resize-large', 'window.enest.ui.resize({ width: 1600, height: 1600 })'],
+      ['setHeight-small', 'window.enest.ui.setHeight(80)'],
+      ['setHeight-large', 'window.enest.ui.setHeight(1600)']
+    ]) {
+      assert.equal(await evaluate('plugin', code), true, label)
+      await record(`${label}-immediate`)
+      await pause(350)
+      await record(`${label}-settled`)
+      assert.deepEqual(await evaluate('plugin', '({ width: innerWidth, height: innerHeight })'), {
+        width: expected.plugin.width, height: expected.plugin.height
+      }, `${label}: fixed plugin renderer viewport`)
+    }
 
     const contentPayload = '  Raw Content 中文  '
     const typedOpen = await evaluate('quick', `window.enestShell.quickOpen(${JSON.stringify({ kind: 'plugin', pluginId, code: 'content', type: 'regex', payload: contentPayload })})`)
@@ -398,8 +528,8 @@ test('Quick joins its search bar to native plugin content keeps two home rows, s
     const reopened = await record('reopened-after-interruptions')
     assert.equal(reopened.native.plugins.length, 1)
     assert.equal(reopened.native.plugins[0].bounds.y, barHeight)
-    assert.equal(reopened.native.plugins[0].bounds.width, quickWidth - 2)
-    assert.equal(reopened.native.plugins[0].bounds.height, 300)
+    assert.equal(reopened.native.plugins[0].bounds.width, expected.plugin.width)
+    assert.equal(reopened.native.plugins[0].bounds.height, expected.plugin.height)
     assert.equal(reopened.dom.bar.bottom, barHeight)
     evidence.screenshots.push(await screenshot('quick-reopened'))
 
@@ -422,6 +552,18 @@ test('Quick joins its search bar to native plugin content keeps two home rows, s
     assert.equal(migratedBack.native.plugins[0].bounds.y, barHeight)
     evidence.migration = { quickWcId: reusedWcId, shellWcId, returnedWcId: migratedBack.native.plugins[0].wcId }
 
+    // A second real plugin requests a much larger manifest window; switching
+    // between both live WebContentsViews must retain the same native geometry.
+    await openFixture(true, largePluginId)
+    const large = await record('large-manifest-plugin')
+    assert.equal(large.native.plugins.filter(plugin => plugin.visible)[0].pluginId, largePluginId)
+    assert.deepEqual(await evaluate('plugin', '({ width: innerWidth, height: innerHeight })', largePluginId), {
+      width: expected.plugin.width, height: expected.plugin.height
+    })
+    await openFixture()
+    const switchedBack = await record('small-manifest-plugin-restored')
+    assert.equal(switchedBack.native.plugins.filter(plugin => plugin.visible)[0].wcId, reusedWcId)
+
     await key('quick')
     await key('quick', 'keyUp')
     await assertBlankLauncher('final-escape')
@@ -435,6 +577,22 @@ test('Quick joins its search bar to native plugin content keeps two home rows, s
     await evaluate('shell', 'window.enestShell.quickToggle()')
     await poll(nativeState, state => state?.visible, 'Quick reshown after opening market')
     await openFixture()
+    const geometryChanges = await app.evaluate(({ BaseWindow }) =>
+      BaseWindow.getAllWindows().find(win => win.getTitle() === 'eNest Quick').__quickSmokeGeometryChanges)
+    evidence.nativeGeometryChanges = geometryChanges
+    assert.ok(geometryChanges.some(change => change.role === 'container'), 'native parent bounds were observed')
+    assert.ok(geometryChanges.some(change => change.role === 'shell'), 'native shell bounds were observed')
+    assert.ok(geometryChanges.some(change => change.role === 'plugin'), 'native plugin bounds were observed')
+    for (const change of geometryChanges) {
+      const geometry = expectedGeometry(change.workArea, change.contentBounds.height)
+      if (change.role === 'window') {
+        assert.equal(change.bounds.width, geometry.width, 'window mutation preserves fixed width')
+        assert.equal(change.bounds.height, geometry.height, 'window height stays within the 545px cap')
+      } else {
+        assert.deepEqual(change.bounds, change.role === 'plugin' ? geometry.plugin : geometry.surface,
+          `${change.role}: native views must fill the current window instead of using a clipped reveal`)
+      }
+    }
     // BaseWindow does not automatically own its children's WebContents.
     // Closing Quick must explicitly close its shell renderer.
     const quickShellWcId = await app.evaluate(({ BaseWindow }) => {

@@ -7,7 +7,7 @@ import { join } from 'node:path'
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 async function fixture() {
   const adapters = {
-    electron: `export const app={isPackaged:false,getAppPath:()=>'/fixture'}; export const clipboard={write:async()=>{}};`,
+    electron: `export const app={isPackaged:false,getAppPath:()=>'/fixture'}; export class ClipboardItem{}; export const clipboard={write:async()=>{}};`,
     'node:fs': 'export const existsSync=()=>true;',
     'node:child_process': `
       import {EventEmitter} from 'node:events'; import {PassThrough} from 'node:stream';

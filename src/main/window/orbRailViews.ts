@@ -39,6 +39,7 @@ import { logInfo } from '@main/logs/logService'
 let railView: WebContentsView | null = null
 let dockView: WebContentsView | null = null
 let railExpanded = false
+let dragExpansionCount = 0
 let themeHooked = false
 let visibleStyle: 'classic' | 'orb' | null = null
 const onNativeThemeUpdated = (): void => setOrbTheme()
@@ -49,6 +50,7 @@ let lastState: OrbRailState = {
   activeTabId: null,
   animationLevel: 'medium',
   theme: { mode: 'light', tokens: {} },
+  profile: null,
   tabs: [],
   contribEntries: []
 }
@@ -77,6 +79,17 @@ function readTheme(): ResolvedThemeCss {
     return resolveThemeTokens('auto')
   } catch {
     return { mode: 'light', tokens: {} }
+  }
+}
+
+/** 已连接账号（dock 设置钮默认头像）；settingsStore 为唯一事实来源 */
+function readProfile(): OrbRailState['profile'] {
+  try {
+    const user = settingsStore.getAll().profile?.user
+    if (!user || typeof user.login !== 'string') return null
+    return { name: user.name || user.login, avatar: user.avatarDataUrl ?? null }
+  } catch {
+    return null
   }
 }
 
@@ -159,8 +172,8 @@ export function createOrbRailViews(): void {
   const win = getMainWindow()
   if (!win || win.isDestroyed()) return
 
-  // 首次创建即对齐主题，供 did-finish-load 的首次状态推送携带
-  lastState = { ...lastState, theme: readTheme() }
+  // 首次创建即对齐主题与账号资料，供 did-finish-load 的首次状态推送携带
+  lastState = { ...lastState, theme: readTheme(), profile: readProfile() }
 
   if (!railView) {
     railView = makeView('rail')
@@ -198,7 +211,7 @@ export function raiseOrbRailViews(): void {
 
 /** rail 视图展开/收起：切换宽度（renderer CSS 动画先行，这里跟进 bounds） */
 export function setOrbRailExpandedView(expanded: boolean): void {
-  const next = expanded === true
+  const next = expanded === true || dragExpansionCount > 0
   if (railExpanded === next) return
   railExpanded = next
   applyRailBounds()
@@ -210,12 +223,13 @@ export function layoutOrbRailViews(): void {
 }
 
 export function setOrbRailState(state: OrbRailState): void {
-  // animationLevel / theme 不信任 renderer：一律以 settingsStore 为准，
+  // animationLevel / theme / profile 不信任 renderer：一律以 settingsStore 为准，
   // 避免主壳 hydrate 前的默认值覆盖真实档位/主题
   const next = {
     ...state,
     animationLevel: readAnimLevel(),
     theme: readTheme(),
+    profile: readProfile(),
     // rail-entries 插槽贡献以主进程 contributions 表为唯一事实来源，不信任 renderer
     contribEntries: readRailContribEntries()
   }
@@ -279,6 +293,13 @@ export function setOrbTheme(): void {
   broadcastState()
 }
 
+/** 账号资料变化（GitHub 登录 / 刷新 / 退出）：dock 头像即时更新 */
+export function setOrbProfile(profile: OrbRailState['profile']): void {
+  if (JSON.stringify(lastState.profile) === JSON.stringify(profile)) return
+  lastState = { ...lastState, profile }
+  broadcastState()
+}
+
 /** tabStyle 变化：orb 显示圆轨/设置钮（插件全宽）；classic 隐藏 */
 export function applyOrbRailVisibility(tabStyle: 'classic' | 'orb'): void {
   if (visibleStyle === tabStyle) return
@@ -312,4 +333,23 @@ export function destroyOrbRailViews(): void {
   visibleStyle = null
   if (themeHooked) nativeTheme.removeListener('updated', onNativeThemeUpdated)
   themeHooked = false
+}
+
+/** Host drag geometry is resolved from native Views, never a renderer-supplied origin. */
+export function getOrbDragSurface(wcId: number) {
+  const window = getMainWindow()
+  if (!window || window.isDestroyed() || visibleStyle !== 'orb') return null
+  const view = [railView, dockView].find(candidate => candidate?.webContents.id === wcId)
+  return view ? { window, view } : null
+}
+export function acquireOrbDragExpansion(): () => void {
+  dragExpansionCount++
+  setOrbRailExpandedView(true)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    dragExpansionCount = Math.max(0, dragExpansionCount - 1)
+    if (!dragExpansionCount) setOrbRailExpandedView(false)
+  }
 }

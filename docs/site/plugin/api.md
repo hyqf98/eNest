@@ -49,8 +49,8 @@ resolve({ ok: true, data })
 | `ui` | `setTitle(title)` | 基础能力 | 设置 Tab 标题 |
 | `ui` | `setIcon(icon)` | 基础能力 | 设置 Tab 图标 |
 | `ui` | `setBadge(badge)` | 基础能力 | 设置角标 |
-| `ui` | `resize(size)` | 基础能力 | 声明内容尺寸，Quick 即时适配 |
-| `ui` | `setHeight(height)` | 基础能力 | 期望内容高度（Quick 内嵌消费） |
+| `ui` | `resize(size)` | 基础能力 | 兼容尺寸建议，保持容器尺寸 |
+| `ui` | `setHeight(height)` | 基础能力 | 兼容高度建议，保持容器尺寸 |
 | `ui` | `toast({ message, type? })` | 基础能力 | 壳子应用内 Toast |
 | `ui` | `getThemeTokens()` | 无 | 读主题变量（别名） |
 | `ui` | `onThemeChange(cb)` | 无 | 订阅主题变更 |
@@ -82,10 +82,12 @@ resolve({ ok: true, data })
 | `net` | `fetch({ url, method?, headers?, body?, timeoutMs?, stream? })` | `net.fetch` | 受控 HTTP(S) / 流式 / SSE |
 | `net.socket` | `connect/send/close/list` / `serveWs(socketId)` | `net.socket` | 出站 TCP + 本地 ws 桥 |
 | `net` | `onNetData(cb)` / `onNetClose(cb)` / `onChunk(cb)` | 无（纯订阅） | `net.data` / `net.close` / `net.chunk` 事件 |
-| `agent` | `apps()` / `read(app)` / `write({ app, changes, confirmed })` / `backups(app)` / `restore({ app, id })` | `config.agent.read` / `config.agent.write` | AI CLI 配置白名单读写（自动快照） |
+| `agent` | `apps()` | 无 | 支持的应用及安装、活跃状态，不返回配置内容 |
+| `agent` | `read(app)` / `write({ app, changes, confirmed })` / `backups(app)` / `restore({ app, id })` / `listAssets` / `writeAssets` / `deleteAssets` | `config.agent.read` / `config.agent.write` | AI CLI 配置白名单读写（自动快照）+ 资产文件通道（如 codex pets/） |
 | `sys` | `processes()` / `ports()` / `kill(pid, opts)` | `sys.inspect` / `sys.control` | 本机进程 / 端口 / 结束确认 |
 | `shell` | `openExternal(url)` | `shell.openExternal` | 系统浏览器打开 |
-| `shell` | `saveTextFile(payload)` | `fs.write` | 另存文本文件 |
+| `shell` | `saveFile(payload)` / `saveTextFile(payload)` | 基础能力 | 用户经原生对话框选定保存位置后写入 |
+| `focusTimer` | `start/get/pause/resume/skip/stop/updateRecord` | 基础能力 | 本插件后台计时与记录；计时通知仍受 `notify` 声明与拒绝设置控制 |
 | `vault` | `set(key, secret)` | 基础能力 | 存密钥，返回引用 |
 | `vault` | `has(keyOrRef)` | 基础能力 | 判断密钥是否存在 |
 | `vault` | `remove(keyOrRef)` | 基础能力 | 删除密钥 |
@@ -94,20 +96,25 @@ resolve({ ok: true, data })
 | `ssh` | `exec(input)` | `ssh.exec` | 执行命令取结果 |
 | `ssh` | `metrics.start/stop/latest` | `ssh.exec` | 服务器指标采样 |
 | `ssh` | `completion.suggest(input)` | `ssh.exec` | 命令补全 |
-| `ssh` | `sftp.list/download/upload/mkdir/rename/delete/chmod` | `ssh.sftp`（本地文件另需 `fs.read/write`） | 文件传输与目录 / 权限操作 |
+| `ssh` | `sftp.list/download/upload/mkdir/rename/delete/chmod` | `ssh.sftp` | 文件传输与目录 / 权限操作；本地目标限用户选定的文件句柄 |
 | `ssh` | `onSshTransfer(cb)` | 无 | 订阅 SFTP 传输进度（`ssh.transfer`） |
-| `ssh` | `pickLocalFile(opts?)` | `fs.read` / `fs.write` | 选择本地文件/目录 |
+| `ssh` | `pickLocalFile(opts?)` | 基础能力 | 用户经原生选择器选择本地文件/目录 |
 | `db` | `test(config)` / `open(input)` / `close(key)` / `listSessions()` | `db.connect` | 连接管理 |
 | `db` | `execute(input)` / `explain(input)` / `cancel(key)` | `db.query` | 查询执行 |
 | `db` | `applyChanges(input)` | `db.query` | 表格化编辑回写 |
 | `db` | `importPreview(input)` / `importRun(input)` | `db.query` | CSV 导入 |
 | `db` | `schema.tree/describe/ddl` | `db.schema` | 库表结构 |
-| `db` | `completion(input)` / `dialects.list()` | `db.schema` | SQL 补全 / 方言 |
-| `db` | `pickSqliteFile()` / `pickImportFile()` | 数据库选择 `fs.read/write`；导入选择 `fs.read` | 选择数据库文件 |
+| `db` | `completion(input)` | `db.schema` | SQL 补全 |
+| `db` | `dialects.list()` | 无 | 宿主内置方言资料 |
+| `db` | `workbench({ action: 'drivers.list' })` | 无 | 宿主内置驱动描述；连接、查询和结构等其它 action 仍按对应数据库权限校验 |
+| `db` | `pickSqliteFile()` / `pickImportFile()` | 基础能力 | 用户经原生选择器选择数据库文件 |
 | `mw` | `workbench(request)` | 按 action：`mw.connect` / `mw.query` / `mw.admin` | 中间件控制台统一入口（kafka / rabbitmq / mqtt / rocketmq）：连接、浏览、变更与实时监听；tail 消息经 `enest.on('mw.data')` 推送，错误经 `enest.on('mw.error')` |
 | — | `notify({ title?, body? })` | `notify` | 系统通知 |
 | — | `on(event, cb)` / `off(event, cb)` | 无 | 通用事件 |
 | — | `onEnter / onOut / onBeforeClose / onDestroy` | 无 | 生命周期 |
+| — | `setDirty(dirty)` | 基础能力 | 上报未保存数据标记（更新重启前脏检测与一键保存） |
+| — | `onNotice(topic?, cb)` | 无 | 订阅壳统一通知（ShellNotice 标准信封） |
+| — | `onSaveRequested(cb)` | 无 | 壳请求立即保存数据（回调可返回 Promise） |
 | — | `getLaunchMode()` / `onModeChange(cb)` | 无 | 读 / 订阅启动方式（quick / shell） |
 | — | `getPluginId()` / `getEnterCode()` | 无 | 插件身份 |
 
@@ -175,7 +182,7 @@ await enest.ui.setBadge('') // 清除
 
 ### `ui.resize(size)`
 
-向壳子声明建议的内容区尺寸。
+兼容旧插件的内容区尺寸建议接口。
 
 | | |
 |--|--|
@@ -183,7 +190,7 @@ await enest.ui.setBadge('') // 清除
 | **参数** | `size: { width?: number; height?: number }` |
 | **返回** | `Promise<boolean>` |
 
-Quick 内嵌时按内容尺寸调整小窗，并受 `window.minWidth` / `minHeight` 与显示器工作区限制。主窗 Tab 中仅记录建议，不改变用户窗口大小。插件始终应按实际 viewport 响应式布局，超出部分内部滚动；width / height 必须是正有限数。
+进入插件后，Quick 外框统一展开为 720 × 545px，顶部输入区 64px，插件内容区为 718 × 480px，仅在显示器工作区不足时缩小。此接口保留参数校验和成功返回，不改变 Quick 或主窗尺寸；manifest 的 `window` 尺寸建议也不会改变 Quick。插件应按实际 viewport 响应式布局，超出部分内部滚动；width / height 必须是正有限数。
 
 ```js
 await enest.ui.resize({ width: 960, height: 640 })
@@ -193,7 +200,7 @@ await enest.ui.resize({ width: 960, height: 640 })
 
 ### `ui.setHeight(height)`
 
-上报插件期望的内容高度（Quick 命令面板内嵌场景使用）。
+兼容旧插件的内容高度建议接口，与 `resize({ height })` 等价。
 
 | | |
 |--|--|
@@ -202,7 +209,7 @@ await enest.ui.resize({ width: 960, height: 640 })
 | **返回** | `Promise<boolean>` |
 | **错误** | `invalid height`（非正数） |
 
-?> Quick 内嵌场景下，壳子据此自动调整小窗高度；主窗 Tab 场景仅记录不动作。
+?> 调用成功表示参数已接受，不表示窗口高度改变。Quick 插件态保持固定内容区，主窗尺寸由用户控制。
 
 ```js
 await enest.ui.setHeight(420)
@@ -601,17 +608,21 @@ await enest.storage.session.clear()
 const text = await enest.clipboard.readText()
 ```
 
-### `clipboard.writeText(text)`
+### `clipboard.writeText(text, options?)`
 
 | | |
 |--|--|
 | **权限** | `clipboard.write` |
-| **参数** | `text: string`（缺省按 `''` 处理） |
+| **参数** | `text: string`（缺省按 `''` 处理）；`options?: { excludeFromHistory?: boolean }` |
 | **返回** | `Promise<boolean>` |
 
 ```js
 await enest.clipboard.writeText('已复制的内容')
+// 密码等敏感内容：宿主在写入前阻止并作废交错的历史采集，不把此次内容加入 eNest 历史。
+await enest.clipboard.writeText(secret, { excludeFromHistory: true })
 ```
+
+`excludeFromHistory` 仅控制 eNest 的历史采集，不删除已有历史，也不能控制其他应用的剪贴板记录。宿主不延迟清空系统剪贴板，避免覆盖用户随后复制的新内容。
 
 ### `clipboard.readImage()`
 
@@ -799,10 +810,12 @@ await enest.net.fetch({ url: 'https://api.example.com/stream', stream: true })
 | 方法 | 说明 |
 |------|------|
 | `net.socket.connect({ sessionId?, host, port, tls?, timeoutMs? })` | 建立 TCP / TLS 连接 → `{ socketId }`；连接超时缺省 10s；**每插件并发上限 8** |
-| `net.socket.send(socketId, data)` | 发送数据（合法 base64 按二进制，否则按 utf8 文本）；每 socket 1MB/s 令牌桶限速（突发 2MB） |
+| `net.socket.send(socketId, data, encoding?)` | 默认按 UTF-8 原样发送，包括 `PING` 等恰好符合 base64 字符集的文本；发送二进制须传第三参数 `'base64'`。每 socket 1MB/s 令牌桶限速（突发 2MB） |
 | `net.socket.close(socketId)` | 关闭连接（插件关闭时宿主自动释放全部 socket） |
 | `net.socket.list()` | 本插件 socket 概览（含 ws 桥端口、收发字节统计） |
 | `net.socket.serveWs(socketId)` | 为已连接 socket 起本地 WebSocket 桥 → `{ url, token, port }` |
+
+迁移旧调用：此前 `send(socketId, data)` 会猜测 base64；现在省略编码始终发送 UTF-8 文本。发送二进制的插件须改为 `send(socketId, base64Data, 'base64')`，接收事件的 `chunk` 仍为 base64。显式 base64 输入必须符合标准字母表及填充格式，格式错误会拒绝发送。
 
 **权限**：`net.socket`。
 
@@ -835,15 +848,34 @@ auth.json）、`gemini-cli`（~/.gemini/settings.json）、`grok-build`（~/.gro
 
 | 方法 | 说明 |
 |------|------|
-| `agent.apps()` | 可用应用 + 探测到的安装状态（`installed` 主配置存在）与活跃状态（如 codex auth 有登录材料） |
+| `agent.apps()` | 无需权限声明或授权；可用应用、配置位置及探测到的安装状态（`installed` 主配置存在）与活跃状态（如 codex auth 有登录材料），不返回配置内容 |
 | `agent.read(app)` | 配置原文 + 解析结果（JSON 解析为对象；TOML/YAML 回传原文） |
-| `agent.write({ app, changes, confirmed })` | 最小侵入写入：只替换给定**顶层键**（JSON 键序保留、TOML 注释与未触及行保留）；宿主确认具体目标后执行；**写前自动快照** |
+| `agent.write({ app, changes, confirmed })` | 最小侵入写入：只替换给定**顶层键**（JSON 键序保留、TOML 注释与未触及行保留）；取得 `config.agent.write` 授权后执行；**写前自动快照** |
 | `agent.backups(app)` | 快照列表（时间倒序） |
-| `agent.restore({ app, id })` | 从快照恢复（恢复前对当前状态再做一次安全快照） |
+| `agent.restore({ app, id })` | 宿主原生确认应用与备份目标后，从快照恢复（恢复前对当前状态再做一次安全快照） |
+| `agent.listAssets({ app, path })` | 资产通道：列白名单应用数据目录（目前 codex 开放 `pets/`）清单 `[{name,isDir,size,modifiedAt}]`；`path` 空串列根，非空首段必须命中白名单子目录 |
+| `agent.writeAssets({ app, assets, confirmed })` | 资产通道：写资产文件（`{path, contentText?|contentBase64?}`，单文件 ≤8MiB、单次 ≤20 个 / ≤32MiB）；取得 `config.agent.write` 授权后执行；**覆盖已存在文件前自动快照** |
+| `agent.deleteAssets({ app, paths, confirmed })` | 资产通道：删除资产文件 / 目录（递归）；宿主原生确认展示完整目标后执行，不可恢复 |
 
-**权限**：`config.agent.read` / `config.agent.write`。快照位于 `~/.eNest/agent-config-backups/<app>/<timestamp>`，
+**权限**：除 `apps()` 外，读取使用 `config.agent.read`，写入使用 `config.agent.write`。快照位于 `~/.eNest/agent-config-backups/<app>/<timestamp>`，
 每应用保留最近 20 份。`changes` 的 `$file` 特殊键指定目标文件（如 codex 的
 `{ $file: 'auth.json', OPENAI_API_KEY: 'sk-...' }` 写 auth.json 而非 config.toml）。
+
+敏感能力由宿主按插件集中授权，可选择本次运行允许或授权并记住（见[授权与撤权](permissions.md#授权与撤权)）。`write` / `writeAssets` 获得授权后不再追加操作确认；`restore` / `deleteAssets` 仍需确认具体目标。兼容参数 `confirmed` 不能代替宿主授权。
+
+**资产通道边界**：只进入应用声明的一级子目录（codex 仅 `pets/`）；相对路径拒绝绝对路径、
+`..` 逃逸、反斜杠、编码分隔符与隐藏段；命中配置文件（如 `~/.codex/config.toml`）一律拒绝——
+配置修改只能走 `agent.write` 的最小侵入合并。典型用法（安装 Codex 桌面宠物包）：
+
+```js
+await enest.agent.writeAssets({
+  app: 'codex',
+  assets: [
+    { path: 'pets/bedro/pet.json', contentText: manifestJson },
+    { path: 'pets/bedro/spritesheet.webp', contentBase64: base64 }
+  ]
+})
+```
 
 ---
 
@@ -934,7 +966,7 @@ await enest.db.open({ config: { driver: 'mysql', host, username, secretRef } })
 
 | | |
 |--|--|
-| **权限** | `ssh.session`（agent 另需 `ssh.agent`，私钥文件另需 `fs.read`） |
+| **权限** | `ssh.session`（agent 另需 `ssh.agent`；私钥文件须由用户选择并提供只读句柄，无额外文件权限框） |
 | **参数** | `input: SshConnectInput`（见下） |
 | **返回** | `Promise<SshSessionInfo>`（含 `sessionId`） |
 
@@ -1107,7 +1139,7 @@ CSV 导入两步流：先 `importPreview` 看列映射与 SQL 预览（`{ column
 
 ### `db.completion(input)` / `db.dialects.list()`
 
-`completion` 给 SQL 编辑器做补全：入参 `{ sessionKey, sql, cursor? }`，返回 `{ replace: { from, to }, items }`，直接对接编辑器替换区间。**`db.completion.suggest(input)` 为规范全名**，`db.completion(input)` 是可直接调用的兼容别名（同一方法，二选一即可）。`dialects.list()` 返回各驱动方言信息（关键字、函数、代码片段）。
+`completion` 给 SQL 编辑器做补全：入参 `{ sessionKey, sql, cursor? }`，返回 `{ replace: { from, to }, items }`，直接对接编辑器替换区间，需 `db.schema` 授权。**`db.completion.suggest(input)` 为规范全名**，`db.completion(input)` 是可直接调用的兼容别名（同一方法，二选一即可）。`dialects.list()` 返回宿主内置的各驱动方言信息（关键字、函数、代码片段），无需声明或授权，不读取数据库内容。
 
 ### `db.pickSqliteFile()` / `db.pickImportFile()`
 
@@ -1171,8 +1203,101 @@ enest.off('enter', onEnter)
 | `ssh.metrics` | 指标采样推送（`metrics.start` 后） | `{ sessionId?, profileId?, sample }` |
 | `ssh.transfer` | SFTP 传输进度（`sftp.download/upload` 过程） | `{ sessionId, direction, path, transferred, total, done?, error? }` |
 | `clipboard-history-changed` | 剪贴板历史新增 / 变更 | `{ entryId, entryType }` |
+| `shell-notice` | 壳统一通知（任何关键节点；见下方「壳通知」） | `ShellNotice` 信封 |
+| `save-requested` | 壳请求立即保存（更新重启 / 退出前；建议用 `onSaveRequested`） | `{ reason, deadlineMs, operationId }` |
 
 回调抛错会被捕获，**不会**影响其它监听器。
+
+---
+
+## 壳通知（ShellNotice）
+
+壳软件的关键节点（更新、保存、退出、外观……）统一按一套标准 JSON 信封广播给所有运行中插件，插件按 `topic` 订阅自己关心的通知。未来新增节点只扩展 topic 清单，**信封字段不变**。
+
+### 信封结构（v1）
+
+```json
+{
+  "v": 1,                        // 信封结构版本；不认识的版本必须忽略
+  "seq": 42,                     // 会话内单调递增序号（主进程重启归零，仅排序/诊断用）
+  "ts": "2026-10-14T09:30:00.000Z", // 事件产生时间（ISO 8601）
+  "source": "shell",             // 来源恒为 'shell'（预留给未来非壳来源）
+  "topic": "update.available",   // 通知主题，点分命名空间 <域>.<节点>
+  "data": { "currentVersion": "0.1.0", "latestVersion": "0.2.0" }
+}
+```
+
+约定：**未知 topic 一律忽略**（向前兼容）；`data` 按 topic 约定，见下表。
+
+### v1 topic 清单
+
+| topic | 触发 | data |
+|-------|------|------|
+| `update.available` | 检查到新版本（尚未下载） | `{ currentVersion, latestVersion }` |
+| `update.downloaded` | 更新包下载完成，可安装 | `{ version }` |
+| `update.installing` | 即将退出安装（最后保存机会；随后 `app.before-quit` 与 `beforeClose` 还会各来一次） | `{ version }` |
+| `update.error` | 检查 / 下载 / 安装出错 | `{ message }` |
+| `save.requested` | 壳请求插件立即保存数据（更新重启 / 退出前） | `{ reason: 'update'\|'app-quit'\|'manual', operationId, deadlineMs }` |
+| `app.before-quit` | 应用即将退出（随后收到 `beforeClose(app-quit)`） | `{ reason }` |
+| `appearance.changed` | 主题 / 字体 / 动画档变更 | `{ kind: 'theme'\|'font'\|'animation' }` |
+
+### `onNotice(topic?, cb)`
+
+| | |
+|--|--|
+| **权限** | 无 |
+| **参数** | `topic?` 省略收全量；传入时只收该 topic（TypeScript 下 `data` 类型自动收窄） |
+| **返回** | 取消订阅函数 |
+
+```js
+// 只关心更新
+const off = enest.onNotice('update.available', (notice) => {
+  console.log(notice.data.latestVersion) // 类型已收窄
+})
+
+// 全量（按 topic 自行分发）
+enest.onNotice((notice) => {
+  if (notice.topic === 'appearance.changed') refreshLook(notice.data.kind)
+})
+```
+
+等价的底层写法：`enest.on('shell-notice', cb)`（数据即信封对象）。
+
+### `setDirty(dirty)` / `onSaveRequested(cb)` — 数据保存双保险
+
+更新弹框点「立即更新并重启」、以及应用退出前，壳会先**检测未保存数据**再**一键保存**。插件配合方式：
+
+| | |
+|--|--|
+| `setDirty(dirty)` | **权限：基础能力**。编辑时置 `true`、持久化完成后置 `false`。不上报则视为无未保存数据 |
+| `onSaveRequested(cb)` | **权限：无**。收到 `save.requested` 通知时触发；回调里持久化数据并**返回 Promise**，settle 后壳才继续 |
+
+```js
+// 1) 脏标记：编辑置位，落盘清除
+editor.on('change', () => { dirty = true; enest.setDirty(true) })
+async function persist() {
+  await enest.storage.set('draft', editor.value)
+  dirty = false
+  await enest.setDirty(false)
+}
+
+// 2) 响应壳的一键保存（返回 Promise → 壳等待完成）
+enest.onSaveRequested(async ({ reason, deadlineMs }) => {
+  if (!dirty) return            // 幂等：无脏数据直接返回
+  await persist()               // 建议在 deadlineMs（默认 5000ms）内完成
+})
+```
+
+要点：
+
+- **保存必须幂等**：`save.requested`、`beforeClose`、休眠 `beforeSuspend` 都可能触发保存，同一数据可能被写多次。
+- 回调返回的 Promise 全部 settle（或超时 `deadlineMs`）后壳继续流程；任一 reject 视为该插件保存未确认，壳仍会继续（有 toast 提示），`beforeClose` 是最后兜底。
+- 休眠中的插件无活动渲染进程，不参与脏检测与保存广播（休眠前已 flush）。
+
+### 扩展约定
+
+- topic 命名 `<域>.<节点>`（如 `update.downloaded`）；新 topic 只会追加，不会改语义。
+- 新增关键节点 = 在 `@shared/types/notice` 的 `ShellNoticeDataMap` 加条目 + 本表加行；插件侧遇到未知 topic 忽略即可，无需适配。
 
 ---
 
@@ -1352,11 +1477,11 @@ if (!api) {
 
 ## 文件句柄与 WebSocket 新接口
 
-`localFiles.pick({ kind?, multiple?, access? })` 返回 `LocalFileHandle[]`；`localFiles.pickSave({ defaultName? })` 返回句柄或 `null`。句柄包含 `id/name/kind/size/displayPath`，只在签发插件的当前实例中有效。具体能力与持久化策略见 [权限](permissions.md)。
+`localFiles.pick({ kind?, multiple?, access? })` 返回 `LocalFileHandle[]`；`localFiles.pickSave({ defaultName? })` 返回句柄或 `null`。文件选择、读取已选文件和导出均是基础能力，无需声明 `fs.read` / `fs.write` 或追加通用授权框，仍由原生选择器请用户选定目标。句柄包含 `id/name/kind/size/displayPath`，只在签发插件的当前实例中有效。具体能力与持久化策略见 [权限](permissions.md)。
 
-`localFiles.read({ handleId, encoding: 'text' | 'dataUrl', maxBytes? })` 使用 `fs.read` 读取已授权文件，返回 UTF-8 文本字符串或带 MIME 的 data URL 字符串。文本默认 2 MiB、data URL 默认 16 MiB，调用方可设置 `maxBytes`，最大 32 MiB；每插件最多两次并发读取。只接受普通文件，不跟随符号链接；关闭、重载或撤权后原句柄失效。官方插件的文本导入、图片预览通过此接口读取，不持久化系统路径或句柄。
+`localFiles.read({ handleId, encoding: 'text' | 'dataUrl', maxBytes? })` 直接读取用户已选定并授予句柄的文件，返回 UTF-8 文本字符串或带 MIME 的 data URL 字符串。文本默认 2 MiB、data URL 默认 16 MiB，调用方可设置 `maxBytes`，最大 32 MiB；每插件最多两次并发读取。只接受普通文件，不跟随符号链接；关闭、重载或撤权后原句柄失效。官方插件的文本导入、图片预览通过此接口读取，不持久化系统路径或句柄。
 
-`db.pickSqliteFile({ createIfMissing?, readOnly? })` 返回 `LocalFileHandle | null`。默认可写选择需 `fs.write`；显式 `readOnly:true` 且不创建文件时需 `fs.read`。`db.pickImportFile()` 返回只读文件句柄或 `null`。不要保存句柄跨重启复用。
+`db.pickSqliteFile({ createIfMissing?, readOnly? })` 返回 `LocalFileHandle | null`。默认选择可写句柄；显式 `readOnly:true` 且不创建文件时只授予读取用途。`db.pickImportFile()` 返回只读文件句柄或 `null`。两者均无需额外文件权限框，取消选择不会授予句柄。数据库连接与查询继续使用各自权限，不要保存句柄跨重启复用。
 
 `net.websocket` 使用 `net.socket` 权限并走宿主代理：
 

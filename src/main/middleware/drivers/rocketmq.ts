@@ -67,7 +67,7 @@ async function call<T>(h: MwDriverHandle, method: 'GET' | 'POST', path: string, 
   const doCall = async (cookie?: string) => mwHttpJson(`${r.base}${path}`, {
     method,
     cookie,
-    insecureTls: true,
+    insecureTls: h.config.tlsRejectUnauthorized === false,
     timeoutMs: 30000,
     ...opts
   })
@@ -92,7 +92,7 @@ async function login(h: MwDriverHandle): Promise<void> {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: `username=${encodeURIComponent(r.username)}&password=${encodeURIComponent(r.password ?? '')}`,
-    insecureTls: true
+    insecureTls: h.config.tlsRejectUnauthorized === false
   })
   if (res.status !== 200) throw new Error(`dashboard 登录失败（HTTP ${res.status}）：${res.body.slice(0, 160)}`)
   const setCookie = res.headers['set-cookie'] ?? ''
@@ -171,7 +171,7 @@ export const rocketmqDriver: MwDriver = {
     try {
       const base = (config.dashboardUrl ?? '').replace(/\/$/, '')
       if (!/^https?:\/\//.test(base)) throw new Error('dashboard 地址必须以 http(s):// 开头')
-      const res = await mwHttp(`${base}/cluster/list.query`, { insecureTls: true, timeoutMs: 10000 })
+      const res = await mwHttp(`${base}/cluster/list.query`, { insecureTls: config.tlsRejectUnauthorized === false, timeoutMs: 10000 })
       if (res.status === 401 || res.status === 403) {
         if (!config.username) throw new Error(`dashboard 需要登录（HTTP ${res.status}），请填写账号`)
       }

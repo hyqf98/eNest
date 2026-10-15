@@ -2,9 +2,11 @@ import type { PluginPermission, PluginPermissionGrant } from '@shared/types/plug
 import { PLUGIN_PERMISSIONS } from '@shared/types/plugin'
 
 /**
- * Built-in capabilities operate on a plugin's own data or its contributions to
- * the shell. They need neither manifest declaration nor a user consent prompt.
- * External resources and system-wide effects still require declared consent.
+ * Built-in capabilities operate on a plugin's own data, shell contributions, or
+ * files explicitly selected through a host picker. They need neither manifest
+ * declaration nor an additional consent prompt. File handles still enforce the
+ * selected target, access mode and runtime owner; raw paths never grant access.
+ * Other external resources and system-wide effects require declared consent.
  */
 export const BUILTIN_PLUGIN_CAPABILITIES = [
   'storage.local',
@@ -16,7 +18,10 @@ export const BUILTIN_PLUGIN_CAPABILITIES = [
   'settings.register',
   'settings.page',
   'theme',
-  'vault.write'
+  'vault.write',
+  'timer.background',
+  'fs.read',
+  'fs.write'
 ] as const satisfies readonly PluginPermission[]
 
 const builtinCapabilities: ReadonlySet<string> = new Set(BUILTIN_PLUGIN_CAPABILITIES)

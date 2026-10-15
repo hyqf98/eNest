@@ -4,9 +4,10 @@
  * 仅被 shellApi 的 mock 实现使用（MarketPage 分类已从 plugins 动态派生）。
  * 依赖：@shared/types/plugin。
  */
-import type { BackgroundConfig, PluginSummary, SplashBackgroundConfig, ThemeMode } from '@shared/types/plugin'
+import type { BackgroundConfig, PluginSummary, SplashBackgroundConfig, ThemeMode, SessionTabRef, PluginWindowGeometry } from '@shared/types/plugin'
 import { DEFAULT_PLUGIN_UI } from '@shared/types/plugin'
 import { mockPluginIcon } from '@shared/mockPluginIcon'
+import { DEFAULT_BACKGROUND_EFFECT } from '@shared/backgroundEffects'
 
 const DEFAULT_INSTALLED: string[] = []
 
@@ -151,6 +152,7 @@ export interface MockThemeData {
   packId?: string
   background?: BackgroundConfig
   backgroundSource?: 'user' | 'pack'
+  backgroundEffect?: string
 }
 
 /** 从 localStorage 读取 mock 主题（mode + overrides + packId + background） */
@@ -169,12 +171,14 @@ export function readMockTheme(): MockThemeData {
         packId: saved.packId,
         background: saved.background,
         backgroundSource: saved.backgroundSource === 'user' || saved.backgroundSource === 'pack' ? saved.backgroundSource : undefined,
+        backgroundEffect: typeof saved.backgroundEffect === 'string' && saved.backgroundEffect.trim()
+          ? saved.backgroundEffect.trim() : DEFAULT_BACKGROUND_EFFECT,
       }
     }
   } catch {
     /* ignore */
   }
-  return { mode: 'light', overrides: {} }
+  return { mode: 'light', overrides: {}, backgroundEffect: DEFAULT_BACKGROUND_EFFECT }
 }
 
 /** 将 mock 主题写回 localStorage */
@@ -207,7 +211,8 @@ export interface GeneralSettingsData {
   /** 已上传自定义字体元数据 */
   customFonts?: { id: string; name: string; family: string; fileName: string }[]
   /** 会话恢复：上次打开的插件 Tab */
-  sessionTabs?: Array<{ pluginId: string; title?: string }>
+  sessionTabs?: SessionTabRef[]
+  mainWindowState?: PluginWindowGeometry
   /** 会话恢复：上次激活的插件 id */
   sessionActivePluginId?: string
   /** 网络代理；none/缺省 = 直连 */
@@ -222,11 +227,15 @@ export interface GeneralSettingsData {
  * 保留扁平字段以兼容既有 mock 读取方。
  */
 export interface ShellSettingsData {
-  theme?: { mode: ThemeMode; overrides?: Record<string, Record<string, string>>; packId?: string; background?: BackgroundConfig }
+  theme?: { mode: ThemeMode; overrides?: Record<string, Record<string, string>>; packId?: string; background?: BackgroundConfig; backgroundSource?: 'user' | 'pack'; backgroundEffect?: string }
   general?: GeneralSettingsData
   plugins?: Record<string, Record<string, unknown>>
   /** 每插件快捷启动配置表（键 = pluginId）；读取用，写入走 setPluginLaunch */
   pluginLaunch?: Record<string, import('@shared/types/plugin').PluginLaunchConfig>
+  pluginShortcuts?: import('@shared/types/shortcuts').PluginShortcutBinding[]
+  quick?: { enabled?: boolean; hotkeys?: string[]; activeHotkey?: string }
+  /** 个人资料段（GitHub OAuth 配置 + 已连接账号；与主进程 SettingsData.profile 对齐） */
+  profile?: { githubClientId?: string; user?: import('@shared/types/plugin').UserProfile }
   /** @deprecated mock 兼容扁平字段 */
   launchAtLogin?: boolean
   closeBehavior?: 'minimize-tray' | 'quit'
@@ -251,6 +260,7 @@ export const DEFAULT_SETTINGS: ShellSettingsData = {
     proxy: { type: 'none' },
     splashBackground: { type: 'brand', opacity: 0.55 },
   },
+  profile: {},
   launchAtLogin: true,
   closeBehavior: 'minimize-tray',
   devMode: true,

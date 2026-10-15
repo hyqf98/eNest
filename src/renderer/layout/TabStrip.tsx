@@ -14,6 +14,8 @@ import { animateTabIn } from '@renderer/gsap/marketMotion'
 import { HouseIcon, RotateCwIcon, XIcon } from '@renderer/components/icons'
 import { PluginIcon } from '@renderer/components/PluginIcon'
 import { PLUGIN_ICON_DISPLAY_TAB } from '@shared/constants'
+import { bindPluginDragSource, bindPluginDropTarget } from '@renderer/services/pluginWindowDrag'
+import '@renderer/styles/plugin-window-drag.css'
 
 export function TabStrip() {
   const view = useShellStore((s) => s.view)
@@ -22,23 +24,38 @@ export function TabStrip() {
   const goHome = useShellStore((s) => s.goHome)
   const activateTab = useShellStore((s) => s.activateTab)
   const closeTab = useShellStore((s) => s.closeTab)
-  const prevCount = useRef(0)
+  const previousIds = useRef(new Set<string>())
   const stripRef = useRef<HTMLDivElement>(null)
 
   // 首页高亮：仅 market；设置/开发者打开时不高亮首页
   const homeActive = view === 'home'
 
+  useEffect(() => {
+    const root = stripRef.current
+    const scroller = root?.querySelector<HTMLElement>('.tab-strip-scroll')
+    if (!root || !scroller) return
+    const source = bindPluginDragSource(root, target => {
+      if (target.closest('.close')) return null
+      const element = target.closest<HTMLElement>('[data-plugin-id]')
+      return element?.dataset.pluginId ? { element, pluginId: element.dataset.pluginId } : null
+    })
+    const target = bindPluginDropTarget(root, {
+      kind: 'shell', scroller,
+      items: () => Array.from(scroller.querySelectorAll<HTMLElement>('[data-plugin-id]'))
+    })
+    return () => { source(); target.dispose() }
+  }, [])
+
   // 仅在 tabs 增加时对新 Tab 播放入场动画，避免重渲染/关闭时误触发
   useEffect(() => {
     const ctx = gsap.context(() => {
-      if (tabs.length > prevCount.current) {
-        const last = tabs[tabs.length - 1]
+      for (const tab of tabs.filter(item => !previousIds.current.has(item.id))) {
         const node = Array.from(stripRef.current?.querySelectorAll<HTMLElement>('[data-tab]') ?? [])
-          .find((item) => item.dataset.tab === last.id)
+          .find((item) => item.dataset.tab === tab.id)
         animateTabIn(node ?? null)
       }
     }, stripRef)
-    prevCount.current = tabs.length
+    previousIds.current = new Set(tabs.map(tab => tab.id))
     return () => ctx.revert()
   }, [tabs])
 
@@ -63,6 +80,7 @@ export function TabStrip() {
               key={tab.id}
               type="button"
               data-tab={tab.id}
+              data-plugin-id={tab.pluginId}
               title={hint}
               className={`tab${active ? ' active' : ''}${stateClass}`}
               onClick={() => void activateTab(tab.id)}

@@ -4,7 +4,7 @@
  * 与 tsconfig.node.json / tsconfig.web.json 的 paths 保持一致。
  */
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
-import { build as buildVite, type Plugin } from 'vite'
+import { build as buildVite, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'node:path'
 
@@ -23,7 +23,7 @@ const DEV_RENDERER_PORT = 27319
 
 /** Sandboxed windows only support a self-contained CommonJS preload. */
 function sandboxedPreloads(): Plugin {
-  const entries = ['shellPreload', 'pluginPreload', 'recorderPreload', 'regionOverlayPreload', 'pinPreload']
+  const entries = ['shellPreload', 'pluginPreload', 'recorderPreload', 'regionOverlayPreload', 'pinPreload', 'detachedPluginPreload']
   return {
     name: 'enest:sandboxed-preloads',
     async generateBundle(_options, bundle) {
@@ -79,8 +79,17 @@ ${code}`, map: null }
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = { ...loadEnv(mode, process.cwd(), 'ENEST_'), ...process.env }
+  return {
   main: {
+    define: {
+      __ENEST_AUTH__: JSON.stringify({
+        githubClientId: env.ENEST_GITHUB_CLIENT_ID || '',
+        githubTokenExchangeUrl: env.ENEST_GITHUB_TOKEN_EXCHANGE_URL || '',
+        githubDeviceFlow: env.ENEST_GITHUB_DEVICE_FLOW === '1',
+      }),
+    },
     plugins: [externalizeDepsPlugin(), safeMainEsmShims()],
     resolve: {
       alias: sharedAlias
@@ -105,6 +114,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           shellPreload: r('src/preload/shellPreload.ts'),
+          detachedPluginPreload: r('src/preload/detachedPluginPreload.ts'),
           pluginPreload: r('src/preload/pluginPreload.ts')
         }
       }
@@ -125,9 +135,11 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: r('src/renderer/index.html'),
-          'orb-overlay': r('src/renderer/orb-overlay.html')
+          'orb-overlay': r('src/renderer/orb-overlay.html'),
+          'detached-plugin': r('src/renderer/detached-plugin.html')
         }
       }
     }
+  }
   }
 })

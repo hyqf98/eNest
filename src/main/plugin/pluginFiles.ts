@@ -3,8 +3,8 @@ import { mkdir, readFile, readdir, stat, writeFile, rename, rm } from 'node:fs/p
 import { join, basename } from 'node:path'
 import { dialog } from 'electron'
 import { getAppPaths } from '@main/paths/pathsService'
-import { acquireQuickInteraction, getQuickWindow } from '@main/window/createQuickWindow'
-import { getMainWindow } from '@main/window/createShellWindow'
+import { acquireQuickInteraction } from '@main/window/createQuickWindow'
+import { pluginHost } from '@main/plugin/PluginHost'
 import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 
 const queues = new Map<string, { tail: Promise<unknown>; count: number }>()
@@ -86,15 +86,16 @@ export async function savePluginFile(pluginId: string, input: SaveInput): Promis
   let payload: SaveInput | null = { ...input }
   // Release the IPC argument before awaiting a native dialog that may outlive its owner.
   input = {}
+  const releaseWindow = pluginHost.acquireWindowInteraction(pluginId)
   saving.add(pluginId)
   const releaseFocus = acquireQuickInteraction(), releaseActivity = scope.acquireActivity('saving file')
   let rejectAbort: (reason: Error) => void = () => {}
   const aborted = new Promise<never>((_, reject) => { rejectAbort = reject })
-  const abort = () => { payload = null; releaseFocus(); releaseActivity(); rejectAbort(new Error('保存已取消：插件已关闭')) }
+  const abort = () => { payload = null; releaseWindow(); releaseFocus(); releaseActivity(); rejectAbort(new Error('保存已取消：插件已关闭')) }
   scope.signal.addEventListener('abort', abort, { once: true })
   try {
     const options = { defaultPath: basename(payload.defaultName || payload.filename || 'export.txt') }
-    const quick = getQuickWindow(), win = quick?.isFocused() ? quick : getMainWindow()
+    const win = pluginHost.getContainerWindow(pluginId)
     const picked = await Promise.race([win && !win.isDestroyed() ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options), aborted])
     current(scope)
     if (picked.canceled || !picked.filePath || !payload) return null
@@ -105,5 +106,5 @@ export async function savePluginFile(pluginId: string, input: SaveInput): Promis
     try { await writeFile(temporary, data, { signal: scope.signal }); current(scope); await rename(temporary, picked.filePath) }
     catch (error) { await rm(temporary, { force: true }); throw error }
     return { ok: true, path: picked.filePath }
-  } finally { payload = null; scope.signal.removeEventListener('abort', abort); saving.delete(pluginId); releaseFocus(); releaseActivity() }
+  } finally { payload = null; scope.signal.removeEventListener('abort', abort); saving.delete(pluginId); releaseWindow(); releaseFocus(); releaseActivity() }
 }

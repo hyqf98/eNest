@@ -6,7 +6,7 @@
  * ?surface=quick 时渲染快捷启动小窗，不加载市场壳子。
  * 依赖：useTheme、useFont、useI18n、shellStore、marketMotion.initMotion、QuickLauncherApp。
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ShellLayout } from '@renderer/layout/ShellLayout'
 import { NotificationHost } from '@renderer/components/NotificationHost'
 import { Splash } from '@renderer/components/Splash'
@@ -15,7 +15,7 @@ import { useTheme } from '@renderer/hooks/useTheme'
 import { useFont } from '@renderer/hooks/useFont'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { useAnimationLevel } from '@renderer/hooks/useAnimationLevel'
-import { useShellStore, registerSessionFlushOnHide } from '@renderer/stores/shellStore'
+import { useShellStore } from '@renderer/stores/shellStore'
 import { initMotion } from '@renderer/gsap/marketMotion'
 
 function isQuickSurface(): boolean {
@@ -32,13 +32,14 @@ export default function App() {
   const hydrateTabStyle = useShellStore((s) => s.hydrateTabStyle)
   const hydrateSessionTabs = useShellStore((s) => s.hydrateSessionTabs)
   const [splashDone, setSplashDone] = useState(false)
+  const [previewSplash, setPreviewSplash] = useState(false)
+  const bootRef = useRef<HTMLDivElement>(null)
+  const previewOpenerRef = useRef<HTMLElement | null>(null)
   const quick = isQuickSurface()
 
   useEffect(() => {
     if (quick) return
     initMotion()
-    // 退出/页面隐藏时立即落 sessionTabs（400ms debounce 的兜底，防丢最后一次变更）
-    const unregisterSessionFlush = registerSessionFlushOnHide()
     // 主题最先水合，减少首屏色相跳变；Tab 样式（圆轨悬浮窗）等 Splash 结束后再同步
     void (async () => {
       await hydrateTheme()
@@ -47,8 +48,24 @@ export default function App() {
       void hydrateAnimLevel()
       void refreshPlugins()
     })()
-    return unregisterSessionFlush
   }, [quick, hydrateTheme, hydrateFont, hydrateI18n, hydrateAnimLevel, refreshPlugins])
+
+  useEffect(() => {
+    const preview = () => {
+      previewOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      setPreviewSplash(true)
+    }
+    window.addEventListener('enest:preview-splash', preview)
+    return () => window.removeEventListener('enest:preview-splash', preview)
+  }, [])
+
+  useEffect(() => {
+    if (bootRef.current) bootRef.current.inert = previewSplash
+    if (!previewSplash) {
+      previewOpenerRef.current?.focus()
+      previewOpenerRef.current = null
+    }
+  }, [previewSplash])
 
   // Splash 结束后：水合 Tab 样式，并恢复会话 Tab
   //（插件列表已由首个 effect 刷新；hydrateSessionTabs 内含 plugins 为空时再刷新的兜底）
@@ -65,9 +82,10 @@ export default function App() {
   return (
     <>
       {!splashDone && <Splash onDone={() => setSplashDone(true)} />}
-      {/* Splash 未结束时壳子先不参与交互，减少叠影 */}
-      <div className={`app-boot${splashDone ? ' ready' : ''}`} aria-hidden={!splashDone}>
-        <ShellLayout />
+      {splashDone && previewSplash && <Splash preview onDone={() => setPreviewSplash(false)} />}
+      {/* Mount the workspace after startup so its entrance and background start visibly. */}
+      <div ref={bootRef} className={`app-boot${splashDone ? ' ready' : ''}`} aria-hidden={!splashDone || previewSplash}>
+        {splashDone && <ShellLayout />}
       </div>
       <NotificationHost />
     </>

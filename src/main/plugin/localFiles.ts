@@ -116,6 +116,7 @@ export async function pickLocalFiles(pluginId: string, options: LocalFilePickOpt
   if (!['file', 'directory', 'any'].includes(kind)) throw new Error('invalid selection kind')
   const properties: Array<'openFile' | 'openDirectory' | 'multiSelections'> = kind === 'directory' ? ['openDirectory'] : kind === 'any' ? ['openFile', 'openDirectory'] : ['openFile']
   if (options.multiple) properties.push('multiSelections')
+  const releaseWindow = pluginHost.acquireWindowInteraction(pluginId)
   const releaseFocus = acquireQuickInteraction()
   const releaseActivity = acquirePluginActivity(pluginId, `picker:${randomUUID()}`, '本地文件选择')
   const pickers = activePickers.get(pluginId) ?? new Set<() => void>()
@@ -126,6 +127,7 @@ export async function pickLocalFiles(pluginId: string, options: LocalFilePickOpt
     active = false
     pickers.delete(release)
     if (activePickers.get(pluginId) === pickers && !pickers.size) activePickers.delete(pluginId)
+    releaseWindow()
     releaseFocus()
     releaseActivity()
   }
@@ -142,6 +144,7 @@ export async function pickLocalFiles(pluginId: string, options: LocalFilePickOpt
 /** A save picker grants exactly one new or existing destination, never its siblings. */
 export async function pickLocalSaveFile(pluginId: string, options: { defaultName?: string } = {}): Promise<LocalFileHandle | null> {
   const assertOwner = guardOwner(pluginId), parent = pluginHost.getContainerWindow(pluginId)
+  const releaseWindow = pluginHost.acquireWindowInteraction(pluginId)
   const releaseActivity = acquirePluginActivity(pluginId, `picker:${randomUUID()}`, '选择文件保存位置')
   const releaseFocus = acquireQuickInteraction()
   const pickers = activePickers.get(pluginId) ?? new Set<() => void>()
@@ -151,7 +154,7 @@ export async function pickLocalSaveFile(pluginId: string, options: { defaultName
     if (!active) return
     active = false; pickers.delete(release)
     if (activePickers.get(pluginId) === pickers && !pickers.size) activePickers.delete(pluginId)
-    releaseFocus(); releaseActivity()
+    releaseWindow(); releaseFocus(); releaseActivity()
   }
   pickers.add(release)
   try {
@@ -188,10 +191,14 @@ export async function localFilesFromDrop(pluginId: string, paths: string[]): Pro
   const assertOwner = guardOwner(pluginId)
   const parent = pluginHost.getContainerWindow(pluginId)
   if (!parent || parent.isDestroyed()) throw new Error('plugin window unavailable')
-  const answer = await dialog.showMessageBox(parent, { type: 'question', message: '允许插件读取这些拖入的文件？', detail: paths.slice(0, 20).join('\n'), buttons: ['取消', '允许读取'], defaultId: 0, cancelId: 0 })
-  assertOwner()
-  if (answer.response !== 1) return []
-  return Promise.all([...new Set(paths)].map((path) => grantLocalFile(pluginId, path, { writable: false })))
+  const releaseWindow = pluginHost.acquireWindowInteraction(pluginId)
+  const releaseFocus = acquireQuickInteraction()
+  try {
+    const answer = await dialog.showMessageBox(parent, { type: 'question', message: '允许插件读取这些拖入的文件？', detail: paths.slice(0, 20).join('\n'), buttons: ['取消', '允许读取'], defaultId: 0, cancelId: 0 })
+    assertOwner()
+    if (answer.response !== 1) return []
+    return Promise.all([...new Set(paths)].map((path) => grantLocalFile(pluginId, path, { writable: false })))
+  } finally { releaseWindow(); releaseFocus() }
 }
 
 function dirnameOf(path: string): string {
@@ -375,11 +382,12 @@ export function startLocalDrag(pluginId: string, exportId: string): boolean {
     if (!info.isFile() && !info.isDirectory()) throw new Error('prepared drag file no longer exists')
   }
   endLocalDrag(pluginId)
+  const releaseWindow = pluginHost.acquireWindowInteraction(pluginId)
   const releaseFocus = acquireQuickInteraction()
   const releaseActivity = acquirePluginActivity(pluginId, `drag:${exportId}`, '原生文件拖出')
   const timer = setTimeout(() => endLocalDrag(pluginId), 60_000)
   timer.unref()
-  activeDrags.set(pluginId, () => { clearTimeout(timer); releaseFocus(); releaseActivity() })
+  activeDrags.set(pluginId, () => { clearTimeout(timer); releaseWindow(); releaseFocus(); releaseActivity() })
   // All asynchronous preparation precedes the user's drag gesture.
   try { wc.startDrag({ file: item.paths[0], files: item.paths, icon: item.icon }); return true }
   catch (error) { endLocalDrag(pluginId); throw error }

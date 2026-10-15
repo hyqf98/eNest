@@ -66,9 +66,10 @@ export function PluginHostChrome() {
         </div>
       )}
       {!pluginReady && !pluginError && (
-        <div className="plugin-body">
-          <div className="isolate-panel">
-            <h2>正在启动 {tab.title}…</h2>
+        <div className="plugin-body plugin-launch-body">
+          <div className="plugin-launch-state" role="status" aria-live="polite">
+            <span className="plugin-launch-spinner" aria-hidden="true" />
+            <span>正在启动 <strong>{tab.title}</strong>…</span>
           </div>
         </div>
       )}

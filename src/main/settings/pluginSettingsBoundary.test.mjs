@@ -31,22 +31,22 @@ const reserved = ['permissionGrants', '__proto__', 'prototype', 'constructor']
 test('registering a business setting cannot grant sensitive permissions or mutate prototypes', async () => {
   const id = 'com.test.settings-boundary'
   const bridge = new PluginSettingsBridge()
-  await store.setPermissionGrant(id, 'fs.read', 'deny')
+  await store.setPermissionGrant(id, 'config.agent.read', 'deny')
   bridge.register(id, { id: 'business', title: 'Business', items: [
-    ...reserved.map(key => ({ key, type: 'text', label: key, default: { 'fs.read': 'allow' } })),
+    ...reserved.map(key => ({ key, type: 'text', label: key, default: { 'config.agent.read': 'allow' } })),
     { key: 'density', type: 'text', label: 'Density', default: 'compact' }
   ] })
   assert.deepEqual(bridge.listAll().find(section => section.pluginId === id).items.map(item => item.key), ['density'])
   for (const key of reserved) {
     assert.equal(bridge.get(id, key), undefined)
-    assert.throws(() => bridge.set(id, key, { 'fs.read': 'allow' }), /reserved plugin settings key/)
-    await assert.rejects(store.setPluginSetting(id, key, { 'fs.read': 'allow' }), /reserved plugin settings key/)
+    assert.throws(() => bridge.set(id, key, { 'config.agent.read': 'allow' }), /reserved plugin settings key/)
+    await assert.rejects(store.setPluginSetting(id, key, { 'config.agent.read': 'allow' }), /reserved plugin settings key/)
   }
-  assert.equal(store.getPermissionGrant(id, 'fs.read'), 'deny')
+  assert.equal(store.getPermissionGrant(id, 'config.agent.read'), 'deny')
   assert.equal(store.getPermissionGrant(id, 'sys.control'), 'ask')
   await store.setPluginSetting(id, 'density', 'comfortable')
   assert.deepEqual(store.getPluginSettings(id), { density: 'comfortable' })
-  assert.deepEqual(store.getPermissionGrants(id), { 'fs.read': 'deny' })
+  assert.deepEqual(store.getPermissionGrants(id), { 'config.agent.read': 'deny' })
   store.flushNow()
 })
 
@@ -57,7 +57,7 @@ test('legacy manifest sections and persisted bags cannot expose host fields or a
     { key: 'prefs', type: 'text', label: 'Preferences', default: 'default' }
   ] }] })
   await store.setAll({ plugins: {
-    [id]: JSON.parse('{"permissionGrants":{"fs.read":"deny"},"__proto__":{"polluted":true},"constructor":"hidden","prototype":"hidden","prefs":{"value":7}}'),
+    [id]: JSON.parse('{"permissionGrants":{"config.agent.read":"deny"},"__proto__":{"polluted":true},"constructor":"hidden","prototype":"hidden","prefs":{"value":7}}'),
     'com.test.settings-other': { prefs: 'other plugin value' }
   } })
   const bridge = new PluginSettingsBridge()

@@ -50,6 +50,7 @@ interface EmqxMgmt {
   base: string
   username: string
   password: string
+  insecureTls?: boolean
 }
 
 interface MqttRuntime {
@@ -100,17 +101,18 @@ async function probeEmqx(config: MwConnectionConfig, password?: string): Promise
   const apiSecret = emqx.apiSecretRef || password || ''
   const base = (emqx.apiUrl ?? '').replace(/\/$/, '')
   if (!/^https?:\/\//.test(base)) return { error: 'EMQX 管理端点必须以 http(s):// 开头' }
-  const auth = { basicAuth: { username: apiKey, password: apiSecret }, insecureTls: true, timeoutMs: 8000 }
+  const insecureTls = config.tlsRejectUnauthorized === false
+  const auth = { basicAuth: { username: apiKey, password: apiSecret }, insecureTls, timeoutMs: 8000 }
   if (emqx.version !== 'v4') {
     try {
       await mwHttpJson(`${base}/api/v5/status`, auth)
-      return { mgmt: { version: 'v5', base, username: apiKey, password: apiSecret } }
+      return { mgmt: { version: 'v5', base, username: apiKey, password: apiSecret, insecureTls } }
     } catch { /* 落到 v4 */ }
   }
   if (emqx.version !== 'v5') {
     try {
       await mwHttpJson(`${base}/api/v4/brokers`, auth)
-      return { mgmt: { version: 'v4', base, username: apiKey, password: apiSecret } }
+      return { mgmt: { version: 'v4', base, username: apiKey, password: apiSecret, insecureTls } }
     } catch { /* 报错 */ }
   }
   return { error: 'EMQX 管理面探测失败（v5/v5 均不可达或凭据无效）' }
@@ -128,7 +130,7 @@ function upgradeCaps(caps: Record<string, MwCapability>, mgmt: EmqxMgmt): void {
 }
 
 function emqxAuth(mgmt: EmqxMgmt) {
-  return { basicAuth: { username: mgmt.username, password: mgmt.password }, insecureTls: true }
+  return { basicAuth: { username: mgmt.username, password: mgmt.password }, insecureTls: mgmt.insecureTls === true }
 }
 
 function unwrap<T>(data: unknown): T {

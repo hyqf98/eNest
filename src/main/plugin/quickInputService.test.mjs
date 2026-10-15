@@ -171,3 +171,52 @@ test('输入有边界，关闭中的实例拒绝配置，未知动作被拒绝',
     false,
   )
 })
+
+test('independent compact inputs keep their values and route updates to their own chrome', async () => {
+  const a = scope('mini-a'), b = scope('mini-b')
+  scope('plugin')
+  const detached = new Set(['mini-a', 'mini-b']), published = [], focused = []
+  api.bindQuickInputHost({
+    current: () => state.current,
+    owns: id => id === state.current || detached.has(id),
+    detached: id => detached.has(id),
+    publish: (id, event) => published.push({ id, event }),
+    focus: id => focused.push(id),
+    send: (id, event) => state.sent.push({ id, event }),
+    dismiss: id => state.dismissed.push(id)
+  })
+  api.configureQuickInput('mini-a', { value: 'alpha' })
+  api.configureQuickInput('mini-b', { value: 'beta' })
+  api.configureQuickInput('plugin', { value: 'global' })
+  api.clearQuickInput()
+  assert.equal(api.getQuickInputState('mini-a').value, 'alpha')
+  assert.equal(api.getQuickInputState('mini-b').value, 'beta')
+  assert.equal(api.escapeQuickInput('mini-a'), true)
+  assert.equal(api.getQuickInputState('mini-a').value, '')
+  assert.deepEqual(focused, ['mini-a'])
+  api.escapeQuickInput('mini-a')
+  assert.deepEqual(focused, ['mini-a', 'mini-a'])
+  assert.deepEqual(state.dismissed, [])
+  assert.equal(api.getQuickInputState('mini-b').value, 'beta')
+  assert.equal(published.at(-1).id, 'mini-a')
+  await a.dispose()
+  assert.equal(api.getQuickInputState('mini-a'), null)
+  assert.equal(api.getQuickInputState('mini-b').generation, b.owner.generation)
+})
+
+test('a compact input survives placement migration but is released on changing layout to shell', () => {
+  scope('plugin')
+  let detached = false, mode = 'quick'
+  api.bindQuickInputHost({
+    current: () => state.current,
+    owns: id => mode === 'quick' && (id === state.current || detached && id === 'plugin'),
+    detached: () => detached,
+    send: (id, event) => state.sent.push({ id, event }),
+    dismiss: id => state.dismissed.push(id)
+  })
+  api.configureQuickInput('plugin', { value: 'keep me' })
+  detached = true; state.current = null
+  assert.equal(api.getQuickInputState('plugin').value, 'keep me')
+  mode = 'shell'
+  assert.equal(api.getQuickInputState('plugin'), null)
+})
