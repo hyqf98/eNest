@@ -64,7 +64,8 @@ export async function buildLinuxHelper({ source, outputDir }) {
     await writeFile(join(libraryDir, 'gio', 'modules', 'README.txt'), 'Intentionally no GIO extension modules. Keep this directory in packaged builds to isolate the bundled GIO from system modules.\n')
     await mkdir(licenseDir)
     run('patchelf', ['--version'])
-    const flags = run('pkg-config', ['--cflags', '--libs', 'gio-2.0', 'json-glib-1.0', 'x11', 'xtst']).split(/\s+/)
+    // gio-unix-2.0 提供 gio/gunixfdlist.h 等平台头文件，gio-2.0 不含
+    const flags = run('pkg-config', ['--cflags', '--libs', 'gio-2.0', 'gio-unix-2.0', 'json-glib-1.0', 'x11', 'xtst']).split(/\s+/)
     execFileSync('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', '-O2', source, '-o', helper, '-Wl,-rpath,$ORIGIN/lib', ...flags], { env: cleanEnvironment, stdio: 'inherit' })
     run('patchelf', ['--set-rpath', '$ORIGIN/lib', helper])
     const libraries = parseDependencies(run('ldd', [helper]))

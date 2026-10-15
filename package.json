@@ -77,6 +77,11 @@
   "engines": {
     "node": ">=20"
   },
+  "overrides": {
+    "@electron/rebuild": {
+      "node-gyp": "^11.5.0"
+    }
+  },
   "author": {
     "name": "eNest",
     "email": "dev@enest.local"
