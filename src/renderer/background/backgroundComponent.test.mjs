@@ -97,6 +97,10 @@ test('background component owns StrictMode canvases and video resources', {
       assert.equal(await layer.evaluate(element => element.style.backgroundImage), '')
       assert.equal(await layer.evaluate(element => element.style.backgroundColor), 'rgb(221, 119, 34)')
       assert.equal(await page.evaluate(() => engineEntries.length), started)
+      const canvas = await page.evaluate(() => { window.retainedCanvas = document.querySelector('canvas'); return engineEntries.length })
+      await page.evaluate(() => renderEffect({ effect: { ...preset, name: 'Refreshed pack label' } }))
+      assert.equal(await page.evaluate(() => engineEntries.length), canvas, 'fresh descriptor objects from appearance broadcasts retain their GPU owner')
+      assert.equal(await page.evaluate(() => document.querySelector('canvas') === retainedCanvas), true)
       await page.evaluate(async () => {
         componentBackground = { type: 'image', value: 'example.png', opacity: 1, fit: 'cover' }
         await renderEffect({ effect: preset })
@@ -147,6 +151,9 @@ test('background component owns StrictMode canvases and video resources', {
       })
       assert.equal(await page.locator('video').count(), 1)
       assert.ok(await page.evaluate(() => mediaCalls.play) > 0)
+      const activeCalls = await page.evaluate(() => ({ ...mediaCalls }))
+      await page.evaluate(() => renderEffect({ effect: { ...videoEffect, name: 'Refreshed video label' } }))
+      assert.deepEqual(await page.evaluate(() => ({ ...mediaCalls })), activeCalls, 'metadata refresh does not reload the active decoder')
       const before = await page.evaluate(() => mediaCalls.release)
       await page.evaluate(() => document.querySelector('video').dispatchEvent(new Event('error')))
       await page.waitForTimeout(30)

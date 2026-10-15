@@ -14,6 +14,7 @@ const adapters = {
     setQuickHotkeys:config=>{if(state.writeFailure)throw Error('write failed');state.quick={...state.quick,...structuredClone(config)}},
     getPluginShortcuts:()=>{state.settingsReads++;return structuredClone(state.bindings)},
     setPluginShortcuts:bindings=>{if(state.writeFailure)throw Error('write failed');state.bindings=structuredClone(bindings)},
+    setShortcutConfiguration:(bindings,quick)=>{if(state.writeFailure)throw Error('write failed');state.bindings=structuredClone(bindings);if(quick)state.quick={...state.quick,...structuredClone(quick)}},
     getPluginLaunchSettings:()=>({}),getPluginLaunchConfig:()=>undefined,getPluginLaunchRevision:()=>0,setPluginLaunch:async()=>{}
   };`,
   '@main/plugin/PluginRegistry': `import {state} from 'test-state';export const pluginRegistry={get:id=>state.plugins.get(id),onInstalledChanged:listener=>{state.listeners.add(listener);return ()=>state.listeners.delete(listener)}};`,
@@ -402,4 +403,162 @@ test('many saved shortcuts register without loading any plugin or affecting unre
   await api.savePluginShortcut({ ...state.bindings[0], mode: 'shell' })
   assert.deepEqual(state.registerCalls, [])
   assert.deepEqual(state.unregisterCalls, [])
+})
+
+test('confirmed plugin replacement disables the original binding and transfers the existing native callback', async () => {
+  const original = await api.savePluginShortcut(input('Control+1'))
+  const probe = api.probePluginShortcut('Ctrl+1')
+  assert.ok(probe.overrideToken)
+  state.registerCalls.length = state.unregisterCalls.length = 0
+  const replacement = await api.savePluginShortcut(input('Control+1', 'shell', { pluginId: 'two', overrideToken: probe.overrideToken }))
+  assert.equal(replacement.ok, true)
+  assert.equal(state.bindings.find(item => item.id === original.binding.id).enabled, false)
+  assert.equal(api.getHotkeyOwner('Control+1').id, replacement.binding.id)
+  assert.deepEqual(state.registerCalls, [])
+  assert.deepEqual(state.unregisterCalls, [])
+  assert.equal('overrideToken' in state.bindings[1], false)
+  state.keys.get('Control+1')(); await flush()
+  assert.equal(state.launches[0].pluginId, 'two')
+  assert.equal(state.launches[0].mode, 'shell')
+})
+
+test('confirmed plugin to Quick and Quick to plugin replacements persist both owners together', async () => {
+  api.initQuickHotkeys()
+  const first = await api.savePluginShortcut(input('Alt+Space', 'quick', { overrideToken: api.probePluginShortcut('Alt+Space').overrideToken }))
+  assert.equal(first.ok, true)
+  assert.equal(state.quick.enabled, false)
+  assert.equal(api.getHotkeyOwner('Alt+Space').id, first.binding.id)
+  assert.ok(state.events.some(event => event.type === 'quick-config-changed' && !event.enabled))
+  const probe = api.probeHotkey('Alt+Space')
+  assert.equal(probe.free, false)
+  assert.equal(probe.conflict.ownerBindingId, first.binding.id)
+  const second = api.saveQuickHotkeys({ enabled: true, activeHotkey: 'Alt+Space', overrideToken: probe.conflict.overrideToken })
+  assert.equal(second.ok, true)
+  assert.equal(state.quick.enabled, true)
+  assert.equal(state.bindings[0].enabled, false)
+  assert.equal(api.getHotkeyOwner('Alt+Space').kind, 'quick')
+  state.keys.get('Alt+Space')()
+  assert.deepEqual(state.launches, [{ quick: true }])
+})
+
+test('changed conflict owners, expired confirmations and reused tokens cannot replace a different binding', async t => {
+  const first = await api.savePluginShortcut(input('Control+1'))
+  const probe = api.probePluginShortcut('Control+1')
+  await api.savePluginShortcut({ ...first.binding, mode: 'shell' })
+  const stale = await api.savePluginShortcut(input('Control+1', 'quick', { pluginId: 'two', overrideToken: probe.overrideToken }))
+  assert.equal(stale.ok, false)
+  assert.match(stale.error, /变化或确认已过期/)
+  assert.equal(state.bindings.length, 1)
+  const fresh = stale.probe.overrideToken
+  const now = Date.now()
+  const mocked = t.mock.method(Date, 'now', () => now + 300_001)
+  const expired = await api.savePluginShortcut(input('Control+1', 'quick', { overrideToken: fresh }))
+  assert.equal(expired.ok, false)
+  mocked.mock.restore()
+  const token = api.probePluginShortcut('Control+1').overrideToken
+  const results = await Promise.all([
+    api.savePluginShortcut(input('Control+1', 'shell', { pluginId: 'two', overrideToken: token })),
+    api.savePluginShortcut(input('Control+1', 'quick', { overrideToken: token }))
+  ])
+  assert.deepEqual(results.map(item => item.ok), [true, false])
+  assert.equal(state.bindings.filter(binding => binding.enabled).length, 1)
+})
+
+test('runtime and system conflicts never return replacement tokens or accept unrelated confirmations', async () => {
+  await api.savePluginShortcut(input('Control+1'))
+  const token = api.probePluginShortcut('Control+1').overrideToken
+  api.registerRuntimeHotkey('two', 'Control+2', () => {})
+  state.blocked.add('Control+3')
+  for (const key of ['Control+2', 'Control+3']) {
+    const probe = api.probePluginShortcut(key)
+    assert.equal(probe.overrideToken, undefined)
+    assert.equal((await api.savePluginShortcut(input(key, 'quick', { overrideToken: token }))).ok, false)
+  }
+  assert.equal(api.getHotkeyOwner('Control+2').kind, 'runtime')
+  assert.equal(state.bindings.length, 1)
+})
+
+test('replacement persistence failures restore all original owners, callbacks and both preference sections', async () => {
+  api.initQuickHotkeys()
+  const first = await api.savePluginShortcut(input('Control+1'))
+  const before = { bindings: structuredClone(state.bindings), quick: structuredClone(state.quick) }
+  const originalPlugin = api.getOwnedHotkey({ kind: 'shortcut', id: first.binding.id })
+  const originalQuick = api.getOwnedHotkey({ kind: 'quick', id: 'launcher' })
+  state.writeFailure = true
+  const plugin = await api.savePluginShortcut(input('Control+1', 'shell', { pluginId: 'two', overrideToken: api.probePluginShortcut('Control+1').overrideToken }))
+  assert.equal(plugin.ok, false)
+  const quickTaken = await api.savePluginShortcut(input('Alt+Space', 'shell', { overrideToken: api.probePluginShortcut('Alt+Space').overrideToken }))
+  assert.equal(quickTaken.ok, false)
+  const pluginTaken = api.saveQuickHotkeys({ hotkeys: ['Control+1'], activeHotkey: 'Control+1', overrideToken: api.probeHotkey('Control+1').conflict.overrideToken })
+  assert.equal(pluginTaken.ok, false)
+  assert.deepEqual(state.bindings, before.bindings)
+  assert.deepEqual(state.quick, before.quick)
+  assert.equal(api.getOwnedHotkey(originalPlugin.owner).onFire, originalPlugin.onFire)
+  assert.equal(api.getOwnedHotkey(originalQuick.owner).onFire, originalQuick.onFire)
+  assert.equal(state.keys.size, 2)
+})
+
+test('native replacement failure after a lost capture restore preserves the old owner configuration', async () => {
+  const first = await api.savePluginShortcut(input('Control+1'))
+  const capture = api.beginShortcutCapture(12)
+  state.blocked.add('Control+1')
+  api.endShortcutCapture(capture, 12)
+  const result = await api.savePluginShortcut(input('Control+1', 'shell', { pluginId: 'two', overrideToken: api.probePluginShortcut('Control+1').overrideToken }))
+  assert.equal(result.ok, false)
+  assert.deepEqual(state.bindings, [first.binding])
+  assert.equal(api.getHotkeyOwner('Control+1').id, first.binding.id)
+})
+
+test('Wayland probe is silent and successful submission stays pending until the real shortcut fires', async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+  const previousSession = process.env.XDG_SESSION_TYPE
+  Object.defineProperty(process, 'platform', { value: 'linux' })
+  process.env.XDG_SESSION_TYPE = 'wayland'
+  try {
+    const probe = api.probeHotkey('Control+1')
+    assert.equal(probe.free, true)
+    assert.match(probe.hint, /尚未检查系统占用/)
+    assert.deepEqual(state.registerCalls, [])
+    const quick = api.saveQuickHotkeys({ hotkeys: ['Control+1'], activeHotkey: 'Control+1' })
+    assert.equal(quick.systemConfirmationRequired, true)
+    assert.deepEqual(quick.registered, [])
+    const plugin = await api.savePluginShortcut(input('Control+2'))
+    assert.equal(plugin.snapshot.states[0].status, 'pending-system')
+    state.keys.get('Control+1')(); state.keys.get('Control+2')(); await flush()
+    assert.equal(api.getQuickHotkeyConfig().systemConfirmationRequired, false)
+    assert.deepEqual(api.getQuickHotkeyConfig().registered, ['Control+1'])
+    assert.equal(api.getPluginShortcuts().states[0].status, 'registered')
+  } finally {
+    Object.defineProperty(process, 'platform', descriptor)
+    if (previousSession === undefined) delete process.env.XDG_SESSION_TYPE; else process.env.XDG_SESSION_TYPE = previousSession
+  }
+})
+
+test('invalid Quick patches cannot bypass validation through a valid replacement confirmation', async () => {
+  api.initQuickHotkeys()
+  const saved = await api.savePluginShortcut(input('Control+1'))
+  const token = api.probeHotkey('Control+1').conflict.overrideToken
+  const previous = structuredClone(state.quick)
+  for (const patch of [null, [], { enabled: 'true' }, { enabled: 1 }, { activeHotkey: {} }, { hotkeys: 'Control+1' }, { overrideToken: {} }]) {
+    const request = patch && !Array.isArray(patch) ? { hotkeys: ['Control+1'], activeHotkey: 'Control+1', overrideToken: token, ...patch } : patch
+    assert.equal(api.saveQuickHotkeys(request).ok, false)
+    assert.equal(api.applyQuickHotkeys(request).ok, false)
+    assert.deepEqual(state.quick, previous)
+    assert.deepEqual(state.bindings, [saved.binding])
+  }
+  assert.equal(api.saveQuickHotkeys({ hotkeys: ['Control+1'], activeHotkey: 'Control+1', overrideToken: token }).ok, true)
+})
+
+test('failed Quick replacement returns a fresh confirmation that can be retried immediately', async () => {
+  api.initQuickHotkeys()
+  const saved = await api.savePluginShortcut(input('Control+1'))
+  const originalToken = api.probeHotkey('Control+1').conflict.overrideToken
+  state.writeFailure = true
+  const failed = api.saveQuickHotkeys({ hotkeys: ['Control+1'], activeHotkey: 'Control+1', overrideToken: originalToken })
+  assert.equal(failed.ok, false)
+  assert.equal(failed.probe.ownerBindingId, saved.binding.id)
+  assert.ok(failed.probe.overrideToken)
+  assert.notEqual(failed.probe.overrideToken, originalToken)
+  state.writeFailure = false
+  assert.equal(api.saveQuickHotkeys({ hotkeys: ['Control+1'], activeHotkey: 'Control+1', overrideToken: failed.probe.overrideToken }).ok, true)
 })

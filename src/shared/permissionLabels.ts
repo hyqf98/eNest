@@ -6,6 +6,7 @@
 import type { PluginPermission } from '@shared/types/plugin'
 
 export const PERMISSION_LABELS: Record<PluginPermission, string> = {
+  'backend.node': '运行本机后端（可访问文件、网络和系统）',
   'clipboard.read': '读取剪贴板',
   'clipboard.write': '写入剪贴板',
   'clipboard.readImage': '读取剪贴板图片',

@@ -7,6 +7,7 @@
  * 依赖：shellApi.getPathForFile / installPlugin。
  */
 import { useEffect, useRef, useState } from 'react'
+import { notify } from '@renderer/services/notifyService'
 import { shellApi } from '@renderer/services/shellApi'
 
 export interface UseInstallDropResult {
@@ -35,6 +36,7 @@ export function useInstallDrop(): UseInstallDropResult {
   const counter = useRef(0)
 
   useEffect(() => {
+    if (window.enestInstallNative) return
     const onDragEnter = (e: DragEvent): void => {
       if (!isFileDrag(e)) return
       e.preventDefault()
@@ -65,11 +67,10 @@ export function useInstallDrop(): UseInstallDropResult {
       if (!files || files.length === 0) return
       for (let i = 0; i < files.length; i++) {
         const path = filePathOf(files[i])
-        if (!path) continue
-        // 失败结果统一走主进程 install-result → toast
-        void shellApi.installPlugin(path).catch(() => {
-          /* toast handled by shell event */
-        })
+        if (!path) { notify.error('当前环境无法读取拖入的文件，请在 eNest 桌面应用中安装'); continue }
+        if (!/\.(zip|enestplugin)$/i.test(path)) { notify.warn('请选择 .zip 或 .enestplugin 插件包'); continue }
+        // 安装结果由主进程事件统一展示在安装面板中。
+        void shellApi.installPlugin(path).catch(error => { notify.error(error instanceof Error ? error.message : '安装请求失败，请重试') })
       }
     }
 

@@ -24,6 +24,35 @@ test('Quick and orb retain only their assigned channels',()=>{
   assert.throws(()=>api.assertSurfaceSender(event,api.IpcChannels.ShellSetSettings),/capability/)
  }
 })
+test('notification surfaces can only measure, dismiss their cards and request safe host link opening', () => {
+ const {event} = surface('notification')
+ for (const channel of ['NotificationState', 'NotificationMeasure', 'NotificationDismiss', 'NotificationOpenLink']) {
+  assert.doesNotThrow(() => api.assertSurfaceSender(event, api.IpcChannels[channel]))
+ }
+ for (const channel of ['NotificationShow', 'ShellGetSettings', 'ShellSetSettings', 'ShellOpenPlugin', 'ShellInstallPlugin', 'QuickInput']) {
+  assert.throws(() => api.assertSurfaceSender(event, api.IpcChannels[channel]), /capability/)
+ }
+ for (const role of ['shell', 'quick', 'detached']) {
+  assert.doesNotThrow(() => api.assertSurfaceSender(surface(role).event, api.IpcChannels.NotificationShow))
+ }
+})
+test('opening a local path is restricted to the trusted main shell surface', () => {
+ const {event} = surface('shell')
+ assert.doesNotThrow(() => api.assertSurfaceSender(event, api.IpcChannels.ShellOpenPath))
+ for (const role of ['quick', 'orb', 'detached']) {
+  assert.throws(() => api.assertSurfaceSender(surface(role).event, api.IpcChannels.ShellOpenPath), /capability/)
+ }
+ assert.throws(() => api.assertSurfaceSender({sender:{id:987654,isDestroyed:()=>false},senderFrame:{}}, api.IpcChannels.ShellOpenPath), /untrusted/)
+})
+test('installation surfaces cannot read settings, launch plugins or request arbitrary host installation', () => {
+ const {event} = surface('install')
+ for (const channel of ['InstallDropState', 'InstallDropFiles', 'InstallSurfaceReady', 'InstallSurfaceDismiss']) {
+  assert.doesNotThrow(() => api.assertSurfaceSender(event, api.IpcChannels[channel]))
+ }
+ for (const channel of ['ShellGetSettings', 'ShellSetSettings', 'ShellOpenPlugin', 'ShellInstallPlugin', 'NotificationShow']) {
+  assert.throws(() => api.assertSurfaceSender(event, api.IpcChannels[channel]), /capability/)
+ }
+})
 test('surface navigation is pinned and safe shell links cannot create privileged windows',async()=>{
  const {wc}=surface();let prevented=false
  wc.emit('will-navigate',{preventDefault:()=>{prevented=true}},'https://evil.example/');assert.equal(prevented,true)

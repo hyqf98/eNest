@@ -1,3 +1,4 @@
+import { raiseTransientViews } from '@main/window/transientViews'
 import { pathToFileURL } from 'node:url'
 import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
 /**
@@ -207,6 +208,7 @@ export function raiseOrbRailViews(): void {
     cv.removeChildView(view)
     cv.addChildView(view)
   }
+  raiseTransientViews(win)
 }
 
 /** rail 视图展开/收起：切换宽度（renderer CSS 动画先行，这里跟进 bounds） */

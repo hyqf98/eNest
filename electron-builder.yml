@@ -21,17 +21,24 @@ files:
   - package.json
   # node-gyp's local Python symlinks are build tools, not runtime dependencies.
   - '!**/node_modules/**/build/node_gyp_bins{,/**/*}'
+  - '!**/*.map'
 
 asar: true
+# 壳支持中英文；保留 Chromium 必需运行文件及许可证。
+electronLanguages: [en-US, zh-CN, zh-TW]
+afterPack: tools/packaging/after-pack.mjs
 extraResources:
   - from: assets/icons
     to: icons
+    filter: [enest-icon-256.png, dock-runtime.png]
   - from: native/bin
     to: native
 
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
 mac:
+  # macOS .lproj 使用下划线；26.x 同时裁剪 app 与 Framework 中的语言包。
+  electronLanguages: [en, zh_CN, zh_TW]
   category: public.app-category.productivity
   # electron-builder 使用 build 下的 icon.icns / icon.png
   icon: build/icon.icns
@@ -52,10 +59,12 @@ win:
 
 linux:
   icon: build/icon.png
+  syncDesktopName: true
   category: Utility
   synopsis: Plugin-based desktop shell
   desktop:
-    StartupWMClass: enest
+    entry:
+      StartupWMClass: com.enest.shell
   # AppImage 支持 electron-updater；deb 仅作分发安装包
   target:
     - target: AppImage

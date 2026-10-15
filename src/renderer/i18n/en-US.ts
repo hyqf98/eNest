@@ -52,6 +52,8 @@ const enUS: EnDict = {
     emptySearch: 'No plugins found',
     emptyHint: 'Try another category or keyword',
     pluginsCount: '{n}',
+    morePlugins: 'Show {n} more',
+    collapseCategory: 'Show less',
   },
   settings: {
     title: 'Settings',
@@ -62,7 +64,7 @@ const enUS: EnDict = {
       welcome: "Sign in to eNest",
       hint: "Choose how to sign in. Your name and avatar will appear across your workspace.",
       continueWith: "Continue with {provider}",
-      unavailable: "GitHub sign-in is coming soon. It is unavailable in this build.",
+      unavailable: "GitHub sign-in is not configured in this build. Click to see what is missing.",
       browserNote: "Authorize in your default browser and return automatically",
       localNote: "Your local workspace is available without signing in",
       waitingTitle: "Continue in your browser",

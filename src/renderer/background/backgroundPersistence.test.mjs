@@ -39,6 +39,7 @@ async function realBridge() {
   const store = new SettingsStore()
   await store.load()
   const context = vm.createContext({
+    process: { isMainFrame: true },
     invoke: async (channel, value) => {
       if (channel === 'shell:get-theme') return { ...store.getTheme(), packs: [] }
       if (channel === 'shell:set-theme') return store.setTheme(value)

@@ -4,12 +4,11 @@ import { pickLocalFiles, pickLocalSaveFile, resolveLocalFileHandle } from '@main
 /** Main-process DB facade. Permissions, secret resolution and native pickers stay
  * here; drivers, SQL, CSV and result conversion run in a per-runtime utility. */
 import { utilityProcess, type UtilityProcess } from 'electron'
-import { fileURLToPath } from 'node:url'
+import { resolvePluginBackendEntry } from '@main/plugin/pluginBackend'
 import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { resolveSecret } from '@main/vault/secretVault'
 import { logWarn } from '@main/logs/logService'
-import { listDialects } from '@main/database/dialects'
-import type * as Api from '@main/database/dbService'
+import type { DatabaseBackendApi as Api } from '@main/database/backendApi'
 import type { DbConnectionConfig, DbSessionInfo } from '@shared/types/ssh-db'
 import type { DbWorkbenchRequest } from '@shared/types/db-workbench'
 
@@ -115,7 +114,7 @@ function serviceFor(pluginId: string): Service {
     terminate(old, 'database runtime replaced')
     if (!old.exited) throw new Error('Previous database utility is retiring; wait for its exit before reconnecting')
   }
-  const child = utilityProcess.fork(fileURLToPath(new URL('./dbUtility.js', import.meta.url)), [], {
+  const child = utilityProcess.fork(resolvePluginBackendEntry(pluginId), [], {
     serviceName: `eNest DB ${pluginId} #${scope.owner.generation}`,
     stdio: 'ignore',
     execArgv: ['--max-old-space-size=256'],
@@ -249,7 +248,7 @@ async function withPassword(pluginId: string, config: DbConnectionConfig): Promi
   return resolved
 }
 
-export const dbOpen: typeof Api.dbOpen = async (pluginId, input) => {
+export const dbOpen: Api['dbOpen'] = async (pluginId, input) => {
   const scope = requireScope(pluginId)
   const release = scope.acquireActivity('db:open')
   try {
@@ -262,13 +261,13 @@ export const dbOpen: typeof Api.dbOpen = async (pluginId, input) => {
     return session
   } finally { release() }
 }
-export const dbTest: typeof Api.dbTest = async (pluginId, config) => {
+export const dbTest: Api['dbTest'] = async (pluginId, config) => {
   const scope = requireScope(pluginId)
   const resolved = await withPassword(pluginId, config)
   if (!scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
   return rpc(pluginId, 'dbTest', [resolved], 15_000)
 }
-export const dbClose: typeof Api.dbClose = async (pluginId, key) => {
+export const dbClose: Api['dbClose'] = async (pluginId, key) => {
   const service = services.get(pluginId)
   if (!service) return true
   const connection = service.connections.get(key), transaction = service.transactions.get(key)
@@ -284,14 +283,14 @@ export function dbListSessions(pluginId: string): Promise<DbSessionInfo[]> {
   const service = services.get(pluginId)
   return service ? listSessions(service) : Promise.resolve([])
 }
-export const dbExecute: typeof Api.dbExecute = async (pluginId, input) => {
+export const dbExecute: Api['dbExecute'] = async (pluginId, input) => {
   const service = serviceFor(pluginId)
-  const result = await rpc<Awaited<ReturnType<typeof Api.dbExecute>>>(pluginId, 'dbExecute', [input], Math.max(250, Math.min(600000, Number(input.timeoutMs) || 30000)) + 500)
+  const result = await rpc<Awaited<ReturnType<Api['dbExecute']>>>(pluginId, 'dbExecute', [input], Math.max(250, Math.min(600000, Number(input.timeoutMs) || 30000)) + 500)
   transactionLease(service, input.sessionKey, result.transactionActive === true)
   return result
 }
-export const dbExplain: typeof Api.dbExplain = (pluginId, input) => rpc(pluginId, 'dbExplain', [input])
-export const dbCancel: typeof Api.dbCancel = async (pluginId, key) => {
+export const dbExplain: Api['dbExplain'] = (pluginId, input) => rpc(pluginId, 'dbExplain', [input])
+export const dbCancel: Api['dbCancel'] = async (pluginId, key) => {
   const service = services.get(pluginId)
   if (!service) return true
   // Cancellation may preserve a native connection or close it. Reconcile with
@@ -303,20 +302,20 @@ export const dbCancel: typeof Api.dbCancel = async (pluginId, key) => {
   }
   catch (error) { terminate(service, 'database cancellation failed; service reset'); await waitForExit(service); throw error }
 }
-export const dbApplyChanges: typeof Api.dbApplyChanges = (pluginId, input) => rpc(pluginId, 'dbApplyChanges', [input])
-export const dbSchemaTree: typeof Api.dbSchemaTree = (pluginId, input) => rpc(pluginId, 'dbSchemaTree', [input])
-export const dbSchemaDescribe: typeof Api.dbSchemaDescribe = (pluginId, input) => rpc(pluginId, 'dbSchemaDescribe', [input])
-export const dbSchemaDdl: typeof Api.dbSchemaDdl = (pluginId, input) => rpc(pluginId, 'dbSchemaDdl', [input])
-export const dbCompletion: typeof Api.dbCompletion = (pluginId, input) => rpc(pluginId, 'dbCompletion', [input])
-export function dbDialectsList(pluginId?: string) { return pluginId ? rpc(pluginId, 'dbDialectsList', []) : listDialects() }
-export const dbImportPreview: typeof Api.dbImportPreview = async (pluginId, input) => {
+export const dbApplyChanges: Api['dbApplyChanges'] = (pluginId, input) => rpc(pluginId, 'dbApplyChanges', [input])
+export const dbSchemaTree: Api['dbSchemaTree'] = (pluginId, input) => rpc(pluginId, 'dbSchemaTree', [input])
+export const dbSchemaDescribe: Api['dbSchemaDescribe'] = (pluginId, input) => rpc(pluginId, 'dbSchemaDescribe', [input])
+export const dbSchemaDdl: Api['dbSchemaDdl'] = (pluginId, input) => rpc(pluginId, 'dbSchemaDdl', [input])
+export const dbCompletion: Api['dbCompletion'] = (pluginId, input) => rpc(pluginId, 'dbCompletion', [input])
+export const dbDialectsList: Api['dbDialectsList'] = (pluginId) => rpc(pluginId, 'dbDialectsList', [])
+export const dbImportPreview: Api['dbImportPreview'] = async (pluginId, input) => {
   const scope = requireScope(pluginId)
   if ('filePath' in input) throw new Error('raw import paths are not supported; select fileHandleId')
   const filePath = input.fileHandleId ? await resolveLocalFileHandle(pluginId, input.fileHandleId, 'read') : undefined
   if (!scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
   return rpc(pluginId, 'dbImportPreview', [{ ...input, filePath }])
 }
-export const dbImportRun: typeof Api.dbImportRun = async (pluginId, input) => {
+export const dbImportRun: Api['dbImportRun'] = async (pluginId, input) => {
   const scope = requireScope(pluginId)
   if ('filePath' in input) throw new Error('raw import paths are not supported; select fileHandleId')
   const filePath = input.fileHandleId ? await resolveLocalFileHandle(pluginId, input.fileHandleId, 'read') : undefined

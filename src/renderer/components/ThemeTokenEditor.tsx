@@ -17,7 +17,6 @@ export function ThemeTokenEditor({ tokens, onSetToken, onReset }: Props) {
   return (
     <div className="s-card">
       <h2>颜色微调</h2>
-      <p className="hint">点击色块打开色卡，修改立即作用于整个壳子</p>
       <div className="token-grid">
         {EDITABLE_TOKENS.map((t) => {
           const raw = tokens[t.key]
@@ -26,8 +25,7 @@ export function ThemeTokenEditor({ tokens, onSetToken, onReset }: Props) {
           return (
             <div className="token-box" key={t.key}>
               <div className="token-meta">
-                <div className="token-label">{t.label}</div>
-                <code>{t.key}</code>
+                <div className="token-label" title={t.key}>{t.label}</div>
               </div>
               <div className="token-right">
                 <span className="token-hex">{v}</span>

@@ -12,7 +12,7 @@ interface Props {
   value: string
   onChange: (value: string) => void
   plugins: PluginSummary[]
-  onDetail: (id: string) => void
+  onDetail: (id: string, origin?: HTMLElement | null) => void
   onBrowseAll: () => void
 }
 
@@ -117,9 +117,13 @@ export function HomeSearch({ value, onChange, plugins, onDetail, onBrowseAll }: 
     setSelectedId(entries[index]?.id ?? null)
     resultsRef.current?.querySelector<HTMLElement>(`[data-home-result-index="${index}"]`)?.scrollIntoView({ block: 'nearest' })
   }
-  const open = async (entry: HomeSearchEntry) => {
+  const open = async (entry: HomeSearchEntry, origin?: HTMLElement | null) => {
     if (openingRef.current || (entry.kind === 'command' && loading)) return
-    if (entry.kind === 'market') { onDetail(entry.plugin.id); return }
+    if (entry.kind === 'market') {
+      const index = entries.findIndex(item => item.id === entry.id)
+      onDetail(entry.plugin.id, origin ?? resultsRef.current?.querySelector<HTMLElement>(`[data-home-result-index="${index}"]`) ?? null)
+      return
+    }
     const request = homeSearchOpenRequest(entry.command, value)
     if (!request) return
     openingRef.current = true
@@ -213,7 +217,7 @@ export function HomeSearch({ value, onChange, plugins, onDetail, onBrowseAll }: 
             return <button key={entry.id} id={`${listId}-${index}`} type="button" role="option" aria-selected={selected?.id === entry.id}
               className={`home-search-result${selected?.id === entry.id ? ' is-selected' : ''}`} data-home-result-index={index} data-home-result-id={entry.id}
               tabIndex={0} disabled={opening !== null} onFocus={() => setSelectedId(entry.id)} onPointerMove={() => setSelectedId(entry.id)}
-              onKeyDown={onKeyDown} onClick={() => void open(entry)}>
+              onKeyDown={onKeyDown} onClick={(event) => void open(entry, event.currentTarget)}>
               <span className="home-search-icon"><PluginIcon src={icon} glyph={Array.from(title)[0]} size={38} /></span>
               <span className="home-search-copy"><span className="home-search-title">{title}</span><span className="home-search-subtitle">{subtitle}</span></span>
               <span className="home-search-kind">{kindLabel(entry)}</span>

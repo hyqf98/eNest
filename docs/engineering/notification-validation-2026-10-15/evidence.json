@@ -1,0 +1,188 @@
+{
+  "platform": "darwin",
+  "containers": [
+    {
+      "container": "shell",
+      "notice": {
+        "id": 3,
+        "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/notification-overlay.html",
+        "bounds": {
+          "x": 362,
+          "y": 327,
+          "width": 476,
+          "height": 147
+        },
+        "visible": true,
+        "topIndex": 2,
+        "plugin": false
+      },
+      "screenshot": "enest-native-notification-shell.png",
+      "safe": {
+        "unsafe": 0,
+        "source": "通知验收插件",
+        "bridge": "undefined"
+      },
+      "metrics": {
+        "height": 147,
+        "scroll": 147,
+        "box": {
+          "x": 0,
+          "y": 0,
+          "width": 476,
+          "height": 146.8125,
+          "top": 0,
+          "right": 476,
+          "bottom": 146.8125,
+          "left": 0
+        },
+        "card": {
+          "x": 9,
+          "y": 9,
+          "width": 458,
+          "height": 128.8125,
+          "top": 9,
+          "right": 467,
+          "bottom": 137.8125,
+          "left": 9
+        },
+        "root": {
+          "x": 0,
+          "y": 0,
+          "width": 476,
+          "height": 146.8125,
+          "top": 0,
+          "right": 476,
+          "bottom": 146.8125,
+          "left": 0
+        }
+      }
+    },
+    {
+      "container": "quick",
+      "notice": {
+        "id": 5,
+        "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/notification-overlay.html",
+        "bounds": {
+          "x": 300,
+          "y": 364,
+          "width": 410,
+          "height": 171
+        },
+        "visible": true,
+        "topIndex": 1,
+        "plugin": false
+      },
+      "screenshot": "enest-native-notification-quick.png",
+      "safe": {
+        "unsafe": 0,
+        "source": "通知验收插件",
+        "bridge": "undefined"
+      },
+      "metrics": {
+        "height": 171,
+        "scroll": 171,
+        "box": {
+          "x": 0,
+          "y": 0,
+          "width": 410,
+          "height": 170.953125,
+          "top": 0,
+          "right": 410,
+          "bottom": 170.953125,
+          "left": 0
+        },
+        "card": {
+          "x": 9,
+          "y": 9,
+          "width": 392,
+          "height": 152.953125,
+          "top": 9,
+          "right": 401,
+          "bottom": 161.953125,
+          "left": 9
+        },
+        "root": {
+          "x": 0,
+          "y": 0,
+          "width": 410,
+          "height": 170.953125,
+          "top": 0,
+          "right": 410,
+          "bottom": 170.953125,
+          "left": 0
+        }
+      }
+    },
+    {
+      "container": "detached",
+      "notice": {
+        "id": 7,
+        "url": "file:///Users/haijun/Work/frontend/eNest/out/renderer/notification-overlay.html",
+        "bounds": {
+          "x": 121,
+          "y": 231,
+          "width": 476,
+          "height": 119
+        },
+        "visible": true,
+        "topIndex": 2,
+        "plugin": false
+      },
+      "screenshot": "enest-native-notification-detached.png",
+      "safe": {
+        "unsafe": 0,
+        "source": "通知验收插件",
+        "bridge": "undefined"
+      },
+      "metrics": {
+        "height": 119,
+        "scroll": 119,
+        "box": {
+          "x": 0,
+          "y": 0,
+          "width": 476,
+          "height": 118.671875,
+          "top": 0,
+          "right": 476,
+          "bottom": 118.671875,
+          "left": 0
+        },
+        "card": {
+          "x": 9,
+          "y": 9,
+          "width": 458,
+          "height": 100.671875,
+          "top": 9,
+          "right": 467,
+          "bottom": 109.671875,
+          "left": 9
+        },
+        "root": {
+          "x": 0,
+          "y": 0,
+          "width": 476,
+          "height": 118.671875,
+          "top": 0,
+          "right": 476,
+          "bottom": 118.671875,
+          "left": 0
+        }
+      }
+    }
+  ],
+  "appearance": {
+    "liveThemeRefresh": true,
+    "liveAnimationRefresh": true
+  },
+  "lifecycle": {
+    "hiddenParentPausesExpiration": true,
+    "resumesRemainingDuration": true,
+    "pluginCloseDisposesNotification": true
+  },
+  "boundaries": {
+    "platform": "macOS only; Windows/Linux native behavior unverified",
+    "quickBlur": "The isolated Quick fixture removes its blur listener to avoid unrelated desktop focus hiding the test. Ordinary Quick blur-to-hide behavior is not covered.",
+    "images": "Native images capture individual notification WebContents, not a composited OS window. View ordering and container identity are asserted against native Electron view inventories.",
+    "profile": "Temporary data root and userData; removed when test finishes."
+  }
+}

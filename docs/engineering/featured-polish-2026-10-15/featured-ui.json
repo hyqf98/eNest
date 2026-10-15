@@ -1,0 +1,14 @@
+{
+  "status": "pass",
+  "catalogCount": 35,
+  "checks": [
+    "Uninstalled icon, title and description open anchored details",
+    "Installed left region and CTA launch exactly once; keyboard title works",
+    "Disabled installed plugins retain details/recovery behavior",
+    "Dragging the enlarged click region does not activate it",
+    "Forward/backward clone seam and Home navigation settle correctly",
+    "Reduced motion disables autoplay and preserves navigation",
+    "Real three-image repository gallery uses dots; selection survives clone wrap and preview does not launch"
+  ],
+  "errors": []
+}

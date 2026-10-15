@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { mkdtemp, readFile, writeFile, rm, symlink } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,20 +11,23 @@ import { spawn } from 'node:child_process'
 import { build } from 'esbuild'
 const require = createRequire(import.meta.url)
 const root = fileURLToPath(new URL('../../../', import.meta.url))
+const backend = join(root, 'eNest_plugin/plugins/com.enest.database/backend')
+const pluginModules = join(root, 'eNest_plugin/node_modules')
 
 test('real Electron utility isolates SQLite, bounds results and cancels a blocked worker', { skip: process.env.ENEST_ELECTRON_SMOKE !== '1', timeout: 25000 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'enest-db-smoke-'))
   try {
     await writeFile(join(dir, 'package.json'), '{"type":"module"}')
-    await symlink(join(root, 'node_modules'), join(dir, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+    await symlink(existsSync(pluginModules) ? pluginModules : join(root, 'node_modules'), join(dir, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
     const common = { bundle: true, platform: 'node', format: 'esm', packages: 'external', tsconfig: join(root, 'tsconfig.node.json') }
-    await build({ ...common, entryPoints: [join(root, 'src/main/database/dbUtility.ts')], outfile: join(dir, 'dbUtility.js') })
+    await build({ ...common, format: 'cjs', tsconfig: join(backend, 'tsconfig.json'), entryPoints: [join(backend, 'index.ts')], outfile: join(dir, 'plugin-backend.cjs') })
     const adapters = {
       '@main/window/createShellWindow': 'export const getMainWindow = () => null;',
       '@main/window/createQuickWindow': 'export const acquireQuickInteraction = () => () => {};',
       '@main/plugin/PluginHost': 'export const pluginHost = {getContainerWindow: () => null};',
       '@main/vault/secretVault': 'export const resolveSecret = () => undefined;',
-      '@main/logs/logService': 'export const logWarn = () => {};'
+      '@main/logs/logService': 'export const logWarn = () => {};',
+      '@main/plugin/pluginBackend': `export const resolvePluginBackendEntry = () => ${JSON.stringify(join(dir, 'plugin-backend.cjs'))};`
     }
     await build({ ...common, stdin: { resolveDir: root, contents: `
       import { app } from 'electron';
@@ -35,7 +39,7 @@ test('real Electron utility isolates SQLite, bounds results and cancels a blocke
       app.whenReady().then(async () => { app.dock?.hide(); console.log('ENEST_PHASE ready');
       try {
         const scope = createRuntimeScope({pluginId:'smoke',generation:1,wcId:1});
-        const opened = await dbOpen('smoke',{driver:'sqlite',filePath:':memory:'}); console.log('ENEST_PHASE opened');
+        const opened = await dbOpen('smoke',{driver:'sqlite',database:':memory:'}); console.log('ENEST_PHASE opened');
         const rows = await dbExecute('smoke',{sessionKey:opened.sessionKey,sql:'WITH RECURSIVE t(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM t WHERE x < 20) SELECT x FROM t',maxRows:3});
         const idleLeases=scope.activityCount;
         let ticks=0; const heartbeat=setInterval(()=>ticks++,10);

@@ -108,6 +108,8 @@ export interface ApplicationScanResult {
 }
 
 export interface QuickHotkeyConfig {
+  /** Wayland portals do not report actual activation; the first real key event confirms it. */
+  systemConfirmationRequired?: boolean
   enabled: boolean
   hotkeys: string[]
   platform: NodeJS.Platform
@@ -120,7 +122,15 @@ export interface QuickHotkeyConfig {
   error?: string
 }
 
+export interface QuickHotkeyPatch {
+  enabled?: boolean
+  hotkeys?: string[]
+  activeHotkey?: string
+  overrideToken?: string
+}
+
 export interface QuickHotkeyApplyResult {
+  systemConfirmationRequired?: boolean
   ok: boolean
   enabled: boolean
   hotkeys: string[]
@@ -130,6 +140,7 @@ export interface QuickHotkeyApplyResult {
   /** 当前生效键 */
   activeHotkey?: string
   error?: string
+  probe?: import('./shortcuts').ShortcutProbeResult
 }
 
 /** 录制时探测：free=可被本应用注册；hint=常见系统占用提示 */
@@ -139,4 +150,5 @@ export interface QuickHotkeyProbeResult {
   /** 已是本应用当前注册的键 */
   ours: boolean
   hint?: string
+  conflict?: import('./shortcuts').ShortcutProbeResult
 }

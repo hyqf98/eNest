@@ -66,14 +66,13 @@ export function FontSettingsSection() {
   return (
     <div className="s-card font-settings">
       <h2>{t('settings.font.title')}</h2>
-      <p className="hint">{t('settings.font.hint')}</p>
 
       {/* 字号：滑杆实时渲染，写 --font-size-base */}
       <div className="field" style={{ borderTop: 'none', paddingBottom: 8 }}>
         <div>
           <div className="label">字号</div>
           <p className="desc">
-            {fontSizeScale.toFixed(2)}× · 调整正文与界面文字大小，拖动即时生效
+            {fontSizeScale.toFixed(2)}×
           </p>
         </div>
         <div className="font-size-slider-row">
@@ -96,7 +95,6 @@ export function FontSettingsSection() {
       <div className="field">
         <div>
           <div className="label">英文字体</div>
-          <p className="desc">Latin 字符优先使用；「默认」时不单独指定</p>
         </div>
       </div>
       <div className="font-slot-row" role="listbox" aria-label="英文字体">
@@ -133,7 +131,6 @@ export function FontSettingsSection() {
       <div className="field">
         <div>
           <div className="label">中文字体</div>
-          <p className="desc">{t('settings.font.presetsDesc')}</p>
         </div>
       </div>
       <div className="font-slot-row" role="listbox" aria-label="中文字体">

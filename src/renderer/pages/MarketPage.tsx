@@ -1,5 +1,5 @@
 /** 插件市场：首页采用搜索、产品推荐、紧凑目录；筛选与安装仍使用壳子数据。 */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { useI18n } from '@renderer/hooks/useI18n'
@@ -7,11 +7,12 @@ import { HomeSearch } from '@renderer/components/HomeSearch'
 import { CategoryChips } from '@renderer/components/CategoryChips'
 import { SegmentTabs } from '@renderer/components/SegmentTabs'
 import { FeaturedCarousel } from '@renderer/components/FeaturedCarousel'
-import { PluginCard } from '@renderer/components/PluginCard'
+import { MarketCategorySection } from '@renderer/components/MarketCategorySection'
 import { PluginDetailModal } from '@renderer/components/PluginDetailModal'
 import { animateCards, playHeroIn } from '@renderer/gsap/marketMotion'
-import type { HomeCardContribution } from '@shared/types/plugin'
+import type { HomeCardContribution, PluginMarketStatus } from '@shared/types/plugin'
 import { matchesSearchTerms, normalizeSearchText } from '@shared/search'
+import { shellApi } from '@renderer/services/shellApi'
 
 const CATEGORY_I18N: Record<string, string> = {
   效率: 'market.catProductivity',
@@ -39,18 +40,32 @@ export function MarketPage() {
   const { t, locale } = useI18n()
   const scrollRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
-  const [detailId, setDetailId] = useState<string | null>(null)
+  const [detail, setDetail] = useState<{ id: string; origin: HTMLElement | null } | null>(null)
+  const handleDetail = useCallback((id: string, origin?: HTMLElement | null) => setDetail({ id, origin: origin ?? null }), [])
+  const closeDetail = useCallback(() => setDetail(null), [])
   const [loading, setLoading] = useState(plugins.length === 0)
   const [loadError, setLoadError] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [refreshing, setRefreshing] = useState(true)
+  const [marketStatus, setMarketStatus] = useState<PluginMarketStatus | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setLoadError(false)
-    void refreshPlugins().catch(() => {
+    setRefreshing(true)
+    void (async () => {
+      // Installed plugins are available immediately, including while the market is offline.
+      await refreshPlugins()
+      if (cancelled) return
+      setLoading(false)
+      const status = await shellApi.getMarketStatus(refreshKey > 0)
+      if (cancelled) return
+      setMarketStatus(status)
+      await refreshPlugins()
+    })().catch(() => {
       if (!cancelled) setLoadError(true)
     }).finally(() => {
-      if (!cancelled) setLoading(false)
+      if (!cancelled) { setLoading(false); setRefreshing(false) }
     })
     return () => { cancelled = true }
   }, [refreshPlugins, refreshKey])
@@ -71,7 +86,8 @@ export function MarketPage() {
 
   const categoryKeys = useMemo(() => {
     const categories = new Set(plugins.map((p) => p.category || '其它'))
-    return ['全部', ...categories]
+    return ['全部', ...Object.keys(CATEGORY_I18N).filter((key) => categories.has(key)),
+      ...Array.from(categories).filter((key) => !CATEGORY_I18N[key])]
   }, [plugins])
 
   const list = useMemo(() => {
@@ -79,9 +95,13 @@ export function MarketPage() {
     return plugins.filter((p) => {
       if (seg === 'installed' && !p.installed) return false
       if (category !== '全部' && (p.category || '其它') !== category) return false
-      return !q || matchesSearchTerms(`${p.name} ${p.description} ${p.id}`, q)
+      return !q || matchesSearchTerms(`${p.name} ${p.description} ${p.id} ${p.author} ${p.tags?.join(' ') ?? ''}`, q)
     })
   }, [plugins, query, category, seg])
+
+  const categoryGroups = useMemo(() => categoryKeys.slice(1)
+    .map((key) => ({ key, plugins: list.filter((plugin) => (plugin.category || '其它') === key) }))
+    .filter((group) => group.plugins.length > 0), [categoryKeys, list])
 
   useEffect(() => {
     if (category !== '全部' && !categoryKeys.includes(category)) setCategory('全部')
@@ -99,25 +119,53 @@ export function MarketPage() {
     return out
   }, [plugins])
 
-  // 推荐标记来自插件仓库；同优先级保持索引顺序，旧索引仍能展示。
-  const carouselItems = useMemo(() => [...plugins]
-    .sort((a, b) => Number(Boolean(b.featured)) - Number(Boolean(a.featured)))
-    .slice(0, 5), [plugins])
+  // Only repository-declared recommendations are promoted; preserve registry order.
+  const carouselItems = useMemo(() => plugins.filter((plugin) => plugin.featured === true).slice(0, 5), [plugins])
 
   const showFeatured = seg === 'browse' && category === '全部' && !query.trim()
   const searching = Boolean(query.trim())
-  const detailPlugin = detailId ? plugins.find((p) => p.id === detailId) ?? null : null
-  const handleOpen = (id: string) => { void openPlugin(id) }
+  const detailPlugin = detail ? plugins.find((p) => p.id === detail.id) ?? null : null
+  const handleOpen = useCallback((id: string) => { void openPlugin(id) }, [openPlugin])
+  useEffect(() => {
+    if (detail && !detailPlugin) closeDetail()
+  }, [detail, detailPlugin, closeDetail])
+  const english = locale === 'en-US'
+  const installedCount = plugins.filter((plugin) => plugin.installed).length
+  const unavailable = loadError || marketStatus?.state === 'offline'
+  const retry = () => setRefreshKey((key) => key + 1)
+  const waitingForCatalog = loading || (refreshing && plugins.length === 0)
 
   return (
     <section className="page page-home" aria-label={t('nav.market')}>
       <div className="home-scroll" ref={scrollRef}>
-        <HomeSearch value={query} onChange={setQuery} plugins={plugins} onDetail={setDetailId}
+        <header className="market-page-heading">
+          <div>
+            <h1>{english ? 'Plugin marketplace' : '插件市场'}</h1>
+            <p>{english ? `${plugins.length} plugins · ${installedCount} installed` : `${plugins.length} 个插件 · 已安装 ${installedCount} 个`}</p>
+          </div>
+          <button type="button" className="market-refresh" onClick={retry} disabled={refreshing} aria-busy={refreshing}>
+            {refreshing ? english ? 'Refreshing…' : '正在刷新…' : english ? 'Refresh marketplace' : '刷新市场'}
+          </button>
+        </header>
+        <HomeSearch value={query} onChange={setQuery} plugins={plugins} onDetail={handleDetail}
           onBrowseAll={() => { setQuery(''); setCategory('全部'); setSeg('browse') }} />
+
+        {unavailable && <div className="market-source-notice" role="status">
+          <span>{marketStatus?.catalogCount
+            ? english ? 'Marketplace unavailable. Showing the catalog loaded earlier; installed plugins remain available.' : '暂时无法连接插件市场，正在展示此前加载的目录；已安装插件仍可使用。'
+            : english ? 'Marketplace unavailable. Installed and local plugins remain available.' : '暂时无法连接插件市场，已安装及本地插件仍可使用。'}</span>
+          <button type="button" onClick={retry} disabled={refreshing}>{english ? 'Retry' : '重试'}</button>
+        </div>}
+        {marketStatus?.state === 'preview' && <div className="market-source-notice" role="status">
+          {english ? 'Browser preview · sample data for UI development only. Open the desktop app for the live marketplace.' : '浏览器预览 · 当前为界面开发示例数据，真实插件市场请在桌面应用中查看。'}
+        </div>}
 
         {!searching && <>
         {showFeatured && carouselItems.length > 0 && (
-          <FeaturedCarousel items={carouselItems} onOpen={handleOpen} onDetail={setDetailId} paused={detailId !== null} />
+          <section className="market-featured" aria-label={english ? 'Recommended by the plugin repository' : '插件仓库推荐'}>
+          <div className="market-featured-heading"><h2>{english ? 'Featured plugins' : '精选推荐'}</h2><span>{english ? 'From the plugin repository' : '来自插件仓库'}</span></div>
+          <FeaturedCarousel items={carouselItems} onOpen={handleOpen} onDetail={handleDetail} paused={detail !== null} />
+          </section>
         )}
 
         <div className="home-toolbar">
@@ -134,16 +182,17 @@ export function MarketPage() {
             <span>{query.trim() ? (locale === 'en-US' ? 'Search results' : '搜索结果') : seg === 'installed' ? t('market.installedPlugins') : (locale === 'en-US' ? 'Explore plugins' : '发现插件')}</span>
             <span>{t('market.pluginsCount', { n: list.length })}</span>
           </div>
-          <div className="grid market-grid" ref={gridRef} aria-busy={loading}>
-            {loading ? (
+          <div className="market-category-list" ref={gridRef} aria-busy={waitingForCatalog}>
+            {waitingForCatalog ? (
               <div className="market-loading" role="status">
                 <span>{t('common.loading')}</span>
                 <div className="market-skeletons" aria-hidden="true"><i /><i /><i /></div>
               </div>
-            ) : loadError && plugins.length === 0 ? (
+            ) : unavailable && plugins.length === 0 && seg === 'browse' ? (
               <div className="empty">
                 <strong>{locale === 'en-US' ? 'Unable to load plugins' : '暂时无法加载插件'}</strong>
-                <button className="btn btn-ghost" type="button" onClick={() => { setLoading(true); setRefreshKey((key) => key + 1) }}>
+                <span>{english ? 'Check your connection, then refresh the marketplace.' : '请检查网络连接后重新加载插件市场。'}</span>
+                <button className="btn btn-ghost" type="button" onClick={retry} disabled={refreshing}>
                   {locale === 'en-US' ? 'Try again' : '重新加载'}
                 </button>
               </div>
@@ -155,8 +204,9 @@ export function MarketPage() {
                   {t('market.viewAll')}
                 </button>
               </div>
-            ) : list.map((p) => (
-              <PluginCard key={p.id} plugin={p} onOpen={handleOpen} onDetail={setDetailId} />
+            ) : categoryGroups.map((group) => (
+              <MarketCategorySection key={`${seg}:${group.key}`} category={categoryLabel(group.key, t)}
+                plugins={group.plugins} onOpen={handleOpen} onDetail={handleDetail} />
             ))}
           </div>
         </section>
@@ -182,7 +232,7 @@ export function MarketPage() {
         )}
         </>}
       </div>
-      {detailPlugin && <PluginDetailModal plugin={detailPlugin} onClose={() => setDetailId(null)} onInstall={handleOpen} />}
+      {detailPlugin && <PluginDetailModal plugin={detailPlugin} origin={detail?.origin} onClose={closeDetail} onInstall={handleOpen} />}
     </section>
   )
 }

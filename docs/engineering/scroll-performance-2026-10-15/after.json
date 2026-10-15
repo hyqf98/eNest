@@ -1,0 +1,420 @@
+{
+  "phase": "after",
+  "fixture": "Actual 35-entry local registry; 1440x900 viewport at DPR 2; medium animation; native CDP mouse scroll gestures; no CPU throttling",
+  "browser": "155.0.8059.79",
+  "gpu": [
+    {
+      "vendorId": 4203,
+      "deviceId": 0,
+      "vendorString": "Google Inc. (Apple)",
+      "deviceString": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Version 27.0 (Build 26A428))",
+      "driverVendor": "Apple",
+      "driverVersion": "27.0"
+    }
+  ],
+  "rounds": [
+    {
+      "scenario": "home",
+      "round": 0,
+      "configuration": {
+        "scrollHeight": 2618,
+        "clientHeight": 864,
+        "blurSurfaces": [
+          {
+            "className": "titlebar",
+            "filter": "blur(20px) saturate(1.5)"
+          },
+          {
+            "className": "install-drop-overlay",
+            "filter": "blur(12px)"
+          }
+        ],
+        "level": "medium",
+        "background": "has-bg-media has-bg-effect"
+      },
+      "layers": 0,
+      "durationMs": 5703.300000190735,
+      "frames": 342,
+      "rafHz": 59.96528325505629,
+      "p95FrameMs": 16.700000000000728,
+      "framesOver25ms": 0,
+      "scrollEvents": 325,
+      "metrics": {
+        "TaskDuration": 0.3515759999999999,
+        "ScriptDuration": 0.068247,
+        "LayoutDuration": 0.0014040000000000025,
+        "RecalcStyleDuration": 0.005487000000000006,
+        "LayoutCount": 3,
+        "RecalcStyleCount": 41
+      },
+      "events": {
+        "Paint": {
+          "count": 42,
+          "totalMs": 5.854999999999999
+        },
+        "RasterTask": {
+          "count": 54,
+          "totalMs": 45.559999999999995
+        },
+        "Layout": {
+          "count": 7,
+          "totalMs": 1.5849999999999997
+        },
+        "UpdateLayoutTree": {
+          "count": 44,
+          "totalMs": 5.844000000000001
+        },
+        "PrePaint": {
+          "count": 358,
+          "totalMs": 26.909999999999986
+        },
+        "Layerize": {
+          "count": 334,
+          "totalMs": 7.104999999999994
+        },
+        "CompositeLayers": {
+          "count": 0,
+          "totalMs": 0
+        }
+      }
+    },
+    {
+      "scenario": "home",
+      "round": 1,
+      "configuration": {
+        "scrollHeight": 2618,
+        "clientHeight": 864,
+        "blurSurfaces": [
+          {
+            "className": "titlebar",
+            "filter": "blur(20px) saturate(1.5)"
+          },
+          {
+            "className": "install-drop-overlay",
+            "filter": "blur(12px)"
+          }
+        ],
+        "level": "medium",
+        "background": "has-bg-media has-bg-effect"
+      },
+      "layers": 0,
+      "durationMs": 5669.400000095367,
+      "frames": 338,
+      "rafHz": 59.61830175932451,
+      "p95FrameMs": 16.799999999999272,
+      "framesOver25ms": 2,
+      "scrollEvents": 324,
+      "metrics": {
+        "TaskDuration": 0.390126,
+        "ScriptDuration": 0.06933999999999996,
+        "LayoutDuration": 0.0015419999999999948,
+        "RecalcStyleDuration": 0.012329000000000007,
+        "LayoutCount": 7,
+        "RecalcStyleCount": 96
+      },
+      "events": {
+        "Paint": {
+          "count": 121,
+          "totalMs": 15.776000000000002
+        },
+        "RasterTask": {
+          "count": 153,
+          "totalMs": 15.458999999999998
+        },
+        "Layout": {
+          "count": 7,
+          "totalMs": 1.483
+        },
+        "UpdateLayoutTree": {
+          "count": 97,
+          "totalMs": 12.413000000000002
+        },
+        "PrePaint": {
+          "count": 352,
+          "totalMs": 33.15800000000004
+        },
+        "Layerize": {
+          "count": 334,
+          "totalMs": 20.675000000000058
+        },
+        "CompositeLayers": {
+          "count": 0,
+          "totalMs": 0
+        }
+      }
+    },
+    {
+      "scenario": "home",
+      "round": 2,
+      "configuration": {
+        "scrollHeight": 2618,
+        "clientHeight": 864,
+        "blurSurfaces": [
+          {
+            "className": "titlebar",
+            "filter": "blur(20px) saturate(1.5)"
+          },
+          {
+            "className": "install-drop-overlay",
+            "filter": "blur(12px)"
+          }
+        ],
+        "level": "medium",
+        "background": "has-bg-media has-bg-effect"
+      },
+      "layers": 0,
+      "durationMs": 5663.5,
+      "frames": 337,
+      "rafHz": 59.5038403813896,
+      "p95FrameMs": 16.700000000000728,
+      "framesOver25ms": 3,
+      "scrollEvents": 319,
+      "metrics": {
+        "TaskDuration": 0.4144270000000001,
+        "ScriptDuration": 0.07534100000000005,
+        "LayoutDuration": 0.0016569999999999988,
+        "RecalcStyleDuration": 0.013835,
+        "LayoutCount": 7,
+        "RecalcStyleCount": 95
+      },
+      "events": {
+        "Paint": {
+          "count": 121,
+          "totalMs": 18.701999999999988
+        },
+        "RasterTask": {
+          "count": 155,
+          "totalMs": 12.223999999999993
+        },
+        "Layout": {
+          "count": 7,
+          "totalMs": 1.5910000000000002
+        },
+        "UpdateLayoutTree": {
+          "count": 98,
+          "totalMs": 13.911000000000001
+        },
+        "PrePaint": {
+          "count": 353,
+          "totalMs": 36.662
+        },
+        "Layerize": {
+          "count": 334,
+          "totalMs": 23.041000000000054
+        },
+        "CompositeLayers": {
+          "count": 0,
+          "totalMs": 0
+        }
+      }
+    },
+    {
+      "scenario": "settings",
+      "round": 0,
+      "configuration": {
+        "scrollHeight": 2295,
+        "clientHeight": 864,
+        "blurSurfaces": [
+          {
+            "className": "titlebar",
+            "filter": "blur(20px) saturate(1.5)"
+          },
+          {
+            "className": "page page-settings",
+            "filter": "blur(5px) saturate(1.15)"
+          },
+          {
+            "className": "install-drop-overlay",
+            "filter": "blur(12px)"
+          }
+        ],
+        "level": "medium",
+        "background": "has-bg-media has-bg-effect"
+      },
+      "layers": 0,
+      "durationMs": 5671.299999713898,
+      "frames": 338,
+      "rafHz": 59.59832842858802,
+      "p95FrameMs": 16.700000000004366,
+      "framesOver25ms": 2,
+      "scrollEvents": 261,
+      "metrics": {
+        "TaskDuration": 0.224634,
+        "ScriptDuration": 0.023156000000000065,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 0
+      },
+      "events": {
+        "Paint": {
+          "count": 0,
+          "totalMs": 0
+        },
+        "RasterTask": {
+          "count": 4,
+          "totalMs": 16.09
+        },
+        "Layout": {
+          "count": 0,
+          "totalMs": 0
+        },
+        "UpdateLayoutTree": {
+          "count": 0,
+          "totalMs": 0
+        },
+        "PrePaint": {
+          "count": 343,
+          "totalMs": 21.715
+        },
+        "Layerize": {
+          "count": 329,
+          "totalMs": 0.5920000000000004
+        },
+        "CompositeLayers": {
+          "count": 0,
+          "totalMs": 0
+        }
+      }
+    },
+    {
+      "scenario": "settings",
+      "round": 1,
+      "configuration": {
+        "scrollHeight": 2295,
+        "clientHeight": 864,
+        "blurSurfaces": [
+          {
+            "className": "titlebar",
+            "filter": "blur(20px) saturate(1.5)"
+          },
+          {
+            "className": "page page-settings",
+            "filter": "blur(5px) saturate(1.15)"
+          },
+          {
+            "className": "install-drop-overlay",
+            "filter": "blur(12px)"
+          }
+        ],
+        "level": "medium",
+        "background": "has-bg-media has-bg-effect"
+      },
+      "layers": 0,
+      "durationMs": 5679.200000286102,
+      "frames": 340,
+      "rafHz": 59.8675869810663,
+      "p95FrameMs": 16.799999999995634,
+      "framesOver25ms": 0,
+      "scrollEvents": 265,
+      "metrics": {
+        "TaskDuration": 0.220904,
+        "ScriptDuration": 0.026375999999999955,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 0
+      },
+      "events": {
+        "Paint": {
+          "count": 0,
+          "totalMs": 0
+        },
+        "RasterTask": {
+          "count": 0,
+          "totalMs": 0
+        },
+        "Layout": {
+          "count": 0,
+          "totalMs": 0
+        },
+        "UpdateLayoutTree": {
+          "count": 0,
+          "totalMs": 0
+        },
+        "PrePaint": {
+          "count": 346,
+          "totalMs": 26.182999999999986
+        },
+        "Layerize": {
+          "count": 331,
+          "totalMs": 0.7590000000000005
+        },
+        "CompositeLayers": {
+          "count": 0,
+          "totalMs": 0
+        }
+      }
+    },
+    {
+      "scenario": "settings",
+      "round": 2,
+      "configuration": {
+        "scrollHeight": 2295,
+        "clientHeight": 864,
+        "blurSurfaces": [
+          {
+            "className": "titlebar",
+            "filter": "blur(20px) saturate(1.5)"
+          },
+          {
+            "className": "page page-settings",
+            "filter": "blur(5px) saturate(1.15)"
+          },
+          {
+            "className": "install-drop-overlay",
+            "filter": "blur(12px)"
+          }
+        ],
+        "level": "medium",
+        "background": "has-bg-media has-bg-effect"
+      },
+      "layers": 0,
+      "durationMs": 5680.199999809265,
+      "frames": 341,
+      "rafHz": 60.03309742816281,
+      "p95FrameMs": 16.799999999995634,
+      "framesOver25ms": 0,
+      "scrollEvents": 266,
+      "metrics": {
+        "TaskDuration": 0.15966099999999983,
+        "ScriptDuration": 0.020141999999999993,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 0
+      },
+      "events": {
+        "Paint": {
+          "count": 0,
+          "totalMs": 0
+        },
+        "RasterTask": {
+          "count": 0,
+          "totalMs": 0
+        },
+        "Layout": {
+          "count": 0,
+          "totalMs": 0
+        },
+        "UpdateLayoutTree": {
+          "count": 0,
+          "totalMs": 0
+        },
+        "PrePaint": {
+          "count": 345,
+          "totalMs": 17.888999999999978
+        },
+        "Layerize": {
+          "count": 306,
+          "totalMs": 0.4130000000000003
+        },
+        "CompositeLayers": {
+          "count": 0,
+          "totalMs": 0
+        }
+      }
+    }
+  ],
+  "errors": []
+}

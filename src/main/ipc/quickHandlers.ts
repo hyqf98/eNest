@@ -194,7 +194,7 @@ export function registerQuickHandlers(): void {
   })
 
   handleShellIpc(IpcChannels.QuickSetHotkeys,
-    (_e, payload: { enabled?: boolean; hotkeys?: string[]; activeHotkey?: string }) => saveQuickHotkeys(payload)
+    (_e, payload: import('@shared/types/quick').QuickHotkeyPatch) => saveQuickHotkeys(payload)
   )
 
   // 列表根据内容测量伸缩；插件始终使用宿主分配的最大内容区。

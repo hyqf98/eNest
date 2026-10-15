@@ -9,6 +9,7 @@
 
 * **能力**
   * [enest API](api.md)
+  * [插件本机后端](backend.md)
   * [TypeScript 类型](api-types.md)
   * [生命周期](lifecycle.md)
   * [UI 集成标准](ui-standard.md)

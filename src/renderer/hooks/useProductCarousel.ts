@@ -20,6 +20,10 @@ export function useProductCarousel(items: PluginSummary[], paused: boolean) {
   const suppressClick = useRef(false)
   const clickReset = useRef<ReturnType<typeof setTimeout>>()
   const drag = useRef<{ id: number; x: number; y: number; left: number; moved: boolean } | null>(null)
+  const slides = useRef<Array<{ node: HTMLElement; left: number; reveal: number }>>([])
+  const strideRef = useRef(1)
+  const presentationFrame = useRef(0)
+  const windowFocused = useRef(document.hasFocus())
   const [index, setIndex] = useState(0)
   const [moving, setMoving] = useState(false)
   const [dragging, setDragging] = useState(false)
@@ -27,11 +31,37 @@ export function useProductCarousel(items: PluginSummary[], paused: boolean) {
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const [visible, setVisible] = useState(true)
-  const [windowActive, setWindowActive] = useState(!document.hidden && document.hasFocus())
+  const [documentVisible, setDocumentVisible] = useState(!document.hidden)
   const [cycle, setCycle] = useState(0)
   const [announcement, setAnnouncement] = useState('')
   const reducedMotion = useReducedMotion()
   const itemIds = items.map((item) => item.id).join('|')
+  const suspended = paused || !visible || !documentVisible
+  const suspendedRef = useRef(suspended)
+  suspendedRef.current = suspended
+
+  // Cache geometry on layout changes. A frame only reads scrollLeft once, then
+  // updates presentation without React commits or per-slide layout reads.
+  const syncPresentation = useCallback(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const left = viewport.scrollLeft
+    for (const slide of slides.current) {
+      const reveal = Math.round(Math.max(0, 1 - Math.abs(slide.left - left) / strideRef.current) * 1000) / 1000
+      if (reveal === slide.reveal) continue
+      slide.reveal = reveal
+      slide.node.style.setProperty('--product-reveal', String(reveal))
+    }
+  }, [])
+
+  const measureSlides = useCallback(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    slides.current = Array.from(viewport.querySelectorAll<HTMLElement>('[data-product-position]'))
+      .map(node => ({ node, left: node.offsetLeft - 4, reveal: -1 }))
+    strideRef.current = Math.max(1, slides.current[1]?.left - slides.current[0]?.left || viewport.clientWidth)
+    syncPresentation()
+  }, [syncPresentation])
 
   const commit = useCallback((next: number) => {
     const count = itemsRef.current.length
@@ -45,6 +75,8 @@ export function useProductCarousel(items: PluginSummary[], paused: boolean) {
     tween.current?.kill()
     tween.current = null
     clearTimeout(settling.current)
+    if (presentationFrame.current) cancelAnimationFrame(presentationFrame.current)
+    presentationFrame.current = 0
     const viewport = viewportRef.current
     if (viewport) {
       viewport.style.removeProperty('scroll-snap-type')
@@ -76,6 +108,7 @@ export function useProductCarousel(items: PluginSummary[], paused: boolean) {
     const target = ((next % count) + count) % count
     const direction = Math.sign(next - indexRef.current)
     stop()
+    syncPresentation()
     commit(target)
     setCycle((value) => value + 1)
     if (!automatic) setAnnouncement(`${target + 1} / ${count} · ${itemsRef.current[target].name}`)
@@ -100,6 +133,7 @@ export function useProductCarousel(items: PluginSummary[], paused: boolean) {
       tween.current = null
       viewport.style.removeProperty('scroll-snap-type')
       viewport.style.removeProperty('opacity')
+      syncPresentation()
       setMoving(false)
     }
     viewport.style.scrollSnapType = 'none'
@@ -113,15 +147,17 @@ export function useProductCarousel(items: PluginSummary[], paused: boolean) {
     // 仅跳过非相邻的长距离翻页；首尾相邻项始终连续滑动。
     if (stride && distance > stride * 1.5) {
       viewport.scrollTo({ left, behavior: 'instant' })
+      syncPresentation()
       tween.current = gsap.fromTo(viewport, { opacity: 0.45 }, {
-        opacity: 1, duration: d(0.4), ease: ease('power3.out'), onComplete: finish,
+        opacity: 1, duration: d(0.4), ease: ease('sine.inOut'), onUpdate: syncPresentation, onComplete: finish,
       })
     } else {
       tween.current = gsap.to(viewport, {
-        scrollLeft: left, duration: d(0.5), ease: ease('power3.out'), onComplete: finish,
+        scrollLeft: left, duration: d(0.5), ease: ease('sine.inOut'), onUpdate: syncPresentation, onComplete: finish,
       })
     }
-  }, [commit, reducedMotion, stop])
+    if (suspendedRef.current) tween.current?.pause()
+  }, [commit, reducedMotion, stop, syncPresentation])
 
   const settle = useCallback(() => {
     if (tween.current || drag.current?.moved) return
@@ -132,9 +168,10 @@ export function useProductCarousel(items: PluginSummary[], paused: boolean) {
     if (viewport && physical !== indexRef.current) {
       viewport.scrollTo({ left: position(viewport, indexRef.current), behavior: 'instant' })
     }
+    syncPresentation()
     setMoving(false)
     setCycle((value) => value + 1)
-  }, [commit, nearest])
+  }, [commit, nearest, syncPresentation])
 
   useEffect(() => {
     // 阈值前尚未捕获指针；用户在区域外松开也必须释放手势状态。
@@ -154,6 +191,10 @@ export function useProductCarousel(items: PluginSummary[], paused: boolean) {
   }, [nearest, select])
 
   const onScroll = () => {
+    if (!presentationFrame.current) presentationFrame.current = requestAnimationFrame(() => {
+      presentationFrame.current = 0
+      syncPresentation()
+    })
     if (tween.current || drag.current) return
     setMoving(true)
     clearTimeout(settling.current)
@@ -167,9 +208,10 @@ export function useProductCarousel(items: PluginSummary[], paused: boolean) {
     commit(next)
     const viewport = viewportRef.current
     viewport?.scrollTo({ left: position(viewport, next), behavior: 'instant' })
+    measureSlides()
     setMoving(false)
     setCycle((value) => value + 1)
-  }, [itemIds, commit, stop])
+  }, [itemIds, commit, stop, measureSlides])
 
   useEffect(() => {
     const viewport = viewportRef.current
@@ -178,44 +220,61 @@ export function useProductCarousel(items: PluginSummary[], paused: boolean) {
     const resize = new ResizeObserver(() => {
       stop()
       viewport.scrollTo({ left: position(viewport, indexRef.current), behavior: 'instant' })
+      measureSlides()
       setMoving(false)
     })
     const intersection = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting && entry.intersectionRatio >= 0.25), { threshold: [0, 0.25] })
     resize.observe(viewport)
     intersection.observe(root)
     return () => { resize.disconnect(); intersection.disconnect(); stop(); clearTimeout(clickReset.current) }
-  }, [stop])
+  }, [stop, measureSlides])
 
   useEffect(() => {
-    const update = () => setWindowActive(!document.hidden && document.hasFocus())
-    document.addEventListener('visibilitychange', update)
-    window.addEventListener('focus', update)
-    window.addEventListener('blur', update)
-    return () => {
-      document.removeEventListener('visibilitychange', update)
-      window.removeEventListener('focus', update)
-      window.removeEventListener('blur', update)
+    const visibility = () => setDocumentVisible(!document.hidden)
+    const focus = () => { windowFocused.current = true }
+    const blur = () => {
+      windowFocused.current = false
+      // Native window blur does not deliver pointerleave or DOM focusout reliably.
+      // Clear interaction holds, but let an ordinary slide animation continue.
+      setHovered(false)
+      setFocused(false)
+      setTouching(false)
+      const gesture = drag.current
+      if (!gesture) return
+      drag.current = null
+      setDragging(false)
+      if (viewportRef.current?.hasPointerCapture(gesture.id)) viewportRef.current.releasePointerCapture(gesture.id)
+      select(nearest(), true)
     }
-  }, [])
+    document.addEventListener('visibilitychange', visibility)
+    window.addEventListener('focus', focus)
+    window.addEventListener('blur', blur)
+    return () => {
+      document.removeEventListener('visibilitychange', visibility)
+      window.removeEventListener('focus', focus)
+      window.removeEventListener('blur', blur)
+    }
+  }, [nearest, select])
 
   useEffect(() => {
-    if (windowActive) return
-    drag.current = null
-    setDragging(false)
-    setTouching(false)
-    stop()
-    commit(nearest())
-    const viewport = viewportRef.current
-    if (viewport) viewport.scrollTo({ left: position(viewport, indexRef.current), behavior: 'instant' })
-    setMoving(false)
-  }, [windowActive, commit, nearest, stop])
+    if (suspended) {
+      clearTimeout(settling.current)
+      const gesture = drag.current
+      drag.current = null
+      setDragging(false)
+      setTouching(false)
+      if (gesture && viewportRef.current?.hasPointerCapture(gesture.id)) viewportRef.current.releasePointerCapture(gesture.id)
+      tween.current?.pause()
+    } else if (tween.current?.paused()) tween.current.resume()
+    else settle()
+  }, [suspended, settle])
 
   // 系统要求减少动态效果时，立即收敛位移，不留下半页或透明度残值。
   useEffect(() => {
     if (reducedMotion) select(indexRef.current, true)
   }, [reducedMotion, select])
 
-  const running = items.length > 1 && !reducedMotion && !paused && !hovered && !focused && visible && windowActive && !moving && !dragging && !touching
+  const running = items.length > 1 && !reducedMotion && !suspended && !hovered && !focused && !moving && !dragging && !touching
   useEffect(() => {
     if (!running) return
     const timer = setTimeout(() => select(indexRef.current + 1, true), PRODUCT_DWELL_MS)
@@ -284,13 +343,13 @@ export function useProductCarousel(items: PluginSummary[], paused: boolean) {
     onClickCapture: (event: MouseEvent) => {
       if (suppressClick.current) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false }
     },
-    onPointerEnter: (event: PointerEvent) => { if (event.pointerType === 'mouse') setHovered(true) },
+    onPointerEnter: (event: PointerEvent) => { if (event.pointerType === 'mouse' && windowFocused.current) setHovered(true) },
     onPointerLeave: () => setHovered(false),
     onPointerDownCapture: (event: PointerEvent) => {
       setFocused(false)
       if (event.pointerType !== 'mouse') setTouching(true)
     },
-    onFocusCapture: (event: FocusEvent<HTMLElement>) => setFocused(event.target.matches(':focus-visible')),
+    onFocusCapture: (event: FocusEvent<HTMLElement>) => setFocused(windowFocused.current && event.target.matches(':focus-visible')),
     onBlurCapture: (event: FocusEvent<HTMLElement>) => {
       if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false)
     },

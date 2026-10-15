@@ -67,14 +67,14 @@ export function ProfileSection() {
         <button className="account-secondary" type="button" disabled={busy} onClick={() => void run(() => shellApi.logoutAccount(account.providerId || 'github'))}>{t('settings.profile.logout')}</button>
       </> : <>
         <h2>{pending ? t('settings.profile.waitingTitle') : t('settings.profile.welcome')}</h2>
-        <p className="account-description">{pending ? t('settings.profile.webHint') : t('settings.profile.hint')}</p>
+        {pending && <p className="account-description">{t('settings.profile.webHint')}</p>}
         {pending ? <div className="account-pending" role="status">
           <span className="account-spinner" aria-hidden="true" />
           <p>{t('settings.profile.waiting')}</p>
           {session?.mode === 'device' && <div className="account-device"><p>{t('settings.profile.deviceHint')}</p><button type="button" onClick={() => void navigator.clipboard.writeText(session.userCode).then(() => notify.success(t('settings.profile.codeCopied'))).catch(() => setLoginError(t('settings.profile.copyFailed')))} title={t('settings.profile.copyCode')}><code>{session.userCode}</code><span>{t('settings.profile.copyCode')}</span></button></div>}
           <div className="account-pending-actions">{session && <a href={session.verificationUri} target="_blank" rel="noreferrer">{t('settings.profile.openAuthPage')}</a>}<button type="button" disabled={busy} onClick={() => void run(() => shellApi.cancelAccountLogin(account!.pendingProviderId!))}>{t('settings.profile.cancel')}</button></div>
         </div> : <div className="account-providers">
-          {!account ? <p role="status">{t('settings.profile.loading')}</p> : account.providers.map(provider => <button className="account-provider" type="button" key={provider.id} disabled={busy || !provider.available} onClick={() => void run(async () => {
+          {!account ? <p role="status">{t('settings.profile.loading')}</p> : account.providers.map(provider => <button className="account-provider" type="button" key={provider.id} disabled={busy} aria-busy={busy} onClick={() => void run(async () => {
             const result = await shellApi.loginAccount(provider.id)
             if (!result.ok) throw new Error(result.error)
           })}><ProviderIcon id={provider.id} /><span>{busy ? t('settings.profile.starting') : t('settings.profile.continueWith').replace('{provider}', provider.name)}</span><span aria-hidden="true">↗</span></button>)}

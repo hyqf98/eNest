@@ -1,3 +1,5 @@
+import { registerNotificationHandlers } from '@main/window/notificationOverlay'
+import { registerInstallSurfaceHandlers } from '@main/window/installSurface'
 import { disposeNativeClipboard } from '@main/clipboard/nativeClipboard'
 /**
  * Main entry — Electron 主进程入口
@@ -8,7 +10,13 @@ import { disposeNativeClipboard } from '@main/clipboard/nativeClipboard'
  * PluginRegistry、PluginHost、SettingsStore、createShellWindow。
  */
 import { app, BaseWindow, globalShortcut, Notification } from 'electron'
+import { APP_NAME } from '@shared/constants'
 if (process.env.ENEST_TEST_USER_DATA) app.setPath('userData', process.env.ENEST_TEST_USER_DATA)
+// macOS Dock 的名称来自开发 bundle 的 Info.plist；Electron API/菜单另行统一。
+// 保留已有 Chromium 配置目录，避免品牌名称大小写变更造成会话迁移。
+const existingUserData = app.getPath('userData')
+app.setName(APP_NAME)
+app.setPath('userData', existingUserData)
 
 import { registerSchemesAsPrivileged, initPluginProtocol } from '@main/plugin/pluginProtocol'
 import { applyHardwareAccelerationBeforeReady } from '@main/hardwareAcceleration'
@@ -62,7 +70,7 @@ applyHardwareAccelerationBeforeReady()
 
 // win32：AppUserModelId 决定通知归属（未设置时通知可能显示为 Electron 默认名/被折叠）
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.enest.app')
+  app.setAppUserModelId('com.enest.shell')
 }
 
 // linux：Wayland 下屏幕捕获需 PipeWire 授权通道（app ready 前追加才生效）
@@ -285,6 +293,8 @@ void app.whenReady().then(async () => {
     // 圆轨/设置钮视图：不在冷启动/ Splash 阶段显示；
     // 由壳子 splash 结束后 syncOrbState(tabStyle) → applyOrbRailVisibility 懒创建
 
+    registerInstallSurfaceHandlers()
+    registerNotificationHandlers()
     registerShellHandlers()
     registerPluginHandlers()
     registerQuickHandlers()

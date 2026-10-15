@@ -69,6 +69,43 @@ const entry = {
 }
 const remote = (data = entry) => api.parseRemoteMarket({ plugins: [data] }, rawUrl, releaseBase)[0]
 
+test('真实市场字段透传，缺失统计不显示零；安装包大小与摘要版本一致', () => {
+  const parsed = remote({ ...entry, installs: undefined, author: undefined, tags: [' JSON ', 'JSON', 42, '', '格式化'], asset: { size: 12345 } })
+  assert.deepEqual(parsed.tags, ['JSON', '格式化'])
+  assert.equal(parsed.packageSize, 12345)
+  assert.equal(parsed.installs, '')
+  assert.equal(parsed.author, '')
+  assert.equal(remote({ ...entry, asset: { size: -1 } }).packageSize, undefined)
+  const installed = { ...api.remoteToSummary(parsed, true), installed: true, version: '1.0.0', tags: ['本地版本标签'] }
+  const merged = api.mergeMarketMetadata(installed, parsed)
+  assert.deepEqual(merged.tags, installed.tags)
+  assert.equal(merged.packageSize, undefined, 'newer remote package size must not describe an installed older version')
+})
+
+test('生产目录不补造 mock 插件或元数据，离线保留已安装插件和已验证目录', async () => {
+  const registry = new api.PluginRegistry()
+  assert.deepEqual(registry.list(), [])
+  assert.equal(registry.get('com.enest.translate'), null)
+  const local = { ...manifest, id: 'com.enest.translate', name: '本地翻译' }
+  registry.installed.set(local.id, { manifest: local, rootPath: '/fixture/local', version: local.version })
+  assert.equal(registry.get(local.id).author, '')
+  assert.equal(registry.get(local.id).description, '')
+  assert.equal(registry.get(local.id).installs, '')
+  registry.remoteMarket = [remote()]
+  registry.remoteFetchedAt = Date.now() - 10_000
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => { throw new Error('offline fixture') }
+  try {
+    const status = await registry.getMarketStatus(true)
+    assert.equal(status.state, 'offline')
+    assert.equal(status.catalogCount, 1)
+    assert.ok(status.fetchedAt)
+    assert.equal(registry.get(local.id).installed, true)
+    assert.equal(registry.get(local.id).rootPath, '/fixture/local')
+    assert.equal(registry.list().length, 2)
+  } finally { globalThis.fetch = originalFetch }
+})
+
 test('raw、Release 与自托管索引按来源目录解析相对图片', () => {
   assert.equal(api.resolveRegistryImageUrl('icons/test.svg', rawUrl), 'https://raw.githubusercontent.com/owner/repo/main/icons/test.svg')
   assert.equal(api.resolveRegistryImageUrl('cover.png', `${releaseBase}registry.json`, true), `${releaseBase}cover.png`)

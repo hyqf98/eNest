@@ -8,11 +8,15 @@ dist/
 out/
 release/
 *.tsbuildinfo
+/.cache/
 
-# 本地工具链 / SDK（不入壳子仓库；图标统一在 assets/icons）
+# 本地工具链 / SDK（不入壳子仓库）；仅保留发布图标供干净 CI checkout 使用
 scripts/
 packages/
-build/
+/build/*
+!/build/icon.icns
+!/build/icon.ico
+!/build/icon.png
 
 # Electron
 *.dmg

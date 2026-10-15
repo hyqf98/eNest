@@ -106,3 +106,25 @@ test('Quick native selection commits durably, preserves search history, and reje
   const restored = new SettingsStore(); await restored.load()
   assert.deepEqual(restored.getQuickLauncherSettings(), { ...original, ...next })
 })
+
+test('confirmed replacement commits plugin and Quick sections in one durable write or leaves both unchanged', async t => {
+  t.mock.method(console, 'error', () => {})
+  const bindings = [{ id: 'x', pluginId: 'one', accelerator: 'Alt+1', mode: 'quick', enabled: true }]
+  const quick = { enabled: false, hotkeys: ['Alt+1'], activeHotkey: 'Alt+1', recent: [{ id: 'keep', count: 2 }] }
+  seed({ pluginShortcuts: bindings, general: { quickLauncher: quick } })
+  const store = new SettingsStore(); await store.load()
+  const next = [{ ...bindings[0], enabled: false }]
+  const enabled = { enabled: true, hotkeys: ['Alt+1'], activeHotkey: 'Alt+1' }
+  failWrites(true)
+  try {
+    assert.throws(() => store.setShortcutConfiguration(next, enabled), /写入失败/)
+    assert.deepEqual(store.getPluginShortcuts(), bindings)
+    assert.deepEqual(store.getQuickLauncherSettings(), quick)
+    assert.deepEqual(saved().pluginShortcuts, bindings)
+    assert.deepEqual(saved().general.quickLauncher, quick)
+  } finally { failWrites(false) }
+  store.setShortcutConfiguration(next, enabled)
+  const restored = new SettingsStore(); await restored.load()
+  assert.deepEqual(restored.getPluginShortcuts(), next)
+  assert.deepEqual(restored.getQuickLauncherSettings(), { ...quick, ...enabled })
+})

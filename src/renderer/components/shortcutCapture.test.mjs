@@ -110,3 +110,56 @@ test('recording ignores modifier-only, repeat, bare and shift-only keystrokes ac
   assert.equal(model.eventToAccelerator({ ...base, metaKey: true }, 'darwin'), 'Command+A')
   assert.equal(model.eventToAccelerator({ ...base, metaKey: true }, 'win32'), 'Super+A')
 })
+
+test('modifier and complete chord previews update on keydown before committing on release', async () => {
+  const previews = [], f = fixture({ onPreview: value => previews.push(value) })
+  await f.capture.start()
+  f.target.dispatch('keydown', { code: 'ControlLeft', key: 'Control' })
+  assert.equal(previews.at(-1), 'Control')
+  f.target.dispatch('keydown', { code: 'ShiftLeft', key: 'Shift', shiftKey: true })
+  assert.equal(previews.at(-1), 'Control+Shift')
+  f.target.dispatch('keydown', { shiftKey: true })
+  assert.equal(previews.at(-1), 'Control+Shift+K')
+  assert.deepEqual(f.values, [], 'preview is never a saved value')
+  f.target.dispatch('keyup', { shiftKey: true })
+  await settle()
+  assert.deepEqual(f.values, ['Control+Shift+K'])
+  assert.equal(previews.at(-1), '')
+})
+
+test('blur while a key release is restoring cannot bypass the pending restore', async () => {
+  const release = deferred(), f = fixture({ end: () => release.promise })
+  await f.capture.start()
+  f.target.dispatch('keydown'); f.target.dispatch('keyup')
+  await f.capture.stop()
+  assert.equal(f.phases.at(-1), 'restoring')
+  assert.deepEqual(f.values, [])
+  release.resolve(); await settle()
+  assert.equal(f.phases.at(-1), 'idle')
+  assert.deepEqual(f.values, ['Control+K'])
+})
+
+test('bare Tab releases capture for keyboard navigation without saving a shortcut', async () => {
+  const f = fixture(); await f.capture.start()
+  f.target.dispatch('keydown', { code: 'Tab', key: 'Tab', ctrlKey: false })
+  await settle()
+  assert.deepEqual(f.values, [])
+  assert.equal(f.phases.at(-1), 'idle')
+})
+
+test('fast typing during capture startup previews immediately and commits only after the late lease is restored', async () => {
+  const begin = deferred(), end = deferred(), previews = []
+  const f = fixture({ begin: () => begin.promise, end: () => end.promise, onPreview: value => previews.push(value) })
+  const starting = f.capture.start()
+  f.target.dispatch('keydown', { code: 'ControlLeft', key: 'Control' })
+  assert.equal(previews.at(-1), 'Control')
+  f.target.dispatch('keydown'); f.target.dispatch('keyup')
+  assert.equal(previews.at(-1), 'Control+K')
+  assert.deepEqual(f.values, [])
+  begin.resolve({ token: 'slow' }); await settle()
+  assert.equal(f.phases.at(-1), 'restoring')
+  assert.deepEqual(f.values, [])
+  end.resolve(); await starting
+  assert.deepEqual(f.values, ['Control+K'])
+  assert.equal(f.phases.at(-1), 'idle')
+})

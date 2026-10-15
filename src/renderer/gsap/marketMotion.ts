@@ -183,50 +183,32 @@ export function animateTabIn(el: HTMLElement | null): void {
   )
 }
 
-export function notifyIn(el: HTMLElement, position: 'top' | 'bottom-right'): void {
+/** Notification motion owns only transform/opacity and can always be interrupted. */
+export function cancelNotifyMotion(el: HTMLElement): void { gsap.killTweensOf(el) }
+
+export function notifyIn(el: HTMLElement, position: 'top' | 'center' | 'bottom-right'): void {
+  gsap.killTweensOf(el)
+  if (prefersReducedMotion()) { gsap.set(el, { autoAlpha: 1, clearProps: 'transform' }); return }
   const t = tokens()
-  if (t.level === 'low') {
-    gsap.fromTo(el, { autoAlpha: 0 }, { autoAlpha: 1, duration: msToSec(t.duration.instant), ease: t.ease.linear })
-    return
-  }
-  if (position === 'bottom-right') {
-    gsap.fromTo(
-      el,
-      { autoAlpha: 0, x: dy(t.level === 'high' ? 22 : 16), scale: t.level === 'high' ? 0.92 : 0.96 },
-      {
-        autoAlpha: 1,
-        x: 0,
-        scale: 1,
-        duration: d(0.28),
-        ease: t.level === 'high' ? t.ease.overshoot : t.ease.enter,
-      },
-    )
-    return
-  }
-  gsap.fromTo(
-    el,
-    { autoAlpha: 0, y: dy(t.level === 'high' ? -18 : -14), scale: t.level === 'high' ? 0.94 : 0.98 },
-    {
-      autoAlpha: 1,
-      y: 0,
-      scale: 1,
-      duration: d(0.28),
-      ease: t.level === 'high' ? t.ease.overshoot : t.ease.enter,
-    },
-  )
+  gsap.fromTo(el, {
+    autoAlpha: 0,
+    x: position === 'bottom-right' ? dy(18) : 0,
+    y: position === 'top' ? dy(-12) : position === 'center' ? dy(12) : dy(6),
+    scale: t.level === 'low' ? 1 : 0.975,
+  }, {
+    autoAlpha: 1, x: 0, y: 0, scale: 1, duration: d(0.27), ease: t.ease.enter,
+    overwrite: true, clearProps: 'transform',
+  })
 }
 
 export function notifyOut(el: HTMLElement): Promise<void> {
-  return new Promise((resolve) => {
-    const t = tokens()
-    const enterGuess = t.level === 'low' ? msToSec(t.duration.instant) : d(0.28)
+  gsap.killTweensOf(el)
+  if (prefersReducedMotion()) { gsap.set(el, { autoAlpha: 0 }); return Promise.resolve() }
+  return new Promise(resolve => {
     gsap.to(el, {
-      autoAlpha: 0,
-      y: t.level === 'low' ? 0 : dy(8),
-      duration: exitDuration(enterGuess),
-      ease: t.ease.exit,
-      overwrite: true,
-      onComplete: () => resolve(),
+      autoAlpha: 0, y: dy(6), scale: tokens().level === 'low' ? 1 : 0.985,
+      duration: d(0.16), ease: tokens().ease.exit, overwrite: true,
+      onComplete: resolve, onInterrupt: resolve,
     })
   })
 }

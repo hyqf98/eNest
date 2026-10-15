@@ -21,6 +21,7 @@ import type { QuickInputState, QuickInputAction } from './plugin-tools'
 import type { FocusTimerSnapshot } from './focus-timer'
 import type { ShellNotice } from './notice'
 import type { PluginShortcutsSnapshot } from './shortcuts'
+import type { NotificationOptions } from './notification'
 
 /**
  * IPC 通道常量 — 主进程 / preload / 渲染进程共用。
@@ -38,6 +39,7 @@ export const IpcChannels = {
   PluginDragEvent: 'window:plugin-drag-event',
   /** 壳子 → 主进程 */
   ShellGetPlugins: 'shell:get-plugins',
+  ShellGetMarketStatus: 'shell:get-market-status',
   ShellOpenPlugin: 'shell:open-plugin',
   ShellClosePlugin: 'shell:close-plugin',
   ShellActivatePlugin: 'shell:activate-plugin',
@@ -76,6 +78,7 @@ export const IpcChannels = {
 
   /** 路径与数据 */
   ShellGetPaths: 'shell:get-paths',
+  ShellOpenPath: 'shell:open-path',
   ShellPickFile: 'shell:pick-file',
   ShellGetPluginReadme: 'shell:get-plugin-readme',
 
@@ -94,6 +97,11 @@ export const IpcChannels = {
   ShellDeleteCustomFont: 'shell:delete-custom-font',
 
   /** 插件拖拽/路径安装：入队后由主进程 installQueue 限流执行 */
+  InstallDropState: 'install:drop-state',
+  InstallDropFiles: 'install:drop-files',
+  InstallSurfaceReady: 'install:surface-ready',
+  InstallSurfaceState: 'install:surface-state',
+  InstallSurfaceDismiss: 'install:surface-dismiss',
   ShellInstallPlugin: 'shell:install-plugin',
   ShellGetInstallQueue: 'shell:get-install-queue',
 
@@ -138,6 +146,11 @@ export const IpcChannels = {
 
   /** 系统级通知（Electron Notification） */
   ShellSystemNotify: 'shell:system-notify',
+  NotificationShow: 'notification:show',
+  NotificationDismiss: 'notification:dismiss',
+  NotificationState: 'notification:state',
+  NotificationMeasure: 'notification:measure',
+  NotificationOpenLink: 'notification:open-link',
 
   /** 快捷启动（Quick 小窗） */
   QuickToggle: 'quick:toggle',
@@ -231,7 +244,7 @@ export type ShellEventPayload =
   | { type: 'plugin-icon'; tabId: string; icon: string }
   | { type: 'plugin-badge'; tabId: string; badge: string | number }
   /** 插件请求壳子 Toast（由 useShellEvents → toastStore 渲染） */
-  | { type: 'plugin-toast'; pluginId: string; message: string; toastType?: ToastKind }
+  | { type: 'plugin-toast'; pluginId: string; message?: string; toastType?: ToastKind; notification?: NotificationOptions }
   | { type: 'install-progress'; jobId: string; name: string; progress: number; step?: string }
   | { type: 'install-queue'; active: InstallJobInfo[]; waiting: InstallJobInfo[] }
   | { type: 'install-result'; jobId: string; name: string; ok: boolean; error?: string }
@@ -389,6 +402,7 @@ export interface UpdateStatePayload {
 
 /** 主进程 → 插件 WebContents（IpcChannels.PluginEvent）负载 */
 export type PluginEventPayload =
+  | { type: 'backend.event'; event: string; data: unknown }
   | { type: 'quick-input-change'; value: string }
   | { type: 'quick-input-action'; action: QuickInputAction }
   | { type: 'settings-change'; key: string; value: unknown }
@@ -486,6 +500,7 @@ export type DshPluginEvent = { type: 'dsh.event'; event: DshWorkbenchEvent }
 
 /** 安装队列任务对外视图（active / waiting 列表项） */
 export interface InstallJobInfo {
+  step?: string
   id: string
   name: string
   progress: number

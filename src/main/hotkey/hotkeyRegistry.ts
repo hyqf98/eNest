@@ -21,6 +21,7 @@ const ownerKey = (owner: HotkeyOwner): string => `${owner.kind}:${owner.id}`
 let registrations = new Map<string, HotkeyRegistration>()
 let acceleratorRegistrations = new Map<string, HotkeyRegistration>()
 const nativeKeys = new Set<string>()
+const verifiedKeys = new Set<string>()
 const nativeErrors = new Map<string, string>()
 const captures = new Map<string, { ownerWcId: number; timer: ReturnType<typeof setTimeout> }>()
 const listeners = new Set<() => void>()
@@ -54,11 +55,18 @@ export function getHotkeyOwner(accelerator: string): HotkeyOwner | undefined {
   return acceleratorRegistrations.get(acc)?.owner
 }
 
-export function getOwnedHotkeyStatus(owner: HotkeyOwner): { status: 'registered' | 'suspended' | 'conflict' | 'missing'; error?: string } {
+export function requiresSystemShortcutConfirmation(): boolean {
+  return process.platform === 'linux' && (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY)
+}
+
+export function getOwnedHotkeyStatus(owner: HotkeyOwner): { status: 'registered' | 'pending-system' | 'suspended' | 'conflict' | 'missing'; error?: string } {
   const registration = getOwnedHotkey(owner)
   if (!registration) return { status: 'missing' }
   if (captures.size) return { status: 'suspended' }
-  if (nativeKeys.has(registration.accelerator)) return { status: 'registered' }
+  if (nativeKeys.has(registration.accelerator)) {
+    if (requiresSystemShortcutConfirmation() && !verifiedKeys.has(registration.accelerator)) return { status: 'pending-system', error: '已提交系统，请在系统弹窗中确认后按快捷键测试。' }
+    return { status: 'registered' }
+  }
   return { status: 'conflict', error: nativeErrors.get(registration.accelerator) ?? '快捷键注册失败，可能已被其他应用占用' }
 }
 
@@ -67,6 +75,7 @@ function registerNative(accelerator: string): void {
     if (captures.size) return
     const registration = acceleratorRegistrations.get(accelerator)
     if (!registration) return
+    if (requiresSystemShortcutConfirmation() && !verifiedKeys.has(accelerator)) { verifiedKeys.add(accelerator); changed() }
     try {
       void Promise.resolve(registration.onFire()).catch(error => logError('hotkey', `shortcut failed: ${String(error)}`))
     } catch (error) { logError('hotkey', `shortcut failed: ${String(error)}`) }
@@ -79,6 +88,7 @@ function registerNative(accelerator: string): void {
 function unregisterNative(accelerator: string): void {
   globalShortcut.unregister(accelerator)
   nativeKeys.delete(accelerator)
+  verifiedKeys.delete(accelerator)
 }
 
 /** Register additions before releasing previous keys; failure leaves the previous owners intact. */
@@ -141,6 +151,7 @@ export function probeNativeHotkey(accelerator: string): { free: boolean; ours: b
   const acc = normalizeAccelerator(accelerator, process.platform)
   if (!acc) return { free: false, ours: false, hint: '无效的快捷键' }
   if (getHotkeyOwner(acc)) return { free: true, ours: true }
+  if (requiresSystemShortcutConfirmation()) return { free: true, ours: false, hint: '尚未检查系统占用；保存后由系统弹窗确认，请按快捷键测试。' }
   try {
     if (globalShortcut.isRegistered(acc)) return { free: true, ours: true }
     if (!globalShortcut.register(acc, () => undefined)) return { free: false, ours: false, hint: '已被系统或其他应用占用' }
@@ -150,7 +161,7 @@ export function probeNativeHotkey(accelerator: string): { free: boolean; ours: b
 }
 
 function resumeCapturedHotkeys(): void {
-  if (captures.size) return
+  if (captures.size) { changed(); return }
   for (const registration of registrations.values()) {
     if (nativeKeys.has(registration.accelerator)) continue
     try { registerNative(registration.accelerator) }
@@ -199,6 +210,10 @@ export function endShortcutCapturesForOwner(ownerWcId: number): void {
 
 export function isShortcutCaptureActive(): boolean { return captures.size > 0 }
 
+export function isShortcutCaptureActiveForOwner(ownerWcId: number): boolean {
+  return [...captures.values()].some(capture => capture.ownerWcId === ownerWcId)
+}
+
 export function disposeHotkeyRegistry(): void {
   for (const capture of captures.values()) clearTimeout(capture.timer)
   captures.clear()
@@ -207,6 +222,7 @@ export function disposeHotkeyRegistry(): void {
   registrations.clear()
   acceleratorRegistrations.clear()
   nativeKeys.clear()
+  verifiedKeys.clear()
   nativeErrors.clear()
   changed()
 }

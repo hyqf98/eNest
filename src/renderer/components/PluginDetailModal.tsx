@@ -1,49 +1,55 @@
 /**
  * PluginDetailModal — 插件详情弹窗
- * 大图头（图标/名称/作者/版本/分类/安装量/权限）+ 安装/打开/更新、启用/禁用切换、
+ * 大图头（图标/名称/作者/版本/分类/安装量）+ 安装/打开/更新、启用/禁用切换、
  * 已安装时卸载与关闭操作 + README Markdown 正文。
  * 安装：本地 sample 优先（shellApi.installMarketPlugin），失败展示错误；
  *       远程资产入队下载，进度经 InstallProgressPanel。
- * README 经 shellApi.getPluginReadme 异步拉取；GSAP 控制遮罩模糊与内容 stagger 入退场。
- * 使用方：MarketPage（卡片/轮播点击打开）。依赖：MarkdownView、marketMotion、shellApi。
+ * README 经 shellApi.getPluginReadme 异步拉取；专用 motion hook 从点击卡片展开并收回。
+ * 使用方：MarketPage（卡片/轮播点击打开）。依赖：MarkdownView、usePluginDetailMotion、shellApi。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import gsap from 'gsap'
 import type {
   PluginLaunchConfig,
   PluginLaunchPatch,
+  PluginPermission,
+  PluginPermissionGrant,
   PluginSummary
 } from '@shared/types/plugin'
+import { filterPermissionGrants, requiresUserConsent } from '@shared/pluginPermissionPolicy'
 import { shellApi } from '@renderer/services/shellApi'
-import { playModalIn, playModalOut } from '@renderer/gsap/marketMotion'
+import { notify } from '@renderer/services/notifyService'
+import { confirmAction } from '@renderer/services/confirmAction'
 import { MarkdownView } from '@renderer/components/MarkdownView'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { useShellStore } from '@renderer/stores/shellStore'
-import { permissionLabel } from '@shared/permissionLabels'
-import { requiresUserConsent } from '@shared/pluginPermissionPolicy'
-import { PluginBuiltinCapabilities } from '@renderer/components/PluginBuiltinCapabilities'
 import { PluginScreenshotGallery } from '@renderer/components/PluginScreenshotGallery'
 import { PluginIcon } from '@renderer/components/PluginIcon'
+import { usePluginDetailMotion } from './usePluginDetailMotion'
 
 type ReadmeStatus = 'loading' | 'ok' | 'empty' | 'error'
 
 interface Props {
   plugin: PluginSummary
+  /** The clicked card, featured item or search result supplies the spatial origin. */
+  origin?: HTMLElement | null
   /** 关闭弹窗（动画结束后由子组件回调） */
   onClose: () => void
   /** 安装完成后打开插件（sample 同步安装成功时调用） */
   onInstall: (id: string) => void
 }
 
-export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
-  const sensitivePermissions = [...new Set(plugin.permissions)].filter(requiresUserConsent)
+export function PluginDetailModal({ plugin, origin = null, onClose, onInstall }: Props) {
   const rootRef = useRef<HTMLDivElement>(null)
-  const closingRef = useRef(false)
+  const requestClose = usePluginDetailMotion(rootRef, plugin.id, origin, onClose)
   const [status, setStatus] = useState<ReadmeStatus>('loading')
   const [readme, setReadme] = useState('')
   const [uninstalling, setUninstalling] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [toggling, setToggling] = useState(false)
+  const [resettingPermissions, setResettingPermissions] = useState(false)
+  const [deniedPermissions, setDeniedPermissions] = useState<PluginPermission[]>([])
+  const permissionGrantsRef = useRef<Partial<Record<PluginPermission, PluginPermissionGrant>>>({})
+  const permissionRevisionRef = useRef(0)
   const [actionError, setActionError] = useState<string | null>(null)
   /** 本地可变副本：启用切换后立刻反映，不必等父级刷新 */
   const [enabled, setEnabled] = useState(plugin.enabled !== false)
@@ -56,29 +62,64 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
 
   const disabled = plugin.installed && !enabled
   const updateVersion = plugin.latestVersion
-  const motionContext = useRef<gsap.Context | null>(null)
+  const busy = uninstalling || installing || toggling || resettingPermissions
 
-  /** 先播退场，再通知父级卸载 */
-  const requestClose = useCallback(() => {
-    if (closingRef.current) return
-    closingRef.current = true
-    motionContext.current?.add(() => {
-      void playModalOut(rootRef.current).then(() => {
-        if (motionContext.current) onClose()
-      })
-    })
-  }, [onClose])
+  const applyPermissionGrants = useCallback((value: unknown) => {
+    const grants = filterPermissionGrants(value)
+    permissionGrantsRef.current = grants
+    setDeniedPermissions([...new Set(plugin.permissions)].filter(permission =>
+      requiresUserConsent(permission) && grants[permission] === 'deny'
+    ))
+  }, [plugin.permissions])
 
-  // 入场动画
+  // Keep only a recovery action visible; the native prompt still owns consent.
   useEffect(() => {
-    const context = gsap.context(() => playModalIn(rootRef.current), rootRef)
-    motionContext.current = context
-    closingRef.current = false
+    let cancelled = false
+    const revision = ++permissionRevisionRef.current
+    applyPermissionGrants({})
+    if (!plugin.installed || !shellApi.getPluginPermissionGrants || !shellApi.setPluginPermissionGrant) return
+    const off = shellApi.onEvent((payload) => {
+      if (payload.type !== 'permission-grants-changed' || payload.pluginId !== plugin.id) return
+      permissionRevisionRef.current += 1
+      applyPermissionGrants(payload.grants)
+    })
+    void shellApi.getPluginPermissionGrants(plugin.id).then(grants => {
+      if (!cancelled && revision === permissionRevisionRef.current) applyPermissionGrants(grants)
+    }).catch(() => {
+      if (!cancelled) setActionError('无法读取授权状态，请关闭详情后重试')
+    })
     return () => {
-      motionContext.current = null
-      context.revert()
+      cancelled = true
+      permissionRevisionRef.current += 1
+      off()
     }
-  }, [plugin.id])
+  }, [plugin.id, plugin.installed, applyPermissionGrants])
+
+  const handleResetPermissions = async () => {
+    if (busy || !shellApi.getPluginPermissionGrants || !shellApi.setPluginPermissionGrant) return
+    setResettingPermissions(true)
+    setActionError(null)
+    try {
+      const revision = permissionRevisionRef.current
+      const grants = await shellApi.getPluginPermissionGrants(plugin.id)
+      if (revision === permissionRevisionRef.current) applyPermissionGrants(grants)
+      let resetCount = 0
+      for (const permission of [...new Set(plugin.permissions)]) {
+        if (!requiresUserConsent(permission) || permissionGrantsRef.current[permission] !== 'deny') continue
+        await shellApi.setPluginPermissionGrant(plugin.id, permission, 'ask')
+        // The host emits the full current state; this also covers older bridges without that event.
+        if (permissionGrantsRef.current[permission] === 'deny') {
+          applyPermissionGrants({ ...permissionGrantsRef.current, [permission]: 'ask' })
+        }
+        resetCount += 1
+      }
+      notify.success(resetCount ? '已恢复询问，下次使用相关功能时会重新授权' : '授权状态已更新')
+    } catch (error) {
+      setActionError(error instanceof Error ? `重新授权失败：${error.message}` : '重新授权失败，请重试')
+    } finally {
+      setResettingPermissions(false)
+    }
+  }
 
   // plugin 变更时同步 enabled
   useEffect(() => {
@@ -110,7 +151,6 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
   // README 拉取
   useEffect(() => {
     let cancelled = false
-    closingRef.current = false
     setStatus('loading')
     setReadme('')
 
@@ -134,18 +174,6 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
     }
   }, [plugin.id])
 
-  // Escape 关闭
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        requestClose()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [requestClose])
-
   const actionLabel = plugin.installed
     ? disabled
       ? t('plugin.disabled')
@@ -160,7 +188,7 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
    * - 未安装 → installMarketPlugin（sample 同步成功则直接打开；远程入队关弹窗看进度）
    */
   const handlePrimary = async () => {
-    if (installing || uninstalling) return
+    if (busy) return
     setActionError(null)
     if (plugin.installed) {
       if (disabled) return
@@ -191,10 +219,8 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
 
   /** 更新到 latestVersion：二次确认后强制走远程下载入队 */
   const handleUpdate = async () => {
-    if (installing || !updateVersion || !shellApi.installMarketPlugin) return
-    const ok = window.confirm(
-      t('plugin.updateConfirm', { name: plugin.name, version: updateVersion })
-    )
+    if (busy || !updateVersion || !shellApi.installMarketPlugin) return
+    const ok = await confirmAction({ title: t('plugin.update'), message: t('plugin.updateConfirm', { name: plugin.name, version: updateVersion }), confirmLabel: t('plugin.update') })
     if (!ok) return
     setActionError(null)
     setInstalling(true)
@@ -209,7 +235,7 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
 
   /** 启用/禁用切换；乐观更新本地状态，失败回滚 */
   const handleToggleEnabled = async () => {
-    if (toggling || !shellApi.setPluginEnabled) return
+    if (busy || !shellApi.setPluginEnabled) return
     const next = !enabled
     setToggling(true)
     setActionError(null)
@@ -226,8 +252,8 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
 
   /** 二次确认后卸载；结果经 uninstall-result 刷新列表，此处关闭详情并恢复按钮 */
   const handleUninstall = async () => {
-    if (uninstalling) return
-    const ok = window.confirm(t('plugin.uninstallConfirm', { name: plugin.name }))
+    if (busy) return
+    const ok = await confirmAction({ title: t('plugin.uninstall'), message: t('plugin.uninstallConfirm', { name: plugin.name }), confirmLabel: t('plugin.uninstall'), danger: true })
     if (!ok) return
     if (!shellApi.uninstallPlugin) return
     setUninstalling(true)
@@ -290,6 +316,7 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
         className="detail-modal"
         data-detail-modal
         role="dialog"
+        tabIndex={-1}
         aria-modal="true"
         aria-labelledby="plugin-detail-title"
       >
@@ -318,7 +345,7 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
               type="button"
               className="btn btn-primary"
               onClick={() => void handlePrimary()}
-              disabled={uninstalling || installing || toggling || disabled}
+              disabled={busy || disabled}
             >
               {actionLabel}
             </button>
@@ -327,7 +354,7 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
                 type="button"
                 className="btn btn-primary"
                 onClick={() => void handleUpdate()}
-                disabled={uninstalling || installing || toggling}
+                disabled={busy}
               >
                 {installing ? t('plugin.updating') : t('plugin.update')}
               </button>
@@ -337,9 +364,21 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
                 type="button"
                 className="btn btn-ghost"
                 onClick={() => void handleToggleEnabled()}
-                disabled={uninstalling || installing || toggling}
+                disabled={busy}
               >
                 {toggling ? t('common.loading') : enabled ? t('plugin.disable') : t('plugin.enable')}
+              </button>
+            )}
+            {plugin.installed && (deniedPermissions.length > 0 || resettingPermissions) && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void handleResetPermissions()}
+                disabled={busy}
+                aria-busy={resettingPermissions}
+                title="恢复已拒绝的授权，下次使用时重新询问"
+              >
+                {resettingPermissions ? '正在恢复…' : '重新授权'}
               </button>
             )}
             {plugin.installed && (
@@ -347,12 +386,12 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
                 type="button"
                 className="btn btn-danger"
                 onClick={() => void handleUninstall()}
-                disabled={uninstalling}
+                disabled={busy}
               >
                 {uninstalling ? t('plugin.uninstalling') : t('plugin.uninstall')}
               </button>
             )}
-            <button type="button" className="btn btn-ghost" onClick={requestClose} disabled={uninstalling}>
+            <button type="button" className="btn btn-ghost" data-detail-close onClick={requestClose} disabled={uninstalling}>
               {t('plugin.close')}
             </button>
           </div>
@@ -448,18 +487,6 @@ export function PluginDetailModal({ plugin, onClose, onInstall }: Props) {
             </section>
           )}
 
-          <section className="detail-capabilities" aria-label="插件能力与授权">
-            <h3>系统与隐私权限</h3>
-            <p className="desc">{sensitivePermissions.length ? '以下操作需要你的授权，安装后可在插件设置中管理。' : '此插件未申请系统或隐私权限。'}</p>
-            {sensitivePermissions.length > 0 ? (
-              <div className="detail-chips">
-                {sensitivePermissions.map((permission) => (
-                  <span key={permission} className="detail-chip perm" title={permission}>{permissionLabel(permission)}</span>
-                ))}
-              </div>
-            ) : null}
-            <PluginBuiltinCapabilities />
-          </section>
           {status === 'loading' && (
             <div className="detail-state">
               <div className="detail-spinner" aria-hidden="true" />

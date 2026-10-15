@@ -4,6 +4,7 @@ import { handleShellIpc } from '@main/ipc/ipcSecurity'
 import { isPluginPageUrl } from '@main/plugin/pluginSessionPolicy'
 import { PLUGIN_PERMISSIONS } from '@shared/types/plugin'
 import { isBuiltinCapability } from '@shared/pluginPermissionPolicy'
+import { callPluginBackend } from '@main/plugin/pluginBackendRpc'
 import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
 import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
 /**
@@ -44,7 +45,7 @@ import {
 } from '@main/db/pluginStorage'
 import { assertPermission, confirmPluginOperation } from '@main/plugin/PluginPermissions'
 import { pluginHost } from '@main/plugin/PluginHost'
-import { acquireQuickInteraction } from '@main/window/createQuickWindow'
+import { acquireQuickInteraction, hideQuickWindow } from '@main/window/createQuickWindow'
 import { pickLocalFiles, readLocalFile, localFilesFromDrop, listLocalFiles, revealLocalFile, prepareLocalDrag, startLocalDrag, endLocalDrag } from '@main/plugin/localFiles'
 import type { LocalFilePickOptions, PluginInputContext } from '@shared/types/local-files'
 import { sshWorkbench, sshWorkbenchPermission } from '@main/ssh/sshWorkbench'
@@ -91,6 +92,7 @@ import { logInfo, logWarn } from '@main/logs/logService'
 import { resolveThemeTokens } from '@main/theme/resolveThemeCss'
 import { pluginSettingsBridge } from '@main/settings/PluginSettingsBridge'
 import { settingsStore } from '@main/settings/SettingsStore'
+import { showNotification } from '@main/window/notificationOverlay'
 import { themePackRegistry } from '@main/theme/themePacks'
 import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { resolveQuickQuery } from '@main/launcher/quickProviders'
@@ -175,6 +177,7 @@ const runtimeLeases = new Map<string, { release: () => void; unregister: () => v
 const CLOSE_SAFE = /^(storage\.|screen\.record\.(stop|cancel)$|pin\.close|runtime\.release$|ssh\.(disconnect|unwatch)|db\.(disconnect|cancel)|net\.socket\.close$|lan\.share\.stop$)/
 
 const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
+  'backend.call': 'backend.node',
   ...PLUGIN_TOOL_PERMISSIONS,
   'runtime.acquire': null,
   'runtime.release': null,
@@ -189,6 +192,8 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'ui.setInputContext': null,
   'ui.focus': null,
   'ui.focusSearch': null,
+  // quick 小窗「提交即收起」：基础 UI 能力，仅当前 quick 挂载者生效
+  'ui.dismissQuick': null,
   'localFiles.read': 'fs.read',
   'localFiles.pick': 'fs.read',
   'localFiles.pickSave': 'fs.write',
@@ -482,6 +487,7 @@ async function dispatch(
     return dispatchPluginTool(pluginId, method, args)
   }
   switch (method) {
+    case 'backend.call': return callPluginBackend(pluginId, args[0], args[1])
     case 'runtime.acquire': {
       const scope = getRuntimeScope(pluginId)
       if (!scope || scope.isClosing) throw new Error('plugin runtime unavailable')
@@ -508,6 +514,13 @@ async function dispatch(
       return pluginHost.focusPlugin(pluginId)
     case 'ui.focusSearch':
       return pluginHost.focusSearch(pluginId)
+    case 'ui.dismissQuick': {
+      // 插件提交完成主动收起小窗（如回车回贴/复制后）；走统一隐藏语义，
+      // 下次呼出仍恢复本插件。非 quick 挂载者调用为无操作。
+      if (pluginHost.getQuickPlugin() !== pluginId) return false
+      hideQuickWindow('plugin-dismiss')
+      return true
+    }
     case 'localFiles.read': return readLocalFile(pluginId, asObj(args) as { handleId: string; encoding?: 'text' | 'dataUrl'; maxBytes?: number })
     case 'localFiles.pick': return pickLocalFiles(pluginId, asObj(args) as LocalFilePickOptions)
     case 'localFiles.fromDrop': return localFilesFromDrop(pluginId, args[0] as string[])
@@ -553,18 +566,10 @@ async function dispatch(
       return true
     }
     case 'ui.toast': {
-      const payload = (args[0] ?? {}) as { message?: string; type?: string }
-      const message = String(payload.message ?? '')
-      if (!message) throw new Error('toast message required')
-      const toastType = payload.type
-      pluginHost.sendSurfaceEvent(pluginId, {
-        type: 'plugin-toast',
-        pluginId,
-        message,
-        toastType:
-          toastType === 'success' || toastType === 'warn' || toastType === 'error'
-            ? toastType
-            : 'info'
+      const scope = getRuntimeScope(pluginId)
+      if (!scope || !scope.isCurrent() || scope.isClosing) throw new Error('plugin runtime unavailable')
+      showNotification(pluginHost.getContainerWindow(pluginId), args[0], {
+        owner: scope, source: manifest.name, signal: scope.signal
       })
       return true
     }
@@ -1427,6 +1432,11 @@ export function registerPluginHandlers(): void {
               return { ok: false, error: 'os permission denied: screen' }
             }
           }
+        }
+        // Legacy APIs delegate to the caller's own Node backend. Existing grants never imply full Node consent.
+        if (/^(db|mw|ssh)\./.test(method) && !['db.pickSqliteFile', 'ssh.pickLocalFile'].includes(method)) {
+          assertPermission(manifest, 'backend.node')
+          if (!(await ensureRuntimeGrant(hostPluginId, 'backend.node', '运行插件本机后端'))) return { ok: false, error: 'permission denied: backend.node' }
         }
         if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
         const startedAt = Date.now()

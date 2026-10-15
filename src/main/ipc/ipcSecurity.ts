@@ -1,16 +1,20 @@
 import { ipcMain, shell, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
 
-export type SurfaceRole = 'shell' | 'quick' | 'orb' | 'detached'
+export type SurfaceRole = 'install' | 'notification' | 'shell' | 'quick' | 'orb' | 'detached'
 type SenderEvent = IpcMainEvent | IpcMainInvokeEvent
 const surfaces = new Map<number, { contents: WebContents; role: SurfaceRole; url: string }>()
-const sharedReads = [IpcChannels.ShellGetTheme, IpcChannels.ShellGetSettings, IpcChannels.ShellReadCustomFont]
+const installChannels = [IpcChannels.InstallDropState, IpcChannels.InstallDropFiles, IpcChannels.InstallSurfaceReady, IpcChannels.InstallSurfaceDismiss]
+const notificationClientChannels = [IpcChannels.NotificationShow, IpcChannels.NotificationDismiss]
+const notificationChannels = new Set<string>([IpcChannels.NotificationDismiss, IpcChannels.NotificationState, IpcChannels.NotificationMeasure, IpcChannels.NotificationOpenLink])
+const sharedReads = [...installChannels, IpcChannels.ShellGetTheme, IpcChannels.ShellGetSettings, IpcChannels.ShellReadCustomFont]
 const windowChannels = [
   IpcChannels.PluginWindowState, IpcChannels.PluginWindowCommand, IpcChannels.PluginDragBegin,
   IpcChannels.PluginDragArm, IpcChannels.PluginDragUpdate, IpcChannels.PluginDragEnd, IpcChannels.PluginDragTargets
 ]
-const detachedChannels = new Set<string>(windowChannels)
+const detachedChannels = new Set<string>([...windowChannels, ...installChannels, ...notificationClientChannels])
 const quickChannels = new Set<string>([
+  ...notificationClientChannels,
   ...windowChannels,
   ...sharedReads, IpcChannels.QuickInput, IpcChannels.QuickToggle, IpcChannels.QuickHide,
   IpcChannels.QuickSearch, IpcChannels.QuickOpen, IpcChannels.QuickGetConfig,
@@ -62,6 +66,8 @@ export function assertSurfaceSender(event: SenderEvent, channel: string): void {
   if (actual.protocol !== expected.protocol || actual.host !== expected.host || actual.pathname !== expected.pathname || actual.username || actual.password) {
     throw new Error('IPC denied: unexpected document')
   }
+  if (surface.role === 'install' && !(installChannels as readonly string[]).includes(channel)) throw new Error('IPC denied: install surface capability')
+  if (surface.role === 'notification' && !notificationChannels.has(channel)) throw new Error('IPC denied: notification surface capability')
   if (surface.role === 'quick' && !quickChannels.has(channel) || surface.role === 'orb' && !orbChannels.has(channel) || surface.role === 'detached' && !detachedChannels.has(channel)) {
     throw new Error('IPC denied: surface capability')
   }

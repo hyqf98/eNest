@@ -472,8 +472,16 @@ export async function showQuickWindow(canShow: () => boolean = () => true): Prom
   try {
     const win = ensureQuickWindow()
     logInfo('quick', `ensureQuickWindow ok destroyed=${win.isDestroyed()}`)
-    // 每次呼出恢复两行常用项，避免先闪过上次插件的展开高度。
-    quickPluginResetHook?.()
+    // 未 Esc 退场的上次插件优先恢复（PluginHost 的启动事务负责呈现）；
+    // 不可恢复时由编排回调内部重置回两行常用项，避免闪过上次插件的展开高度。
+    if (quickPluginSummonHook) {
+      const restored = await quickPluginSummonHook(() => revision === showRevision && canShow())
+      if (restored) {
+        logInfo('quick', 'summon restored last quick plugin')
+        return true
+      }
+      if (revision !== showRevision || !canShow()) return false
+    }
     currentTargetHeight = QUICK_HOME_HEIGHT
     const wc = quickWindow?.webContents
     const afterPresent = (): void => {
@@ -536,14 +544,14 @@ export async function showQuickWindow(canShow: () => boolean = () => true): Prom
 }
 
 /**
- * PluginHost 注入的「呼出前重置」回调：隐藏原生插件视图并回到空搜索态。
- * 插件进程仍保留，再次显式打开时复用。
+ * PluginHost 注入的「呼出编排」回调：未 Esc 退场的上次挂载插件优先恢复
+ * （呈现由其内部启动事务完成），否则重置回空搜索态。返回 true = 已恢复。
  */
-let quickPluginResetHook: (() => void) | null = null
+let quickPluginSummonHook: ((canProceed: () => boolean) => Promise<boolean>) | null = null
 
-/** PluginHost 启动时注入重置回调；传 null 清除 */
-export function setQuickPluginResetHook(fn: (() => void) | null): void {
-  quickPluginResetHook = fn
+/** PluginHost 启动时注入呼出编排回调；传 null 清除 */
+export function setQuickPluginSummonHook(fn: ((canProceed: () => boolean) => Promise<boolean>) | null): void {
+  quickPluginSummonHook = fn
 }
 
 /**

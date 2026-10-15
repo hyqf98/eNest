@@ -67,6 +67,7 @@ function fixture() {
         [method, (id, args) => { calls.push({ method, id, args }); return { ok: true } }]
       ))
     },
+    '@main/plugin/pluginBackendRpc': { callPluginBackend: (id, method, args) => { calls.push({ method: 'backend', id, backendMethod: method, args }); return { done: true } } },
     '@main/database/dbSessionManager': {
       dbDialectsList: id => { calls.push({ method: 'dbDialectsList', id }); return [{ id: 'sqlite' }] },
       dbWorkbenchRpc: (id, args) => { calls.push({ method: 'dbWorkbenchRpc', id, args }); return { action: args.action } }
@@ -202,12 +203,14 @@ test('plugin-owned focus timer routes need no timer grant and receive only the v
   } finally { await f.scope.dispose() }
 })
 
-test('application availability and database driver metadata are readable without configuration or connection grants', async () => {
+test('application availability needs no grant; database metadata requires backend consent but no connection grant', async () => {
   const f = fixture()
   try {
     f.grants.set('config.agent.read', 'deny')
     f.grants.set('db.connect', 'deny')
     assert.deepEqual(await f.call('agent.apps'), { ok: true, data: [{ id: 'codex' }] })
+    assert.deepEqual(await f.call('db.dialects.list'), { ok: false, error: 'permission denied: backend.node' })
+    f.manifest.permissions.push('backend.node')
     assert.deepEqual(await f.call('db.dialects.list'), { ok: true, data: [{ id: 'sqlite' }] })
     assert.deepEqual(await f.call('db.workbench', [{ action: 'drivers.list' }]), { ok: true, data: { action: 'drivers.list' } })
     assert.deepEqual(f.calls, [
@@ -215,14 +218,15 @@ test('application availability and database driver metadata are readable without
       { method: 'dbDialectsList', id: f.pluginId },
       { method: 'dbWorkbenchRpc', id: f.pluginId, args: { action: 'drivers.list' } }
     ])
-    assert.deepEqual(f.manifest.permissions, [])
-    assert.deepEqual(f.control.requested, [])
+    assert.deepEqual(f.manifest.permissions, ['backend.node'])
+    assert.deepEqual(f.control.requested, [{ id: f.pluginId, permission: 'backend.node' }, { id: f.pluginId, permission: 'backend.node' }])
   } finally { await f.scope.dispose() }
 })
 
 test('database workbench connection and execution retain their distinct sensitive permissions', async () => {
   const f = fixture()
   try {
+    f.manifest.permissions.push('backend.node')
     for (const [action, permission] of [['test', 'db.connect'], ['execute', 'db.query']]) {
       const input = { action, profileId: 'fixture-profile' }
       const count = f.calls.length
@@ -353,5 +357,22 @@ test('asset deletion and configuration restore still confirm targets after permi
     assert.match(f.control.confirmations[1].detail, /backup-1/)
     assert.deepEqual(f.calls.map(call => call.method), ['agentRestore'])
     assert.equal(f.control.requested.length, 0)
+  } finally { await f.scope.dispose() }
+})
+
+test('generic backend IPC rejects undeclared, denied, forged and stale callers before dispatch', async () => {
+  const f = fixture()
+  try {
+    assert.deepEqual(await f.call('backend.call', ['echo', []]), { ok: false, error: 'permission denied: backend.node' })
+    f.manifest.permissions.push('backend.node'); f.control.allow = false
+    assert.deepEqual(await f.call('backend.call', ['echo', []]), { ok: false, error: 'permission denied: backend.node' })
+    f.control.allow = true
+    assert.deepEqual(await f.call('backend.call', ['echo', [1]]), { ok: true, data: { done: true } })
+    assert.deepEqual(f.calls, [{ method: 'backend', id: f.pluginId, backendMethod: 'echo', args: [1] }])
+    assert.equal((await f.call('backend.call', ['echo', []], f.event, 'com.other')).error, 'plugin id mismatch')
+    assert.equal((await f.call('backend.call', ['echo', []], { ...f.event, senderFrame: { url: f.event.sender.mainFrame.url } })).error, 'unauthorized sender')
+    let resolve; f.control.wait = new Promise(r => { resolve = r })
+    const late = f.call('backend.call', ['echo', []]); await Promise.resolve(); f.scope.markClosing(); resolve()
+    assert.match((await late).error, /closing or stale/); assert.equal(f.calls.length, 1)
   } finally { await f.scope.dispose() }
 })

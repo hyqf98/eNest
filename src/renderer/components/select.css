@@ -1,0 +1,12 @@
+.ui-select-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.ui-select-pop.ui-select-portal { box-sizing: border-box; right: auto; min-width: 0; z-index: 1200; padding: 4px; overscroll-behavior: contain; animation: none; box-shadow: var(--shadow-float); }
+.ui-select-portal .ui-select-option { min-height: 36px; height: auto; padding: 8px 10px; line-height: 1.5; }
+.ui-select-portal .ui-select-option > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.ui-select-portal .ui-select-option.highlighted { background: var(--surface-2); outline: 1px solid var(--border-strong); outline-offset: -1px; }
+.ui-select-portal .ui-select-option.selected { color: var(--accent); }
+.ui-select-portal .ui-select-option:disabled { color: var(--text-3); opacity: .55; cursor: not-allowed; }
+.ui-select-portal .ui-select-check { flex: 0 0 16px; text-align: center; }
+.color-pop.color-pop-portal { box-sizing: border-box; right: auto; z-index: 1200; overflow: auto; box-shadow: var(--shadow-float); }
+.color-pop-portal .react-colorful { width: 100%; }
+.color-pop-portal .color-hex-input { height: 36px; border-radius: 8px; font-size: 13px; }
+.color-pop-portal .color-hex-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

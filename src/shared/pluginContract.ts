@@ -11,6 +11,12 @@ export function isPluginAssetPath(value: unknown): value is string {
   return parts.every(part => !!part && part !== '.' && part !== '..' && !part.startsWith('.'))
 }
 
+/** Native npm runtime paths are filesystem names, not browser URLs (es5-ext legitimately uses #). */
+export function isPluginBackendPath(value: unknown): value is string {
+  if (typeof value !== 'string' || !value || /[\\\u0000-\u001f\u007f?:*<>|]/.test(value)) return false
+  return value.split('/').every(part => !!part && !part.startsWith('.'))
+}
+
 /** A development endpoint is explicit and credential-free; LAN hosts are supported. */
 export function normalizePluginDevUrl(value: unknown): string | undefined {
   if (value === undefined || value === '') return undefined

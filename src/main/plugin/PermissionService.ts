@@ -35,6 +35,12 @@ export class PermissionService {
     return this.runtimeDecisions.get(scope)?.get(permission)
   }
 
+  /** Synchronous gate for launching an already-consented native backend, including once grants. */
+  isGranted(pluginId: string, permission: PluginPermission): boolean {
+    const scope = getRuntimeScope(pluginId)
+    return !!scope && this.decision(scope, permission) === true
+  }
+
   /** Callers verify the manifest and sender before asking the host to arbitrate consent. */
   request(pluginId: string, permission: PluginPermission, _summary: string, osHint?: 'system-pending' | 'denied'): Promise<boolean> {
     if (isBuiltinCapability(permission)) return Promise.resolve(true)
@@ -111,8 +117,9 @@ export class PermissionService {
         `插件 ID：${request.pluginId}`,
         '本次将统一授权以下能力：',
         ...permissions.map(permission => `• ${permissionLabel(permission)}`),
+        ...(permissions.includes('backend.node') ? ['本机后端拥有 Node.js 的文件、网络和系统访问能力，不受页面沙箱限制。仅授权你信任的插件。'] : []),
         '',
-        '“授权并记住”后，同样的能力不再重复询问；可在设置中逐项修改。',
+        '“授权并记住”后，同样的能力不再重复询问。',
         '“本次运行允许”或“暂不允许”仅对当前插件实例有效，结束运行后失效。',
         ...(permissions.includes('clipboard.history') ? ['剪贴板历史的持续后台采集仅在选择“授权并记住”后开启。'] : []),
         ...(request.osHint || permissions.some(permission => permission === 'screen.capture' || permission === 'screen.record')

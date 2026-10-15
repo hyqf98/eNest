@@ -16,8 +16,9 @@ import { extractPluginArchive, writePluginBuildRevision } from './pluginInstallT
 import type { PluginManifest } from '@shared/types/plugin'
 import { PLUGIN_PERMISSIONS } from '@shared/types/plugin'
 import { collectPluginFeatureIssues } from '@shared/pluginCommands'
-import { isPluginAssetPath, normalizePluginDevUrl, PLUGIN_ENTRY, PLUGIN_ICON, PLUGIN_README, PLUGIN_SCREENSHOTS } from '@shared/pluginContract'
+import { isPluginAssetPath, isPluginBackendPath, normalizePluginDevUrl, PLUGIN_ENTRY, PLUGIN_ICON, PLUGIN_README, PLUGIN_SCREENSHOTS } from '@shared/pluginContract'
 import { resolvePluginFile } from './pluginPaths'
+import { resolveBackendFile } from './pluginBackendPath'
 import { logInfo, logWarn } from '@main/logs/logService'
 import Ajv2020 from 'ajv/dist/2020.js'
 import manifestSchema from '@shared/pluginManifest.schema.json'
@@ -272,13 +273,14 @@ export async function installFromDirectory(dir: string, options: { source?: bool
   for (const path of resources) {
     if (!await resolvePluginFile(dir, path, source)) throw new Error(`插件资源缺失或越界: ${path}`)
   }
-  if (!source && !options.metadataOnly) await validatePublishedFiles(dir, manifest.id)
+  if (!source && manifest.backend) resolveBackendFile(dir, manifest.backend.entry)
+  if (!source && !options.metadataOnly) await validatePublishedFiles(dir, manifest)
   return manifest
 }
 
 /**
  * 统一入口：按源路径类型分发到文件夹安装或 zip 安装。
- * 支持：本地文件夹（含 plugin.json）、.enestplugin（根直接包含 plugin.json）。
+ * 支持：本地发布目录、.enestplugin / .zip（根直接包含 plugin.json）。
  */
 export async function installPluginFromPath(
   sourcePath: string,
@@ -297,11 +299,11 @@ export async function installPluginFromPath(
     return installFromFolder(sourcePath, destRoot, onProgress, operation, onPublished)
   }
   const ext = extname(sourcePath).toLowerCase()
-  if (ext === '.enestplugin') {
+  if (ext === '.enestplugin' || ext === '.zip') {
     logInfo('install', `zip install ← ${sourcePath}`)
     return installFromZip(sourcePath, destRoot, onProgress, operation, onPublished)
   }
-  throw new Error(`不支持的安装包类型: ${basename(sourcePath)}（需要发布目录或 .enestplugin）`)
+  throw new Error(`不支持的安装包类型: ${basename(sourcePath)}（需要 .zip、.enestplugin 或发布目录）`)
 }
 
 /** 从本地文件夹安装：校验 manifest 后递归复制到 destRoot/{id}/{version} */
@@ -409,18 +411,20 @@ async function findPluginRoot(dir: string): Promise<string> {
   return dir
 }
 
-async function validatePublishedFiles(root: string, id: string): Promise<void> {
+async function validatePublishedFiles(root: string, manifest: PluginManifest): Promise<void> {
+  const id = manifest.id
   async function visit(dir: string, prefix = ''): Promise<void> {
     for (const name of await readdir(dir)) {
       const rel = prefix + name
       const info = await lstat(join(dir, name))
       if (info.isSymbolicLink()) throw new Error(`插件包不允许符号链接: ${rel}`)
       if (!prefix && name === '.enest-build.json' && info.isFile()) continue // host-owned revision metadata
-      if (!prefix && !['plugin.json', 'index.html', 'assets', ...(id === 'com.enest.dsh' ? ['runtime'] : [])].includes(name)) {
+      if (!prefix && !['plugin.json', 'index.html', 'assets', ...(manifest.backend ? ['backend'] : []), ...(id === 'com.enest.dsh' ? ['runtime'] : [])].includes(name)) {
         throw new Error(`非标准发布内容: ${rel}`)
       }
       const runtime = id === 'com.enest.dsh' && (rel === 'runtime' || rel.startsWith('runtime/'))
-      if (!runtime && (!isPluginAssetPath(rel) || /(?:^|\/)(?:node_modules|tests?|src)(?:\/|$)/.test(rel) || /\.(?:map|tsx?|vue)$/i.test(rel))) {
+      const backend = !!manifest.backend && (rel === 'backend' || rel.startsWith('backend/'))
+      if (!runtime && (!(backend ? isPluginBackendPath(rel) : isPluginAssetPath(rel)) || (!backend && /(?:^|\/)(?:node_modules|tests?|src)(?:\/|$)/.test(rel)) || /\.(?:map|tsx?|vue)$/i.test(rel))) {
         throw new Error(`发布包包含源码或私有文件: ${rel}`)
       }
       if (info.isDirectory()) await visit(join(dir, name), rel + '/')

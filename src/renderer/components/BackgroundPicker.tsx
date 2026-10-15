@@ -4,7 +4,7 @@
  * 启动画面：品牌色 / 主题色 / 自定义图片，写入 settings.general.splashBackground。
  * 依赖：useTheme（setBackground）、shellApi、resolveMediaSrc、@shared/types/plugin。
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   BackgroundConfig,
   BackgroundType,
@@ -15,9 +15,9 @@ import { resolveMediaSrc, useThemeStore } from '@renderer/hooks/useTheme'
 import { shellApi } from '@renderer/services/shellApi'
 import { toastStore } from '@renderer/hooks/useToast'
 import { useI18n } from '@renderer/hooks/useI18n'
-import { backgroundColorStyle } from './backgroundColorStyle'
 import { backgroundAtmosphereStyle } from './backgroundAtmosphere'
 import { BackgroundEffectsPicker } from './BackgroundEffectsPicker'
+import { ColorPickerField } from './ColorPickerField'
 
 const TYPE_OPTIONS: { id: BackgroundType; label: string }[] = [
   { id: 'none', label: '无' },
@@ -122,7 +122,37 @@ export function BackgroundPicker() {
   const english = locale === 'en-US'
   const hasEffect = backgroundEffect !== 'none'
   const [picking, setPicking] = useState(false)
-  const colorInputRef = useRef<HTMLInputElement>(null)
+  const [opacityDraft, setOpacityDraft] = useState<number | null>(null)
+  const pendingOpacity = useRef<number | null>(null)
+  const opacityFrame = useRef<number | null>(null)
+  const applyOpacityPreview = useCallback(() => {
+    if (opacityFrame.current !== null) cancelAnimationFrame(opacityFrame.current)
+    opacityFrame.current = null
+    const opacity = pendingOpacity.current
+    pendingOpacity.current = null
+    const state = useThemeStore.getState()
+    if (opacity !== null && state.background && state.background.type !== 'none') {
+      state.previewBackground({ ...state.background, opacity })
+    }
+  }, [])
+  const commitOpacity = useCallback(() => {
+    applyOpacityPreview()
+    void useThemeStore.getState().flushBackgroundPreview()
+    setOpacityDraft(null)
+  }, [applyOpacityPreview])
+  const previewOpacity = (opacity: number): void => {
+    setOpacityDraft(opacity)
+    pendingOpacity.current = opacity
+    if (opacityFrame.current === null) opacityFrame.current = requestAnimationFrame(applyOpacityPreview)
+  }
+  useEffect(() => {
+    window.addEventListener('blur', commitOpacity)
+    return () => {
+      window.removeEventListener('blur', commitOpacity)
+      applyOpacityPreview()
+      void useThemeStore.getState().flushBackgroundPreview()
+    }
+  }, [applyOpacityPreview, commitOpacity])
 
   /** 启动画面（并入本卡片） */
   const [splash, setSplash] = useState<SplashBackgroundConfig>(SPLASH_DEFAULT)
@@ -273,11 +303,7 @@ export function BackgroundPicker() {
       <div className="bg-merge-divider" />
 
       <div className="bg-section-label">{english ? 'Atmosphere & custom background' : '氛围色与自定义背景'}</div>
-      <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-        {hasEffect
-          ? english ? 'Colors and gradients tint the current effect immediately across startup, the workspace and Quick. Images and videos appear when effects are off.' : '氛围色与渐变会立即叠加到当前动效，启动、工作区和 Quick 同步变化。图片和视频在关闭动效后显示。'
-          : english ? 'Choose a color, image or looping video and adjust its opacity.' : '预设氛围渐变，或图片 / 循环视频；可调不透明度'}
-      </p>
+      {hasEffect && <p className="hint">{english ? 'Images and videos appear when background effects are off.' : '关闭背景动效后，图片和视频才会显示。'}</p>}
 
       <div className="bg-type-row" role="radiogroup" aria-label="背景类型">
         {TYPE_OPTIONS.map((t) => (
@@ -319,18 +345,9 @@ export function BackgroundPicker() {
           <div className="field">
             <div>
               <div className="label">自定义色</div>
-              <p className="desc">{hasEffect ? '叠加到当前动效，切换后立即预览' : '选择单色铺底，立即应用到背景'}</p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="swatch" style={backgroundColorStyle(customSolid ? cfg.value : 'var(--surface-3)')} />
-              <input
-                ref={colorInputRef}
-                type="color"
-                value={customSolid ? cfg.value : '#d6cfc2'}
-                aria-label="自定义背景颜色"
-                onChange={(e) => patch({ value: e.target.value })}
-              />
-            </div>
+            <ColorPickerField value={customSolid ? cfg.value : '#d6cfc2'} label="自定义背景"
+              onChange={hex => useThemeStore.getState().previewBackground({ ...cfg, value: hex })} />
           </div>
         </>
       )}
@@ -360,17 +377,22 @@ export function BackgroundPicker() {
         <>
           <div className="field">
             <div>
-              <div className="label">{hasEffect && cfg.type === 'color' ? '氛围强度' : '不透明度'}</div>
-              <p className="desc">{Math.round(cfg.opacity * 100)}%{hasEffect && cfg.type === 'color' ? '（保留动效细节，可实时调节叠色）' : '（降低以免干扰内容）'}</p>
+              <div className="label">{cfg.type === 'color' ? '氛围强度' : '不透明度'}</div>
+              <p className="desc">{Math.round((opacityDraft ?? cfg.opacity) * 100)}%</p>
             </div>
             <input
               type="range"
               min={0}
               max={1}
-              step={0.05}
-              value={cfg.opacity}
-              aria-label={hasEffect && cfg.type === 'color' ? '氛围强度' : '背景不透明度'}
-              onChange={(e) => patch({ opacity: Number(e.target.value) })}
+              step={0.01}
+              value={opacityDraft ?? cfg.opacity}
+              aria-label={cfg.type === 'color' ? '氛围强度' : '背景不透明度'}
+              onChange={(e) => previewOpacity(Number(e.target.value))}
+              onPointerDown={e => e.currentTarget.setPointerCapture(e.pointerId)}
+              onPointerUp={commitOpacity}
+              onPointerCancel={commitOpacity}
+              onKeyUp={commitOpacity}
+              onBlur={commitOpacity}
             />
           </div>
 
@@ -378,7 +400,6 @@ export function BackgroundPicker() {
             <div className="field">
               <div>
                 <div className="label">适配方式</div>
-                <p className="desc">cover 铺满裁切 · contain 完整显示</p>
               </div>
               <div className="segmented" style={{ margin: 0 }}>
                 {(['cover', 'contain'] as const).map((f) => (
@@ -408,7 +429,7 @@ export function BackgroundPicker() {
       )}
       {mediaLocal && (
         <p className="hint" style={{ margin: '8px 0 0' }}>
-          本地路径已保存。Electron 下将由主进程以 enest://media 提供；浏览器预览暂无法加载{' '}
+          浏览器预览无法加载本地文件，桌面端可正常显示：{' '}
           <code>{shortName(cfg.value)}</code>
         </p>
       )}
@@ -421,10 +442,7 @@ export function BackgroundPicker() {
           ? 'The selected effect and atmosphere colors also apply to startup. Turn effects off and clear atmosphere colors to use a separate startup background.'
           : '所选背景动效和氛围色会统一应用到启动画面。关闭动效并清除氛围色后，可单独配置启动背景。'}</p>
       ) : <>
-      <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-        {t('settings.splash.hint')}
-      </p>
-
+      <p className="hint">{english ? 'Applies on the next startup.' : '下次启动生效。'}</p>
       <div className="field" style={{ borderTop: 'none', paddingTop: 0 }}>
         <div>
           <div className="label">{t('settings.splash.type')}</div>

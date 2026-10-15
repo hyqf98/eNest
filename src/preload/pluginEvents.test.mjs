@@ -97,3 +97,16 @@ test('clipboard privacy and socket encoding survive the public preload API', asy
     ['synthetic-secret', { excludeFromHistory: true }], ['socket', 'PING', 'utf8'], ['socket', 'AAE=', 'base64']
   ])
 })
+
+test('generic backend API forwards explicit and default arguments and namespaces backend events', async () => {
+  const c = fixture(), seen = [], forged = []
+  c.enest.on('backend.event', payload => seen.push(payload))
+  c.enest.on('ssh.auth', payload => forged.push(payload))
+  await c.enest.backend.call('echo', [1, { value: 'x' }]); await c.enest.backend.call('ping')
+  assert.deepEqual(JSON.parse(JSON.stringify(c.calls.map(([, request]) => request))), [
+    { pluginId: '', method: 'backend.call', args: ['echo', [1, { value: 'x' }]] }, { pluginId: '', method: 'backend.call', args: ['ping', []] }
+  ])
+  c.dispatch({ type: 'backend.event', event: 'ssh.auth', pluginId: 'forged', data: { value: 1 } })
+  assert.deepEqual(JSON.parse(JSON.stringify(seen)), [{ event: 'ssh.auth', data: { value: 1 } }])
+  assert.deepEqual(forged, [])
+})

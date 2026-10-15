@@ -44,14 +44,18 @@ resolve({ ok: true, data })
 
 ## 方法索引
 
+从 0.2.0 起，`db.*`、`mw.*`、`ssh.*` 的协议业务由调用方自己的插件后端实现；除 `db.pickSqliteFile`、`ssh.pickLocalFile` 两个宿主文件选择器外，这些 API 在表中所列权限之外还要求 `backend.node`。旧授权不包含完整 Node 信任；缺少后端的旧包需要更新。它们保留专用门面的会话/取消语义，不与 `backend.call` 的通用进程混用，见[迁移与兼容边界](backend.md)。
+
 | 命名空间 | 方法 | 权限 | 说明 |
 |---------|------|------|------|
+| `backend` | `call(method, args?)` | `backend.node` | 调用本插件的 Node 后端；事件经 backend.event 接收，见[后端协议与预算](backend.md) |
 | `ui` | `setTitle(title)` | 基础能力 | 设置 Tab 标题 |
 | `ui` | `setIcon(icon)` | 基础能力 | 设置 Tab 图标 |
 | `ui` | `setBadge(badge)` | 基础能力 | 设置角标 |
 | `ui` | `resize(size)` | 基础能力 | 兼容尺寸建议，保持容器尺寸 |
 | `ui` | `setHeight(height)` | 基础能力 | 兼容高度建议，保持容器尺寸 |
-| `ui` | `toast({ message, type? })` | 基础能力 | 壳子应用内 Toast |
+| `ui` | `dismissQuick()` | 基础能力 | 提交即收起 Quick 小窗（仅 quick 挂载者生效） |
+| `ui` | `toast({ title?, body?, format?, position?, level?, duration? })` | 基础能力 | 当前原生容器内的安全富文本通知 |
 | `ui` | `getThemeTokens()` | 无 | 读主题变量（别名） |
 | `ui` | `onThemeChange(cb)` | 无 | 订阅主题变更 |
 | 基础能力 | `getTokens()` | 无 | 读当前主题变量 |
@@ -105,8 +109,8 @@ resolve({ ok: true, data })
 | `db` | `importPreview(input)` / `importRun(input)` | `db.query` | CSV 导入 |
 | `db` | `schema.tree/describe/ddl` | `db.schema` | 库表结构 |
 | `db` | `completion(input)` | `db.schema` | SQL 补全 |
-| `db` | `dialects.list()` | 无 | 宿主内置方言资料 |
-| `db` | `workbench({ action: 'drivers.list' })` | 无 | 宿主内置驱动描述；连接、查询和结构等其它 action 仍按对应数据库权限校验 |
+| `db` | `dialects.list()` | `backend.node` | 本插件后端提供的方言资料 |
+| `db` | `workbench({ action: 'drivers.list' })` | `backend.node` | 本插件后端提供的驱动描述；其它 action 另按对应数据库权限校验 |
 | `db` | `pickSqliteFile()` / `pickImportFile()` | 基础能力 | 用户经原生选择器选择数据库文件 |
 | `mw` | `workbench(request)` | 按 action：`mw.connect` / `mw.query` / `mw.admin` | 中间件控制台统一入口（kafka / rabbitmq / mqtt / rocketmq）：连接、浏览、变更与实时监听；tail 消息经 `enest.on('mw.data')` 推送，错误经 `enest.on('mw.error')` |
 | — | `notify({ title?, body? })` | `notify` | 系统通知 |
@@ -217,23 +221,59 @@ await enest.ui.setHeight(420)
 
 ---
 
-### `ui.toast(payload)`
+### `ui.dismissQuick()`
 
-由 **壳子全局 Toast 层** 渲染的轻提示，与 `notify`（系统通知）分工。
+提交即收起 Quick 小窗，适合「选中即走」类交互（如回车回贴/复制完成后）。
 
 | | |
 |--|--|
 | **权限** | 基础能力，无需声明或授权 |
-| **参数** | `payload: { message: string; type?: 'info' \| 'success' \| 'warn' \| 'error' }` |
-| **返回** | `Promise<boolean>` |
-| **错误** | `toast message required`（`message` 为空） |
+| **参数** | 无 |
+| **返回** | `Promise<boolean>` — 是否因本次调用收起了小窗 |
 
-- `message` 必填非空。
-- `type` 缺省或非法值时按 `'info'` 处理。
+- 仅当本插件**当前挂载于 Quick 容器**时生效；主窗 / 独立窗口 / 后台实例调用返回 `false`，不做任何事。
+- 收起走壳子统一隐藏语义：插件进程保留，用户再次呼出 Quick 时**直接恢复本插件**（与失焦隐藏一致）。
+- 与 `quickInput.escape()` 分工：escape 是退出插件回全局搜索列表；dismissQuick 是收起整个小窗。
 
 ```js
+// 回车选中历史记录后自动收起（回贴由 clipboard.history.paste 内部完成收起）
+const result = await enest.clipboard.history.paste(id)
+if (!result.pasted && copiedAnyway) await enest.ui.dismissQuick()
+```
+
+---
+
+### `ui.toast(payload)`
+
+由宿主管理的原生通知层渲染，显示在当前插件所属的主窗口、Quick 或独立窗口中，位于插件内容之上。默认右下角；居中通知没有遮罩，不冻结插件，均有关闭按钮。
+
+| 参数 | 说明 |
+|--|--|
+| `title` | 可选纯文本标题，最多 120 个字符；无标题时使用级别名称 |
+| `body` | 正文，最多 16000 个字符；标题与正文至少一个非空 |
+| `format` | `text`（默认）、`html` 或 `markdown` |
+| `position` | `bottom-right`（默认）或 `center`；保留旧宿主 `top` 兼容 |
+| `level` | `info`、`success`、`warn`、`error`，默认 `info` |
+| `duration` | 自动关闭毫秒，范围 1500–60000；`0` 手动关闭。默认纯文本 4200、富文本 6500；超过 500 字符默认手动关闭 |
+| `message` / `type` | 兼容旧 API，分别等价于 `body` / `level`；新字段优先 |
+
+返回 `Promise<boolean>`。基础能力，无需声明或额外授权。参数非法、内容超限、容器不可用或超过频率/队列上限时拒绝 Promise。每个运行实例最多每 10 秒 10 次，每个容器最多排队 8 条；右下最多同时显示 3 条，居中/顶部各 1 条。新通知不抢焦点；悬停、键盘聚焦、窗口隐藏时暂停计时，长内容可滚动。聚焦通知后 Esc 可关闭；也可点击关闭按钮。
+
+HTML 采用白名单重建，仅保留段落、强调、标题、列表、引用、代码、表格、分隔线和安全链接。`script`、`iframe`、SVG、样式、事件处理器、表单、媒体与图片均不加载；任意 class/id/style/data 属性被丢弃。Markdown 复用宿主的安全渲染器，不执行原始 HTML、不加载图片。链接仅允许无凭据的 HTTP(S)/mailto，经宿主打开系统浏览器，不导航插件或通知页面。插件来源名称由宿主填写，插件不能指定其它来源。
+
+```js
+// 旧调用继续可用
 await enest.ui.toast({ message: '已保存', type: 'success' })
-await enest.ui.toast({ message: '网络异常', type: 'error' })
+
+await enest.ui.toast({
+  title: '导入完成', body: '**成功 24 项**\n\n- 数据已写入本地\n- 可继续编辑',
+  format: 'markdown', position: 'bottom-right', level: 'success'
+})
+
+await enest.ui.toast({
+  title: '操作说明', body: '<p>请先选择文件，再点击 <strong>开始转换</strong>。</p>',
+  format: 'html', position: 'center', duration: 0
+})
 ```
 
 | | 基础能力 | `notify` |
@@ -1139,7 +1179,7 @@ CSV 导入两步流：先 `importPreview` 看列映射与 SQL 预览（`{ column
 
 ### `db.completion(input)` / `db.dialects.list()`
 
-`completion` 给 SQL 编辑器做补全：入参 `{ sessionKey, sql, cursor? }`，返回 `{ replace: { from, to }, items }`，直接对接编辑器替换区间，需 `db.schema` 授权。**`db.completion.suggest(input)` 为规范全名**，`db.completion(input)` 是可直接调用的兼容别名（同一方法，二选一即可）。`dialects.list()` 返回宿主内置的各驱动方言信息（关键字、函数、代码片段），无需声明或授权，不读取数据库内容。
+`completion` 给 SQL 编辑器做补全：入参 `{ sessionKey, sql, cursor? }`，返回 `{ replace: { from, to }, items }`，直接对接编辑器替换区间，需 `db.schema` 授权。**`db.completion.suggest(input)` 为规范全名**，`db.completion(input)` 是可直接调用的兼容别名（同一方法，二选一即可）。`dialects.list()` 从本插件后端返回各驱动方言信息（关键字、函数、代码片段），需要 `backend.node`，不读取数据库内容。
 
 ### `db.pickSqliteFile()` / `db.pickImportFile()`
 

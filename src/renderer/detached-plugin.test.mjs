@@ -31,17 +31,20 @@ async function fixture(initialState = state()) {
     listeners = new Map()
     attributes = new Map()
     dataset = {}
-    style = { setProperty() {}, removeProperty() {} }
+    style = { setProperty(name, value) { this[name] = value }, removeProperty(name) { delete this[name] }, getPropertyValue(name) { return this[name] ?? '' } }
     value = ''
     disabled = false
     children = []
-    classList = { add: name => { this.className = `${this.className || ''} ${name}` } }
+    classList = {
+      add: name => { this.className = `${this.className || ''} ${name}` },
+      toggle: (name, force) => { const names = new Set(this.className?.split(' ').filter(Boolean)); if (force) names.add(name); else names.delete(name); this.className = [...names].join(' ') },
+    }
     get src() { return this.attributes.get('src') || '' }
     set src(value) { this.attributes.set('src', value) }
     get poster() { return this.attributes.get('poster') || '' }
     set poster(value) { this.attributes.set('poster', value) }
     appendChild(child) { this.children.push(child); child.parentElement = this; return child }
-    querySelector(selector) { return selector === ':scope > .background-atmosphere' ? this.children.find(child => child.className?.split(' ').includes('background-atmosphere')) ?? null : null }
+    querySelector(selector) { const className = selector.match(/^:scope > \.([\w-]+)$/)?.[1]; return className ? this.children.find(child => child.className?.split(' ').includes(className)) ?? null : null }
     prepend(child) { this.children.unshift(child); child.parentElement = this }
     remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(child => child !== this); this.parentElement = null }
     play() { this.playCalls = (this.playCalls || 0) + 1; return Promise.resolve() }
@@ -312,6 +315,9 @@ test('detached atmosphere changes update CSS immediately without restarting its 
   const layer = container.querySelector(':scope > .background-atmosphere')
   assert.equal(layer.style.backgroundImage, background.value)
   assert.equal(layer.style.opacity, '0.6')
+  const wash = container.querySelector(':scope > .background-atmosphere-wash')
+  assert.equal(wash.style.opacity, String(0.6 * 0.32))
+  assert.equal(f.document.documentElement.style.getPropertyValue('--atmosphere-strength'), '0.6')
   f.emit({ type: 'state', state: { ...selected, appearance: { ...selected.appearance, background: { ...background, value: '#ab7733', opacity: 0.2 } } } })
   assert.equal(layer.style.backgroundImage, '')
   assert.equal(layer.style.backgroundColor, '#ab7733')
@@ -320,6 +326,8 @@ test('detached atmosphere changes update CSS immediately without restarting its 
   assert.equal(f.backgroundStarts[0].disposed, false)
   f.emit({ type: 'state', state: { ...selected, appearance: { ...selected.appearance, background: null } } })
   assert.equal(container.querySelector(':scope > .background-atmosphere'), null)
+  assert.equal(container.querySelector(':scope > .background-atmosphere-wash'), null)
+  assert.equal(f.document.documentElement.style.getPropertyValue('--atmosphere-paint'), '')
   f.window.dispatch('pagehide')
 })
 

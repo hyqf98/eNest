@@ -78,6 +78,7 @@ test('settings atmosphere controls repaint the active WebGL background before pe
       input.dispatchEvent(new Event('input', { bubbles: true }))
       input.dispatchEvent(new Event('change', { bubbles: true }))
     })
+    await page.waitForFunction(() => document.querySelector('#stage .background-atmosphere')?.style.opacity === '0')
     assert.equal(await page.locator('#stage .background-atmosphere').evaluate(layer => layer.style.opacity), '0')
     const transparent = await stage.screenshot()
     assert.deepEqual(transparent, before, 'zero atmosphere strength restores the unmodified effect')

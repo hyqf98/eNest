@@ -4,7 +4,7 @@ import { IS_MAC } from '@shared/platform'
 import { applyLevelToDefaults } from '@renderer/gsap/marketMotion'
 import { startBackgroundEffect } from '@renderer/background/backgroundEffect'
 import { validateBackgroundEffects } from '@shared/backgroundEffects'
-import { backgroundAtmosphereStyle, syncBackgroundAtmosphere } from '@renderer/components/backgroundAtmosphere'
+import { backgroundAtmosphereStyle, syncBackgroundAtmosphere, syncBackgroundAtmosphereTheme } from '@renderer/components/backgroundAtmosphere'
 import { bindPluginDragSource } from '@renderer/services/pluginWindowDrag'
 import './detached-plugin.css'
 import '@renderer/styles/plugin-window-drag.css'
@@ -39,6 +39,7 @@ let backgroundContainer: HTMLDivElement | undefined
 function syncBackground(): void {
   if (disposed) return
   const appearance = current?.appearance
+  syncBackgroundAtmosphereTheme(root, appearance?.background)
   const effect = appearance?.backgroundEffect
   const level = appearance?.animationLevel ?? 'medium'
   const reduced = reducedMotion.matches
@@ -270,7 +271,11 @@ if (api) disposers.push(api.onEvent(event => {
   const message = event.event
   if (message.type === 'quick-input') setInput(message.state)
   else if (message.type === 'quick-focus-search' && !input.disabled) { input.focus(); input.select() }
-  else if (message.type === 'plugin-toast' && message.pluginId === current?.pluginId) showNotice(message.message)
+  else if (message.type === 'plugin-toast' && message.pluginId === current?.pluginId) {
+    const options = message.notification ?? { body: message.message ?? '', level: message.toastType ?? 'info' }
+    if (window.enestNotifications) void window.enestNotifications.show(options).catch(() => showNotice(options.body ?? ''))
+    else showNotice(options.body ?? '')
+  }
   else if (message.type === 'settings-changed' || message.type === 'theme-changed' || message.type === 'theme-packs-changed') void refresh()
 }))
 void refresh()

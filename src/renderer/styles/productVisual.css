@@ -15,21 +15,10 @@
 }
 
 .product-screenshot {
-  --product-cut: clamp(28px, 3.6vw, 48px);
-  margin: 8px 8px 8px 0;
-  border-radius: 0 6px 6px 0;
-  clip-path: polygon(var(--product-cut) 0, 100% 0, 100% 100%, 0 100%);
-  background: linear-gradient(110deg, var(--surface-3), var(--surface-2) 30%);
-}
-
-/* The diagonal belongs to the backdrop; the full screenshot sits beyond its widest point. */
-.product-screenshot::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--border-strong);
-  clip-path: polygon(var(--product-cut) 0, calc(var(--product-cut) + 1px) 0, 1px 100%, 0 100%);
-  pointer-events: none;
+  --product-cut: 0px;
+  margin: 16px 16px 16px 0;
+  border-radius: 8px;
+  background: var(--surface-2);
 }
 
 /* Real UI screenshots retain their full rectangle, including during image changes. */
@@ -98,22 +87,44 @@
 
 .product-gallery-controls {
   position: absolute;
-  bottom: 12px;
+  bottom: 10px;
   left: 50%;
   display: flex;
   align-items: center;
-  padding: 3px;
-  border: 1px solid var(--border-strong);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--surface) 95%, transparent);
-  box-shadow: var(--shadow-soft);
+  padding: 0 2px;
+  border-radius: 999px;
+  background: transparent;
   transform: translateX(-50%);
 }
 
 .product-visual[data-active='false'] .product-gallery-controls { visibility: hidden; }
 .product-screenshot > .product-gallery-controls { left: calc(50% + var(--product-cut) / 2); }
 
-.product-gallery-controls button,
+.product-gallery-dot {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.product-gallery-dot > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 26%, var(--surface));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--surface) 80%, transparent), 0 1px 4px #0003;
+  transition: background-color var(--gallery-duration) ease, transform var(--gallery-duration) ease;
+}
+.product-gallery-dot[aria-current='true'] > span { background: var(--accent); transform: scale(1.25); }
+.product-gallery-dot:hover:not(:disabled) > span { background: var(--accent); }
+.product-gallery-dot:active:not(:disabled) > span { transform: scale(1.1); }
+.product-gallery-position { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
 .product-preview button {
   display: grid;
   place-items: center;
@@ -129,18 +140,9 @@
   transition: background var(--gallery-duration) ease, transform var(--gallery-duration) ease;
 }
 
-.product-gallery-controls button:hover,
 .product-preview button:hover { background: var(--surface-3); }
-.product-gallery-controls button:active,
 .product-preview button:active { transform: scale(0.96); }
 
-.product-gallery-controls .product-gallery-count {
-  min-width: 48px;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-.product-gallery-count span span,
 .product-preview-pagination > span > span { color: var(--text-2); }
 
 .product-image-loading {
@@ -235,7 +237,7 @@
 :root[data-anim='high'] .product-preview { --gallery-duration: 420ms; --gallery-scale: 1.025; }
 
 @media (max-width: 760px) {
-  .product-screenshot { --product-cut: 24px; aspect-ratio: 16 / 10; margin: 0 12px 12px; }
+  .product-screenshot { aspect-ratio: 16 / 10; margin: 0 16px 16px; }
   .product-identity { display: none; }
   .product-preview { width: calc(100vw - 24px); max-height: calc(100dvh - 32px); }
   .product-preview-image { height: min(60dvh, 520px); }
@@ -246,5 +248,5 @@
   .product-visual, .product-preview { --gallery-duration: 0ms; --gallery-scale: 1; }
   .product-visual *, .product-preview * { transition: none !important; }
   .product-image-expand { transform: none; }
-  .product-gallery-controls button:active, .product-preview button:active { transform: none; }
+  .product-gallery-dot > span, .product-preview button:active { transform: none; }
 }

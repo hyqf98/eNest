@@ -12,6 +12,7 @@ import { PluginHostChrome } from '@renderer/pages/PluginHostChrome'
 import { InstallDropHost } from '@renderer/components/InstallDropOverlay'
 import { InstallProgressPanel } from '@renderer/components/InstallProgressPanel'
 import { UpdateDialog } from '@renderer/components/UpdateDialog'
+import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { useShellEvents } from '@renderer/hooks/useShellEvents'
 
@@ -61,6 +62,7 @@ export function ShellLayout() {
       <InstallProgressPanel />
       {/* 应用更新弹框（available/downloaded 状态由设置页入口触发打开） */}
       <UpdateDialog />
+      {view !== 'plugin' && <ConfirmDialog key={view} />}
     </div>
   )
 }

@@ -30,7 +30,7 @@ const adapters = {
     export const finishQuickPluginReveal=()=>{f.quickRevealFinishes++};
     export const getQuickPluginBounds=()=>{const {width,height}=win.getContentBounds();return {x:1,y:64,width:width-2,height:height-65}}; export const getQuickWebContents=()=>wc;
     export const setQuickContentSize=size=>{f.quickSizeRequests.push({...size})}; export const hideQuickWindow=()=>{};
-    export const setQuickPluginHiddenHook=()=>{}; export const setQuickPluginRelayout=()=>{}; export const setQuickPluginResetHook=()=>{};
+    export const setQuickPluginHiddenHook=()=>{}; export const setQuickPluginRelayout=()=>{}; export const setQuickPluginResetHook=()=>{}; export const setQuickPluginSummonHook=()=>{};
   `,
   '@main/settings/SettingsStore': `import {f} from 'fixture'; export const settingsStore={getAll:()=>({general:f.savedGeneral}),setAll:async value=>{f.persisted.push(value)},flushNow(){}};`,
   '@main/window/detachedPluginWindows': `

@@ -60,6 +60,83 @@ function deferred() {
 
 const settle = () => new Promise(resolve => setImmediate(resolve))
 
+test('background preview stays immediate, ignores old broadcasts and persists only the final value', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const f = fixture({ background: color('#123456') })
+  await f.store.getState().hydrate()
+  for (let index = 0; index < 100; index++) {
+    f.store.getState().previewBackground({ ...color('#654321'), opacity: index / 100 })
+    t.mock.timers.tick(8)
+  }
+  assert.equal(f.store.getState().background.opacity, 0.99)
+  assert.equal(f.writes.length, 0)
+  await f.store.getState().refresh()
+  assert.equal(f.store.getState().background.opacity, 0.99, 'an old theme broadcast must not reset the gesture')
+  await f.store.getState().flushBackgroundPreview()
+  assert.equal(f.writes.length, 1)
+  assert.equal(f.data().background.opacity, 0.99)
+  t.mock.timers.tick(1000)
+  await settle()
+  assert.equal(f.writes.length, 1, 'ending the gesture cancels the idle write')
+})
+
+test('idle previews save, and a later theme action consumes the preview without a stale write', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const f = fixture()
+  await f.store.getState().hydrate()
+  f.store.getState().previewBackground(color('#abcdef'))
+  t.mock.timers.tick(240)
+  await settle()
+  assert.equal(f.data().background.value, '#abcdef')
+  f.store.getState().previewBackground(color('#654321'))
+  await f.store.getState().setMode('dark')
+  t.mock.timers.tick(1000)
+  await settle()
+  assert.equal(f.writes.length, 2)
+  assert.equal(f.data().mode, 'dark')
+  assert.equal(f.data().background.value, '#654321')
+  f.store.getState().previewBackground(color('#777777'))
+  await f.store.getState().setBackground(null)
+  t.mock.timers.tick(1000)
+  await settle()
+  assert.equal(f.writes.length, 3)
+  assert.equal(f.data().background, undefined)
+})
+
+test('a slow previous write and refresh cannot overwrite a newer background preview', async () => {
+  const f = fixture()
+  await f.store.getState().hydrate()
+  const gate = deferred(), write = f.api.setTheme
+  let calls = 0
+  f.api.setTheme = async (...args) => {
+    if (++calls === 1) await gate.promise
+    await write(...args)
+  }
+  const older = f.store.getState().setBackground(color('#111111'))
+  const refresh = f.store.getState().refresh()
+  f.store.getState().previewBackground(color('#888888'))
+  gate.resolve()
+  await Promise.all([older, refresh])
+  assert.equal(f.store.getState().background.value, '#888888')
+  await f.store.getState().flushBackgroundPreview()
+  assert.equal(f.data().background.value, '#888888')
+})
+
+test('preview save errors remain visible and do not poison the next gesture', async () => {
+  const f = fixture()
+  await f.store.getState().hydrate()
+  const write = f.api.setTheme
+  f.api.setTheme = async () => { throw new Error('disk unavailable') }
+  f.store.getState().previewBackground(color('#123456'))
+  await f.store.getState().flushBackgroundPreview()
+  assert.equal(f.notifications.length, 1)
+  assert.equal(f.store.getState().background.value, '#123456')
+  f.api.setTheme = write
+  f.store.getState().previewBackground(color('#abcdef'))
+  await f.store.getState().flushBackgroundPreview()
+  assert.equal(f.data().background.value, '#abcdef')
+})
+
 test('pack backgrounds follow the current registry and are removed on disable/uninstall without persisting snapshots', async () => {
   const f = fixture({ packId: 'com.test.theme', backgroundSource: 'pack', background: color('url(https://old.invalid)') })
   await f.store.getState().refresh()

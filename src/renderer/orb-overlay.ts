@@ -104,6 +104,12 @@ let narrowTimer: number | null = null
 let dragActive = false
 let dropTarget: ReturnType<typeof bindPluginDropTarget> | null = null
 const dragDisposers: Array<() => void> = []
+let offOrbEvent: (() => void) | undefined
+let avatarRevision = 0
+let requestedAvatar = ''
+let avatarFrame = 0
+let avatarLoader: HTMLImageElement | null = null
+let disposed = false
 
 function cancelClose(): void {
   if (closeTimer != null) {
@@ -175,14 +181,71 @@ function buildChrome(): void {
       : `
     <div class="orb-dock" id="orb-dock">
       <button type="button" class="orb-face orb-settings" data-settings="1" title="设置" aria-label="设置">
-        <span class="orb-dock-layer orb-dock-avatar">
-          <img class="orb-avatar-img" alt="" draggable="false" hidden />
+        <span class="orb-dock-layer orb-dock-avatar" data-avatar-slot="none" aria-hidden="true">
+          <img class="orb-avatar-img" data-avatar-image="0" alt="" draggable="false" referrerpolicy="no-referrer" />
+          <img class="orb-avatar-img" data-avatar-image="1" alt="" draggable="false" referrerpolicy="no-referrer" />
           <span class="orb-avatar-glyph">${USER_ICON}</span>
         </span>
-        <span class="orb-dock-layer orb-dock-icon">${SETTINGS_ICON}</span>
+        <span class="orb-dock-layer orb-dock-icon" aria-hidden="true">${SETTINGS_ICON}</span>
       </button>
     </div>
   `
+}
+
+/** Keep both image nodes alive: never change the source of an image that is still fading out. */
+function syncDockAvatar(raw: string | null | undefined): void {
+  const avatar = /^data:image\/[a-z0-9.+-]+;base64,/i.test(raw ?? '') ? raw! : ''
+  if (avatar === requestedAvatar) return
+  requestedAvatar = avatar
+  const revision = ++avatarRevision
+  cancelAnimationFrame(avatarFrame)
+  avatarFrame = 0
+  if (avatarLoader) { avatarLoader.onload = null; avatarLoader.onerror = null; avatarLoader = null }
+  const layer = root.querySelector<HTMLElement>('.orb-dock-avatar')
+  const images = Array.from(root.querySelectorAll<HTMLImageElement>('.orb-avatar-img'))
+  if (!layer || images.length !== 2) return
+
+  const clearWhenInvisible = () => {
+    avatarFrame = 0
+    if (revision !== avatarRevision) return
+    if (images.some(image => Number(getComputedStyle(image).opacity) > 0.001)) {
+      avatarFrame = requestAnimationFrame(clearWhenInvisible)
+    } else images.forEach(image => image.removeAttribute('src'))
+  }
+  const fallback = () => {
+    if (revision !== avatarRevision) return
+    layer.dataset.avatarSlot = 'none'
+    clearWhenInvisible()
+  }
+  if (!avatar) { fallback(); return }
+  const select = (image: HTMLImageElement) => { layer.dataset.avatarSlot = image.dataset.avatarImage }
+  const existing = images.find(image => image.getAttribute('src') === avatar && image.naturalWidth > 0)
+  if (existing) { select(existing); return }
+
+  // Main supplies a cached data URL. This document never fetches an account image from the network.
+  const loader = new Image()
+  avatarLoader = loader
+  const commit = () => {
+    avatarFrame = 0
+    if (revision !== avatarRevision) return
+    const next = images.find(image => Number(getComputedStyle(image).opacity) <= 0.001)
+    if (!next) {
+      // Coalesce rapid account updates until the outgoing buffer is free; the latest request wins.
+      avatarFrame = requestAnimationFrame(commit)
+      return
+    }
+    next.src = avatar
+    void next.decode().then(() => {
+      if (revision === avatarRevision && next.getAttribute('src') === avatar) select(next)
+    }).catch(fallback)
+  }
+  loader.onload = () => {
+    if (revision !== avatarRevision) return
+    avatarLoader = null
+    commit()
+  }
+  loader.onerror = () => { if (revision === avatarRevision) { avatarLoader = null; fallback() } }
+  loader.src = avatar
 }
 
 interface OrbItemSpec {
@@ -208,14 +271,7 @@ function syncPanel(): void {
     if (btn) {
       const active = state.view === 'settings'
       btn.classList.toggle('active', active)
-      const avatar = state.profile?.avatar ?? ''
-      const img = btn.querySelector<HTMLImageElement>('.orb-avatar-img')
-      const glyph = btn.querySelector<HTMLElement>('.orb-avatar-glyph')
-      if (img && glyph) {
-        if (avatar && (img.getAttribute('src') ?? '') !== avatar) img.src = avatar
-        img.hidden = !avatar
-        glyph.hidden = Boolean(avatar)
-      }
+      syncDockAvatar(state.profile?.avatar)
       const label = state.profile?.name
       btn.setAttribute('title', label ? `${label} · 设置` : '设置')
       btn.setAttribute('aria-label', label ? `${label} · 设置` : '设置')
@@ -362,8 +418,13 @@ function bindDrag(): void {
 }
 
 function disposeDrag(): void {
+  disposed = true
   cancelClose(); cancelNarrow()
   for (const dispose of dragDisposers.splice(0)) dispose()
+  offOrbEvent?.(); offOrbEvent = undefined
+  avatarRevision += 1
+  cancelAnimationFrame(avatarFrame); avatarFrame = 0
+  if (avatarLoader) { avatarLoader.onload = null; avatarLoader.onerror = null; avatarLoader = null }
 }
 
 function bindEvents(): void {
@@ -438,6 +499,7 @@ function bindEvents(): void {
 
 /** orb-state 载荷携带档位与主题（主进程 settingsStore 为唯一事实来源），到达即应用 */
 function applyState(next: OrbState): void {
+  if (disposed) return
   state = next
   if (isAnimLevel(next.animationLevel)) applyAnimLevel(next.animationLevel)
   if (next.theme) applyTheme(next.theme)
@@ -456,12 +518,14 @@ async function boot(): Promise<void> {
   bindEvents()
   bindDrag()
 
-  shell?.onOrbEvent?.((payload) => {
-    if (payload?.state) applyState(payload.state)
+  let receivedState = false
+  offOrbEvent = shell?.onOrbEvent?.((payload) => {
+    if (payload?.state) { receivedState = true; applyState(payload.state) }
   })
   if (shell?.getOrbState) {
     try {
       const s = await shell.getOrbState()
+      if (receivedState || disposed) return
       applyState({
         view: s.view as OrbState['view'],
         tabStyle: s.tabStyle as OrbState['tabStyle'],

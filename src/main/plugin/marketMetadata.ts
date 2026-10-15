@@ -2,6 +2,7 @@
 import { isPluginAssetPath } from '@shared/pluginContract'
 import manifestSchema from '@shared/pluginManifest.schema.json'
 import { pluginProtocolUrl } from '@shared/constants'
+import { resolveOfficialPluginIcon } from '@shared/pluginIconArtwork'
 import type { PluginManifest, PluginPermission, PluginSummary, PluginUiConfig } from '@shared/types/plugin'
 import { PLUGIN_PERMISSIONS, resolvePluginUi } from '@shared/types/plugin'
 
@@ -18,6 +19,7 @@ export interface RemoteRegistryPlugin {
   readmeImages?: Record<string, string>
   permissions?: string[]
   featured?: boolean
+  tags?: string[]
   installs?: number
   ui?: Partial<PluginUiConfig>
   asset?: { name?: string; url?: string; sha256?: string; size?: number }
@@ -40,6 +42,8 @@ export interface MarketPluginSummary {
   permissions: PluginPermission[]
   ui: PluginUiConfig
   featured: boolean
+  tags: string[]
+  packageSize?: number
   assetUrl: string | null
   assetSha256: string | null
   source: 'remote'
@@ -158,6 +162,13 @@ function stringValue(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
 }
 
+/** 不补造标签；只去除无效项、重复项并限制索引提供的文本长度。 */
+export function marketTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.filter((tag): tag is string => typeof tag === 'string')
+    .map((tag) => tag.trim()).filter((tag) => tag.length > 0 && tag.length <= 40))].slice(0, 12)
+}
+
 /** 对旧索引向后兼容；坏条目不拖垮整份市场列表。 */
 export function parseRemoteMarket(
   data: unknown,
@@ -184,12 +195,12 @@ export function parseRemoteMarket(
       name: p.name,
       version: p.version,
       description: stringValue(p.description),
-      author: stringValue(p.author, 'unknown'),
+      author: stringValue(p.author),
       category: categorySet.has(category) ? category : '其它',
-      installs: installs >= 1000 ? `${(installs / 1000).toFixed(1)}k` : String(installs),
+      installs: installs > 0 ? installs >= 1000 ? `${(installs / 1000).toFixed(1)}k` : String(installs) : '',
       color: colorFromId(p.id),
       glyph: p.name.trim().slice(0, 1).toUpperCase() || '?',
-      icon: resolveRegistryImageUrl(p.icon, registryUrl),
+      icon: resolveOfficialPluginIcon(p.id, p.version, resolveRegistryImageUrl(p.icon, registryUrl)),
       screenshots: screenshotUrls(p.screenshots, (value) => resolveRegistryImageUrl(value, registryUrl, true)),
       readmeUrl: resolveRegistryImageUrl(p.readmeUrl, registryUrl),
       readmeImages: readmeImages(p.readmeImages, registryUrl),
@@ -198,6 +209,8 @@ export function parseRemoteMarket(
         : [],
       ui: resolvePluginUi(p.ui),
       featured: p.featured === true,
+      tags: marketTags(p.tags),
+      packageSize: typeof p.asset?.size === 'number' && Number.isSafeInteger(p.asset.size) && p.asset.size > 0 ? p.asset.size : undefined,
       assetUrl,
       assetSha256: /^[0-9a-f]{64}$/.test(sha) ? sha : null,
       source: 'remote' as const
@@ -220,6 +233,8 @@ export function mergeMarketMetadata(summary: PluginSummary, remote?: MarketPlugi
     screenshots,
     readmeUrl: summary.installed ? summary.readmeUrl : remote.readmeUrl,
     readmeImages: summary.installed ? undefined : remote.readmeImages,
+    tags: summary.installed ? summary.tags : remote.tags,
+    packageSize: summary.version === remote.version ? remote.packageSize : undefined,
     featured: summary.dev && summary.featured !== undefined ? summary.featured : remote.featured
   }
 }

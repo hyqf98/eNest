@@ -1,16 +1,20 @@
 /**
  * ThemeSettingsSection — 设置页「主题」整块（模式 / 主题包 / 背景（含启动画面）/ 颜色 Token）
- * 供 SettingsPage 或其它容器一键挂载；内部读 useTheme，无需透传 props。
- * 依赖：useTheme、ThemeModeSelect、BackgroundPicker、ThemeTokenEditor。
+ * 供 SettingsPage 或其它容器一键挂载；只订阅本区域需要的主题状态。
+ * 依赖：useThemeStore、ThemeModeSelect、BackgroundPicker、ThemeTokenEditor。
  */
-import { useTheme } from '@renderer/hooks/useTheme'
+import { useShallow } from 'zustand/react/shallow'
+import { useThemeStore } from '@renderer/hooks/useTheme'
 import { ThemeModeSelect } from '@renderer/components/ThemeModeSelect'
 import { BackgroundPicker } from '@renderer/components/BackgroundPicker'
 import { ThemeTokenEditor } from '@renderer/components/ThemeTokenEditor'
 import { resolveThemePalette } from '@shared/theme/presets'
 
 export function ThemeSettingsSection() {
-  const theme = useTheme()
+  // Background previews must not rerender palette cards and every token color picker.
+  const theme = useThemeStore(useShallow(({ mode, resolved, packs, packId, overrides, tokens, setMode, applyPack, setToken, resetMode }) => ({
+    mode, resolved, packs, packId, overrides, tokens, setMode, applyPack, setToken, resetMode,
+  })))
   const pack = theme.packs.find((item) => item.id === theme.packId)
   const palettes = {
     light: resolveThemePalette('light', theme.overrides.light, pack?.tokens),

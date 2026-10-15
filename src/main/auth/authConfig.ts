@@ -16,5 +16,12 @@ export function getGithubAuthConfig() {
       if ((url.protocol === 'https:' || local) && !url.username && !url.password && !url.hash && !url.search) exchangeUrl = url.href
     } catch { /* An invalid release endpoint is unavailable, never sent to the browser. */ }
   }
-  return { clientId, exchangeUrl, deviceFlow, available: Boolean(clientId && (exchangeUrl || deviceFlow)) }
+  const availabilityError = !clientId
+    ? '此版本尚未配置 GitHub 登录应用，请联系发布方完成登录配置。'
+    : !exchangeUrl && !deviceFlow
+      ? rawUrl
+        ? '此版本的 GitHub 登录服务地址无效，请联系发布方修复登录配置。'
+        : '此版本尚未配置 GitHub 授权服务，请联系发布方完成登录配置。'
+      : undefined
+  return { clientId, exchangeUrl, deviceFlow, available: !availabilityError, availabilityError }
 }

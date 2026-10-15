@@ -16,19 +16,18 @@ import { DevConsoleSection } from '@renderer/components/DevConsoleSection'
 import { QuickSettingsSection } from '@renderer/components/QuickSettingsSection'
 import { LanguageSelect } from '@renderer/components/LanguageSelect'
 import { Select } from '@renderer/components/Select'
+import { ColorPickerField } from '@renderer/components/ColorPickerField'
 import { SettingsTabs } from '@renderer/components/SettingsTabs'
-import { PluginBuiltinCapabilities } from '@renderer/components/PluginBuiltinCapabilities'
 import { useI18n } from '@renderer/hooks/useI18n'
 import type { Locale } from '@renderer/i18n'
 import { shellApi } from '@renderer/services/shellApi'
 import { notify } from '@renderer/services/notifyService'
 import { toastStore } from '@renderer/hooks/useToast'
 import type { ProxyConfig, ProxyType } from '@shared/types/plugin'
-import type { PluginPermission, PluginPermissionGrant } from '@shared/types/plugin'
 import type { UpdateStatePayload } from '@shared/types/ipc'
 import { PLUGIN_CATEGORY_COLOR_DEFAULT } from '@shared/constants'
-import { permissionLabel } from '@shared/permissionLabels'
-import { filterPermissionGrants, requiresUserConsent } from '@shared/pluginPermissionPolicy'
+import '@renderer/components/pluginSettings.css'
+import '@renderer/styles/settings.css'
 
 type CloseBehavior = 'minimize-tray' | 'quit'
 
@@ -58,8 +57,8 @@ function normalizeCloseBehavior(v: unknown): CloseBehavior {
   return v === 'quit' ? 'quit' : 'minimize-tray'
 }
 
-function Switch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
-  return <button type="button" className={`switch${on ? ' on' : ''}`} onClick={onToggle} aria-pressed={on} />
+function Switch({ on, onToggle, label }: { on: boolean; onToggle: () => void; label: string }) {
+  return <button type="button" className={`switch${on ? ' on' : ''}`} onClick={onToggle} aria-pressed={on} aria-label={label} />
 }
 
 function Field({
@@ -82,71 +81,12 @@ function Field({
   )
 }
 
-function Card({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function Card({ title, hint, children, className }: { title: string; hint?: string; children: React.ReactNode; className?: string }) {
   return (
-    <div className="s-card">
+    <div className={`s-card${className ? ` ${className}` : ''}`}>
       <h2>{title}</h2>
       {hint ? <p className="hint">{hint}</p> : null}
       {children}
-    </div>
-  )
-}
-
-/** Only declared sensitive capabilities carry a user-managed consent decision. */
-function PluginPermissionBlock({
-  pluginId,
-  permissions,
-  grants,
-  saving,
-  onChange,
-}: {
-  pluginId: string
-  permissions: PluginPermission[]
-  grants: Partial<Record<PluginPermission, PluginPermissionGrant>>
-  saving: Record<string, boolean>
-  onChange: (pluginId: string, perm: PluginPermission, grant: PluginPermissionGrant) => void
-}) {
-  const sensitive = [...new Set(permissions)].filter(requiresUserConsent)
-  const grantOf = (perm: PluginPermission): PluginPermissionGrant => {
-    const g = grants[perm]
-    return g === 'allow' || g === 'deny' ? g : 'ask'
-  }
-  return (
-    <div className="plugin-settings-section perm-grant-block">
-      <h3 className="label">系统与隐私权限</h3>
-      <p className="desc">首次使用时统一授权，记住后不再重复询问；也可逐项设为允许、询问或拒绝。文件访问仍限定于你选择并授权的文件。</p>
-      {sensitive.length === 0 ? <p className="desc">此插件未申请系统或隐私权限。</p> : null}
-      {sensitive.map((perm) => (
-        <Field key={perm} label={permissionLabel(perm)}>
-          <div
-            className="segmented perm-grant-seg"
-            role="radiogroup"
-            aria-label={`${permissionLabel(perm)}授权`}
-            data-permission={perm}
-          >
-            {(
-              [
-                ['allow', '允许'],
-                ['ask', '询问'],
-                ['deny', '拒绝'],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={grantOf(perm) === value}
-                disabled={saving[`${pluginId}:${perm}`] === true}
-                className={grantOf(perm) === value ? 'active' : ''}
-                onClick={() => onChange(pluginId, perm, value)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </Field>
-      ))}
-      <PluginBuiltinCapabilities />
     </div>
   )
 }
@@ -218,45 +158,7 @@ export function SettingsPage() {
   const [pluginSections, setPluginSections] = useState<PluginSettingsSection[]>([])
   const [pluginSettings, setPluginSettings] = useState<Record<string, Record<string, unknown>>>({})
 
-  /** 运行时权限授权表：pluginId → perm → grant（弹窗 always/deny 与本页切换共用） */
-  const [permissionGrants, setPermissionGrants] = useState<
-    Record<string, Partial<Record<PluginPermission, PluginPermissionGrant>>>
-  >({})
-  const [permissionSaving, setPermissionSaving] = useState<Record<string, boolean>>({})
-  const pendingPermissions = useRef(new Set<string>())
-
-  /** 写单项授权：乐观更新 + shellApi 持久化，失败回滚并提示 */
-  const handlePermissionGrant = useCallback(
-    (pluginId: string, perm: PluginPermission, grant: PluginPermissionGrant) => {
-      const key = `${pluginId}:${perm}`
-      if (!requiresUserConsent(perm) || pendingPermissions.current.has(key)) return
-      pendingPermissions.current.add(key)
-      setPermissionSaving((prev) => ({ ...prev, [key]: true }))
-      const prevGrant = permissionGrants[pluginId]?.[perm]
-      setPermissionGrants((prev) => ({
-        ...prev,
-        [pluginId]: { ...(prev[pluginId] ?? {}), [perm]: grant },
-      }))
-      void (async () => {
-        try {
-          await shellApi.setPluginPermissionGrant?.(pluginId, perm, grant)
-        } catch {
-          // 持久化失败：回滚本地状态
-          setPermissionGrants((cur) => ({
-            ...cur,
-            [pluginId]: { ...(cur[pluginId] ?? {}), [perm]: prevGrant ?? 'ask' },
-          }))
-          notify.warn('权限设置保存失败，已还原')
-        } finally {
-          pendingPermissions.current.delete(key)
-          setPermissionSaving((prev) => ({ ...prev, [key]: false }))
-        }
-      })()
-    },
-    [permissionGrants],
-  )
-
-  /** Every installed plugin needs a consent-management entry, even without custom settings. */
+  /** Installed plugins keep their own settings entry, including before their first launch. */
   const settingsPlugins = installed
 
   /** Only an uninstalled plugin should lose its settings entry. */
@@ -352,35 +254,6 @@ export function SettingsPage() {
       off()
     }
   }, [])
-
-  /** Initial read and native consent decisions share the same filtered state. */
-  useEffect(() => {
-    let cancelled = false
-    const changed = new Set<string>()
-    const off = shellApi.onEvent((payload) => {
-      if (payload.type !== 'permission-grants-changed') return
-      changed.add(payload.pluginId)
-      setPermissionGrants((prev) => ({ ...prev, [payload.pluginId]: filterPermissionGrants(payload.grants) }))
-    })
-    void (async () => {
-      for (const p of installed) {
-        try {
-          const grants = await shellApi.getPluginPermissionGrants?.(p.id)
-          if (!cancelled && grants && !changed.has(p.id)) {
-            setPermissionGrants((prev) => ({ ...prev, [p.id]: filterPermissionGrants(grants) }))
-          }
-        } catch {
-          /* 单插件失败不阻塞其余 */
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-      off()
-    }
-    // installed 列表变化（新装/卸载）时重拉
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [installed.map((p) => p.id).join(',')])
 
   /** 写入插件单项：优先 setPluginSetting（同步 Bridge），回落 setSettings.plugins */
   const handlePluginSetting = useCallback(
@@ -623,7 +496,6 @@ export function SettingsPage() {
       <div className="settings-shell">
         <div className="settings-header">
           <h1>{t('settings.title')}</h1>
-          <p>{t('settings.subtitle')}</p>
         </div>
         <SettingsTabs
           tabs={allTabs}
@@ -634,14 +506,14 @@ export function SettingsPage() {
 
         {settingsTab === 'profile' && <ProfileSection />}
         {settingsTab === 'general' && (
-          <Card title={t('settings.general.title')} hint={t('settings.general.hint')}>
-            <Field label={t('settings.general.language')} desc={t('settings.general.languageDesc')}>
+          <Card title={t('settings.general.title')}>
+            <Field label={t('settings.general.language')}>
               <LanguageSelect value={locale} onChange={handleLocale} />
             </Field>
             <Field label={t('settings.general.hardwareAccel')} desc={t('settings.general.hardwareAccelDesc')}>
-              <Switch on={hwAccel} onToggle={handleHwAccel} />
+              <Switch on={hwAccel} onToggle={handleHwAccel} label={t('settings.general.hardwareAccel')} />
             </Field>
-            <Field label={t('settings.general.dataRoot')} desc={t('settings.general.dataRootDesc')}>
+            <Field label={t('settings.general.dataRoot')}>
               <div className="path-actions">
                 <code className="path-text" title={dataRoot}>
                   {loadingGeneral ? t('common.loading') : dataRoot || '—'}
@@ -656,8 +528,9 @@ export function SettingsPage() {
                 </button>
               </div>
             </Field>
-            <Field label={t('settings.general.closeBehavior')} desc={t('settings.general.closeBehaviorDesc')}>
+            <Field label={t('settings.general.closeBehavior')}>
               <Select
+                ariaLabel={t('settings.general.closeBehavior')}
                 value={closeBehavior}
                 onChange={handleCloseBehavior}
                 minWidth={160}
@@ -667,7 +540,7 @@ export function SettingsPage() {
                 ]}
               />
             </Field>
-            <Field label={t('settings.general.proxy')} desc={t('settings.general.proxyDesc')}>
+            <Field label={t('settings.general.proxy')}>
               <div className="proxy-row">
                 <Select
                   value={proxyType}
@@ -725,11 +598,12 @@ export function SettingsPage() {
                 </button>
               </div>
             </Field>
-            <Field label={t('settings.general.tabStyle')} desc={t('settings.general.tabStyleDesc')}>
+            <Field label={t('settings.general.tabStyle')}>
               <div className="segmented tab-style-seg" role="group" aria-label={t('settings.general.tabStyle')}>
                 <button
                   type="button"
                   className={tabStyle === 'classic' ? 'active' : ''}
+                  aria-pressed={tabStyle === 'classic'}
                   onClick={() => setTabStyle('classic')}
                 >
                   <span className="tab-style-icon classic-icon" aria-hidden="true">
@@ -741,6 +615,7 @@ export function SettingsPage() {
                 <button
                   type="button"
                   className={tabStyle === 'orb' ? 'active' : ''}
+                  aria-pressed={tabStyle === 'orb'}
                   onClick={() => setTabStyle('orb')}
                 >
                   <span className="tab-style-icon orb-icon" aria-hidden="true">
@@ -767,9 +642,7 @@ export function SettingsPage() {
                       ? t('settings.general.updateAvailableDesc', {
                           version: updateState.latestVersion ?? ''
                         })
-                      : t('settings.general.updatesDesc', {
-                          version: updateState?.currentVersion ?? '—'
-                        })
+                      : `${locale === 'en-US' ? 'Version' : '当前版本'} ${updateState?.currentVersion ?? '—'}`
               }
             >
               <div className="path-actions">
@@ -832,6 +705,7 @@ export function SettingsPage() {
               if (item.type === 'boolean' || item.type === 'bool' || item.type === 'switch') {
                 return (
                   <Switch
+                    label={item.label}
                     on={raw !== false && raw != null}
                     onToggle={() => handlePluginSetting(id, item.key, !(raw !== false && raw != null))}
                   />
@@ -840,6 +714,8 @@ export function SettingsPage() {
               if (item.type === 'select' && Array.isArray(item.options) && item.options.length > 0) {
                 return (
                   <Select
+                    className="plugin-setting-select"
+                    ariaLabel={item.label}
                     value={raw === undefined || raw === null ? '' : String(raw)}
                     onChange={(v) => {
                       const opt = item.options?.find((o) => String(o.value) === v)
@@ -856,10 +732,28 @@ export function SettingsPage() {
                 return (
                   <input
                     type="number"
+                    className="plugin-setting-input"
+                    aria-label={item.label}
+                    min={item.min}
+                    max={item.max}
+                    step={item.step ?? 'any'}
                     defaultValue={raw === undefined || raw === null ? '' : String(raw)}
                     onBlur={(e) => {
-                      const n = Number(e.target.value)
-                      if (!Number.isNaN(n)) handlePluginSetting(id, item.key, n)
+                      const input = e.currentTarget
+                      const n = Number(input.value)
+                      if (!input.value.trim() || !Number.isFinite(n) || !input.validity.valid) {
+                        const outOfRange = input.validity.rangeUnderflow || input.validity.rangeOverflow
+                        const stepMismatch = input.validity.stepMismatch
+                        input.value = raw === undefined || raw === null ? '' : String(raw)
+                        const range = Number.isFinite(item.min) && Number.isFinite(item.max)
+                          ? `${item.min}～${item.max}`
+                          : Number.isFinite(item.min) ? `不小于 ${item.min}` : `不大于 ${item.max}`
+                        notify.warn(outOfRange
+                          ? `请输入${range}的数字，已恢复原值`
+                          : stepMismatch ? `数字步长应为 ${item.step}，已恢复原值` : '请输入有效数字，已恢复原值')
+                        return
+                      }
+                      handlePluginSetting(id, item.key, n)
                     }}
                   />
                 )
@@ -888,11 +782,10 @@ export function SettingsPage() {
               if (item.type === 'color') {
                 const color = typeof raw === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(raw) ? raw : PLUGIN_CATEGORY_COLOR_DEFAULT
                 return (
-                  <input
-                    type="color"
+                  <ColorPickerField
                     value={color}
-                    aria-label={item.label}
-                    onChange={(e) => handlePluginSetting(id, item.key, e.target.value)}
+                    label={item.label}
+                    onChange={(hex) => handlePluginSetting(id, item.key, hex)}
                   />
                 )
               }
@@ -907,20 +800,15 @@ export function SettingsPage() {
               return (
                 <input
                   type="text"
+                  className="plugin-setting-input"
+                  aria-label={item.label}
                   defaultValue={raw === undefined || raw === null ? '' : String(raw)}
                   onBlur={(e) => handlePluginSetting(id, item.key, e.target.value)}
                 />
               )
             }
             return (
-              <Card title={p.name}>
-                {!['com.enest.database', 'com.enest.ssh'].includes(p.id) && <PluginPermissionBlock
-                  pluginId={p.id}
-                  permissions={p.permissions ?? []}
-                  grants={permissionGrants[p.id] ?? {}}
-                  saving={permissionSaving}
-                  onChange={handlePermissionGrant}
-                />}
+              <Card key={id} title={p.name} className="plugin-settings-card">
                 {sections.length === 0 ? (
                   <p className="desc">{t('settings.pluginSection.empty')}</p>
                 ) : (

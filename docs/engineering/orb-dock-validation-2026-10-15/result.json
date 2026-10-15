@@ -1,0 +1,4334 @@
+{
+  "checks": [
+    "low hover crossfade",
+    "medium hover crossfade",
+    "high hover crossfade",
+    "interrupted reversal",
+    "keyboard focus and Enter",
+    "active page fade",
+    "stable button identity",
+    "decoded avatar crossfade",
+    "latest update wins",
+    "broken image fallback",
+    "no remote avatar request",
+    "logout clears images and account label",
+    "reduced motion opacity only",
+    "transparent canvas and unchanged hit regions",
+    "pagehide cleanup"
+  ],
+  "traces": {
+    "low": [
+      {
+        "time": 1246.3000001907349,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, -0.0676638, 0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1251.4000000953674,
+        "avatar": {
+          "opacity": 0.978417,
+          "transform": "matrix(0.987094, 0.0286968, -0.0286968, 0.987094, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 0.0215835,
+          "transform": "matrix(0.981674, -0.0400247, 0.0400247, 0.981674, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1268.8000001907349,
+        "avatar": {
+          "opacity": 0.911245,
+          "transform": "matrix(0.978135, 0.0472143, -0.0472143, 0.978135, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 0.0887555,
+          "transform": "matrix(0.990496, -0.0213791, 0.0213791, 0.990496, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1285.2000002861023,
+        "avatar": {
+          "opacity": 0.796268,
+          "transform": "matrix(0.972915, 0.0575395, -0.0575395, 0.972915, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 0.203732,
+          "transform": "matrix(0.995327, -0.0106908, 0.0106908, 0.995327, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1301.8000001907349,
+        "avatar": {
+          "opacity": 0.640598,
+          "transform": "matrix(0.970159, 0.0628656, -0.0628656, 0.970159, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 0.359402,
+          "transform": "matrix(0.997794, -0.00509312, 0.00509312, 0.997794, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1318.2000002861023,
+        "avatar": {
+          "opacity": 0.464231,
+          "transform": "matrix(0.968765, 0.0655265, -0.0655265, 0.968765, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 0.535769,
+          "transform": "matrix(0.999019, -0.00227461, 0.00227461, 0.999019, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1335.1000003814697,
+        "avatar": {
+          "opacity": 0.292551,
+          "transform": "matrix(0.968082, 0.0668224, -0.0668224, 0.968082, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 0.707449,
+          "transform": "matrix(0.999614, -0.000896601, 0.000896601, 0.999614, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1351.4000000953674,
+        "avatar": {
+          "opacity": 0.152471,
+          "transform": "matrix(0.967779, 0.0673958, -0.0673958, 0.967779, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 0.847529,
+          "transform": "matrix(0.999877, -0.000285669, 0.000285669, 0.999877, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1368.9000000953674,
+        "avatar": {
+          "opacity": 0.0561755,
+          "transform": "matrix(0.967665, 0.0676104, -0.0676104, 0.967665, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 0.943824,
+          "transform": "matrix(0.999976, -5.68987e-05, 5.68987e-05, 0.999976, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1384.7000002861023,
+        "avatar": {
+          "opacity": 0.00755145,
+          "transform": "matrix(0.967638, 0.0676614, -0.0676614, 0.967638, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 0.992449,
+          "transform": "matrix(0.999999, -2.58585e-06, 2.58585e-06, 0.999999, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1401.8000001907349,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1418.7000002861023,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1435.5,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1451.4000000953674,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1468.3000001907349,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1485.4000000953674,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1502.2000002861023,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1518,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1535,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1551.9000000953674,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1568.9000000953674,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1584.7000002861023,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1601.6000003814697,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1618,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1635.1000003814697,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 1651.6000003814697,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.967637, 0.0676638, -0.0676638, 0.967637, 0, 0)",
+          "duration": "0.16s, 0.16s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.16s, 0.16s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      }
+    ],
+    "medium": [
+      {
+        "time": 2056,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.873266, -0.21773, 0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2068.6000003814697,
+        "avatar": {
+          "opacity": 0.988897,
+          "transform": "matrix(0.965804, 0.0741396, -0.0741396, 0.965804, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0.0111028,
+          "transform": "matrix(0.918284, -0.155486, 0.155486, 0.918284, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2084.6000003814697,
+        "avatar": {
+          "opacity": 0.953689,
+          "transform": "matrix(0.935333, 0.128511, -0.128511, 0.935333, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0.0463108,
+          "transform": "matrix(0.950331, -0.102849, 0.102849, 0.950331, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2101.800000190735,
+        "avatar": {
+          "opacity": 0.893839,
+          "transform": "matrix(0.912745, 0.163805, -0.163805, 0.912745, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0.106161,
+          "transform": "matrix(0.970505, -0.0648996, 0.0648996, 0.970505, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2118.2000002861023,
+        "avatar": {
+          "opacity": 0.808616,
+          "transform": "matrix(0.897382, 0.185848, -0.185848, 0.897382, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0.191384,
+          "transform": "matrix(0.982783, -0.0394631, 0.0394631, 0.982783, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2135.300000190735,
+        "avatar": {
+          "opacity": 0.701024,
+          "transform": "matrix(0.887563, 0.199206, -0.199206, 0.887563, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0.298976,
+          "transform": "matrix(0.990082, -0.0233339, 0.0233339, 0.990082, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2151.4000000953674,
+        "avatar": {
+          "opacity": 0.578044,
+          "transform": "matrix(0.881491, 0.207203, -0.207203, 0.881491, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0.421956,
+          "transform": "matrix(0.994394, -0.0134028, 0.0134028, 0.994394, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2168.5,
+        "avatar": {
+          "opacity": 0.447702,
+          "transform": "matrix(0.877771, 0.212006, -0.212006, 0.877771, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0.552298,
+          "transform": "matrix(0.996962, -0.00733455, 0.00733455, 0.996962, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2184.7000002861023,
+        "avatar": {
+          "opacity": 0.322569,
+          "transform": "matrix(0.875583, 0.214799, -0.214799, 0.875583, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0.677431,
+          "transform": "matrix(0.998448, -0.00377027, 0.00377027, 0.998448, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2201.9000000953674,
+        "avatar": {
+          "opacity": 0.211148,
+          "transform": "matrix(0.874338, 0.216377, -0.216377, 0.874338, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0.788852,
+          "transform": "matrix(0.999285, -0.00174328, 0.00174328, 0.999285, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2218.7000002861023,
+        "avatar": {
+          "opacity": 0.121157,
+          "transform": "matrix(0.873686, 0.217201, -0.217201, 0.873686, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0.878843,
+          "transform": "matrix(0.99972, -0.000682848, 0.000682848, 0.99972, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2235.5,
+        "avatar": {
+          "opacity": 0.0559559,
+          "transform": "matrix(0.873388, 0.217576, -0.217576, 0.873388, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0.944044,
+          "transform": "matrix(0.999919, -0.000197909, 0.000197909, 0.999919, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2251.5,
+        "avatar": {
+          "opacity": 0.0162588,
+          "transform": "matrix(0.873284, 0.217707, -0.217707, 0.873284, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0.983741,
+          "transform": "matrix(0.999988, -2.91571e-05, 2.91571e-05, 0.999988, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2268.7000002861023,
+        "avatar": {
+          "opacity": 0.000457436,
+          "transform": "matrix(0.873266, 0.21773, -0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 0.999543,
+          "transform": "matrix(1, -1.31145e-07, 1.31145e-07, 1, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2284.6000003814697,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.873266, 0.21773, -0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2302.1000003814697,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.873266, 0.21773, -0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2317.9000000953674,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.873266, 0.21773, -0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2335.2000002861023,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.873266, 0.21773, -0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2352,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.873266, 0.21773, -0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2368.7000002861023,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.873266, 0.21773, -0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2384.9000000953674,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.873266, 0.21773, -0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2401.9000000953674,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.873266, 0.21773, -0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2417.9000000953674,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.873266, 0.21773, -0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2435.4000000953674,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.873266, 0.21773, -0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2451.800000190735,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.873266, 0.21773, -0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2468.5,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.873266, 0.21773, -0.21773, 0.873266, 0, 0)",
+          "duration": "0.22s, 0.22s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.22s, 0.22s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      }
+    ],
+    "high": [
+      {
+        "time": 2823.800000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2836.2000002861023,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2851.4000000953674,
+        "avatar": {
+          "opacity": 0.99311,
+          "transform": "matrix(0.965835, 0.0855782, -0.0855782, 0.965835, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.00688975,
+          "transform": "matrix(0.879621, -0.234649, 0.234649, 0.879621, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2868.800000190735,
+        "avatar": {
+          "opacity": 0.971749,
+          "transform": "matrix(0.93197, 0.152264, -0.152264, 0.93197, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.028251,
+          "transform": "matrix(0.919341, -0.174061, 0.174061, 0.919341, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2885.4000000953674,
+        "avatar": {
+          "opacity": 0.935352,
+          "transform": "matrix(0.90283, 0.200583, -0.200583, 0.90283, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.0646482,
+          "transform": "matrix(0.947041, -0.124242, 0.124242, 0.947041, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2902.1000003814697,
+        "avatar": {
+          "opacity": 0.883428,
+          "transform": "matrix(0.879962, 0.234173, -0.234173, 0.879962, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.116572,
+          "transform": "matrix(0.965577, -0.0861417, 0.0861417, 0.965577, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2918.2000002861023,
+        "avatar": {
+          "opacity": 0.815369,
+          "transform": "matrix(0.862943, 0.257143, -0.257143, 0.862943, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.184631,
+          "transform": "matrix(0.977828, -0.0582101, 0.0582101, 0.977828, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2935.4000000953674,
+        "avatar": {
+          "opacity": 0.734133,
+          "transform": "matrix(0.851024, 0.272324, -0.272324, 0.851024, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.265867,
+          "transform": "matrix(0.985702, -0.0388239, 0.0388239, 0.985702, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2951.300000190735,
+        "avatar": {
+          "opacity": 0.641055,
+          "transform": "matrix(0.842691, 0.282528, -0.282528, 0.842691, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.358945,
+          "transform": "matrix(0.990884, -0.0253469, 0.0253469, 0.990884, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2969,
+        "avatar": {
+          "opacity": 0.540663,
+          "transform": "matrix(0.836994, 0.289322, -0.289322, 0.836994, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.459337,
+          "transform": "matrix(0.994281, -0.0161636, 0.0161636, 0.994281, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 2984.6000003814697,
+        "avatar": {
+          "opacity": 0.438703,
+          "transform": "matrix(0.833175, 0.293796, -0.293796, 0.833175, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.561297,
+          "transform": "matrix(0.996493, -0.0100214, 0.0100214, 0.996493, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3002.1000003814697,
+        "avatar": {
+          "opacity": 0.339975,
+          "transform": "matrix(0.830645, 0.296725, -0.296725, 0.830645, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.660025,
+          "transform": "matrix(0.997929, -0.00595878, 0.00595878, 0.997929, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3017.9000000953674,
+        "avatar": {
+          "opacity": 0.248851,
+          "transform": "matrix(0.829007, 0.298607, -0.298607, 0.829007, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.751149,
+          "transform": "matrix(0.998848, -0.00333087, 0.00333087, 0.998848, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3035.6000003814697,
+        "avatar": {
+          "opacity": 0.169758,
+          "transform": "matrix(0.827997, 0.299762, -0.299762, 0.827997, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.830242,
+          "transform": "matrix(0.99941, -0.00171108, 0.00171108, 0.99941, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3051.6000003814697,
+        "avatar": {
+          "opacity": 0.105103,
+          "transform": "matrix(0.827412, 0.300429, -0.300429, 0.827412, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.894897,
+          "transform": "matrix(0.999734, -0.00077345, 0.00077345, 0.999734, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3068.4000000953674,
+        "avatar": {
+          "opacity": 0.0562454,
+          "transform": "matrix(0.827107, 0.300775, -0.300775, 0.827107, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.943755,
+          "transform": "matrix(0.999902, -0.00028503, 0.00028503, 0.999902, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3084.800000190735,
+        "avatar": {
+          "opacity": 0.0227242,
+          "transform": "matrix(0.826973, 0.300928, -0.300928, 0.826973, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.977276,
+          "transform": "matrix(0.999976, -6.96499e-05, 6.96499e-05, 0.999976, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3101.4000000953674,
+        "avatar": {
+          "opacity": 0.00436277,
+          "transform": "matrix(0.826933, 0.300974, -0.300974, 0.826933, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.995637,
+          "transform": "matrix(0.999998, -5.62427e-06, 5.62427e-06, 0.999998, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3119.1000003814697,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, 0.300978, -0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3135.1000003814697,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, 0.300978, -0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3151.1000003814697,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, 0.300978, -0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3168,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, 0.300978, -0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3184.800000190735,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, 0.300978, -0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3201.7000002861023,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, 0.300978, -0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3218.800000190735,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, 0.300978, -0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3234.6000003814697,
+        "avatar": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, 0.300978, -0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      }
+    ],
+    "reverse": [
+      {
+        "time": 3818.7000002861023,
+        "avatar": {
+          "opacity": 0.761203,
+          "transform": "matrix(0.900747, 0.203787, -0.203787, 0.900747, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.238797,
+          "transform": "matrix(0.948837, -0.120739, 0.120739, 0.948837, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3834.7000002861023,
+        "avatar": {
+          "opacity": 0.843053,
+          "transform": "matrix(0.936819, 0.143503, -0.143503, 0.936819, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.156947,
+          "transform": "matrix(0.91421, -0.182529, 0.182529, 0.91421, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3851.1000003814697,
+        "avatar": {
+          "opacity": 0.940176,
+          "transform": "matrix(0.960761, 0.0964811, -0.0964811, 0.960761, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.0598236,
+          "transform": "matrix(0.886211, -0.225324, 0.225324, 0.886211, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3868.4000000953674,
+        "avatar": {
+          "opacity": 0.994147,
+          "transform": "matrix(0.975798, 0.063014, -0.063014, 0.975798, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.00585277,
+          "transform": "matrix(0.865884, -0.253287, 0.253287, 0.865884, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3884.6000003814697,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(0.985197, 0.0401054, -0.0401054, 0.985197, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.851814, -0.271339, 0.271339, 0.851814, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3901.4000000953674,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(0.991032, 0.0249529, -0.0249529, 0.991032, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.842447, -0.282822, 0.282822, 0.842447, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3918,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(0.994651, 0.0151443, -0.0151443, 0.994651, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.836361, -0.290069, 0.290069, 0.836361, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3935.1000003814697,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(0.996919, 0.00882161, -0.00882161, 0.996919, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.832428, -0.294664, 0.294664, 0.832428, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3951.2000002861023,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(0.998305, 0.00488647, -0.00488647, 0.998305, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.829977, -0.297494, 0.297494, 0.829977, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3968,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(0.999139, 0.00249354, -0.00249354, 0.999139, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.828485, -0.299204, 0.299204, 0.828485, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 3984.800000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(0.999611, 0.00112878, -0.00112878, 0.999611, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.827634, -0.300176, 0.300176, 0.827634, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4001.6000003814697,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(0.999856, 0.00041956, -0.00041956, 0.999856, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.827191, -0.30068, 0.30068, 0.827191, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4018,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(0.999963, 0.000108389, -0.000108389, 0.999963, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.826997, -0.300901, 0.300901, 0.826997, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4034.7000002861023,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(0.999996, 1.06346e-05, -1.06346e-05, 0.999996, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.826936, -0.30097, 0.30097, 0.826936, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4051.2000002861023,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4068.300000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4084.6000003814697,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4101.400000095367,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4117.700000286102,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4135,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4151.5,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      }
+    ],
+    "activeExit": [
+      {
+        "time": 4801.300000190735,
+        "avatar": {
+          "opacity": 0.00687137,
+          "transform": "matrix(0.87956, 0.234734, -0.234734, 0.87956, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.993129,
+          "transform": "matrix(0.965881, -0.0854777, 0.0854777, 0.965881, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4818,
+        "avatar": {
+          "opacity": 0.0280403,
+          "transform": "matrix(0.919097, 0.174469, -0.174469, 0.919097, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.97196,
+          "transform": "matrix(0.932204, -0.151846, 0.151846, 0.932204, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4834.400000095367,
+        "avatar": {
+          "opacity": 0.0645897,
+          "transform": "matrix(0.947011, 0.1243, -0.1243, 0.947011, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.93541,
+          "transform": "matrix(0.902865, -0.20053, 0.20053, 0.902865, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4851.10000038147,
+        "avatar": {
+          "opacity": 0.116852,
+          "transform": "matrix(0.965647, 0.085989, -0.085989, 0.965647, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.883148,
+          "transform": "matrix(0.87987, -0.234302, 0.234302, 0.87987, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4868.300000190735,
+        "avatar": {
+          "opacity": 0.184083,
+          "transform": "matrix(0.977757, 0.0583799, -0.0583799, 0.977757, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.815917,
+          "transform": "matrix(0.863047, -0.257007, 0.257007, 0.863047, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4885.400000095367,
+        "avatar": {
+          "opacity": 0.265752,
+          "transform": "matrix(0.985694, 0.0388452, -0.0388452, 0.985694, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.734248,
+          "transform": "matrix(0.851037, -0.272308, 0.272308, 0.851037, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4901.400000095367,
+        "avatar": {
+          "opacity": 0.358817,
+          "transform": "matrix(0.990879, 0.0253615, -0.0253615, 0.990879, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.641183,
+          "transform": "matrix(0.842701, -0.282517, 0.282517, 0.842701, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4917.900000095367,
+        "avatar": {
+          "opacity": 0.459203,
+          "transform": "matrix(0.994277, 0.0161735, -0.0161735, 0.994277, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.540797,
+          "transform": "matrix(0.837, -0.289315, 0.289315, 0.837, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4935.200000286102,
+        "avatar": {
+          "opacity": 0.561773,
+          "transform": "matrix(0.996501, 0.00999798, -0.00999798, 0.996501, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.438227,
+          "transform": "matrix(0.83316, -0.293813, 0.293813, 0.83316, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4952.200000286102,
+        "avatar": {
+          "opacity": 0.660474,
+          "transform": "matrix(0.997935, 0.00594352, -0.00594352, 0.997935, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.339526,
+          "transform": "matrix(0.830635, -0.296736, 0.296736, 0.830635, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4967.900000095367,
+        "avatar": {
+          "opacity": 0.751549,
+          "transform": "matrix(0.998851, 0.00332126, -0.00332126, 0.998851, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.248451,
+          "transform": "matrix(0.829001, -0.298614, 0.298614, 0.829001, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 4984.5,
+        "avatar": {
+          "opacity": 0.830147,
+          "transform": "matrix(0.999409, 0.0017127, -0.0017127, 0.999409, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.169853,
+          "transform": "matrix(0.827998, -0.299761, 0.299761, 0.827998, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 5001.900000095367,
+        "avatar": {
+          "opacity": 0.89448,
+          "transform": "matrix(0.999732, 0.000778437, -0.000778437, 0.999732, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.10552,
+          "transform": "matrix(0.827415, -0.300425, 0.300425, 0.827415, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 5018.10000038147,
+        "avatar": {
+          "opacity": 0.943947,
+          "transform": "matrix(0.999903, 0.000283493, -0.000283493, 0.999903, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.0560526,
+          "transform": "matrix(0.827106, -0.300777, 0.300777, 0.827106, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 5034.700000286102,
+        "avatar": {
+          "opacity": 0.977396,
+          "transform": "matrix(0.999976, 6.90825e-05, -6.90825e-05, 0.999976, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.0226038,
+          "transform": "matrix(0.826973, -0.300929, 0.300929, 0.826973, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 5051.300000190735,
+        "avatar": {
+          "opacity": 0.995623,
+          "transform": "matrix(0.999998, 5.65276e-06, -5.65276e-06, 0.999998, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0.00437735,
+          "transform": "matrix(0.826933, -0.300974, 0.300974, 0.826933, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 5068.60000038147,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 5085,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 5101.300000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 5117.900000095367,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 5135.200000286102,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 5152,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 0
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      }
+    ],
+    "avatars": [
+      {
+        "time": 5251.200000286102,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.935277,
+            "source": 0
+          },
+          {
+            "opacity": 0.0647226,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5268.800000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.883327,
+            "source": 0
+          },
+          {
+            "opacity": 0.116673,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5284.700000286102,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.815692,
+            "source": 0
+          },
+          {
+            "opacity": 0.184308,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5301.5,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.733985,
+            "source": 0
+          },
+          {
+            "opacity": 0.266015,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5317.900000095367,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.640891,
+            "source": 0
+          },
+          {
+            "opacity": 0.359109,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5334.5,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.541104,
+            "source": 0
+          },
+          {
+            "opacity": 0.458896,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5351.5,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.439142,
+            "source": 0
+          },
+          {
+            "opacity": 0.560858,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5367.900000095367,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.339814,
+            "source": 0
+          },
+          {
+            "opacity": 0.660186,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5384.5,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.248707,
+            "source": 0
+          },
+          {
+            "opacity": 0.751293,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5401.900000095367,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.169637,
+            "source": 0
+          },
+          {
+            "opacity": 0.830363,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5418.10000038147,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.105349,
+            "source": 0
+          },
+          {
+            "opacity": 0.894651,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5434.800000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.0561761,
+            "source": 0
+          },
+          {
+            "opacity": 0.943824,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5451.200000286102,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.0226809,
+            "source": 0
+          },
+          {
+            "opacity": 0.977319,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5467.900000095367,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0.00441057,
+            "source": 0
+          },
+          {
+            "opacity": 0.995589,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5484.800000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "1",
+        "images": [
+          {
+            "opacity": 0,
+            "source": 0
+          },
+          {
+            "opacity": 1,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5501.200000286102,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0,
+            "source": 2
+          },
+          {
+            "opacity": 1,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5517.900000095367,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.00683967,
+            "source": 2
+          },
+          {
+            "opacity": 0.99316,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5535.300000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.0281473,
+            "source": 2
+          },
+          {
+            "opacity": 0.971853,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5551.300000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.0647546,
+            "source": 2
+          },
+          {
+            "opacity": 0.935245,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5568.200000286102,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.116716,
+            "source": 2
+          },
+          {
+            "opacity": 0.883284,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5584.5,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.184362,
+            "source": 2
+          },
+          {
+            "opacity": 0.815638,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5601.200000286102,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.266078,
+            "source": 2
+          },
+          {
+            "opacity": 0.733922,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5618.10000038147,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.358595,
+            "source": 2
+          },
+          {
+            "opacity": 0.641405,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5634.700000286102,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.45897,
+            "source": 2
+          },
+          {
+            "opacity": 0.54103,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5651.300000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.560931,
+            "source": 2
+          },
+          {
+            "opacity": 0.439069,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5668.5,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.660255,
+            "source": 2
+          },
+          {
+            "opacity": 0.339745,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5685.5,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.751354,
+            "source": 2
+          },
+          {
+            "opacity": 0.248646,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5701.300000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.830415,
+            "source": 2
+          },
+          {
+            "opacity": 0.169585,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5718,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.895033,
+            "source": 2
+          },
+          {
+            "opacity": 0.104967,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5734.5,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.943853,
+            "source": 2
+          },
+          {
+            "opacity": 0.0561465,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5751.300000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.977183,
+            "source": 2
+          },
+          {
+            "opacity": 0.022817,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5768,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 0.995664,
+            "source": 2
+          },
+          {
+            "opacity": 0.00433632,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5784.5,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 2
+          },
+          {
+            "opacity": 0,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5801.800000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 2
+          },
+          {
+            "opacity": 0,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5817.800000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 2
+          },
+          {
+            "opacity": 0,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5834.60000038147,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 2
+          },
+          {
+            "opacity": 0,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5851.10000038147,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 2
+          },
+          {
+            "opacity": 0,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5867.800000190735,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 2
+          },
+          {
+            "opacity": 0,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5884.5,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 2
+          },
+          {
+            "opacity": 0,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5901.10000038147,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 2
+          },
+          {
+            "opacity": 0,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5917.900000095367,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 2
+          },
+          {
+            "opacity": 0,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5935.200000286102,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 2
+          },
+          {
+            "opacity": 0,
+            "source": 1
+          }
+        ]
+      },
+      {
+        "time": 5951.10000038147,
+        "avatar": {
+          "opacity": 1,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "matrix(0.82693, -0.300978, 0.300978, 0.82693, 0, 0)",
+          "duration": "0.28s, 0.28s"
+        },
+        "slot": "0",
+        "images": [
+          {
+            "opacity": 1,
+            "source": 2
+          },
+          {
+            "opacity": 0,
+            "source": 1
+          }
+        ]
+      }
+    ],
+    "reduced": [
+      {
+        "time": 7169,
+        "avatar": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 0,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7184.5,
+        "avatar": {
+          "opacity": 0.861442,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 0.138558,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7201.10000038147,
+        "avatar": {
+          "opacity": 0.722275,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 0.277725,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7217.800000190735,
+        "avatar": {
+          "opacity": 0.583108,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 0.416892,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7234.5,
+        "avatar": {
+          "opacity": 0.443942,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 0.556058,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7251.10000038147,
+        "avatar": {
+          "opacity": 0.305608,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 0.694392,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7268.400000095367,
+        "avatar": {
+          "opacity": 0.166442,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 0.833558,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7284.300000190735,
+        "avatar": {
+          "opacity": 0.0281083,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 0.971892,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7301.200000286102,
+        "avatar": {
+          "opacity": 0,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7317.800000190735,
+        "avatar": {
+          "opacity": 0,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7334.300000190735,
+        "avatar": {
+          "opacity": 0,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7351,
+        "avatar": {
+          "opacity": 0,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7367.700000286102,
+        "avatar": {
+          "opacity": 0,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7384.400000095367,
+        "avatar": {
+          "opacity": 0,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      },
+      {
+        "time": 7401.800000190735,
+        "avatar": {
+          "opacity": 0,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "icon": {
+          "opacity": 1,
+          "transform": "none",
+          "duration": "0.12s"
+        },
+        "slot": "none",
+        "images": [
+          {
+            "opacity": 0,
+            "source": -1
+          },
+          {
+            "opacity": 0,
+            "source": -1
+          }
+        ]
+      }
+    ]
+  },
+  "errors": [],
+  "remoteRequests": [],
+  "status": "pass"
+}

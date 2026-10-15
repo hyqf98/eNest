@@ -19,14 +19,19 @@ test('release configuration requires a configured flow and rejects insecure remo
   try {
     for (const key of keys) delete process.env[key]
     assert.equal(getGithubAuthConfig().available, false)
+    assert.match(getGithubAuthConfig().availabilityError, /尚未配置 GitHub 登录应用/)
     process.env.ENEST_GITHUB_CLIENT_ID = 'fixture'
     assert.equal(getGithubAuthConfig().available, false)
+    assert.match(getGithubAuthConfig().availabilityError, /尚未配置 GitHub 授权服务/)
     for (const endpoint of ['http://remote.example/oauth', 'https://user:pass@publisher.example/oauth', 'https://publisher.example/oauth?secret=x']) {
       process.env.ENEST_GITHUB_TOKEN_EXCHANGE_URL = endpoint
       assert.equal(getGithubAuthConfig().available, false)
+      assert.match(getGithubAuthConfig().availabilityError, /登录服务地址无效/)
+      assert.ok(!getGithubAuthConfig().availabilityError.includes(endpoint))
     }
     process.env.ENEST_GITHUB_TOKEN_EXCHANGE_URL = 'https://publisher.example/oauth'
     assert.equal(getGithubAuthConfig().available, true)
+    assert.equal(getGithubAuthConfig().availabilityError, undefined)
     process.env.ENEST_GITHUB_TOKEN_EXCHANGE_URL = 'http://127.0.0.1:8787/oauth'
     assert.equal(getGithubAuthConfig().available, false)
     app.isPackaged = false
@@ -34,7 +39,22 @@ test('release configuration requires a configured flow and rejects insecure remo
     delete process.env.ENEST_GITHUB_TOKEN_EXCHANGE_URL
     process.env.ENEST_GITHUB_DEVICE_FLOW = '1'
     assert.equal(getGithubAuthConfig().available, true)
+    assert.equal(getGithubAuthConfig().availabilityError, undefined)
   } finally { for (const key of keys) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key] } }
+})
+
+test('provider login returns the host configuration failure to the clickable login entry', async () => {
+  const message = '此版本尚未配置 GitHub 登录应用，请联系发布方完成登录配置。'
+  let calls = 0
+  const api = load('./accountAuthService.ts', {
+    './authConfig': { getGithubAuthConfig: () => ({ available: false, availabilityError: message }) },
+    './githubAuthService': { getProfileUser: () => null, getGithubLoginSession: () => null, isLoginPolling: () => false,
+      startGithubLogin: async () => { calls++; throw new Error(message) }, cancelGithubLogin() {}, logoutGithub() {} },
+  })
+  assert.equal(api.getAccountState().providers[0].available, false)
+  assert.deepEqual(await api.loginAccount('github'), { ok: false, error: message })
+  assert.equal(calls, 1)
+  assert.equal(api.getAccountState().pendingProviderId, null)
 })
 
 test('provider registry restores pending session and rejects inherited or unknown provider IDs', async () => {

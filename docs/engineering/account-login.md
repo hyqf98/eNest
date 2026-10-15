@@ -1,6 +1,6 @@
 # eNest 账号登录接入
 
-个人资料是独立的设置 Tab。界面从主进程获取登录方式，目前为 GitHub；不再要求最终用户填写 Client ID。未配置的开发版本显示登录暂不可用，本地功能不受影响。
+个人资料是独立的设置 Tab。界面从主进程获取登录方式，目前为 GitHub；不再要求最终用户填写 Client ID。登录按钮仅在请求期间禁用，点击后由主进程检查配置；缺少登录应用、缺少授权服务或服务地址无效时，页面显示具体原因，本地功能不受影响。
 
 ## 发布方一次性配置
 
@@ -13,7 +13,19 @@ ENEST_GITHUB_CLIENT_ID=你的应用公开标识
 ENEST_GITHUB_TOKEN_EXCHANGE_URL=https://你的登录服务/oauth/github/exchange
 ```
 
-4. 重启开发主进程或重新构建发行包。界面将自动启用 GitHub 按钮。Electron 内部网络通过 `net.fetch`，沿用壳的代理设置。
+4. 重启开发主进程或重新构建发行包。配置完整后，点击 GitHub 按钮会启动浏览器授权。Electron 内部网络通过 `net.fetch`，沿用壳的代理设置。
+
+本地 `npm run dev` 可使用 `.env.local` 或 `.env.development.local`；`.env.production.local` 仅在生产构建模式生效。CI 的 Repository variables 需要通过工作流 `env` 显式传入构建步骤；配置变量不会自动进入 Electron 包。只传入上述两个公开配置，或设备码模式的 `ENEST_GITHUB_DEVICE_FLOW=1`。
+
+### 登录不可用时的排查
+
+| 页面提示 | 发布方需要处理 |
+| --- | --- |
+| 尚未配置 GitHub 登录应用 | 注册自己的 OAuth App，并为运行环境或构建环境配置 `ENEST_GITHUB_CLIENT_ID`。 |
+| 尚未配置 GitHub 授权服务 | 配置 `ENEST_GITHUB_TOKEN_EXCHANGE_URL`；或在 OAuth App 启用 Device Flow 后设置 `ENEST_GITHUB_DEVICE_FLOW=1`。 |
+| GitHub 登录服务地址无效 | 使用不包含账号密码、查询参数和片段的 HTTPS 交换地址。开发态仅额外允许 `http://127.0.0.1` 或 `http://[::1]` 本地端点。 |
+
+修改构建环境后必须重建并重启，已有发行包不会自动获得新变量。点击按钮能报告缺失配置，不代表 OAuth 已接通；未配置时不会打开无效授权地址，也不会创建登录会话。
 
 Client Secret 只保存在服务器。GitHub 的授权码交换仍需要 Secret，PKCE 不能替代它。Electron 包中仅含公开 Client ID 和交换 URL，不应包含任何服务端密钥。只配置 Client ID 时不会误显示为可用。
 

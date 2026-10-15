@@ -1,0 +1,15 @@
+{
+  "phase": "after",
+  "inner": {
+    "anchorReads": 0,
+    "commits": 0,
+    "scrollEvents": 12,
+    "scrollTop": 840
+  },
+  "burst": {
+    "anchorReads": 1,
+    "commits": 0
+  },
+  "parentTrackedPixels": 40,
+  "errors": []
+}

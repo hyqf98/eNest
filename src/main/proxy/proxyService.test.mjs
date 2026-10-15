@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { EnvHttpProxyAgent } from 'undici'
 import ts from 'typescript'
 
 const require = createRequire(import.meta.url)
@@ -31,8 +30,6 @@ test('HTTP proxy applies one valid URL to Chromium and Node, and restores inheri
     assert.equal(process.env.HTTP_PROXY, 'http://127.0.0.1:8888')
     assert.equal(process.env.HTTPS_PROXY, process.env.HTTP_PROXY)
     assert.ok(f.rules.every(rule => rule === 'http://127.0.0.1:8888'))
-    const agent = new EnvHttpProxyAgent({ httpProxy: process.env.HTTP_PROXY, httpsProxy: process.env.HTTPS_PROXY })
-    await agent.close()
     await f.api.applyProxy({ type: 'none' })
     for (const key of keys) assert.equal(process.env[key], previous[key])
   } finally {

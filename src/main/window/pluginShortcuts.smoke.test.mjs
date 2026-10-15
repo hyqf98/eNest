@@ -74,6 +74,18 @@ test('plugin shortcuts migrate, register and reuse native views across layouts',
       return wc.executeJavaScript(code)
     }, { surface, code, pluginId })
     const call = (method, ...args) => evaluate('shell', `window.enestShell[${JSON.stringify(method)}](...${JSON.stringify(args)})`)
+    const captureShell = async name => {
+      const screenshot = await app.evaluate(async ({ app: electronApp, BaseWindow, webContents }) => {
+        const win = BaseWindow.getAllWindows().find(win => win.getTitle() !== 'eNest Quick')
+        electronApp.focus({ steal: true }); if (win.isMinimized()) win.restore(); win.show(); win.focus()
+        const wc = webContents.getAllWebContents().find(wc => { try { const url = new URL(wc.getURL()); return url.pathname.endsWith('/renderer/index.html') && !url.searchParams.get('surface') } catch { return false } })
+        // DOM assertions can finish before the compositor presents the new settings tab.
+        await wc.executeJavaScript('document.fonts.ready.then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 200)))))')
+        return (await wc.capturePage()).toPNG().toString('base64')
+      })
+      await writeFile(join(artifacts, name), Buffer.from(screenshot, 'base64'))
+      evidence.screenshots.push(name)
+    }
     const inventory = () => app.evaluate(({ BaseWindow, webContents }, pluginIds) => {
       const views = (view, visible = true) => [...(view.webContents ? [{ wcId: view.webContents.id, url: view.webContents.getURL(), visible: visible && view.getVisible() }] : []),
         ...view.children.flatMap(child => views(child, visible && view.getVisible()))]
@@ -97,28 +109,41 @@ test('plugin shortcuts migrate, register and reuse native views across layouts',
     await poll(() => evaluate('shell', '!!document.querySelector(".app-boot.ready .app")'), Boolean, 'shell startup completed')
     await call('setShellView', 'settings')
     await poll(() => evaluate('shell', 'document.querySelectorAll(".settings-tabs button").length'), n => n > 0, 'settings loaded')
+    const account = await call('getAccountState')
+    if (!account.providers.find(provider => provider.id === 'github')?.available) {
+      await evaluate('shell', `void [...document.querySelectorAll('.settings-tabs button')].find(button=>button.textContent==='个人资料')?.click()`)
+      await poll(() => evaluate('shell', '!!document.querySelector(".account-provider")'), Boolean, 'profile login button')
+      assert.equal(await evaluate('shell', 'document.querySelector(".account-provider").disabled'), false, 'unconfigured login remains clickable')
+      await evaluate('shell', 'void document.querySelector(".account-provider").click()')
+      const message = await poll(() => evaluate('shell', 'document.querySelector(".account-error")?.textContent'), text => /GitHub.*(?:尚未配置|地址无效)|尚未配置 GitHub/.test(text ?? ''), 'actionable login configuration error')
+      assert.equal((await call('getAccountState')).pendingProviderId, null, 'failed login does not leave a pending session')
+      evidence.unconfiguredProfileLogin = { clickable: true, message, pending: false }
+      await captureShell('profile-login-unconfigured.png')
+    }
     await evaluate('shell', `void [...document.querySelectorAll('.settings-tabs button')].find(b=>b.textContent==='快捷键')?.click()`)
-    await poll(() => evaluate('shell', 'document.body.innerText'), text => text.includes('新增绑定'), 'shortcut settings')
-    await evaluate('shell', `void [...document.querySelectorAll('button')].find(b=>b.textContent==='新增绑定')?.click()`)
+    await poll(() => evaluate('shell', 'document.querySelectorAll(".shortcut-plugin-group").length'), count => count === 2, 'installed plugin shortcut cards')
+    await evaluate('shell', `void [...document.querySelector('.shortcut-plugin-group[data-plugin-id="${ids[0]}"]').querySelectorAll('button')].find(b=>b.textContent.includes('添加快捷键'))?.click()`)
     await poll(() => evaluate('shell', '!!document.querySelector(".shortcut-editor")'), Boolean, 'inline editor')
-    await evaluate('shell', `(() => {
-      const plugin=document.querySelector('select[aria-label="绑定插件"]');plugin.value=${JSON.stringify(ids[0])};plugin.dispatchEvent(new Event('change',{bubbles:true}));
-      const mode=document.querySelector('select[aria-label="启动位置"]');mode.value='shell';mode.dispatchEvent(new Event('change',{bubbles:true}));
-    })()`)
+    await evaluate('shell', `void [...document.querySelectorAll('.shortcut-editor [role="radiogroup"][aria-label="启动位置"] [role="radio"]')].find(button=>button.textContent==='主窗口')?.click()`)
     await app.evaluate(({ app, BaseWindow }) => {
       const win = BaseWindow.getAllWindows().find(win => win.getTitle() !== 'eNest Quick')
       app.focus({ steal: true }); if (win.isMinimized()) win.restore(); win.show(); win.focus()
       const visit = view => { if (view.webContents?.getURL().includes('/renderer/index.html')) view.webContents.focus(); for (const child of view.children) visit(child) }
       visit(win.contentView)
     })
-    await evaluate('shell', 'void document.querySelector(".shortcut-editor .shortcut-recorder button").click()')
+    await evaluate('shell', 'void document.querySelector(".shortcut-editor .shortcut-recorder input").focus()')
     await poll(() => call('getPluginShortcuts'), s => s.states.every(state => state.status === 'suspended'), 'recording pauses shortcuts')
     await app.evaluate(({ webContents }, modifiers) => {
       const wc = webContents.getAllWebContents().find(wc => { try { const url = new URL(wc.getURL()); return url.pathname.endsWith('/renderer/index.html') && !url.searchParams.get('surface') } catch { return false } })
       wc.sendInputEvent({ type: 'keyDown', keyCode: '2', modifiers })
+    }, process.platform === 'darwin' ? ['control', 'alt', 'meta'] : ['control', 'alt', 'shift'])
+    await poll(() => evaluate('shell', 'document.querySelector(".shortcut-editor .shortcut-recorder input").value'), value => value.endsWith('+ 2'), 'native keydown preview')
+    assert.equal((await call('getPluginShortcuts')).bindings.length, 1, 'keydown preview does not save')
+    await app.evaluate(({ webContents }, modifiers) => {
+      const wc = webContents.getAllWebContents().find(wc => { try { const url = new URL(wc.getURL()); return url.pathname.endsWith('/renderer/index.html') && !url.searchParams.get('surface') } catch { return false } })
       wc.sendInputEvent({ type: 'keyUp', keyCode: '2', modifiers })
     }, process.platform === 'darwin' ? ['control', 'alt', 'meta'] : ['control', 'alt', 'shift'])
-    await poll(() => evaluate('shell', 'document.querySelector(".shortcut-editor .shortcut-recorder input").value'), value => value.endsWith('+2'), 'native key capture')
+    await poll(() => evaluate('shell', '!document.querySelector(".shortcut-editor button[type=submit]").disabled'), Boolean, 'native key capture and conflict precheck')
     await evaluate('shell', 'void document.querySelector(".shortcut-editor button[type=submit]").click()')
     snapshot = await poll(() => call('getPluginShortcuts'), s => s.bindings.length === 2, 'UI saves binding')
     const shellId = snapshot.bindings.find(binding => binding.id !== first.id).id
@@ -129,6 +154,29 @@ test('plugin shortcuts migrate, register and reuse native views across layouts',
     assert.equal(duplicate.ok, false)
     assert.equal(duplicate.probe.ownerBindingId, shellId)
     evidence.conflictKeepsOriginal = true
+
+    await evaluate('shell', `void [...document.querySelector('.shortcut-plugin-group[data-plugin-id="${ids[1]}"]').querySelectorAll('button')].find(button=>button.textContent.includes('添加快捷键'))?.click()`)
+    await evaluate('shell', 'void document.querySelector(".shortcut-editor .shortcut-recorder input").focus()')
+    await poll(() => call('getPluginShortcuts'), state => state.states.every(item => item.status === 'suspended'), 'second recording pauses shortcuts')
+    await app.evaluate(({ webContents }, modifiers) => {
+      const wc = webContents.getAllWebContents().find(wc => { try { const url = new URL(wc.getURL()); return url.pathname.endsWith('/renderer/index.html') && !url.searchParams.get('surface') } catch { return false } })
+      wc.sendInputEvent({ type: 'keyDown', keyCode: '2', modifiers })
+      wc.sendInputEvent({ type: 'keyUp', keyCode: '2', modifiers })
+    }, process.platform === 'darwin' ? ['control', 'alt', 'meta'] : ['control', 'alt', 'shift'])
+    await poll(() => evaluate('shell', 'document.querySelector(".shortcut-editor [role=alert]")?.textContent'), text => text?.includes('快捷键测试 A') && text.includes('确认覆盖并保存'), 'automatic conflict names its owner')
+    assert.equal((await call('getPluginShortcuts')).bindings.find(binding => binding.id === shellId).enabled, true, 'precheck never overrides without confirmation')
+    await evaluate('shell', 'void document.querySelector(".shortcut-editor .shortcut-probe").scrollIntoView({block:"center"})')
+    await captureShell('shortcut-conflict-confirm.png')
+    await evaluate('shell', 'void [...document.querySelectorAll(".shortcut-editor button")].find(button=>button.textContent === "确认覆盖并保存")?.click()')
+    snapshot = await poll(() => call('getPluginShortcuts'), state => state.bindings.length === 3, 'confirmed shortcut takeover')
+    const takeover = snapshot.bindings.find(binding => binding.pluginId === ids[1])
+    assert.equal(snapshot.bindings.find(binding => binding.id === shellId).enabled, false)
+    assert.equal(snapshot.states.find(state => state.id === takeover.id).status, 'registered')
+    evidence.nativeConflictConfirmation = true
+    // Restore this fixture's original pair for the launch/migration checks below.
+    await call('removePluginShortcut', takeover.id)
+    const restore = await call('savePluginShortcut', { ...snapshot.bindings.find(binding => binding.id === shellId), enabled: true })
+    assert.equal(restore.ok, true, JSON.stringify(restore))
 
     const launch = async (bindingId, mode) => {
       const started = performance.now()
@@ -234,13 +282,8 @@ test('plugin shortcuts migrate, register and reuse native views across layouts',
     await call('quickHide')
     await call('setShellView', 'settings')
     await evaluate('shell', `void [...document.querySelectorAll('.settings-tabs button')].find(b=>b.textContent==='快捷键')?.click()`)
-    await poll(() => evaluate('shell', 'document.body.innerText'), text => text.includes('新增绑定'), 'shortcut settings UI')
-    const screenshot = await app.evaluate(async ({ webContents }) => {
-      const wc = webContents.getAllWebContents().find(wc => { try { const url = new URL(wc.getURL()); return url.pathname.endsWith('/renderer/index.html') && !url.searchParams.get('surface') } catch { return false } })
-      return (await wc.capturePage()).toPNG().toString('base64')
-    })
-    await writeFile(join(artifacts, 'shortcut-settings.png'), Buffer.from(screenshot, 'base64'))
-    evidence.screenshots.push('shortcut-settings.png')
+    await poll(() => evaluate('shell', 'document.body.innerText'), text => text.includes('添加快捷键'), 'shortcut settings UI')
+    await captureShell('shortcut-settings.png')
     evidence.finalBindings = (await call('getPluginShortcuts')).bindings.length
     await app.close()
     app = await electron.launch({ executablePath: require('electron'), args: [root], env, timeout: 25000 })

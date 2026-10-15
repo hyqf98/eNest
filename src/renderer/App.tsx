@@ -11,7 +11,7 @@ import { ShellLayout } from '@renderer/layout/ShellLayout'
 import { NotificationHost } from '@renderer/components/NotificationHost'
 import { Splash } from '@renderer/components/Splash'
 import { QuickLauncherApp } from '@renderer/components/QuickLauncherApp'
-import { useTheme } from '@renderer/hooks/useTheme'
+import { useThemeStore } from '@renderer/hooks/useTheme'
 import { useFont } from '@renderer/hooks/useFont'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { useAnimationLevel } from '@renderer/hooks/useAnimationLevel'
@@ -24,7 +24,7 @@ function isQuickSurface(): boolean {
 }
 
 export default function App() {
-  const hydrateTheme = useTheme().hydrate
+  const hydrateTheme = useThemeStore((state) => state.hydrate)
   const hydrateFont = useFont().hydrate
   const hydrateI18n = useI18n().hydrate
   const hydrateAnimLevel = useAnimationLevel().hydrate

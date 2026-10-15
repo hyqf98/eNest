@@ -1,14 +1,14 @@
 /** Main-process MW (middleware console) facade. Permissions, secret resolution and
  * event forwarding stay here; drivers and business work run in a per-runtime utility. */
 import { utilityProcess, type UtilityProcess } from 'electron'
-import { fileURLToPath } from 'node:url'
+import { resolvePluginBackendEntry } from '@main/plugin/pluginBackend'
 import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { resolveSecret } from '@main/vault/secretVault'
 import { logWarn } from '@main/logs/logService'
 import { pluginHost } from '@main/plugin/PluginHost'
 import type { PluginEventPayload } from '@shared/types/ipc'
 import type { MwConnectionConfig, MwSessionInfo, MwWorkbenchRequest } from '@shared/types/mw-workbench'
-import type * as Api from '@main/middleware/mwService'
+import type { MiddlewareBackendApi as Api } from '@main/middleware/backendApi'
 
 const CANCEL_DEADLINE_MS = 250
 const MAX_PENDING = 32
@@ -114,7 +114,7 @@ function serviceFor(pluginId: string): Service {
     terminate(old, 'middleware runtime replaced')
     if (!old.exited) throw new Error('Previous middleware utility is retiring; wait for its exit before reconnecting')
   }
-  const child = utilityProcess.fork(fileURLToPath(new URL('./mwUtility.js', import.meta.url)), [], {
+  const child = utilityProcess.fork(resolvePluginBackendEntry(pluginId), [], {
     serviceName: `eNest MW ${pluginId} #${scope.owner.generation}`,
     stdio: 'ignore',
     execArgv: ['--max-old-space-size=256'],
@@ -127,7 +127,8 @@ function serviceFor(pluginId: string): Service {
   services.set(pluginId, service)
   child.on('message', (message: { id?: number; event?: string; pluginId?: string; payload?: Record<string, unknown>; ok?: boolean; data?: unknown; error?: string }) => {
     // 事件推送分支：mwUtility 透传的 mw.data / mw.error 直接转发给插件 WebContents
-    if (typeof message?.event === 'string' && (message.event === 'mw.data' || message.event === 'mw.error') && typeof message.pluginId === 'string') {
+    if (typeof message?.event === 'string' && (message.event === 'mw.data' || message.event === 'mw.error')) {
+      if (message.pluginId !== pluginId || !scope.isCurrent() || scope.signal.aborted || service.disposed) return
       const payload = message.payload ?? {}
       if (message.event === 'mw.data') {
         emitToPlugin(message.pluginId, { type: 'mw.data', sessionKey: String(payload.sessionKey ?? ''), tailId: String(payload.tailId ?? ''), message: payload.message as never })
@@ -236,7 +237,7 @@ function withPassword(pluginId: string, config: MwConnectionConfig): MwConnectio
     ephemeralSecret: config.ephemeralSecret || (config.secretRef ? resolveSecret(pluginId, config.secretRef) ?? undefined : undefined) }
 }
 
-export const mwOpen: typeof Api.mwOpen = async (pluginId, input) => {
+export const mwOpen: Api['mwOpen'] = async (pluginId, input) => {
   const scope = requireScope(pluginId)
   const release = scope.acquireActivity('mw:open')
   try {
@@ -248,11 +249,11 @@ export const mwOpen: typeof Api.mwOpen = async (pluginId, input) => {
     return session
   } finally { release() }
 }
-export const mwTest: typeof Api.mwTest = async (pluginId, config) => {
+export const mwTest: Api['mwTest'] = async (pluginId, config) => {
   const resolved = withPassword(pluginId, config)
   return rpc(pluginId, 'mwTest', [resolved], 15_000)
 }
-export const mwClose: typeof Api.mwClose = async (pluginId, key) => {
+export const mwClose: Api['mwClose'] = async (pluginId, key) => {
   const service = services.get(pluginId)
   if (!service) return true
   const connection = service.connections.get(key)

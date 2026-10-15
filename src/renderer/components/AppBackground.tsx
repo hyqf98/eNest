@@ -6,7 +6,7 @@ import { BackgroundEffect } from '@renderer/components/BackgroundEffect'
 import { useBackgroundEffect } from '@renderer/hooks/useBackgroundEffect'
 import { useFpsGuard } from '@renderer/hooks/useFpsGuard'
 import { useShellStore } from '@renderer/stores/shellStore'
-import { backgroundColorStyle } from './backgroundColorStyle'
+import { backgroundAtmosphereStyle, syncBackgroundAtmosphereTheme } from './backgroundAtmosphere'
 
 function MediaLayer({ config, paused }: { config: BackgroundConfig; paused: boolean }) {
   const { src, playable, placeholder } = resolveMediaSrc(config.value)
@@ -81,12 +81,18 @@ export function AppBackground() {
   useEffect(() => {
     document.documentElement.classList.toggle('has-bg-media', active)
     document.documentElement.classList.toggle('has-bg-effect', hasEffect)
+  }, [active, hasEffect])
+
+  useEffect(() => {
     document.documentElement.style.setProperty('--bg-media-opacity', String(opacity))
-    return () => {
-      document.documentElement.classList.remove('has-bg-media', 'has-bg-effect')
-      document.documentElement.style.removeProperty('--bg-media-opacity')
-    }
-  }, [active, hasEffect, opacity])
+    syncBackgroundAtmosphereTheme(document.documentElement, background)
+  }, [background, opacity])
+
+  useEffect(() => () => {
+    document.documentElement.classList.remove('has-bg-media', 'has-bg-effect')
+    document.documentElement.style.removeProperty('--bg-media-opacity')
+    syncBackgroundAtmosphereTheme(document.documentElement, null)
+  }, [])
 
   return (
     <>
@@ -96,7 +102,7 @@ export function AppBackground() {
             // 渐变/纯色直接写在满屏容器上，避免子元素无尺寸导致不生效
             <div
               className="app-bg-fill"
-              style={{ ...backgroundColorStyle(background.value), opacity: background.opacity }}
+              style={backgroundAtmosphereStyle(background) ?? undefined}
             />
           ) : (
             <MediaLayer config={background} paused={covered} />

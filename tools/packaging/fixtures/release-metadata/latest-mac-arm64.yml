@@ -1,0 +1,12 @@
+version: 1.2.3
+files:
+  - url: eNest-1.2.3-mac-arm64.zip
+    sha512: fixture-arm64-zip
+    size: 23
+    blockMapSize: 110
+  - url: eNest-1.2.3-mac-arm64.dmg
+    sha512: fixture-arm64-dmg
+    size: 23
+path: eNest-1.2.3-mac-arm64.zip
+sha512: fixture-arm64-zip
+releaseDate: '2026-10-15T06:00:30.000Z'

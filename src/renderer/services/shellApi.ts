@@ -13,6 +13,7 @@ import type {
   AppPaths,
   DevPluginLoadOptions,
   MarketInstallResult,
+  PluginMarketStatus,
   PluginLaunchConfig,
   PluginLaunchPatch,
   PluginPermission,
@@ -44,6 +45,7 @@ import type {
   QuickCommandKind,
   QuickHotkeyApplyResult,
   QuickHotkeyConfig,
+  QuickHotkeyPatch,
   QuickOpenRequest
 } from '@shared/types/quick'
 import {
@@ -87,6 +89,7 @@ export interface PluginLaunchSetResult {
 /** preload 注入到渲染进程的完整 shell 能力面 */
 export interface ShellApi {
   getPlugins(): Promise<PluginSummary[]>
+  getMarketStatus(refresh?: boolean): Promise<PluginMarketStatus>
   /** 只读性能采样，浏览器 mock 不提供原生进程数据。 */
   getPluginDiagnostics(): Promise<unknown>
   restoreTabs(ids: string[]): Promise<void>
@@ -264,17 +267,8 @@ export interface ShellApi {
   quickOpen?(req: QuickOpenRequest): Promise<{ ok: boolean; error?: string }>
   quickScanApps?(force?: boolean): Promise<ApplicationScanResult>
   quickGetConfig?(): Promise<QuickHotkeyConfig>
-  quickSetHotkeys?(payload: {
-    enabled?: boolean
-    hotkeys?: string[]
-    activeHotkey?: string
-  }): Promise<QuickHotkeyApplyResult>
-  quickProbeHotkey?(acc: string): Promise<{
-    acc: string
-    free: boolean
-    ours: boolean
-    hint?: string
-  }>
+  quickSetHotkeys?(payload: QuickHotkeyPatch): Promise<QuickHotkeyApplyResult>
+  quickProbeHotkey?(acc: string): Promise<import('@shared/types/quick').QuickHotkeyProbeResult>
   quickResize?(height: number, animate?: boolean): void
   quickInput?(message?: import('@shared/types/plugin-tools').QuickInputMessage): Promise<import('@shared/types/plugin-tools').QuickInputState | boolean | null>
   onQuickShown?(cb: () => void): () => void
@@ -297,7 +291,7 @@ function createMockApi(): ShellApi {
 
   const shortcuts = createShortcutMock({
     read: readMockSettings,
-    write: next => { settings = next; writeMockSettings(next) },
+    write: next => { writeMockSettings(next); settings = next },
     plugins: () => mockRegistry.getPlugins(),
     publish: snapshot => emit({ type: 'plugin-shortcuts-changed', snapshot })
   })
@@ -331,6 +325,9 @@ function createMockApi(): ShellApi {
   return {
     async getPlugins() {
       return mockRegistry.getPlugins()
+    },
+    async getMarketStatus() {
+      return { state: 'preview', catalogCount: 0 }
     },
     async getPluginDiagnostics() {
       return {
@@ -635,7 +632,7 @@ function createMockApi(): ShellApi {
         '',
         '1. 点击「安装」将插件加入壳子',
         '2. 从顶部 Tab 或市场卡片打开',
-        '3. 在插件设置中按需调整权限与快捷键',
+        '3. 在设置中调整插件偏好与快捷键',
         '',
         '---',
         '',
@@ -847,12 +844,8 @@ function createMockApi(): ShellApi {
     closeWindow() {
       window.close()
     },
-    async openPath(path) {
-      try {
-        await navigator.clipboard?.writeText(path)
-      } catch {
-        /* 浏览器 mock 下剪贴板可能不可用 */
-      }
+    async openPath(_path) {
+      throw new Error('浏览器预览不支持打开本地目录')
     },
     async quickSearch() {
       return { items: [] }
@@ -871,7 +864,8 @@ function createMockApi(): ShellApi {
     quickSetHotkeys: async patch => shortcuts.setQuick(patch),
     quickProbeHotkey: async acc => {
       const probe = shortcuts.probe(acc, undefined, true)
-      return { acc: probe.accelerator, free: probe.status === 'free', ours: false, hint: probe.hint }
+      return { acc: probe.accelerator, free: probe.status === 'free', ours: false, hint: probe.hint,
+        ...(probe.status === 'free' ? {} : { conflict: probe }) }
     },
   }
 }
@@ -884,9 +878,19 @@ export const shellApi: ShellApi = rawShell
   ? {
       ...mockApi,
       ...rawShell,
+      getPlugins: () => rawShell.getPlugins
+        ? rawShell.getPlugins()
+        : Promise.reject(new Error('当前宿主未提供插件目录，请重启 eNest')),
+      getMarketStatus: (refresh = false) => rawShell.getMarketStatus
+        ? rawShell.getMarketStatus(refresh)
+        : Promise.reject(new Error('当前宿主未提供市场连接状态，请重启 eNest')),
       getPaths: () => {
         if (rawShell.getPaths) return rawShell.getPaths()
         return mockApi.getPaths()
+      },
+      openPath: (path) => {
+        if (rawShell.openPath) return rawShell.openPath(path)
+        return Promise.reject(new Error('当前宿主不支持打开本地目录，请重启 eNest'))
       },
       pickFile: (options) => {
         if (rawShell.pickFile) return rawShell.pickFile(options)

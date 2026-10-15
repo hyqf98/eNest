@@ -21,7 +21,6 @@ export function AnimationSettingsSection() {
   return (
     <div className="s-card anim-settings">
       <h2>{t('settings.animation.title')}</h2>
-      <p className="hint">{t('settings.animation.hint')}</p>
       <div className="field">
         <div>
           <div className="label">{t('settings.animation.level')}</div>

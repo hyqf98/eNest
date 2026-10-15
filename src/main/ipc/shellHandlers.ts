@@ -21,6 +21,7 @@ import { forgetDevPlugin, pickAndLoadDevPlugin } from '@main/dev/DevConsole'
 import { setDevPluginKillOnHide } from '@main/dev/devPluginsStore'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, getAppPathsRoot } from '@main/paths/pathsService'
+import { openLocalPath } from '@main/paths/openLocalPath'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { broadcastNotice } from '@main/plugin/shellNotices'
 import {
@@ -126,6 +127,7 @@ export function registerShellHandlers(): void {
   handleShellIpc(IpcChannels.ShellGetPluginDiagnostics, () => getPluginDiagnostics())
   handleShellIpc(IpcChannels.ShellRestoreTabs, (_e, ids: string[]) => pluginHost.restoreTabs(Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : []))
   handleShellIpc(IpcChannels.ShellGetPlugins, () => pluginRegistry.list())
+  handleShellIpc(IpcChannels.ShellGetMarketStatus, (_event, refresh?: boolean) => pluginRegistry.getMarketStatus(refresh === true))
 
   handleShellIpc(
     IpcChannels.ShellOpenPlugin,
@@ -478,6 +480,10 @@ export function registerShellHandlers(): void {
   // —— 路径与数据 ——
 
   handleShellIpc(IpcChannels.ShellGetPaths, () => getAppPaths())
+  handleShellIpc(IpcChannels.ShellOpenPath, async (_e, path: string) => {
+    await openLocalPath(path)
+    return { ok: true }
+  })
 
   handleShellIpc(
     IpcChannels.ShellPickFile,

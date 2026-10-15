@@ -9,6 +9,7 @@ import { shellApi } from '@renderer/services/shellApi'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { useThemeStore } from '@renderer/hooks/useTheme'
 import { toastStore } from '@renderer/hooks/useToast'
+import { notify } from '@renderer/services/notifyService'
 
 function handleEvent(payload: ShellEventPayload): void {
   const store = useShellStore.getState()
@@ -32,7 +33,7 @@ function handleEvent(payload: ShellEventPayload): void {
       toastStore.getState().push(`插件错误：${payload.message}`)
       break
     case 'plugin-toast':
-      toastStore.getState().push(payload.message, payload.toastType ?? 'info')
+      notify.custom(payload.notification ?? { body: payload.message ?? '', level: payload.toastType ?? 'info' })
       break
     case 'theme-changed':
       void useThemeStore.getState().refresh()
@@ -51,14 +52,7 @@ function handleEvent(payload: ShellEventPayload): void {
       store.appendLog('info', `[settings] sections updated (${(payload.sections as unknown[]).length})`)
       break
     case 'install-result':
-      // 统一 shell toast：成功/失败都带插件名，失败附错误信息
-      if (payload.ok) {
-        toastStore.getState().push(`插件「${payload.name}」安装成功`)
-      } else {
-        toastStore.getState().push(
-          `插件「${payload.name}」安装失败：${payload.error ?? '未知错误'}`
-        )
-      }
+      // The installation panel owns completion/errors; avoid duplicate toast stacks.
       void store.refreshPlugins()
       break
     case 'uninstall-result':

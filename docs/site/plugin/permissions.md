@@ -16,7 +16,7 @@
 | `fs.read` / `fs.write` | 仅限用户经宿主原生选择器选定的文件、目录或保存位置，以及本插件当前实例持有的文件句柄；保留读写用途与路径边界检查 |
 | `timer.background` | 本插件的后台专注计时与记录；每插件一份计时状态，记录最多 2000 条，计时通知仍受 `notify` 声明与拒绝设置控制 |
 
-`agent.apps()` 只返回支持的应用、配置位置及安装、活跃状态，`db.dialects.list()` 与 `db.workbench({ action: 'drivers.list' })` 只返回宿主内置方言或驱动资料，均无需声明或授权；它们不授予配置文件或数据库内容的读取能力。
+`agent.apps()` 只返回支持的应用、配置位置及安装、活跃状态，无需声明或授权，不授予配置文件读取能力。从 0.2.0 起，`db.dialects.list()` 与 `db.workbench({ action: 'drivers.list' })` 的资料来自调用方的插件后端，因此需要 `backend.node`；资料查询本身不授予数据库内容的读取能力。
 
 密钥库要求系统加密可用；Linux 的 `basic_text` / 未知后端不作为安全存储。保存失败不会降级为简单混淆。旧 XOR 凭据保留原文件并要求重新输入；新 key 最多 128 个 UTF-8 字节、单个 secret 最多 64 KiB，每插件最多 256 条 / 8 MiB 密文，已有超额数据仍可删除或缩减。
 
@@ -44,6 +44,7 @@
 | `clipboard.readImage` / `clipboard.writeImage` | 系统剪贴板图片读取 / 写入 |
 | `clipboard.history` / `clipboard.paste` | 剪贴板历史 / 向前台应用粘贴 |
 | `screen.capture` / `screen.record` / `pin.create` | 截图、录屏、置顶贴图 |
+| `backend.node` | 运行插件自有 Node 后端；完整本机信任，具有当前用户可用的文件、网络和进程能力；不是操作系统沙箱 |
 | `net.fetch` | 宿主 HTTP(S) 请求；分片、SSE 仍有字节预算 |
 | `net.socket` | TCP、宿主 WebSocket 客户端和限域连接桥 |
 | `lan.share` | 用户选择文件的限时局域网分享，需有效只读文件句柄 |
@@ -60,7 +61,7 @@
 | `mw.connect` / `mw.query` / `mw.admin` | 中间件连接 / 查询 / 修改，按 workbench action 校验 |
 | `dsh.connect` / `dsh.chat` / `dsh.admin` | DSH 专属运行时连接 / 对话 / 管理（见边界） |
 
-主题读取、语言读取、身份读取和纯事件订阅同样无需额外权限。普通声明式入口直接可用；动态 Quick provider 会读取全局搜索文本，因此保留 `contribute` 授权，两类贡献点都由宿主绑定来源。已有 SSH/数据库/中间件等适配 API 保留各自的敏感授权；新业务可组合通用 HTTP、WebSocket、文件句柄等能力实现，不需要把业务功能加到这张表。
+主题读取、语言读取、身份读取和纯事件订阅同样无需额外权限。普通声明式入口直接可用；动态 Quick provider 会读取全局搜索文本，因此保留 `contribute` 授权，两类贡献点都由宿主绑定来源。已有 SSH/数据库/中间件适配 API 保留各自的敏感授权，并额外要求 `backend.node` 才能启动调用方自己的后端；原有连接/查询授权不会隐含完整 Node 信任。两个宿主文件选择器 `ssh.pickLocalFile`、`db.pickSqliteFile` 不启动后端。新业务可组合通用 HTTP、WebSocket、文件句柄或[本机后端](backend.md)，不需要为业务功能新增权限名。
 
 剪贴板历史只有用户实际保存 `clipboard.history=allow` 后才在后台采集；仅在 manifest 声明或选择本次运行允许不会开启持续监控。临时授权只允许当前实例访问已有历史。撤权后立即重检并停止不再被任何授权插件需要的采集。
 
@@ -89,7 +90,7 @@ const destination = await enest.localFiles.pickSave({ defaultName: 'export.csv' 
 - CSV：`fileHandleId` 或显式 `csvText`，不接受任意 `filePath`。
 - `shell.saveFile/saveTextFile` 由用户在原生保存对话框中选定位置，每次只写所选目标。
 
-SQLite 使用引擎 authorizer 拦截 ATTACH、文件相关 PRAGMA、扩展等；DuckDB 关闭外部访问并锁定配置，SQL 无法借 `read_csv`、COPY 或扩展访问其它文件。
+官方数据库后端的 SQL 通道保留文件访问约束：SQLite 使用引擎 authorizer 拦截 ATTACH、文件相关 PRAGMA、扩展等；DuckDB 关闭外部访问并锁定配置，防止 SQL 借 `read_csv`、COPY 或扩展访问其它文件。这些是官方驱动的接口约束，不能据此声称已获 `backend.node` 的任意 Node 代码没有直接文件访问能力。
 
 `localFiles.read` 直接读取用户已选定并授予句柄的普通文件，`encoding: 'text'` 默认上限为 2 MiB，`'dataUrl'` 默认 16 MiB；`maxBytes` 可调整但最多 32 MiB，同一插件最多两次并发读取。文本导入和图片预览都应使用此接口并显示超限/取消/失效句柄错误。官方插件的文件按钮通过宿主选择器与读取接口执行；Chromium 的普通文件输入是另一种由用户交互选择文件的机制，Electron 的权限回调不覆盖所有此类输入，不能把回调或页面补丁说成全面拦截。
 
@@ -99,7 +100,7 @@ SQLite 使用引擎 authorizer 拦截 ATTACH、文件相关 PRAGMA、扩展等�
 
 浏览器原生敏感权限、设备权限、下载、任意导航及直接外联默认拒绝。远程 HTTP 请求用 `enest.net.fetch`，WebSocket 用 `enest.net.websocket`。只有本插件明确配置的开发 origin（含同源 HMR）和宿主签发的实际连接桥可以直连。其它 localhost 端口和其它插件资源不获放行。
 
-**边界**：DSH 已有独立 Node runtime 作为专属附加区保留，不能据此声称其独立运行时被 Chromium 页面沙箱约束。普通插件不能携带可执行 runtime；DSH 业务和外部运行时安全不在通用插件沙箱保证内。
+**后端边界**：从 0.2.0 起，普通插件可以声明 `backend.entry` 并在获得 `backend.node` 授权后运行独立 Node utility process。页面仍保持上述隔离，但 Node 后端具有完整本机执行能力，细分的前端文件/网络权限不会构成它的操作系统沙箱。宿主验证包内入口、授权和实例归属，并在撤权时终止后端。DSH 的专属 `runtime/` 仍单独集成，同样不属于 Chromium 页面沙箱的保证范围。
 
 ## 数据与系统权限
 

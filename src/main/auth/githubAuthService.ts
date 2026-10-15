@@ -151,7 +151,7 @@ function publishLoginStatus(status: Omit<Extract<ShellEventPayload, { type: 'git
 /** The release supplies public app configuration; the client secret stays on the publisher's server. */
 export async function startGithubLogin(): Promise<GithubLoginSessionPayload> {
   const config = getGithubAuthConfig()
-  if (!config.available) throw new Error('此版本暂未开通 GitHub 登录，请稍后再试')
+  if (!config.available) throw new Error(config.availabilityError || '此版本尚未配置 GitHub 登录，请联系发布方完成登录配置。')
   if (isLoginPolling()) throw new Error('已有登录进行中，请先取消')
   const generation = ++loginGeneration
   pollingGen = generation

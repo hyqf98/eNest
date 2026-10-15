@@ -1,19 +1,22 @@
 /** 市场目录卡片：真实插件信息、安装/打开与已安装管理操作。 */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { PluginSummary } from '@shared/types/plugin'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { shellApi } from '@renderer/services/shellApi'
 import { notify } from '@renderer/services/notifyService'
+import { confirmAction } from '@renderer/services/confirmAction'
 import { Trash2Icon } from '@renderer/components/icons'
 import { PluginIcon } from '@renderer/components/PluginIcon'
+import { formatPluginPackageSize } from './pluginPresentation'
 
 interface Props {
   plugin: PluginSummary
   onOpen: (id: string) => void
-  onDetail?: (id: string) => void
+  onDetail?: (id: string, origin?: HTMLElement | null) => void
 }
 
 export function PluginCard({ plugin, onOpen, onDetail }: Props) {
+  const cardRef = useRef<HTMLElement>(null)
   const { t, locale } = useI18n()
   const [uninstalling, setUninstalling] = useState(false)
   const [toggling, setToggling] = useState(false)
@@ -21,17 +24,12 @@ export function PluginCard({ plugin, onOpen, onDetail }: Props) {
   const enabled = plugin.installed && !disabled
   const busy = uninstalling || toggling
   const detailsLabel = `${plugin.name} · ${t('plugin.detail')}`
-  const installCount = plugin.dev
-    ? (locale === 'en-US' ? 'Local development' : '本地开发')
-    : plugin.installs === 'local'
-      ? (locale === 'en-US' ? 'Local plugin' : '本地插件')
-      : plugin.installs && /^\d/.test(plugin.installs)
-        ? `${plugin.installs} ${locale === 'en-US' ? 'installs' : '次安装'}`
-        : plugin.installs
+  const packageSize = formatPluginPackageSize(plugin.packageSize)
+  const tags = plugin.tags?.slice(0, 3) ?? []
 
   const handleDetail = () => {
     if (busy) return
-    if (onDetail) onDetail(plugin.id)
+    if (onDetail) onDetail(plugin.id, cardRef.current)
     else if (!disabled) onOpen(plugin.id)
   }
 
@@ -43,7 +41,7 @@ export function PluginCard({ plugin, onOpen, onDetail }: Props) {
 
   const handleUninstall = async () => {
     if (busy || !shellApi.uninstallPlugin) return
-    if (!window.confirm(t('plugin.uninstallConfirm', { name: plugin.name }))) return
+    if (!await confirmAction({ title: t('plugin.uninstall'), message: t('plugin.uninstallConfirm', { name: plugin.name }), confirmLabel: t('plugin.uninstall'), danger: true })) return
     setUninstalling(true)
     try {
       await shellApi.uninstallPlugin(plugin.id)
@@ -77,8 +75,10 @@ export function PluginCard({ plugin, onOpen, onDetail }: Props) {
 
   return (
     <article
+      ref={cardRef}
       className={`card${disabled ? ' is-disabled' : ''}`}
       data-plugin-card=""
+      data-plugin-id={plugin.id}
       aria-busy={busy}
       onClick={(event) => {
         // 内部控件各自处理动作；卡片留白和描述遵循主操作。
@@ -129,14 +129,18 @@ export function PluginCard({ plugin, onOpen, onDetail }: Props) {
                 </button>
               </h3>
             </div>
-            <p title={plugin.description}>{plugin.description}</p>
+            {plugin.author && <span className="card-author" title={plugin.author}>{plugin.author}</span>}
           </div>
         </div>
+        <p className="card-description" title={plugin.description}>{plugin.description}</p>
+        {tags.length > 0 && <div className="card-tags" aria-label={locale === 'en-US' ? 'Plugin tags' : '插件标签'}>
+          {tags.map((tag) => <span key={tag} title={tag}>{tag}</span>)}
+        </div>}
 
         <div className="card-actions">
           <span className="card-catalog-meta">
             <span title={`v${plugin.version}`}>v{plugin.version}</span>
-            {installCount && <span title={installCount}>{installCount}</span>}
+            {packageSize && <span title={locale === 'en-US' ? `Package size: ${packageSize}` : `安装包大小：${packageSize}`}>{packageSize}</span>}
           </span>
           <span className="card-switch-slot">
             {plugin.installed && (

@@ -1,7 +1,7 @@
 /** Source registration is independent of installation. Framework servers own HMR. */
 import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { dialog } from 'electron'
+import { resolveLocalUserPath } from '@main/paths/userPath'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import type { DevPluginLoadOptions, PluginSummary } from '@shared/types/plugin'
 import { resolvePluginUi } from '@shared/types/plugin'
@@ -11,7 +11,7 @@ import { dropDevPluginRecord, readDevPluginRecords, upsertDevPluginRecord } from
 import { resolveDevPluginEntry } from './devPluginEntry'
 
 async function prepareDevPlugin(dirPath: string, options: DevPluginLoadOptions = {}) {
-  const sourcePath = resolve(dirPath)
+  const sourcePath = resolveLocalUserPath(dirPath, { baseDir: process.cwd() })
   const { rootPath, manifest, devUrl, devSource } = await resolveDevPluginEntry(sourcePath, options)
   const category = manifest.category ?? '开发'
   const summary: PluginSummary = {

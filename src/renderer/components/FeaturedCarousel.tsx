@@ -7,12 +7,13 @@ import { PRODUCT_DWELL_MS, useProductCarousel } from '@renderer/hooks/useProduct
 import { ChevronLeftIcon, ChevronRightIcon } from '@renderer/components/icons'
 import { PluginIcon } from '@renderer/components/PluginIcon'
 import { ProductVisual } from '@renderer/components/ProductVisual'
+import { formatPluginPackageSize } from './pluginPresentation'
 import '@renderer/styles/featured.css'
 
 interface Props {
   items: PluginSummary[]
   onOpen: (id: string) => void
-  onDetail?: (id: string) => void
+  onDetail?: (id: string, origin?: HTMLElement | null) => void
   paused?: boolean
 }
 
@@ -20,12 +21,14 @@ export function FeaturedCarousel({ items, onOpen, onDetail, paused = false }: Pr
   const { locale, t } = useI18n()
   const english = locale === 'en-US'
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [screenshots, setScreenshots] = useState<Record<string, string>>({})
   const carousel = useProductCarousel(items, paused || previewOpen)
   const { index, select } = carousel
 
-  const openPlugin = (plugin: PluginSummary) => {
+  const openPlugin = (plugin: PluginSummary, origin: HTMLElement | null) => {
     if (plugin.installed && plugin.enabled !== false) onOpen(plugin.id)
-    else (onDetail ?? onOpen)(plugin.id)
+    else if (onDetail) onDetail(plugin.id, origin)
+    else onOpen(plugin.id)
   }
 
   if (!items.length) return null
@@ -75,12 +78,13 @@ export function FeaturedCarousel({ items, onOpen, onDetail, paused = false }: Pr
           const cta = plugin.installed
             ? plugin.enabled === false ? t('plugin.detail') : t('plugin.open')
             : t('plugin.install')
-          const hasInstallCount = /\d/.test(plugin.installs)
+          const packageSize = formatPluginPackageSize(plugin.packageSize)
           return (
             <article
               key={clone ? `loop-${physicalIndex}-${plugin.id}` : plugin.id}
               className={`product-slide${active ? clone ? ' is-loop-current' : ' is-current' : ''}`}
               data-product-index={clone ? undefined : itemIndex}
+              data-plugin-id={plugin.id}
               data-product-position={physicalIndex}
               data-product-clone={clone || undefined}
               role={clone ? undefined : 'group'}
@@ -100,36 +104,44 @@ export function FeaturedCarousel({ items, onOpen, onDetail, paused = false }: Pr
                 <p className="product-peek-description">{plugin.description}</p>
                 <span>{english ? 'View plugin' : '查看插件'} <ChevronRightIcon size={13} /></span>
               </div>
-              <div className="product-copy">
+              <div className="product-copy" onClick={(event) => {
+                // The title button supplies keyboard access; the surrounding copy shares its action.
+                if (!interactive || (event.target as HTMLElement).closest('button, a, input, select, textarea')) return
+                openPlugin(plugin, event.currentTarget.closest<HTMLElement>('.product-slide'))
+              }}>
                 <div className="product-heading">
                   <PluginIcon src={plugin.icon} glyph={plugin.glyph} slot="featured" className="product-icon" />
                   <div className="product-title-group">
                     <h2 className="product-title">
-                      {onDetail && !clone ? (
+                      {!clone ? (
                         <button type="button" title={plugin.name} tabIndex={interactive ? 0 : -1}
-                          onClick={() => { if (interactive) onDetail(plugin.id) }}>{plugin.name}</button>
+                          onClick={(event) => { if (interactive) openPlugin(plugin, event.currentTarget.closest<HTMLElement>('.product-slide')) }}>{plugin.name}</button>
                       ) : plugin.name}
                     </h2>
-                    <span className="product-author" title={plugin.author}>{plugin.author}</span>
+                    {plugin.author && <span className="product-author" title={plugin.author}>{plugin.author}</span>}
                   </div>
                 </div>
                 <p className="product-description" title={plugin.description}>{plugin.description}</p>
                 <div className="product-actions">
                   {clone ? <span className="product-cta">{cta}</span> : (
                     <button type="button" className="product-cta" tabIndex={interactive ? 0 : -1}
-                      onClick={() => { if (interactive) openPlugin(plugin) }}>{cta}</button>
+                      onClick={(event) => { if (interactive) openPlugin(plugin, event.currentTarget.closest<HTMLElement>('.product-slide')) }}>{cta}</button>
                   )}
                   <div className="product-stats">
                     <span>v{plugin.version}</span>
-                    {hasInstallCount && <span>{plugin.installs} {english ? 'installs' : '次安装'}</span>}
+                    {packageSize && <span title={english ? 'Package size' : '安装包大小'}>{packageSize}</span>}
                   </div>
                 </div>
                 <div className="product-labels">
                   <span className="product-category">{plugin.category}</span>
+                  {plugin.tags?.filter((tag) => tag !== plugin.category).slice(0, 2).map((tag) => <span className="product-tag" key={tag}>{tag}</span>)}
                   {plugin.installed && <span className="product-state">{plugin.enabled === false ? t('plugin.disabled') : t('plugin.installed')}</span>}
                 </div>
               </div>
-              <ProductVisual plugin={plugin} active={interactive} onPreviewChange={clone ? undefined : setPreviewOpen} />
+              <ProductVisual plugin={plugin} active={interactive} screenshot={screenshots[plugin.id]}
+                onScreenshotChange={clone ? undefined : (source) => setScreenshots(current =>
+                  current[plugin.id] === source ? current : { ...current, [plugin.id]: source })}
+                onPreviewChange={clone ? undefined : setPreviewOpen} />
             </article>
           )
         })}

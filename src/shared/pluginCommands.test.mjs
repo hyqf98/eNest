@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -86,8 +86,10 @@ test('validation compiles patterns but never executes even a pathological expres
 
 test('installation and lightweight manifest readers reject invalid commands before publishing', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'enest-command-manifest-'))
-  const manifest = { id: 'com.test.commands', name: 'Commands', version: '1.0.0', main: 'index.html', features: feature([{ type: 'regex', label: '链接', match: '/^https?:/i' }]) }
+  const manifest = { id: 'com.test.commands', name: 'Commands', description: 'Commands fixture', icon: 'assets/market/icon.svg', market: { readme: 'assets/market/README.md', screenshots: ['assets/market/screenshots/main.webp'] }, version: '1.0.0', main: 'index.html', features: feature([{ type: 'regex', label: '链接', match: '/^https?:/i' }]) }
   try {
+    await mkdir(join(dir, 'assets/market/screenshots'), { recursive: true })
+    for (const name of ['icon.svg', 'README.md', 'screenshots/main.webp']) await writeFile(join(dir, 'assets/market', name), 'fixture')
     await writeFile(join(dir, 'index.html'), '<!doctype html>')
     await writeFile(join(dir, 'plugin.json'), JSON.stringify(manifest))
     assert.deepEqual(await api.installFromDirectory(dir), manifest)

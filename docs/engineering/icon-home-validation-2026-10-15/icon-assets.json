@@ -1,0 +1,383 @@
+{
+  "scope": "Asset transparency and native macOS representations; Windows desktop rendering not tested",
+  "png": [
+    {
+      "path": "assets/icons/enest-icon-512.png",
+      "dimensions": [
+        512,
+        512
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "alphaBoundingBox": [
+        62,
+        47,
+        450,
+        465
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "sha256": "2d1c858e20191dbd3f7a5a5b9722ed530616792f453b79c713d80940501b91e2"
+    },
+    {
+      "path": "assets/icons/enest-icon-1024.png",
+      "dimensions": [
+        1024,
+        1024
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "alphaBoundingBox": [
+        129,
+        100,
+        895,
+        924
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "sha256": "ae7074c3cd989e1a147e47beee438d8d609159bc6500ba5517d0a72d4e1f3b71"
+    },
+    {
+      "path": "assets/icons/enest-icon-256.png",
+      "dimensions": [
+        256,
+        256
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "alphaBoundingBox": [
+        30,
+        22,
+        226,
+        234
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "sha256": "fbfc654196728efe8249e6ff1d104279770bac0da6a2745018c8ff983bb89137"
+    },
+    {
+      "path": "assets/icons/dock-runtime.png",
+      "dimensions": [
+        1024,
+        1024
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "alphaBoundingBox": [
+        129,
+        100,
+        895,
+        924
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "sha256": "ae7074c3cd989e1a147e47beee438d8d609159bc6500ba5517d0a72d4e1f3b71"
+    },
+    {
+      "path": "build/icon.png",
+      "dimensions": [
+        1024,
+        1024
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "alphaBoundingBox": [
+        129,
+        100,
+        895,
+        924
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "sha256": "ae7074c3cd989e1a147e47beee438d8d609159bc6500ba5517d0a72d4e1f3b71"
+    }
+  ],
+  "ico": [
+    {
+      "dimensions": [
+        16,
+        16
+      ],
+      "bitDepth": 32,
+      "planes": 1,
+      "format": "BGRA DIB + AND mask",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "andMaskPixelsChecked": 256
+    },
+    {
+      "dimensions": [
+        20,
+        20
+      ],
+      "bitDepth": 32,
+      "planes": 1,
+      "format": "BGRA DIB + AND mask",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "andMaskPixelsChecked": 400
+    },
+    {
+      "dimensions": [
+        24,
+        24
+      ],
+      "bitDepth": 32,
+      "planes": 1,
+      "format": "BGRA DIB + AND mask",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "andMaskPixelsChecked": 576
+    },
+    {
+      "dimensions": [
+        32,
+        32
+      ],
+      "bitDepth": 32,
+      "planes": 1,
+      "format": "BGRA DIB + AND mask",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "andMaskPixelsChecked": 1024
+    },
+    {
+      "dimensions": [
+        40,
+        40
+      ],
+      "bitDepth": 32,
+      "planes": 1,
+      "format": "BGRA DIB + AND mask",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "andMaskPixelsChecked": 1600
+    },
+    {
+      "dimensions": [
+        48,
+        48
+      ],
+      "bitDepth": 32,
+      "planes": 1,
+      "format": "BGRA DIB + AND mask",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "andMaskPixelsChecked": 2304
+    },
+    {
+      "dimensions": [
+        64,
+        64
+      ],
+      "bitDepth": 32,
+      "planes": 1,
+      "format": "BGRA DIB + AND mask",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "andMaskPixelsChecked": 4096
+    },
+    {
+      "dimensions": [
+        128,
+        128
+      ],
+      "bitDepth": 32,
+      "planes": 1,
+      "format": "BGRA DIB + AND mask",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "andMaskPixelsChecked": 16384
+    },
+    {
+      "dimensions": [
+        256,
+        256
+      ],
+      "bitDepth": 32,
+      "planes": 1,
+      "format": "RGBA PNG",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "andMaskPixelsChecked": 0
+    }
+  ],
+  "icns": [
+    {
+      "representation": "icon_128x128.png",
+      "dimensions": [
+        128,
+        128
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "cornerAlpha": 0
+    },
+    {
+      "representation": "icon_128x128@2x.png",
+      "dimensions": [
+        256,
+        256
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "cornerAlpha": 0
+    },
+    {
+      "representation": "icon_16x16.png",
+      "dimensions": [
+        16,
+        16
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "cornerAlpha": 0
+    },
+    {
+      "representation": "icon_16x16@2x.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "cornerAlpha": 0
+    },
+    {
+      "representation": "icon_256x256.png",
+      "dimensions": [
+        256,
+        256
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "cornerAlpha": 0
+    },
+    {
+      "representation": "icon_256x256@2x.png",
+      "dimensions": [
+        512,
+        512
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "cornerAlpha": 0
+    },
+    {
+      "representation": "icon_32x32.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "cornerAlpha": 0
+    },
+    {
+      "representation": "icon_32x32@2x.png",
+      "dimensions": [
+        64,
+        64
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "cornerAlpha": 0
+    },
+    {
+      "representation": "icon_512x512.png",
+      "dimensions": [
+        512,
+        512
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "cornerAlpha": 0
+    },
+    {
+      "representation": "icon_512x512@2x.png",
+      "dimensions": [
+        1024,
+        1024
+      ],
+      "alphaRange": [
+        0,
+        255
+      ],
+      "cornerAlpha": 0
+    }
+  ],
+  "runtimeAndPackagePNGIdentical": true,
+  "macOSRuntimeBodyHeight": {
+    "before": 959,
+    "after": 824,
+    "relativeReductionPercent": 14.1,
+    "canvasSize": 1024
+  },
+  "status": "pass"
+}

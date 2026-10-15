@@ -5,16 +5,17 @@ import type {
   PluginShortcutBinding, PluginShortcutInput, PluginShortcutLaunchResult,
   PluginShortcutMutationResult, PluginShortcutsSnapshot, PluginShortcutState, ShortcutProbeResult
 } from '@shared/types/shortcuts'
-import { settingsStore } from '@main/settings/SettingsStore'
+import { defaultQuickHotkeys, settingsStore } from '@main/settings/SettingsStore'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { launchPlugin } from '@main/launcher/pluginLauncher'
 import { sendShellEvent } from '@main/window/createShellWindow'
 import { logWarn } from '@main/logs/logService'
 import {
-  applyHotkeyChanges, getHotkeyOwner, getHotkeyRegistrations, getOwnedHotkey,
+  applyHotkeyChanges, getHotkeyRegistrations, getOwnedHotkey,
   getOwnedHotkeyStatus, isShortcutCaptureActive, onHotkeyRegistryChange,
-  probeNativeHotkey, type HotkeyChange, type HotkeyOwner, type HotkeyRegistration
+  type HotkeyChange, type HotkeyOwner, type HotkeyRegistration
 } from './hotkeyRegistry'
+import { consumeShortcutOverride, overrideOwner, probeShortcutConflict } from './shortcutConflicts'
 
 export { beginShortcutCapture, endShortcutCapture, endShortcutCapturesForOwner } from './hotkeyRegistry'
 
@@ -79,26 +80,8 @@ function registrationFor(binding: PluginShortcutBinding): HotkeyRegistration {
     onFire: () => launchBoundShortcut(binding.id, 'shortcut') }
 }
 
-function ownerLabel(pluginId?: string): string | undefined {
-  return pluginId ? pluginRegistry.get(pluginId)?.name ?? pluginId : undefined
-}
-
 export function probePluginShortcut(accelerator: string, excludeId?: string): ShortcutProbeResult {
-  const acc = normalizeUserShortcut(accelerator, process.platform)
-  if (!acc) return { accelerator: String(accelerator ?? ''), status: 'invalid', hint: '快捷键需包含 Ctrl、Alt、Command 或 Super 等修饰键' }
-  const configured = settingsStore.getPluginShortcuts().find(binding => binding.id !== excludeId && !inactiveState(binding)
-    && normalizeAccelerator(binding.accelerator, process.platform) === acc)
-  if (configured) return { accelerator: acc, status: 'shortcut', ownerBindingId: configured.id,
-    ownerPluginId: configured.pluginId, ownerLabel: ownerLabel(configured.pluginId) }
-  const owner = getHotkeyOwner(acc)
-  if (owner) {
-    if (owner.kind === 'shortcut' && owner.id === excludeId) return { accelerator: acc, status: 'free' }
-    return { accelerator: acc, status: owner.kind, ownerBindingId: owner.kind === 'shortcut' ? owner.id : undefined,
-      ownerPluginId: owner.pluginId, ownerLabel: owner.kind === 'quick' ? '快捷启动（Quick）' : ownerLabel(owner.pluginId) }
-  }
-  const probe = probeNativeHotkey(acc)
-  return { accelerator: acc, status: probe.free && !probe.ours ? 'free' : 'system',
-    ...(probe.hint ? { hint: probe.hint } : probe.ours ? { hint: '已被 eNest 其他功能占用' } : {}) }
+  return probeShortcutConflict(accelerator, excludeId)
 }
 
 function describeProbe(probe: ShortcutProbeResult): string {
@@ -115,6 +98,10 @@ function serialize<T>(operation: () => T): Promise<T> {
 
 /** A failed durable write cannot leave an unsaved replacement shortcut active. */
 function restoreAfterWriteFailure(previous: HotkeyChange[], error: unknown): string {
+  // Restore both sides together when a confirmed replacement transferred an existing key.
+  const all = applyHotkeyChanges(previous)
+  if (all.ok) return String(error)
+  applyHotkeyChanges(previous.map(item => ({ owner: item.owner, registration: null })))
   const restoreErrors: string[] = []
   // Restore independently: one OS-level conflict must not suppress other deleted bindings.
   for (const original of previous) {
@@ -137,7 +124,8 @@ export function savePluginShortcut(input: PluginShortcutInput): Promise<PluginSh
   return serialize(() => {
     if (!input || typeof input !== 'object' || typeof input.pluginId !== 'string'
       || (input.mode !== 'quick' && input.mode !== 'shell') || typeof input.enabled !== 'boolean'
-      || (input.id !== undefined && (typeof input.id !== 'string' || !input.id))) {
+      || (input.id !== undefined && (typeof input.id !== 'string' || !input.id))
+      || (input.overrideToken !== undefined && (typeof input.overrideToken !== 'string' || !input.overrideToken))) {
       return { ok: false, error: '快捷键配置无效' }
     }
     if (isShortcutCaptureActive()) return { ok: false, error: '请先结束快捷键录制' }
@@ -154,21 +142,34 @@ export function savePluginShortcut(input: PluginShortcutInput): Promise<PluginSh
     if (!old && bindings.length >= 256) return { ok: false, error: '快捷键绑定已达到上限（256 条）' }
     const binding: PluginShortcutBinding = { id: old?.id ?? randomUUID(), pluginId,
       accelerator: acc, mode: input.mode, enabled: input.enabled }
+    let conflict: ShortcutProbeResult | undefined
     if (!inactiveState(binding)) {
       const probe = probePluginShortcut(acc, binding.id)
-      if (probe.status !== 'free') return { ok: false, error: describeProbe(probe), probe, snapshot: getPluginShortcuts() }
+      if (probe.status !== 'free' || input.overrideToken) {
+        if (!consumeShortcutOverride(input.overrideToken, probe)) return { ok: false,
+          error: input.overrideToken ? '快捷键占用已变化或确认已过期，请重新检查后确认。' : describeProbe(probe), probe, snapshot: getPluginShortcuts() }
+        conflict = probe
+      }
     }
     const owner = bindingOwner(binding)
-    const previous = getOwnedHotkey(owner)
-    const applied = applyHotkeyChanges([{ owner, registration: inactiveState(binding) ? null : registrationFor(binding) }])
+    const replaced = conflict && overrideOwner(conflict)
+    const changes: HotkeyChange[] = [{ owner, registration: inactiveState(binding) ? null : registrationFor(binding) },
+      ...(replaced ? [{ owner: replaced, registration: null }] : [])]
+    const previous = changes.map(change => ({ owner: change.owner, registration: getOwnedHotkey(change.owner) ?? null }))
+    const applied = applyHotkeyChanges(changes)
     if (!applied.ok) return { ok: false, error: applied.error, snapshot: getPluginShortcuts() }
-    const next = old ? bindings.map(item => item.id === binding.id ? binding : item) : [...bindings, binding]
-    try { settingsStore.setPluginShortcuts(next) }
+    const next = (old ? bindings.map(item => item.id === binding.id ? binding : item) : [...bindings, binding])
+      .map(item => item.id === conflict?.ownerBindingId ? { ...item, enabled: false } : item)
+    const quick = conflict?.status === 'quick' ? settingsStore.getQuickLauncherSettings() : undefined
+    const quickConfig = conflict?.status === 'quick' ? { enabled: false, hotkeys: quick?.hotkeys ?? defaultQuickHotkeys(),
+      activeHotkey: quick?.activeHotkey ?? acc } : undefined
+    try { if (replaced) settingsStore.setShortcutConfiguration(next, quickConfig); else settingsStore.setPluginShortcuts(next) }
     catch (error) {
-      return { ok: false, error: restoreAfterWriteFailure([{ owner, registration: previous ?? null }], error), snapshot: getPluginShortcuts() }
+      return { ok: false, error: restoreAfterWriteFailure(previous, error), snapshot: getPluginShortcuts() }
     }
     remember(next)
     failures.delete(binding.id)
+    if (quickConfig) sendShellEvent({ type: 'quick-config-changed', ...quickConfig })
     publish()
     return { ok: true, binding, snapshot: getPluginShortcuts() }
   })
@@ -225,7 +226,7 @@ export function reconcilePluginShortcuts(): void {
     const existing = getOwnedHotkey(bindingOwner(binding))
     const status = getOwnedHotkeyStatus(bindingOwner(binding)).status
     if (existing?.accelerator === normalizeAccelerator(binding.accelerator, process.platform)
-      && (status === 'registered' || status === 'suspended')) continue
+      && (status === 'registered' || status === 'pending-system' || status === 'suspended')) continue
     const result = applyHotkeyChanges([{ owner: bindingOwner(binding), registration: registrationFor(binding) }])
     if (result.ok) failures.delete(binding.id)
     else {

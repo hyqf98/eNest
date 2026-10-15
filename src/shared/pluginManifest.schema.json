@@ -61,6 +61,7 @@
       "items": {
         "type": "string",
         "enum": [
+          "backend.node",
           "clipboard.read",
           "clipboard.write",
           "clipboard.readImage",
@@ -560,6 +561,20 @@
           }
         }
       }
+    },
+    "backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entry"
+      ],
+      "properties": {
+        "entry": {
+          "type": "string",
+          "pattern": "^backend/(?:[A-Za-z0-9_@-]+/)*[A-Za-z0-9_-]+\\.(cjs|mjs|js)$",
+          "maxLength": 240
+        }
+      }
     }
   },
   "additionalProperties": false,
@@ -684,5 +699,26 @@
         }
       ]
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "backend"
+        ]
+      },
+      "then": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "backend.node"
+            }
+          }
+        }
+      }
+    }
+  ]
 }

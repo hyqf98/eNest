@@ -7,6 +7,7 @@ import { useShellStore } from '@renderer/stores/shellStore'
 import { shellApi } from '@renderer/services/shellApi'
 import { PluginIcon } from '@renderer/components/PluginIcon'
 import { notify } from '@renderer/services/notifyService'
+import { confirmAction } from '@renderer/services/confirmAction'
 import { useI18n } from '@renderer/hooks/useI18n'
 
 export function DevConsoleSection() {
@@ -55,7 +56,7 @@ export function DevConsoleSection() {
   }
 
   const handleRemove = async (id: string, name: string) => {
-    if (!window.confirm(t('devConsole.removeConfirm', { name }))) return
+    if (!await confirmAction({ title: t('devConsole.remove'), message: t('devConsole.removeConfirm', { name }), confirmLabel: t('devConsole.remove') })) return
     await removeDevPlugin(id)
     setDebuggingId((cur) => (cur === id ? null : cur))
   }
@@ -75,15 +76,13 @@ export function DevConsoleSection() {
           >
             {loading ? t('common.loading') : t('devConsole.browse')}
           </button>
-          <p className="desc" style={{ margin: '8px 0 0' }}>
-            选择插件源码目录，软件自动识别开发服务或本地构建产物并打开。
-          </p>
         </div>
 
         <div className="dev-load-row">
           <input
             type="text"
             className="dev-load-input"
+            aria-label={t('devConsole.pathPlaceholder')}
             placeholder={t('devConsole.pathPlaceholder')}
             value={dirPath}
             onChange={(e) => setDirPath(e.target.value)}

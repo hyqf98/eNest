@@ -1,3 +1,4 @@
+import { bindNativeInstallDrop } from './installDropBridge'
 /**
  * pluginPreload — 插件渲染层预加载脚本
  * 职责：通过 contextBridge 向插件页面暴露 window.enest / window.zapi API，
@@ -19,6 +20,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { QuickInputAction, QuickInputConfig, PluginBlob, PluginFileSaveResult, ClipboardCapabilities, ClipboardQuery } from '@shared/types/plugin-tools'
 import type { FocusTimerOptions, FocusTimerSnapshot, FocusTimerRecordPatch } from '@shared/types/focus-timer'
 import type { LocalFileHandle, LocalFilePickOptions, PluginInputContext } from '@shared/types/local-files'
+import type { PluginToastOptions } from '@shared/types/notification'
 import type { SshWorkbenchRequest } from '@shared/types/ssh-workbench'
 import type { DbWorkbenchRequest } from '@shared/types/db-workbench'
 import type { MwWorkbenchRequest } from '@shared/types/mw-workbench'
@@ -194,7 +196,7 @@ function sendBeforeCloseAck(event: 'beforeClose' | 'beforeSuspend' | 'save-reque
 }
 
 /** Toast 类型：info 默认，success/warn/error 带强调色 */
-export type PluginToastType = 'info' | 'success' | 'warn' | 'error'
+export type { PluginToastType } from '@shared/types/notification'
 
 /** 壳统一通知类型再导出（信封 / topic 映射 / save.requested 事件） */
 export type { ShellNotice, ShellNoticeDataMap, ShellNoticeTopic, SaveRequestedEvent } from '@shared/types/notice'
@@ -561,8 +563,14 @@ export interface EnestPluginApi {
     focus(): Promise<boolean>
     /** Return focus to the Quick global search without closing this plugin. */
     focusSearch(): Promise<boolean>
-    /** 由壳子 Toast 统一渲染的轻提示；与 notify（系统通知）分工 */
-    toast(payload: { message: string; type?: PluginToastType }): Promise<boolean>
+    /**
+     * 提交即收起 Quick 小窗（如回车回贴/复制完成后的「选中即走」）。
+     * 仅当本插件正挂载于 Quick 容器时生效，其余容器为无操作；
+     * 收起走统一隐藏语义，下次呼出仍恢复本插件。基础能力，无需声明或授权。
+     */
+    dismissQuick(): Promise<boolean>
+    /** 原生容器中的安全富文本通知；兼容 message/type，不需要额外授权。 */
+    toast(payload: PluginToastOptions): Promise<boolean>
     /** 读取当前主题变量（themeAware 插件可主动拉取） */
     getThemeTokens(): Promise<{ mode: 'light' | 'dark'; tokens: PluginThemeTokens }>
     /** 订阅主题变更；壳子 setTheme / OS 主题切换时推送 */
@@ -987,6 +995,8 @@ export interface EnestPluginApi {
   /** 即将销毁：可在此 flush 草稿；回调返回 Promise 时 preload 等其 settle 再 ack */
   onBeforeSuspend(cb: () => void | Promise<unknown>): Unsubscribe
   runtime: { acquireActivity(reason: string): Promise<string>; releaseActivity(token: string): Promise<void> }
+  /** Calls the plugin-owned Node backend after explicit backend.node consent. */
+  backend: { call<T = unknown>(method: string, args?: unknown[]): Promise<T> }
   onBeforeClose(cb: (event: PluginBeforeCloseEvent) => void | Promise<unknown>): Unsubscribe
   /** 关闭已开始（best-effort），通常已在 beforeClose 完成清理 */
   onDestroy(cb: () => void): Unsubscribe
@@ -1047,7 +1057,8 @@ const api: EnestPluginApi = {
     setInputContext: (context) => call<boolean>('ui.setInputContext', [context]),
     focus: () => call<boolean>('ui.focus', []),
     focusSearch: () => call<boolean>('ui.focusSearch', []),
-    toast: (payload: { message: string; type?: PluginToastType }) =>
+    dismissQuick: () => call<boolean>('ui.dismissQuick', []),
+    toast: (payload: PluginToastOptions) =>
       call<boolean>('ui.toast', [payload]),
     getThemeTokens: () =>
       call<{ mode: 'light' | 'dark'; tokens: PluginThemeTokens }>('theme.getTokens'),
@@ -1493,6 +1504,7 @@ const api: EnestPluginApi = {
     return () => api.off('out', handler)
   },
   runtime: { acquireActivity: (reason) => call<string>('runtime.acquire', [reason]), releaseActivity: (token) => call<void>('runtime.release', [token]) },
+  backend: { call: (method, args = []) => call('backend.call', [method, args]) },
   onBeforeSuspend(cb) {
     api.on('beforeSuspend', cb)
     return () => api.off('beforeSuspend', cb)
@@ -1567,6 +1579,10 @@ ipcRenderer.on(IpcChannels.PluginLifecycle, (_e, message: PluginLifecycleMessage
 ipcRenderer.on(IpcChannels.PluginEvent, (_e, payload: PluginEventPayload) => {
   if (!payload || typeof payload !== 'object') return
   switch (payload.type) {
+    case 'backend.event': {
+      emit('backend.event', { event: payload.event, data: payload.data })
+      break
+    }
     case 'quick-input-change': {
       emit(payload.type, payload.value)
       break
@@ -1724,3 +1740,6 @@ const dragEvents = globalThis as unknown as { addEventListener?: (type: string, 
 dragEvents.addEventListener?.('dragend', () => { void api.localFiles.endDrag().catch(() => {}) }, true)
 contextBridge.exposeInMainWorld('enest', api)
 contextBridge.exposeInMainWorld('zapi', api)
+
+// Capture package drops without exposing an install API to plugin JavaScript.
+bindNativeInstallDrop(true)

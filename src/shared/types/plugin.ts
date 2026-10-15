@@ -1,5 +1,6 @@
 /** 宿主能力标识；基础能力直接可用，敏感能力需在 manifest 声明并取得用户授权。 */
 export type PluginPermission =
+  | 'backend.node'
   | 'clipboard.read'
   | 'clipboard.write'
   | 'clipboard.readImage'
@@ -54,6 +55,7 @@ export type PluginPermission =
  * eNest_plugin/docs/plugin-manifest.schema.json 的 permissions 枚举。
  */
 export const PLUGIN_PERMISSIONS: readonly PluginPermission[] = [
+  'backend.node',
   'clipboard.read',
   'clipboard.write',
   'clipboard.readImage',
@@ -361,6 +363,8 @@ export interface PluginManifest {
     readme: 'assets/market/README.md'
   }
   main: 'index.html'
+  /** Optional plugin-owned Node utility entry. Requires explicit backend.node consent. */
+  backend?: { entry: string }
   engines?: { enest?: string }
   /**
    * 网络能力声明（可选）：
@@ -400,6 +404,10 @@ export interface PluginSummary {
   readmeImages?: Record<string, string>
   /** 插件市场推荐标记 */
   featured?: boolean
+  /** 插件仓库 manifest.market.tags，保持声明顺序。 */
+  tags?: string[]
+  /** 与当前摘要版本一致的发布包字节数；无真实资产大小时省略。 */
+  packageSize?: number
   permissions: PluginPermission[]
   installed: boolean
   /** 是否启用；缺省/undefined 视为 true。禁用时 openPlugin 拒绝，Quick 索引排除 */
@@ -421,6 +429,14 @@ export interface PluginSummary {
    * 声明式注册不依赖插件运行）。
    */
   contributes?: PluginContributes
+}
+
+/** 市场连接状态独立于已安装列表，离线仍可管理本地插件。 */
+export interface PluginMarketStatus {
+  state: 'ready' | 'offline' | 'preview'
+  /** 本次运行中最后一次成功拉取的真实市场条目数。 */
+  catalogCount: number
+  fetchedAt?: number
 }
 
 /** Developer registration. An empty URL explicitly selects static source preview. */

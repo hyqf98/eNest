@@ -1,3 +1,4 @@
+import { bindNativeInstallDrop } from './installDropBridge'
 import type {
   PluginShortcutBinding, PluginShortcutInput, PluginShortcutsSnapshot,
   PluginShortcutMutationResult, PluginShortcutLaunchResult, ShortcutProbeResult
@@ -12,6 +13,7 @@ import type { AccountState, AccountLoginResult } from '@shared/types/account'
  */
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { exposePluginWindowBridge } from './pluginWindowBridge'
+import { exposeNotificationClient } from './notificationClientBridge'
 import type { QuickInputMessage, QuickInputState } from '@shared/types/plugin-tools'
 import {
   IpcChannels,
@@ -29,6 +31,7 @@ import type {
   AppPaths,
   DevPluginLoadOptions,
   MarketInstallResult,
+  PluginMarketStatus,
   PluginLaunchConfig,
   PluginLaunchPatch,
   PluginPermission,
@@ -45,6 +48,7 @@ import type {
   QuickCommandKind,
   QuickHotkeyApplyResult,
   QuickHotkeyConfig,
+  QuickHotkeyPatch,
   QuickOpenRequest,
   QuickOpenResult,
   QuickSearchResult
@@ -122,6 +126,7 @@ async function expectOk(promise: Promise<{ ok: boolean; error?: string }>): Prom
 
 export interface EnestShellApi {
   getPlugins(): Promise<PluginSummary[]>
+  getMarketStatus(refresh?: boolean): Promise<PluginMarketStatus>
   /** 只读性能采样：仅包含当前应用的进程与插件资源计数。 */
   getPluginDiagnostics(): Promise<unknown>
   restoreTabs(ids: string[]): Promise<void>
@@ -200,6 +205,7 @@ export interface EnestShellApi {
   /** 写入单个插件设置项 */
   setPluginSetting(pluginId: string, key: string, value: unknown): Promise<void>
   getPaths(): Promise<AppPaths>
+  openPath(path: string): Promise<void>
   pickFile(options?: PickFileOptions): Promise<string | null>
   getPluginReadme(pluginId: string): Promise<string>
   getHardwareAcceleration(): Promise<HardwareAccelState>
@@ -288,11 +294,7 @@ export interface EnestShellApi {
   quickOpen(req: QuickOpenRequest): Promise<QuickOpenResult>
   quickScanApps(force?: boolean): Promise<ApplicationScanResult>
   quickGetConfig(): Promise<QuickHotkeyConfig>
-  quickSetHotkeys(payload: {
-    enabled?: boolean
-    hotkeys?: string[]
-    activeHotkey?: string
-  }): Promise<QuickHotkeyApplyResult>
+  quickSetHotkeys(payload: QuickHotkeyPatch): Promise<QuickHotkeyApplyResult>
   quickProbeHotkey(acc: string): Promise<import('@shared/types/quick').QuickHotkeyProbeResult>
   /** 请求主进程按内容高度调整小窗 */
   quickResize(height: number, animate?: boolean): void
@@ -302,6 +304,7 @@ export interface EnestShellApi {
 
 const api: EnestShellApi = {
   getPlugins: () => ipcRenderer.invoke(IpcChannels.ShellGetPlugins),
+  getMarketStatus: (refresh = false) => ipcRenderer.invoke(IpcChannels.ShellGetMarketStatus, refresh),
   getPluginDiagnostics: () => ipcRenderer.invoke(IpcChannels.ShellGetPluginDiagnostics),
   restoreTabs: (ids) => ipcRenderer.invoke(IpcChannels.ShellRestoreTabs, ids).then(() => undefined),
 
@@ -418,6 +421,7 @@ const api: EnestShellApi = {
   },
 
   getPaths: () => ipcRenderer.invoke(IpcChannels.ShellGetPaths) as Promise<AppPaths>,
+  openPath: (path) => expectOk(ipcRenderer.invoke(IpcChannels.ShellOpenPath, path)),
 
   pickFile: (options?: PickFileOptions) =>
     ipcRenderer.invoke(IpcChannels.ShellPickFile, options) as Promise<string | null>,
@@ -580,11 +584,7 @@ const api: EnestShellApi = {
     ipcRenderer.invoke(IpcChannels.QuickScanApps, { force }) as Promise<ApplicationScanResult>,
   quickGetConfig: () =>
     ipcRenderer.invoke(IpcChannels.QuickGetConfig) as Promise<QuickHotkeyConfig>,
-  quickSetHotkeys: (payload: {
-    enabled?: boolean
-    hotkeys?: string[]
-    activeHotkey?: string
-  }) => ipcRenderer.invoke(IpcChannels.QuickSetHotkeys, payload) as Promise<QuickHotkeyApplyResult>,
+  quickSetHotkeys: (payload: QuickHotkeyPatch) => ipcRenderer.invoke(IpcChannels.QuickSetHotkeys, payload) as Promise<QuickHotkeyApplyResult>,
   quickProbeHotkey: (acc: string) =>
     ipcRenderer.invoke(IpcChannels.QuickProbeHotkey, { acc }) as Promise<
       import('@shared/types/quick').QuickHotkeyProbeResult
@@ -603,3 +603,8 @@ const api: EnestShellApi = {
 
 contextBridge.exposeInMainWorld('enestShell', api)
 exposePluginWindowBridge()
+exposeNotificationClient()
+
+// Native drag capture also works while a plugin WebContentsView is in front.
+bindNativeInstallDrop()
+contextBridge.exposeInMainWorld('enestInstallNative', true)

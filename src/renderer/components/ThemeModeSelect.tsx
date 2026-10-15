@@ -20,12 +20,6 @@ interface Props {
 
 const MODE_ORDER: ThemeMode[] = ['light', 'dark', 'system']
 
-const MODE_HINTS: Record<ThemeMode, string> = {
-  light: '明亮日间',
-  dark: '深邃工作台',
-  system: '随系统自动切换',
-}
-
 export function ThemeModeSelect({ mode, resolved, packs, packId, palettes, onSetMode, onApplyPack }: Props) {
   const hasPacks = packs.length > 0
 
@@ -58,7 +52,6 @@ export function ThemeModeSelect({ mode, resolved, packs, packId, palettes, onSet
               )}
             </div>
             <strong>{THEME_MODE_LABELS[m]}</strong>
-            <span>{MODE_HINTS[m]}</span>
           </button>
         ))}
       </div>
@@ -66,9 +59,7 @@ export function ThemeModeSelect({ mode, resolved, packs, packId, palettes, onSet
       <div className="field" style={{ borderTop: 'none', paddingBottom: 0 }}>
         <div>
           <div className="label">主题包</div>
-          <p className="desc">
-            {hasPacks ? '由主题插件安装后出现在此处' : '暂无已安装主题包，可从市场安装主题插件'}
-          </p>
+          {!hasPacks && <p className="desc">可从市场安装主题包</p>}
         </div>
         <Select
           ariaLabel="主题包"

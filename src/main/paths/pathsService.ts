@@ -5,9 +5,10 @@
  * 被 SettingsStore / PluginRegistry / sqliteService / themePacks / migrate / 各 IPC handler 引用。
  * 关键依赖：node:path、node:os、@shared/constants、@shared/types/plugin。
  */
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { resolveLocalUserPath } from './userPath'
 import {
   DATA_DIR_NAME,
   DATA_SUBDIR,
@@ -21,14 +22,28 @@ import type { AppPaths } from '@shared/types/plugin'
 /** 运行期数据根覆盖（来自 settings.general.dataRoot）；null 表示用默认 ~/.eNest */
 let effectiveRoot: string | null = null
 
+function resolveConfiguredRoot(root: string): string {
+  const input = root.trim()
+  // Older versions treated ~ literally. Keep an existing legacy directory reachable;
+  // new edits are made absolute by SettingsStore before they get here.
+  if (input.startsWith('~')) {
+    const legacy = resolve(process.cwd(), input)
+    if (existsSync(legacy)) return legacy
+  }
+  return resolveLocalUserPath(input, { baseDir: process.cwd() })
+}
+
 /** 默认数据根：~/.eNest（跨平台隐藏目录） */
 export function defaultDataRoot(): string {
-  return process.env.ENEST_TEST_DATA_ROOT || join(homedir(), DATA_DIR_NAME)
+  return process.env.ENEST_TEST_DATA_ROOT
+    ? resolveLocalUserPath(process.env.ENEST_TEST_DATA_ROOT, { baseDir: process.cwd() })
+    : join(homedir(), DATA_DIR_NAME)
 }
 
 /** 设置 dataRoot 覆盖；传 null/空串恢复默认 */
 export function setAppPathsRoot(root: string | null | undefined): void {
-  effectiveRoot = root && root.trim() ? root.trim() : null
+  // Preserve the existing cwd base for legacy relative settings; never relocate them to home.
+  effectiveRoot = root && root.trim() ? resolveConfiguredRoot(root) : null
 }
 
 /** 当前生效的数据根（不含 override 参数时） */
@@ -41,7 +56,9 @@ export function getAppPathsRoot(): string {
  * @param overrideRoot 优先级最高；否则用 setAppPathsRoot 设定的覆盖；否则默认 ~/.eNest
  */
 export function getAppPaths(overrideRoot?: string): AppPaths {
-  const root = overrideRoot && overrideRoot.trim() ? overrideRoot.trim() : getAppPathsRoot()
+  const root = overrideRoot && overrideRoot.trim()
+    ? resolveConfiguredRoot(overrideRoot)
+    : getAppPathsRoot()
   return {
     root,
     plugins: join(root, PLUGINS_DIR),

@@ -25,6 +25,7 @@ import type {
   UserProfile
 } from '@shared/types/plugin'
 import { getDefaultSettingsPath, setAppPathsRoot } from '@main/paths/pathsService'
+import { resolveLocalUserPath } from '@main/paths/userPath'
 import { kvStore } from '@main/db/sqliteService'
 import { sendShellEvent } from '@main/window/createShellWindow'
 import { normalizeSearchText } from '@shared/search'
@@ -310,6 +311,15 @@ export class SettingsStore {
     } })
   }
 
+  /** Confirmed shortcut replacement persists both owners in the same durable write. */
+  setShortcutConfiguration(bindings: PluginShortcutBinding[], quick?: { enabled: boolean; hotkeys: string[]; activeHotkey: string }): void {
+    this.ensureLoaded()
+    this.commitShortcutSettings({ ...this.data, pluginShortcuts: structuredClone(bindings),
+      ...(quick ? { general: { ...this.data.general,
+        quickLauncher: { ...this.data.general.quickLauncher, ...structuredClone(quick) }
+      } } : {}) })
+  }
+
   private commitShortcutSettings(next: SettingsData): void {
     // Native registration and persisted configuration form one user operation.
     // Do not acknowledge a save that a deferred writer could silently lose.
@@ -368,6 +378,14 @@ export class SettingsStore {
   /** 浅合并更新 theme/general/plugins 并持久化；dataRoot 变更即时生效 */
   async setAll(partial: Partial<Omit<SettingsData, 'general'>> & { general?: Partial<GeneralSettings> }): Promise<SettingsData> {
     validateBackgroundEffectSelection(partial.theme?.backgroundEffect)
+    if (partial.general && 'dataRoot' in partial.general) {
+      const root = partial.general.dataRoot
+      if (root != null && typeof root !== 'string') throw new Error('数据目录必须是本地路径')
+      // Normalize before mutating settings, and persist an absolute path for future launches.
+      partial = { ...partial, general: { ...partial.general,
+        dataRoot: root?.trim() ? resolveLocalUserPath(root.trim(), { baseDir: process.cwd() }) : undefined
+      } }
+    }
     this.ensureLoaded()
     const prevRoot = this.data.general.dataRoot as string | undefined
     if (partial.theme) this.data.theme = { ...this.data.theme, ...partial.theme }

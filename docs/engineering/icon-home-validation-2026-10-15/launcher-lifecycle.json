@@ -1,0 +1,24 @@
+{
+  "command": "ENEST_LAUNCHER_SMOKE=1 node --test src/main/dev/devLauncher.native.test.mjs",
+  "status": "pass",
+  "tests": [
+    {
+      "name": "npm dev releases Vite and Electron when only its launcher receives SIGTERM",
+      "durationMs": 4760.367875,
+      "status": "pass"
+    },
+    {
+      "name": "npm dev releases Vite and Electron when only its launcher receives SIGHUP",
+      "durationMs": 3407.172334,
+      "status": "pass"
+    }
+  ],
+  "totalDurationMs": 8292.390125,
+  "assertions": [
+    "Vite owns a process group separate from the launcher",
+    "Only the launcher PID receives the shutdown signal",
+    "npm, launcher, Vite, Electron, and captured children exit within 6 seconds",
+    "No helper or renderer remains in the owned process group"
+  ],
+  "scope": "Real npm run dev with isolated data/profile on macOS; Windows taskkill fallback not tested on Windows"
+}

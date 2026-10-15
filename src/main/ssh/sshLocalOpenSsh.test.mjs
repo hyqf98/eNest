@@ -16,12 +16,13 @@ import { setTimeout as delay } from 'node:timers/promises'
 import ts from 'typescript'
 
 const run = promisify(execFile), require = createRequire(import.meta.url)
+const pluginRequire = createRequire(new URL('../../../eNest_plugin/packages/ssh-backend/package.json', import.meta.url))
 function load(file, mocks = {}) {
-  const js = ts.transpileModule(readFileSync(new URL(file, import.meta.url), 'utf8'), {
+  const js = ts.transpileModule(readFileSync(new URL(file.startsWith('./ssh') ? '../../../eNest_plugin/packages/ssh-backend/src/' + file.slice(2) : file, import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
   }).outputText
   const module = { exports: {} }
-  new Function('require', 'module', 'exports', js)(name => mocks[name] ?? require(name), module, module.exports)
+  new Function('require', 'module', 'exports', js)(name => name === './hostBridge' ? Object.assign({}, ...Object.entries(mocks).filter(([key]) => key.startsWith('@main/') && !key.startsWith('@main/ssh/') && !key.endsWith('PluginRuntimeScope')).map(([,value]) => value)) : name === './runtimeScope' ? mocks['@main/plugin/PluginRuntimeScope'] : mocks[name] ?? mocks[name.replace('./', '@main/ssh/')] ?? (name === 'ssh2' ? pluginRequire(name) : require(name)), module, module.exports)
   return module.exports
 }
 async function waitFor(read, accepts, label) {

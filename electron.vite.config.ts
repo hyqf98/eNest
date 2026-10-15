@@ -23,7 +23,7 @@ const DEV_RENDERER_PORT = 27319
 
 /** Sandboxed windows only support a self-contained CommonJS preload. */
 function sandboxedPreloads(): Plugin {
-  const entries = ['shellPreload', 'pluginPreload', 'recorderPreload', 'regionOverlayPreload', 'pinPreload', 'detachedPluginPreload']
+  const entries = ['shellPreload', 'pluginPreload', 'recorderPreload', 'regionOverlayPreload', 'pinPreload', 'detachedPluginPreload', 'installPreload', 'notificationPreload']
   return {
     name: 'enest:sandboxed-preloads',
     async generateBundle(_options, bundle) {
@@ -98,8 +98,6 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         input: {
           index: r('src/main/index.ts'),
-          dbUtility: r('src/main/database/dbUtility.ts'),
-          mwUtility: r('src/main/middleware/mwUtility.ts'),
           pluginInstallWorker: r('src/main/plugin/pluginInstallWorker.ts')
         }
       }
@@ -136,7 +134,9 @@ export default defineConfig(({ mode }) => {
         input: {
           index: r('src/renderer/index.html'),
           'orb-overlay': r('src/renderer/orb-overlay.html'),
-          'detached-plugin': r('src/renderer/detached-plugin.html')
+          'install-overlay': r('src/renderer/install-overlay.html'),
+          'detached-plugin': r('src/renderer/detached-plugin.html'),
+          'notification-overlay': r('src/renderer/notification-overlay.html')
         }
       }
     }

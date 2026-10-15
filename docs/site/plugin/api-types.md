@@ -60,11 +60,14 @@ export interface EnestPluginApi {
         focus(): Promise<boolean>;
         /** Return focus to the Quick global search without closing this plugin. */
         focusSearch(): Promise<boolean>;
-        /** 由壳子 Toast 统一渲染的轻提示；与 notify（系统通知）分工 */
-        toast(payload: {
-            message: string;
-            type?: PluginToastType;
-        }): Promise<boolean>;
+        /**
+         * 提交即收起 Quick 小窗（如回车回贴/复制完成后的「选中即走」）。
+         * 仅当本插件正挂载于 Quick 容器时生效，其余容器为无操作；
+         * 收起走统一隐藏语义，下次呼出仍恢复本插件。基础能力，无需声明或授权。
+         */
+        dismissQuick(): Promise<boolean>;
+        /** 原生容器中的安全富文本通知；兼容 message/type，不需要额外授权。 */
+        toast(payload: PluginToastOptions): Promise<boolean>;
         /** 读取当前主题变量（themeAware 插件可主动拉取） */
         getThemeTokens(): Promise<{
             mode: 'light' | 'dark';
@@ -653,6 +656,10 @@ export interface EnestPluginApi {
         acquireActivity(reason: string): Promise<string>;
         releaseActivity(token: string): Promise<void>;
     };
+    /** Calls the plugin-owned Node backend after explicit backend.node consent. */
+    backend: {
+        call<T = unknown>(method: string, args?: unknown[]): Promise<T>;
+    };
     onBeforeClose(cb: (event: PluginBeforeCloseEvent) => void | Promise<unknown>): Unsubscribe;
     /** 关闭已开始（best-effort），通常已在 beforeClose 完成清理 */
     onDestroy(cb: () => void): Unsubscribe;
@@ -671,9 +678,6 @@ export interface EnestPluginApi {
 }
 
 export type Listener = (data: unknown) => void;
-
-/** Toast 类型：info 默认，success/warn/error 带强调色 */
-export type PluginToastType = 'info' | 'success' | 'warn' | 'error';
 
 /** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗） */
 export type PluginEnterEvent = PluginEnterPayload & {
@@ -1549,6 +1553,14 @@ export interface SaveRequestedEvent {
     operationId: string;
 }
 
+/** New and legacy toast calls share one payload and one rendering path. */
+export interface PluginToastOptions extends NotificationOptions {
+    /** @deprecated Use body. */
+    message?: string;
+    /** @deprecated Use level. */
+    type?: PluginToastType;
+}
+
 export type QuickInputAction = 'next' | 'previous' | 'submit' | 'clear';
 
 export interface QuickInputConfig {
@@ -2322,6 +2334,19 @@ export type ShellSaveReason = 'update' | 'app-quit' | 'manual';
 /** 外观关键节点类型（appearance.changed 的 kind） */
 export type ShellAppearanceKind = 'theme' | 'font' | 'animation';
 
+export type PluginToastType = NotificationLevel;
+
+export interface NotificationOptions {
+    title?: string;
+    body?: string;
+    format?: NotificationFormat;
+    /** Defaults to bottom-right. top remains available for older host callers. */
+    position?: NotificationPosition;
+    level?: NotificationLevel;
+    /** 0 keeps the card until dismissed; otherwise 1500–60000 ms. */
+    duration?: number;
+}
+
 export interface ClipboardSourceApp {
     name: string;
     id?: string;
@@ -2512,6 +2537,12 @@ export interface MwEmqxMgmt {
     apiKey?: string;
     apiSecretRef?: string;
 }
+
+export type NotificationLevel = 'info' | 'success' | 'warn' | 'error';
+
+export type NotificationFormat = 'text' | 'html' | 'markdown';
+
+export type NotificationPosition = 'top' | 'center' | 'bottom-right';
 
 /** 背景类型：无 / 纯色 / 静态图 / 动效视频（mp4/webm，类 Wallpaper Engine） */
 export type BackgroundType = 'none' | 'color' | 'image' | 'video';

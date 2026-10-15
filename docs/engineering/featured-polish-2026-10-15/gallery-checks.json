@@ -1,0 +1,204 @@
+{
+  "status": "pass",
+  "browser": "155.0.8059.79",
+  "fixture": [
+    "assets/market/screenshots/01-main.png",
+    "assets/market/screenshots/02-images.webp",
+    "assets/market/screenshots/03-files.webp"
+  ],
+  "frames": [
+    [
+      {
+        "src": "https://product-screenshots.test/slow/0",
+        "opacity": 1,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/1",
+        "opacity": 0,
+        "decoded": false
+      },
+      {
+        "src": "https://product-screenshots.test/slow/2",
+        "opacity": 0,
+        "decoded": true
+      }
+    ],
+    [
+      {
+        "src": "https://product-screenshots.test/slow/0",
+        "opacity": 1,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/1",
+        "opacity": 0,
+        "decoded": false
+      },
+      {
+        "src": "https://product-screenshots.test/slow/2",
+        "opacity": 0,
+        "decoded": true
+      }
+    ],
+    [
+      {
+        "src": "https://product-screenshots.test/slow/0",
+        "opacity": 1,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/1",
+        "opacity": 0,
+        "decoded": false
+      },
+      {
+        "src": "https://product-screenshots.test/slow/2",
+        "opacity": 0,
+        "decoded": true
+      }
+    ],
+    [
+      {
+        "src": "https://product-screenshots.test/slow/0",
+        "opacity": 1,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/1",
+        "opacity": 0,
+        "decoded": false
+      },
+      {
+        "src": "https://product-screenshots.test/slow/2",
+        "opacity": 0,
+        "decoded": true
+      }
+    ],
+    [
+      {
+        "src": "https://product-screenshots.test/slow/0",
+        "opacity": 1,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/1",
+        "opacity": 0,
+        "decoded": false
+      },
+      {
+        "src": "https://product-screenshots.test/slow/2",
+        "opacity": 0,
+        "decoded": true
+      }
+    ],
+    [
+      {
+        "src": "https://product-screenshots.test/slow/0",
+        "opacity": 1,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/1",
+        "opacity": 0,
+        "decoded": false
+      },
+      {
+        "src": "https://product-screenshots.test/slow/2",
+        "opacity": 0,
+        "decoded": true
+      }
+    ],
+    [
+      {
+        "src": "https://product-screenshots.test/slow/0",
+        "opacity": 1,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/1",
+        "opacity": 0,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/2",
+        "opacity": 0,
+        "decoded": true
+      }
+    ],
+    [
+      {
+        "src": "https://product-screenshots.test/slow/0",
+        "opacity": 1,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/1",
+        "opacity": 0,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/2",
+        "opacity": 0,
+        "decoded": true
+      }
+    ],
+    [
+      {
+        "src": "https://product-screenshots.test/slow/0",
+        "opacity": 0.952304,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/1",
+        "opacity": 0.047696,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/2",
+        "opacity": 0,
+        "decoded": true
+      }
+    ],
+    [
+      {
+        "src": "https://product-screenshots.test/slow/0",
+        "opacity": 0.857792,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/1",
+        "opacity": 0.142208,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/2",
+        "opacity": 0,
+        "decoded": true
+      }
+    ],
+    [
+      {
+        "src": "https://product-screenshots.test/slow/0",
+        "opacity": 0,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/1",
+        "opacity": 1,
+        "decoded": true
+      },
+      {
+        "src": "https://product-screenshots.test/slow/2",
+        "opacity": 0,
+        "decoded": true
+      }
+    ]
+  ],
+  "durations": [
+    0.16,
+    0.26,
+    0.42
+  ],
+  "errors": []
+}

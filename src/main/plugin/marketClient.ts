@@ -66,7 +66,7 @@ export async function fetchMarketReadme(url: string): Promise<string> {
 }
 
 /**
- * 拉取远程市场列表；全部失败时返回空数组（壳子继续用本地 mock）。
+ * 拉取远程市场列表；全部失败时返回空数组（保留已验证缓存与已安装插件）。
  * 不在此处抛错，避免断网导致市场页崩溃。
  */
 export async function fetchRemoteMarket(): Promise<MarketPluginSummary[]> {
@@ -80,8 +80,8 @@ export async function fetchRemoteMarket(): Promise<MarketPluginSummary[]> {
 
 // —— 资产下载 ——
 
-/** 单包大小上限：100MB（插件 zip 正常远小于此） */
-export const MAX_PLUGIN_PACKAGE_BYTES = 100 * 1024 * 1024
+/** 通用单包上限；允许插件自带各平台原生依赖，仍限制下载与解压预算。 */
+export const MAX_PLUGIN_PACKAGE_BYTES = 256 * 1024 * 1024
 /** 下载总超时：3 分钟 */
 export const DOWNLOAD_TIMEOUT_MS = 3 * 60 * 1000
 
@@ -114,7 +114,7 @@ export async function downloadPluginPackage(
     onProgress?: (p: DownloadProgress) => void
   } = {}
 ): Promise<DownloadedPackage> {
-  const maxBytes = opts.pluginId === 'com.enest.dsh' ? 256 * 1024 * 1024 : MAX_PLUGIN_PACKAGE_BYTES
+  const maxBytes = MAX_PLUGIN_PACKAGE_BYTES
   let parsed: URL
   try {
     parsed = new URL(url)

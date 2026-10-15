@@ -266,7 +266,7 @@ test('late renderer load callbacks cannot show a hidden or destroyed Quick windo
 test('plugin docking waits for a ready Quick renderer without resetting the owner or capturing focus', async t => {
   const api = await fixture(t)
   let resets = 0
-  api.setQuickPluginResetHook(() => { resets++ })
+  api.setQuickPluginSummonHook(async () => { resets++; return false })
   const preparing = api.prepareQuickWindowForPlugin()
   const win = api.getQuickWindow()
   assert.equal(win.webContents.isLoadingMainFrame(), true)

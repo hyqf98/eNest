@@ -8,8 +8,13 @@
 }
 .background-effect > canvas,
 .background-effect > video { position: absolute; inset: 0; z-index: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
-.background-atmosphere { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
-.background-atmosphere--blend { mix-blend-mode: soft-light; }
+.background-atmosphere,
+.background-atmosphere-wash { position: absolute; inset: 0; pointer-events: none; }
+.background-atmosphere-wash { z-index: 1; }
+.background-atmosphere { z-index: 2; }
+/* Soft-light loses low-saturation colors on dark material. Color preserves its
+   luminance relief, while the small normal wash also carries pale/neutral colors. */
+.background-atmosphere--blend { mix-blend-mode: color; }
 .background-effect--fallback > canvas,
 .background-effect--fallback > video { visibility: hidden; }
 .background-effect.app-bg { position: fixed; }
@@ -21,24 +26,23 @@
   pointer-events: none;
 }
 
-/* Keep the selected field visible around settings cards. */
-:root.has-bg-media.has-bg-effect .page-settings {
-  background: color-mix(in srgb, var(--bg) 42%, transparent);
-  backdrop-filter: blur(5px) saturate(1.15);
-  -webkit-backdrop-filter: blur(5px) saturate(1.15);
-}
-:root.has-bg-media.has-bg-effect .page-settings .s-card {
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+/* These are derived paints, never replacements for a theme's semantic tokens.
+   The opaque theme base bounds text contrast even with an arbitrary custom color. */
+:root.has-bg-atmosphere {
+  --atmosphere-surface-veil: color-mix(in srgb, var(--surface) calc(100% - var(--atmosphere-strength, 0) * 18%), transparent);
+  --atmosphere-field-veil: color-mix(in srgb, var(--surface-2) calc(100% - var(--atmosphere-strength, 0) * 10%), transparent);
+  --atmosphere-chrome-veil: color-mix(in srgb, var(--bg) calc(100% - var(--atmosphere-strength, 0) * 22%), transparent);
+  --atmosphere-surface: linear-gradient(var(--atmosphere-surface-veil), var(--atmosphere-surface-veil)), var(--atmosphere-paint), var(--surface);
+  --atmosphere-field: linear-gradient(var(--atmosphere-field-veil), var(--atmosphere-field-veil)), var(--atmosphere-paint), var(--surface-2);
+  --atmosphere-chrome: linear-gradient(var(--atmosphere-chrome-veil), var(--atmosphere-chrome-veil)), var(--atmosphere-paint), var(--bg);
+  --atmosphere-muted: color-mix(in srgb, var(--text) 55%, var(--text-2));
 }
 
-:root[data-anim='low'].has-bg-media.has-bg-effect .page-settings {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  background: color-mix(in srgb, var(--bg) 64%, transparent);
-}
-@media (prefers-reduced-motion: reduce) {
-  :root.has-bg-media.has-bg-effect .page-settings {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-}
+/* Quick and detached chrome consume the same paint as the main shell. Their
+   content remains above the existing effect; no extra canvas or blur pass. */
+:root.has-bg-atmosphere .quick-shell { background: var(--atmosphere-surface); }
+:root.has-bg-atmosphere .quick-root .ambient-particles.ambient-flow { opacity: 0.18; }
+:root.has-bg-atmosphere .detached-titlebar,
+:root.has-bg-atmosphere .detached-quick-bar { background: var(--atmosphere-surface); }
+:root.has-bg-atmosphere .quick-section-head h2,
+:root.has-bg-atmosphere .detached-status { color: var(--atmosphere-muted); }

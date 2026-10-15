@@ -1,4 +1,4 @@
-import { useId, type CSSProperties } from 'react'
+import { memo, useId, type CSSProperties } from 'react'
 import {
   BUILTIN_BACKGROUND_EFFECTS,
   listBackgroundEffects,
@@ -9,14 +9,6 @@ import { useThemeStore } from '@renderer/hooks/useTheme'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { notify } from '@renderer/services/notifyService'
 import './backgroundEffectsPicker.css'
-
-const ENGLISH_DESCRIPTIONS: Record<string, string> = {
-  fold: 'Light unfolds across glass-like planes',
-  aurora: 'Soft green and gold ribbons drift together',
-  orbit: 'A warm ring draws light into orbit',
-  ripple: 'Liquid light ripples across the surface',
-  tunnel: 'Travel through layers of light',
-}
 
 /** Static SVG previews keep the settings grid free of animation loops and WebGL contexts. */
 function EffectThumbnail({ effect }: { effect: ResolvedBackgroundEffect }) {
@@ -86,7 +78,7 @@ function EffectThumbnail({ effect }: { effect: ResolvedBackgroundEffect }) {
   )
 }
 
-export function BackgroundEffectsPicker() {
+export const BackgroundEffectsPicker = memo(function BackgroundEffectsPicker() {
   const selection = useThemeStore((state) => state.backgroundEffect)
   const packs = useThemeStore((state) => state.packs)
   const setBackgroundEffect = useThemeStore((state) => state.setBackgroundEffect)
@@ -108,7 +100,7 @@ export function BackgroundEffectsPicker() {
       <input type="radio" name={group} value={effect.id} checked={selection === effect.id} onChange={() => select(effect.id)} />
       <EffectThumbnail effect={effect} />
       <span className="bg-effect-name">{name(effect)}<span className="bg-effect-check" aria-hidden="true">✓</span></span>
-      <span className="bg-effect-description">{english && !effect.source ? ENGLISH_DESCRIPTIONS[effect.id] : effect.description}</span>
+      {effect.source && <span className="bg-effect-description">{effect.description}</span>}
       {effect.source && <span className="bg-effect-source" title={effect.source}>{effect.source}</span>}
     </label>
   )
@@ -119,18 +111,20 @@ export function BackgroundEffectsPicker() {
         <div>
           <h3 className="bg-section-label" id={`${group}-title`}>{english ? 'Background effects' : '背景动效'}</h3>
           <p className="hint">{english
-            ? 'One effect for startup, Home, Settings and Quick. Add an atmosphere color below; Low keeps gentle motion.'
-            : '启动画面、首页、设置与 Quick 使用同一个动效，可叠加下方氛围色；低档保留缓慢流动。'}</p>
+            ? 'Shared by startup, the workspace and Quick.'
+            : '启动画面、工作区和 Quick 共用。'}</p>
         </div>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => window.dispatchEvent(new Event('enest:preview-splash'))}>
-          {english ? 'Replay startup' : '重播启动画面'}
-        </button>
       </div>
       <div className="bg-effects-choices" role="radiogroup" aria-labelledby={`${group}-title`}>
-        <label className={`chip bg-effect-off${selection === 'none' ? ' active' : ''}`}>
-          <input type="radio" name={group} value="none" checked={selection === 'none'} onChange={() => select('none')} />
-          {english ? 'Effects off' : '关闭动效'}
-        </label>
+        <div className="bg-effects-actions">
+          <label className={`chip bg-effect-off${selection === 'none' ? ' active' : ''}`}>
+            <input type="radio" name={group} value="none" checked={selection === 'none'} onChange={() => select('none')} />
+            {english ? 'Effects off' : '关闭动效'}
+          </label>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => window.dispatchEvent(new Event('enest:preview-splash'))}>
+            {english ? 'Replay startup' : '重播启动画面'}
+          </button>
+        </div>
         <div className="bg-effect-grid">{BUILTIN_BACKGROUND_EFFECTS.map(card)}</div>
         {pluginOptions.length > 0 && <>
           <div className="bg-effects-plugin-label">{english ? 'From theme plugins' : '主题插件提供'}</div>
@@ -144,4 +138,4 @@ export function BackgroundEffectsPicker() {
       )}
     </section>
   )
-}
+})

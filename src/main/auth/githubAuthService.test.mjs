@@ -119,8 +119,11 @@ test('unconfigured provider and browser failure release the pending session', as
   const f = fixture()
   try {
     f.config.available = false
-    await assert.rejects(f.api.startGithubLogin(), /暂未开通/)
+    f.config.availabilityError = '此版本尚未配置 GitHub 登录应用，请联系发布方完成登录配置。'
+    await assert.rejects(f.api.startGithubLogin(), { message: f.config.availabilityError })
     assert.equal(f.urls.length, 0)
+    assert.equal(f.api.isLoginPolling(), false)
+    assert.equal(f.api.getGithubLoginSession(), null)
     f.config.available = true
     f.browserError = true
     await assert.rejects(f.api.startGithubLogin(), /Browser unavailable/)

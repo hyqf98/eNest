@@ -151,6 +151,9 @@ interface ThemeState {
   resetMode: () => Promise<void>
   applyPack: (packId: string | null) => Promise<void>
   setBackground: (bg: BackgroundConfig | null) => Promise<void>
+  /** Live slider/color preview; coalesce persistence until the gesture settles. */
+  previewBackground: (bg: BackgroundConfig) => void
+  flushBackgroundPreview: () => Promise<void>
   setBackgroundEffect: (id: string) => Promise<void>
 }
 
@@ -166,12 +169,31 @@ type PersistedThemeState = {
 let themeWriteQueue: Promise<void> = Promise.resolve()
 let themeMutationVersion = 0
 let savedBackgroundEffect: string = DEFAULT_BACKGROUND_EFFECT
+let backgroundPreview: PersistedThemeState | null = null
+let backgroundPreviewTimer: ReturnType<typeof setTimeout> | undefined
+
+function clearBackgroundPreview(): void {
+  clearTimeout(backgroundPreviewTimer)
+  backgroundPreviewTimer = undefined
+  backgroundPreview = null
+}
+
+async function flushBackgroundPreview(): Promise<void> {
+  const pending = backgroundPreview
+  if (!pending) return
+  clearBackgroundPreview()
+  try { await persistTheme(pending) }
+  catch { notify.error('背景设置未保存，请重试') }
+}
 
 function effectSelection(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_BACKGROUND_EFFECT
 }
 
 function persistTheme(state: PersistedThemeState): Promise<void> {
+  // A subsequent theme action already includes the live background. Never let an older
+  // debounced preview overwrite that newer mode, pack, effect or background selection.
+  clearBackgroundPreview()
   const resolved = resolveThemeMode(state.mode)
   const modeOverrides = state.overrides[resolved] ?? {}
   // 始终带上 packId/background 键：null → undefined，供主进程显式清除
@@ -229,6 +251,8 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
 
   refresh: async () => {
+    // A prior write's broadcast must not replace an in-progress, unsaved gesture.
+    if (backgroundPreview) return
     const version = ++themeReadVersion
     const packVersion = ++themePackReadVersion
     attachSystemListener(get, set)
@@ -356,6 +380,17 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       notify.error('背景设置未保存，请重试')
     }
   },
+
+  previewBackground: (bg) => {
+    themeReadVersion++
+    themeMutationVersion++
+    set({ background: bg, backgroundSource: 'user' })
+    clearTimeout(backgroundPreviewTimer)
+    backgroundPreview = get()
+    backgroundPreviewTimer = setTimeout(() => { void flushBackgroundPreview() }, 240)
+  },
+
+  flushBackgroundPreview,
 
   setBackgroundEffect: async (id) => {
     themeReadVersion++

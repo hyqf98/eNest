@@ -35,7 +35,7 @@ export function homeSearchEntries(commands: QuickCommand[], plugins: PluginSumma
   const entries: HomeSearchEntry[] = visible.map((command) => ({ id: command.id, kind: 'command', command }))
   if (scope === 'app' || scope === 'action') return entries
   const matchedPlugins = new Set(visible.filter((command) => command.kind === 'plugin').map((command) => command.pluginId))
-  const catalog = plugins.filter((plugin) => matchesSearchTerms(`${plugin.name} ${plugin.description} ${plugin.id} ${plugin.author}`, q))
+  const catalog = plugins.filter((plugin) => matchesSearchTerms(`${plugin.name} ${plugin.description} ${plugin.id} ${plugin.author} ${plugin.tags?.join(' ') ?? ''}`, q))
     .sort((a, b) => Number(normalizeSearchText(b.name) === q) - Number(normalizeSearchText(a.name) === q))
   for (const plugin of catalog) {
     if (scope === 'plugin' && !plugin.installed) continue

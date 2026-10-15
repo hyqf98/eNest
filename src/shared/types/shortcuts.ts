@@ -9,11 +9,11 @@ export interface PluginShortcutBinding {
   enabled: boolean
 }
 
-export type PluginShortcutInput = Omit<PluginShortcutBinding, 'id'> & { id?: string }
+export type PluginShortcutInput = Omit<PluginShortcutBinding, 'id'> & { id?: string; overrideToken?: string }
 
 export interface PluginShortcutState {
   id: string
-  status: 'registered' | 'disabled' | 'plugin-disabled' | 'plugin-missing' | 'conflict' | 'suspended'
+  status: 'registered' | 'pending-system' | 'disabled' | 'plugin-disabled' | 'plugin-missing' | 'conflict' | 'suspended'
   error?: string
 }
 
@@ -29,6 +29,8 @@ export interface ShortcutProbeResult {
   ownerPluginId?: string
   ownerLabel?: string
   hint?: string
+  /** Short-lived confirmation for replacing this exact user-owned conflict. Never supplied for OS/runtime keys. */
+  overrideToken?: string
 }
 
 export interface PluginShortcutMutationResult {

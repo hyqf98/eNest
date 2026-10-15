@@ -33,6 +33,13 @@ function surface(role = 'shell', trusted = true) {
   wc.mainFrame = { url: 'file:///fixture/index.html' }
   wc.isDestroyed = () => wc.destroyed
   wc.isFocused = () => wc.focused
+  wc.ignoreMenuShortcuts = false
+  wc.menuCalls = []
+  wc.setIgnoreMenuShortcuts = value => {
+    if (wc.failMenuGuard && value) throw new Error('menu guard failed')
+    wc.ignoreMenuShortcuts = value
+    wc.menuCalls.push(value)
+  }
   wc.setWindowOpenHandler = () => {}
   if (trusted) api.registerTrustedSurface(wc, role, wc.mainFrame.url)
   const event = { sender: wc, senderFrame: wc.mainFrame }
@@ -85,10 +92,15 @@ test('capture tokens are bound to the actual sender ID and ignore renderer-provi
   const other = surface()
   const { token } = first.call(channels.ShellBeginShortcutCapture, other.wc.id)
   assert.equal(state.keys.size, 0)
+  assert.equal(first.wc.ignoreMenuShortcuts, true)
+  assert.equal(other.wc.ignoreMenuShortcuts, false)
   other.call(channels.ShellEndShortcutCapture, token, first.wc.id)
   assert.equal(state.keys.size, 0)
+  assert.equal(first.wc.ignoreMenuShortcuts, true)
   first.call(channels.ShellEndShortcutCapture, token)
   assert.equal(state.keys.size, 1)
+  assert.equal(first.wc.ignoreMenuShortcuts, false)
+  assert.deepEqual(first.wc.menuCalls, [true, false])
   first.call(channels.ShellEndShortcutCapture, token)
   assert.equal(state.keys.size, 1)
 })
@@ -101,8 +113,10 @@ test('web contents blur, navigation, crash and window blur/hide all release pend
   ]) {
     client.call(channels.ShellBeginShortcutCapture)
     assert.equal(state.keys.size, 0, event)
+    assert.equal(client.wc.ignoreMenuShortcuts, true, event)
     target.emit(event)
     assert.equal(state.keys.size, 1, event)
+    assert.equal(client.wc.ignoreMenuShortcuts, false, event)
     assert.equal(api.isShortcutCaptureActive(), false, event)
   }
   assert.equal(state.win.listenerCount('blur'), 1, 'repeated captures must not add duplicate listeners')
@@ -121,4 +135,41 @@ test('destroying the shell restores shortcuts and removes listeners from the lon
   assert.equal(state.win.listenerCount('blur'), 0)
   assert.equal(state.win.listenerCount('hide'), 0)
   assert.throws(() => client.call(channels.ShellBeginShortcutCapture), /untrusted/)
+})
+
+test('menu capture is renewed without flicker and restored by the owner lease timeout', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const client = surface()
+  const old = client.call(channels.ShellBeginShortcutCapture)
+  const renewed = client.call(channels.ShellBeginShortcutCapture)
+  assert.deepEqual(client.wc.menuCalls, [true])
+  client.call(channels.ShellEndShortcutCapture, old.token)
+  assert.equal(client.wc.ignoreMenuShortcuts, true)
+  t.mock.timers.tick(30_000)
+  assert.equal(client.wc.ignoreMenuShortcuts, false)
+  assert.deepEqual(client.wc.menuCalls, [true, false])
+  client.call(channels.ShellEndShortcutCapture, renewed.token)
+  assert.deepEqual(client.wc.menuCalls, [true, false])
+})
+
+test('ending one owner restores only its menu while another capture keeps native keys suspended', () => {
+  const first = surface(), second = surface()
+  const a = first.call(channels.ShellBeginShortcutCapture)
+  second.call(channels.ShellBeginShortcutCapture)
+  first.call(channels.ShellEndShortcutCapture, a.token)
+  assert.equal(first.wc.ignoreMenuShortcuts, false)
+  assert.equal(second.wc.ignoreMenuShortcuts, true)
+  assert.equal(state.keys.size, 0)
+  api.disposeHotkeyRegistry()
+  assert.equal(second.wc.ignoreMenuShortcuts, false)
+  assert.equal(api.isShortcutCaptureActive(), false)
+})
+
+test('failed menu protection refuses capture and restores all global shortcuts', () => {
+  const client = surface()
+  client.wc.failMenuGuard = true
+  assert.throws(() => client.call(channels.ShellBeginShortcutCapture), /menu guard failed/)
+  assert.equal(api.isShortcutCaptureActive(), false)
+  assert.equal(state.keys.size, 1)
+  assert.equal(client.wc.ignoreMenuShortcuts, false)
 })

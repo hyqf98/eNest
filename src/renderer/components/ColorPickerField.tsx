@@ -4,8 +4,11 @@
  * 关闭：点外部 / Esc。透明色（rgba）回退为 #RRGGBB 展示。
  */
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { HexColorPicker, HexColorInput } from 'react-colorful'
 import { normalizeHex } from '@renderer/hooks/useTheme'
+import { useAnchoredPopover } from './useAnchoredPopover'
+import './select.css'
 
 interface Props {
   value: string
@@ -17,26 +20,37 @@ export function ColorPickerField({ value, onChange, label }: Props) {
   const [open, setOpen] = useState(false)
   const hex = normalizeHex(value.startsWith('#') ? value : '#64748b')
   const wrapRef = useRef<HTMLDivElement | null>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const position = useAnchoredPopover(open, triggerRef, panelRef, 240, 300)
 
   useEffect(() => {
     if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    const onDoc = (e: Event) => {
+      if (!wrapRef.current?.contains(e.target as Node) && !panelRef.current?.contains(e.target as Node)) setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setOpen(false)
+        triggerRef.current?.focus({ preventScroll: true })
+      }
     }
     document.addEventListener('mousedown', onDoc)
     document.addEventListener('keydown', onKey)
+    document.addEventListener('focusin', onDoc)
+    panelRef.current?.querySelector<HTMLElement>('[tabindex="0"], input')?.focus({ preventScroll: true })
     return () => {
       document.removeEventListener('mousedown', onDoc)
       document.removeEventListener('keydown', onKey)
+      document.removeEventListener('focusin', onDoc)
     }
   }, [open])
 
   return (
     <div className="color-field" ref={wrapRef}>
       <button
+        ref={triggerRef}
         type="button"
         className={`color-swatch-btn${open ? ' open' : ''}`}
         aria-label={`选择${label}颜色`}
@@ -45,8 +59,8 @@ export function ColorPickerField({ value, onChange, label }: Props) {
       >
         <span className="color-swatch-face" style={{ background: hex }} />
       </button>
-      {open && (
-        <div className="color-pop" role="dialog" aria-label={label}>
+      {open && createPortal(
+        <div ref={panelRef} className="color-pop color-pop-portal" role="dialog" aria-label={label} style={position}>
           <HexColorPicker color={hex} onChange={onChange} />
           <div className="color-pop-row">
             <span className="color-pop-label">#</span>
@@ -58,7 +72,7 @@ export function ColorPickerField({ value, onChange, label }: Props) {
               aria-label={`${label} hex`}
             />
           </div>
-        </div>
+        </div>, document.body
       )}
     </div>
   )

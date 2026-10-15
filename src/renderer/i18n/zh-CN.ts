@@ -43,6 +43,8 @@ const zhCN = {
     emptySearch: '没有找到插件',
     emptyHint: '试试其他分类或关键词',
     pluginsCount: '{n} 个',
+    morePlugins: '更多（{n}）',
+    collapseCategory: '收起',
   },
   settings: {
     title: '设置',
@@ -53,7 +55,7 @@ const zhCN = {
       welcome: "登录 eNest",
       hint: "选择一种方式登录，让头像与名称伴随你的工作空间。",
       continueWith: "使用 {provider} 登录",
-      unavailable: "GitHub 登录即将开放，当前版本暂不可用。",
+      unavailable: "此版本尚未完成 GitHub 登录配置，点击登录可查看原因。",
       browserNote: "在默认浏览器中安全授权，完成后自动返回",
       localNote: "无需登录，也可以继续使用本地工作空间",
       waitingTitle: "在浏览器中完成登录",

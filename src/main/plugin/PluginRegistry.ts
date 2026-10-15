@@ -3,7 +3,7 @@
  * 职责：扫描 ~/.eNest/plugins（pathsService）下已安装插件，维护安装/开发态插件列表与 manifest，
  * 支持从示例目录安装、远程市场下载安装、开发态加载；合并启用/禁用状态。
  * 被 index.ts 扫描初始化，被 PluginHost / shellHandlers / pluginHandlers 查询。
- * 关键依赖：pathsService、mockMarket（市场元数据）、PluginInstaller（manifest 解析）、
+ * 关键依赖：pathsService、PluginInstaller（manifest 解析）、
  * marketClient（远程列表与资产下载）、pluginEnabledStore（启用状态）。
  */
 import { readdir, rm, stat } from 'node:fs/promises'
@@ -13,6 +13,7 @@ import { app } from 'electron'
 import type {
   PluginContributes,
   PluginManifest,
+  PluginMarketStatus,
   PluginSummary,
   PluginUiConfig,
   ThemePack
@@ -20,7 +21,6 @@ import type {
 import { resolvePluginUi } from '@shared/types/plugin'
 import { pluginProtocolUrl } from '@shared/constants'
 import { getAppPaths } from '@main/paths/pathsService'
-import { MOCK_MARKET_PLUGINS, mockToSummary } from '@main/plugin/mockMarket'
 import { installFromDirectory, installFromFolder, installFromZip, withInstallLock, beginPluginInstall, type InstallResult } from '@main/plugin/PluginInstaller'
 import {
   downloadPluginPackage,
@@ -41,6 +41,7 @@ import { readPluginBuildRevision } from './pluginInstallTasks'
 import {
   manifestCategory,
   manifestScreenshots,
+  marketTags,
   mergeMarketMetadata,
   remoteToSummary
 } from '@main/plugin/marketMetadata'
@@ -107,22 +108,22 @@ function manifestToSummary(
   manifest: PluginManifest,
   rootPath: string
 ): PluginSummary {
-  const market = MOCK_MARKET_PLUGINS.find((m) => m.id === manifest.id)
   const enabled = isEnabledSync(manifest.id)
   return {
     id: manifest.id,
     name: manifest.name,
     version: manifest.version,
-    description: manifest.description ?? market?.description ?? '',
-    author: manifest.author ?? market?.author ?? '',
-    category: manifestCategory(manifest) ?? market?.category ?? '其它',
-    installs: market?.installs ?? 'local',
-    color: market?.color ?? '#5b8cff',
-    glyph: market?.glyph ?? manifest.name.slice(0, 1),
+    description: manifest.description ?? '',
+    author: manifest.author ?? '',
+    category: manifestCategory(manifest) ?? '其它',
+    installs: '',
+    color: '#5b8cff',
+    glyph: manifest.name.slice(0, 1),
     icon: manifestIconUrl(manifest),
     screenshots: manifestScreenshots(manifest),
     readmeUrl: manifest.market?.readme ? pluginProtocolUrl(manifest.id, manifest.market.readme) : undefined,
     featured: typeof manifest.market?.featured === 'boolean' ? manifest.market.featured : undefined,
+    tags: marketTags(manifest.market?.tags),
     permissions: manifest.permissions ?? [],
     installed: true,
     // 禁用时省略 rootPath：commandIndex 过滤 (installed && rootPath) 自动排除禁用项
@@ -441,24 +442,23 @@ private removeThemePackContributions(pluginId: string): void {
   async refreshRemoteMarket(force = false): Promise<void> {
     const ttl = 5 * 60 * 1000
     const failCooldownMs = 45 * 1000
-    if (!force && Date.now() - this.remoteFetchedAt < ttl) return
+    if (!force && !this.remoteFailUntil && Date.now() - this.remoteFetchedAt < ttl) return
     // GitHub/代理不可达时进入冷却，避免每次 scan 都打 SSL 握手失败
     if (!force && Date.now() < this.remoteFailUntil) return
     if (this.remoteFetchInFlight) return this.remoteFetchInFlight
     this.remoteFetchInFlight = (async () => {
       try {
         const list = await fetchRemoteMarket()
-        this.remoteFetchedAt = Date.now()
         if (list.length) {
+          this.remoteFetchedAt = Date.now()
           this.remoteMarket = list
           this.remoteFailUntil = 0
           logInfo('registry', `remote market ok: ${list.length} plugins`)
         } else {
           this.remoteFailUntil = Date.now() + failCooldownMs
-          logWarn('registry', 'remote market empty or unreachable, keep local/mock')
+          logWarn('registry', 'remote market empty or unreachable, keep verified catalog and installed plugins')
         }
       } catch (err) {
-        this.remoteFetchedAt = Date.now()
         this.remoteFailUntil = Date.now() + failCooldownMs
         logWarn('registry', `remote market failed: ${(err as Error).message}`)
       } finally {
@@ -472,6 +472,15 @@ private removeThemePackContributions(pluginId: string): void {
     return this.remoteMarket
   }
 
+  async getMarketStatus(refresh = false): Promise<PluginMarketStatus> {
+    await this.refreshRemoteMarket(refresh)
+    return {
+      state: this.remoteFailUntil ? 'offline' : 'ready',
+      catalogCount: this.remoteMarket.length,
+      ...(this.remoteFetchedAt ? { fetchedAt: this.remoteFetchedAt } : {})
+    }
+  }
+
   getRemoteEntry(id: string): MarketPluginSummary | undefined {
     return this.remoteMarket.find((s) => s.id === id)
   }
@@ -480,7 +489,6 @@ private removeThemePackContributions(pluginId: string): void {
   list(): PluginSummary[] {
     const ids = new Set([
       ...this.remoteMarket.map((entry) => entry.id),
-      ...MOCK_MARKET_PLUGINS.map((entry) => entry.id),
       ...this.installed.keys(),
       ...this.localPreviews.keys(),
       ...this.dev.keys()
@@ -509,6 +517,7 @@ private removeThemePackContributions(pluginId: string): void {
           screenshots: manifestScreenshots(manifest),
           readmeUrl: manifest.market?.readme ? pluginProtocolUrl(id, manifest.market.readme) : undefined,
           featured: typeof manifest.market?.featured === 'boolean' ? manifest.market.featured : undefined,
+          tags: marketTags(manifest.market?.tags),
           contributes: normalizeContributes(manifest.contributes)
         } : {})
       }
@@ -522,7 +531,7 @@ private removeThemePackContributions(pluginId: string): void {
     const preview = this.localPreviews.get(id)
     if (preview) return { ...manifestToSummary(preview.manifest, preview.rootPath), installed: false, rootPath: undefined }
     if (remote) return remoteToSummary(remote, isEnabledSync(id))
-    return mockToSummary(false).find((summary) => summary.id === id) ?? null
+    return null
   }
 
   getManifest(id: string): PluginManifest | null {

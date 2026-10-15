@@ -36,12 +36,12 @@ interface InstallJob extends InstallJobInfo {
   expectedIdentity?: { id: string; version: string }
 }
 
-/** FIFO 等待 + 运行中任务；done/failed 会立刻出队（结果走 toast） */
+/** FIFO 等待 + 运行中任务；done/failed 会立刻出队（结果由安装面板保留）。 */
 const queue: InstallJob[] = []
 let activeCount = 0
 
 function publicView(job: InstallJob): InstallJobInfo {
-  return { id: job.id, name: job.name, progress: job.progress, status: job.status }
+  return { id: job.id, name: job.name, progress: job.progress, status: job.status, step: job.step }
 }
 
 function emitQueue(): void {
@@ -55,6 +55,7 @@ function emitQueue(): void {
 }
 
 function reportProgress(job: InstallJob, progress: number, step?: string): void {
+  job.step = step ?? job.step
   job.progress = Math.max(0, Math.min(100, Math.round(progress)))
   sendShellEvent({
     type: 'install-progress',
@@ -154,12 +155,12 @@ async function runJob(job: InstallJob): Promise<void> {
 }
 
 /**
- * 入队安装。sourcePath 为标准发布目录或 .enestplugin 绝对路径。
+ * 入队安装。sourcePath 为标准发布目录、.zip 或 .enestplugin 绝对路径。
  * 立即返回任务摘要；实际安装异步进行，进度经 shell:event 推送。
  */
-export function enqueueInstall(sourcePath: string): InstallJobInfo {
+export function enqueueInstall(sourcePath: string, onEnqueued?: (job: InstallJobInfo) => void): InstallJobInfo {
   const display =
-    basename(sourcePath).replace(/\.enestplugin$/i, '') || sourcePath
+    basename(sourcePath).replace(/\.(?:enestplugin|zip)$/i, '') || sourcePath
   const job: InstallJob = {
     operation: beginPluginInstall(),
     id: randomUUID(),
@@ -169,6 +170,7 @@ export function enqueueInstall(sourcePath: string): InstallJobInfo {
     sourcePath
   }
   queue.push(job)
+  onEnqueued?.(publicView(job))
   logInfo('install-queue', `enqueue ${job.name} ← ${sourcePath}`)
   pump()
   emitQueue()

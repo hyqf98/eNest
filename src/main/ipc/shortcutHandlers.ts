@@ -3,13 +3,14 @@ import { IpcChannels } from '@shared/types/ipc'
 import type { PluginShortcutInput } from '@shared/types/shortcuts'
 import { handleShellIpc } from './ipcSecurity'
 import { getMainWindow } from '@main/window/createShellWindow'
+import { isShortcutCaptureActiveForOwner, onHotkeyRegistryChange } from '@main/hotkey/hotkeyRegistry'
 import {
   getPluginShortcuts, savePluginShortcut, removePluginShortcut, probePluginShortcut,
   launchPluginShortcut, beginShortcutCapture, endShortcutCapture, endShortcutCapturesForOwner
 } from '@main/hotkey/pluginShortcuts'
 
 /** Capture leases belong to the trusted shell document, never to a renderer-provided ID. */
-const captureDocuments = new WeakSet<WebContents>()
+const captureDocuments = new WeakMap<WebContents, () => void>()
 
 export function registerShortcutHandlers(): void {
   handleShellIpc(IpcChannels.ShellGetPluginShortcuts, () => getPluginShortcuts())
@@ -24,7 +25,16 @@ export function registerShortcutHandlers(): void {
       throw new Error('请先聚焦快捷键设置页')
     }
     if (!captureDocuments.has(sender)) {
-      captureDocuments.add(sender)
+      let menuIgnored = false
+      const syncMenu = () => {
+        if (sender.isDestroyed()) return
+        const capturing = isShortcutCaptureActiveForOwner(sender.id)
+        if (menuIgnored === capturing) return
+        sender.setIgnoreMenuShortcuts(capturing)
+        menuIgnored = capturing
+      }
+      captureDocuments.set(sender, syncMenu)
+      const offRegistry = onHotkeyRegistryChange(syncMenu)
       const release = () => endShortcutCapturesForOwner(sender.id)
       sender.on('blur', release)
       sender.on('did-start-navigation', release)
@@ -33,11 +43,21 @@ export function registerShortcutHandlers(): void {
       win.on('hide', release)
       sender.once('destroyed', () => {
         release()
+        offRegistry()
+        captureDocuments.delete(sender)
         win.removeListener('blur', release)
         win.removeListener('hide', release)
       })
     }
-    return { token: beginShortcutCapture(sender.id) }
+    try {
+      const token = beginShortcutCapture(sender.id)
+      // Fail capture if the native menu guard could not be applied; do not let Cmd+Q/W escape recording.
+      captureDocuments.get(sender)!()
+      return { token }
+    } catch (error) {
+      endShortcutCapturesForOwner(sender.id)
+      throw error
+    }
   })
   handleShellIpc(IpcChannels.ShellEndShortcutCapture, (event, token: string) => endShortcutCapture(token, event.sender.id))
 }

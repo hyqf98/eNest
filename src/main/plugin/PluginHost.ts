@@ -1,3 +1,4 @@
+import { raiseTransientViews } from '@main/window/transientViews'
 /**
  * PluginHost — 插件运行时宿主
  * 职责：为每个打开的插件创建独立 WebContentsView / session partition，
@@ -102,7 +103,7 @@ import {
   hideQuickWindow,
   setQuickPluginHiddenHook,
   setQuickPluginRelayout,
-  setQuickPluginResetHook
+  setQuickPluginSummonHook
 } from '@main/window/createQuickWindow'
 import { raiseOrbRailViews } from '@main/window/orbRailViews'
 import { logInfo, logWarn } from '@main/logs/logService'
@@ -231,6 +232,8 @@ export class PluginHost {
   private shellVisible = true
   /** quick 容器当前挂载的 mini 插件 id（挂载即激活语义，无值 = 列表态） */
   private quickPluginId: string | null = null
+  /** quick 隐藏时仍挂载的插件：下次呼出直接恢复；Esc 退场 / 迁出 / 卸载后清除 */
+  private lastQuickPluginId: string | null = null
   /** 插件上次（或期望）所在容器；crash 重启 / 唤醒路径据此回原容器 */
   private containers = new Map<string, PluginContainer>()
   /** Container remains the SDK layout mode; placement owns the native parent. */
@@ -551,18 +554,50 @@ export class PluginHost {
     if (!entry || this.getPlacement(pid).kind !== 'quick') return
     try {
       entry.view.setBounds(getQuickPluginBounds())
+      raiseTransientViews(getQuickWindow() ?? undefined)
     } catch {
       // view 可能正在销毁
     }
   }
 
-  /** 每次呼出显示常用网格，保留后台插件进程供下次显式打开。 */
+  /** quick 呼出回常用网格，保留后台插件进程供下次显式打开。 */
   resetQuickSession(): void {
     this.onQuickHidden()
     for (const entry of this.entries.values()) {
       if (this.getPlacement(entry.pluginId).kind === 'quick') entry.view.setVisible(false)
     }
     sendShellEvent({ type: 'quick-plugin-mode', mode: null })
+  }
+
+  /**
+   * quick 呼出编排：上次隐藏时仍挂载的插件（未 Esc 退场）直接恢复，
+   * 复用 launchPluginIn 的守卫与呈现事务（存活 entry 原样重挂、休眠则唤醒重建）；
+   * 不可恢复时回常用网格。返回是否恢复了插件。
+   */
+  async prepareQuickSummon(guard: () => boolean = () => true): Promise<boolean> {
+    const pid = this.lastQuickPluginId
+    if (pid && !this.shuttingDown && !this.barriers.has(pid)) {
+      const summary = pluginRegistry.get(pid)
+      if (summary?.installed && summary.enabled !== false) {
+        try {
+          await this.launchPluginIn(pid, 'quick', undefined,
+            () => guard() && !this.shuttingDown && !this.barriers.has(pid))
+          return true
+        } catch (error) {
+          const message = (error as Error).message
+          // 被更新的呼出取消：保留记忆供下次恢复，且不再重置（新呼出已接管呈现）
+          if (!/cancelled/.test(message)) {
+            logWarn('quick', `restore ${pid} failed: ${message}`)
+            this.lastQuickPluginId = null
+          }
+          if (!guard()) return false
+        }
+      } else {
+        this.lastQuickPluginId = null
+      }
+    }
+    this.resetQuickSession()
+    return false
   }
 
   /**
@@ -574,6 +609,7 @@ export class PluginHost {
     clearQuickInput()
     const pid = this.quickPluginId
     if (!pid) return
+    this.lastQuickPluginId = pid
     this.quickPluginId = null
     const entry = this.entries.get(pid)
     if (!entry) return
@@ -620,6 +656,9 @@ export class PluginHost {
     this.windowSession.remove(pluginId)
     if (this.quickPluginId === pluginId) {
       this.quickPluginId = null
+    }
+    if (this.lastQuickPluginId === pluginId) {
+      this.lastQuickPluginId = null
     }
     this.clearHibernateTimer(pluginId)
   }
@@ -1037,6 +1076,7 @@ export class PluginHost {
       }
     }
 
+    raiseTransientViews()
     this.hookNativeTheme()
     if (opts?.deferPresentation) {
       // Keep the old surface and logical tab until the guarded destination commits.
@@ -1378,6 +1418,7 @@ export class PluginHost {
         /* 已不在父视图 */
       }
       entry.view.setBounds(getQuickPluginBounds())
+      raiseTransientViews(getQuickWindow() ?? undefined)
     }
 
     // 新 enter 载荷覆盖 pending（呼出关键词的 code）
@@ -1424,6 +1465,8 @@ export class PluginHost {
     if (!entry) return
     if (this.quickPluginId !== pluginId) return
     this.quickPluginId = null
+    // 显式退场（Esc / 清空输入 / 打开其它命令）不再恢复；换插件挂载由新挂载方接管
+    if (notify && this.lastQuickPluginId === pluginId) this.lastQuickPluginId = null
     finishQuickPluginReveal()
     if (notify) setQuickContentSize({ height: QUICK_HOME_HEIGHT })
 
@@ -1479,6 +1522,7 @@ export class PluginHost {
       sourceParent?.removeChildView(entry.view)
       targetParent.addChildView(entry.view)
       entry.view.setBounds(bounds)
+      raiseTransientViews()
     } catch (error) {
       try { targetParent.removeChildView(entry.view); sourceParent?.addChildView(entry.view); entry.view.setBounds(oldBounds) } catch { /* renderer/parent may have closed */ }
       throw error
@@ -1492,6 +1536,8 @@ export class PluginHost {
     this.bumpPlacement(id)
     entry.container = mode
     this.containers.set(id, mode)
+    // 迁出 quick（固定到主窗 / 分离）后，呼出不再把它拽回小窗
+    if (source.kind === 'quick' && this.lastQuickPluginId === id) this.lastQuickPluginId = null
     if (source.kind === 'quick' && this.quickPluginId === id) {
       finishQuickPluginReveal()
       this.quickPluginId = null
@@ -2248,9 +2294,9 @@ setQuickPluginRelayout(() => pluginHost.layoutQuickPlugins())
 setQuickPluginHiddenHook(() => pluginHost.onQuickHidden())
 
 /**
- * quick 呼出前隐藏原生插件视图，renderer 回到空搜索栏。
+ * quick 呼出编排：未 Esc 退场的上次插件优先恢复，否则回空搜索栏。
  */
-setQuickPluginResetHook(() => pluginHost.resetQuickSession())
+setQuickPluginSummonHook(guard => pluginHost.prepareQuickSummon(guard))
 
 setPluginInstallLifecycleHooks({
   async beforeReplace(id) {

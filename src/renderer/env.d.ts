@@ -9,4 +9,6 @@ interface Window {
   /** preload 桥接的 shell 能力；缺失时 shellApi 回退到 mock 实现 */
   enestShell?: import('@renderer/services/shellApi').ShellApi
   enestWindows?: import('@shared/types/plugin-window').PluginWindowsApi
+  enestNotifications?: import('@shared/types/notification').NotificationClientApi
+  enestNotificationOverlay?: import('@shared/types/notification').NotificationOverlayApi
 }

@@ -34,18 +34,15 @@
   -webkit-backdrop-filter: blur(20px) saturate(1.5);
 }
 
-/* 卡片在有背景时抬高表面不透明度 —— 不要覆盖 chip/segmented 的激活态；搜索框保持透明 */
+/* 内容表面用底色保证可读；模糊只留给标题栏/整页，避免滚动卡片重复采样动态背景。
+   不要覆盖 chip/segmented 的激活态；搜索框保持透明。 */
 :root.has-bg-media .s-card {
   background: color-mix(in srgb, var(--surface) 88%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 
-/* 分类 / 背景类型 chip：仅未激活时加毛玻璃底，激活态交回 .chip.active */
+/* 分类 / 背景类型 chip：仅未激活时加表面底色，激活态交回 .chip.active */
 :root.has-bg-media .chip:not(.active) {
   background: color-mix(in srgb, var(--surface) 88%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   color: var(--text-2);
 }
 
@@ -57,17 +54,10 @@
 
 :root.has-bg-media .segmented {
   background: color-mix(in srgb, var(--surface-2) 90%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 
 :root.has-bg-media .segmented button:not(.active) {
   color: var(--text-2);
-}
-
-:root.has-bg-media .segmented button.active {
-  background: var(--surface);
-  color: var(--text);
 }
 
 /* has-bg-media 不再覆盖 .chip.active（AGENTS.md / T3）：激活态交回基础 .chip.active，
@@ -82,18 +72,38 @@
   color: var(--text-2);
 }
 
-/* 设置 / 开发者页：毛玻璃铺在整页滚动容器上，透明度跟随背景 media opacity */
+/* 设置 / 开发者页只保留一层轻遮罩。卡片的可读底色独立于背景强度，
+   避免把强度调高时反而加厚卡片、盖住氛围。 */
 :root.has-bg-media .page-settings {
-  /* opacity 高 → 玻璃更透；opacity 低 → 更实，保证可读 */
-  background: color-mix(in srgb, var(--bg) 70%, transparent);
-  backdrop-filter: blur(16px) saturate(1.25);
-  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  background: color-mix(in srgb, var(--bg) 38%, transparent);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
 }
 
 /* 有背景时卡片再叠一层，避免字被氛围色吃掉 */
 :root.has-bg-media .page-settings .s-card {
-  background: color-mix(in srgb, var(--surface) calc(55% + var(--bg-media-opacity, 0.85) * 40%), transparent);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
 }
+
+/* Atmosphere is visible on the surfaces themselves, including pages that have
+   opaque cards. Accent/selected controls retain their original theme styling. */
+:root.has-bg-media.has-bg-atmosphere .titlebar { background: var(--atmosphere-chrome); }
+:root.has-bg-media.has-bg-atmosphere .s-card,
+:root.has-bg-media.has-bg-atmosphere .page-settings .s-card,
+:root.has-bg-media.has-bg-atmosphere .page-home .card:not(.is-disabled),
+:root.has-bg-media.has-bg-atmosphere .market-source-notice,
+:root.has-bg-media.has-bg-atmosphere .isolate-panel { background: var(--atmosphere-surface); }
+:root.has-bg-media.has-bg-atmosphere .settings-tabs,
+:root.has-bg-media.has-bg-atmosphere .segmented,
+:root.has-bg-media.has-bg-atmosphere .chip:not(.active),
+:root.has-bg-media.has-bg-atmosphere .s-card :is(input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='file']):not([type='color']):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset']):not([type='image']), textarea, .ui-select-trigger) {
+  background: var(--atmosphere-field);
+}
+:root.has-bg-media.has-bg-atmosphere .s-card .hint,
+:root.has-bg-media.has-bg-atmosphere .field .desc,
+:root.has-bg-media.has-bg-atmosphere .settings-header p,
+:root.has-bg-media.has-bg-atmosphere .card-description,
+:root.has-bg-media.has-bg-atmosphere .card-author { color: var(--atmosphere-muted); }
 
 /* 插件宿主占位层仍用轻毛玻璃 */
 :root.has-bg-media .plugin-view {
@@ -1252,36 +1262,6 @@
   color: var(--danger);
 }
 
-.plugin-builtin-capabilities {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
-}
-
-.plugin-builtin-capabilities h3,
-.perm-grant-block > h3 {
-  margin: 0 0 0.5rem;
-  font-size: 0.95rem;
-}
-
-.plugin-builtin-capabilities h3 span {
-  margin-left: 0.5rem;
-  color: var(--text-3);
-  font-size: 0.85em;
-  font-weight: 400;
-}
-
-.plugin-builtin-capabilities .desc,
-.perm-grant-block > .desc {
-  color: var(--text-3);
-  line-height: 1.6;
-  margin: 0.5rem 0 1rem;
-}
-
-.perm-grant-seg {
-  flex-wrap: wrap;
-}
-
 .field > :last-child:not(div:first-child) {
   flex-shrink: 0;
 }
@@ -1472,7 +1452,7 @@
   color: var(--text-3);
   font-size: 12px;
 }
-/* 呼出键预设横向排列，自定义组合按需出现。 */
+/* 预设 A、预设 B 与自定义组合键始终横向排列。 */
 .hotkey-cards {
   display: flex !important;
   flex-direction: row !important;
@@ -2186,90 +2166,6 @@
   margin-bottom: 6px;
 }
 
-/* —— 统一通知 NotificationHost（top / bottom-right）—— */
-.notify-host {
-  position: fixed;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  z-index: 210;
-  pointer-events: none;
-}
-
-.notify-host-top {
-  top: calc(var(--titlebar-h, 36px) + 10px);
-  left: 50%;
-  transform: translateX(-50%);
-  align-items: center;
-  max-width: min(420px, calc(100vw - 40px));
-  z-index: 220;
-}
-
-.notify-host-br {
-  right: 20px;
-  bottom: 20px;
-  align-items: flex-end;
-  max-width: min(360px, calc(100vw - 40px));
-  z-index: 220;
-}
-
-.notify-card {
-  pointer-events: auto;
-  padding: 12px 16px;
-  border-radius: 16px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-float);
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--text);
-  max-width: 100%;
-  will-change: transform, opacity;
-}
-
-.notify-title {
-  font-weight: 600;
-  font-size: 13px;
-  margin-bottom: 2px;
-  color: var(--text);
-}
-
-.notify-body {
-  color: var(--text-2);
-  word-break: break-word;
-}
-
-.notify-html {
-  color: var(--text-2);
-  word-break: break-word;
-}
-
-.notify-html a {
-  color: var(--accent);
-  text-decoration: underline;
-}
-
-.notify-html code {
-  font-family: var(--mono);
-  font-size: 11.5px;
-  background: var(--surface-2);
-  padding: 1px 5px;
-  border-radius: 6px;
-}
-
-/* 级别强调色（与历史 toast-success/warn/error 对齐） */
-.notify-success {
-  border-color: color-mix(in srgb, #34c759 55%, var(--border));
-}
-
-.notify-warn {
-  border-color: color-mix(in srgb, #ff9f0a 55%, var(--border));
-}
-
-.notify-error {
-  border-color: color-mix(in srgb, #ff453a 55%, var(--border));
-}
-
 /* ========== Font Settings ========== */
 .font-settings .font-grid {
   display: grid;
@@ -2631,8 +2527,10 @@
 :root[data-anim="low"].has-bg-media .page-settings {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  /* 不模糊时稍微提高底色不透明度，保证可读性 */
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  background: color-mix(in srgb, var(--bg) 38%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root.has-bg-media .page-settings { backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 
 /* medium：底部悬浮钮 hover 轻抬升 */
@@ -2685,15 +2583,6 @@
 :root[data-anim="low"] .float-btn:active,
 :root[data-anim="low"] .color-swatch-btn:hover {
   transform: scale(0.985);
-}
-
-/* high：通知卡片更弹的位移 */
-:root[data-anim="high"] .notify-card {
-  transition: transform 0.28s cubic-bezier(0.22, 1.3, 0.36, 1), box-shadow 0.28s;
-}
-
-:root[data-anim="high"] .notify-card:hover {
-  transform: translateY(-2px) scale(1.01);
 }
 
 /* high：设置卡片 / 字体卡 / 渐变卡 hover 抬升 */

@@ -15,15 +15,16 @@ function load(path, imports = {}, globals = {}) {
 }
 function fixture(initial = {}) {
   let settings = structuredClone(initial), id = 0
+  let writeFailure = false
   const writes = [], events = [], timers = new Map()
   const plugins = ['a', 'b'].map(id => ({ id, name: `Plugin ${id}`, installed: true, enabled: true }))
   const { createShortcutMock } = load('./shortcutMock.ts', {
     '@shared/accelerator': load('../../shared/accelerator.ts'),
     '@shared/platform': { IS_MAC: true, IS_WINDOWS: false }
   }, { crypto: { randomUUID: () => `id-${++id}` }, setTimeout: callback => { const id = timers.size + 1; timers.set(id, callback); return id }, clearTimeout: id => timers.delete(id) })
-  const api = createShortcutMock({ read: () => structuredClone(settings), write: value => { settings = structuredClone(value); writes.push(value) },
+  const api = createShortcutMock({ read: () => structuredClone(settings), write: value => { if (writeFailure) throw Error('write failed'); settings = structuredClone(value); writes.push(value) },
     plugins: () => plugins, publish: snapshot => events.push(snapshot) })
-  return { api, plugins, writes, events, settings: () => settings, timers }
+  return { api, plugins, writes, events, settings: () => settings, timers, failWrites: value => { writeFailure = value } }
 }
 const input = (accelerator, extra = {}) => ({ pluginId: 'a', accelerator, mode: 'quick', enabled: true, ...extra })
 
@@ -107,4 +108,52 @@ test('manual input cannot register bare keys or Shift-only shortcuts', () => {
     assert.equal(f.api.setQuick({ activeHotkey: accelerator, hotkeys: [accelerator] }).ok, false)
   }
   assert.equal(f.api.snapshot().bindings.length, 0)
+})
+
+test('confirmed browser replacements preserve disabled bindings and atomically switch Quick ownership', () => {
+  const f = fixture()
+  const original = f.api.save(input('Alt+K'))
+  const replacement = f.api.save(input('Alt+K', { pluginId: 'b', overrideToken: f.api.probe('Alt+K').overrideToken }))
+  assert.equal(replacement.ok, true)
+  assert.equal(f.settings().pluginShortcuts.find(binding => binding.id === original.binding.id).enabled, false)
+  assert.equal('overrideToken' in replacement.binding, false)
+  const quick = f.api.setQuick({ activeHotkey: 'Alt+K', hotkeys: ['Alt+K'], overrideToken: f.api.probe('Alt+K', undefined, true).overrideToken })
+  assert.equal(quick.ok, true)
+  assert.equal(f.settings().pluginShortcuts.find(binding => binding.id === replacement.binding.id).enabled, false)
+  const back = f.api.save(input('Alt+K', { overrideToken: f.api.probe('Alt+K').overrideToken }))
+  assert.equal(back.ok, true)
+  assert.equal(f.settings().quick.enabled, false)
+  assert.equal(f.settings().pluginShortcuts.filter(binding => binding.enabled).length, 1)
+})
+
+test('browser stale confirmations and write failures preserve both settings sections', () => {
+  const f = fixture()
+  const first = f.api.save(input('Alt+K'))
+  const token = f.api.probe('Alt+K').overrideToken
+  f.api.save({ ...first.binding, mode: 'shell' })
+  const stale = f.api.save(input('Alt+K', { pluginId: 'b', overrideToken: token }))
+  assert.equal(stale.ok, false)
+  assert.match(stale.error, /变化或确认已过期/)
+  const before = structuredClone(f.settings())
+  f.failWrites(true)
+  const plugin = f.api.save(input('Alt+K', { pluginId: 'b', overrideToken: stale.probe.overrideToken }))
+  assert.equal(plugin.ok, false)
+  const quick = f.api.setQuick({ activeHotkey: 'Alt+K', hotkeys: ['Alt+K'], overrideToken: f.api.probe('Alt+K', undefined, true).overrideToken })
+  assert.equal(quick.ok, false)
+  assert.deepEqual(f.settings(), before)
+  assert.ok(quick.probe.overrideToken)
+  f.failWrites(false)
+  assert.equal(f.api.setQuick({ activeHotkey: 'Alt+K', hotkeys: ['Alt+K'], overrideToken: quick.probe.overrideToken }).ok, true)
+})
+
+test('browser Quick validates malformed patches even with a valid conflict token', () => {
+  const f = fixture()
+  f.api.save(input('Alt+K'))
+  const token = f.api.probe('Alt+K', undefined, true).overrideToken
+  const before = structuredClone(f.settings())
+  for (const patch of [{ enabled: 'true' }, { activeHotkey: {} }, { hotkeys: 'Alt+K' }, { overrideToken: {} }]) {
+    assert.equal(f.api.setQuick({ activeHotkey: 'Alt+K', hotkeys: ['Alt+K'], overrideToken: token, ...patch }).ok, false)
+    assert.deepEqual(f.settings(), before)
+  }
+  assert.equal(f.api.setQuick({ activeHotkey: 'Alt+K', hotkeys: ['Alt+K'], overrideToken: token }).ok, true)
 })

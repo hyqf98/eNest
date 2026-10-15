@@ -48,9 +48,8 @@ export function resolveWindowIcon(): string | undefined {
 
 /**
  * macOS Dock 运行时图标。
- * 注意：dock.setIcon(PNG) 不会套用 App Icon 824/1024 网格边距，
- * 若用带大透明边的打包图标，Dock 里会显得比其它 App 小。
- * 因此运行时优先使用几乎铺满画布的 dock-runtime.png。
+ * dock.setIcon 不会自动补齐 App Icon 安全边距；PNG 与打包 ICNS 必须
+ * 使用相同的居中画布（主体最长边 824/1024），否则启动后会突然变大。
  */
 function applyDockIcon(): void {
   if (process.platform !== 'darwin' || !app.dock) return
@@ -218,11 +217,18 @@ export function setQuickEventSink(fn: ((payload: ShellEventPayload) => void) | n
  */
 let detachedAppearanceSink: (() => void) | null = null
 export function setDetachedAppearanceSink(sink: (() => void) | null): void { detachedAppearanceSink = sink }
+let notificationAppearanceSink: (() => void) | null = null
+export function setNotificationAppearanceSink(sink: () => void): void { notificationAppearanceSink = sink }
 const appearanceSettings = new Set(['locale', 'animationLevel', 'fontFamily', 'fontFamilyEn', 'fontSizeScale', 'customFonts'])
 
+let installEventSink: ((payload: ShellEventPayload) => void) | null = null
+export function setInstallEventSink(sink: (payload: ShellEventPayload) => void): void { installEventSink = sink }
+
 export function sendShellEvent(payload: ShellEventPayload): void {
+  try { installEventSink?.(payload) } catch { /* transient UI must not interrupt installation */ }
   if (payload.type === 'theme-changed' || payload.type === 'theme-packs-changed' || payload.type === 'settings-changed' && payload.generalKeys.some(key => appearanceSettings.has(key))) {
     try { detachedAppearanceSink?.() } catch { /* independent chrome may be retiring */ }
+    try { notificationAppearanceSink?.() } catch { /* notifications may be retiring */ }
   }
   const wc = getShellWebContents()
   if (wc && !wc.isDestroyed()) wc.send(IpcChannels.ShellEvent, payload)
