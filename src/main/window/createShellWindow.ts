@@ -19,6 +19,7 @@ import {
 import { APP_NAME, SHELL_PARTITION, TITLEBAR_HEIGHT, PLUGIN_BAR_HEIGHT, pluginChromeBarHeight } from '@shared/constants'
 import { IpcChannels, type ShellEventPayload } from '@shared/types/ipc'
 import { readMainWindowState, trackMainWindowState } from '@main/window/mainWindowState'
+import { devShortcutAction, toggleDevTools } from '@main/dev/devShortcuts'
 
 let mainWindow: BaseWindow | null = null
 let shellView: WebContentsView | null = null
@@ -123,6 +124,25 @@ export function createShellWindow(): BaseWindow {
   win.contentView.addChildView(view)
   applyShellBounds(win, view)
   loadRenderer(view)
+
+  // 壳 UI 持焦时的调试快捷键（与 dev 插件 view 内一致）：F12/⌘⌥I/Ctrl+Shift+I toggle 壳 DevTools；
+  // ⌘/Ctrl+R 重载当前激活的 dev 插件（无 dev 插件时无操作，不刷新壳）。
+  contents.on('before-input-event', (event, input) => {
+    const action = devShortcutAction(input)
+    if (!action) return
+    event.preventDefault()
+    if (action === 'devtools') {
+      toggleDevTools(contents)
+      return
+    }
+    void Promise.all([
+      import('@main/plugin/PluginHost'),
+      import('@main/plugin/PluginRegistry')
+    ]).then(([{ pluginHost }, { pluginRegistry }]) => {
+      const active = pluginHost.getActive()
+      if (active && pluginRegistry.get(active)?.dev) pluginHost.reloadPlugin(active)
+    })
+  })
 
   win.on('resize', () => {
     if (!mainWindow || !shellView) return

@@ -25,7 +25,7 @@ static id command(NSDictionary *request) {
     if (capturedWindow) { CFRelease(capturedWindow); capturedWindow = NULL; }
     if (capturedElement) { CFRelease(capturedElement); capturedElement = NULL; }
     NSRunningApplication *app = NSWorkspace.sharedWorkspace.frontmostApplication;
-    if (!app || [app.bundleIdentifier isEqual:@"com.enest.shell"] || [app.bundleIdentifier hasPrefix:@"com.github.Electron"]) return NSNull.null;
+    if (!app || [app.bundleIdentifier isEqual:@"com.github.eNest.shell"] || [app.bundleIdentifier hasPrefix:@"com.github.Electron"]) return NSNull.null;
     if (!AXIsProcessTrusted()) return NSNull.null;
     AXUIElementRef axApp = AXUIElementCreateApplication(app.processIdentifier);
     AXError windowResult = AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute, (CFTypeRef *)&capturedWindow);

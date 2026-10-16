@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process'
 import { build } from 'esbuild'
 const require = createRequire(import.meta.url)
 const root = fileURLToPath(new URL('../../../', import.meta.url))
-const backend = join(root, 'eNest_plugin/plugins/com.enest.database/backend')
+const backend = join(root, 'eNest_plugin/plugins/database/backend')
 const pluginModules = join(root, 'eNest_plugin/node_modules')
 
 test('real Electron utility isolates SQLite, bounds results and cancels a blocked worker', { skip: process.env.ENEST_ELECTRON_SMOKE !== '1', timeout: 25000 }, async () => {

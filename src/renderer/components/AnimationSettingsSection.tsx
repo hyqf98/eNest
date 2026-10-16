@@ -5,6 +5,7 @@
  */
 import { useAnimationLevel } from '@renderer/hooks/useAnimationLevel'
 import { useI18n } from '@renderer/hooks/useI18n'
+import { Segmented } from '@renderer/components/ui/Segmented'
 import type { AnimationLevel } from '@shared/types/plugin'
 
 const LEVELS: { value: AnimationLevel; labelKey: string; descKey: string }[] = [
@@ -26,19 +27,13 @@ export function AnimationSettingsSection() {
           <div className="label">{t('settings.animation.level')}</div>
           <p className="desc">{t(active.descKey)}</p>
         </div>
-        <div className="segmented anim-level-seg" role="group" aria-label={t('settings.animation.level')}>
-          {LEVELS.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              aria-pressed={level === opt.value}
-              className={level === opt.value ? 'active' : ''}
-              onClick={() => void setLevel(opt.value)}
-            >
-              {t(opt.labelKey)}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          className="anim-level-seg"
+          ariaLabel={t('settings.animation.level')}
+          value={level}
+          onChange={(next) => void setLevel(next)}
+          options={LEVELS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
+        />
       </div>
     </div>
   )

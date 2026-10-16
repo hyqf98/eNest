@@ -4,7 +4,7 @@
 
 ## 入口、布局和状态
 
-`com.enest.ssh` 与 `com.enest.database` 各保留一个插件。Quick 与桌面使用同一个 `WebContentsView`，按 `getLaunchMode()` 和 `onModeChange(mode)` 选择界面；窗口宽度仅控制当前界面的响应式布局。Quick 默认 720×420，最小建议 480×240，尺寸不包含壳的顶部输入条。
+`com.github.eNest.ssh` 与 `com.github.eNest.database` 各保留一个插件。Quick 与桌面使用同一个 `WebContentsView`，按 `getLaunchMode()` 和 `onModeChange(mode)` 选择界面；窗口宽度仅控制当前界面的响应式布局。Quick 默认 720×420，最小建议 480×240，尺寸不包含壳的顶部输入条。
 
 | 位置 | SSH | 数据库 |
 | --- | --- | --- |
@@ -36,7 +36,7 @@
 
 ## SSH 实现边界
 
-连接、信任、文件、传输、隧道和系统采集分别位于 `src/main/ssh/`；`sshWorkbench.ts` 是权限分派入口，未知动作不放行。UI 位于 `eNest_plugin/plugins/com.enest.ssh/`，公共命令/选择/对话框来自 `eNest_plugin/shared/`。
+连接、信任、文件、传输、隧道和系统采集分别位于 `src/main/ssh/`；`sshWorkbench.ts` 是权限分派入口，未知动作不放行。UI 位于 `eNest_plugin/plugins/ssh/`，公共命令/选择/对话框来自 `eNest_plugin/shared/`。
 
 - 连接支持密码、私钥、Agent、交互认证、跳板链、可信指纹和 OpenSSH 配置导入；导入的配置不执行本地 `ProxyCommand`。测试与保存使用同一参数采集，包含 Agent 路径、跳板、代理和密钥口令。
 - 每个连接可配置 HTTP CONNECT 或 SOCKS5 代理，认证密码存入 vault。有跳板时代理仅作用于第一跳，不读取壳 HTTP 代理或改变其他连接；握手支持分包、合包、取消和超时。HTTP 支持 Basic，SOCKS5 支持用户名密码且不静默降级；不包含 HTTPS 代理、PAC、Digest/NTLM 或 UDP/BIND。
@@ -47,7 +47,7 @@
 
 三平台采集实现不等于三平台远端真机验收。Windows/macOS 服务权限、路径、shell 配置和本机拖拽体验仍须在对应环境复核。
 
-OpenSSH Include/Match/ProxyCommand 与自动导入端口转发目前会报告未支持。自动重连退避、重启后恢复传输任务尚未实现；续传断点仅保留于当前运行时。跨服务器复制保留源文件，不提供跨服务器移动或续传。完整 SSH 边界见 [SSH 工作台说明](../../eNest_plugin/plugins/com.enest.ssh/SSH_WORKBENCH.md)。
+OpenSSH Include/Match/ProxyCommand 与自动导入端口转发目前会报告未支持。自动重连退避、重启后恢复传输任务尚未实现；续传断点仅保留于当前运行时。跨服务器复制保留源文件，不提供跨服务器移动或续传。完整 SSH 边界见 [SSH 工作台说明](../../eNest_plugin/plugins/ssh/SSH_WORKBENCH.md)。
 
 ## 数据库 Provider 与准确能力
 
@@ -98,10 +98,10 @@ ENEST_WORKBENCH_SMOKE=1 node --test src/main/plugin/workbenchApp.smoke.test.mjs
 cd eNest_plugin
 npm run validate
 npm test
-npm run build -- com.enest.ssh com.enest.database
+npm run build -- com.github.eNest.ssh com.github.eNest.database
 DB_UI_PORT=4179 npm run test:ui -- scripts/tests/database.ui.js --output=test-results-db
-node scripts/pack-plugin.mjs com.enest.ssh
-node scripts/pack-plugin.mjs com.enest.database
+node scripts/pack-plugin.mjs com.github.eNest.ssh
+node scripts/pack-plugin.mjs com.github.eNest.database
 ```
 
 Monaco 与 worker 从 `assets/vendor/monaco/` 加载，`@workbench` 经 Vite 打入本地入口，无运行时 CDN/importmap。生产 CSP 不为编辑器放开 inline script 或 eval。插件打包从构建后的 staging 目录生成，源码不依赖相邻插件目录。
@@ -136,8 +136,8 @@ Monaco 与 worker 从 `assets/vendor/monaco/` 加载，`@workbench` 经 Vite 打
 
 | 插件 | 包 | 大小 | SHA256 |
 | --- | --- | --- | --- |
-| SSH | `eNest_plugin/dist/com.enest.ssh@1.1.1.enestplugin` | 1,765,556 bytes | `1d52c1a954839a09fe18ceccfa1bcedb9d3c07aa166a3a1d87d3c2dc0ab3a38a` |
-| 数据库 | `eNest_plugin/dist/com.enest.database@1.1.1.enestplugin` | 1,764,540 bytes | `506589afe6fe0c2000871e9b6c87f4797dcc7740c8a5824e79ac6d052db980ee` |
+| SSH | `eNest_plugin/dist/com.github.eNest.ssh@1.1.1.enestplugin` | 1,765,556 bytes | `1d52c1a954839a09fe18ceccfa1bcedb9d3c07aa166a3a1d87d3c2dc0ab3a38a` |
+| 数据库 | `eNest_plugin/dist/com.github.eNest.database@1.1.1.enestplugin` | 1,764,540 bytes | `506589afe6fe0c2000871e9b6c87f4797dcc7740c8a5824e79ac6d052db980ee` |
 
 ## 参考交互
 

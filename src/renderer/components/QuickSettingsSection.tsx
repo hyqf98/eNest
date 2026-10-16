@@ -6,6 +6,7 @@ import { notify } from '@renderer/services/notifyService'
 import { HotkeyPresetCards } from './HotkeyPresetCards'
 import { PluginShortcutSettings } from './PluginShortcutSettings'
 import { ShortcutProbeFeedback } from './ShortcutProbeFeedback'
+import { Switch } from '@renderer/components/ui/Switch'
 import './shortcutSettings.css'
 
 export function QuickSettingsSection() {
@@ -67,9 +68,8 @@ export function QuickSettingsSection() {
         {loading ? <p className="hint" role="status">正在读取快捷键…</p> : config && <>
           <div className="field">
             <div><div className="label">启用 Quick 呼出键</div><p className="desc">仅控制搜索小窗口的呼出键，不影响插件快捷键</p></div>
-            <button type="button" className={`switch${config.enabled ? ' on' : ''}`} aria-label="启用 Quick 呼出键"
-              aria-pressed={config.enabled} disabled={saving}
-              onClick={() => void apply(!config.enabled, config.hotkeys, config.activeHotkey ?? '')} />
+            <Switch checked={config.enabled} aria-label="启用 Quick 呼出键" disabled={saving}
+              onCheckedChange={() => void apply(!config.enabled, config.hotkeys, config.activeHotkey ?? '')} />
           </div>
           <div className="quick-hotkey-block">
             <HotkeyPresetCards hotkeys={config.hotkeys} activeHotkey={config.activeHotkey ?? ''}

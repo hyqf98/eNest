@@ -23,7 +23,7 @@ export interface MockMarketPlugin {
 
 export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
   {
-    id: 'com.enest.screen-assistant',
+    id: 'com.github.eNest.screen-assistant',
     name: '屏幕助手',
     author: 'eNest Labs',
     description: '矩形截图、矩形录屏（可选声音）、贴图三入口（截图/剪贴板/本地图片）与贴图管理。',
@@ -44,7 +44,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     ]
   },
   {
-    id: 'com.enest.clipboard',
+    id: 'com.github.eNest.clipboard',
     name: '粘贴板',
     author: 'eNest Labs',
     description: '剪贴板历史、图片回显与快速选中回写。',
@@ -65,7 +65,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     ]
   },
   {
-    id: 'com.enest.translate',
+    id: 'com.github.eNest.translate',
     name: '翻译',
     author: 'Lingua',
     description: '多引擎翻译（Google/MyMemory 自动切换），自动检测语言，一键复制译文。',
@@ -84,7 +84,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     ]
   },
   {
-    id: 'com.enest.ssh',
+    id: 'com.github.eNest.ssh',
     name: 'SSH 管理',
     author: 'eNest Labs',
     description: '连接资产库、交互终端、命令补全、性能监控与最小 SFTP。',
@@ -108,7 +108,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     ]
   },
   {
-    id: 'com.enest.database',
+    id: 'com.github.eNest.database',
     name: '数据库',
     author: 'eNest Labs',
     description: '桌面级 SQL 客户端：代码提示、结果集增删改批、控制台会话与导入导出。',
@@ -132,7 +132,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     ]
   },
   {
-    id: 'com.enest.sticky-notes',
+    id: 'com.github.eNest.sticky-notes',
     name: '备忘录',
     author: 'eNest Labs',
     description: '多张便签随手记：彩色标签、置顶、自动保存，重开不丢。',
@@ -144,7 +144,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     permissions: ['storage.local', 'ui.setTitle', 'ui.toast']
   },
   {
-    id: 'com.enest.timestamp',
+    id: 'com.github.eNest.timestamp',
     name: '时间戳',
     author: 'eNest Labs',
     description: '当前秒/毫秒实时刷新一键复制，时间戳与时间互转，ISO 等常用格式。',
@@ -156,7 +156,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     permissions: ['clipboard.write', 'ui.setTitle', 'ui.toast']
   },
   {
-    id: 'com.enest.json-tools',
+    id: 'com.github.eNest.json-tools',
     name: 'JSON 工具',
     author: 'eNest Labs',
     description: 'JSON 格式化、压缩、校验定位与转义反转义。',
@@ -168,7 +168,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     permissions: ['clipboard.read', 'clipboard.write', 'ui.setTitle', 'ui.toast']
   },
   {
-    id: 'com.enest.codec',
+    id: 'com.github.eNest.codec',
     name: '编解码',
     author: 'eNest Labs',
     description: 'Base64 / URL / Hex / Unicode 编码解码，中文安全，双栏互换。',
@@ -180,19 +180,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     permissions: ['clipboard.read', 'clipboard.write', 'ui.setTitle', 'ui.toast']
   },
   {
-    id: 'com.enest.qrcode',
-    name: '二维码',
-    author: 'eNest Labs',
-    description: '文本/URL 生成二维码（尺寸与纠错可调），剪贴板或本地图片解码。',
-    version: '1.0.0',
-    installs: '6.9k',
-    category: '效率',
-    color: '#5b8cff',
-    glyph: '▦',
-    permissions: ['clipboard.read', 'clipboard.write', 'clipboard.readImage', 'clipboard.writeImage', 'ui.setTitle', 'ui.toast']
-  },
-  {
-    id: 'com.enest.pomodoro',
+    id: 'com.github.eNest.pomodoro',
     name: '番茄钟',
     author: 'eNest Labs',
     description: '专注 25 分钟休息 5 分钟（可调），到点系统通知，今日完成统计。',
@@ -204,7 +192,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     permissions: ['notify', 'storage.local', 'ui.setTitle', 'ui.toast']
   },
   {
-    id: 'com.enest.todos',
+    id: 'com.github.eNest.todos',
     name: '待办清单',
     author: 'eNest Labs',
     description: '轻量待办：添加、勾选、置顶、编辑，完成情况自动保存。',
@@ -216,7 +204,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     permissions: ['storage.local', 'ui.setTitle', 'ui.toast']
   },
   {
-    id: 'com.enest.calculator',
+    id: 'com.github.eNest.calculator',
     name: '计算器',
     author: 'eNest Labs',
     description: '四则运算与括号百分比，键盘即输即算，附历史记录。',
@@ -228,7 +216,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     permissions: ['clipboard.write', 'ui.setTitle', 'ui.toast']
   },
   {
-    id: 'com.enest.password-kit',
+    id: 'com.github.eNest.password-kit',
     name: '密码工具箱',
     author: 'eNest Labs',
     description: '随机密码生成（长度/字符集可调、强度提示）与 UUID v4 批量生成。',
@@ -240,7 +228,7 @@ export const MOCK_MARKET_PLUGINS: MockMarketPlugin[] = [
     permissions: ['clipboard.write', 'ui.setTitle', 'ui.toast']
   },
   {
-    id: 'com.enest.color-picker',
+    id: 'com.github.eNest.color-picker',
     name: '取色器',
     author: 'eNest Labs',
     description: '屏幕取色：放大镜精准取点，HEX/RGB/HSL 一键复制，附历史色板。',
@@ -273,7 +261,7 @@ export function mockToSummary(installed: boolean): PluginSummary[] {
   }))
 }
 
-/** com.enest.clipboard → clipboard */
+/** com.github.eNest.clipboard → clipboard */
 export function shortNameOf(pluginId: string): string {
   const parts = pluginId.split('.')
   return parts[parts.length - 1] || pluginId

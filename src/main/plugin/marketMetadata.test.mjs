@@ -85,8 +85,8 @@ test('真实市场字段透传，缺失统计不显示零；安装包大小与�
 test('生产目录不补造 mock 插件或元数据，离线保留已安装插件和已验证目录', async () => {
   const registry = new api.PluginRegistry()
   assert.deepEqual(registry.list(), [])
-  assert.equal(registry.get('com.enest.translate'), null)
-  const local = { ...manifest, id: 'com.enest.translate', name: '本地翻译' }
+  assert.equal(registry.get('com.github.eNest.translate'), null)
+  const local = { ...manifest, id: 'com.github.eNest.translate', name: '本地翻译' }
   registry.installed.set(local.id, { manifest: local, rootPath: '/fixture/local', version: local.version })
   assert.equal(registry.get(local.id).author, '')
   assert.equal(registry.get(local.id).description, '')

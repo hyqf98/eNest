@@ -66,6 +66,7 @@ const DEFAULTS: SettingsData = {
     locale: 'zh-CN',
     hardwareAcceleration: true,
     closeBehavior: 'minimize-tray',
+    notifyPosition: 'bottom-right',
     tabStyle: 'classic',
     animationLevel: 'medium',
     fontFamily: '',

@@ -11,6 +11,8 @@ import {
 } from '@renderer/hooks/useFont'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { toastStore } from '@renderer/hooks/useToast'
+import { Button } from '@renderer/components/ui/Button'
+import { Slider } from '@renderer/components/ui/Slider'
 
 const PREVIEW_TEXT = '永 Aa 字体'
 
@@ -77,15 +79,14 @@ export function FontSettingsSection() {
         </div>
         <div className="font-size-slider-row">
           <span className="font-size-end">0.90×</span>
-          <input
-            type="range"
+          <Slider
             className="font-size-slider"
             min={0.9}
             max={1.3}
             step={0.05}
-            value={fontSizeScale}
+            value={[fontSizeScale]}
             aria-label="字号"
-            onChange={(e) => void setFontSizeScale(Number(e.target.value))}
+            onValueChange={([scale]) => void setFontSizeScale(scale)}
           />
           <span className="font-size-end">1.30×</span>
         </div>
@@ -168,14 +169,9 @@ export function FontSettingsSection() {
           <div className="label">{t('settings.font.customLabel')}</div>
           <p className="desc">{t('settings.font.uploadHint')}</p>
         </div>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          onClick={handlePickFile}
-          disabled={uploading}
-        >
+        <Button variant="ghost" size="sm" onClick={handlePickFile} disabled={uploading}>
           {uploading ? t('settings.font.uploading') : t('settings.font.upload')}
-        </button>
+        </Button>
         <input
           ref={fileRef}
           type="file"
@@ -207,14 +203,9 @@ export function FontSettingsSection() {
                   </span>
                   {active ? <em className="font-badge">{t('settings.font.active')}</em> : null}
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm font-remove"
-                  onClick={() => handleRemove(meta.id)}
-                  aria-label={t('settings.font.remove')}
-                >
+                <Button variant="ghost" size="sm" className="font-remove" onClick={() => handleRemove(meta.id)} aria-label={t('settings.font.remove')}>
                   {t('settings.font.remove')}
-                </button>
+                </Button>
               </li>
             )
           })}

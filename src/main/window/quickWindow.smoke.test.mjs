@@ -19,8 +19,8 @@ import { _electron as electron } from 'playwright-core'
 const require = createRequire(import.meta.url)
 const execFileAsync = promisify(execFile)
 const root = fileURLToPath(new URL('../../../', import.meta.url))
-const pluginId = 'com.enest.smoke.quick-window'
-const largePluginId = 'com.enest.smoke.quick-window-large'
+const pluginId = 'com.example.smoke.quick-window'
+const largePluginId = 'com.example.smoke.quick-window-large'
 const barHeight = 64
 const homeHeight = 248
 const quickHeight = 545

@@ -8,7 +8,8 @@
  *  - 磁盘：`{root}/data/secrets/{pluginId}/{base64url(key)}.bin`，内容为 safeStorage.encryptString 密文
  *  - safeStorage 不可用或 Linux 使用弱后端时拒绝读写；旧 XOR 数据保留并要求重新输入。
  *  - 新 key ≤128 UTF-8 字节，secret ≤64 KiB，每插件 ≤256 条 / 8 MiB 密文；旧超额数据仅允许不增量更新。
- * 被 pluginHandlers（vault.*）与 sshSessionManager / dbSessionManager 内部调用。
+ * 被 pluginHandlers（vault.*）、PluginUninstaller（vaultClearPlugin）与
+ * sshSessionManager / dbSessionManager 内部调用。
  * 关键依赖：electron safeStorage、pathsService（data 目录）。
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -182,6 +183,18 @@ export function vaultRemove(pluginId: string, keyOrRef: string): boolean {
   const p = blobPath(resolved.pluginId, resolved.key)
   if (existsSync(p)) rmSync(p, { force: true })
   return true
+}
+
+/**
+ * 卸载清理：整删该插件的密钥目录（.bin 密文 + 中断写 tmp 残留）。
+ * 返回删除的 .bin 条数；目录不存在时返回 0（幂等）。
+ */
+export function vaultClearPlugin(pluginId: string): number {
+  const dir = pluginSecretsDir(pluginId)
+  if (!existsSync(dir)) return 0
+  const { count } = vaultUsage(dir)
+  rmSync(dir, { recursive: true, force: true })
+  return count
 }
 
 function resolveKey(pluginId: string, keyOrRef: string): ParsedSecretRef | null {

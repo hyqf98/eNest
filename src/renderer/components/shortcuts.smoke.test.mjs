@@ -26,7 +26,7 @@ test('shortcut settings browser flow: installed plugin cards, recording, conflic
     page.on('pageerror', error => errors.push(error.message))
     await page.addInitScript(() => {
       if (sessionStorage.getItem('shortcut-fixture')) return
-      localStorage.setItem('enest.installed.v1', JSON.stringify(['com.enest.translate', 'com.enest.clipboard']))
+      localStorage.setItem('enest.installed.v1', JSON.stringify(['com.github.eNest.translate', 'com.github.eNest.clipboard']))
       localStorage.setItem('enest.settings.v1', JSON.stringify({ general: { locale: 'zh-CN', animationLevel: 'low', tabStyle: 'classic' }, quick: { enabled: false } }))
       sessionStorage.setItem('shortcut-fixture', '1')
     })
@@ -43,8 +43,8 @@ test('shortcut settings browser flow: installed plugin cards, recording, conflic
     })
     assert.deepEqual(blocked, [true, true, true], 'generic settings cannot bypass shortcut validation')
     const section = page.getByRole('region', { name: '插件快捷键', exact: true })
-    const translate = section.locator('.shortcut-plugin-group[data-plugin-id="com.enest.translate"]')
-    const clipboard = section.locator('.shortcut-plugin-group[data-plugin-id="com.enest.clipboard"]')
+    const translate = section.locator('.shortcut-plugin-group[data-plugin-id="com.github.eNest.translate"]')
+    const clipboard = section.locator('.shortcut-plugin-group[data-plugin-id="com.github.eNest.clipboard"]')
     await translate.waitFor()
     await clipboard.waitFor()
     assert.equal(await section.locator('.shortcut-plugin-group').count(), 2, 'installed plugins appear before any shortcut exists')
@@ -172,7 +172,7 @@ test('shortcut settings browser flow: installed plugin cards, recording, conflic
     assert.equal(await section.locator('.shortcut-binding').count(), 2)
     await page.evaluate(async () => {
       const { useShellStore } = await import('/stores/shellStore.ts')
-      useShellStore.getState().setShortcutPluginFilter('com.enest.clipboard')
+      useShellStore.getState().setShortcutPluginFilter('com.github.eNest.clipboard')
     })
     await clipboard.waitFor()
     assert.equal(await section.locator('.shortcut-plugin-group').count(), 2, 'a detail-page target must not hide the other installed plugins')
@@ -206,13 +206,13 @@ test('shortcut settings browser flow: installed plugin cards, recording, conflic
     // A missing historical plugin is still shown so its stale binding can be removed.
     await page.evaluate(() => {
       const settings = JSON.parse(localStorage.getItem('enest.settings.v1'))
-      settings.pluginShortcuts = [{ id: 'missing-fixture', pluginId: 'com.enest.missing', accelerator: 'Control+Shift+M', mode: 'quick', enabled: true }]
+      settings.pluginShortcuts = [{ id: 'missing-fixture', pluginId: 'com.github.eNest.missing', accelerator: 'Control+Shift+M', mode: 'quick', enabled: true }]
       localStorage.setItem('enest.settings.v1', JSON.stringify(settings))
     })
     await page.reload()
     await page.getByRole('button', { name: '设置', exact: true }).click()
     await page.getByRole('button', { name: '快捷键', exact: true }).click()
-    const missing = section.locator('.shortcut-plugin-group[data-plugin-id="com.enest.missing"]')
+    const missing = section.locator('.shortcut-plugin-group[data-plugin-id="com.github.eNest.missing"]')
     await missing.locator('.shortcut-binding').getByText('插件已移除', { exact: true }).waitFor()
     assert.equal(await missing.getByRole('button', { name: '立即启动', exact: true }).isDisabled(), true)
     await missing.getByRole('button', { name: '删除', exact: true }).click()
@@ -222,7 +222,7 @@ test('shortcut settings browser flow: installed plugin cards, recording, conflic
     await page.waitForFunction(async () => {
       const { useShellStore } = await import('/stores/shellStore.ts')
       const state = useShellStore.getState()
-      return state.tabs.some(tab => tab.pluginId === 'com.enest.clipboard' && tab.id === state.activeTabId)
+      return state.tabs.some(tab => tab.pluginId === 'com.github.eNest.clipboard' && tab.id === state.activeTabId)
     })
     assert.deepEqual(errors, [], 'no browser runtime errors')
     console.log('Browser screenshots: /tmp/enest-shortcuts-settings-wide.png and /tmp/enest-shortcuts-settings-narrow.png')

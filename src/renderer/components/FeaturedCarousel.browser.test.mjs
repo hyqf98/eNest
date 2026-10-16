@@ -48,14 +48,14 @@ test('featured copy launches installed plugins, opens details otherwise, and pre
     for (const target of ['.product-heading .product-icon', '.product-description', '.product-title button', '.product-cta']) {
       await second.locator(target).click()
     }
-    assert.deepEqual(await page.evaluate(() => window.featuredLaunches), Array(4).fill('com.enest.database'))
+    assert.deepEqual(await page.evaluate(() => window.featuredLaunches), Array(4).fill('com.github.eNest.database'))
     assert.equal(await page.locator('.detail-overlay').count(), 0)
     await second.locator('.product-title button').focus(); await page.keyboard.press('Enter')
     assert.equal(await page.evaluate(() => window.featuredLaunches.length), 5, 'keyboard title access launches exactly once')
     checks.push('Installed left region and CTA launch exactly once; keyboard title works')
     await page.evaluate(async () => {
       const { useShellStore } = await import('/stores/shellStore.ts')
-      useShellStore.setState({ plugins: useShellStore.getState().plugins.map(plugin => plugin.id === 'com.enest.database' ? { ...plugin, enabled: false } : plugin) })
+      useShellStore.setState({ plugins: useShellStore.getState().plugins.map(plugin => plugin.id === 'com.github.eNest.database' ? { ...plugin, enabled: false } : plugin) })
     })
     await second.locator('.product-title button').click()
     await page.locator('.detail-overlay[data-detail-phase="open"]').waitFor()
@@ -86,7 +86,7 @@ test('featured copy launches installed plugins, opens details otherwise, and pre
     await page.emulateMedia({ reducedMotion: 'no-preference' })
     await pages.first().click(); await settled(page, 0)
     // The published snapshot has one screenshot; the current repository manifest has three.
-    const pluginRoot = join(process.cwd(), 'eNest_plugin/plugins/com.enest.clipboard')
+    const pluginRoot = join(process.cwd(), 'eNest_plugin/plugins/clipboard')
     const manifest = JSON.parse(await readFile(join(pluginRoot, 'plugin.json'), 'utf8'))
     const images = manifest.market.screenshots.slice(0, 3)
     const urls = images.map((_, index) => `${fixture.url}/__current_clipboard/${index}`)
@@ -96,7 +96,7 @@ test('featured copy launches installed plugins, opens details otherwise, and pre
     }
     await page.evaluate(async screenshots => {
       const { useShellStore } = await import('/stores/shellStore.ts')
-      useShellStore.setState({ plugins: useShellStore.getState().plugins.map(plugin => plugin.id === 'com.enest.clipboard' ? { ...plugin, screenshots } : plugin) })
+      useShellStore.setState({ plugins: useShellStore.getState().plugins.map(plugin => plugin.id === 'com.github.eNest.clipboard' ? { ...plugin, screenshots } : plugin) })
     }, urls)
     await first.locator('.product-gallery-dot').nth(1).click()
     await page.waitForFunction(url => document.querySelector('[data-product-index="0"] .product-gallery-image.is-visible')?.getAttribute('src') === url, urls[1])
@@ -104,7 +104,7 @@ test('featured copy launches installed plugins, opens details otherwise, and pre
     await pages.nth(last).click(); await settled(page, last)
     await page.locator('.product-nav-next').click(); await settled(page, 0)
     assert.equal(await first.locator('.product-gallery-image.is-visible').getAttribute('src'), urls[1])
-    const replicas = await page.locator('[data-plugin-id="com.enest.clipboard"] .product-gallery-dot[aria-current="true"]').allTextContents()
+    const replicas = await page.locator('[data-plugin-id="com.github.eNest.clipboard"] .product-gallery-dot[aria-current="true"]').allTextContents()
     assert.equal(replicas.length, 2, 'real slide and loop clone share the selected screenshot')
     await first.locator('.product-image-button').click()
     await first.locator('dialog[open]').waitFor()

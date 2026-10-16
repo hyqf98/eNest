@@ -36,7 +36,8 @@ export const notifyStore = create<NotifyState>((set) => ({
     }
     const bridge = window.enestNotifications
     if (bridge) {
-      const request = bridge.show(normalized)
+      // 调用方未指定位置时不在载荷里预填，由主进程按设置的默认位置（中间弹框/右下角）补齐
+      const request = bridge.show(options.position === undefined ? { ...normalized, position: undefined } : normalized)
       nativeIds.set(id, request)
       // Retain bounded handles so persistent/paused cards can still be dismissed later.
       while (nativeIds.size > 128) nativeIds.delete(nativeIds.keys().next().value!)

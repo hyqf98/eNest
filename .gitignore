@@ -10,9 +10,7 @@ release/
 *.tsbuildinfo
 /.cache/
 
-# 本地工具链 / SDK（不入壳子仓库）；仅保留发布图标供干净 CI checkout 使用
-scripts/
-packages/
+# 仅保留发布图标供干净 CI checkout 使用
 /build/*
 !/build/icon.icns
 !/build/icon.ico
@@ -62,11 +60,6 @@ e2e-artifacts/
 
 # iconutil 中间产物
 assets/icons/AppIcon.iconset/
-
-# 本地插件 UI 预览页（非构建入口；renderer 入口在 src/renderer/index.html）
-/index.html
-/preview.css
-/preview.js
 
 # 本地设计 demo 素材（不入仓库）
 /demo/

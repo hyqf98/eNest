@@ -1,0 +1,133 @@
+/* —— ui 组件层通用样式（行为来自 Radix，视觉走 tokens） —— */
+
+/* Tooltip：跟随主题 token 的轻提示 */
+.ui-tooltip {
+  box-sizing: border-box;
+  max-width: 260px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: var(--shadow-float, 0 6px 24px rgba(20, 32, 52, 0.12));
+  user-select: none;
+  z-index: 1300;
+  animation: ui-tooltip-in 0.12s ease-out;
+}
+@keyframes ui-tooltip-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Checkbox：与设置页原生 checkbox 视觉一致（16px 方框 + accent 勾） */
+.ui-checkbox {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+  flex: 0 0 auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.ui-checkbox[data-state='checked'] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.ui-checkbox:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ui-checkbox:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.ui-checkbox-indicator {
+  display: grid;
+  place-items: center;
+  color: var(--surface);
+  line-height: 0;
+}
+.ui-checkbox-indicator svg {
+  width: 10px;
+  height: 8px;
+}
+
+/* Slider：对齐设置页原生 range 定制版（4px track + 16px accent thumb，无填充） */
+.ui-slider {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  cursor: pointer;
+  touch-action: none;
+}
+.ui-slider:disabled { opacity: 0.55; cursor: not-allowed; }
+.ui-slider-track {
+  position: relative;
+  flex: 1;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--surface-3);
+}
+.ui-slider-range {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: transparent; /* 原生版无进度填充，保持视觉一致 */
+}
+.ui-slider-thumb {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+.ui-slider-thumb:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 5px;
+}
+
+/* Dialog 通用基座（业务弹窗多用自有类名，此处为无类调用提供缺省视觉） */
+.ui-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(16, 24, 36, 0.33);
+  backdrop-filter: blur(2px);
+}
+.ui-dialog-content {
+  box-sizing: border-box;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1201;
+  min-width: 280px;
+  max-width: min(480px, 92vw);
+  padding: 20px 22px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-float, 0 18px 48px rgba(20, 32, 52, 0.22));
+}
+.ui-dialog-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 650;
+}
+.ui-dialog-description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-2);
+}

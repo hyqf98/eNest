@@ -7,6 +7,7 @@ import { notify } from '@renderer/services/notifyService'
 import { confirmAction } from '@renderer/services/confirmAction'
 import { Trash2Icon } from '@renderer/components/icons'
 import { PluginIcon } from '@renderer/components/PluginIcon'
+import { Switch } from '@renderer/components/ui/Switch'
 import { formatPluginPackageSize } from './pluginPresentation'
 
 interface Props {
@@ -144,16 +145,14 @@ export function PluginCard({ plugin, onOpen, onDetail }: Props) {
           </span>
           <span className="card-switch-slot">
             {plugin.installed && (
-              <button
-                type="button"
-                role="switch"
-                aria-checked={enabled}
+              <Switch
+                checked={enabled}
                 aria-label={`${plugin.name} · ${disabled ? t('plugin.enable') : t('plugin.disable')}`}
                 aria-busy={toggling}
                 title={disabled ? t('plugin.enable') : t('plugin.disable')}
-                className={`card-switch${enabled ? ' on' : ''}`}
+                className="card-switch"
                 disabled={busy || !shellApi.setPluginEnabled}
-                onClick={() => void handleToggleEnabled()}
+                onCheckedChange={() => void handleToggleEnabled()}
               />
             )}
           </span>

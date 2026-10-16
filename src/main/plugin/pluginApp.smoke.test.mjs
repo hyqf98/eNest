@@ -24,7 +24,7 @@ async function poll(read, accepts, timeout = 15000) {
 test('built application loads actual preloads and retires every plugin after immediate tab close', { skip: process.env.ENEST_APP_SMOKE !== '1', timeout: 60000 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'enest-app-smoke-'))
   const dataRoot = join(dir, 'data-root'), userData = join(dir, 'electron-user-data')
-  const ids = ['com.enest.smoke.normal', 'com.enest.smoke.stalled', 'com.enest.smoke.third']
+  const ids = ['com.example.smoke.normal', 'com.example.smoke.stalled', 'com.example.smoke.third']
   let app, stderr = '', stdout = ''
   try {
     for (const id of ids) {

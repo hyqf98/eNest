@@ -170,9 +170,9 @@ GET https://translate.googleapis.com/translate_a/single
 
 | id | 名称 | 目录 | category | 核心权限 |
 |----|------|------|----------|----------|
-| `com.enest.screen-assistant` | 屏幕助手 | `eNest_plugin/plugins/com.enest.screen-assistant` | 媒体 | screen.* · pin.create · clipboard.writeImage · storage.local · ui.* |
-| `com.enest.clipboard` | 粘贴板 | `eNest_plugin/plugins/com.enest.clipboard` | 效率 | clipboard.* · storage.local · ui.* |
-| `com.enest.translate` | 翻译 | `eNest_plugin/plugins/com.enest.translate` | 效率 | net.fetch · clipboard.read/write · storage.local · ui.* |
+| `com.github.eNest.screen-assistant` | 屏幕助手 | `eNest_plugin/plugins/screen-assistant` | 媒体 | screen.* · pin.create · clipboard.writeImage · storage.local · ui.* |
+| `com.github.eNest.clipboard` | 粘贴板 | `eNest_plugin/plugins/clipboard` | 效率 | clipboard.* · storage.local · ui.* |
+| `com.github.eNest.translate` | 翻译 | `eNest_plugin/plugins/translate` | 效率 | net.fetch · clipboard.read/write · storage.local · ui.* |
 
 ### 2.6 本地安装路径
 

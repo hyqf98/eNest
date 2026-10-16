@@ -17,7 +17,7 @@ import { dialog, ipcMain, Notification } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
 import { APP_NAME, FONTS_DIR, toTabId } from '@shared/constants'
 import type { DevPluginLoadOptions, PluginLaunchConfig, PluginLaunchPatch, ThemeTokens } from '@shared/types/plugin'
-import { forgetDevPlugin, pickAndLoadDevPlugin } from '@main/dev/DevConsole'
+import { forgetDevPlugin, pickAndLoadDevPlugin, rebuildDevPlugin, setDevPluginMode } from '@main/dev/DevConsole'
 import { setDevPluginKillOnHide } from '@main/dev/devPluginsStore'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, getAppPathsRoot } from '@main/paths/pathsService'
@@ -400,6 +400,32 @@ export function registerShellHandlers(): void {
         void setDevPluginKillOnHide(pluginId, enabled === true)
       }
       return { ok: true, data: pluginHost.getKillOnHide(pluginId) }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  /** dev 插件 dev/prod 模式切换：更新 dev.json 并在打开态下原地重载（prod 首次进入自动构建） */
+  handleShellIpc(IpcChannels.ShellSetDevPluginMode, async (_e, pluginId: string, mode?: 'dev' | 'prod') => {
+    try {
+      if (typeof pluginId !== 'string' || !pluginId) return { ok: false, error: 'pluginId required' }
+      if (mode !== 'dev' && mode !== 'prod') return { ok: false, error: 'Invalid development mode' }
+      await setDevPluginMode(pluginId, mode)
+      sendShellEvent({ type: 'plugins-changed' })
+      revalidateClipboardPolling()
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  /** dev 插件手动重建：执行解析出的构建命令；完成后打开态原地重载新产物 */
+  handleShellIpc(IpcChannels.ShellRebuildDevPlugin, async (_e, pluginId: string) => {
+    try {
+      if (typeof pluginId !== 'string' || !pluginId) return { ok: false, error: 'pluginId required' }
+      await rebuildDevPlugin(pluginId)
+      sendShellEvent({ type: 'plugins-changed' })
+      return { ok: true }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }

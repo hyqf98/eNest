@@ -83,7 +83,7 @@ let excludedTextHash = ''
 const changes = new Set<() => void>()
 export function onClipboardHistoryChange(callback: () => void): () => void { changes.add(callback); return () => changes.delete(callback) }
 function changed(): void { for (const listener of changes) listener() }
-function preferences(): Record<string, unknown> { return settingsStore.getPluginSettings('com.enest.clipboard') }
+function preferences(): Record<string, unknown> { return settingsStore.getPluginSettings('com.github.eNest.clipboard') }
 function capacity(): number { return Math.max(50, Math.min(10000, Number(preferences().historyLimit) || MAX_ITEMS)) }
 async function sourceApp(): Promise<ClipboardSourceApp | undefined> { return preferences().recordSource === false ? undefined : (await nativeClipboardSource()) ?? undefined }
 function excluded(source?: ClipboardSourceApp): boolean {

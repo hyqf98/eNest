@@ -556,6 +556,71 @@
   opacity: 0.4;
 }
 
+/* 消息通知位置选择器：图标 + 文案（同一卡片图形，区别在 16×12 视口内的落位） */
+.notify-pos-seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notify-pos-icon {
+  position: relative;
+  width: 16px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.notify-pos-icon i {
+  position: absolute;
+  border-radius: 2px;
+  background: var(--text-3);
+  transition: background 0.15s;
+}
+
+.notify-pos-seg button.active .notify-pos-icon i {
+  background: var(--text);
+}
+
+/* 中间弹框：卡片（标题条 + 正文条）居中于视口 */
+.center-icon i:first-child {
+  left: 3px;
+  top: 2px;
+  width: 10px;
+  height: 3.5px;
+}
+
+.center-icon i:last-child {
+  left: 5px;
+  top: 7px;
+  width: 6px;
+  height: 2.5px;
+  opacity: 0.6;
+}
+
+/* 右下角：卡片贴住右下角向上堆叠，左上淡色块暗示窗口范围 */
+.corner-icon i:first-child {
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 3.5px;
+  opacity: 0.35;
+}
+
+.corner-icon i:nth-child(2) {
+  right: 0;
+  bottom: 4px;
+  width: 9px;
+  height: 3.5px;
+}
+
+.corner-icon i:last-child {
+  right: 0;
+  bottom: 0.5px;
+  width: 6px;
+  height: 2.5px;
+  opacity: 0.6;
+}
+
 .tag {
   height: 22px;
   padding: 0 8px;
@@ -1378,7 +1443,8 @@
   color: var(--text-3);
   transition: transform 0.15s;
 }
-.ui-select.open .ui-select-caret {
+.ui-select.open .ui-select-caret,
+.ui-select-trigger[data-state='open'] .ui-select-caret {
   transform: rotate(180deg);
 }
 .ui-select-pop {
@@ -1426,7 +1492,8 @@
 .ui-select-option:hover {
   background: var(--surface-2);
 }
-.ui-select-option.selected {
+.ui-select-option.selected,
+.ui-select-option[data-state='checked'] {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
@@ -1575,6 +1642,26 @@
   gap: 6px;
   align-items: center;
   margin-left: auto;
+}
+/* dev/prod 模式切换的紧凑分段控件 */
+.dev-mode-seg {
+  padding: 3px;
+  gap: 2px;
+}
+.dev-mode-seg button {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+/* 解析出的启动/构建命令标签（如 pnpm run dev） */
+.dev-command-tag {
+  font-size: 11px;
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--surface-2) 80%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
 }
 .dev-run-dot {
   display: inline-block;
@@ -1989,6 +2076,13 @@
   flex-shrink: 0;
 }
 
+.dev-card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .dev-load-row {
   display: flex;
   gap: 8px;
@@ -2074,6 +2168,9 @@
   font-size: 11px;
   line-height: 1.65;
   color: var(--text-2);
+  /* 全局禁用选择的例外：日志需要可选中复制 */
+  user-select: text;
+  cursor: text;
 }
 
 .dev-log-line.dim { color: var(--text-3); }

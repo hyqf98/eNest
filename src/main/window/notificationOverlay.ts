@@ -128,9 +128,16 @@ function hostFor(win: BaseWindow): Host {
 }
 
 /** Only the card-sized native regions intercept input; the surrounding plugin remains interactive. */
+function defaultNotifyPosition(): NotificationPosition {
+  return settingsStore.getAll().general.notifyPosition === 'center' ? 'center' : 'bottom-right'
+}
 export function showNotification(win: BaseWindow | null | undefined, payload: unknown, context: { owner: object; source?: string; signal?: AbortSignal }): number {
   if (!win || win.isDestroyed() || context.signal?.aborted) throw new Error('notification container unavailable')
-  const normalized = normalizeNotification(payload)
+  // 用户未指定位置时跟随设置里的默认位置（中间弹框 / 右下角）；显式 position 不受设置影响
+  const raw = (payload && typeof payload === 'object' && !Array.isArray(payload) && (payload as { position?: unknown }).position === undefined)
+    ? { ...(payload as object), position: defaultNotifyPosition() }
+    : payload
+  const normalized = normalizeNotification(raw)
   const now = Date.now()
   const recent = (rates.get(context.owner) ?? []).filter(time => now - time < 10000)
   if (recent.length >= 10) throw new Error('notification rate limit: 10 per 10 seconds')

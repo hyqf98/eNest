@@ -9,7 +9,7 @@ import { chromium } from 'playwright-core'
 test('real product screenshots use accessible dots, keep decoded frames during loading, crossfade and isolate gallery input', {
   skip: process.env.ENEST_PRODUCT_VISUAL_TEST !== '1', timeout: 45000,
 }, async () => {
-  const directory = join(process.cwd(), 'eNest_plugin/plugins/com.enest.clipboard')
+  const directory = join(process.cwd(), 'eNest_plugin/plugins/clipboard')
   const manifest = JSON.parse(await readFile(join(directory, 'plugin.json'), 'utf8'))
   assert.equal(manifest.market.screenshots.length, 3, 'fixture reads the three repository-declared clipboard screenshots')
   const pictures = await Promise.all(manifest.market.screenshots.map(path => readFile(join(directory, 'public', path))))

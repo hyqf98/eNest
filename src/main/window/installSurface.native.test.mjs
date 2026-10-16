@@ -41,7 +41,7 @@ test('trusted file drops install ZIP packages above native plugin views, preserv
   const dataRoot = join(directory, 'data'), userData = join(directory, 'profile')
   const evidenceDir = process.env.ENEST_INSTALL_SURFACE_EVIDENCE || join(directory, 'evidence')
   await mkdir(evidenceDir, { recursive: true })
-  const editorId = 'com.enest.smoke.drop-editor'
+  const editorId = 'com.example.smoke.drop-editor'
   let app, logs = '', failure
   const evidence = { platform: process.platform, screenshots: [], checks: {} }
   try {
@@ -51,7 +51,7 @@ test('trusted file drops install ZIP packages above native plugin views, preserv
     }
     await writeFile(join(dataRoot, 'settings.json'), JSON.stringify({ theme: { mode: 'light' }, general: { quickLauncher: { enabled: false }, closeBehavior: 'quit', tabStyle: 'classic', sessionTabs: [], animationLevel: 'medium' } }))
     const packages = []
-    for (const [name, id] of [['valid.zip', 'com.enest.smoke.zip-drop'], ['unknown.enestplugin', 'com.enest.smoke.unknown-drop']]) {
+    for (const [name, id] of [['valid.zip', 'com.example.smoke.zip-drop'], ['unknown.enestplugin', 'com.example.smoke.unknown-drop']]) {
       const zip = new AdmZip()
       for (const [path, value] of Object.entries(files(id))) zip.addFile(path, Buffer.from(value))
       // Enough real payload to observe the active progress panel before completion.

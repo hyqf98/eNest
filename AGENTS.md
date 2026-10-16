@@ -11,7 +11,7 @@ npm run build        # electron-vite build
 npm run lint         # eslint（若配置存在）
 ```
 
-本地工具脚本与 `packages/plugin-sdk` **不入壳子仓库**（见 `.gitignore`）；打包图标只认 `build/icon.{icns,ico,png}`（electron-builder buildResources）。`assets/icons/` 仅存运行时图标（`enest-icon-256.png` 窗口 / `dock-runtime.png` Dock），经 extraResources 打进 Resources/icons。
+插件开发者 SDK 在插件仓 `eNest_plugin/packages/plugin-sdk`；打包图标只认 `build/icon.{icns,ico,png}`（electron-builder buildResources）。`assets/icons/` 仅存运行时图标（`enest-icon-256.png` 窗口 / `dock-runtime.png` Dock），经 extraResources 打进 Resources/icons。
 
 主进程/preload 变更需重启 `npm run dev`；纯 renderer 可依赖 HMR。
 
@@ -51,13 +51,19 @@ import { pluginHost } from '../plugin/PluginHost'
 
 IPC 通道名只定义在 `@shared/types/ipc`，preload 与 main 共用。
 
+## UI 组件层（2026-10 起基线）
+
+- 主壳基础控件统一走 `@renderer/components/ui/`（Button/Input/Checkbox/Switch/Tooltip/Dialog/Segmented/Select/Slider）：行为来自 Radix UI，视觉沿用手写 CSS 类（`.btn/.switch/.segmented/.ui-select-*` 等，token 直读）。**新增基础控件优先扩展该层，不要在页面里再手写裸控件**。
+- 该组件层是官方插件 `src/ui/`（`pk-*`）模板的**唯一上游**：壳组件升级时同步派生到插件仓（见 `eNest_plugin/docs/developer/react-migration-sop.md`）。
+- 官方插件已全面 React 化（React 18 + Radix，与壳同栈、每插件独立打包）；插件规范保持框架无关，第三方插件可自由选型。
+
 插件业务界面、算法、数据模型和协议处理放在插件仓库；壳只扩展可复用的原生能力。不要按插件业务功能增加专用权限或主进程处理器。基础/敏感分类统一使用 `@shared/pluginPermissionPolicy`：插件私有存储、UI、设置、主题、声明式入口、私有密钥保存和插件自身后台计时无需声明或额外权限授权。`fs.read` / `fs.write` 仅限用户经宿主原生选择器选定的文件或当前实例持有的文件句柄，选择目标即授权，不追加通用权限框；拖入路径仍由宿主确认目标，不能静默访问任意路径。网络、剪贴板、系统控制、AI 应用配置与资产等敏感能力继续声明并授权；计时到期的系统通知仍单独受 `notify` 控制。两类都校验实例归属、参数、配额和资源回收，基础能力不得接触宿主保留设置键。
 
 ## 状态与设置
 
 - 全局 UI 状态：`@renderer/stores/shellStore`（zustand）
 - 主题 / 字体 / 动画档：`@renderer/hooks/useTheme`、`useFont`、`useAnimationLevel`
-- 通知：优先 `@renderer/services/notifyService`（`notify.info/success/...`）；`toastStore.push` 为兼容层，默认顶部
+- 通知：优先 `@renderer/services/notifyService`（`notify.info/success/...`）；`toastStore.push` 为兼容层。默认位置由设置 `general.notifyPosition`（中间弹框/右下角）决定，主进程 `showNotification` 对未显式指定 position 的通知在显示时读取
 - 持久化：主进程 `settingsStore`（`{dataRoot}/data/enest.db`；`~/.eNest/settings.json` 仅存数据根引导信息）+ mock（localStorage）字段契约对齐；新设置写入 `general` 或独立段，勿只写 UI 本地 state
 
 设置变更若需即时生效，先 `set` store / DOM，再异步 `shellApi.setSettings`。
@@ -82,8 +88,8 @@ IPC 通道名只定义在 `@shared/types/ipc`，preload 与 main 共用。
 
 ## 插件仓库 `eNest_plugin/`
 
-- monorepo：`plugins/<id>/plugin.json`；目录名 === `id`
-- 资产命名：`{id}@{version}.enestplugin`
+- monorepo：`plugins/<短名>/plugin.json`；id = `com.github.eNest.<短名>`，目录名 === id 末段
+- 资产命名：`{短名}@{version}.enestplugin`
 - 索引：CI 生成 `registry.json`（列表 + 分类 + asset.url/sha256）
 - 分类枚举：效率 / 开发 / 设计 / 媒体 / 其它  
 - Schema：`eNest_plugin/docs/*.schema.json`；说明见该目录 `README.md`

@@ -23,7 +23,7 @@ test('real SSH starts from its own package, DevTools/logs work, and developer re
   skip: process.env.ENEST_DEVELOPER_SMOKE !== '1', timeout: 90000
 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'enest-developer-')), dataRoot = join(dir, 'data')
-  const source = join(root, 'eNest_plugin/plugins/com.enest.ssh'), id = 'com.enest.ssh'
+  const source = join(root, 'eNest_plugin/plugins/ssh'), id = 'com.github.eNest.ssh'
   const manifest = JSON.parse(await readFile(join(source, 'plugin.json'), 'utf8'))
   const installedPath = join(dataRoot, 'plugins', id, manifest.version)
   const artifacts = process.env.ENEST_DEVELOPER_ARTIFACTS || await mkdtemp(join(tmpdir(), 'enest-developer-evidence-'))
@@ -87,7 +87,7 @@ test('real SSH starts from its own package, DevTools/logs work, and developer re
     assert.equal(await inPlugin("window.enest.storage.get('developer.smoke.preserved')"), 'keep-me')
     // Hold a real document response so the intermediate native presentation is
     // deterministic, rather than racing a fast local file load.
-    const loadingId = 'com.enest.smoke.loading', loadingSource = join(dir, loadingId)
+    const loadingId = 'com.example.smoke.loading', loadingSource = join(dir, loadingId)
     let loadingManifest, matchingServer = false
     slowServer = createServer((request, response) => {
       if (request.url.startsWith('/plugin.json')) response.end(JSON.stringify(matchingServer ? loadingManifest : { id: 'com.example.another', main: 'index.html' }))

@@ -244,8 +244,8 @@ async function packageFixture() {
   `
   adapters['@main/plugin/pluginInstallTasks'] = taskAdapter
   adapters['./pluginInstallTasks'] = taskAdapter
-  adapters['test-state'] = `export const state={root:'',hash:0,disabled:new Set(),events:[],downloads:[],downloadGate:null,cleanups:0,barriers:0,closeFails:false,failPublish:false,failRemoveId:null,pluginSettings:{},clipboardRevalidations:0,archiveByUrl:new Map(),beforePublish:null,published:[]};`
-  adapters.electron = `import {state} from 'test-state';export const app={getVersion:()=> '1.0.0',getAppPath:()=>state.root};export const session={fromPartition:()=>({clearStorageData:async()=>{}})};`
+  adapters['test-state'] = `export const state={root:'',hash:0,disabled:new Set(),events:[],downloads:[],downloadGate:null,cleanups:0,barriers:0,closeFails:false,failPublish:false,failRemoveId:null,pluginSettings:{},vaultCleared:[],clipboardRevalidations:0,archiveByUrl:new Map(),beforePublish:null,published:[]};`
+  adapters.electron = `import {state} from 'test-state';export const app={getVersion:()=> '1.0.0',getAppPath:()=>state.root,getPath:()=>state.root};export const session={fromPartition:()=>({clearStorageData:async()=>{}})};`
   adapters['@main/paths/pathsService'] = `import {state} from 'test-state';import {join} from 'node:path';export const getAppPaths=()=>({plugins:join(state.root,'plugins')});export const pluginStorageFile=id=>join(state.root,'legacy',id+'.json');`
   adapters['node:fs/promises'] = `export * from 'fs/promises';import {rename as realRename,rm as realRm} from 'fs/promises';import {basename,join} from 'node:path';import {state} from 'test-state';export async function rename(source,dest){if(state.failPublish&&basename(source).startsWith('.staging-'))throw Error('fixture publish failed');await realRename(source,dest);}export async function rm(path,options){if(state.failRemoveId&&path===join(state.root,'plugins',state.failRemoveId))throw Error('fixture removal failed');return realRm(path,options);}`
   adapters['@main/plugin/marketClient'] = `import {state} from 'test-state';export const fetchRemoteMarket=async()=>[];export const downloadPluginPackage=async url=>{state.downloads.push(url);if(state.downloadGate)await state.downloadGate;return {path:state.archiveByUrl.get(url),cleanup:async()=>{state.cleanups++}}};`
@@ -256,6 +256,7 @@ async function packageFixture() {
   adapters['@main/plugin/PluginSessionStore'] = `export const clearPluginSession=()=>{};export const deleteSessionSnapshot=()=>{};`
   adapters['@main/db/pluginStorage'] = `export const clearPluginStorage=()=>{};`
   adapters['@main/plugin/pluginFiles'] = `export const clearPluginBlobs=async()=>{};`
+  adapters['@main/vault/secretVault'] = `import {state} from 'test-state';export const vaultClearPlugin=id=>{state.vaultCleared.push(id);return 0};`
   adapters['@main/timer/focusTimerService'] = `export const clearFocusTimer=()=>{};`
   adapters['@main/dev/DevConsole'] = `export const forgetDevPlugin=async()=>{};`
   adapters['@main/settings/SettingsStore'] = `import {state} from 'test-state';export const settingsStore={getTheme:()=>({}),setTheme:async()=>{},removePluginSettings:async id=>{delete state.pluginSettings[id]}};`
@@ -350,6 +351,7 @@ test('uninstall clears only the removed plugin settings and rechecks clipboard c
     assert.equal(failed.ok,false);assert.match(failed.error,/removal failed/)
     assert.equal(await readFile(join(c.dest,id,'1.0.0','index.html'),'utf8'),'body')
     assert.deepEqual(c.state.pluginSettings[id],own,'failed package removal must preserve settings')
+    assert.deepEqual(c.state.vaultCleared,[],'failed package removal must preserve vault secrets')
     assert.deepEqual(c.state.pluginSettings[other],retained)
     assert.equal(c.state.clipboardRevalidations,0)
 
@@ -358,6 +360,7 @@ test('uninstall clears only the removed plugin settings and rechecks clipboard c
     assert.equal(Object.hasOwn(c.state.pluginSettings,id),false)
     assert.deepEqual(c.state.pluginSettings[other],retained)
     assert.equal(c.state.clipboardRevalidations,1)
+    assert.deepEqual(c.state.vaultCleared,[id],'successful removal clears the plugin vault exactly once')
     await install()
     assert.equal(Object.hasOwn(c.state.pluginSettings,id),false,'reinstall must not restore previous consent')
     assert.deepEqual(c.state.pluginSettings[other],retained)

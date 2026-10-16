@@ -544,6 +544,25 @@ const api = window.enest // zapi 为 @deprecated 别名，计划 v2 移除
 
 ---
 
+## 官方插件技术栈（React + Radix）
+
+插件体系本身**框架无关**——任何能构建为静态产物的技术（Vue、Svelte、原生 HTML/CSS/JS、Canvas/WebGL）都在同一包格式与运行约束下工作，第三方开发者可自由选型。
+
+**eNest 官方插件**（插件仓 `plugins/*`）统一采用与壳一致的技术栈：
+
+| 层 | 选型 |
+|----|------|
+| UI 框架 | React 18 + react-dom（版本对齐壳 `package.json`） |
+| 行为组件 | Radix UI（按需引入，版本对齐壳） |
+| 标准控件层 | 插件内 `src/ui/`（`pk-*` 前缀，从壳 `src/renderer/components/ui/` 派生，token 直读） |
+| 依赖方式 | 每插件独立声明、构建打进各自 dist（插件间不共享 runtime） |
+
+约定的动机：官方插件与壳保持同一套组件抽象与心智模型，视觉 token（本文件的变量契约）天然一致；第三方插件不受此约束。
+
+新官方插件的创建与旧插件迁移流程见插件仓 `docs/developer/react-migration-sop.md`（含构建链配置、`#root` 挂载、CSS 级联顺序、原生 select 保留等实测要点）。
+
+---
+
 ## 设计语言与样式规范（插件 UI 集成标准）
 
 本节是插件作者的 **视觉与主题契约**。与前文「能注入哪些主题变量」互补：这里规定 **必须使用哪些主题变量、如何排版层级、主题如何跟随壳子**。

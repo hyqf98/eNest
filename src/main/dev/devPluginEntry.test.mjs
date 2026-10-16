@@ -10,7 +10,13 @@ const result = await build({ entryPoints: ['src/main/dev/devPluginEntry.ts'], ts
   plugins: [{ name: 'installer', setup(b) {
     b.onResolve({ filter: /^electron$/ }, () => ({ path: 'electron', namespace: 'fixture' }))
     b.onResolve({ filter: /^@main\/plugin\/PluginInstaller$/ }, () => ({ path: 'installer', namespace: 'fixture' }))
-    b.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ contents: path === 'electron' ? 'export const net={fetch:globalThis.fetch};' : `import {readFile} from 'node:fs/promises';import {join} from 'node:path';export const installFromDirectory=async path=>JSON.parse(await readFile(join(path,'plugin.json'),'utf8'));`, loader: 'js' }))
+    b.onResolve({ filter: /^@main\/window\/createShellWindow$/ }, () => ({ path: 'shellwin', namespace: 'fixture' }))
+    b.onResolve({ filter: /^@main\/logs\/logService$/ }, () => ({ path: 'logs', namespace: 'fixture' }))
+    b.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ contents: {
+      electron: 'export const net={fetch:globalThis.fetch};',
+      shellwin: 'export const sendShellEvent=()=>{};',
+      logs: 'export const logInfo=()=>{};export const logWarn=()=>{};'
+    }[path] ?? `import {readFile} from 'node:fs/promises';import {join} from 'node:path';export const installFromDirectory=async path=>JSON.parse(await readFile(join(path,'plugin.json'),'utf8'));`, loader: 'js' }))
   } }] })
 const api = await import('data:text/javascript;base64,' + Buffer.from(result.outputFiles[0].text).toString('base64'))
 
@@ -46,10 +52,22 @@ test('offline automatic entries reject missing or stale distributions with a use
   try {
     const manifest = { id: 'com.example.ssh', name: 'SSH', version: '1.0.0', main: 'index.html', development: { main: 'http://127.0.0.1:1/' } }
     await writeFile(join(dir, 'plugin.json'), JSON.stringify(manifest))
-    await assert.rejects(api.resolveDevPluginEntry(dir), /开发服务未启动.*npm run build/)
+    await assert.rejects(api.resolveDevPluginEntry(dir), /开发服务未启动/)
     await mkdir(join(dir, 'dist'))
     await writeFile(join(dir, 'dist/plugin.json'), JSON.stringify({ ...manifest, version: '0.9.0' }))
-    await assert.rejects(api.resolveDevPluginEntry(dir), /版本不一致.*npm run build/)
+    await assert.rejects(api.resolveDevPluginEntry(dir), /版本不一致/)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('offline error hints carry the resolved command labels from package.json', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'enest-dev-entry-'))
+  try {
+    const manifest = { id: 'com.example.pnpmplug', name: 'PNPM', version: '1.0.0', main: 'index.html', development: { main: 'http://127.0.0.1:1/' } }
+    await writeFile(join(dir, 'plugin.json'), JSON.stringify(manifest))
+    await writeFile(join(dir, 'pnpm-lock.yaml'), '')
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { dev: 'vite', build: 'vite build' } }))
+    // 端口 1 无人监听：拉起失败冷却内直接回退并提示解析出的命令
+    await assert.rejects(api.resolveDevPluginEntry(dir), /pnpm run dev/)
   } finally { await rm(dir, { recursive: true, force: true }) }
 })
 
@@ -63,5 +81,39 @@ test('plain source projects and explicit entry overrides retain their supported 
     await mkdir(join(dir, 'dist'))
     await writeFile(join(dir, 'dist/plugin.json'), await readFile(join(dir, 'plugin.json')))
     assert.equal((await api.resolveDevPluginEntry(dir, { preview: 'dist' })).rootPath, join(dir, 'dist'))
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('prod mode loads the built artifact through the install path; missing artifacts report build-command gaps', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'enest-dev-entry-'))
+  try {
+    const manifest = { id: 'com.example.ssh', name: 'SSH', version: '1.0.0', main: 'index.html' }
+    await writeFile(join(dir, 'plugin.json'), JSON.stringify(manifest))
+    // 无构建命令且无产物：错误指向构建命令缺失，而不是写死的 npm
+    await assert.rejects(api.resolveDevPluginEntry(dir, { mode: 'prod' }), /构建命令/)
+    // 现成且版本一致的产物直接按正式安装路径加载，不触发构建
+    await mkdir(join(dir, 'dist'))
+    await writeFile(join(dir, 'dist/plugin.json'), JSON.stringify(manifest))
+    const prod = await api.resolveDevPluginEntry(dir, { mode: 'prod' })
+    assert.equal(prod.rootPath, join(dir, 'dist'))
+    assert.equal(prod.devSource, false)
+    assert.equal(prod.devUrl, undefined)
+    assert.equal(prod.mode, 'prod')
+    // 旧字段 preview:'dist' 等价 mode:'prod'
+    assert.equal((await api.resolveDevPluginEntry(dir, { preview: 'dist' })).mode, 'prod')
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('enest.output overrides the artifact directory in prod mode', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'enest-dev-entry-'))
+  try {
+    const manifest = { id: 'com.example.out', name: 'OUT', version: '1.0.0', main: 'index.html' }
+    await writeFile(join(dir, 'plugin.json'), JSON.stringify(manifest))
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { build: 'vite build' }, enest: { output: 'build-out' } }))
+    await mkdir(join(dir, 'build-out'))
+    await writeFile(join(dir, 'build-out/plugin.json'), JSON.stringify(manifest))
+    const prod = await api.resolveDevPluginEntry(dir, { mode: 'prod' })
+    assert.equal(prod.rootPath, join(dir, 'build-out'))
+    assert.equal(prod.plan.build.label, 'npm run build')
   } finally { await rm(dir, { recursive: true, force: true }) }
 })

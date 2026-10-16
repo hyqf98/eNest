@@ -55,7 +55,7 @@ onUnmounted(() => off?.())
 
 Vue/React 的卸载清理还不能替代插件生命周期：后台暂停动画和轮询，在 `onBeforeClose` 保存业务状态。全部网络和系统能力通过 SDK。
 
-这两种项目在开发时声明 `development.main`，由开发者执行 dev；宿主只连接该 origin。独立工程 build 后还需把去掉 development 的 manifest 写入 dist，再用插件仓库的产物验证器校验。官方 workspace 构建脚本完成该步骤。更多细节见 [开发调试](debug.md)。
+这两种项目在开发时声明 `development.main`；开发服务可由开发者手动执行，未运行时壳按插件 `package.json` 解析出的命令自动拉起，宿主只连接该 origin。独立工程 build 后还需把去掉 development 的 manifest 写入 dist，再用插件仓库的产物验证器校验。官方 workspace 构建脚本完成该步骤。更多细节见 [开发调试](debug.md)。
 
 ## 官方参考
 
@@ -63,10 +63,10 @@ Vue/React 的卸载清理还不能替代插件生命周期：后台暂停动画�
 
 | 示例 | 学习内容 |
 | --- | --- |
-| `com.enest.todos` | 持久化、编辑与列表布局 |
-| `com.enest.theme-demo` | 声明式主题、运行时注册、预览入口 |
-| `com.enest.database` | 数据库句柄、局部表格滚动与会话清理 |
-| `com.enest.ssh` | 私钥能力、终端与文件传输 |
-| `com.enest.net-kit` | HTTP、宿主 WebSocket、订阅清理 |
+| `com.github.eNest.todos` | 持久化、编辑与列表布局 |
+| `com.github.eNest.theme-demo` | 声明式主题、运行时注册、预览入口 |
+| `com.github.eNest.database` | 数据库句柄、局部表格滚动与会话清理 |
+| `com.github.eNest.ssh` | 私钥能力、终端与文件传输 |
+| `com.github.eNest.net-kit` | HTTP、宿主 WebSocket、订阅清理 |
 
 系统集成示例按最小功能阅读；新插件不用默认携带它们全部权限。

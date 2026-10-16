@@ -16,7 +16,7 @@ test('shared confirmation protects real plugin actions, cancels safely and traps
       import {DevConsoleSection} from '@renderer/components/DevConsoleSection';
       import {useShellStore} from '@renderer/stores/shellStore';
       import '@renderer/styles/detail.css';
-      const plugin={id:'com.enest.memo', name:'备忘录', description:'随手记录想法与待办事项',version:'1.2.0',latestVersion:'1.3.0',installed:true,enabled:true,category:'效率',permissions:[],dev:true,glyph:'M'};
+      const plugin={id:'com.example.memo', name:'备忘录', description:'随手记录想法与待办事项',version:'1.2.0',latestVersion:'1.3.0',installed:true,enabled:true,category:'效率',permissions:[],dev:true,glyph:'M'};
       window.confirmAction=confirmAction;window.calls=[];window.detailCloseCount=0;window.nativeConfirms=0;
       window.confirm=()=>{window.nativeConfirms++;return false};
       useShellStore.setState({plugins:[plugin],removeDevPlugin:async id=>window.calls.push(['remove',id])});
@@ -43,9 +43,10 @@ test('shared confirmation protects real plugin actions, cancels safely and traps
     await page.setContent(`<html lang="zh-CN" data-theme="light" data-anim="low"><style>${css.join('\n')}\n${output.outputFiles.find(file=>file.path.endsWith('.css')).text}</style><body><div id="root"></div></body></html>`)
     await page.addScriptTag({content:output.outputFiles.find(file=>file.path.endsWith('.js')).text})
     const confirm = page.locator('.confirm-overlay')
+    const panel = page.locator('.confirm-panel')
     const open = page.getByRole('button',{name:'备忘录 · 卸载',exact:true})
-    const cancel = confirm.getByRole('button',{name:'取消',exact:true})
-    const accept = confirm.getByRole('button',{name:'卸载',exact:true})
+    const cancel = panel.getByRole('button',{name:'取消',exact:true})
+    const accept = panel.getByRole('button',{name:'卸载',exact:true})
     const active = locator=>locator.evaluate(el=>document.activeElement===el)
     const calls = ()=>page.evaluate(()=>window.calls)
     await open.click();await confirm.waitFor({state:'visible'})
@@ -64,7 +65,7 @@ test('shared confirmation protects real plugin actions, cancels safely and traps
     assert.equal(await confirm.count(),1)
     await page.mouse.click(12,12);await confirm.waitFor({state:'detached'});assert.deepEqual(await calls(),[])
     await open.click();await confirm.waitFor({state:'visible'});await accept.click();await confirm.waitFor({state:'detached'})
-    assert.deepEqual(await calls(),[['uninstall','com.enest.memo']])
+    assert.deepEqual(await calls(),[['uninstall','com.example.memo']])
 
     await page.evaluate(()=>{window.calls=[];window.setPage('detail')})
     const detail=page.locator('.detail-modal')
@@ -73,7 +74,7 @@ test('shared confirmation protects real plugin actions, cancels safely and traps
     assert.equal(await page.evaluate(()=>window.detailCloseCount),0,'Escape cannot close the underlying detail modal')
     assert.deepEqual(await calls(),[])
     await detail.getByRole('button',{name:'卸载',exact:true}).click();await accept.click();await confirm.waitFor({state:'detached'})
-    assert.deepEqual(await calls(),[['uninstall','com.enest.memo']])
+    assert.deepEqual(await calls(),[['uninstall','com.example.memo']])
 
     await page.evaluate(()=>{window.calls=[];window.setPage('card')});await open.waitFor()
     await page.evaluate(()=>window.setPage('detail'))
@@ -83,21 +84,21 @@ test('shared confirmation protects real plugin actions, cancels safely and traps
     await page.evaluate(()=>document.documentElement.dataset.theme='dark')
     await page.screenshot({path:`${evidenceDir}/confirm-update-dark.png`})
     await page.keyboard.press('Tab');await page.keyboard.press('Enter');await confirm.waitFor({state:'detached'})
-    assert.deepEqual(await calls(),[['update','com.enest.memo',{force:true}]])
+    assert.deepEqual(await calls(),[['update','com.example.memo',{force:true}]])
 
     await page.evaluate(()=>{window.calls=[];window.setPage('dev')})
     const remove=page.getByRole('button',{name:'移出',exact:true})
     await remove.click();await confirm.waitFor({state:'visible'});await cancel.click();await confirm.waitFor({state:'detached'})
     assert.deepEqual(await calls(),[])
     await remove.click();await confirm.waitFor({state:'visible'})
-    await confirm.getByRole('button',{name:'移出',exact:true}).click();await confirm.waitFor({state:'detached'})
-    assert.deepEqual(await calls(),[['remove','com.enest.memo']])
+    await panel.getByRole('button',{name:'移出',exact:true}).click();await confirm.waitFor({state:'detached'})
+    assert.deepEqual(await calls(),[['remove','com.example.memo']])
     await remove.click();await confirm.waitFor({state:'visible'})
     await page.evaluate(()=>window.setMounted(false));await confirm.waitFor({state:'detached'})
-    assert.deepEqual(await calls(),[['remove','com.enest.memo']],'unmount cancels pending action')
+    assert.deepEqual(await calls(),[['remove','com.example.memo']],'unmount cancels pending action')
     await page.evaluate(()=>window.setMounted(true));await remove.click();await confirm.waitFor({state:'visible'})
     await page.setViewportSize({width:390,height:600})
-    assert.equal(await confirm.evaluate(el=>el.scrollWidth>el.clientWidth),false)
+    assert.equal(await panel.evaluate(el=>el.scrollWidth>el.clientWidth),false)
     await page.screenshot({path:`${evidenceDir}/confirm-remove-narrow.png`})
     await page.keyboard.press('Escape');await confirm.waitFor({state:'detached'})
     assert.equal(await page.evaluate(()=>window.nativeConfirms),0)

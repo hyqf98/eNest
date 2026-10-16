@@ -39,7 +39,7 @@ test('packaged SSH and remote desktop utilities preserve OpenSSH, SFTP, tunnels 
   await build({bundle:true,platform:'node',format:'esm',packages:'external',tsconfig:join(root,'tsconfig.node.json'),stdin:{resolveDir:root,contents:`
    import assert from 'node:assert/strict';import {app} from 'electron';import {writeFile,readFile,mkdir} from 'node:fs/promises';import {join} from 'node:path';import {createHash} from 'node:crypto';import {createConnection} from 'node:net';
    import * as ssh from '@main/ssh/sshSessionManager';import {sshWorkbench} from '@main/ssh/sshWorkbench';import {createRuntimeScope} from '@main/plugin/PluginRuntimeScope';import {grantLocalFile,releaseLocalFiles} from '@main/plugin/localFiles';import {hasPluginActivity} from '@main/plugin/activityRegistry';
-   app.setPath('userData',${JSON.stringify(join(dir,'profile'))});app.disableHardwareAcceleration();const dir=${JSON.stringify(dir)},ids=['com.enest.ssh','com.enest.remote-desktop'],tunnelPorts=${JSON.stringify(tunnelPorts)};
+   app.setPath('userData',${JSON.stringify(join(dir,'profile'))});app.disableHardwareAcceleration();const dir=${JSON.stringify(dir)},ids=['com.github.eNest.ssh','com.github.eNest.remote-desktop'],tunnelPorts=${JSON.stringify(tunnelPorts)};
    app.whenReady().then(async()=>{app.dock?.hide();const scopes=[],sessions=[],evidence=[];let firstHandle;try{
     for(let index=0;index<ids.length;index++){
      const id=ids[index],scope=createRuntimeScope({pluginId:id,generation:1,wcId:100+index});scopes.push(scope);const key=await grantLocalFile(id,join(dir,'client-key'));

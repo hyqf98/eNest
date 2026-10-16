@@ -58,7 +58,7 @@ test('macOS development bundle exposes eNest to the OS and preserves the Electro
       var app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(${child.pid});
       JSON.stringify({ name: app.localizedName.js, bundleId: app.bundleIdentifier.js });
     `], { encoding: 'utf8' }))
-    assert.deepEqual(native, { name: 'eNest', bundleId: 'com.enest.shell.dev' })
+    assert.deepEqual(native, { name: 'eNest', bundleId: 'com.github.eNest.shell.dev' })
     t.diagnostic(JSON.stringify({ electron: identity, native, executable, sourceDependencyUnchanged: true, signatureVerified: true, cacheReused: true }))
   } finally {
     child.kill('SIGTERM')

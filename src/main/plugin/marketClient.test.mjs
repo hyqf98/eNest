@@ -44,7 +44,7 @@ function streamingResponse(chunks, contentLength = null) {
 test('package download preserves bytes and sha256, reports progress and cleans the caller-owned temporary directory', async t => downloadFixture(t, async dir => {
   const body = Buffer.from('fixture archive bytes'), stream = streamingResponse([body]), progress = []
   t.mock.method(globalThis, 'fetch', async () => stream.response)
-  const result = await downloadPluginPackage('https://example.test/plugin.enestplugin', { pluginId: 'com.enest.database', fileName: '../../escaped.zip', expectedSha256: createHash('sha256').update(body).digest('hex'), onProgress: value => progress.push(value) })
+  const result = await downloadPluginPackage('https://example.test/plugin.enestplugin', { pluginId: 'com.github.eNest.database', fileName: '../../escaped.zip', expectedSha256: createHash('sha256').update(body).digest('hex'), onProgress: value => progress.push(value) })
   assert.deepEqual(await readFile(result.path), body)
   assert.equal(dirname(dirname(result.path)), dir)
   assert.deepEqual(progress.at(-1), { percent: 100, received: body.length, total: body.length })
@@ -54,7 +54,7 @@ test('package download preserves bytes and sha256, reports progress and cleans t
 
 test('all plugin identities share the 256 MiB header limit and oversize downloads never open the response reader', async t => downloadFixture(t, async dir => {
   assert.equal(MAX_PLUGIN_PACKAGE_BYTES, 256 * 1024 * 1024)
-  for (const pluginId of [undefined, 'com.enest.database', 'com.enest.dsh', 'com.test.other']) {
+  for (const pluginId of [undefined, 'com.github.eNest.database', 'com.github.eNest.dsh', 'com.test.other']) {
     let reads = 0, signal
     t.mock.method(globalThis, 'fetch', async (_url, options) => { signal = options.signal; return { ok: true, headers: { get: () => String(MAX_PLUGIN_PACKAGE_BYTES + 1) }, body: { getReader: () => { reads++; throw Error('must reject before reading') } } } })
     await assert.rejects(downloadPluginPackage('https://example.test/plugin.enestplugin', { pluginId }), /package too large/)

@@ -10,9 +10,9 @@ import { _electron as electron } from 'playwright-core'
 
 const require = createRequire(import.meta.url)
 const root = fileURLToPath(new URL('../../../', import.meta.url))
-const ids = ['com.enest.smoke.detached-a', 'com.enest.smoke.detached-b']
-const transientId = 'com.enest.smoke.detached-transient'
-const matrixIds = [...ids, ...Array.from({length:18}, (_, index) => `com.enest.smoke.detached-matrix-${index + 3}`)]
+const ids = ['com.example.smoke.detached-a', 'com.example.smoke.detached-b']
+const transientId = 'com.example.smoke.detached-transient'
+const matrixIds = [...ids, ...Array.from({length:18}, (_, index) => `com.example.smoke.detached-matrix-${index + 3}`)]
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 async function poll(read, accept, label, timeout = 15000) {
   let value, error

@@ -39,7 +39,7 @@ test('production classic and orb tabs load package icons and synchronize bounded
 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'enest-tab-icons-'))
   const dataRoot = join(directory, 'data'), userData = join(directory, 'profile')
-  const id = 'com.enest.smoke.tab-icons', name = 'Tab 图标验证'
+  const id = 'com.example.smoke.tab-icons', name = 'Tab 图标验证'
   const iconUrl = `enest://plugin/${id}/assets/market/icon.svg`
   let app, tabId, logs = ''
   const evidence = { platform: process.platform, fixture: id, states: [] }

@@ -8,6 +8,9 @@ import { PluginIcon } from './PluginIcon'
 import { formatAccelerator } from './shortcutCapture'
 import { useShortcutProbe } from './useShortcutProbe'
 import { ShortcutProbeFeedback, describeShortcutProbe } from './ShortcutProbeFeedback'
+import { Switch } from '@renderer/components/ui/Switch'
+import { Checkbox } from '@renderer/components/ui/Checkbox'
+import { Segmented } from '@renderer/components/ui/Segmented'
 
 const statusLabels: Record<PluginShortcutState['status'], string> = {
   registered: '已生效', disabled: '已关闭', 'plugin-disabled': '插件已禁用',
@@ -119,15 +122,13 @@ export function PluginShortcutSettings() {
     <div className="shortcut-editor-fields">
       <div><span>组合键</span><ShortcutRecorder value={draft.accelerator} onChange={accelerator => { setDraftError(''); setDraft({ ...draft, accelerator }) }}
         disabled={!!busyId} label="插件快捷键组合" onRecordingChange={setRecording} /></div>
-      <div><span>启动位置</span><div className="segmented shortcut-mode" role="radiogroup" aria-label="启动位置">
-        {(['quick', 'shell'] as const).map(mode => <button key={mode} type="button" role="radio" aria-checked={draft.mode === mode}
-          className={draft.mode === mode ? 'active' : ''} disabled={!!busyId || recording}
-          onClick={() => setDraft({ ...draft, mode })}>{mode === 'quick' ? '小窗口' : '主窗口'}</button>)}
-      </div></div>
+      <div><span>启动位置</span><Segmented className="shortcut-mode" role="radiogroup" ariaLabel="启动位置" value={draft.mode}
+        disabled={!!busyId || recording} onChange={mode => setDraft({ ...draft, mode })}
+        options={[{ value: 'quick' as const, label: '小窗口' }, { value: 'shell' as const, label: '主窗口' }]} /></div>
     </div>
     <div className="shortcut-editor-actions">
-      <label className="shortcut-enabled-label"><input type="checkbox" checked={draft.enabled} disabled={!!busyId || recording}
-        onChange={event => setDraft({ ...draft, enabled: event.target.checked })} />启用此绑定</label>
+      <label className="shortcut-enabled-label"><Checkbox checked={draft.enabled} disabled={!!busyId || recording}
+        onCheckedChange={enabled => setDraft({ ...draft, enabled: enabled === true })} />启用此绑定</label>
       <button type="button" className="btn btn-ghost" disabled={!!busyId} onClick={() => { setDraft(null); setDraftError('') }}>取消</button>
       <button type="submit" className="btn btn-primary" disabled={!!busyId || recording || !draft.pluginId || !canSaveDraft}>{busyId ? '保存中…' : '保存'}</button>
     </div>
@@ -147,8 +148,8 @@ export function PluginShortcutSettings() {
         <div className="shortcut-binding-state" data-status={state?.status ?? 'conflict'}>
           <span>{state ? statusLabels[state.status] : '正在检查'}</span>{state?.error && <small title={state.error}>{state.error}</small>}
         </div>
-        <button type="button" className={`switch${binding.enabled ? ' on' : ''}`} aria-label={`${binding.enabled ? '关闭' : '启用'} ${plugin?.name ?? binding.pluginId} 的 ${formatAccelerator(binding.accelerator)}`}
-          aria-pressed={binding.enabled} disabled={!!busyId || !!draft} onClick={() => void save({ ...binding, enabled: !binding.enabled })} />
+        <Switch checked={binding.enabled} className="switch" aria-label={`${binding.enabled ? '关闭' : '启用'} ${plugin?.name ?? binding.pluginId} 的 ${formatAccelerator(binding.accelerator)}`}
+          disabled={!!busyId || !!draft} onCheckedChange={() => void save({ ...binding, enabled: !binding.enabled })} />
       </div>
       <div className="shortcut-binding-actions">
         <button type="button" className="btn btn-ghost" disabled={!!busyId || !!draft || unavailable} onClick={() => void launch(binding.id)}>{busyId === binding.id ? '处理中…' : '立即启动'}</button>

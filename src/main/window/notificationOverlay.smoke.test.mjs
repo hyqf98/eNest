@@ -8,7 +8,7 @@ import { createRequire } from 'node:module'
 import { _electron as electron } from 'playwright-core'
 const require = createRequire(import.meta.url)
 const root = process.cwd()
-const pluginId = 'com.enest.smoke.notifications'
+const pluginId = 'com.example.smoke.notifications'
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 async function poll(read, check, label, timeout = 15000) {
   let value, error

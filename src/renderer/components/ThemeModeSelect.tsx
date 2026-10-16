@@ -6,7 +6,7 @@
  */
 import type { ThemeMode, ThemePack } from '@shared/types/plugin'
 import { THEME_MODE_LABELS } from '@renderer/hooks/useTheme'
-import { Select } from '@renderer/components/Select'
+import { Select } from '@renderer/components/ui/Select'
 
 interface Props {
   mode: ThemeMode

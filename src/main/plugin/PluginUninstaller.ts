@@ -1,23 +1,24 @@
 import { clearPluginBlobs } from '@main/plugin/pluginFiles'
 /**
  * PluginUninstaller — 插件卸载器
- * 职责：完整卸载一个已安装插件——关闭运行中 Tab → 清空 partition storage
- *       → 删除插件目录与 storage.local（SQLite 行 + 旧 JSON 残留）→ GC 其注册的主题包
- *       → 重扫注册表 → 推送壳子事件。
+ * 职责：完整卸载一个已安装插件——关闭运行中 Tab → 清空 partition storage 与磁盘残壳
+ *       → 删除插件目录、storage.local（SQLite 行 + 旧 JSON 残留）与密钥保险库
+ *       → GC 其注册的主题包 → 重扫注册表 → 推送壳子事件。
  * 为什么独立：卸载横跨 Host（视图）、session（分区数据）、文件系统、Registry、
  *       主题包与设置，放在任一现有模块都会造成循环依赖或职责膨胀。
  * 被 shellHandlers（ShellUninstallPlugin）调用。
  * 关键依赖：PluginHost（关 Tab + 生命周期）、PluginRegistry（重扫）、
  *       pathsService（目录）、PluginSessionStore、themePackRegistry、settingsStore、logService。
  */
-import { session } from 'electron'
+import { app, session } from 'electron'
 import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { pluginPartition } from '@shared/constants'
+import { pluginPartition, pluginPartitionDirName } from '@shared/constants'
 import { clearPluginStorage } from '@main/db/pluginStorage'
 import { logError, logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, pluginStorageFile } from '@main/paths/pathsService'
+import { vaultClearPlugin } from '@main/vault/secretVault'
 import { sendShellEvent } from '@main/window/createShellWindow'
 import { clearPluginSession, deleteSessionSnapshot } from '@main/plugin/PluginSessionStore'
 import { clearPluginDisabled } from '@main/plugin/pluginEnabledStore'
@@ -98,6 +99,18 @@ async function uninstallLocked(id: string): Promise<UninstallResult> {
     logWarn('uninstall', `${id} ${msg}`)
   }
 
+  // 3b) 删除 partition 磁盘残壳：clearStorageData 只清数据不删目录；
+  //     best-effort（Windows 下句柄未放会失败），残留无数据，不计入卸载错误
+  try {
+    const partitionDir = join(app.getPath('userData'), 'Partitions', pluginPartitionDirName(id))
+    if (existsSync(partitionDir)) {
+      await rm(partitionDir, { recursive: true, force: true })
+      logInfo('uninstall', `removed partition dir ${partitionDir}`)
+    }
+  } catch (err) {
+    logWarn('uninstall', `${id} remove partition dir failed: ${(err as Error).message}`)
+  }
+
   // 4) 清空主进程会话态 bag
   try {
     clearPluginSession(id)
@@ -123,7 +136,7 @@ async function uninstallLocked(id: string): Promise<UninstallResult> {
     logError('uninstall', `${id} ${msg}`)
   }
 
-  // 删除失败时保留仍安装着的插件设置；成功移除后不让同 ID 重装继承授权。
+  // 删除失败时保留仍安装着的插件设置；成功移除后不让同 ID 重装继承授权与密钥。
   if (pluginFilesRemoved) {
     try {
       await settingsStore.removePluginSettings(id)
@@ -131,6 +144,14 @@ async function uninstallLocked(id: string): Promise<UninstallResult> {
       logInfo('uninstall', `cleared plugin settings and permissions ${id}`)
     } catch (err) {
       const msg = `clear plugin settings failed: ${(err as Error).message}`
+      errors.push(msg)
+      logWarn('uninstall', `${id} ${msg}`)
+    }
+    try {
+      const removedSecrets = vaultClearPlugin(id)
+      logInfo('uninstall', `cleared vault secrets ${id} (${removedSecrets})`)
+    } catch (err) {
+      const msg = `clear vault secrets failed: ${(err as Error).message}`
       errors.push(msg)
       logWarn('uninstall', `${id} ${msg}`)
     }

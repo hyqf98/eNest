@@ -37,7 +37,7 @@ export function prepareDevElectron(root = projectRoot) {
     for (const [key, value] of Object.entries({
       CFBundleName: 'eNest',
       CFBundleDisplayName: 'eNest',
-      CFBundleIdentifier: 'com.enest.shell.dev',
+      CFBundleIdentifier: 'com.github.eNest.shell.dev',
       CFBundleIconFile: 'enest.icns'
     })) execFileSync('/usr/bin/plutil', ['-replace', key, '-string', value, plist])
     copyFileSync(sourceIcon, join(bundle, 'Contents', 'Resources', 'enest.icns'))

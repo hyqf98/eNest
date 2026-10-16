@@ -3,7 +3,10 @@
 ## 开发
 
 **Q：必须用 React/Vue 吗？**
-A：不必。任意静态 HTML 即可。main 固定为 index.html。开发期使用 development.main；显式预览 dist 时以 dist 为运行根。
+A：不必。任意静态 HTML 即可，没有 package.json 也能开发（源码静态预览 + 保存自动重载）。main 固定为 index.html。开发期使用 development.main 或 `enest.dev.url`；prod（正式包）模式以构建产物为运行根。
+
+**Q：必须用 npm 吗？**
+A：不必。壳子按插件 `package.json` 解析启动命令：锁文件自动检测 pnpm / yarn / bun / npm，或用 `enest.dev.manager` 显式声明；非 node 工具链写 `enest.dev.command` 原始命令。见[开发加载](debug.md)。
 
 **Q：`window.enest` 和 `window.zapi` 什么关系？**
 A：同一对象的两个名字。`zapi` 是 `@deprecated` 历史别名（保留兼容，计划 v2 移除）——新代码直接用 `window.enest`。

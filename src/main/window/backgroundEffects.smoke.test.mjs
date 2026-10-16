@@ -11,7 +11,7 @@ import { _electron as electron } from 'playwright-core'
 
 const require = createRequire(import.meta.url)
 const root = fileURLToPath(new URL('../../../', import.meta.url))
-const pluginId = 'com.enest.smoke.backgrounds'
+const pluginId = 'com.example.smoke.backgrounds'
 const packId = `${pluginId}.effects`
 const selection = id => `plugin:${pluginId}:${packId}:${id}`
 async function poll(read, accept, label, timeout = 12000) {
@@ -52,7 +52,7 @@ test('native backgrounds persist, synchronize all shell surfaces and follow plug
         const url = wc.getURL()
         if (surface === 'quick') return url.includes('surface=quick')
         if (surface === 'detached') return url.includes('/detached-plugin.html')
-        if (surface === 'plugin') return url.includes('pid=com.enest.smoke.backgrounds') || url.startsWith('enest://com.enest.smoke.backgrounds/')
+        if (surface === 'plugin') return url.includes('pid=com.example.smoke.backgrounds') || url.startsWith('enest://com.example.smoke.backgrounds/')
         return url.includes('/renderer/index.html') && !url.includes('surface=')
       })
       if (!wc) throw Error(`Missing ${surface}`)

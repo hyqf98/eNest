@@ -154,7 +154,7 @@ invalid plugin.json:
 1. **DevTools Console** 是否有 JS 异常（右键 → 检查 / 开发者控制台打开）
 2. `plugin.json` 是否合法、`main` 是否可访问
 3. `permissions` 是否覆盖当前调用的敏感 API（基础能力无需声明）
-4. 开发态端口 / `development.main` 是否正确
+4. 开发态端口 / `development.main`（或 `enest.dev.url`）是否正确，启动命令能否在插件目录手动跑通
 5. 是否在 `background: transparent` 时忘了把 `body` 设为透明（视觉问题）
 6. 仍失败：**关 Tab 重开**，或卸载后重新加载本地目录
 7. 修改过 `plugin.json` 权限后，必须 **关 Tab 重开**（reload 不会重读权限）

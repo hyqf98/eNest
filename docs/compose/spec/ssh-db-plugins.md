@@ -12,7 +12,7 @@ commits: (uncommitted working tree on main)
 
 ## Report
 
-**What was built** — 在正式主仓（无 worktree）交付宿主运行时与双插件：`vault`/`ssh`/`db` 权限与 API、统一 KV 存储契约（`enest.storage` + `enest.vault`→secretRef）、SSH 会话/补全/监控/SFTP、五数据库驱动 + IDEA 向 SQL 补全 + 结果集变更 + 控制台会话持久化 + 导入导出。插件包：`eNest_plugin/plugins/com.enest.ssh` 与 `com.enest.database`。
+**What was built** — 在正式主仓（无 worktree）交付宿主运行时与双插件：`vault`/`ssh`/`db` 权限与 API、统一 KV 存储契约（`enest.storage` + `enest.vault`→secretRef）、SSH 会话/补全/监控/SFTP、五数据库驱动 + IDEA 向 SQL 补全 + 结果集变更 + 控制台会话持久化 + 导入导出。插件包：`eNest_plugin/plugins/ssh` 与 `com.github.eNest.database`。
 
 **Verification** — `npm run typecheck` PASS；`npm run build` PASS；`validate-manifests` PASS。
 
@@ -43,7 +43,7 @@ eNest 缺少开发运维两大核心工具。插件运行在无 Node 的 `WebCon
 | 持久化契约 | **统一 KV API**：业务数据只经 `enest.storage.get/set(key, value)`；密钥只经 `enest.vault.set→secretRef`。**不是 JSON 文件契约**；物理后端由宿主统一 KV 实现（plugin_storage 等） |
 | 驱动 | MySQL=`mysql2`；SQLite=独立文件库；Timescale=`pg`；Influx/TDengine=HTTP |
 | DB 优先级 | SQL 补全 > 结果集 CRUD/批量 > 会话持久化 > 导入导出 > 其它 |
-| 插件 | `com.enest.ssh` / `com.enest.database` |
+| 插件 | `com.github.eNest.ssh` / `com.github.eNest.database` |
 
 ## [S2] Design
 
@@ -102,7 +102,7 @@ await enest.vault.remove(secretRef)
 
 ---
 
-# 插件一：SSH 管理（`com.enest.ssh`）
+# 插件一：SSH 管理（`com.github.eNest.ssh`）
 
 生产级远程运维客户端：连接资产库 + 交互终端 + 命令智能提示 + 性能监控 + 最小 SFTP。
 
@@ -314,7 +314,7 @@ storage `ssh.userDict`：自定义 cmd/alias 提示。
 
 ---
 
-# 插件二：数据库（`com.enest.database`）
+# 插件二：数据库（`com.github.eNest.database`）
 
 **产品定位：** 桌面级 SQL 客户端（IDEA DataGrip 核心路径）。驱动统一抽象，UI 统一 Token。
 
@@ -904,6 +904,6 @@ manifest 均含 `storage.local` + `ui.*` + `notify` + `clipboard.write`。
 - [ ] T3: sshSessionManager（connect/exec/metrics/sftp/completion）— acceptance: 入参 secretRef 可建连；事件契约正确（covers: SSH-C/E/F/G）
 - [ ] T4: db 驱动层 + completion catalog/上下文 + applyChanges — acceptance: 五驱动 QueryResult+rowIdentity；补全上下文 E5 表可测（covers: DB-A/E/F）
 - [x] T5: preload/handlers 暴露 vault/ssh/db — acceptance: METHOD_PERMISSION 全覆盖（covers: 2.0）
-- [ ] T6: `com.enest.ssh` UI — acceptance: 资产/终端/补全/历史/监控/会话 storage 恢复（covers: SSH-A–I）
-- [ ] T7: `com.enest.database` UI — acceptance: SQL 补全优先；结果集增删改批；控制台会话持久化；导入导出（covers: DB-B–I）
+- [ ] T6: `com.github.eNest.ssh` UI — acceptance: 资产/终端/补全/历史/监控/会话 storage 恢复（covers: SSH-A–I）
+- [ ] T7: `com.github.eNest.database` UI — acceptance: SQL 补全优先；结果集增删改批；控制台会话持久化；导入导出（covers: DB-B–I）
 - [x] T8: mockMarket/permissions.md/typecheck/build — acceptance: 全绿（covers: 权限文档）

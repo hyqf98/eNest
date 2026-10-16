@@ -21,7 +21,7 @@ async function poll(read, accepts, label, timeout = 15000, interval = 100) {
 
 test('real three-minute A to B idle destroys only A and restores its checkpoint on wake', { skip: process.env.ENEST_IDLE_SMOKE !== '1', timeout: 240000 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'enest-idle-smoke-')), dataRoot = join(dir, 'data')
-  const ids = ['com.enest.smoke.idle-a', 'com.enest.smoke.idle-b']
+  const ids = ['com.example.smoke.idle-a', 'com.example.smoke.idle-b']
   let app, logs = ''
   try {
     for (const id of ids) {

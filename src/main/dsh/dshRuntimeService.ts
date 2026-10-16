@@ -522,7 +522,7 @@ export async function sdkRpc(pluginId: string, method: string, params: Record<st
 export function runtimeStatus(): DshRuntimeStatus {
   const sdk = [...sdkStates.keys()]
   const webPluginIds = [...webStates.keys()]
-  // 单插件域：状态按任一持有插件的视角聚合（com.enest.dsh 是唯一声明者）
+  // 单插件域：状态按任一持有插件的视角聚合（com.github.eNest.dsh 是唯一声明者）
   const pluginId = webPluginIds[0] ?? sdk[0] ?? ''
   return {
     runtime: resolvedRuntimeInfo(),

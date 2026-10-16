@@ -19,7 +19,7 @@ test('final copied plugin backends load independently and preserve SQLite/DuckDB
   const sources = {}, hashes = {}
   try {
     for (const name of ['database', 'middleware', 'ssh']) {
-      const source = join(root, `eNest_plugin/plugins/com.enest.${name}/dist/backend`)
+      const source = join(root, `eNest_plugin/plugins/${name}/dist/backend`)
       assert.ok(existsSync(join(source, 'index.cjs')), `Build ${name} before this test`)
       await cp(source, join(dir, name), { recursive: true })
       sources[name] = source

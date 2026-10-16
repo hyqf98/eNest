@@ -45,6 +45,11 @@ export function pluginPartition(pluginId: string): string {
   return `${PLUGIN_PARTITION_PREFIX}${pluginId}`
 }
 
+/** partition 对应的磁盘目录名（{userData}/Partitions/ 下，无 persist: 前缀），卸载时清理残壳用 */
+export function pluginPartitionDirName(pluginId: string): string {
+  return pluginPartition(pluginId).replace(/^persist:/, '')
+}
+
 /** 构造 enest://plugin/{pluginId}/{filePath} 协议 URL */
 export function pluginProtocolUrl(pluginId: string, filePath = 'index.html'): string {
   return `${PROTOCOL}://plugin/${pluginId}/${filePath}`

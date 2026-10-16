@@ -13,7 +13,7 @@ import { _electron as electron } from 'playwright-core'
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const require = createRequire(import.meta.url)
 const execute = promisify(execFile)
-const ids = ['com.enest.smoke.shortcuts-a', 'com.enest.smoke.shortcuts-b']
+const ids = ['com.example.smoke.shortcuts-a', 'com.example.smoke.shortcuts-b']
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 async function poll(read, accept, label, timeout = 15000) {
   let value, error

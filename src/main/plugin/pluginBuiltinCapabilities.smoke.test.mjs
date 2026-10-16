@@ -31,7 +31,7 @@ test('a sandboxed plugin uses built-ins and selected files without prompts while
   const selectedText = '用户选择的测试文件\nOnly fixture data.\n'
   const exportedText = '插件导出的测试文本\nSaved through the host picker.\n'
   const exportedBytes = Buffer.from([0, 1, 2, 127, 128, 254, 255])
-  const id = 'com.enest.smoke.builtin', title = '零敏感权限插件'
+  const id = 'com.example.smoke.builtin', title = '零敏感权限插件'
   let app, logs = ''
   const evidence = { platform: process.platform, fixture: id, declaredPermissions: [], tests: [] }
   try {

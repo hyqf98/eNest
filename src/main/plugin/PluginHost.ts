@@ -139,6 +139,8 @@ import { releaseLanShares } from '@main/net/lanShareService'
 import { releaseDshRuntime } from '@main/dsh/dshRuntimeService'
 import { hasPluginActivity, onPluginActivityIdle, releasePluginActivities } from '@main/plugin/activityRegistry'
 import { quickInputAction } from '@main/plugin/quickInputPolicy'
+import { devShortcutAction, toggleDevTools } from '@main/dev/devShortcuts'
+import { startDevWatch, stopDevWatch } from '@main/dev/devPluginWatcher'
 import { clearQuickInput, escapeQuickInput, getQuickInputState } from '@main/plugin/quickInputService'
 import type { PluginInputContext } from '@shared/types/local-files'
 import { releaseLocalFiles } from '@main/plugin/localFiles'
@@ -991,6 +993,8 @@ export class PluginHost {
 
     // quick 容器：拦截插件区域键盘事件（插件持焦时渲染层收不到 Esc/⌘Enter）
     this.hookQuickInput(pluginId, view.webContents)
+    // dev 插件：浏览器同款调试快捷键（F12/⌘⌥I DevTools、⌘R 重载）
+    if (summary.dev) this.hookDevShortcuts(pluginId, view.webContents)
 
     // 加载完成后注入主题 Token（themeAware 时）；透明背景在 load 后再设一次确保生效；
     // 同时推进状态机 ready → （若 active）enter
@@ -1090,6 +1094,9 @@ export class PluginHost {
       this.activatePlugin(pluginId)
     }
     if (!opts?.deferPresentation) this.startEntryLoad(entry)
+    // 源码预览的 dev 插件：监听文件变更自动重载；devUrl 模式由框架 HMR 负责；
+    // prod（dist 预览）不挂 watcher，避免构建中途的半成品产物触发重载，重建后显式重载
+    if (summary.dev && summary.devSource) startDevWatch(pluginId, rootPath)
     this.publishTabs()
     // LRU：超限立即驱逐最久未激活的 background 插件
     this.enforceAliveLimit()
@@ -1157,6 +1164,7 @@ export class PluginHost {
       entry.scope.markClosing()
       this.detachView(entry)
       this.entries.delete(pluginId)
+      stopDevWatch(pluginId)
     }
     if (!preserveSession) {
       if (this.getPlacement(pluginId).kind === 'detached') destroyDetachedWindow(pluginId)
@@ -1680,6 +1688,7 @@ export class PluginHost {
           && this.getPlacementRevision(pluginId) === source.revision) {
           this.detachView(prepared)
           this.entries.delete(pluginId)
+          stopDevWatch(pluginId)
           prepared.scope.markClosing()
           this.pendingEnter.delete(pluginId)
           if (source.placement) this.placements.set(pluginId, source.placement)
@@ -1801,6 +1810,21 @@ export class PluginHost {
         _e.preventDefault()
         this.pinToShell(pluginId)
       }
+    })
+  }
+
+  /**
+   * dev 插件调试快捷键（仅 dev 插件挂载）：F12/⌘⌥I/Ctrl+Shift+I toggle DevTools，
+   * ⌘/Ctrl+R 重载（重跑入口解析，开发服务掉线时会自动重新拉起）。
+   * 插件 view 抢焦后渲染层收不到按键，必须主进程拦截。
+   */
+  private hookDevShortcuts(pluginId: string, wc: WebContents): void {
+    wc.on('before-input-event', (event, input) => {
+      const action = devShortcutAction(input)
+      if (!action) return
+      event.preventDefault()
+      if (action === 'devtools') toggleDevTools(wc)
+      else this.reloadPlugin(pluginId)
     })
   }
 
@@ -2131,6 +2155,7 @@ export class PluginHost {
       }
       this.entries.delete(pluginId)
       this.detachView(entry)
+      stopDevWatch(pluginId)
       entry.scope.markClosing()
       this.sendToPlugin(entry.view.webContents, { event: 'destroy' })
       this.applyTransition(pluginId, 'hibernate')
@@ -2181,6 +2206,7 @@ export class PluginHost {
     this.clearHibernateTimer(pluginId)
     this.entries.delete(pluginId)
     this.detachView(entry)
+    stopDevWatch(pluginId)
     entry.scope.markClosing()
     permissionService.cancelFor(pluginId)
     this.states.set(pluginId, 'crash')

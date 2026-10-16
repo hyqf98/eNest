@@ -178,19 +178,19 @@ port.on('message', ({ data: request }) => {
 
 ```sh
 npm ci
-node scripts/build-plugin.mjs com.enest.ssh com.enest.remote-desktop
+node scripts/build-plugin.mjs com.github.eNest.ssh com.github.eNest.remote-desktop
 ```
 
-连接 Vite 开发服务器时，前端可以 HMR，后端仍从源码根的 **`dist/backend/index.cjs`** 加载，因此必须先构建。后端修改后重新构建，再关闭/重载插件以创建新进程；Vite HMR 不会替换已经运行的后端。验证完整发布行为时选择“预览 dist 构建产物”。不要使用普通“静态源码”模式直接运行 TypeScript 后端。
+连接 Vite 开发服务器时，前端可以 HMR，后端仍从源码根的 **`dist/backend/index.cjs`** 加载，因此必须先构建。后端修改后重新构建（prod 模式的「重新构建」即可），再关闭/重载插件以创建新进程；Vite HMR 不会替换已经运行的后端。验证完整发布行为时切换 **prod（正式包）模式**。不要使用普通「静态源码」模式直接运行 TypeScript 后端。
 
 `.enestplugin` 的根仍是 `dist` 的直接内容，包含声明的 `backend/**`。普通市场下载上限统一为 **256 MiB**，安装解压总量上限为 **2 GiB**；这些上限不豁免身份、摘要、路径和符号链接检查。
 
 | 官方插件 | 迁移后版本 | 最低宿主版本 |
 | --- | --- | --- |
-| 数据库 `com.enest.database` | 1.2.0 | 0.2.0 |
-| 中间件 `com.enest.middleware` | 0.2.0 | 0.2.0 |
-| SSH `com.enest.ssh` | 1.2.0 | 0.2.0 |
-| 远程桌面 `com.enest.remote-desktop` | 1.1.0 | 0.2.0 |
+| 数据库 `com.github.eNest.database` | 1.2.0 | 0.2.0 |
+| 中间件 `com.github.eNest.middleware` | 0.2.0 | 0.2.0 |
+| SSH `com.github.eNest.ssh` | 1.2.0 | 0.2.0 |
+| 远程桌面 `com.github.eNest.remote-desktop` | 1.1.0 | 0.2.0 |
 
 `enest.db.*`、`enest.mw.*`、`enest.ssh.*` 保留原有前端调用形状；宿主将它们转交给**调用方自己的后端包**，不再内置协议驱动。它们继续检查原有细分权限，并额外要求 `backend.node`；旧授权不会隐含完整 Node 信任。数据库方言/驱动资料也来自插件后端，需要 `backend.node`，但资料查询本身不授予数据库内容访问能力。`db.pickSqliteFile` 与 `ssh.pickLocalFile` 仍是无需启动后端的宿主原生选择器。
 

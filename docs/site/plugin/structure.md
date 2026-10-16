@@ -36,7 +36,7 @@ plugins/com.example.notes/
 
 发布 manifest 删除 `development`。无后端的包只含 `plugin.json`、`index.html` 和 `assets/**`；声明了 `backend.entry` 的包还可包含 `backend/**`，其中 `backend/node_modules` 仅容纳构建工具按锁文件收集的生产依赖。源码、测试、根目录 node_modules、环境配置、源码映射、符号链接、越界路径不进入包；第三方依赖所需的运行时源码与资源保留在后端依赖区。脚本使用外部模块文件，不使用内联 JavaScript 或内联事件属性。WASM 可使用，但不开放一般 eval。
 
-共享 kit 是 `@enest/plugin-kit` workspace 包，由 Vite 打进产物；后端也可通过 workspace 包共享业务实现，例如 `@enest/ssh-backend`。不要向每个插件复制可漂移的共享源码。构建只能写 `dist`，不能生成代码到 `src` 或原始资源目录。前端开发服务器可使用 HMR；带后端的插件必须先生成 `dist/backend`，后端代码修改后重新构建并重载实例。
+共享 kit 是 `@enest/plugin-kit` workspace 包，由 Vite 打进产物；后端也可通过 workspace 包共享业务实现，例如 `@enest/ssh-backend`。不要向每个插件复制可漂移的共享源码。构建只能写 `dist`（可用 `enest.output` 声明其它目录），不能生成代码到 `src` 或原始资源目录。前端开发服务器可使用 HMR；带后端的插件必须先生成 `dist/backend`，后端代码修改后重新构建并重载实例。
 
 DSH 已有 `runtime/` 继续作为专属宿主集成附件；通用插件的 Node 入口使用 `backend/`，两者都不受 Chromium 页面沙箱约束。`backend.node` 表示完整本机 Node 信任。市场下载包上限统一为 **256 MiB**，安装解压总量上限为 **2 GiB**；下载和安装都校验目标插件 ID、版本及摘要。
 

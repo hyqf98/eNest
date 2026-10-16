@@ -15,7 +15,7 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 | backend.entry | 可选；包内 backend/ 下的 .cjs/.mjs/.js 入口，需 backend.node；构建工具输出 backend/index.cjs |
 | permissions | 需要用户授权的敏感能力；基础存储/UI/设置/主题等无需声明 |
 | engines.enest | 支持 `*`、精确版本、`^x.y.z`、`>=x.y.z` |
-| development.main | 仅源码开发使用的无凭据 HTTP(S) URL，发布时移除 |
+| development.main | 仅源码开发使用的无凭据 HTTP(S) URL，发布时移除；优先级低于 package.json `enest.dev.url`，启动命令解析见[开发加载](debug.md) |
 | window | 内容尺寸建议；宿主按可用屏幕区域限制，不是 CSS 固定尺寸 |
 | ui | chrome、themeAware、background、preferredColorScheme |
 | features | code、explain、cmds 声明启动指令 |

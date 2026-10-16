@@ -12,6 +12,7 @@ import type {
   SplashBackgroundType
 } from '@shared/types/plugin'
 import { resolveMediaSrc, useThemeStore } from '@renderer/hooks/useTheme'
+import { Segmented } from '@renderer/components/ui/Segmented'
 import { shellApi } from '@renderer/services/shellApi'
 import { toastStore } from '@renderer/hooks/useToast'
 import { useI18n } from '@renderer/hooks/useI18n'
@@ -401,18 +402,15 @@ export function BackgroundPicker() {
               <div>
                 <div className="label">适配方式</div>
               </div>
-              <div className="segmented" style={{ margin: 0 }}>
-                {(['cover', 'contain'] as const).map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    className={cfg.fit === f ? 'active' : ''}
-                    onClick={() => patch({ fit: f })}
-                  >
-                    {f === 'cover' ? '铺满' : '完整'}
-                  </button>
-                ))}
-              </div>
+              <Segmented
+                style={{ margin: 0 }}
+                value={cfg.fit}
+                onChange={(fit) => patch({ fit })}
+                options={[
+                  { value: 'cover' as const, label: '铺满' },
+                  { value: 'contain' as const, label: '完整' }
+                ]}
+              />
             </div>
           )}
         </>

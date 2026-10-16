@@ -26,7 +26,7 @@ async function poll(read, accept, timeout = 20000) {
 // This is a full application correctness test, not a startup latency benchmark.
 test('installed workbenches use real IPC/CSP and retain query and terminal across containers', { skip: process.env.ENEST_WORKBENCH_SMOKE !== '1', timeout: 180000 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'enest-workbench-app-')), dataRoot = join(dir, 'data'), userData = join(dir, 'profile')
-  const dbId = 'com.enest.database', sshId = 'com.enest.ssh', ids = [dbId, sshId]
+  const dbId = 'com.github.eNest.database', sshId = 'com.github.eNest.ssh', ids = [dbId, sshId]
   let app, logs = ''
   try {
     const grants = {}
@@ -40,7 +40,7 @@ test('installed workbenches use real IPC/CSP and retain query and terminal acros
       grants[id] = { permissionGrants: Object.fromEntries(manifest.permissions.map(permission => [permission, 'allow'])) }
     }
     // Additional installed entries exercise the six-view LRU limit.
-    const fillers = Array.from({ length: 7 }, (_, i) => `com.enest.workbench.smoke${i}`)
+    const fillers = Array.from({ length: 7 }, (_, i) => `com.example.workbench.smoke${i}`)
     for (const id of fillers) {
       const target = join(dataRoot, 'plugins', id, '1.0.0'); await mkdir(target, { recursive: true })
       await writeFile(join(target, 'plugin.json'), JSON.stringify({ id, version: '1.0.0', name: id, main: 'index.html', permissions: [] }))

@@ -40,6 +40,7 @@ import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { applyProxyFromSettings } from '@main/proxy/proxyService'
 import { restoreDevPlugins } from '@main/dev/DevConsole'
+import { stopAllDevServers } from '@main/dev/devServerManager'
 import { registerShellHandlers } from '@main/ipc/shellHandlers'
 import { registerPluginHandlers } from '@main/ipc/pluginHandlers'
 import { registerQuickHandlers } from '@main/ipc/quickHandlers'
@@ -70,7 +71,7 @@ applyHardwareAccelerationBeforeReady()
 
 // win32：AppUserModelId 决定通知归属（未设置时通知可能显示为 Electron 默认名/被折叠）
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.enest.shell')
+  app.setAppUserModelId('com.github.eNest.shell')
 }
 
 // linux：Wayland 下屏幕捕获需 PipeWire 授权通道（app ready 前追加才生效）
@@ -336,9 +337,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-// Electron 文档推荐：退出前注销全部全局快捷键
+// Electron 文档推荐：退出前注销全部全局快捷键；同时回收壳子拉起的插件 dev server
 app.on('will-quit', () => {
   releaseAllGlobalShortcutsSync()
+  stopAllDevServers()
 })
 
 let quitting = false

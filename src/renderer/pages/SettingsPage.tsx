@@ -15,7 +15,12 @@ import { AnimationSettingsSection } from '@renderer/components/AnimationSettings
 import { DevConsoleSection } from '@renderer/components/DevConsoleSection'
 import { QuickSettingsSection } from '@renderer/components/QuickSettingsSection'
 import { LanguageSelect } from '@renderer/components/LanguageSelect'
-import { Select } from '@renderer/components/Select'
+import { Select } from '@renderer/components/ui/Select'
+import { Switch } from '@renderer/components/ui/Switch'
+import { Segmented } from '@renderer/components/ui/Segmented'
+import { Button } from '@renderer/components/ui/Button'
+import { Input } from '@renderer/components/ui/Input'
+import { Slider } from '@renderer/components/ui/Slider'
 import { ColorPickerField } from '@renderer/components/ColorPickerField'
 import { SettingsTabs } from '@renderer/components/SettingsTabs'
 import { useI18n } from '@renderer/hooks/useI18n'
@@ -23,13 +28,14 @@ import type { Locale } from '@renderer/i18n'
 import { shellApi } from '@renderer/services/shellApi'
 import { notify } from '@renderer/services/notifyService'
 import { toastStore } from '@renderer/hooks/useToast'
-import type { ProxyConfig, ProxyType } from '@shared/types/plugin'
+import type { ProxyConfig, ProxyType, TabStyle } from '@shared/types/plugin'
 import type { UpdateStatePayload } from '@shared/types/ipc'
 import { PLUGIN_CATEGORY_COLOR_DEFAULT } from '@shared/constants'
 import '@renderer/components/pluginSettings.css'
 import '@renderer/styles/settings.css'
 
 type CloseBehavior = 'minimize-tray' | 'quit'
+type NotifyPosition = 'center' | 'bottom-right'
 
 /** 插件注册的设置 section（来自 settings-sections 事件 / getSettingsSections） */
 interface PluginSettingsItem {
@@ -57,8 +63,9 @@ function normalizeCloseBehavior(v: unknown): CloseBehavior {
   return v === 'quit' ? 'quit' : 'minimize-tray'
 }
 
-function Switch({ on, onToggle, label }: { on: boolean; onToggle: () => void; label: string }) {
-  return <button type="button" className={`switch${on ? ' on' : ''}`} onClick={onToggle} aria-pressed={on} aria-label={label} />
+/** 消息通知位置归一：仅认 center，其余（含缺省）归 bottom-right */
+function normalizeNotifyPosition(v: unknown): NotifyPosition {
+  return v === 'center' ? 'center' : 'bottom-right'
 }
 
 function Field({
@@ -99,6 +106,7 @@ function pickGeneral(settings: Awaited<ReturnType<typeof shellApi.getSettings>>)
     hardwareAcceleration: g.hardwareAcceleration,
     dataRoot: g.dataRoot,
     closeBehavior: normalizeCloseBehavior(g.closeBehavior ?? settings.closeBehavior),
+    notifyPosition: normalizeNotifyPosition(g.notifyPosition),
     proxy: (g.proxy as ProxyConfig | undefined) ?? undefined,
   }
 }
@@ -141,6 +149,7 @@ export function SettingsPage() {
   const [hwAccel, setHwAccel] = useState(true)
   const [dataRoot, setDataRoot] = useState('')
   const [closeBehavior, setCloseBehavior] = useState<CloseBehavior>('minimize-tray')
+  const [notifyPosition, setNotifyPosition] = useState<NotifyPosition>('bottom-right')
   const [loadingGeneral, setLoadingGeneral] = useState(true)
   const [updateState, setUpdateState] = useState<UpdateStatePayload | null>(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
@@ -181,6 +190,7 @@ export function SettingsPage() {
         if (cancelled) return
         const general = pickGeneral(settings)
         setCloseBehavior(general.closeBehavior)
+        setNotifyPosition(general.notifyPosition)
         // 代理：优先专用 getProxy，回落 settings.general.proxy
         try {
           const proxy = shellApi.getProxy
@@ -380,6 +390,17 @@ export function SettingsPage() {
     [],
   )
 
+  /** 消息通知位置：UI 乐观更新，主进程显示通知时实时读取，新消息即时生效 */
+  const handleNotifyPosition = useCallback(
+    (value: NotifyPosition) => {
+      setNotifyPosition(value)
+      void shellApi.setSettings({
+        general: { notifyPosition: value },
+      })
+    },
+    [],
+  )
+
   /** 持久化 + 即时 setProxy；表单不完整时仅提示不落盘 */
   const persistProxy = useCallback(
     (config: ProxyConfig | null, silentIncomplete = false) => {
@@ -511,21 +532,16 @@ export function SettingsPage() {
               <LanguageSelect value={locale} onChange={handleLocale} />
             </Field>
             <Field label={t('settings.general.hardwareAccel')} desc={t('settings.general.hardwareAccelDesc')}>
-              <Switch on={hwAccel} onToggle={handleHwAccel} label={t('settings.general.hardwareAccel')} />
+              <Switch checked={hwAccel} onCheckedChange={handleHwAccel} aria-label={t('settings.general.hardwareAccel')} />
             </Field>
             <Field label={t('settings.general.dataRoot')}>
               <div className="path-actions">
                 <code className="path-text" title={dataRoot}>
                   {loadingGeneral ? t('common.loading') : dataRoot || '—'}
                 </code>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  type="button"
-                  onClick={handleOpenDataRoot}
-                  disabled={!dataRoot}
-                >
+                <Button variant="ghost" size="sm" onClick={handleOpenDataRoot} disabled={!dataRoot}>
                   {t('settings.general.openFolder')}
-                </button>
+                </Button>
               </div>
             </Field>
             <Field label={t('settings.general.closeBehavior')}>
@@ -537,6 +553,30 @@ export function SettingsPage() {
                 options={[
                   { value: 'minimize-tray', label: t('settings.general.minimizeToTray') },
                   { value: 'quit', label: t('settings.general.quitApp') },
+                ]}
+              />
+            </Field>
+            <Field label={t('settings.general.notifyPosition')} desc={t('settings.general.notifyPositionDesc')}>
+              <Segmented
+                className="notify-pos-seg"
+                ariaLabel={t('settings.general.notifyPosition')}
+                value={notifyPosition}
+                onChange={handleNotifyPosition}
+                options={[
+                  {
+                    value: 'center' as NotifyPosition,
+                    label: <>
+                      <span className="notify-pos-icon center-icon" aria-hidden="true"><i /><i /></span>
+                      {t('settings.general.notifyPositionCenter')}
+                    </>
+                  },
+                  {
+                    value: 'bottom-right' as NotifyPosition,
+                    label: <>
+                      <span className="notify-pos-icon corner-icon" aria-hidden="true"><i /><i /><i /></span>
+                      {t('settings.general.notifyPositionCorner')}
+                    </>
+                  }
                 ]}
               />
             </Field>
@@ -556,8 +596,7 @@ export function SettingsPage() {
                 />
                 {proxyType === 'http' || proxyType === 'socks5' ? (
                   <>
-                    <input
-                      type="text"
+                    <Input
                       className="proxy-host"
                       value={proxyHost}
                       placeholder={t('settings.general.proxyHostPlaceholder')}
@@ -565,8 +604,7 @@ export function SettingsPage() {
                       onChange={(e) => setProxyHost(e.target.value)}
                       onBlur={handleProxyFieldBlur}
                     />
-                    <input
-                      type="text"
+                    <Input
                       className="proxy-port"
                       value={proxyPort}
                       placeholder={t('settings.general.proxyPortPlaceholder')}
@@ -578,8 +616,7 @@ export function SettingsPage() {
                   </>
                 ) : null}
                 {proxyType === 'custom' ? (
-                  <input
-                    type="text"
+                  <Input
                     className="proxy-url"
                     value={proxyUrl}
                     placeholder={t('settings.general.proxyUrlPlaceholder')}
@@ -588,44 +625,34 @@ export function SettingsPage() {
                     onBlur={handleProxyFieldBlur}
                   />
                 ) : null}
-                <button
-                  className="btn btn-ghost btn-sm"
-                  type="button"
-                  onClick={handleTestProxy}
-                  disabled={testingProxy || proxyType === 'none'}
-                >
+                <Button variant="ghost" size="sm" onClick={handleTestProxy} disabled={testingProxy || proxyType === 'none'}>
                   {testingProxy ? t('settings.general.proxyTesting') : t('settings.general.proxyTest')}
-                </button>
+                </Button>
               </div>
             </Field>
             <Field label={t('settings.general.tabStyle')}>
-              <div className="segmented tab-style-seg" role="group" aria-label={t('settings.general.tabStyle')}>
-                <button
-                  type="button"
-                  className={tabStyle === 'classic' ? 'active' : ''}
-                  aria-pressed={tabStyle === 'classic'}
-                  onClick={() => setTabStyle('classic')}
-                >
-                  <span className="tab-style-icon classic-icon" aria-hidden="true">
-                    <i />
-                    <i />
-                  </span>
-                  {t('settings.general.tabStyleClassic')}
-                </button>
-                <button
-                  type="button"
-                  className={tabStyle === 'orb' ? 'active' : ''}
-                  aria-pressed={tabStyle === 'orb'}
-                  onClick={() => setTabStyle('orb')}
-                >
-                  <span className="tab-style-icon orb-icon" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                  {t('settings.general.tabStyleOrb')}
-                </button>
-              </div>
+              <Segmented
+                className="tab-style-seg"
+                ariaLabel={t('settings.general.tabStyle')}
+                value={tabStyle}
+                onChange={setTabStyle}
+                options={[
+                  {
+                    value: 'classic' as TabStyle,
+                    label: <>
+                      <span className="tab-style-icon classic-icon" aria-hidden="true"><i /><i /></span>
+                      {t('settings.general.tabStyleClassic')}
+                    </>
+                  },
+                  {
+                    value: 'orb' as TabStyle,
+                    label: <>
+                      <span className="tab-style-icon orb-icon" aria-hidden="true"><i /><i /><i /></span>
+                      {t('settings.general.tabStyleOrb')}
+                    </>
+                  }
+                ]}
+              />
             </Field>
             <Field
               label={t('settings.general.updates')}
@@ -646,25 +673,20 @@ export function SettingsPage() {
               }
             >
               <div className="path-actions">
-                <button
-                  className="btn btn-ghost btn-sm"
-                  type="button"
-                  onClick={handleCheckUpdate}
-                  disabled={checkingUpdate || updateState?.status === 'downloading'}
-                >
+                <Button variant="ghost" size="sm" onClick={handleCheckUpdate} disabled={checkingUpdate || updateState?.status === 'downloading'}>
                   {checkingUpdate || updateState?.status === 'checking'
                     ? t('settings.general.checkingUpdate')
                     : t('settings.general.checkUpdate')}
-                </button>
+                </Button>
                 {(updateState?.status === 'available' || updateState?.status === 'downloaded') && (
-                  <button className="btn btn-ghost btn-sm" type="button" onClick={openUpdateDialog}>
+                  <Button variant="ghost" size="sm" onClick={openUpdateDialog}>
                     {t('settings.general.viewUpdateNotes')}
-                  </button>
+                  </Button>
                 )}
                 {updateState?.status === 'downloaded' && (
-                  <button className="btn btn-primary btn-sm" type="button" onClick={handleInstallUpdate}>
+                  <Button variant="primary" size="sm" onClick={handleInstallUpdate}>
                     {t('settings.general.installUpdate')}
-                  </button>
+                  </Button>
                 )}
               </div>
             </Field>
@@ -694,20 +716,20 @@ export function SettingsPage() {
             const renderValue = (item: PluginSettingsItem) => {
               if (item.type === 'page') {
                 return (
-                  <button type="button" className="btn" onClick={() => {
+                  <Button onClick={() => {
                     void shellApi.openPlugin(id, item.entry ?? { code: 'settings' }).catch((error: unknown) => {
                       notify.error(error instanceof Error ? error.message : '无法打开插件设置')
                     })
-                  }}>打开插件设置</button>
+                  }}>打开插件设置</Button>
                 )
               }
               const raw = item.key in values ? values[item.key] : item.default
               if (item.type === 'boolean' || item.type === 'bool' || item.type === 'switch') {
                 return (
                   <Switch
-                    label={item.label}
-                    on={raw !== false && raw != null}
-                    onToggle={() => handlePluginSetting(id, item.key, !(raw !== false && raw != null))}
+                    aria-label={item.label}
+                    checked={raw !== false && raw != null}
+                    onCheckedChange={() => handlePluginSetting(id, item.key, !(raw !== false && raw != null))}
                   />
                 )
               }
@@ -730,7 +752,7 @@ export function SettingsPage() {
               }
               if (item.type === 'number') {
                 return (
-                  <input
+                  <Input
                     type="number"
                     className="plugin-setting-input"
                     aria-label={item.label}
@@ -766,14 +788,13 @@ export function SettingsPage() {
                 const value = Number.isFinite(num) ? Math.min(max, Math.max(min, num)) : min
                 return (
                   <div className="plugin-slider-row">
-                    <input
-                      type="range"
+                    <Slider
                       min={min}
                       max={max}
                       step={step}
-                      value={value}
+                      value={[value]}
                       aria-label={item.label}
-                      onChange={(e) => handlePluginSetting(id, item.key, Number(e.target.value))}
+                      onValueChange={([next]) => handlePluginSetting(id, item.key, next)}
                     />
                     <span className="plugin-slider-value">{value}</span>
                   </div>
@@ -798,8 +819,7 @@ export function SettingsPage() {
                 console.warn('[settings] unknown item type, fallback to text:', item.type, item.key)
               }
               return (
-                <input
-                  type="text"
+                <Input
                   className="plugin-setting-input"
                   aria-label={item.label}
                   defaultValue={raw === undefined || raw === null ? '' : String(raw)}

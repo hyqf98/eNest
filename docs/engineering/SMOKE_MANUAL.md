@@ -1,6 +1,6 @@
 # 最终批次人工冒烟清单
 
-自动化覆盖见 `scripts/smoke-final.mjs`（结果矩阵在批次最终报告）。以下项目无法经 CDP 安全注入或需要真实系统交互，需人工在 `npm run dev` 下逐项验证。
+以下项目无法经 CDP 安全注入或需要真实系统交互，需人工在 `npm run dev` 下逐项验证。
 
 ## 1. crash 自愈（首崩自动重启）
 
@@ -11,7 +11,7 @@
 1. 打开 Hello 插件（主窗 Tab）
 2. 对插件页面打开 DevTools（设置 → 开发者 → 已打开插件的 DevTools）
 3. 在 DevTools Console 执行 `process.crash()`（渲染层 sandbox 下可用 `window.location = 'enest://crash'` 不可行时，改用 DevTools ⋯ → More tools → 「Crash renderer」不存在则跳过，直接用插件 preload 的 node 集成在 sandbox=false 下 `process.crash()`）
-4. 预期：主进程日志出现 `[lifecycle] com.example.hello: crashed ... auto restart`，Tab 自动恢复内容（不显示崩溃面板）
+4. 预期：主进程日志出现 `[lifecycle] com.github.eNest.todos: crashed ... auto restart`，Tab 自动恢复内容（不显示崩溃面板）
 5. 再崩一次（连续第二次）：Tab 保留但显示崩溃态，点击重试重新打开
 
 ## 2. Alt+Space 全局热键呼出 Quick（真实系统热键）

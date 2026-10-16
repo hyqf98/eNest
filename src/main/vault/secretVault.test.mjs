@@ -68,6 +68,27 @@ test('secrets use secure encryption and remain isolated between plugin namespace
   } finally { f.close() }
 })
 
+test('vaultClearPlugin removes the whole plugin namespace without touching other plugins', () => {
+  const f = fixture()
+  try {
+    f.api.vaultSet('com.test.a', 'account', 'private-a')
+    f.api.vaultSet('com.test.a', 'token', 'private-a2')
+    const b = f.api.vaultSet('com.test.b', 'account', 'private-b').secretRef
+    assert.equal(f.api.vaultClearPlugin('com.test.a'), 2)
+    assert.equal(fs.existsSync(join(f.directory, 'secrets', 'com.test.a')), false)
+    assert.equal(f.api.vaultHas('com.test.a', 'account'), false)
+    assert.equal(f.api.resolveSecret('com.test.a', 'account'), null)
+    assert.equal(f.api.resolveSecret('com.test.b', b), 'private-b')
+    // 幂等：目录已不存在时返回 0
+    assert.equal(f.api.vaultClearPlugin('com.test.a'), 0)
+    // 路径敏感字符的插件 ID 走同一 sanitize 目录，按目录整删不越界
+    f.api.vaultSet('com.test/a', 'k', 'v')
+    assert.equal(f.api.vaultClearPlugin('com.test/a'), 1)
+    assert.equal(fs.existsSync(join(f.directory, 'secrets', 'com.test_a')), false)
+    assert.equal(fs.existsSync(join(f.directory, 'secrets', 'com.test.b')), true)
+  } finally { f.close() }
+})
+
 test('unavailable or weak storage never writes fallback ciphertext and preserves existing credentials', () => {
   for (const platform of ['darwin', 'win32', 'linux']) {
     const f = fixture(platform)

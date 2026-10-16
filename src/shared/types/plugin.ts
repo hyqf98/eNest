@@ -422,6 +422,10 @@ export interface PluginSummary {
   sourcePath?: string
   /** 开发态插件（开发者控制台加载，未复制到 userData） */
   dev?: boolean
+  /** dev 插件当前选择的模式：dev（HMR/源码）或 prod（构建产物正式形态） */
+  devMode?: 'dev' | 'prod'
+  /** 解析出的启动/构建命令标签（如 `pnpm run dev`），开发者控制台展示 */
+  devCommand?: string
   /** 已归一的 UI 配置（供壳子 chrome / 主题注入使用） */
   ui: PluginUiConfig
   /**
@@ -439,10 +443,63 @@ export interface PluginMarketStatus {
   fetchedAt?: number
 }
 
+/** 插件本地开发使用的包管理器：package.json enest 段声明，或锁文件自动检测；兜底 npm。 */
+export type DevPackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun'
+
+/** package.json `enest` 段的命令声明（dev / build 共用形状）；壳子只解析执行，不预设工具链。 */
+export interface EnestCommandConfig {
+  /** 原始命令逃生舱（非 node 工具链 / 特殊启动方式）；`{port}` 占位符在端口漂移时替换。 */
+  command?: string
+  manager?: DevPackageManager
+  /** package.json scripts 中的脚本名；缺省按 dev→start（构建为 build→pack）回退。 */
+  script?: string
+  /** script 型端口漂移参数模板；缺省 ["--","--port={port}"]。 */
+  portArgs?: string[]
+  env?: Record<string, string>
+}
+
+export interface EnestDevCommandConfig extends EnestCommandConfig {
+  /** dev 服务入口 URL；缺省回落 plugin.json development.main。 */
+  url?: string
+}
+
+/** 插件 package.json 的 `enest` 段：本地开发环境声明处。 */
+export interface EnestPackageConfig {
+  dev?: EnestDevCommandConfig
+  build?: EnestCommandConfig
+  /** 构建产物目录（相对插件源码根）；缺省 dist。 */
+  output?: string
+}
+
+/** devCommandResolver 解析出的可执行命令；label 供日志与开发者控制台展示。 */
+export interface DevCommandSpec {
+  kind: 'raw' | 'script'
+  /** raw：完整命令行；script：package.json scripts 脚本名。 */
+  command: string
+  manager?: DevPackageManager
+  portArgs?: string[]
+  env?: Record<string, string>
+  /** 如 `pnpm run dev`。 */
+  label: string
+}
+
+/** 各维度独立回退的解析结果；解析不到 start（纯静态插件）则不拉服务。 */
+export interface DevCommandPlan {
+  devUrl?: string
+  start?: DevCommandSpec
+  build?: DevCommandSpec
+  output: string
+}
+
 /** Developer registration. An empty URL explicitly selects static source preview. */
 export interface DevPluginLoadOptions {
   url?: string
+  /** dev（默认）＝开发服务 HMR 或源码静态预览；prod＝构建产物按正式安装路径加载。 */
+  mode?: 'dev' | 'prod'
+  /** 旧字段兼容：'dist' 等价 mode 'prod'。 */
   preview?: 'source' | 'dist'
+  /** 声明的开发服务未运行时自动执行解析出的启动命令并等待就绪；运行时行为，不入 dev.json。 */
+  autoStartServer?: boolean
 }
 
 /** 市场安装结果：sample 本地同步安装 / remote 已入队下载 */
@@ -641,6 +698,8 @@ export interface GeneralSettings {
   /** 数据根目录，默认 ~/.eNest；可覆盖 */
   dataRoot?: string
   closeBehavior: 'minimize-tray' | 'quit'
+  /** 消息通知默认位置（中间弹框 / 右下角）；变更对新消息即时生效 */
+  notifyPosition?: 'center' | 'bottom-right'
   /** Tab 样式；变更即时生效 */
   tabStyle?: TabStyle
   /** 动画效果强度；变更即时生效 */

@@ -63,8 +63,8 @@ export async function withInstallLock<T>(id: string, action: () => Promise<T>): 
   try { return await task } finally { if (installLocks.get(id) === task) installLocks.delete(id) }
 }
 
-/** id：反向域名（至少两段，小写字母/数字/连字符） */
-const ID_PATTERN = /^[a-z0-9]+(\.[a-z0-9-]+)+$/
+/** id：反向域名（至少两段；首段小写，后续段允许大写如 com.github.eNest.xxx） */
+const ID_PATTERN = /^[a-z0-9]+(\.[a-zA-Z0-9-]+)+$/
 /** version：宽松 semver（允许 -beta.1 / +build 后缀） */
 const SEMVER_PATTERN =
   /^\d+\.\d+\.\d+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/
@@ -99,7 +99,7 @@ export function collectManifestIssues(
   if (typeof m.id !== 'string' || !m.id) {
     pushError(errors, m.id, '字段 id 缺失或不是字符串（必填，反向域名）')
   } else if (!ID_PATTERN.test(m.id)) {
-    pushError(errors, m.id, `字段 id "${m.id}" 不是合法反向域名（形如 com.example.plugin）`)
+    pushError(errors, m.id, `字段 id "${m.id}" 不是合法反向域名（形如 com.github.eNest.plugin）`)
   }
 
   if (typeof m.name !== 'string' || !m.name.trim()) {
@@ -262,11 +262,11 @@ export async function installFromDirectory(dir: string, options: { source?: bool
   const manifest = parsed as PluginManifest
   const source = options.source === true
   if (source) {
-    if (basename(dir) !== manifest.id) throw new Error('源码目录名必须等于 plugin.json.id')
+    if (basename(dir) !== manifest.id.split('.').pop()) throw new Error('源码目录名必须等于 plugin.json.id 的末段')
     const packageFile = join(dir, 'package.json')
     if ((await lstat(packageFile)).isSymbolicLink()) throw new Error('源码 package.json 不允许符号链接')
     const pkg = JSON.parse(await readFile(packageFile, 'utf8')) as Record<string, unknown>
-    if (pkg.name !== manifest.id || pkg.version !== manifest.version || pkg.type !== 'module') throw new Error('package.json name/version/type 必须与插件工程契约一致')
+    if (pkg.name !== manifest.id.split('.').pop() || pkg.version !== manifest.version || pkg.type !== 'module') throw new Error('package.json name（id 末段）/version/type 必须与插件工程契约一致')
   }
   const resources = [manifest.icon!, manifest.market!.readme!, ...(manifest.market?.screenshots ?? [])]
   if (!(source && manifest.development?.main)) resources.push(PLUGIN_ENTRY)
@@ -419,10 +419,10 @@ async function validatePublishedFiles(root: string, manifest: PluginManifest): P
       const info = await lstat(join(dir, name))
       if (info.isSymbolicLink()) throw new Error(`插件包不允许符号链接: ${rel}`)
       if (!prefix && name === '.enest-build.json' && info.isFile()) continue // host-owned revision metadata
-      if (!prefix && !['plugin.json', 'index.html', 'assets', ...(manifest.backend ? ['backend'] : []), ...(id === 'com.enest.dsh' ? ['runtime'] : [])].includes(name)) {
+      if (!prefix && !['plugin.json', 'index.html', 'assets', ...(manifest.backend ? ['backend'] : []), ...(id === 'com.github.eNest.dsh' ? ['runtime'] : [])].includes(name)) {
         throw new Error(`非标准发布内容: ${rel}`)
       }
-      const runtime = id === 'com.enest.dsh' && (rel === 'runtime' || rel.startsWith('runtime/'))
+      const runtime = id === 'com.github.eNest.dsh' && (rel === 'runtime' || rel.startsWith('runtime/'))
       const backend = !!manifest.backend && (rel === 'backend' || rel.startsWith('backend/'))
       if (!runtime && (!(backend ? isPluginBackendPath(rel) : isPluginAssetPath(rel)) || (!backend && /(?:^|\/)(?:node_modules|tests?|src)(?:\/|$)/.test(rel)) || /\.(?:map|tsx?|vue)$/i.test(rel))) {
         throw new Error(`发布包包含源码或私有文件: ${rel}`)

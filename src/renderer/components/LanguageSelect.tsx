@@ -2,6 +2,7 @@
  * LanguageSelect — 语言分段选择（中文 | English）
  * 受控组件；复用 .segmented 样式，value 为 Locale。
  */
+import { Segmented } from '@renderer/components/ui/Segmented'
 import type { Locale } from '@renderer/i18n'
 
 interface Props {
@@ -15,19 +16,5 @@ const OPTIONS: { value: Locale; label: string }[] = [
 ]
 
 export function LanguageSelect({ value, onChange }: Props) {
-  return (
-    <div className="segmented" role="group" aria-label="Language">
-      {OPTIONS.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          className={value === opt.value ? 'active' : ''}
-          aria-pressed={value === opt.value}
-          onClick={() => onChange(opt.value)}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  )
+  return <Segmented value={value} options={OPTIONS} onChange={onChange} ariaLabel="Language" />
 }

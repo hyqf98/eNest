@@ -1,30 +1,31 @@
+/* Radix Dialog 版遮罩：原 <dialog>::backdrop 参数（22% text + blur 5px）平移到 Overlay div。
+   Content 与 Overlay 是兄弟节点，居中与层级由 .confirm-panel 自己负责。 */
 .confirm-overlay {
-  box-sizing: border-box;
   position: fixed;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  max-width: none;
-  max-height: none;
-  margin: 0;
-  padding: 24px;
+  z-index: 1250;
   border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  overflow: auto;
-  overscroll-behavior: contain;
+  background: color-mix(in srgb, var(--text) 22%, transparent);
+  backdrop-filter: blur(5px);
 }
-.confirm-overlay[open] { display: grid; place-items: center; }
-.confirm-overlay::backdrop { background: color-mix(in srgb, var(--text) 22%, transparent); backdrop-filter: blur(5px); }
 .confirm-panel {
   box-sizing: border-box;
-  width: min(420px, 100%);
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  /* 独立 translate 属性：gsap 的 y 进出场写的是行内 transform，两者叠加互不覆盖 */
+  translate: -50% -50%;
+  z-index: 1251;
+  width: min(420px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
   padding: 24px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: 0 20px 64px color-mix(in srgb, var(--text) 20%, transparent);
+  color: var(--text);
+  font: inherit;
 }
 .confirm-symbol { display: grid; place-items: center; width: 38px; height: 38px; margin-bottom: 16px; border-radius: 12px; color: var(--accent); background: var(--accent-soft); }
 .confirm-symbol svg { width: 22px; height: 22px; }
@@ -34,6 +35,6 @@
 .confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .confirm-actions .btn { min-width: 80px; height: 36px; padding: 0 16px; }
 .confirm-actions .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-:root[data-anim="low"] .confirm-overlay::backdrop { backdrop-filter: none; }
-@media (prefers-reduced-motion: reduce) { .confirm-overlay::backdrop { backdrop-filter: none; } }
-@media (max-width: 480px) { .confirm-overlay { padding: 16px; } .confirm-panel { padding: 22px; } }
+:root[data-anim="low"] .confirm-overlay { backdrop-filter: none; }
+@media (prefers-reduced-motion: reduce) { .confirm-overlay { backdrop-filter: none; } }
+@media (max-width: 480px) { .confirm-panel { width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 22px; } }

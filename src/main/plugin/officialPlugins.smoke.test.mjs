@@ -82,13 +82,6 @@ test('every official packaged plugin boots inside a sandbox and releases its nat
         assert.deepEqual(state.images.filter(url => url.startsWith('enest:')), [], `${id} missing packaged images`)
         const failures = report.messages.filter(item => item.level === 'fatal' || /Refused to (?:load|execute|connect|create)|violat(?:es|ing).*Content Security Policy|Content Security Policy.*invalid source|Uncaught|Unable to load preload|Cannot (?:read|set) properties/i.test(item.message || ''))
         assert.deepEqual(failures, [], `${id} boot/CSP failures`)
-        if (id === 'com.enest.theme-demo') {
-          const packs = await poll(() => inShell('window.enestShell.getTheme().then(theme=>theme.packs)'), packs => packs.some(pack => pack.id === 'theme-demo.ink-green' && pack.source === id), 'runtime theme registration')
-          report.theme = { runtimeRegistered: true, packIds: packs.filter(pack => pack.source === id).map(pack => pack.id) }
-          await inShell(`window.enestShell.setPluginEnabled(${JSON.stringify(id)},false)`)
-          await poll(() => inShell('window.enestShell.getTheme().then(theme=>theme.packs)'), packs => packs.every(pack => pack.source !== id), 'theme cleanup on disable')
-          report.theme.disabledRemovedAllPacks = true
-        }
       } catch (error) { report.error = error.message }
       finally {
         await inShell(`window.enestShell.closePlugin(${JSON.stringify(id)})`)

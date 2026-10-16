@@ -4,7 +4,7 @@
 
 ## 插件目录与图标
 
-- `catalog.json`：当前 `eNest_plugin/plugins/*/plugin.json` 的离线快照。收录 34 个工具，排除 `com.example.hello` 与 `com.enest.theme-demo`。
+- `catalog.json`：当前 `eNest_plugin/plugins/*/plugin.json` 的离线快照。收录 31 个工具。
 - `plugins/{slug}.svg`：逐一复制相应插件 `public/assets/market/icon.svg`。保留官方插件标志，未重绘。
 - 字段：`id`、`slug`、`name`、`description`、`category`、`icon`；已有官网截图时附 `screenshot`。名称、说明和分类来自 manifest，首页可另外使用简短展示文案。
 - 分类数量：效率 12、开发 16、设计 2、媒体 2、其它 2。更新插件时同步 manifest 快照、图标和首页静态目录，不能只改计数。

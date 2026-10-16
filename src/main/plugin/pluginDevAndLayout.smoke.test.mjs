@@ -21,7 +21,7 @@ async function poll(read, accepts, label, timeout = 15000) {
 }
 
 test('native shell stays within resized viewport; external source and Vite HMR keep a single sandboxed runtime', { skip: process.env.ENEST_APP_SMOKE !== '1', timeout: 90000 }, async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'enest-dev-layout-')), dataRoot = join(dir, 'data'), id = 'com.enest.smoke.dev'
+  const dir = await mkdtemp(join(tmpdir(), 'enest-dev-layout-')), dataRoot = join(dir, 'data'), id = 'com.example.smoke.dev'
   const source = join(dir, 'external-projects', id)
   const artifacts = process.env.ENEST_LAYOUT_SMOKE_ARTIFACTS || await mkdtemp(join(tmpdir(), 'enest-layout-evidence-'))
   let app, vite

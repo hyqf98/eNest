@@ -67,6 +67,10 @@ export const IpcChannels = {
   ShellForgetDevPlugin: 'shell:forget-dev-plugin',
   /** 开发者控制台：切换 dev 插件「退出到后台立即结束运行」（对齐 uTools） */
   ShellSetDevKillOnHide: 'shell:set-dev-kill-on-hide',
+  /** 开发者控制台：切换 dev 插件 dev（HMR/源码）/ prod（构建产物正式形态）模式 */
+  ShellSetDevPluginMode: 'shell:set-dev-plugin-mode',
+  /** 开发者控制台：prod 模式手动重建（执行解析出的构建命令并重载） */
+  ShellRebuildDevPlugin: 'shell:rebuild-dev-plugin',
   ShellReloadPlugin: 'shell:reload-plugin',
   ShellOpenDevTools: 'shell:open-devtools',
   ShellGetSettings: 'shell:get-settings',
@@ -442,7 +446,7 @@ export type PluginEventPayload =
       reqId: string
       query: string
     }
-  /** SSH 会话数据/退出/错误/指标（com.enest.ssh） */
+  /** SSH 会话数据/退出/错误/指标（com.github.eNest.ssh） */
   | SshPluginEvent
   /** 中间件控制台实时事件：tail 监听消息 / 连接与监听错误 */
   | MwPluginEvent
@@ -461,7 +465,7 @@ export type PluginEventPayload =
       done?: boolean
       error?: string
     }
-  /** DSH 驾驶舱事件（dsh.*）：web 进程就绪/端口重设、sdk JSON-RPC 通知、热更新进度（com.enest.dsh） */
+  /** DSH 驾驶舱事件（dsh.*）：web 进程就绪/端口重设、sdk JSON-RPC 通知、热更新进度（com.github.eNest.dsh） */
   | { type: 'dsh.event'; event: DshWorkbenchEvent }
   /**
    * net.socket 出站 TCP 连接数据（net.socket.connect 的 socketId 对应流）：

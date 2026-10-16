@@ -27,13 +27,12 @@ const ids = [
   'json-tools',
   'password-kit',
   'pomodoro',
-  'qrcode',
   'screen-assistant',
   'sticky-notes',
   'timestamp',
   'todos',
   'translate',
-].map((name) => `com.enest.${name}`)
+].map((name) => `com.github.eNest.${name}`)
 
 async function poll(read, accepts, label, timeout = 15000) {
   const deadline = Date.now() + timeout
@@ -370,8 +369,8 @@ test(
         await close(id)
       }
 
-      const todo = 'com.enest.todos',
-        notes = 'com.enest.sticky-notes'
+      const todo = 'com.github.eNest.todos',
+        notes = 'com.github.eNest.sticky-notes'
       await open(todo, 'quick')
       const oldInput = await inputState(todo, 'old input generation')
       await evaluate(
@@ -462,7 +461,7 @@ test(
       await close(notes)
       await close(todo)
 
-      const timer = 'com.enest.pomodoro'
+      const timer = 'com.github.eNest.pomodoro'
       await open(timer, 'quick')
       const started = await evaluate(
         timer,
@@ -481,7 +480,7 @@ test(
       evidence.backgroundTimer =
         'running after view close/reopen; same deadline'
 
-      const screenId = 'com.enest.screen-assistant'
+      const screenId = 'com.github.eNest.screen-assistant'
       const screenPermission = await app.evaluate(({ systemPreferences }) =>
         process.platform === 'darwin'
           ? systemPreferences.getMediaAccessStatus('screen')

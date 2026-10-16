@@ -2,7 +2,6 @@
 import { isPluginAssetPath } from '@shared/pluginContract'
 import manifestSchema from '@shared/pluginManifest.schema.json'
 import { pluginProtocolUrl } from '@shared/constants'
-import { resolveOfficialPluginIcon } from '@shared/pluginIconArtwork'
 import type { PluginManifest, PluginPermission, PluginSummary, PluginUiConfig } from '@shared/types/plugin'
 import { PLUGIN_PERMISSIONS, resolvePluginUi } from '@shared/types/plugin'
 
@@ -200,7 +199,7 @@ export function parseRemoteMarket(
       installs: installs > 0 ? installs >= 1000 ? `${(installs / 1000).toFixed(1)}k` : String(installs) : '',
       color: colorFromId(p.id),
       glyph: p.name.trim().slice(0, 1).toUpperCase() || '?',
-      icon: resolveOfficialPluginIcon(p.id, p.version, resolveRegistryImageUrl(p.icon, registryUrl)),
+      icon: resolveRegistryImageUrl(p.icon, registryUrl),
       screenshots: screenshotUrls(p.screenshots, (value) => resolveRegistryImageUrl(value, registryUrl, true)),
       readmeUrl: resolveRegistryImageUrl(p.readmeUrl, registryUrl),
       readmeImages: readmeImages(p.readmeImages, registryUrl),

@@ -11,7 +11,7 @@ import { _electron as electron } from 'playwright-core'
 
 const require = createRequire(import.meta.url)
 const root = process.cwd()
-const id = 'com.enest.smoke.home-search'
+const id = 'com.example.smoke.home-search'
 async function poll(read, accepts, label, timeout = 20000) {
   let value, error
   const deadline = Date.now() + timeout

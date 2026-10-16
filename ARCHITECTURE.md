@@ -18,7 +18,8 @@
 | 市场数据 | 第一期本地 Mock + 可安装示例插件 |
 | 主题 | 双主题 + **设置 → 主题** 全量 Token 动态调色 |
 | Tab 关闭 | 立即销毁 `webContents` |
-| 壳子 UI | React 18 + GSAP |
+| 壳子 UI | React 18 + GSAP；基础控件层 `components/ui/`（Radix UI 行为 + tokens 视觉，2026-10 起） |
+| 官方插件 UI | React 18 + Radix（与壳同栈，`pk-*` 控件层从壳派生，每插件独立打包）；插件规范框架无关 |
 | 桌面运行时 | Electron 33+ · `BaseWindow` + `WebContentsView` |
 | 打包 | electron-forge / builder，目标安装包 &lt; 90MB |
 
@@ -43,8 +44,8 @@ BaseWindow (frameless)
 
 ```jsonc
 {
-  "id": "com.example.hello",
-  "name": "Hello 工具",
+  "id": "com.example.notes",
+  "name": "Notes 工具",
   "version": "1.0.0",
   "description": "示例插件",
   "author": "dev",

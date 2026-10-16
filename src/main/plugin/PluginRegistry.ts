@@ -77,7 +77,7 @@ function pluginsRoot(): string {
 
 /** Local installation consumes the same built output as a release archive. */
 function resolveSampleDir(id: string): string | null {
-  const path = join(app.getAppPath(), 'eNest_plugin', 'plugins', id, 'dist')
+  const path = join(app.getAppPath(), 'eNest_plugin', 'plugins', id.split('.').pop() ?? id, 'dist')
   return existsSync(join(path, 'plugin.json')) ? path : null
 }
 
@@ -371,7 +371,7 @@ private removeThemePackContributions(pluginId: string): void {
               const pluginDir = join(idDir, version)
               try {
                 const manifest = await installFromDirectory(pluginDir, { metadataOnly: true })
-                if (manifest.id !== id || manifest.version !== version) throw new Error('安装目录必须为 plugins/<id>/<version>')
+                if (manifest.id.split('.').pop() !== id || manifest.version !== version) throw new Error('安装目录必须为 plugins/<id 末段>/<version>')
                 const buildRevision = await readPluginBuildRevision(pluginDir)
                 next.set(manifest.id, { manifest, rootPath: pluginDir, version: manifest.version, buildRevision })
                 break
@@ -608,7 +608,7 @@ private removeThemePackContributions(pluginId: string): void {
     const pkg = await downloadPluginPackage(remote.assetUrl, {
       pluginId: id,
       expectedSha256: remote.assetSha256,
-      fileName: `${id}@${remote.version}.enestplugin`,
+      fileName: `${id.split('.').pop() ?? id}@${remote.version}.enestplugin`,
       onProgress: (p) => {
         // 下载映射到 0–70
         const pct = Math.round(p.percent * 0.7)

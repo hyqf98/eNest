@@ -36,7 +36,7 @@ test('four release archives install through real extraction/hash workers; old ho
   const artifacts = [], root = process.cwd()
   try {
     for (const suffix of ['database', 'middleware', 'ssh', 'remote-desktop']) {
-      const id = `com.enest.${suffix}`, source = join(root, 'eNest_plugin/plugins', id), dist = join(source, 'dist')
+      const id = `com.github.eNest.${suffix}`, source = join(root, 'eNest_plugin/plugins', id), dist = join(source, 'dist')
       const manifest = JSON.parse(await readFile(join(source, 'plugin.json'), 'utf8'))
       const archive = join(root, 'eNest_plugin/dist', `${id}@${manifest.version}.enestplugin`)
       assert.ok(existsSync(archive), `Build and pack ${id}@${manifest.version} first`)

@@ -14,7 +14,7 @@ import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import type { DshRuntimeInfo, DshRuntimeVersion } from '@shared/types/dsh-workbench'
 
 /** DSH 驾驶舱插件 id（捆绑 runtime 从该插件安装目录发现） */
-export const DSH_PLUGIN_ID = 'com.enest.dsh'
+export const DSH_PLUGIN_ID = 'com.github.eNest.dsh'
 
 export interface DshDataDirs {
   /** 插件专属 Harness home（DSH_HOME），与用户系统 dsh 数据隔离 */

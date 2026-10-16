@@ -34,7 +34,7 @@ const api = await import(
     Buffer.from(bundle.outputFiles[0].text).toString('base64')
 )
 let now, poll, events, path
-const id = 'com.enest.pomodoro'
+const id = 'com.github.eNest.pomodoro'
 test.beforeEach(async (t) => {
   path = await mkdtemp(join(tmpdir(), 'enest-focus-'))
   process.env.ENEST_FOCUS_TEST_ROOT = path

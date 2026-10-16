@@ -15,8 +15,8 @@
   "properties": {
     "id": {
       "type": "string",
-      "pattern": "^[a-z0-9]+(\\.[a-z0-9-]+)+$",
-      "description": "全局唯一反向域名，必须与目录名一致；enest.builtin 为宿主保留标识",
+      "pattern": "^[a-z0-9]+(\\.[a-zA-Z0-9-]+)+$",
+      "description": "全局唯一反向域名（官方插件前缀 com.github.eNest.），末段必须与源码目录名一致；enest.builtin 为宿主保留标识",
       "not": {
         "const": "enest.builtin"
       }

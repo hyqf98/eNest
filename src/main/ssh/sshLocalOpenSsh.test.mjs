@@ -39,7 +39,7 @@ test('temporary loopback OpenSSH authenticates with a file handle and streams SF
   assert.ok(existsSync(sshd), 'sshd executable required; this test never installs or enables a system service')
   assert.ok(existsSync(sftpServer), 'OpenSSH sftp-server executable required')
   const directory = await mkdtemp(join(tmpdir(), 'enest-local-openssh-'))
-  const pluginId = 'com.enest.smoke.localssh', storage = new Map(), events = []
+  const pluginId = 'com.example.smoke.localssh', storage = new Map(), events = []
   const scopeApi = load('../plugin/PluginRuntimeScope.ts'), scope = scopeApi.createRuntimeScope({ pluginId, generation: 1, wcId: 9901 })
   const activity = { acquirePluginActivity: () => scope.acquireActivity('local OpenSSH operation') }
   const host = { pluginHost: { sendEvent: (_id, event) => events.push(event) } }

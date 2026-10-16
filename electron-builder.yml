@@ -2,7 +2,7 @@
 # 打包图标放 build/icon.{icns,ico,png}；assets/icons 仅为运行时图标
 # 运行时 extraResources：assets/icons → Resources/icons（存储走 node:sqlite，无原生依赖）
 
-appId: com.enest.shell
+appId: com.github.eNest.shell
 productName: eNest
 copyright: Copyright © 2026 eNest
 directories:
@@ -64,7 +64,7 @@ linux:
   synopsis: Plugin-based desktop shell
   desktop:
     entry:
-      StartupWMClass: com.enest.shell
+      StartupWMClass: com.github.eNest.shell
   # AppImage 支持 electron-updater；deb 仅作分发安装包
   target:
     - target: AppImage

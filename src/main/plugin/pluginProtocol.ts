@@ -16,7 +16,6 @@ import { resolveThemeTokens, themeTokensToCss } from '@main/theme/resolveThemeCs
 import { pluginAssetCache, pluginFileResponse } from './pluginFileResponse'
 import { resolvePluginFile } from './pluginPaths'
 import { getPluginContentSecurityPolicy } from './pluginSessionPolicy'
-import { legacyPluginIconResponse } from './pluginIconArtwork'
 
 /** 壳子生成的主题 CSS 虚拟文件名；插件可 <link href="enest://plugin/{id}/__enest_theme.css"> */
 const THEME_CSS_FILE = '__enest_theme.css'
@@ -107,8 +106,6 @@ async function fileResponse(
   pluginId?: string
 ): Promise<Response> {
   const csp = getPluginContentSecurityPolicy({ pluginId: pluginId ?? '', devUrl: pluginId ? pluginRegistry.get(pluginId)?.devUrl : undefined })
-  const iconResponse = await legacyPluginIconResponse(request, abs, { pluginId, root, revision, dev: isDev, csp })
-  if (iconResponse) return iconResponse
   return pluginFileResponse(request, abs, {
     mime: MIME[extname(abs).toLowerCase()] ?? 'application/octet-stream',
     csp,

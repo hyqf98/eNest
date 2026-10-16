@@ -195,6 +195,10 @@ export interface EnestShellApi {
   reloadPlugin(pluginId: string): Promise<void>
   /** 开发者控制台：切换/查询 dev 插件「退出到后台立即结束运行」（enabled 省略为查询） */
   setDevKillOnHide(pluginId: string, enabled?: boolean): Promise<boolean>
+  /** 开发者控制台：切换 dev/prod 模式（打开态原地重载） */
+  setDevPluginMode(pluginId: string, mode: 'dev' | 'prod'): Promise<void>
+  /** 开发者控制台：prod 模式手动重建并重载 */
+  rebuildDevPlugin(pluginId: string): Promise<void>
   openDevTools(pluginId: string): Promise<void>
   /** plugin:call 调用跟踪（最近 200 条环形缓冲，DevConsole 面板轮询） */
   getPluginCallTrace(): Promise<PluginCallTraceEntry[]>
@@ -401,6 +405,12 @@ const api: EnestShellApi = {
 
   setDevKillOnHide: (pluginId: string, enabled?: boolean) =>
     unwrapOk<boolean>(ipcRenderer.invoke(IpcChannels.ShellSetDevKillOnHide, pluginId, enabled)),
+
+  setDevPluginMode: (pluginId: string, mode: 'dev' | 'prod') =>
+    expectOk(ipcRenderer.invoke(IpcChannels.ShellSetDevPluginMode, pluginId, mode)),
+
+  rebuildDevPlugin: (pluginId: string) =>
+    expectOk(ipcRenderer.invoke(IpcChannels.ShellRebuildDevPlugin, pluginId)),
 
   openDevTools: (pluginId: string) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellOpenDevTools, pluginId)),

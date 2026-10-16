@@ -15,7 +15,7 @@ const DEFAULT_INSTALLED: string[] = []
 export const MARKET_PLUGINS: PluginSummary[] = (
   [
     {
-      id: 'com.enest.screen-assistant',
+      id: 'com.github.eNest.screen-assistant',
       name: '屏幕助手',
       author: 'eNest Labs',
       description: '矩形截图、矩形录屏（可选声音）与截图贴到屏幕。',
@@ -36,7 +36,7 @@ export const MARKET_PLUGINS: PluginSummary[] = (
       installed: false,
     },
     {
-      id: 'com.enest.clipboard',
+      id: 'com.github.eNest.clipboard',
       name: '粘贴板',
       author: 'eNest Labs',
       description: '剪贴板历史、图片回显与快速选中回写。',
@@ -58,7 +58,7 @@ export const MARKET_PLUGINS: PluginSummary[] = (
       installed: false,
     },
     {
-      id: 'com.enest.translate',
+      id: 'com.github.eNest.translate',
       name: '翻译',
       author: 'Lingua',
       description: '谷歌翻译引擎，自动检测语言，一键复制译文。',
@@ -192,13 +192,15 @@ export type TabStyle = 'classic' | 'orb'
 /** 动画效果强度 */
 export type AnimationLevel = 'low' | 'medium' | 'high'
 
-/** 通用设置（契约：locale / hardwareAcceleration / dataRoot? / closeBehavior / tabStyle / animationLevel） */
+/** 通用设置（契约：locale / hardwareAcceleration / dataRoot? / closeBehavior / notifyPosition / tabStyle / animationLevel） */
 export interface GeneralSettingsData {
   locale?: 'zh-CN' | 'en-US'
   hardwareAcceleration?: boolean
   dataRoot?: string
   /** 与 @shared GeneralSettings 对齐：minimize-tray | quit */
   closeBehavior?: 'minimize-tray' | 'quit'
+  /** 与 @shared GeneralSettings 对齐：center | bottom-right */
+  notifyPosition?: 'center' | 'bottom-right'
   tabStyle?: TabStyle
   animationLevel?: AnimationLevel
   openAtLogin?: boolean
@@ -249,6 +251,7 @@ export const DEFAULT_SETTINGS: ShellSettingsData = {
     locale: 'zh-CN',
     hardwareAcceleration: true,
     closeBehavior: 'minimize-tray',
+    notifyPosition: 'bottom-right',
     tabStyle: 'classic',
     animationLevel: 'medium',
     fontFamily: '',
