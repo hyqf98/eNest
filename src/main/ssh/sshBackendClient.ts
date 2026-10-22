@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { resolvePluginBackendEntry } from '@main/plugin/pluginBackend'
 import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
+import { registerPluginProcess } from '@main/plugin/pluginOwnedProcesses'
 import { acquirePluginActivity } from '@main/plugin/activityRegistry'
 import { authorizePluginPermission } from '@main/plugin/PluginPermissions'
 import { resolveLocalFileHandle, resolveLocalDirectoryTarget, createLocalExport, pickLocalFiles } from '@main/plugin/localFiles'
@@ -19,7 +20,8 @@ type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => vo
 interface Service {
   pluginId: string; scope: PluginRuntimeScope; child: UtilityProcess; sequence: number; closing: boolean
   pending: Map<number, Pending>; activities: Map<string, () => void>; exports: Set<string>; hostCalls: Set<number>
-  detach?: () => void; onAbort?: () => void; killTimer?: ReturnType<typeof setTimeout>
+  detach?: () => void; onAbort?: () => void; killTimer?: ReturnType<typeof setTimeout>; forceKillTimer?: ReturnType<typeof setTimeout>
+  exited: boolean; exit: Promise<void>; resolveExit: () => void; retiringReleases: Set<() => void>
 }
 const services = new Map<string, Service>()
 const validEvents = new Set(['ssh.data', 'ssh.exit', 'ssh.error', 'ssh.auth', 'ssh.metrics', 'ssh.transfer'])
@@ -94,40 +96,78 @@ async function hostCall(service: Service, method: string, args: unknown[]): Prom
     default: throw new Error('Unsupported backend host call')
   }
 }
+function attemptKill(service: Service): void {
+  if (service.exited) return
+  try { service.child.kill() } catch { /* retry if spawn is still pending */ }
+  const pid = service.child.pid
+  if (!pid || service.forceKillTimer) return
+  service.forceKillTimer = setTimeout(() => {
+    if (!service.exited && service.child.pid === pid) { try { process.kill(pid, 'SIGKILL') } catch { /* exit owns cleanup */ } }
+  }, 250)
+  service.forceKillTimer.unref()
+}
 function close(service: Service, reason: string, exited = false): void {
-  if (service.closing) { if (exited && service.killTimer) clearTimeout(service.killTimer); return }
-  service.closing = true
-  if (services.get(service.pluginId) === service) services.delete(service.pluginId)
-  service.detach?.()
-  if (service.onAbort) service.scope.signal.removeEventListener('abort', service.onAbort)
-  for (const pending of service.pending.values()) { clearTimeout(pending.timer); pending.release(); pending.reject(new Error(reason)) }
-  service.pending.clear()
-  for (const release of service.activities.values()) release()
-  service.activities.clear()
-  if (!exited) {
-    try { service.child.postMessage({ type: 'dispose' }) } catch {}
-    service.killTimer = setTimeout(() => { try { service.child.kill() } catch {} }, 200)
-    service.killTimer.unref()
+  if (exited) service.exited = true
+  if (!service.closing) {
+    service.closing = true
+    if (service.onAbort) service.scope.signal.removeEventListener('abort', service.onAbort)
+    for (const pending of service.pending.values()) { clearTimeout(pending.timer); service.retiringReleases.add(pending.release); pending.reject(new Error(reason)) }
+    service.pending.clear()
+    for (const release of service.activities.values()) service.retiringReleases.add(release)
+    service.activities.clear()
+    if (!service.exited) {
+      try { service.child.postMessage({ type: 'dispose' }) } catch { /* bounded termination below */ }
+      service.killTimer = setTimeout(() => { service.killTimer = undefined; attemptKill(service) }, 200)
+      service.killTimer.unref()
+    }
   }
+  if (service.exited) {
+    if (service.killTimer) clearTimeout(service.killTimer)
+    if (service.forceKillTimer) clearTimeout(service.forceKillTimer)
+    if (services.get(service.pluginId) === service) services.delete(service.pluginId)
+    service.detach?.()
+    for (const release of service.retiringReleases) release()
+    service.retiringReleases.clear()
+    service.resolveExit()
+  }
+}
+async function waitForExit(service: Service): Promise<void> {
+  if (service.exited) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try { await Promise.race([service.exit, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('SSH backend exit not confirmed')), 1200) })]) }
+  finally { if (timer) clearTimeout(timer) }
+}
+async function shutdown(service: Service): Promise<void> {
+  close(service, 'Plugin runtime closed')
+  await waitForExit(service)
 }
 function getService(pluginId: string): Service {
   const scope = getRuntimeScope(pluginId)
   if (!scope?.isCurrent() || scope.signal.aborted) throw new Error('Plugin runtime is closing')
   const old = services.get(pluginId)
   if (old && old.scope === scope && current(old)) return old
-  if (old) close(old, 'Plugin runtime replaced')
+  if (old) {
+    close(old, 'Plugin runtime replaced')
+    if (!old.exited) throw new Error('Previous SSH backend is still retiring; wait for its exit before reconnecting')
+  }
   const entry = resolvePluginBackendEntry(pluginId)
   const child = utilityProcess.fork(entry, [], { serviceName: `eNest backend: ${pluginId}`, stdio: 'pipe' })
-  const service: Service = { pluginId, scope, child, sequence: 0, closing: false, pending: new Map(), activities: new Map(), exports: new Set(), hostCalls: new Set() }
+  let resolveExit!: () => void
+  const exit = new Promise<void>(resolve => { resolveExit = resolve })
+  const service: Service = { pluginId, scope, child, exit, resolveExit, exited: false, retiringReleases: new Set(), sequence: 0, closing: false, pending: new Map(), activities: new Map(), exports: new Set(), hostCalls: new Set() }
   services.set(pluginId, service)
+  const unregister = registerPluginProcess({ pluginId, generation: scope.owner.generation, kind: 'backend', getPid: () => service.exited ? undefined : child.pid, stop: () => shutdown(service) })
   service.onAbort = () => close(service, 'Plugin runtime is closing')
   scope.signal.addEventListener('abort', service.onAbort, { once: true })
-  service.detach = scope.addDisposer(() => close(service, 'Plugin runtime closed'))
+  service.detach = scope.addDisposer(() => shutdown(service))
+  child.once('spawn', () => { if (service.closing || scope.signal.aborted) attemptKill(service) })
+  child.once('error', () => close(service, 'SSH backend failed'))
   child.stderr?.on('data', bytes => { logWarn(`plugin:${pluginId}`, String(bytes).slice(0, 16384)) })
   child.stdout?.on('data', () => {})
   child.on('exit', code => {
     const unexpected = current(service)
     close(service, `Plugin backend exited (${code})`, true)
+    unregister()
     if (unexpected) pluginHost.sendEvent(pluginId, { type: 'ssh.error', message: `SSH 后端已退出（${code}），请重新连接` })
   })
   child.on('message', (message: unknown) => {
@@ -150,6 +190,7 @@ function getService(pluginId: string): Service {
     service.pending.delete(data.id!); clearTimeout(pending.timer); pending.release()
     if (data.ok) pending.resolve(data.data); else pending.reject(new Error(data.error || 'SSH backend operation failed'))
   })
+  if (scope.signal.aborted) service.onAbort()
   replyToBackend(service, { type: 'init', pluginId, generation: scope.owner.generation, wcId: scope.owner.wcId })
   assertCurrent(service)
   return service
@@ -169,7 +210,7 @@ export function callSshBackend<T>(pluginId: string, method: string, args: unknow
     })
   } catch (error) { return Promise.reject(error) }
 }
-export function releaseSshBackend(pluginId: string, generation?: number): void {
+export async function releaseSshBackend(pluginId: string, generation?: number): Promise<void> {
   const service = services.get(pluginId)
-  if (service && (generation === undefined || service.scope.owner.generation === generation)) close(service, 'Plugin runtime closed')
+  if (service && (generation === undefined || service.scope.owner.generation === generation)) await shutdown(service)
 }

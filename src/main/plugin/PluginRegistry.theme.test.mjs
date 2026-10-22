@@ -29,7 +29,8 @@ function fixture() {
     } },
     '@main/window/createShellWindow': { sendShellEvent: event => events.push(event) },
     '@main/logs/logService': { logWarn() {}, logInfo() {} }, './pluginInstallTasks': {},
-    '@main/plugin/marketMetadata': {}
+    '@main/plugin/marketMetadata': {},
+    './catalogResources': {}
   }
   const js = ts.transpileModule(readFileSync(new URL('./PluginRegistry.ts', import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }

@@ -13,6 +13,8 @@ import { defaultDataRoot, getAppPaths, getAppPathsRoot } from '@main/paths/paths
 import { settingsStore } from '@main/settings/SettingsStore'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { resolveThemeTokens, themeTokensToCss } from '@main/theme/resolveThemeCss'
+import { resolveAppearanceResource } from '@main/theme/appearanceResources'
+import { QUICK_THEME_PROTOCOL, registerQuickThemeProtocolForSession } from '@main/theme/quickThemeProtocol'
 import { pluginAssetCache, pluginFileResponse } from './pluginFileResponse'
 import { resolvePluginFile } from './pluginPaths'
 import { getPluginContentSecurityPolicy } from './pluginSessionPolicy'
@@ -79,6 +81,10 @@ export function registerSchemesAsPrivileged(): void {
         stream: true,
         codeCache: true
       }
+    },
+    {
+      scheme: QUICK_THEME_PROTOCOL,
+      privileges: { standard: true, secure: true, corsEnabled: true, supportFetchAPI: true }
     }
   ])
 }
@@ -184,6 +190,14 @@ export function mediaProtocolUrl(absPath: string): string {
 
 /** Default-session handler: plugin assets + local media under allowed roots. */
 async function handleEnestProtocol(request: Request): Promise<Response> {
+  const publicUrl = new URL(request.url)
+  if (publicUrl.hostname === 'appearance') {
+    const match = /^\/(media|font)\/([^/]+)$/.exec(publicUrl.pathname)
+    const resource = match && !publicUrl.username && !publicUrl.password && !publicUrl.search && !publicUrl.hash
+      ? await resolveAppearanceResource(match[1] as 'media' | 'font', match[2]) : null
+    if (!resource) return new Response('forbidden', { status: 403 })
+    return pluginFileResponse(request, resource.path, { mime: resource.mime, root: resource.root, csp: "default-src 'none'" })
+  }
   const mediaAbs = resolveMediaRequest(request.url)
   if (mediaAbs) {
     try {
@@ -217,9 +231,11 @@ async function handleEnestProtocol(request: Request): Promise<Response> {
 
 export function initPluginProtocol(): void {
   protocol.handle(PROTOCOL, handleEnestProtocol)
+  registerQuickThemeProtocolForSession(session.defaultSession)
   // Shell 分区（主壳 + Quick 小窗）也要能加载插件 logo 等资源
   try {
     const shellSes = session.fromPartition(SHELL_PARTITION)
+    registerQuickThemeProtocolForSession(shellSes)
     shellSes.protocol.handle(PROTOCOL, handleEnestProtocol)
   } catch {
     /* session 尚未就绪时忽略；窗口创建前会再确保 */
@@ -230,6 +246,7 @@ export function initPluginProtocol(): void {
 export function ensureShellSessionProtocol(): void {
   try {
     const shellSes = session.fromPartition(SHELL_PARTITION)
+    registerQuickThemeProtocolForSession(shellSes)
     try {
       shellSes.protocol.unhandle(PROTOCOL)
     } catch {

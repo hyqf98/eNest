@@ -1,19 +1,17 @@
 /**
  * SettingsPage — 设置页
  * 左侧标签（通用/主题/开发者 + 已安装插件动态分组），右侧渲染对应卡片。
- * 通用：语言分段、硬件加速开关、数据目录（只读+打开/复制）、关闭行为、代理、Tab 样式、检查更新。
- * 主题面板挂载 ThemeSettingsSection（模式/主题包/背景/Token）；插件列表来自 shellStore.plugins。
- * 依赖：shellStore、ThemeSettingsSection、useI18n、shellApi。
+ * 通用保留行为、系统和维护设置；全部外观设置由主题包 Schema 在主题 Tab 中渲染。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { useUpdateDialogStore } from '@renderer/stores/updateDialogStore'
 import { ProfileSection } from '@renderer/components/ProfileSection'
-import { ThemeSettingsSection } from '@renderer/components/ThemeSettingsSection'
-import { FontSettingsSection } from '@renderer/components/FontSettingsSection'
-import { AnimationSettingsSection } from '@renderer/components/AnimationSettingsSection'
+import { AppearanceSettingsSection } from '@renderer/components/AppearanceSettingsSection'
+import { useAppearanceStore } from '@renderer/hooks/useAppearance'
 import { DevConsoleSection } from '@renderer/components/DevConsoleSection'
 import { QuickSettingsSection } from '@renderer/components/QuickSettingsSection'
+import { PluginMemorySection } from '@renderer/components/PluginMemorySection'
 import { LanguageSelect } from '@renderer/components/LanguageSelect'
 import { Select } from '@renderer/components/ui/Select'
 import { Switch } from '@renderer/components/ui/Switch'
@@ -28,7 +26,10 @@ import type { Locale } from '@renderer/i18n'
 import { shellApi } from '@renderer/services/shellApi'
 import { notify } from '@renderer/services/notifyService'
 import { toastStore } from '@renderer/hooks/useToast'
-import type { ProxyConfig, ProxyType, TabStyle } from '@shared/types/plugin'
+import type { ProxyConfig, ProxyType, SettingsSectionContributionItem as PluginSettingsItem } from '@shared/types/plugin'
+import type { ResolvedAppearance, ThemeIdentity, ThemeSettingsField, ThemeSettingValue } from '@shared/types/appearance'
+import { DEFAULT_THEME_IDENTITY } from '@shared/theme/builtinThemes'
+import type { ShellSettingsSection as PluginSettingsSection } from '@shared/types/shell'
 import type { UpdateStatePayload } from '@shared/types/ipc'
 import { PLUGIN_CATEGORY_COLOR_DEFAULT } from '@shared/constants'
 import '@renderer/components/pluginSettings.css'
@@ -36,27 +37,6 @@ import '@renderer/styles/settings.css'
 
 type CloseBehavior = 'minimize-tray' | 'quit'
 type NotifyPosition = 'center' | 'bottom-right'
-
-/** 插件注册的设置 section（来自 settings-sections 事件 / getSettingsSections） */
-interface PluginSettingsItem {
-  key: string
-  type: string
-  label: string
-  entry?: { code: string; payload?: unknown }
-  default?: unknown
-  options?: Array<{ label: string; value: unknown }>
-  /** type=slider：范围与步长 */
-  min?: number
-  max?: number
-  step?: number
-}
-
-interface PluginSettingsSection {
-  id: string
-  title: string
-  pluginId: string
-  items: PluginSettingsItem[]
-}
 
 /** 历史 mock 值 'tray' 归一到共享契约 'minimize-tray' */
 function normalizeCloseBehavior(v: unknown): CloseBehavior {
@@ -88,6 +68,183 @@ function Field({
   )
 }
 
+function TopTabBarSection() {
+  const appearance = useAppearanceStore((s) => s.appearance)
+  const packs = useAppearanceStore((s) => s.packs)
+  const hydrated = useAppearanceStore((s) => s.hydrated)
+  const { t, locale } = useI18n()
+  const [readFailed, setReadFailed] = useState(false)
+  const [readAttempt, setReadAttempt] = useState(0)
+  const en = locale === 'en-US'
+
+  useEffect(() => {
+    let cancelled = false
+    if (!hydrated) {
+      void useAppearanceStore.getState().hydrate().catch(() => {
+        if (!cancelled) setReadFailed(true)
+      })
+    }
+    return () => { cancelled = true }
+  }, [hydrated, readAttempt])
+
+  // Navigation preferences use the host's existing profile even while another theme is active.
+  const pack = hydrated ? packs.find(candidate => candidate.source === DEFAULT_THEME_IDENTITY.source && candidate.id === DEFAULT_THEME_IDENTITY.id) : undefined
+  return (
+    <Card
+      title={en ? 'Tab bar' : '标签栏'}
+      hint={en ? 'Session tabs stay in the top bar across themes. The orb rail adds a shortcut; only your saved preference can auto-hide the top bar.' : '会话始终保留在顶部，切换主题不改变导航；圆轨提供附加入口，自动隐藏仅由你的全局偏好控制。'}
+    >
+      {!hydrated ? (
+        <>
+          <p className="desc" role="status">{readFailed ? (en ? 'Could not load appearance settings.' : '无法读取外观设置。') : t('common.loading')}</p>
+          {readFailed && <Button variant="ghost" size="sm" onClick={() => { setReadFailed(false); setReadAttempt(value => value + 1) }}>{en ? 'Retry' : '重试'}</Button>}
+        </>
+      ) : pack ? (
+        <TopTabBarControls
+          key={JSON.stringify([pack.source, pack.id, pack.version, pack.settings.version])}
+          appearance={appearance}
+          identity={DEFAULT_THEME_IDENTITY}
+          fields={pack.settings.groups.flatMap(group => group.fields)}
+        />
+      ) : (
+        <p className="desc" role="status">{en ? 'Host navigation settings are unavailable. Please reload settings.' : '宿主导航设置暂不可用，请重新读取设置。'}</p>
+      )}
+    </Card>
+  )
+}
+
+/** Only schema-declared bindings are writable; drafts never mutate the appearance store. */
+function TopTabBarControls({ appearance, identity, fields }: {
+  appearance: ResolvedAppearance
+  identity: ThemeIdentity
+  fields: ThemeSettingsField[]
+}) {
+  const { t, locale } = useI18n()
+  const en = locale === 'en-US'
+  const fieldFor = (key: string, type: ThemeSettingsField['type']) => fields.find(field => field.binding.target === 'layout' && field.binding.key === key && field.type === type)
+  const styleField = fieldFor('tabStyle', 'select')
+  const opacityField = fieldFor('tabOpacity', 'slider')
+  const autoHideField = fieldFor('tabAutoHide', 'switch')
+  const tabStyle = appearance.layout.tabStyle === 'orb' ? 'orb' : 'classic'
+  const isClassic = tabStyle === 'classic'
+  const min = Math.max(0, opacityField?.min ?? 0)
+  const max = Math.min(1, opacityField?.max ?? 1)
+  const step = opacityField?.step ?? 0.05
+  const opacityEnabled = Boolean(opacityField) && Number.isFinite(min) && Number.isFinite(max) && min < max && Number.isFinite(step) && step > 0
+  const [opacityDraft, setOpacityDraft] = useState<number | null>(null)
+  const [saveFailed, setSaveFailed] = useState(false)
+  const draft = useRef<number | null>(null)
+  const draftVersion = useRef(0)
+  const requestVersion = useRef(0)
+  const mounted = useRef(true)
+  const saves = useRef(Promise.resolve())
+  const restoreOpacity = useCallback(() => {
+    document.documentElement.style.setProperty('--appearance-tab-opacity', String(useAppearanceStore.getState().appearance.layout.tabOpacity ?? 1))
+  }, [])
+
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false; restoreOpacity() }
+  }, [restoreOpacity])
+
+  useEffect(() => {
+    if (draft.current === null) return
+    if (!isClassic) {
+      draftVersion.current++
+      draft.current = null
+      setOpacityDraft(null)
+      restoreOpacity()
+    } else {
+      document.documentElement.style.setProperty('--appearance-tab-opacity', String(draft.current))
+    }
+  }, [appearance, isClassic, restoreOpacity])
+
+  const commit = (field: ThemeSettingsField | undefined, value: ThemeSettingValue, opacityVersion?: number) => {
+    if (!field) return
+    const request = ++requestVersion.current
+    setSaveFailed(false)
+    // Serialize commits without disabling a slider that may already be in another gesture.
+    saves.current = saves.current.then(async () => {
+      const state = useAppearanceStore.getState()
+      try {
+        const currentField = state.packs.find(pack => pack.source === identity.source && pack.id === identity.id)
+          ?.settings.groups.flatMap(group => group.fields).find(candidate => candidate.binding.target === 'layout' && candidate.binding.key === field.binding.key && candidate.type === field.type)
+        if (!currentField) throw new Error('Host navigation binding unavailable')
+        await state.updateThemeProfile({ theme: { ...identity }, values: { [currentField.key]: value } })
+      } catch {
+        if (mounted.current && request === requestVersion.current) setSaveFailed(true)
+      } finally {
+        if (mounted.current && opacityVersion !== undefined && opacityVersion === draftVersion.current) {
+          draft.current = null
+          setOpacityDraft(null)
+          restoreOpacity()
+        }
+      }
+    })
+  }
+
+  const previewOpacity = (value: number | undefined) => {
+    if (value === undefined || !Number.isFinite(value) || !opacityEnabled || !isClassic) return
+    const next = Math.min(max, Math.max(min, value))
+    draftVersion.current++
+    draft.current = next
+    setOpacityDraft(next)
+    document.documentElement.style.setProperty('--appearance-tab-opacity', String(next))
+    return next
+  }
+  const opacity = opacityDraft ?? appearance.layout.tabOpacity ?? 1
+  const opacityLabel = en ? 'Top bar background opacity' : '顶部标题栏背景不透明度'
+  const autoHideLabel = en ? 'Auto-hide' : '自动隐藏'
+  return (
+    <>
+      <Field label={t('settings.general.tabStyle')}>
+        <Segmented
+          ariaLabel={t('settings.general.tabStyle')}
+          value={tabStyle}
+          disabled={!styleField}
+          options={[
+            { value: 'classic', label: t('settings.general.tabStyleClassic'), disabled: !styleField?.options?.some(option => option.value === 'classic') },
+            { value: 'orb', label: t('settings.general.tabStyleOrb'), disabled: !styleField?.options?.some(option => option.value === 'orb') },
+          ]}
+          onChange={next => commit(styleField, next)}
+        />
+      </Field>
+      {isClassic && (
+        <>
+          <Field label={en ? 'Background opacity' : '背景不透明度'} desc={en ? 'Only the background changes; labels and window buttons remain opaque.' : '仅调整背景，不影响标签和窗口按钮的可见度。'}>
+            <div className="appearance-slider-row">
+              <Slider
+                aria-label={opacityLabel}
+                min={min}
+                max={max}
+                step={step}
+                disabled={!opacityEnabled}
+                value={[opacity]}
+                onValueChange={([next]) => { previewOpacity(next) }}
+                onValueCommit={([value]) => {
+                  const next = previewOpacity(value)
+                  if (next !== undefined) commit(opacityField, next, draftVersion.current)
+                }}
+              />
+              <output>{Math.round(opacity * 100)}%</output>
+            </div>
+          </Field>
+          <Field label={autoHideLabel} desc={en ? 'Hide the top bar when the pointer leaves; move to the top edge to reveal it.' : '指针离开后收起标题栏，移到窗口顶部边缘即展开。'}>
+            <Switch
+              aria-label={autoHideLabel}
+              checked={appearance.layout.tabAutoHide === true}
+              disabled={!autoHideField}
+              onCheckedChange={next => commit(autoHideField, next)}
+            />
+          </Field>
+        </>
+      )}
+      {(!styleField || (isClassic && (!opacityField || !autoHideField))) && <p className="desc">{en ? 'Some host navigation settings are unavailable.' : '部分宿主导航设置暂不可用。'}</p>}
+      {saveFailed && <p className="desc" role="alert">{en ? 'Settings were not saved. The last confirmed appearance has been restored.' : '设置未保存，已恢复到宿主确认的外观。'}</p>}
+    </>
+  )
+}
+
 function Card({ title, hint, children, className }: { title: string; hint?: string; children: React.ReactNode; className?: string }) {
   return (
     <div className={`s-card${className ? ` ${className}` : ''}`}>
@@ -116,20 +273,8 @@ function normalizeProxyForm(
   type: ProxyType,
   host: string,
   port: string,
-  url: string
 ): ProxyConfig | null {
-  if (type === 'none') return { type: 'none' }
-  if (type === 'custom') {
-    const u = url.trim()
-    if (!u) return null
-    try {
-      // 允许 socks5:// / http:// 等；URL 构造失败视为非法
-      new URL(u)
-    } catch {
-      return null
-    }
-    return { type, url: u }
-  }
+  if (type === 'system' || type === 'none') return { type }
   const h = host.trim()
   const p = Number(port)
   if (!h || !Number.isInteger(p) || p < 1 || p > 65535) return null
@@ -140,8 +285,6 @@ export function SettingsPage() {
   const settingsTab = useShellStore((s) => s.settingsTab)
   const setSettingsTab = useShellStore((s) => s.setSettingsTab)
   const plugins = useShellStore((s) => s.plugins)
-  const tabStyle = useShellStore((s) => s.tabStyle)
-  const setTabStyle = useShellStore((s) => s.setTabStyle)
   const { t, locale, setLocale } = useI18n()
 
   const installed = plugins.filter((p) => p.installed)
@@ -157,10 +300,9 @@ export function SettingsPage() {
   const openUpdateDialog = useUpdateDialogStore((s) => s.openDialog)
   const restartAfterSave = useUpdateDialogStore((s) => s.restartAfterSave)
 
-  const [proxyType, setProxyType] = useState<ProxyType>('none')
+  const [proxyType, setProxyType] = useState<ProxyType>('system')
   const [proxyHost, setProxyHost] = useState('')
   const [proxyPort, setProxyPort] = useState('')
-  const [proxyUrl, setProxyUrl] = useState('')
   const [testingProxy, setTestingProxy] = useState(false)
 
   /** 插件 settings.register 注入的 section 与持久化值 */
@@ -195,12 +337,11 @@ export function SettingsPage() {
         try {
           const proxy = shellApi.getProxy
             ? await shellApi.getProxy()
-            : general.proxy ?? { type: 'none' as const }
+            : general.proxy ?? { type: 'system' as const }
           if (!cancelled && proxy) {
-            setProxyType(proxy.type ?? 'none')
+            setProxyType(proxy.type ?? 'system')
             setProxyHost(proxy.host ?? '')
             setProxyPort(proxy.port != null ? String(proxy.port) : '')
-            setProxyUrl(proxy.url ?? '')
           }
         } catch {
           /* 保持默认直连 */
@@ -243,7 +384,7 @@ export function SettingsPage() {
       if (shellApi.getSettingsSections) {
         try {
           const sections = await shellApi.getSettingsSections()
-          if (!cancelled) setPluginSections(sections as PluginSettingsSection[])
+          if (!cancelled) setPluginSections(sections)
         } catch {
           /* ignore */
         }
@@ -256,7 +397,7 @@ export function SettingsPage() {
     }
     const off = shellApi.onEvent((payload) => {
       if (payload.type === 'settings-sections') {
-        setPluginSections((payload.sections as PluginSettingsSection[]) ?? [])
+        setPluginSections(payload.sections ?? [])
       }
     })
     return () => {
@@ -416,7 +557,9 @@ export function SettingsPage() {
             await shellApi.setSettings({ general: { proxy: config } })
           }
           toastStore.getState().push(
-            config.type === 'none' ? t('settings.general.proxyCleared') : t('settings.general.proxyApplied')
+            config.type === 'none'
+              ? t('settings.general.proxyCleared')
+              : config.type === 'system' ? t('settings.general.proxySystemApplied') : t('settings.general.proxyApplied')
           )
         } catch {
           toastStore.getState().push(t('settings.general.proxyInvalid'))
@@ -429,24 +572,24 @@ export function SettingsPage() {
   const handleProxyType = useCallback(
     (value: ProxyType) => {
       setProxyType(value)
-      if (value === 'none') {
-        persistProxy({ type: 'none' })
+      if (value === 'system' || value === 'none') {
+        persistProxy({ type: value })
         return
       }
       // 切到有配置的类型时，若表单已完整则立刻保存；否则等 blur 补齐
-      persistProxy(normalizeProxyForm(value, proxyHost, proxyPort, proxyUrl), true)
+      persistProxy(normalizeProxyForm(value, proxyHost, proxyPort), true)
     },
-    [persistProxy, proxyHost, proxyPort, proxyUrl],
+    [persistProxy, proxyHost, proxyPort],
   )
 
   const handleProxyFieldBlur = useCallback(() => {
-    if (proxyType === 'none') return
-    persistProxy(normalizeProxyForm(proxyType, proxyHost, proxyPort, proxyUrl))
-  }, [persistProxy, proxyHost, proxyPort, proxyType, proxyUrl])
+    if (proxyType === 'system' || proxyType === 'none') return
+    persistProxy(normalizeProxyForm(proxyType, proxyHost, proxyPort))
+  }, [persistProxy, proxyHost, proxyPort, proxyType])
 
   const handleTestProxy = useCallback(() => {
     if (!shellApi.testProxy) return
-    const config = normalizeProxyForm(proxyType, proxyHost, proxyPort, proxyUrl)
+    const config = normalizeProxyForm(proxyType, proxyHost, proxyPort)
     if (!config) {
       toastStore.getState().push(t('settings.general.proxyInvalid'))
       return
@@ -456,7 +599,9 @@ export function SettingsPage() {
       try {
         const result = await shellApi.testProxy!(config)
         if (result.ok) {
-          if (config.type === 'none') {
+          if (config.type === 'system') {
+            toastStore.getState().push(t('settings.general.proxyTestOkSystem'))
+          } else if (config.type === 'none') {
             toastStore.getState().push(t('settings.general.proxyTestOkDirect'))
           } else {
             toastStore.getState().push(
@@ -476,7 +621,7 @@ export function SettingsPage() {
         setTestingProxy(false)
       }
     })()
-  }, [proxyHost, proxyPort, proxyType, proxyUrl, t])
+  }, [proxyHost, proxyPort, proxyType, t])
 
   /** 优先 openPath；不可用则复制到剪贴板 */
   const handleOpenDataRoot = useCallback(() => {
@@ -588,13 +733,12 @@ export function SettingsPage() {
                   minWidth={132}
                   ariaLabel={t('settings.general.proxyType')}
                   options={[
+                    { value: 'system', label: t('settings.general.proxySystem') },
                     { value: 'none', label: t('settings.general.proxyNone') },
                     { value: 'http', label: t('settings.general.proxyHttp') },
-                    { value: 'socks5', label: t('settings.general.proxySocks5') },
-                    { value: 'custom', label: t('settings.general.proxyCustom') },
                   ]}
                 />
-                {proxyType === 'http' || proxyType === 'socks5' ? (
+                {proxyType === 'http' ? (
                   <>
                     <Input
                       className="proxy-host"
@@ -615,44 +759,10 @@ export function SettingsPage() {
                     />
                   </>
                 ) : null}
-                {proxyType === 'custom' ? (
-                  <Input
-                    className="proxy-url"
-                    value={proxyUrl}
-                    placeholder={t('settings.general.proxyUrlPlaceholder')}
-                    aria-label={t('settings.general.proxyUrl')}
-                    onChange={(e) => setProxyUrl(e.target.value)}
-                    onBlur={handleProxyFieldBlur}
-                  />
-                ) : null}
                 <Button variant="ghost" size="sm" onClick={handleTestProxy} disabled={testingProxy || proxyType === 'none'}>
                   {testingProxy ? t('settings.general.proxyTesting') : t('settings.general.proxyTest')}
                 </Button>
               </div>
-            </Field>
-            <Field label={t('settings.general.tabStyle')}>
-              <Segmented
-                className="tab-style-seg"
-                ariaLabel={t('settings.general.tabStyle')}
-                value={tabStyle}
-                onChange={setTabStyle}
-                options={[
-                  {
-                    value: 'classic' as TabStyle,
-                    label: <>
-                      <span className="tab-style-icon classic-icon" aria-hidden="true"><i /><i /></span>
-                      {t('settings.general.tabStyleClassic')}
-                    </>
-                  },
-                  {
-                    value: 'orb' as TabStyle,
-                    label: <>
-                      <span className="tab-style-icon orb-icon" aria-hidden="true"><i /><i /><i /></span>
-                      {t('settings.general.tabStyleOrb')}
-                    </>
-                  }
-                ]}
-              />
             </Field>
             <Field
               label={t('settings.general.updates')}
@@ -693,14 +803,11 @@ export function SettingsPage() {
           </Card>
         )}
 
-        {settingsTab === 'general' && <AnimationSettingsSection />}
+        {settingsTab === 'general' && <TopTabBarSection />}
 
-        {settingsTab === 'appearance' && (
-          <>
-            <ThemeSettingsSection />
-            <FontSettingsSection />
-          </>
-        )}
+        {settingsTab === 'general' && <PluginMemorySection />}
+
+        {settingsTab === 'appearance' && <AppearanceSettingsSection />}
 
         {settingsTab === 'quick' && <QuickSettingsSection />}
 

@@ -38,6 +38,7 @@ import { themePackRegistry } from '@main/theme/themePacks'
 import { sendShellEvent } from '@main/window/createShellWindow'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { readPluginBuildRevision } from './pluginInstallTasks'
+import { localCatalogResources, remoteCatalogResources, type CatalogResources } from './catalogResources'
 import {
   manifestCategory,
   manifestScreenshots,
@@ -51,6 +52,8 @@ export interface InstalledPlugin {
   rootPath: string
   version: string
   buildRevision?: string
+  /** Metadata-only checkout preview; assets use the source public/ layout. */
+  devSource?: boolean
 }
 
 export interface InstalledPluginDescriptor {
@@ -150,8 +153,9 @@ function normalizeContributes(
   if (Array.isArray(raw.railEntries) && raw.railEntries.length > 0) {
     out.railEntries = raw.railEntries
   }
+  if (Array.isArray(raw.homePages) && raw.homePages.length > 0) out.homePages = raw.homePages
   const hasAny =
-    out.settings !== undefined || out.homeCards !== undefined || out.railEntries !== undefined
+    out.settings !== undefined || out.homeCards !== undefined || out.railEntries !== undefined || out.homePages !== undefined
   return hasAny ? out : undefined
 }
 
@@ -299,6 +303,16 @@ private syncContributes(manifest: PluginManifest, enabled: boolean): void {
     })
   }
 
+  /** Wait for this source's queued manifest themes before publishing appearance/Home. */
+  async waitForThemeContributions(pluginId: string): Promise<void> {
+    let task: Promise<void> | undefined
+    do {
+      task = this.themeTasks.get(pluginId)
+      if (!task) return
+      await task
+    } while (this.themeTasks.get(pluginId) && this.themeTasks.get(pluginId) !== task)
+  }
+
   private applyThemePackContributions(pluginId: string, previousIds: string[]): void {
     // Snapshot the contribution rows now; a later manifest update may replace the DB rows.
     const entries = contributionRegistry.listSlot<ThemePack>('theme-packs').filter(entry => entry.source === pluginId)
@@ -371,7 +385,7 @@ private removeThemePackContributions(pluginId: string): void {
               const pluginDir = join(idDir, version)
               try {
                 const manifest = await installFromDirectory(pluginDir, { metadataOnly: true })
-                if (manifest.id.split('.').pop() !== id || manifest.version !== version) throw new Error('安装目录必须为 plugins/<id 末段>/<version>')
+                if (manifest.id !== id || manifest.version !== version) throw new Error('安装目录必须为 plugins/<完整 id>/<version>')
                 const buildRevision = await readPluginBuildRevision(pluginDir)
                 next.set(manifest.id, { manifest, rootPath: pluginDir, version: manifest.version, buildRevision })
                 break
@@ -416,7 +430,7 @@ private removeThemePackContributions(pluginId: string): void {
     return task
   }
 
-  /** Development checkout previews are built packages, never runnable registry entries. */
+  /** Checkout previews publish metadata/assets only; they never start a dev server or backend. */
   private async scanLocalPreviews(): Promise<void> {
     if (app.isPackaged) return
     const root = join(app.getAppPath(), 'eNest_plugin', 'plugins')
@@ -424,19 +438,42 @@ private removeThemePackContributions(pluginId: string): void {
     let ids: string[]
     try { ids = await readdir(root) } catch { return }
     for (const id of ids) {
-      const path = join(root, id, 'dist')
-      if (!existsSync(join(path, 'plugin.json'))) continue
-      try {
-        const manifest = await installFromDirectory(path, { metadataOnly: true })
-        if (manifest.id !== id) continue
-        next.set(id, { manifest, rootPath: path, version: manifest.version, buildRevision: String((await stat(join(path, 'plugin.json'))).mtimeMs) })
-      } catch (error) { logWarn('market', `invalid local package ${id}: ${(error as Error).message}`) }
+      if (id.startsWith('.')) continue
+      // A complete build wins; a source-only checkout remains browsable without npm/build.
+      for (const devSource of [false, true]) {
+        const path = devSource ? join(root, id) : join(root, id, 'dist')
+        if (!existsSync(join(path, 'plugin.json'))) continue
+        try {
+          const manifest = await installFromDirectory(path, { metadataOnly: true, source: devSource })
+          if (manifest.id.split('.').pop() !== id) continue
+          next.set(manifest.id, { manifest, rootPath: path, version: manifest.version, devSource,
+            buildRevision: String((await stat(join(path, 'plugin.json'))).mtimeMs) })
+          break
+        } catch (error) { logWarn('market', `invalid local ${devSource ? 'source' : 'package'} ${id}: ${(error as Error).message}`) }
+      }
     }
     this.localPreviews = next
   }
 
   getAssetRootPath(id: string): string | null { return this.getRootPath(id) ?? this.localPreviews.get(id)?.rootPath ?? null }
   getAssetManifest(id: string): PluginManifest | null { return this.getManifest(id) ?? this.localPreviews.get(id)?.manifest ?? null }
+
+  /** Select one resource provenance for the entire item; never fall through per missing slot. */
+  getCatalogResources(id: string): CatalogResources {
+    if (this.dev.has(id)) {
+      const manifest = this.devManifests.get(id)
+      const dev = this.dev.get(id)!
+      return manifest && dev.rootPath
+        ? localCatalogResources(manifest, dev.rootPath, 'dev', dev.devSource === true)
+        : { screenshots: [] }
+    }
+    const installed = this.installed.get(id)
+    if (installed) return localCatalogResources(installed.manifest, installed.rootPath, 'installed')
+    const preview = this.localPreviews.get(id)
+    if (preview) return localCatalogResources(preview.manifest, preview.rootPath, 'preview', preview.devSource === true)
+    const remote = this.getRemoteEntry(id)
+    return remote ? remoteCatalogResources(remote) : { screenshots: [] }
+  }
 
   /** 拉取 eNest_plugin registry；成功则覆盖 remoteMarket */
   async refreshRemoteMarket(force = false): Promise<void> {
@@ -529,7 +566,9 @@ private removeThemePackContributions(pluginId: string): void {
       return withUpdateHint(mergeMarketMetadata(summary, remote), remote)
     }
     const preview = this.localPreviews.get(id)
-    if (preview) return { ...manifestToSummary(preview.manifest, preview.rootPath), installed: false, rootPath: undefined }
+    if (preview) return { ...manifestToSummary(preview.manifest, preview.rootPath), installed: false, rootPath: undefined,
+      devSource: preview.devSource,
+      packageSize: preview.version === remote?.version ? remote.packageSize : undefined }
     if (remote) return remoteToSummary(remote, isEnabledSync(id))
     return null
   }

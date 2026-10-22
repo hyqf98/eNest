@@ -7,13 +7,15 @@ import { useEffect } from 'react'
 import type { ShellEventPayload } from '@shared/types/ipc'
 import { shellApi } from '@renderer/services/shellApi'
 import { useShellStore } from '@renderer/stores/shellStore'
-import { useThemeStore } from '@renderer/hooks/useTheme'
 import { toastStore } from '@renderer/hooks/useToast'
 import { notify } from '@renderer/services/notifyService'
 
 function handleEvent(payload: ShellEventPayload): void {
   const store = useShellStore.getState()
   switch (payload.type) {
+    case 'preview-splash':
+      window.dispatchEvent(new Event('enest:preview-splash'))
+      break
     case 'plugin-log':
       store.appendLog(payload.level, `[${payload.pluginId}] ${payload.message}`)
       break
@@ -35,18 +37,12 @@ function handleEvent(payload: ShellEventPayload): void {
     case 'plugin-toast':
       notify.custom(payload.notification ?? { body: payload.message ?? '', level: payload.toastType ?? 'info' })
       break
-    case 'theme-changed':
-      void useThemeStore.getState().refresh()
-      break
-    case 'theme-packs-changed':
-      // 插件 theme.register / 卸载后刷新设置页主题包下拉
-      void useThemeStore.getState().refreshPacks()
-      break
     case 'go-home':
       store.goHome()
       break
     case 'set-view':
-      store.setView(payload.view)
+      if (payload.sectionId) store.setSettingsTab(payload.sectionId)
+      store.applyView(payload.view)
       break
     case 'settings-sections':
       store.appendLog('info', `[settings] sections updated (${(payload.sections as unknown[]).length})`)
@@ -66,8 +62,6 @@ function handleEvent(payload: ShellEventPayload): void {
         )
       }
       void store.refreshPlugins()
-      // 卸载可能带走主题包
-      void useThemeStore.getState().refreshPacks()
       break
     case 'quick-hotkey-failed':
       toastStore

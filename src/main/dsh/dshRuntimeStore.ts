@@ -1,28 +1,31 @@
-/**
- * dshRuntimeStore — DSH runtime 三级解析与热更新版本管理。
- * 解析顺序：① {dataRoot}/dsh-runtime/<version>/（热更新安装，active.json 标记优先）
- * ② 发布根 runtime/（.enestplugin 捆绑基线；源码开发固定为 dist/runtime/）
- * ③ 系统 PATH dsh（高级用户自装，兜底）。
- * runtime 根统一布局：<root>/node_modules/@deepseek-ai/dsh/{package.json, lib/bin.js}。
- * 关键依赖：pathsService、PluginRegistry、node:fs。
- */
-import { accessSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+/** DSH runtime discovery and explicit, source-aware local selection. */
+import {
+  accessSync, closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync,
+  readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync
+} from 'node:fs'
 import { constants } from 'node:fs'
+import { delimiter, isAbsolute, join, relative, resolve } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { getAppPaths } from '@main/paths/pathsService'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import type { DshRuntimeInfo, DshRuntimeVersion } from '@shared/types/dsh-workbench'
 
-/** DSH 驾驶舱插件 id（捆绑 runtime 从该插件安装目录发现） */
 export const DSH_PLUGIN_ID = 'com.github.eNest.dsh'
-
+export interface DshRuntimeSelection {
+  version: string
+  source: 'data' | 'bundled' | 'system'
+}
 export interface DshDataDirs {
-  /** 插件专属 Harness home（DSH_HOME），与用户系统 dsh 数据隔离 */
   dshHome: string
-  /** 热更新 runtime 安装目录（每版本一个子目录） */
   runtimeDir: string
-  /** 备份目录（profile / home 快照） */
   backupDir: string
+}
+export interface ResolvedRuntime {
+  source: 'data' | 'bundled' | 'system' | 'none'
+  root: string | null
+  bin: string | null
+  version: string | null
+  engine: 'electron-runas' | 'node'
 }
 
 export function dshDataDirs(): DshDataDirs {
@@ -33,165 +36,227 @@ export function dshDataDirs(): DshDataDirs {
     backupDir: join(data, 'backups', 'dsh')
   }
 }
-
+function assertDirectory(path: string): void {
+  if (!existsSync(path)) {
+    // lstat also detects dangling symlinks, which existsSync intentionally does not.
+    try { lstatSync(path); throw new Error(`DSH directory is not safe: ${path}`) }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+    return
+  }
+  const entry = lstatSync(path)
+  if (entry.isSymbolicLink() || !entry.isDirectory()) throw new Error(`DSH directory is not safe: ${path}`)
+}
 export function ensureDshDirs(): DshDataDirs {
   const dirs = dshDataDirs()
-  mkdirSync(dirs.dshHome, { recursive: true })
-  mkdirSync(dirs.runtimeDir, { recursive: true })
-  mkdirSync(dirs.backupDir, { recursive: true })
+  for (const path of [dirs.dshHome, dirs.runtimeDir, dirs.backupDir]) {
+    assertDirectory(path)
+    mkdirSync(path, { recursive: true })
+  }
   return dirs
 }
 
-/** runtime 根内 dsh 版本号；非法布局返回 null */
+/** All public version inputs pass here before any path lookup or mutation. */
+export function safeRuntimeVersion(version: string): string {
+  if (typeof version !== 'string' || version.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(version)) {
+    throw new Error(`非法版本号: ${String(version)}`)
+  }
+  return version
+}
+function contained(root: string, path: string): boolean {
+  const rel = relative(root, path)
+  return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`))
+}
+/** Reject symlinks, files, traversal and dangling links at managed version roots. */
+export function dataRuntimeRoot(version: string): string {
+  safeRuntimeVersion(version)
+  const root = resolve(dshDataDirs().runtimeDir)
+  assertDirectory(root)
+  const target = resolve(root, version)
+  if (!contained(root, target) || target === root) throw new Error('非法 runtime 路径')
+  assertDirectory(target)
+  return target
+}
+function regularRuntimeFile(root: string, parts: string[]): string | null {
+  try {
+    const canonicalRoot = realpathSync(root)
+    const file = join(root, ...parts)
+    // A package manager may use internal links; links escaping the runtime are never valid.
+    if (!statSync(file).isFile() || !contained(canonicalRoot, realpathSync(file))) return null
+    return file
+  } catch { return null }
+}
 export function runtimeVersionAt(root: string): string | null {
   try {
-    const pkg = JSON.parse(readFileSync(join(root, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), 'utf8')) as {
-      version?: unknown
-    }
-    return typeof pkg.version === 'string' && pkg.version ? pkg.version : null
-  } catch {
-    return null
+    const file = regularRuntimeFile(root, ['node_modules', '@deepseek-ai', 'dsh', 'package.json'])
+    if (!file) return null
+    const pkg = JSON.parse(readFileSync(file, 'utf8')) as { name?: unknown; version?: unknown }
+    if (pkg.name !== undefined && pkg.name !== '@deepseek-ai/dsh') return null
+    return typeof pkg.version === 'string' ? safeRuntimeVersion(pkg.version) : null
+  } catch { return null }
+}
+export function runtimeBinAt(root: string): string | null {
+  return regularRuntimeFile(root, ['node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'])
+}
+function isRuntimeRoot(root: string): boolean {
+  try { assertDirectory(root); return runtimeBinAt(root) !== null && runtimeVersionAt(root) !== null }
+  catch { return false }
+}
+
+/** Validate package identity/version and the published runtime manifest before promotion. */
+export function validateRuntimeRoot(root: string, version: string, requireManifest = false): void {
+  safeRuntimeVersion(version)
+  if (!isRuntimeRoot(root) || runtimeVersionAt(root) !== version) throw new Error(`runtime 布局或版本不匹配: ${version}`)
+  const manifestFile = regularRuntimeFile(root, ['package.json'])
+  if (!manifestFile) {
+    if (requireManifest) throw new Error('runtime 缺少 package.json 清单')
+    return
+  }
+  const manifest = JSON.parse(readFileSync(manifestFile, 'utf8')) as {
+    name?: unknown; dependencies?: Record<string, unknown>; platform?: unknown; arch?: unknown
+    os?: unknown; cpu?: unknown
+  }
+  if (manifest.name !== 'enest-dsh-runtime' || typeof manifest.dependencies?.['@deepseek-ai/dsh'] !== 'string') {
+    throw new Error('runtime 清单身份不符合 enest-dsh-runtime 约定')
+  }
+  const accepts = (values: unknown, current: string): boolean => {
+    if (values === undefined) return true
+    if (!Array.isArray(values) || !values.every(value => typeof value === 'string')) return false
+    const strings = values as string[]
+    return !strings.includes(`!${current}`) && (!strings.some(value => !value.startsWith('!')) || strings.includes(current))
+  }
+  if (manifest.platform !== undefined && manifest.platform !== process.platform && manifest.platform !== `${process.platform}-${process.arch}`
+    || manifest.arch !== undefined && manifest.arch !== process.arch
+    || !accepts(manifest.os, process.platform) || !accepts(manifest.cpu, process.arch)) {
+    throw new Error('runtime 清单平台与当前主机不匹配')
   }
 }
 
-/** runtime 根内 dsh bin 入口（lib/bin.js）；不存在返回 null */
-export function runtimeBinAt(root: string): string | null {
-  const bin = join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
-  return existsSync(bin) ? bin : null
-}
-
-/** 有效 runtime 根判定（bin + 版本齐全） */
-function isRuntimeRoot(root: string): boolean {
-  return runtimeBinAt(root) !== null && runtimeVersionAt(root) !== null
-}
-
-/** 固定发布布局；源码预览只读取 dist/runtime，不探测旧源码根 runtime。 */
+/** Source previews only read dist/runtime; installed releases only read runtime. */
 export function bundledRuntimeRoot(): string | null {
   const pluginRoot = pluginRegistry.getRootPath(DSH_PLUGIN_ID)
   if (!pluginRoot) return null
-  const sourcePreview = pluginRegistry.get(DSH_PLUGIN_ID)?.devSource === true
-  const root = sourcePreview ? join(pluginRoot, 'dist', 'runtime') : join(pluginRoot, 'runtime')
-  return isRuntimeRoot(root) ? root : null
+  const root = pluginRegistry.get(DSH_PLUGIN_ID)?.devSource === true
+    ? join(pluginRoot, 'dist', 'runtime') : join(pluginRoot, 'runtime')
+  try {
+    const version = runtimeVersionAt(root)
+    if (!version) return null
+    validateRuntimeRoot(root, version)
+    return root
+  } catch { return null }
 }
-
-/** 系统 PATH 上的 dsh 可执行文件；找不到返回 null */
 export function systemDshBin(): string | null {
-  const pathEnv = process.env.PATH ?? ''
-  for (const dir of pathEnv.split(':')) {
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     if (!dir) continue
-    const candidate = join(dir, 'dsh')
-    try {
-      accessSync(candidate, constants.X_OK)
-      return candidate
-    } catch {
-      /* continue */
-    }
+    const candidate = join(dir, process.platform === 'win32' ? 'dsh.cmd' : 'dsh')
+    try { if (statSync(candidate).isFile()) { accessSync(candidate, constants.X_OK); return candidate } }
+    catch { /* continue */ }
   }
   return null
 }
-
-/** 当前激活标记（热更新目录 active.json） */
-function activeMarkerPath(): string {
-  return join(dshDataDirs().runtimeDir, 'active.json')
-}
-
-export function getActiveMarker(): string | null {
+function activeMarkerPath(): string { return join(dshDataDirs().runtimeDir, 'active.json') }
+export function getActiveMarker(): DshRuntimeSelection | null {
   try {
-    const raw = JSON.parse(readFileSync(activeMarkerPath(), 'utf8')) as { version?: unknown }
-    return typeof raw.version === 'string' && raw.version ? raw.version : null
-  } catch {
-    return null
-  }
+    assertDirectory(dshDataDirs().runtimeDir)
+    const path = activeMarkerPath()
+    if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) return null
+    const raw = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown; source?: unknown }
+    if (typeof raw.version !== 'string') return null
+    safeRuntimeVersion(raw.version)
+    const source = raw.source ?? 'data' // migrate legacy version-only markers on the next write
+    return source === 'data' || source === 'bundled' || source === 'system' ? { version: raw.version, source } : null
+  } catch { return null }
 }
-
-export function setActiveMarker(version: string): void {
+function writeMarker(selection: DshRuntimeSelection | null): void {
   const { runtimeDir } = ensureDshDirs()
-  writeFileSync(activeMarkerPath(), JSON.stringify({ version, switchedAt: Date.now() }, null, 2))
-}
-
-export function clearActiveMarker(): void {
+  const target = activeMarkerPath()
   try {
-    writeFileSync(activeMarkerPath(), JSON.stringify({ version: null, switchedAt: Date.now() }))
-  } catch {
-    /* ignore */
-  }
-}
-
-/** 枚举本地已安装 runtime（热更新目录 + 插件捆绑；同版本 data 优先） */
-export function listInstalledRuntimes(): DshRuntimeVersion[] {
-  const result = new Map<string, DshRuntimeVersion>()
-  const { runtimeDir } = dshDataDirs()
+    const entry = lstatSync(target)
+    if (!entry.isFile() || entry.isSymbolicLink()) throw new Error('active.json 不是普通文件')
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+  const temporary = join(runtimeDir, `.active-${randomUUID()}.tmp`)
+  let fd: number | undefined
   try {
-    for (const name of readdirSync(runtimeDir)) {
-      const root = join(runtimeDir, name)
-      if (!isRuntimeRoot(root)) continue
-      const version = runtimeVersionAt(root)
-      if (!version) continue
-      result.set(version, { version, channel: 'data', path: root, installedAt: undefined, active: false })
-    }
-  } catch {
-    /* 目录不存在 */
+    fd = openSync(temporary, 'wx', 0o600)
+    writeFileSync(fd, JSON.stringify({ ...selection, version: selection?.version ?? null, switchedAt: Date.now() }, null, 2))
+    fsyncSync(fd)
+    closeSync(fd); fd = undefined
+    renameSync(temporary, target)
+  } finally {
+    if (fd !== undefined) closeSync(fd)
+    rmSync(temporary, { force: true })
   }
-  const bundled = bundledRuntimeRoot()
-  if (bundled) {
-    const version = runtimeVersionAt(bundled)
-    if (version && !result.has(version)) {
-      result.set(version, { version, channel: 'bundled', path: bundled, active: false })
-    }
+}
+/** Low-level commit; lifecycle callers must hold withDshMaintenance and quiesce first. */
+export function setActiveMarker(input: string | DshRuntimeSelection): void {
+  const selection: DshRuntimeSelection = typeof input === 'string' ? { version: input, source: 'data' } : input
+  resolveRuntimeSelection(selection) // never persist an uninstalled/mismatched selection
+  writeMarker(selection)
+}
+export function clearActiveMarker(): void { writeMarker(null) }
+export function runtimeIdentity(selection: Pick<DshRuntimeSelection, 'source' | 'version'>): string {
+  return `${selection.source}:${selection.version}`
+}
+export function resolveRuntimeSelection(selection: DshRuntimeSelection): ResolvedRuntime {
+  safeRuntimeVersion(selection.version)
+  if (selection.source === 'data') {
+    const root = dataRuntimeRoot(selection.version)
+    validateRuntimeRoot(root, selection.version)
+    return { source: 'data', root, bin: runtimeBinAt(root), version: selection.version, engine: 'electron-runas' }
   }
-  const active = getActiveMarker()
-  const entry = active ? result.get(active) : undefined
-  if (entry) entry.active = true
-  return [...result.values()].sort((a, b) => b.version.localeCompare(a.version))
+  if (selection.source === 'bundled') {
+    const root = bundledRuntimeRoot()
+    if (!root || runtimeVersionAt(root) !== selection.version) throw new Error(`捆绑 runtime 版本不存在: ${selection.version}`)
+    return { source: 'bundled', root, bin: runtimeBinAt(root), version: selection.version, engine: 'electron-runas' }
+  }
+  if (selection.source === 'system') {
+    const bin = systemDshBin()
+    if (!bin) throw new Error('系统 PATH 中未找到 dsh')
+    return { source: 'system', root: null, bin, version: selection.version === 'system' ? null : selection.version, engine: 'node' }
+  }
+  throw new Error('非法 runtime 来源')
 }
-
-export interface ResolvedRuntime {
-  source: 'data' | 'bundled' | 'system' | 'none'
-  /** runtime 根（data/bundled）；system 时为 null */
-  root: string | null
-  /** dsh bin：data/bundled 为 lib/bin.js（RunAsNode 用）；system 为可执行文件路径 */
-  bin: string | null
-  version: string | null
-  /** system 时直接执行可执行文件；否则经 ELECTRON_RUN_AS_NODE 跑 bin.js */
-  engine: 'electron-runas' | 'node'
-}
-
-/**
- * 解析当前应使用的 runtime：active 标记且存在 > 捆绑 > 系统 PATH。
- */
 export function resolveRuntime(): ResolvedRuntime {
   const active = getActiveMarker()
   if (active) {
-    const root = join(dshDataDirs().runtimeDir, active)
-    const bin = runtimeBinAt(root)
-    if (bin) {
-      return { source: 'data', root, bin, version: runtimeVersionAt(root), engine: 'electron-runas' }
-    }
+    try { return resolveRuntimeSelection(active) } catch { /* missing/corrupt selection: safe fallback */ }
   }
-  const bundled = bundledRuntimeRoot()
-  if (bundled) {
-    const bin = runtimeBinAt(bundled)
-    if (bin) {
-      return { source: 'bundled', root: bundled, bin, version: runtimeVersionAt(bundled), engine: 'electron-runas' }
-    }
-  }
-  const sys = systemDshBin()
-  if (sys) {
-    return { source: 'system', root: null, bin: sys, version: null, engine: 'node' }
-  }
-  return { source: 'none', root: null, bin: null, version: null, engine: 'electron-runas' }
+  const root = bundledRuntimeRoot()
+  if (root) return { source: 'bundled', root, bin: runtimeBinAt(root), version: runtimeVersionAt(root), engine: 'electron-runas' }
+  const bin = systemDshBin()
+  return bin ? { source: 'system', root: null, bin, version: null, engine: 'node' }
+    : { source: 'none', root: null, bin: null, version: null, engine: 'electron-runas' }
 }
-
-/** DshRuntimeInfo 视图（detect action 返回） */
+export function listInstalledRuntimes(): DshRuntimeVersion[] {
+  const result: DshRuntimeVersion[] = []
+  const { runtimeDir } = dshDataDirs()
+  try {
+    assertDirectory(runtimeDir)
+    for (const entry of readdirSync(runtimeDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith('.')) continue
+      try {
+        const root = dataRuntimeRoot(entry.name)
+        if (runtimeVersionAt(root) !== entry.name || !isRuntimeRoot(root)) continue
+        result.push({ version: entry.name, channel: 'data', path: root, installedAt: statSync(root).mtimeMs, active: false })
+      } catch { /* ignore invalid/incomplete installs */ }
+    }
+  } catch { /* not installed */ }
+  const bundled = bundledRuntimeRoot()
+  const bundledVersion = bundled && runtimeVersionAt(bundled)
+  if (bundled && bundledVersion) result.push({ version: bundledVersion, channel: 'bundled', path: bundled, active: false })
+  const system = systemDshBin()
+  if (system) {
+    const marker = getActiveMarker()
+    result.push({ version: marker?.source === 'system' ? marker.version : 'system', channel: 'system', path: system, active: false })
+  }
+  const active = resolveRuntime()
+  for (const entry of result) entry.active = entry.channel === active.source
+    && (entry.channel === 'system' || entry.version === active.version)
+  return result.sort((a, b) => b.version.localeCompare(a.version) || a.channel.localeCompare(b.channel))
+}
 export function resolvedRuntimeInfo(error?: string): DshRuntimeInfo {
   const resolved = resolveRuntime()
   return {
-    available: resolved.bin !== null,
-    source: resolved.source,
-    version: resolved.version ?? undefined,
-    root: resolved.root ?? resolved.bin ?? undefined,
-    engine: resolved.engine,
-    dshHome: dshDataDirs().dshHome,
-    error
+    available: resolved.bin !== null, source: resolved.source, version: resolved.version ?? undefined,
+    root: resolved.root ?? resolved.bin ?? undefined, engine: resolved.engine, dshHome: dshDataDirs().dshHome, error
   }
 }

@@ -8,7 +8,7 @@ import { Button } from '@renderer/components/ui/Button'
 import '@renderer/styles/confirmDialog.css'
 
 /**
- * A renderer modal for the home/settings surfaces, where native plugin views are hidden.
+ * Browser-preview fallback. Electron confirmations use a host-owned native transient view.
  * 行为（焦点陷阱 / Esc / 焦点归还）来自 Radix Dialog；进出场动画保留 gsap（asChild 挂 .confirm-panel）。
  */
 export function ConfirmDialog() {

@@ -2,7 +2,7 @@ import { raiseTransientViews } from '@main/window/transientViews'
 import { pathToFileURL } from 'node:url'
 import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
 /**
- * orbRailViews — 左侧圆轨 / 设置钮（主窗口内顶层 WebContentsView）
+ * orbRailViews — 宿主全局设置钮 / 可选左侧圆轨（主窗口内顶层 WebContentsView）
  * 取代独立透明子窗方案：视图内是真实 DOM 鼠标事件，无穿透转发、无窗口焦点/层级问题。
  * - rail 视图：左缘窄条，收起 ORB_RAIL_COLLAPSED_W（仅把手），renderer hover 触发
  *   经 IPC 拓宽到 ORB_RAIL_EXPANDED_W（同进程 setBounds，约 1 帧）。
@@ -15,7 +15,6 @@ import { app, nativeTheme, WebContentsView, type WebPreferences } from 'electron
 import { join } from 'node:path'
 import {
   ORB_DOCK_PAD_BOTTOM,
-  ORB_DOCK_PAD_LEFT,
   ORB_DOCK_VIEW_H,
   ORB_DOCK_VIEW_W,
   ORB_RAIL_COLLAPSED_W,
@@ -23,7 +22,7 @@ import {
   SHELL_PARTITION,
   TITLEBAR_HEIGHT
 } from '@shared/constants'
-import { IpcChannels, type OrbRailState } from '@shared/types/ipc'
+import { IpcChannels, type OrbRailProjection, type OrbRailState } from '@shared/types/ipc'
 import type { AnimationLevel } from '@shared/types/plugin'
 import {
   getMainWindow,
@@ -35,14 +34,16 @@ import { settingsStore } from '@main/settings/SettingsStore'
 import { resolveThemeTokens, type ResolvedThemeCss } from '@main/theme/resolveThemeCss'
 import { listRailEntries } from '@main/contrib/ContributionRegistry'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
-import { logInfo } from '@main/logs/logService'
+import { logInfo, logWarn } from '@main/logs/logService'
 
 let railView: WebContentsView | null = null
 let dockView: WebContentsView | null = null
 let railExpanded = false
 let dragExpansionCount = 0
 let themeHooked = false
-let visibleStyle: 'classic' | 'orb' | null = null
+// App owns the launch/preview gate; changing tab style must never reopen that gate.
+let chromeVisible = false
+const chromeSuspensions = new Set<symbol>()
 const onNativeThemeUpdated = (): void => setOrbTheme()
 
 let lastState: OrbRailState = {
@@ -67,6 +68,8 @@ function isAnimLevel(v: unknown): v is AnimationLevel {
 /** 从 settingsStore 读当前动画档位（主进程为唯一事实来源） */
 function readAnimLevel(): AnimationLevel {
   try {
+    const effective = readTheme().appearance?.animation.effective
+    if (effective) return effective
     const raw = settingsStore.getAll().general.animationLevel
     return isAnimLevel(raw) ? raw : 'medium'
   } catch {
@@ -83,7 +86,7 @@ function readTheme(): ResolvedThemeCss {
   }
 }
 
-/** 已连接账号（dock 设置钮默认头像）；settingsStore 为唯一事实来源 */
+/** Account metadata stays in the projection; the global settings icon never changes. */
 function readProfile(): OrbRailState['profile'] {
   try {
     const user = settingsStore.getAll().profile?.user
@@ -135,14 +138,14 @@ function loadPart(view: WebContentsView, part: 'rail' | 'dock'): void {
   if (devUrl) {
     const base = devUrl.replace(/\/$/, '')
     const url = `${base}/orb-overlay.html?part=${part}&anim=${encodeURIComponent(anim)}&theme=${themeMode}`
-    registerTrustedSurface(view.webContents, 'orb', url)
-    void view.webContents.loadURL(url)
+    registerTrustedSurface(view.webContents, part === 'dock' ? 'dock' : 'orb', url)
+    void view.webContents.loadURL(url).catch(error => logWarn('chrome', `${part} load failed: ${String(error)}`))
   } else {
     const file = join(app.getAppPath(), 'out', 'renderer', 'orb-overlay.html')
-    registerTrustedSurface(view.webContents, 'orb', pathToFileURL(file).href)
+    registerTrustedSurface(view.webContents, part === 'dock' ? 'dock' : 'orb', pathToFileURL(file).href)
     void view.webContents.loadFile(file, {
       query: { part, anim, theme: themeMode }
-    })
+    }).catch(error => logWarn('chrome', `${part} load failed: ${String(error)}`))
   }
 }
 
@@ -158,25 +161,30 @@ function makeView(part: 'rail' | 'dock'): WebContentsView {
     partition: SHELL_PARTITION
   }
   const view = new WebContentsView({ webPreferences: prefs })
+  // Creation/attachment must not flash chrome through a launch screen or native modal.
+  view.setVisible(false)
   try {
     view.setBackgroundColor('#00000000')
   } catch {
     /* 个别平台不支持方法调用时，构造参数已兜底 */
   }
+  view.webContents.on('did-finish-load', () => {
+    sendStateTo(view.webContents)
+    syncChromeVisibility()
+  })
   loadPart(view, part)
-  view.webContents.once('did-finish-load', () => sendStateTo(view.webContents))
   return view
 }
 
 export function createOrbRailViews(): void {
-  if (railView && dockView) return
+  if (dockView && (lastState.tabStyle !== 'orb' || railView)) return
   const win = getMainWindow()
   if (!win || win.isDestroyed()) return
 
   // 首次创建即对齐主题与账号资料，供 did-finish-load 的首次状态推送携带
   lastState = { ...lastState, theme: readTheme(), profile: readProfile() }
 
-  if (!railView) {
+  if (lastState.tabStyle === 'orb' && !railView) {
     railView = makeView('rail')
     win.contentView.addChildView(railView)
   }
@@ -204,7 +212,7 @@ export function raiseOrbRailViews(): void {
   if (!win || win.isDestroyed()) return
   const cv = win.contentView
   for (const view of [railView, dockView]) {
-    if (!view || !cv.children.includes(view)) continue
+    if (!view || !view.getVisible() || view.webContents.isDestroyed() || !cv.children.includes(view)) continue
     cv.removeChildView(view)
     cv.addChildView(view)
   }
@@ -222,9 +230,10 @@ export function setOrbRailExpandedView(expanded: boolean): void {
 export function layoutOrbRailViews(): void {
   applyRailBounds()
   applyDockBounds()
+  raiseOrbRailViews()
 }
 
-export function setOrbRailState(state: OrbRailState): void {
+export function setOrbRailState(state: OrbRailProjection): void {
   // animationLevel / theme / profile 不信任 renderer：一律以 settingsStore 为准，
   // 避免主壳 hydrate 前的默认值覆盖真实档位/主题
   const next = {
@@ -244,8 +253,7 @@ export function setOrbRailState(state: OrbRailState): void {
 }
 
 /**
- * rail-entries 插槽 → overlay 可消费的入口数组（数据层；DOM 渲染在
- * src/renderer/orb-overlay.ts，归后续批次接线）。跳过未安装/禁用插件的贡献。
+ * rail-entries 插槽 → orb-overlay 的入口数组。跳过未安装/禁用插件的贡献。
  */
 function readRailContribEntries(): OrbRailState['contribEntries'] {
   try {
@@ -287,11 +295,12 @@ export function setOrbTheme(): void {
   const next = readTheme()
   if (
     lastState.theme.mode === next.mode &&
-    JSON.stringify(lastState.theme.tokens) === JSON.stringify(next.tokens)
+    JSON.stringify(lastState.theme.tokens) === JSON.stringify(next.tokens) &&
+    lastState.theme.appearance?.revision === next.appearance?.revision
   ) {
     return
   }
-  lastState = { ...lastState, theme: next }
+  lastState = { ...lastState, theme: next, animationLevel: next.appearance?.animation.effective ?? lastState.animationLevel }
   broadcastState()
 }
 
@@ -302,20 +311,31 @@ export function setOrbProfile(profile: OrbRailState['profile']): void {
   broadcastState()
 }
 
-/** tabStyle 变化：orb 显示圆轨/设置钮（插件全宽）；classic 隐藏 */
-export function applyOrbRailVisibility(tabStyle: 'classic' | 'orb'): void {
-  if (visibleStyle === tabStyle) return
-  visibleStyle = tabStyle
+function syncChromeVisibility(): void {
+  const visible = chromeVisible && chromeSuspensions.size === 0
+  if (railView?.webContents.isDestroyed()) railView = null
+  if (dockView?.webContents.isDestroyed()) dockView = null
+  if (visible) createOrbRailViews()
+  railView?.setVisible(visible && lastState.tabStyle === 'orb')
+  dockView?.setVisible(visible)
+  if (visible) raiseOrbRailViews()
+}
+
+/** Dock is global; only the optional rail depends on the user's tab style. */
+export function applyOrbRailVisibility(tabStyle: 'classic' | 'orb', visible: boolean): void {
+  chromeVisible = visible
   lastState = { ...lastState, tabStyle, contribEntries: readRailContribEntries() }
-  if (tabStyle === 'orb') {
-    setPluginLeftInset(0)
-    createOrbRailViews()
-    if (railView) railView.setVisible(true)
-    if (dockView) dockView.setVisible(true)
-    raiseOrbRailViews()
-  } else {
-    if (railView) railView.setVisible(false)
-    if (dockView) dockView.setVisible(false)
+  setPluginLeftInset(0)
+  syncChromeVisibility()
+}
+
+/** Native modals temporarily mask chrome without changing App's launch/preview gate. */
+export function suspendOrbRailViews(): () => void {
+  const token = Symbol('native-modal')
+  chromeSuspensions.add(token)
+  syncChromeVisibility()
+  return () => {
+    if (chromeSuspensions.delete(token)) syncChromeVisibility()
   }
 }
 
@@ -332,7 +352,9 @@ export function destroyOrbRailViews(): void {
   railView = null
   dockView = null
   railExpanded = false
-  visibleStyle = null
+  dragExpansionCount = 0
+  chromeVisible = false
+  chromeSuspensions.clear()
   if (themeHooked) nativeTheme.removeListener('updated', onNativeThemeUpdated)
   themeHooked = false
 }
@@ -340,8 +362,8 @@ export function destroyOrbRailViews(): void {
 /** Host drag geometry is resolved from native Views, never a renderer-supplied origin. */
 export function getOrbDragSurface(wcId: number) {
   const window = getMainWindow()
-  if (!window || window.isDestroyed() || visibleStyle !== 'orb') return null
-  const view = [railView, dockView].find(candidate => candidate?.webContents.id === wcId)
+  if (!window || window.isDestroyed() || !chromeVisible || chromeSuspensions.size || lastState.tabStyle !== 'orb') return null
+  const view = railView?.getVisible() && railView.webContents.id === wcId ? railView : null
   return view ? { window, view } : null
 }
 export function acquireOrbDragExpansion(): () => void {

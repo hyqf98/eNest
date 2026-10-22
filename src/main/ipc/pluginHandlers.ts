@@ -94,7 +94,9 @@ import { pluginSettingsBridge } from '@main/settings/PluginSettingsBridge'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { showNotification } from '@main/window/notificationOverlay'
 import { themePackRegistry } from '@main/theme/themePacks'
+import { appearanceService } from '@main/theme/appearanceService'
 import { contributionRegistry } from '@main/contrib/ContributionRegistry'
+import { registerDeclaredHomeContribution } from '@main/home/homeRegistry'
 import { resolveQuickQuery } from '@main/launcher/quickProviders'
 import {
   getShellWebContents,
@@ -241,6 +243,7 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'theme.register': 'theme',
   // 主题 Token 读取：所有插件可用（无需权限声明），用于主题感知绘制
   'theme.getTokens': null,
+  'theme.getAppearance': null,
   // 全局热键：注册/注销共用 'hotkey' 权限
   'hotkey.register': 'hotkey',
   'hotkey.unregister': 'hotkey',
@@ -1105,6 +1108,11 @@ async function dispatch(
       const ui = resolvePluginUi(manifest?.ui)
       return resolveThemeTokens(ui.preferredColorScheme)
     }
+    case 'theme.getAppearance': {
+      const manifest = pluginRegistry.getManifest(pluginId)
+      const ui = resolvePluginUi(manifest?.ui)
+      return appearanceService.getAppearance(ui.preferredColorScheme === 'light' || ui.preferredColorScheme === 'dark' ? ui.preferredColorScheme : 'auto')
+    }
     case 'hotkey.register': {
       return registerRuntimeHotkey(pluginId, String(args[0] ?? ''), (acc) => {
         sendPluginEvent(pluginId, { type: 'hotkey', accelerator: acc })
@@ -1372,6 +1380,23 @@ export function registerPluginHandlers(): void {
   bindPluginTools()
   // storage.local 底座：建表 + 一次性迁移旧 plugin-storage/*.json（幂等）
   initPluginStorage()
+  ipcMain.handle(IpcChannels.PluginHomeRegister, async (event, contribution: unknown) => {
+    const senderId = event.sender.id
+    const source = pluginHost.getPluginIdByWebContentsId(senderId)
+    if (!source || event.sender.isDestroyed() || event.senderFrame !== event.sender.mainFrame || !isPluginPageUrl(event.senderFrame.url, source, pluginRegistry.get(source)?.devUrl)) {
+      return { ok: false, error: 'unauthorized sender' }
+    }
+    const scope = getRuntimeScope(source)
+    const allowed = (): boolean => scope?.owner.wcId === senderId && scope.isCurrent() && !scope.isClosing && !event.sender.isDestroyed()
+    if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
+    try {
+      const result = await registerDeclaredHomeContribution(source, contribution)
+      return allowed() ? result : { ok: false, error: 'plugin runtime is closing or stale' }
+    } catch (error) {
+      logWarn('home', `registration failed for ${source}: ${(error as Error).message}`)
+      return { ok: false, error: 'home registration failed' }
+    }
+  })
   ipcMain.handle(
     IpcChannels.PluginCall,
     async (event, request: PluginCallRequest): Promise<PluginCallResult> => {

@@ -1,17 +1,17 @@
 /** 首页产品横幅：空闲时自动切换，悬停与用户操作时暂停阅读计时。 */
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
-import type { PluginSummary } from '@shared/types/plugin'
+import type { PluginPresentation } from './pluginPresentation'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { PRODUCT_DWELL_MS, useProductCarousel } from '@renderer/hooks/useProductCarousel'
-import { ChevronLeftIcon, ChevronRightIcon } from '@renderer/components/icons'
+import { ChevronLeftIcon, ChevronRightIcon, ICON_STROKE_WIDTH } from '@renderer/components/icons'
 import { PluginIcon } from '@renderer/components/PluginIcon'
 import { ProductVisual } from '@renderer/components/ProductVisual'
 import { formatPluginPackageSize } from './pluginPresentation'
 import '@renderer/styles/featured.css'
 
 interface Props {
-  items: PluginSummary[]
+  items: PluginPresentation[]
   onOpen: (id: string) => void
   onDetail?: (id: string, origin?: HTMLElement | null) => void
   paused?: boolean
@@ -25,7 +25,7 @@ export function FeaturedCarousel({ items, onOpen, onDetail, paused = false }: Pr
   const carousel = useProductCarousel(items, paused || previewOpen)
   const { index, select } = carousel
 
-  const openPlugin = (plugin: PluginSummary, origin: HTMLElement | null) => {
+  const openPlugin = (plugin: PluginPresentation, origin: HTMLElement | null) => {
     if (plugin.installed && plugin.enabled !== false) onOpen(plugin.id)
     else if (onDetail) onDetail(plugin.id, origin)
     else onOpen(plugin.id)
@@ -129,7 +129,15 @@ export function FeaturedCarousel({ items, onOpen, onDetail, paused = false }: Pr
                   )}
                   <div className="product-stats">
                     <span>v{plugin.version}</span>
-                    {packageSize && <span title={english ? 'Package size' : '安装包大小'}>{packageSize}</span>}
+                    <span title={t('plugin.packageSize', { size: packageSize ?? t('plugin.unknownSize') })}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth={ICON_STROKE_WIDTH} strokeLinecap="round" strokeLinejoin="round"
+                        aria-hidden="true" focusable="false" style={{ verticalAlign: 'text-bottom', marginRight: 4 }}>
+                        <path d="M12 3 3 7.5v9L12 21l9-4.5v-9L12 3Z" />
+                        <path d="m3 7.5 9 4.5 9-4.5M12 12v9M7.5 5.25l9 4.5" />
+                      </svg>
+                      {packageSize ?? '—'}
+                    </span>
                   </div>
                 </div>
                 <div className="product-labels">

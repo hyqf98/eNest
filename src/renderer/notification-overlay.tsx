@@ -3,8 +3,10 @@ import { createRoot } from 'react-dom/client'
 import type { NotificationOverlayState } from '@shared/types/notification'
 import { NotificationCard } from '@renderer/components/NotificationHost'
 import { applyLevelToDefaults } from '@renderer/gsap/marketMotion'
+import { applyAppearanceToDom } from '@renderer/services/appearanceDom'
 import '@renderer/styles/tokens.css'
 import '@renderer/notification-overlay.css'
+import '@renderer/styles/appearance.css'
 
 const api = window.enestNotificationOverlay
 function Overlay() {
@@ -19,6 +21,7 @@ function Overlay() {
       document.documentElement.dataset.anim = next.animationLevel
       for (const [key, value] of Object.entries(next.theme.tokens)) document.documentElement.style.setProperty(key.startsWith('--') ? key : `--${key}`, value)
       applyLevelToDefaults(next.animationLevel)
+      if (next.appearance) applyAppearanceToDom(next.appearance)
       setState(next)
     }
     const off = api.onState(apply)
@@ -46,7 +49,7 @@ function Overlay() {
   }, [state?.items])
   const dismiss = useCallback((id: number) => { void api?.dismiss(id) }, [])
   const openLink = useCallback((url: string) => { void api?.openLink(url) }, [])
-  return <div ref={ref} className="notification-overlay-stack" role="region" aria-label="消息通知" aria-live="polite" aria-relevant="additions">
+  return <div ref={ref} className="notification-overlay-stack" role="region" aria-label="消息通知" aria-live="polite" aria-relevant="additions" tabIndex={state?.items.length ? 0 : undefined}>
     {state?.items.map(item => <NotificationCard key={item.id} item={item} onDismiss={dismiss} onOpenLink={openLink} visible={state.visible}/>)}
   </div>
 }

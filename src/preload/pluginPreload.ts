@@ -33,6 +33,9 @@ import {
   type PluginCallResult,
   type PluginEventPayload
 } from '@shared/types/ipc'
+import type { ResolvedAppearance } from '@shared/types/appearance'
+import type { HomePageRegistrationInput, HomePageRegistrationResult } from '@shared/types/home'
+import type { ThemePackRegistrationInput } from '@shared/types/plugin'
 import type {
   AppLocale,
   ClipboardHistoryEntry,
@@ -579,23 +582,19 @@ export interface EnestPluginApi {
   /** 主题命名空间：enest.theme.getTokens() / register() */
   theme: {
     getTokens(): Promise<{ mode: 'light' | 'dark'; tokens: PluginThemeTokens }>
+    /** Phase 1 read-only semantic appearance; home references are availability only. */
+    getAppearance(): Promise<ResolvedAppearance>
+    /** Subscribe to semantic appearance changes; returns an unsubscribe function. */
+    onAppearanceChange(cb: (appearance: ResolvedAppearance) => void): Unsubscribe
     /**
      * 注册主题包到壳子设置 → 主题 下拉列表。
-     * ThemePack: { id, name, mode, tokens, source?, background? }
+     * V1 ThemePack or ThemePackV2; source is host-bound and ignored in requests.
      */
-    register(pack: {
-      id: string
-      name: string
-      mode?: 'light' | 'dark' | 'system'
-      tokens: Record<string, string>
-      source?: string
-      background?: {
-        type: 'none' | 'color' | 'image' | 'video'
-        value: string
-        opacity?: number
-        fit?: 'cover' | 'contain'
-      }
-    }): Promise<unknown>
+    register(pack: ThemePackRegistrationInput): Promise<unknown>
+  }
+  /** Confirm an own, installed and enabled manifest home entry; never activates it. */
+  home: {
+    register(contribution: HomePageRegistrationInput): Promise<HomePageRegistrationResult>
   }
   /** 全局热键命名空间：enest.hotkey.register/unregister；需 'hotkey' 权限 */
   hotkey: {
@@ -1075,8 +1074,20 @@ const api: EnestPluginApi = {
     // 规范入口：enest.theme.getTokens()；ui.getThemeTokens 为兼容别名
     getTokens: () =>
       call<{ mode: 'light' | 'dark'; tokens: PluginThemeTokens }>('theme.getTokens'),
+    getAppearance: () => call<ResolvedAppearance>('theme.getAppearance'),
+    onAppearanceChange(cb) {
+      const handler: Listener = (data) => {
+        const wrapper = data as { appearance?: ResolvedAppearance }
+        if (wrapper?.appearance?.version === 2) cb(wrapper.appearance)
+      }
+      api.on('appearance-change', handler)
+      return () => api.off('appearance-change', handler)
+    },
     // 注册主题包 → 主进程 themePackRegistry，壳子设置页主题下拉即时刷新
     register: (pack) => call('theme.register', [pack]),
+  },
+  home: {
+    register: contribution => ipcRenderer.invoke(IpcChannels.PluginHomeRegister, contribution),
   },
   hotkey: {
     register: (accelerator: string, opts?: { label?: string }) =>
@@ -1605,6 +1616,10 @@ ipcRenderer.on(IpcChannels.PluginEvent, (_e, payload: PluginEventPayload) => {
     }
     case 'theme-change': {
       emit('theme-change', { mode: payload.mode, tokens: payload.tokens })
+      break
+    }
+    case 'appearance-change': {
+      emit('appearance-change', { appearance: payload.appearance })
       break
     }
     case 'hotkey': {

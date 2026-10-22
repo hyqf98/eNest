@@ -3,6 +3,7 @@
 import { utilityProcess, type UtilityProcess } from 'electron'
 import { resolvePluginBackendEntry } from '@main/plugin/pluginBackend'
 import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
+import { registerPluginProcess } from '@main/plugin/pluginOwnedProcesses'
 import { resolveSecret } from '@main/vault/secretVault'
 import { logWarn } from '@main/logs/logService'
 import { pluginHost } from '@main/plugin/PluginHost'
@@ -65,10 +66,11 @@ function attemptKill(service: Service): void {
       service.killTimer = undefined
       if (service.exited) return
       const pid = service.pid
-      if (!pid || !Number.isInteger(pid) || pid <= 0) { logWarn('mw', `utility termination unconfirmed for ${service.pluginId}; no spawned child pid`); return }
+      if (!pid || !Number.isInteger(pid) || pid <= 0 || service.child.pid !== pid) { logWarn('mw', `utility termination unconfirmed for ${service.pluginId}; no spawned child pid`); return }
       try { process.kill(pid, 'SIGKILL') }
       catch (error) { logWarn('mw', `utility force termination not confirmed for ${service.pluginId}: ${String(error)}`) }
     }, CANCEL_DEADLINE_MS)
+    service.killTimer.unref()
   }
   if (!accepted && service.spawned) logWarn('mw', `middleware utility did not accept termination for ${service.pluginId}; retaining ownership until exit`)
 }
@@ -125,6 +127,9 @@ function serviceFor(pluginId: string): Service {
   const exitPromise = new Promise<void>(resolve => { resolveExit = resolve })
   const service: Service = { pluginId, scope, child, pending: new Map(), disposed: false, detach: () => {}, onAbort: () => {}, connections: new Map(), exited: false, spawned: child.pid !== undefined, pid: child.pid, killAttempts: 0, exitPromise, resolveExit, retiringReleases: new Set() }
   services.set(pluginId, service)
+  const unregister = registerPluginProcess({ pluginId, generation: scope.owner.generation, kind: 'backend', getPid: () => service.exited ? undefined : service.child.pid, stop: () => shutdown(service) })
+  // Fatal utility errors still emit exit; do not drop a live/retiring PID early.
+  child.once('error', () => terminate(service, 'middleware service failed; reconnect the middleware'))
   child.on('message', (message: { id?: number; event?: string; pluginId?: string; payload?: Record<string, unknown>; ok?: boolean; data?: unknown; error?: string }) => {
     // 事件推送分支：mwUtility 透传的 mw.data / mw.error 直接转发给插件 WebContents
     if (typeof message?.event === 'string' && (message.event === 'mw.data' || message.event === 'mw.error')) {
@@ -149,6 +154,7 @@ function serviceFor(pluginId: string): Service {
   child.once('spawn', () => { service.spawned = true; service.pid = child.pid; if (service.disposed) { service.killAttempts = 0; attemptKill(service) } })
   child.once('exit', code => {
     service.exited = true
+    unregister()
     if (!service.disposed) logWarn('mw', `service exited for ${pluginId}: ${code}`)
     terminate(service, 'middleware service exited; reconnect the middleware', false)
   })
@@ -157,6 +163,7 @@ function serviceFor(pluginId: string): Service {
   service.onAbort = () => { void shutdown(service).catch(error => logWarn('mw', String(error))) }
   scope.signal.addEventListener('abort', service.onAbort, { once: true })
   service.detach = scope.addDisposer(() => shutdown(service))
+  if (scope.signal.aborted) service.onAbort()
   return service
 }
 

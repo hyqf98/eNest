@@ -18,7 +18,7 @@ function browserSource(path) {
 }
 
 // Extract the real application SVG so geometry checks cannot drift from Splash.
-const splash = readFileSync(new URL('../components/Splash.tsx', import.meta.url), 'utf8')
+const splash = readFileSync(new URL('../themes/default/DefaultThemeSplash.tsx', import.meta.url), 'utf8')
 const mark = splash.match(/<svg className="splash-mark"[\s\S]*?<\/svg>/)[0]
   .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
   .replaceAll('className=', 'class=')
@@ -146,6 +146,35 @@ test('five logo assemblies preserve the original mark and cleanly replay in real
         return { completed, visibleBeforeCleanup, restored: markMarkup() === initialMark, handlers: visibilityHandlers.size }
       })
       assert.deepEqual(finished, { completed: 1, visibleBeforeCleanup: true, restored: true, handlers: 0 })
+    })
+
+    await t.test('a delayed workspace keeps the complete mark visible through visibility changes', async () => {
+      const waiting = await page.evaluate(() => {
+        window.completed = 0
+        window.waitingPlayback = playSplash(handles(), () => completed++, 'medium', 'fold', false)
+        lastSplashTimeline.render(lastSplashTimeline.duration(), false, false)
+        Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+        document.dispatchEvent(new Event('visibilitychange'))
+        delete document.hidden
+        document.dispatchEvent(new Event('visibilitychange'))
+        return { paused: lastSplashTimeline.paused(), completed,
+          rootOpacity: getComputedStyle(document.querySelector('.splash')).opacity,
+          visibleLabels: [...document.querySelectorAll('.splash-word-char,.splash-sub')].every(el => getComputedStyle(el).opacity === '1') }
+      })
+      assert.deepEqual(waiting, { paused: true, completed: 0, rootOpacity: '1', visibleLabels: true })
+      assert.deepEqual(await page.locator('.splash-mark').screenshot(), originalPixels)
+      const finished = await page.evaluate(() => {
+        Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+        document.dispatchEvent(new Event('visibilitychange'))
+        waitingPlayback.setReady(true)
+        const hiddenPaused = lastSplashTimeline.paused()
+        delete document.hidden
+        document.dispatchEvent(new Event('visibilitychange'))
+        lastSplashTimeline.pause().totalProgress(1, false)
+        waitingPlayback()
+        return { hiddenPaused, completed, restored: markMarkup() === initialMark, handlers: visibilityHandlers.size }
+      })
+      assert.deepEqual(finished, { hiddenPaused: true, completed: 1, restored: true, handlers: 0 })
     })
 
     await t.test('hidden documents pause the launch timeline and low animation starts from the complete mark', async () => {

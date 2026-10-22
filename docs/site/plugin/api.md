@@ -14,6 +14,12 @@ const api = window.enest
 
 ---
 
+## 隔离主题页面 API
+
+普通插件页面使用 `window.enest`；Workspace 使用专用 `window.enestWorkspace`；V2 主题包声明 `quick: { version: 1, entry }` 的 Quick 页面只获得 **`window.enestQuick`**，不可复用普通插件或壳子 API。
+
+`enestQuick.ready()` 通知首帧就绪；`getState()` 与 `onState(listener)` 获取当次展示快照；`onFocus(listener)` 处理宿主焦点请求；`action(request)` 提交受限查询、过滤、选中、打开、展开、市场入口、隐藏、业务插件返回／固定／聚焦及有界布局请求。结果 ID 是短期不透明句柄；真实启动请求、文件路径、设置与历史不出桥。主题页不能凭自己发送的按键消息伪造用户授权。详细声明、可运行示例、原生几何限制及失败回退见[主题包标准](themes.md#quick-自绘页面-v1)，参数以自动生成的 `EnestQuickApi` 为准。
+
 ## 调用模型
 
 ```text
@@ -62,6 +68,8 @@ resolve({ ok: true, data })
 | `ui` | `onThemeChange(cb)` | 无 | 订阅主题变更 |
 | 基础能力 | `getTokens()` | 无 | 读当前主题变量 |
 | 基础能力 | `register(pack)` | 基础能力 | 注册主题包（≤8 个/插件） |
+| `theme` | `getAppearance()` / `onAppearanceChange(cb)` | 基础能力 | 读取、订阅带 revision 的统一外观；订阅先于初始读取 |
+| `home` | `register(contribution)` | 基础能力 | 确认本插件当前 manifest 的精确首页声明；来源由宿主绑定，不激活主题或首页，见[完整首页](home.md) |
 | `hotkey` | `register(acc, opts?)` | `hotkey` | 注册全局热键 |
 | `hotkey` | `unregister(acc)` | `hotkey` | 注销全局热键 |
 | `hotkey` | `onHotkey(cb)` | 无 | 订阅热键触发 |

@@ -39,6 +39,8 @@ export interface DshWebProcessStatus {
 export interface DshSdkProcessStatus {
   running: boolean
   pid?: number
+  /** 当前或最近一次启动使用的 SDK profile，不等于下次启动选择。 */
+  profile?: string
   initialized: boolean
   /** initialize 握手结果；失败时携带错误（如未配置模型凭据） */
   serverInfo?: { name: string; version: string }
@@ -54,11 +56,13 @@ export interface DshRuntimeStatus {
 // —— SDK JSON-RPC（stdio 换行协议；方法集见 @deepseek-ai/dsh-sdk-protocol）——
 
 export interface DshSdkStartInput {
-  /** 记录在 SDK 会话头的工作目录 */
-  cwd: string
+  /** 未指定时使用持久化设置选定的 SDK profile。 */
+  profile?: string
+  /** 记录在 SDK 会话头的工作目录；未指定时使用隔离 DSH_HOME。 */
+  cwd?: string
   /** 模型路由（provider + model；需先在完全体 Settings→Models 配置凭据） */
-  provider: string
-  model: string
+  provider?: string
+  model?: string
   reasoningEffort?: string
   maxTokens?: number
 }
@@ -85,6 +89,28 @@ export interface DshSessionEventDump {
 
 // —— profile 管理 ——
 
+export type DshProfileTemplate = 'web' | 'headless' | 'sdk' | 'sdk-minimal' | 'acp'
+
+/** 宿主拥有的启动选择，不是 DSH 全局环境变量或原生 profile 字段。 */
+export interface DshWorkbenchSettings {
+  webProfile: string
+  sdkProfile: string
+  webPortPolicy: 'auto' | 'fixed'
+  /** 固定策略下使用；自动策略仍保留上次配置值。 */
+  webPort: number
+}
+
+export interface DshConfigurationApplication {
+  ok: true
+  /** 变更已持久化，进程已真实停止；下次启动才应用，不暗示已热重载。 */
+  application: 'stopped'
+  message: string
+}
+
+export interface DshSettingsUpdateResult extends DshConfigurationApplication {
+  settings: DshWorkbenchSettings
+}
+
 export interface DshProfileInfo {
   name: string
   /** 内置模板（web/headless/sdk/sdk-minimal/acp）或自定义 */
@@ -95,9 +121,50 @@ export interface DshProfileInfo {
   patchLines: number
   /** profile 依赖的 out-of-tree 插件 */
   plugins: string[]
-  /** 是否保留名（desktop）或活跃使用中 */
+  /** 保留名 desktop 不可由工作台修改/启动。 */
   reserved?: boolean
+  /** 未初始化的内置模板也可被列出/选择；首次写入或启动时才落盘。 */
+  exists: boolean
+  template?: DshProfileTemplate
+  /** 根据真实已选 bundle 判断，未知自定义 bundle 不猜测角色。 */
+  webCompatible: boolean
+  sdkCompatible: boolean
+  error?: string
   createdAt?: number
+}
+
+export interface DshProfileConfig extends DshProfileInfo {
+  /** profile 自己的 cordis.patch.yml；home 级补丁的优先级仍高于它。 */
+  patch: string
+  /** eNest 私有元数据，只允许安全白名单键；仅用于该 profile 子进程启动环境。 */
+  environment: Record<string, string>
+  dependencies: Record<string, string>
+}
+
+export interface DshProfileUpdateInput {
+  name: string
+  bundles: string[]
+  patch: string
+  environment: Record<string, string>
+}
+
+export interface DshProfileUpdateResult extends DshConfigurationApplication {
+  profile: DshProfileConfig
+  backupId: string
+}
+
+export interface DshEnvironmentResetInput {
+  /** 默认 config 保留所有会话/存储；home 明确清空隔离 home（含会话）。 */
+  scope: 'config' | 'home'
+  backup: true
+  /** 必须与 scope 精确匹配，不接受布尔式确认。 */
+  confirmation: 'RESET CONFIG' | 'RESET HOME'
+}
+
+export interface DshEnvironmentResetResult extends DshConfigurationApplication {
+  backupId: string
+  scope: 'config' | 'home'
+  preservedSessions: boolean
 }
 
 // —— 备份 ——
@@ -117,8 +184,8 @@ export interface DshBackupEntry {
 
 export interface DshRuntimeVersion {
   version: string
-  /** data = 数据目录热更新安装；bundled = 插件包内捆绑 */
-  channel: 'data' | 'bundled'
+  /** data = 数据目录热更新安装；bundled = 插件包内捆绑；system = 明确选择的 PATH 命令。 */
+  channel: 'data' | 'bundled' | 'system'
   path?: string
   installedAt?: number
   active: boolean
@@ -152,6 +219,7 @@ export type DshWorkbenchRequest =
   | { action: 'runtime.status'; input?: Record<string, never> }
   | { action: 'sessions.list'; input?: { limit?: number } }
   | { action: 'sessions.read'; input: { sessionId: string; maxEvents?: number } }
+  | { action: 'settings.get'; input?: Record<string, never> }
   | { action: 'profiles.list'; input?: Record<string, never> }
   | { action: 'backup.list'; input?: Record<string, never> }
   | { action: 'runtime.versions.list'; input?: Record<string, never> }
@@ -159,14 +227,21 @@ export type DshWorkbenchRequest =
   | { action: 'rpc.call'; input: { method: 'session/wait' | 'session/working-directory/get'; params: Record<string, unknown> } }
   | { action: 'logs.tail'; input: { kind: 'web' | 'sdk'; lines?: number } }
   // dsh.chat（会话写）
-  | { action: 'sdk.start'; input: DshSdkStartInput }
+  | { action: 'sdk.start'; input?: DshSdkStartInput }
   | { action: 'sdk.stop'; input?: Record<string, never> }
   | { action: 'rpc.write'; input: { method: 'session/prompt' | 'session/working-directory/set'; params: Record<string, unknown> } }
   // dsh.admin（进程/profile/备份/热更新）
-  | { action: 'web.start'; input: { profile?: string; port?: number } }
+  | { action: 'web.start'; input?: { profile?: string; port?: number } }
   | { action: 'web.stop'; input?: Record<string, never> }
   | { action: 'web.restart'; input?: { profile?: string; port?: number } }
-  | { action: 'profiles.create'; input: { name: string; template: string } }
+  | { action: 'sdk.restart'; input?: DshSdkStartInput }
+  | { action: 'settings.update'; input: Partial<DshWorkbenchSettings> }
+  /** 显式编辑读取包含 profile 密钥，不能降为 connect。 */
+  | { action: 'profiles.read'; input: { name: string } }
+  | { action: 'profiles.create'; input: { name: string; template: DshProfileTemplate } }
+  | { action: 'profiles.update'; input: DshProfileUpdateInput }
+  | { action: 'profiles.sync'; input: { source: string; target: string; scope?: 'environment' | 'configuration' } }
+  | { action: 'environment.reset'; input: DshEnvironmentResetInput }
   | { action: 'profiles.delete'; input: { name: string; backupFirst?: boolean } }
   | { action: 'profiles.backup'; input: { name: string } }
   | { action: 'profiles.restore'; input: { backupId: string } }
@@ -174,17 +249,25 @@ export type DshWorkbenchRequest =
   | { action: 'backup.restore'; input: { backupId: string } }
   | { action: 'backup.delete'; input: { backupId: string } }
   | { action: 'runtime.download'; input: { version: string } }
-  | { action: 'runtime.activate'; input: { version: string } }
+  | { action: 'runtime.activate'; input: { version: string; source?: 'data' | 'bundled' | 'system' } }
   | { action: 'runtime.remove'; input: { version: string } }
   | { action: 'upgrade.oneClick'; input: { version: string } }
+
+/** 连接读取类 action；主进程仍逐项校验 RPC 方法和参数。 */
+export const DSH_CONNECT_ACTIONS: readonly string[] = [
+  'runtime.detect', 'runtime.status', 'settings.get', 'profiles.list',
+  'sessions.list', 'sessions.read', 'backup.list', 'runtime.versions.list',
+  'runtime.versions.available', 'rpc.call', 'logs.tail'
+]
 
 /** 会话写类 action 集合（rpc.write 方法 + sdk 启停），权限映射与其保持同步 */
 export const DSH_CHAT_ACTIONS: readonly string[] = ['sdk.start', 'sdk.stop', 'rpc.write']
 
 /** admin 变更类 action（未知 action 一律按 admin 拒绝并报错） */
 export const DSH_ADMIN_ACTIONS: readonly string[] = [
-  'web.start', 'web.stop', 'web.restart',
-  'profiles.create', 'profiles.delete', 'profiles.backup', 'profiles.restore',
+  'web.start', 'web.stop', 'web.restart', 'sdk.restart', 'settings.update',
+  'profiles.read', 'profiles.create', 'profiles.update', 'profiles.sync', 'profiles.delete', 'profiles.backup', 'profiles.restore',
+  'environment.reset',
   'backup.create', 'backup.restore', 'backup.delete',
   'runtime.download', 'runtime.activate', 'runtime.remove',
   'upgrade.oneClick'

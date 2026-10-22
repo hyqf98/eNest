@@ -25,9 +25,11 @@
 
 ## 原生视图与响应式
 
-插件 `WebContentsView` 在 shell DOM 上方，renderer 模态层无法盖住它。回首页和设置需 `hidePlugins`；授权使用主进程原生对话框。classic 标题栏高度与 `TITLEBAR_HEIGHT`/CSS 变量保持 36px 一致。orb 顶层原生 rail 在插件挂载后需重新置顶。
+插件和主题 Workspace 的 `WebContentsView` 在 shell DOM 上方，renderer 模态层无法盖住它们。目录、已安装、详情及普通设置走 `navigateWorkspace` 与路由 ACK；受保护设置走 `openSettingsRecovery`，先锁定隐藏原生内容，不能只调用 `hidePlugins` 后切换 DOM。授权使用主进程原生对话框。classic 标题栏高度与 `TITLEBAR_HEIGHT`/CSS 变量保持 36px 一致。orb 顶层原生 rail 在插件挂载后需重新置顶。
 
 Grid/Flex 的可缩项设置 `min-width:0` / `min-height:0`，控制滚动拥有者，标题栏像素和图标像素无需机械改成百分比。动画使用 `marketMotion` 的 d/dy/ease；低动画档尊重现有约定。
+
+外观由主进程 `appearanceService` 解析，页面只消费 `ResolvedAppearance`；主题设置按 Schema 投影到主题 Tab。主题工作区只使用 `enestWorkspace` 的数据、动作和设置描述符，不获得完整 `shellApi`。契约见[主题包规范](themes.md)与[主题工作区](home.md)，宿主责任划分以 `docs/engineering/THEME_STANDARD.md` 为准。
 
 ## 本地开发与检查
 

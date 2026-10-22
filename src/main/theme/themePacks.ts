@@ -1,7 +1,7 @@
 /**
  * themePacks — 主题包注册表
- * 职责：持久化插件/内置注册的 ThemePack 到 ~/.eNest/themes/registry.json，
- * 供 shell:get-theme 一并返回 packs 列表。
+ * 持久化注册记录到数据根目录 themes/registry.json；内置定义始终以编译产物为准。
+ * appearanceService 读取注册表并产生权威外观快照，登记本身不会切换主题。
  * 被 pluginHandlers（theme.register）与 shellHandlers 调用。
  * 加固：token 值白名单校验（剔除危险 CSS 片段）、每插件 pack 数量上限、
  * 只允许覆盖自己来源的 pack。
@@ -12,8 +12,11 @@ import { mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import type { BackgroundConfig, ThemePack } from '@shared/types/plugin'
+import type { ThemePackV2 } from '@shared/types/appearance'
 import { isPluginAssetPath } from '@shared/pluginContract'
 import { validateBackgroundEffects } from '@shared/backgroundEffects'
+import { validateThemePackV2 } from '@shared/theme/appearance'
+import { BUILTIN_THEME_PACKS } from '@shared/theme/builtinThemes'
 import { getAppPaths } from '@main/paths/pathsService'
 import { logWarn } from '@main/logs/logService'
 
@@ -144,12 +147,37 @@ function cleanBackgroundEffects(pack: ThemePack, fromDisk = false): void {
   }
 }
 
+function preparePack(input: unknown, source?: string, fromDisk = false): ThemePack | ThemePackV2 {
+  if (!isThemePack(input)) throw new Error('invalid theme pack: require id, name and tokens')
+  const owner = source || input.source || 'enest.builtin'
+  if (typeof owner !== 'string') throw new Error('invalid theme source')
+  if (owner === 'enest.builtin') throw new Error('reserved theme source')
+  const schemaVersion = (input as { schemaVersion?: unknown }).schemaVersion
+  if (schemaVersion === 2) {
+    const saved = validateThemePackV2(input, owner)
+    // V2 updates are atomic: invalid compatibility effects reject the whole pack.
+    cleanBackgroundEffects(saved)
+    return saved
+  }
+  if (schemaVersion !== undefined && schemaVersion !== 1 && schemaVersion !== '1') {
+    throw new Error('unsupported theme pack schemaVersion')
+  }
+  const saved = { ...structuredClone(input), source: owner }
+  const tokens = sanitizeTokens(owner, saved.tokens)
+  if (!tokens) throw new Error('invalid theme pack: tokens must be an object')
+  saved.tokens = tokens
+  cleanBackground(saved)
+  cleanBackgroundEffects(saved, fromDisk)
+  return saved
+}
+
 export class ThemePackRegistry {
   private packs = new Map<string, ThemePack>()
   private persistTail: Promise<void> = Promise.resolve()
 
   async load(): Promise<void> {
     this.packs.clear()
+    for (const pack of BUILTIN_THEME_PACKS) this.packs.set(pack.id, structuredClone(pack))
     const file = registryFile()
     if (!existsSync(file)) return
     try {
@@ -158,16 +186,17 @@ export class ThemePackRegistry {
       for (const item of list) {
         if (!isThemePack(item)) continue
         const source = item.source || 'enest.builtin'
+        // Host built-ins are always restored from the compiled bundle, never disk.
+        if (source === 'enest.builtin') continue
         if (typeof source !== 'string') continue
         const existing = this.packs.get(item.id)
         if (existing && existing.source !== source) continue
-        if (source !== 'enest.builtin' && !existing && this.countBySource(source) >= MAX_PACKS_PER_SOURCE) continue
-        const tokens = sanitizeTokens(source, item.tokens)
-        if (tokens) {
-          const saved = { ...item, source, tokens }
-          cleanBackground(saved)
-          cleanBackgroundEffects(saved, true)
-          this.packs.set(item.id, saved)
+        if (!existing && this.countBySource(source) >= MAX_PACKS_PER_SOURCE) continue
+        try {
+          const saved = preparePack(item, source, true)
+          this.packs.set(saved.id, saved)
+        } catch (error) {
+          logWarn('theme', `${source}: invalid theme pack skipped (${(error as Error).message})`)
         }
       }
     } catch {
@@ -194,9 +223,18 @@ export class ThemePackRegistry {
   }
 
   /** Plugin entry points bind identity here; enest.builtin belongs only to the host. */
-  async registerPlugin(pack: ThemePack, pluginId: string): Promise<ThemePack> {
+  async registerPlugin(pack: unknown, pluginId: string): Promise<ThemePack | ThemePackV2> {
     if (!pluginId || pluginId === 'enest.builtin') throw new Error('reserved theme source')
+    if (!isThemePack(pack)) throw new Error('invalid theme pack: require id, name and tokens')
     return this.register({ ...pack, source: pluginId })
+  }
+
+  /** Host-only: trusted definitions come from the compiled bundle, never a caller payload. */
+  async registerBuiltin(id: string): Promise<ThemePackV2> {
+    const pack = BUILTIN_THEME_PACKS.find((candidate) => candidate.id === id)
+    if (!pack) throw new Error('unknown built-in theme')
+    this.packs.set(pack.id, structuredClone(pack))
+    return structuredClone(pack)
   }
 
   /**
@@ -206,13 +244,14 @@ export class ThemePackRegistry {
    * - 同来源 pack 数超上限 → 拒绝（覆盖自身已存在的 id 不占新名额）
    * - token 值经白名单过滤，非法键值对剔除
    */
-  async register(pack: ThemePack): Promise<ThemePack> {
-    if (!isThemePack(pack)) {
-      throw new Error('invalid theme pack: require id and name')
-    }
-    const saved: ThemePack = structuredClone(pack)
-    if (!saved.source) saved.source = 'enest.builtin'
+  async register(pack: ThemePackV2): Promise<ThemePackV2>
+  async register(pack: ThemePack): Promise<ThemePack>
+  async register(pack: unknown): Promise<ThemePack | ThemePackV2>
+  async register(pack: unknown): Promise<ThemePack | ThemePackV2> {
+    return this.savePack(preparePack(pack))
+  }
 
+  private async savePack<T extends ThemePack>(saved: T): Promise<T> {
     const existing = this.packs.get(saved.id)
     if (existing && existing.source !== saved.source) {
       throw new Error(
@@ -227,20 +266,13 @@ export class ThemePackRegistry {
       throw new Error(`theme pack limit reached for ${saved.source} (max ${MAX_PACKS_PER_SOURCE})`)
     }
 
-    const tokens = sanitizeTokens(saved.source, saved.tokens)
-    if (!tokens) {
-      throw new Error('invalid theme pack: tokens must be an object')
-    }
-    saved.tokens = tokens
-    cleanBackground(saved)
-    cleanBackgroundEffects(saved)
-
     this.packs.set(saved.id, saved)
     await this.persist()
     return structuredClone(saved)
   }
 
   async remove(id: string): Promise<boolean> {
+    if (this.packs.get(id)?.source === 'enest.builtin') return false
     const removed = this.packs.delete(id)
     if (removed) await this.persist()
     return removed
@@ -251,7 +283,7 @@ export class ThemePackRegistry {
    * 返回被删除的 pack id 列表；无匹配时不落盘。
    */
   async removeBySource(source: string): Promise<string[]> {
-    if (!source) return []
+    if (!source || source === 'enest.builtin') return []
     const removedIds: string[] = []
     for (const [id, pack] of this.packs) {
       if (pack.source === source) {
@@ -268,7 +300,8 @@ export class ThemePackRegistry {
       const file = registryFile(), temporary = `${file}.${randomUUID()}.tmp`
       await mkdir(dirname(file), { recursive: true })
       try {
-        await writeFile(temporary, JSON.stringify(this.list(), null, 2), { encoding: 'utf8', flag: 'wx' })
+        const extensions = this.list().filter(pack => pack.source !== 'enest.builtin')
+        await writeFile(temporary, JSON.stringify(extensions, null, 2), { encoding: 'utf8', flag: 'wx' })
         await rename(temporary, file)
       } finally { await rm(temporary, { force: true }).catch(() => {}) }
     })

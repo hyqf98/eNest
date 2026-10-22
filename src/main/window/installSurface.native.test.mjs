@@ -46,7 +46,7 @@ test('trusted file drops install ZIP packages above native plugin views, preserv
   const evidence = { platform: process.platform, screenshots: [], checks: {} }
   try {
     for (const [path, value] of Object.entries(files(editorId))) {
-      const target = join(dataRoot, 'plugins', editorId, '1.0.0', path)
+      const target = join(dataRoot, 'plugins', editorId.split('.').pop(), '1.0.0', path)
       await mkdir(join(target, '..'), { recursive: true }); await writeFile(target, value)
     }
     await writeFile(join(dataRoot, 'settings.json'), JSON.stringify({ theme: { mode: 'light' }, general: { quickLauncher: { enabled: false }, closeBehavior: 'quit', tabStyle: 'classic', sessionTabs: [], animationLevel: 'medium' } }))

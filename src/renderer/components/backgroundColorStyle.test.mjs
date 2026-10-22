@@ -10,13 +10,16 @@ const javascript = ts.transpileModule(readFileSync(new URL('./backgroundColorSty
 new Function('module', 'exports', javascript)(module, module.exports)
 const { backgroundColorStyle } = module.exports
 
-test('solid colors use backgroundColor and all existing gradient presets retain their image-free rendering', () => {
+test('solid colors and supported gradients retain their image-free rendering without removed preset UI', () => {
   assert.deepEqual(backgroundColorStyle('#abc'), { backgroundColor: '#abc' })
   assert.deepEqual(backgroundColorStyle('rgb(12, 30, 40)'), { backgroundColor: 'rgb(12, 30, 40)' })
-  const picker = readFileSync(new URL('./BackgroundPicker.tsx', import.meta.url), 'utf8')
-  const presets = [...picker.matchAll(/css: '([^']+)'/g)].map(match => match[1])
-  assert.ok(presets.length >= 8)
-  assert.ok(presets.some(value => value.includes('color-mix(') && value.includes('var(')))
+  const presets = [
+    'linear-gradient(120deg, #264839, #113b55)',
+    'radial-gradient(circle at 30% 20%, #e6b785, transparent 70%)',
+    'conic-gradient(from 45deg, #f7f3ed, #a85532)',
+    'repeating-linear-gradient(45deg, #fff 0 2px, #eee 2px 4px)',
+    'linear-gradient(165deg, color-mix(in srgb, var(--accent) 20%, #fff), var(--bg))',
+  ]
   for (const value of presets) assert.deepEqual(backgroundColorStyle(value), { backgroundImage: value })
 })
 

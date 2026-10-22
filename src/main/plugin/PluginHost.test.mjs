@@ -76,6 +76,7 @@ const adapters = {
   '@main/ssh/sshSessionManager': `import {f} from 'fixture'; export const releaseSshSessions=async()=>{f.releases++;if(f.releaseGate)await f.releaseGate};`,
   '@main/database/dbSessionManager': `export const releaseDbSessions=async()=>{};`,
   '@main/theme/resolveThemeCss': `export const resolveThemeTokens=()=>({}); export const themeTokensToInjectScript=()=>'';`,
+  '@main/theme/appearanceService': `import {f} from 'fixture'; export const appearanceService={getAppearance:preferred=>{f.appearancePreferred=preferred;return f.appearance??{revision:1}}};`,
   '@main/plugin/externalLinks': `export const routeExternal=async()=>{}; export const isInternalNavigation=()=>true;`
 }
 async function fixture() {
@@ -87,6 +88,18 @@ async function fixture() {
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve))
 async function loaded(ctx,id){await ctx.host.openPlugin(id);ctx.host.getWebContents(id).emit('did-finish-load');await tick()}
+
+test('theme broadcasts forward the authoritative appearance alongside compatibility tokens', async () => {
+  const c = await fixture()
+  try {
+    await loaded(c, 'one')
+    c.f.appearance = { revision: 9, theme: { source: 'enest.builtin', id: 'warm', legacy: false }, mode: 'dark' }
+    c.host.broadcastTheme()
+    assert.equal(c.f.messages.filter(({ msg }) => msg.type === 'appearance-change').at(-1).msg.appearance, c.f.appearance)
+    assert.ok(c.f.messages.some(({ msg }) => msg.type === 'theme-change'))
+    assert.equal(c.f.appearancePreferred, 'auto')
+  } finally { await c.host.destroyAll() }
+})
 
 test('save all clears only successfully acknowledged dirty instances and ignores stale operations',async()=>{
   const c=await fixture();await loaded(c,'one');await loaded(c,'two')

@@ -10,16 +10,25 @@ import ts from 'typescript'
 import { _electron as electron } from 'playwright-core'
 
 const moduleRequire = createRequire(import.meta.url)
-function loadShared(path, mocks = {}) {
+function loadShared(path, mocks = {}, document) {
   const js = ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
   }).outputText
   const module = { exports: {} }
-  new Function('require', 'module', 'exports', js)(id => mocks[id] ?? moduleRequire(id), module, module.exports)
+  new Function('require', 'module', 'exports', 'document', js)(id => mocks[id] ?? moduleRequire(id), module, module.exports, document)
   return module.exports
 }
-const backgroundEffects = loadShared('../shared/backgroundEffects.ts', { '@shared/pluginContract': loadShared('../shared/pluginContract.ts') })
+const pluginContract = loadShared('../shared/pluginContract.ts')
+const backgroundEffects = loadShared('../shared/backgroundEffects.ts', { '@shared/pluginContract': pluginContract })
 const backgroundAtmosphere = loadShared('./components/backgroundAtmosphere.ts', { './backgroundColorStyle': loadShared('./components/backgroundColorStyle.ts') })
+const themeColors = loadShared('../shared/theme/colors.ts')
+const themeAppearance = loadShared('../shared/theme/appearance.ts', {
+  '@shared/theme/builtinThemes': loadShared('../shared/theme/builtinThemes.ts'),
+  '@shared/theme/colors': themeColors,
+  '@shared/theme/presets': loadShared('../shared/theme/presets.ts', { '@shared/theme/colors': themeColors }),
+  '@shared/pluginContract': pluginContract,
+  '@shared/backgroundEffects': backgroundEffects
+})
 
 const state = (value = 'saved', generation = 1) => ({
   pluginId: 'fixture', generation, title: 'Fixture', status: 'ready', mode: 'quick',
@@ -63,6 +72,10 @@ async function fixture(initialState = state()) {
   const document = new Element(), window = new Element()
   document.documentElement = new Element()
   document.body = new Element()
+  const appearanceDom = loadShared('./services/appearanceDom.ts', {
+    '@shared/theme/appearance': themeAppearance,
+    '@renderer/gsap/marketMotion': { applyLevelToDefaults() {} }
+  }, document)
   document.hidden = false
   document.hasFocus = () => true
   document.createElement = tag => { const node = new Element(); node.tagName = tag; node.ownerDocument = document; return node }
@@ -88,6 +101,7 @@ async function fixture(initialState = state()) {
       if (id.endsWith('.css')) return {}
       if (id === '@shared/platform') return { IS_MAC: false }
       if (id === '@renderer/gsap/marketMotion') return { applyLevelToDefaults() {} }
+      if (id === '@renderer/services/appearanceDom') return appearanceDom
       if (id === '@shared/backgroundEffects') return backgroundEffects
       if (id === '@renderer/components/backgroundAtmosphere') return backgroundAtmosphere
       if (id === '@renderer/background/backgroundEffect') return { startBackgroundEffect: (canvas, options) => {
@@ -116,6 +130,28 @@ test('a stale appearance refresh cannot replace text typed after its read starte
   await f.resolve({ ...state('old snapshot'), title: 'Updated title' })
   assert.equal(f.input.value, 'new local text')
   assert.equal(f.elements.get('plugin-title').textContent, 'Updated title', 'metadata still refreshes independently of the newer input')
+})
+
+test('resolved appearance uses the real DOM adapter without replacing local plugin input', async () => {
+  const f = await fixture()
+  f.input.value = 'local draft'; f.input.dispatch('input')
+  const resolved = themeAppearance.resolveAppearance({ settings: themeAppearance.migrateAppearanceSettings(null, {
+    theme: { mode: 'dark', overrides: {} }, general: {}
+  }) })
+  resolved.theme = { ...resolved.theme, source: 'com.example.fixture', id: 'paper', legacy: false }
+  resolved.layout.variant = 'ink'
+  resolved.tokens['--accent'] = '#123456'
+  f.emit({ type: 'state', state: { ...state('stale snapshot'), appearance: { theme: 'light', tokens: {}, animationLevel: 'high', resolved } } })
+  const root = f.document.documentElement
+  assert.equal(root.dataset.appearanceSource, 'com.example.fixture')
+  assert.equal(root.dataset.appearanceTheme, 'paper')
+  assert.equal(root.dataset.appearanceLegacy, 'false')
+  assert.equal(root.dataset.appearanceLayout, 'ink')
+  assert.equal(root.dataset.theme, resolved.mode)
+  assert.equal(root.dataset.anim, resolved.animation.effective)
+  assert.equal(root.style.getPropertyValue('--accent'), '#123456')
+  assert.equal(root.style.getPropertyValue('--font-size-base'), `${13 * resolved.fonts.scale}px`)
+  assert.equal(f.input.value, 'local draft')
 })
 
 test('same-generation metadata snapshots preserve typed input while still updating pin and title', async () => {

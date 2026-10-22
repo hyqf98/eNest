@@ -6,6 +6,7 @@ import { pickLocalFiles, pickLocalSaveFile, resolveLocalFileHandle } from '@main
 import { utilityProcess, type UtilityProcess } from 'electron'
 import { resolvePluginBackendEntry } from '@main/plugin/pluginBackend'
 import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
+import { registerPluginProcess } from '@main/plugin/pluginOwnedProcesses'
 import { resolveSecret } from '@main/vault/secretVault'
 import { logWarn } from '@main/logs/logService'
 import type { DatabaseBackendApi as Api } from '@main/database/backendApi'
@@ -63,10 +64,11 @@ function attemptKill(service: Service): void {
       service.killTimer = undefined
       if (service.exited) return
       const pid = service.pid
-      if (!pid || !Number.isInteger(pid) || pid <= 0) { logWarn('db', `utility termination unconfirmed for ${service.pluginId}; no spawned child pid`); return }
+      if (!pid || !Number.isInteger(pid) || pid <= 0 || service.child.pid !== pid) { logWarn('db', `utility termination unconfirmed for ${service.pluginId}; no spawned child pid`); return }
       try { process.kill(pid, 'SIGKILL') }
       catch (error) { logWarn('db', `utility force termination not confirmed for ${service.pluginId}: ${String(error)}`) }
     }, CANCEL_DEADLINE_MS)
+    service.killTimer.unref()
   }
   if (!accepted && service.spawned) logWarn('db', `database utility did not accept termination for ${service.pluginId}; retaining ownership until exit`)
 }
@@ -125,6 +127,9 @@ function serviceFor(pluginId: string): Service {
   const exitPromise = new Promise<void>(resolve => { resolveExit = resolve })
   const service: Service = { pluginId, scope, child, pending: new Map(), disposed: false, detach: () => {}, onAbort: () => {}, transactions: new Map(), connections: new Map(), exited: false, spawned: child.pid !== undefined, pid: child.pid, killAttempts: 0, exitPromise, resolveExit, retiringReleases: new Set() }
   services.set(pluginId, service)
+  const unregister = registerPluginProcess({ pluginId, generation: scope.owner.generation, kind: 'backend', getPid: () => service.exited ? undefined : service.child.pid, stop: () => shutdown(service) })
+  // Fatal utility errors still emit exit; do not drop a live/retiring PID early.
+  child.once('error', () => terminate(service, 'database service failed; reconnect the database'))
   child.on('message', (message: { id?: number; ok?: boolean; data?: unknown; error?: string }) => {
     const pending = service.pending.get(Number(message?.id))
     if (!pending) return
@@ -138,6 +143,7 @@ function serviceFor(pluginId: string): Service {
   child.once('spawn', () => { service.spawned = true; service.pid = child.pid; if (service.disposed) { service.killAttempts = 0; attemptKill(service) } })
   child.once('exit', code => {
     service.exited = true
+    unregister()
     if (!service.disposed) logWarn('db', `service exited for ${pluginId}: ${code}`)
     terminate(service, 'database service exited; reconnect the database', false)
   })
@@ -146,6 +152,7 @@ function serviceFor(pluginId: string): Service {
   service.onAbort = () => { void shutdown(service).catch(error => logWarn('db', String(error))) }
   scope.signal.addEventListener('abort', service.onAbort, { once: true })
   service.detach = scope.addDisposer(() => shutdown(service))
+  if (scope.signal.aborted) service.onAbort()
   return service
 }
 

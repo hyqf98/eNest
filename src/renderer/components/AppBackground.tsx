@@ -1,12 +1,13 @@
 /** Global effect and color atmosphere combine; image/video backgrounds display with effects off. */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { BackgroundConfig } from '@shared/types/plugin'
-import { resolveMediaSrc, useThemeStore } from '@renderer/hooks/useTheme'
-import { BackgroundEffect } from '@renderer/components/BackgroundEffect'
-import { useBackgroundEffect } from '@renderer/hooks/useBackgroundEffect'
+import { resolveMediaSrc } from '@renderer/services/themeResources'
 import { useFpsGuard } from '@renderer/hooks/useFpsGuard'
 import { useShellStore } from '@renderer/stores/shellStore'
-import { backgroundAtmosphereStyle, syncBackgroundAtmosphereTheme } from './backgroundAtmosphere'
+import { useAppearanceStore } from '@renderer/hooks/useAppearance'
+import { useReducedMotion } from '@renderer/hooks/useAnimationLevel'
+import { DefaultThemeBackground } from '@renderer/themes/default/DefaultThemeBackground'
+import { BUILTIN_BACKGROUND_EFFECTS } from '@shared/backgroundEffects'
 
 function MediaLayer({ config, paused }: { config: BackgroundConfig; paused: boolean }) {
   const { src, playable, placeholder } = resolveMediaSrc(config.value)
@@ -64,51 +65,32 @@ function MediaLayer({ config, paused }: { config: BackgroundConfig; paused: bool
   )
 }
 
-export function AppBackground() {
-  const background = useThemeStore((s) => s.background)
-  const effect = useBackgroundEffect()
-  const hasEffect = !!effect
-  const active = !!effect || (!!background && background.type !== 'none' && !!background.value)
-  const opacity = background?.opacity ?? 0.85
-  const covered = useShellStore((s) => {
-    if (s.view !== 'plugin' || !s.pluginReady) return false
-    const tab = s.tabs.find((item) => item.id === s.activeTabId)
-    return !!tab && s.plugins.find((plugin) => plugin.id === tab.pluginId)?.ui?.background !== 'transparent'
+export function AppBackground({ paused: externallyPaused = false }: { paused?: boolean }) {
+  const appearance = useAppearanceStore(state => state.appearance)
+  const reducedMotion = useReducedMotion()
+  const covered = useShellStore(state => {
+    if (state.view !== 'plugin' || !state.pluginReady) return false
+    const tab = state.tabs.find(item => item.id === state.activeTabId)
+    return !!tab && state.plugins.find(plugin => plugin.id === tab.pluginId)?.ui?.background !== 'transparent'
   })
-  // FPS 守卫：high 档采样，连续掉帧自动降 medium（App.tsx 不必接线）
-  useFpsGuard(!covered)
-
+  useFpsGuard(!covered && !externallyPaused)
+  const [visible, setVisible] = useState(!document.hidden)
   useEffect(() => {
-    document.documentElement.classList.toggle('has-bg-media', active)
-    document.documentElement.classList.toggle('has-bg-effect', hasEffect)
-  }, [active, hasEffect])
-
-  useEffect(() => {
-    document.documentElement.style.setProperty('--bg-media-opacity', String(opacity))
-    syncBackgroundAtmosphereTheme(document.documentElement, background)
-  }, [background, opacity])
-
-  useEffect(() => () => {
-    document.documentElement.classList.remove('has-bg-media', 'has-bg-effect')
-    document.documentElement.style.removeProperty('--bg-media-opacity')
-    syncBackgroundAtmosphereTheme(document.documentElement, null)
+    const sync = () => setVisible(!document.hidden)
+    document.addEventListener('visibilitychange', sync)
+    return () => document.removeEventListener('visibilitychange', sync)
   }, [])
-
-  return (
-    <>
-      {effect ? <BackgroundEffect effect={effect} paused={covered} className="app-bg" /> : active && background && (
-        <div className="app-bg" aria-hidden>
-          {background.type === 'color' ? (
-            // 渐变/纯色直接写在满屏容器上，避免子元素无尺寸导致不生效
-            <div
-              className="app-bg-fill"
-              style={backgroundAtmosphereStyle(background) ?? undefined}
-            />
-          ) : (
-            <MediaLayer config={background} paused={covered} />
-          )}
-        </div>
-      )}
-    </>
-  )
+  const paused = externallyPaused || covered || !visible || reducedMotion || !appearance.animation.continuous
+  const media = appearance.background.media
+  if (appearance.background.kind !== undefined || BUILTIN_BACKGROUND_EFFECTS.some(effect => effect.id === appearance.background.effect)) {
+    return <DefaultThemeBackground appearance={appearance} paused={externallyPaused || covered || !visible} />
+  }
+  return <div className="appearance-backdrop" data-texture={appearance.background.texture}
+    data-animate={!paused && appearance.background.effect !== 'none'} aria-hidden>
+    {media?.type === 'color' && <div className="app-bg-fill" style={{ background: media.value, opacity: media.opacity }} />}
+    {media?.value && media.type !== 'none' && media.type !== 'color' && <>
+      <MediaLayer config={media} paused={paused} />
+      <div className="appearance-media-veil" />
+    </>}
+  </div>
 }

@@ -51,6 +51,8 @@ import { pluginHost } from '../plugin/PluginHost'
 
 IPC 通道名只定义在 `@shared/types/ipc`，preload 与 main 共用。
 
+跨端 DTO 在 `@shared/types/` 定义并复用；壳 API 的 preload、renderer 与 mock 不各写一份同名请求/响应接口。
+
 ## UI 组件层（2026-10 起基线）
 
 - 主壳基础控件统一走 `@renderer/components/ui/`（Button/Input/Checkbox/Switch/Tooltip/Dialog/Segmented/Select/Slider）：行为来自 Radix UI，视觉沿用手写 CSS 类（`.btn/.switch/.segmented/.ui-select-*` 等，token 直读）。**新增基础控件优先扩展该层，不要在页面里再手写裸控件**。
@@ -62,17 +64,17 @@ IPC 通道名只定义在 `@shared/types/ipc`，preload 与 main 共用。
 ## 状态与设置
 
 - 全局 UI 状态：`@renderer/stores/shellStore`（zustand）
-- 主题 / 字体 / 动画档：`@renderer/hooks/useTheme`、`useFont`、`useAnimationLevel`
+- 外观唯一权威：主进程 `appearanceService` → `ResolvedAppearance` → renderer `useAppearance`；字体/背景/动画/Tab/通知样式不再有独立可写 store。`useAnimationLevel` 只读取有效动画档。
 - 通知：优先 `@renderer/services/notifyService`（`notify.info/success/...`）；`toastStore.push` 为兼容层。默认位置由设置 `general.notifyPosition`（中间弹框/右下角）决定，主进程 `showNotification` 对未显式指定 position 的通知在显示时读取
 - 持久化：主进程 `settingsStore`（`{dataRoot}/data/enest.db`；`~/.eNest/settings.json` 仅存数据根引导信息）+ mock（localStorage）字段契约对齐；新设置写入 `general` 或独立段，勿只写 UI 本地 state
 
-设置变更若需即时生效，先 `set` store / DOM，再异步 `shellApi.setSettings`。
+主题字段可在本地预览，但必须通过 `updateThemeProfile` 提交并以宿主持久化后的 revision 为准；失败恢复确认状态。主题工作区的设置只能经 `enestWorkspace` 描述符接口，不得读取全量 `shellApi.getSettings()`。
 
 ## Tab 与插件层（易踩坑）
 
 - 插件内容是 **原生 `WebContentsView`**，叠在 shell 渲染层**之上**。渲染层 UI **不能**盖住插件区。
 - **classic**：Tab 在标题栏；**orb**：左侧圆轨 = 主窗口内顶层 WebContentsView（`@main/window/orbRailViews`，rail 收起窄条 hover 展开 + 左下角 dock 设置钮），真实 DOM 鼠标事件，插件视图挂载后必须 `raiseOrbRailViews()` 保持置顶，插件内容全宽，禁止左侧白条通道。
-- 回首页/设置必须 `shellApi.hidePlugins()`，否则原生层挡住壳子。
+- 目录/已安装/详情属于主题 Workspace，导航走 `navigateWorkspace` 和 ACK。**设置只有一个原生壳视图**（`SettingsPage`，主题 Tab 按主题 pack schema 动态渲染外观字段）；Workspace 不提供设置路由，进入设置 = 隐藏 Workspace 表面 + `set-view: settings`，不存在「受保护设置」恢复机制。不能只靠 DOM z-index。
 - 标题栏高度与 `TITLEBAR_HEIGHT`（`@shared/constants`）及 CSS `--titlebar-h` 必须一致（当前 36）。
 
 ## 动画
@@ -83,7 +85,11 @@ IPC 通道名只定义在 `@shared/types/ipc`，preload 与 main 共用。
 
 ## 主题与背景
 
-- Token 名以 `@shared` / `tokens.css` 为准；插件经 `themeAware` 注入，主题包 `enest.theme.register(ThemePack)` → `theme-packs-changed` → `refreshPacks`。
+- 只保留一套内置 eNest 默认主题 `enest.builtin / default`（浅/深为两模式），保持原页面、动效和外观设置。源码内置包声明集中在 `@shared/theme/defaultTheme/package`，使用标准 `contributes.themePacks / homePages`；UI 与启动动画位于 `@renderer/themes/default/`。内置包随壳编译，不放入插件仓，不经过插件安装或磁盘注册表加载；第三方主题插件能力保留。完整规范见 `docs/engineering/THEME_STANDARD.md` 与 `docs/site/plugin/themes.md`、`home.md`。
+- 新主题使用 `ThemePackV2` + schema；所有外观字段在主题 Tab 内动态渲染，禁止按主题 ID 写页面分支。`layout.variant` 是可扩展语义标记，不是内置枚举。
+- `enest.theme.register()` 只登记，不能自动切换；外观只经 `appearance-changed` 快照同步。通知外观走受限 `notifications` 字段，内容/来源/关闭/计时由宿主拥有。
+- 首页贡献复用 `HomeSurfaceManager`，专用 `enestWorkspace`（`enestHome` 别名）没有普通插件 `enest` 或完整 `shellApi`。新提供者必须声明三路由能力（catalog/installed/detail），渲染后 ACK；设置入口用 `openSettings` 动作请求宿主切换原生设置视图。
+- 启动直接加载源码内置主题（已选第三方主题则恢复有效选择），隐藏预热与默认启动动画并行，ready/路由 ACK/提交后复用同一首页。没有首启主题选择页、确认标记或正常「准备首页」页；故障恢复保留，隐藏预热不能解除恢复锁。原生 orb 可见性由 `App` 的启动/开屏预览门禁统一控制，`ShellLayout` 不另设门禁。
 - 背景 `has-bg-media` 时：内容区可加毛玻璃，但 **不要**用同选择器覆盖 `.chip.active` / `.segmented button.active`。
 
 ## 插件仓库 `eNest_plugin/`

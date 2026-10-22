@@ -1,33 +1,19 @@
 /**
  * resolveThemeCss — 主进程侧主题 Token 解析与 CSS 生成
- * 职责：根据 SettingsStore + 主题包 + nativeTheme（system 模式）解析出 light/dark tokens，
- * 生成可注入插件页的 CSS 文本，供 PluginHost / pluginProtocol 使用。
- * 被 PluginHost（executeJavaScript 注入）、pluginProtocol（__enest_theme.css）、
- * pluginHandlers（theme.getTokens）调用。
- * 关键依赖：electron nativeTheme、SettingsStore、themePacks。
+ * 消费 appearanceService 的权威快照，生成插件页的 CSS 与注入脚本。
+ * 旧调用方仅提供 tokens 时，保留原有字体和动画兼容视图。
  */
-import { nativeTheme } from 'electron'
 import type { PluginPreferredColorScheme } from '@shared/types/plugin'
-import { resolveThemePalette } from '@shared/theme/presets'
+import type { ResolvedAppearance } from '@shared/types/appearance'
+import { appearanceStyleProperties } from '@shared/theme/appearance'
+import scrollbarCss from '@shared/theme/scrollbar.css?raw'
 import { settingsStore } from '@main/settings/SettingsStore'
-import { themePackRegistry } from '@main/theme/themePacks'
-
-/** 解析壳子当前 mode（system 走 nativeTheme）为 light/dark */
-export function resolveShellColorScheme(): 'light' | 'dark' {
-  const { mode } = settingsStore.getTheme()
-  if (mode === 'system') return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
-  return mode === 'dark' ? 'dark' : 'light'
-}
+import { appearanceService } from '@main/theme/appearanceService'
 
 export interface ResolvedThemeCss {
   mode: 'light' | 'dark'
   tokens: Record<string, string>
-}
-
-function customFontPayload(general: ReturnType<typeof settingsStore.getPluginAppearance>): Array<{ family: string; fileName: string }> {
-  const stack = [general.fontFamilyEn, general.fontFamily].filter(Boolean).join(', ')
-  return (general.customFonts || []).filter(font => stack.includes(font.family)).slice(0, 2)
-    .map(font => ({ family: font.family, fileName: font.fileName }))
+  appearance?: ResolvedAppearance
 }
 
 const themeCache = new Map<string, ResolvedThemeCss>()
@@ -36,7 +22,7 @@ let themeCacheMisses = 0
 let themeCacheBuilds = 0
 let themeCacheEvictions = 0
 
-/** Keys encode theme overrides; expose counts only, never keys or token values. */
+/** Keys encode authoritative appearance revisions; expose counts only, never keys or token values. */
 export function getThemeCacheMetrics() {
   return {
     hits: themeCacheHits, misses: themeCacheMisses, builds: themeCacheBuilds,
@@ -47,23 +33,17 @@ export function getThemeCacheMetrics() {
 /**
  * 解析最终注入插件页的 Token。
  * preferred=light/dark 时强制该配色；auto 时跟随壳子（含 system/nativeTheme）。
- * 叠加顺序：预设 → 活动主题包 → 用户 overrides（与壳子 applyToDom 一致）。
+ * 解析规则只由 appearanceService 管理；这里按 revision 缓存注入 DTO。
  */
 export function resolveThemeTokens(
   preferred: PluginPreferredColorScheme = 'auto'
 ): ResolvedThemeCss {
-  const theme = settingsStore.getTheme()
-  let mode: 'light' | 'dark' = resolveShellColorScheme()
-  if (preferred === 'light' || preferred === 'dark') mode = preferred
-
-  const pack = theme.packId ? themePackRegistry.get(theme.packId) : null
-  const overrides = (theme.overrides?.[mode] ?? {}) as Record<string, string>
-  const key = JSON.stringify([mode, overrides, pack?.tokens ?? null])
+  const appearance = appearanceService.getAppearance(preferred)
+  const key = JSON.stringify([appearance.revision, appearance.mode, appearance.requestedMode])
   const cached = themeCache.get(key)
   if (cached) { themeCacheHits++; return cached }
   themeCacheMisses++
-  const tokens = Object.freeze(resolveThemePalette(mode, overrides, pack?.tokens))
-  const resolved = Object.freeze({ mode, tokens })
+  const resolved = Object.freeze({ mode: appearance.mode, tokens: appearance.tokens, appearance })
   themeCache.set(key, resolved)
   themeCacheBuilds++
   while (themeCache.size > 2) { themeCache.delete(themeCache.keys().next().value!); themeCacheEvictions++ }
@@ -75,12 +55,12 @@ export function themeTokensToCss(
   resolved: ResolvedThemeCss,
   opts?: { transparent?: boolean }
 ): string {
-  const lines = Object.entries(resolved.tokens).map(([k, v]) => `  ${k}: ${v};`)
+  const lines = Object.entries(resolved.appearance ? appearanceStyleProperties(resolved.appearance, { baseFontSize: 13 }) : resolved.tokens).map(([k, v]) => `  ${k}: ${v};`)
   lines.push(`  color-scheme: ${resolved.mode};`)
   if (opts?.transparent) {
     lines.push('  background: transparent !important;')
   }
-  return `:root, html {\n${lines.join('\n')}\n}\n`
+  return `:root, html {\n${lines.join('\n')}\n}\n${scrollbarCss}`
 }
 
 /**
@@ -92,14 +72,29 @@ export function themeTokensToInjectScript(
   opts?: { transparent?: boolean }
 ): string {
   const general = settingsStore.getPluginAppearance()
-  const payload = JSON.stringify({ ...resolved, transparent: Boolean(opts?.transparent), animationLevel: general.animationLevel || 'medium', font: [general.fontFamilyEn, general.fontFamily].filter(Boolean).join(', '), fontScale: Math.max(.9, Math.min(1.3, Number(general.fontSizeScale) || 1)), fonts: customFontPayload(general) })
+  const appearance = resolved.appearance
+  const fontStack = appearance ? [appearance.fonts.body, appearance.fonts.heading, appearance.fonts.mono].join(',') : [general.fontFamilyEn, general.fontFamily].filter(Boolean).join(', ')
+  const selected = new Set(fontStack.split(',').map(value => value.trim().replace(/^(["'])(.*)\1$/, '$2')))
+  const fonts = (general.customFonts ?? []).filter(font => selected.has(font.family)).slice(0, 8).map(font => ({ family: font.family, fileName: font.fileName }))
+  const payload = JSON.stringify({ mode: resolved.mode, tokens: appearance ? appearanceStyleProperties(appearance, { baseFontSize: 13 }) : resolved.tokens,
+    themeId: appearance?.theme.id, layout: appearance?.layout.variant,
+    transparent: Boolean(opts?.transparent), animationLevel: appearance?.animation.effective ?? general.animationLevel ?? 'medium',
+    font: appearance?.fonts.body ?? [general.fontFamilyEn, general.fontFamily].filter(Boolean).join(', '), fontScale: appearance?.fonts.scale ?? Math.max(.9, Math.min(1.3, Number(general.fontSizeScale) || 1)), fonts })
   return `(() => {
   try {
     const payload = ${payload};
     const root = document.documentElement;
     root.dataset.theme = payload.mode;
     root.dataset.anim = payload.animationLevel;
+    if (payload.themeId) root.dataset.appearanceTheme = payload.themeId;
+    if (payload.layout) root.dataset.appearanceLayout = payload.layout;
     root.style.colorScheme = payload.mode;
+    if (!document.getElementById('enest-host-scrollbars')) {
+      const style = document.createElement('style');
+      style.id = 'enest-host-scrollbars';
+      style.textContent = ${JSON.stringify(scrollbarCss)};
+      (document.head || root).appendChild(style);
+    }
     if (payload.font) root.style.setProperty('--font', payload.font);
     else root.style.removeProperty('--font');
     root.style.setProperty('--font-size-base', (13 * payload.fontScale) + 'px');
@@ -114,6 +109,9 @@ export function themeTokensToInjectScript(
       faces.set(font.family, { url, face });
       face.load().then(loaded => { if (faces.get(font.family)?.face === face) document.fonts.add(loaded); }).catch(() => {});
     }
+    const oldKeys = window.__enestHostTokenKeys || [];
+    for (const key of oldKeys) if (!(key in payload.tokens)) root.style.removeProperty(key);
+    window.__enestHostTokenKeys = Object.keys(payload.tokens);
     for (const [k, v] of Object.entries(payload.tokens)) {
       if (k && v) root.style.setProperty(k, String(v));
     }

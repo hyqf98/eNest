@@ -118,7 +118,7 @@ test('registry scan is single-flight, atomically publishes and uses numeric vers
   const registry = new registryApi.PluginRegistry()
   registryApi.state.root = dir
   async function install(id, version) {
-    const root = join(dir, id, version)
+    const root = join(dir, id.split('.').at(-1), version)
     await mkdir(root, { recursive: true })
     await writeFile(join(root,'plugin.json'), JSON.stringify({...packageMetadata,id,name:id,version,main:'index.html'}))
   }
@@ -162,16 +162,16 @@ test('registry scan is single-flight, atomically publishes and uses numeric vers
 
 test('theme cache metrics count hits, builds and bounded eviction without exposing theme inputs',async()=>{
   const api=await bundle(`export * from '@main/theme/resolveThemeCss';export {state} from 'test-state';`,{
-    'test-state':`export const state={theme:{mode:'light',overrides:{}}};`,
-    electron:`export const nativeTheme={shouldUseDarkColors:false};`,
-    '@main/settings/SettingsStore':`import {state} from 'test-state';export const settingsStore={getTheme:()=>state.theme};`,
-    '@main/theme/themePacks':`export const themePackRegistry={get:()=>null};`
+    'test-state':`export const state={revision:1,tokens:{'--accent':'#abcdef'}};`,
+    '@main/settings/SettingsStore':`export const settingsStore={};`,
+    '@main/theme/appearanceService':`import {state} from 'test-state';export const appearanceService={getAppearance:(preferred='auto')=>({revision:state.revision,mode:preferred==='dark'?'dark':'light',requestedMode:'light',tokens:state.tokens})};`
   })
   assert.deepEqual(api.getThemeCacheMetrics(),{hits:0,misses:0,builds:0,evictions:0,entries:0,capacity:2})
   const first=api.resolveThemeTokens()
   assert.equal(api.resolveThemeTokens(),first)
   api.resolveThemeTokens('dark')
-  api.state.theme={mode:'light',overrides:{light:{'--accent':'#123456'}}}
+  api.state.revision++
+  api.state.tokens={'--accent':'#123456'}
   api.resolveThemeTokens()
   const metrics=api.getThemeCacheMetrics()
   assert.deepEqual(metrics,{hits:1,misses:3,builds:3,evictions:1,entries:2,capacity:2})

@@ -1,13 +1,20 @@
 import { ipcMain, shell, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
 
-export type SurfaceRole = 'install' | 'notification' | 'shell' | 'quick' | 'orb' | 'detached'
+export type SurfaceRole = 'install' | 'notification' | 'shell' | 'quick' | 'orb' | 'dock' | 'home' | 'detached' | 'modal'
 type SenderEvent = IpcMainEvent | IpcMainInvokeEvent
 const surfaces = new Map<number, { contents: WebContents; role: SurfaceRole; url: string }>()
 const installChannels = [IpcChannels.InstallDropState, IpcChannels.InstallDropFiles, IpcChannels.InstallSurfaceReady, IpcChannels.InstallSurfaceDismiss]
 const notificationClientChannels = [IpcChannels.NotificationShow, IpcChannels.NotificationDismiss]
 const notificationChannels = new Set<string>([IpcChannels.NotificationDismiss, IpcChannels.NotificationState, IpcChannels.NotificationMeasure, IpcChannels.NotificationOpenLink])
-const sharedReads = [...installChannels, IpcChannels.ShellGetTheme, IpcChannels.ShellGetSettings, IpcChannels.ShellReadCustomFont]
+const modalChannels = new Set<string>([IpcChannels.ModalReady, IpcChannels.ModalRespond])
+const sharedReads = [...installChannels, IpcChannels.ShellGetTheme, IpcChannels.ShellGetAppearance, IpcChannels.ShellGetSettings, IpcChannels.ShellReadCustomFont]
+const appearanceWrites = new Set([
+  IpcChannels.ShellUpdateThemeProfile,
+  IpcChannels.ShellActivateTheme,
+  IpcChannels.ShellSetAppearanceMode,
+  IpcChannels.ShellSetAppearancePerformanceLimited
+])
 const windowChannels = [
   IpcChannels.PluginWindowState, IpcChannels.PluginWindowCommand, IpcChannels.PluginDragBegin,
   IpcChannels.PluginDragArm, IpcChannels.PluginDragUpdate, IpcChannels.PluginDragEnd, IpcChannels.PluginDragTargets
@@ -17,13 +24,26 @@ const quickChannels = new Set<string>([
   ...notificationClientChannels,
   ...windowChannels,
   ...sharedReads, IpcChannels.QuickInput, IpcChannels.QuickToggle, IpcChannels.QuickHide,
-  IpcChannels.QuickSearch, IpcChannels.QuickOpen, IpcChannels.QuickGetConfig,
+  IpcChannels.QuickSearch, IpcChannels.QuickOpen, IpcChannels.QuickGetConfig, IpcChannels.QuickThemeGetConfig, IpcChannels.QuickThemeAuthorize,
   IpcChannels.QuickResize, IpcChannels.ShellSetView, IpcChannels.ShellGetPlugins,
   IpcChannels.ShellActivatePlugin, IpcChannels.ShellOpenPlugin
 ])
+const homeChannels = new Set<string>([
+  IpcChannels.HomeReady,
+  IpcChannels.HomeAck,
+  IpcChannels.HomeGetCatalog,
+  IpcChannels.HomeGetDetail,
+  IpcChannels.HomeSearch,
+  IpcChannels.HomeRefresh,
+  IpcChannels.HomeAction,
+  IpcChannels.HomeGetAppearance,
+  IpcChannels.HomeGetConfig
+])
+// Global settings dock receives only its public state and the host navigation action.
+const dockChannels = new Set<string>([IpcChannels.ShellGetOrbState, IpcChannels.ShellSetView])
 const orbChannels = new Set<string>([
   ...windowChannels,
-  ...sharedReads, IpcChannels.ShellGetOrbState, IpcChannels.ShellSetOrbRailExpanded,
+  IpcChannels.ShellGetOrbState, IpcChannels.ShellSetOrbRailExpanded,
   IpcChannels.ShellActivatePlugin, IpcChannels.ShellOpenPlugin, IpcChannels.ShellClosePlugin,
   IpcChannels.ShellGoHome, IpcChannels.ShellSetView, IpcChannels.WindowMinimize,
   IpcChannels.WindowMaximize, IpcChannels.WindowClose
@@ -56,6 +76,10 @@ export function registerTrustedSurface(contents: WebContents, role: SurfaceRole,
   contents.once('destroyed', () => { if (surfaces.get(wcId)?.contents === contents) surfaces.delete(wcId) })
 }
 
+export function revokeTrustedSurface(contents: WebContents): void {
+  if (surfaces.get(contents.id)?.contents === contents) surfaces.delete(contents.id)
+}
+
 export function assertSurfaceSender(event: SenderEvent, channel: string): void {
   const surface = surfaces.get(event.sender.id)
   if (!surface || surface.contents !== event.sender || event.sender.isDestroyed() || !event.senderFrame || event.senderFrame !== event.sender.mainFrame) {
@@ -68,7 +92,15 @@ export function assertSurfaceSender(event: SenderEvent, channel: string): void {
   }
   if (surface.role === 'install' && !(installChannels as readonly string[]).includes(channel)) throw new Error('IPC denied: install surface capability')
   if (surface.role === 'notification' && !notificationChannels.has(channel)) throw new Error('IPC denied: notification surface capability')
-  if (surface.role === 'quick' && !quickChannels.has(channel) || surface.role === 'orb' && !orbChannels.has(channel) || surface.role === 'detached' && !detachedChannels.has(channel)) {
+  if (appearanceWrites.has(channel as never) && surface.role !== 'shell') throw new Error('IPC denied: appearance write capability')
+  if (
+    surface.role === 'quick' && !quickChannels.has(channel) ||
+    surface.role === 'orb' && !orbChannels.has(channel) ||
+    surface.role === 'dock' && !dockChannels.has(channel) ||
+    surface.role === 'home' && !homeChannels.has(channel) ||
+    surface.role === 'detached' && !detachedChannels.has(channel)
+    || surface.role === 'modal' && !modalChannels.has(channel)
+  ) {
     throw new Error('IPC denied: surface capability')
   }
 }

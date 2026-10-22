@@ -14,7 +14,6 @@ import type {
   DevPluginLoadOptions,
   MarketInstallResult,
   PluginMarketStatus,
-  PluginLaunchConfig,
   PluginLaunchPatch,
   PluginPermission,
   PluginPermissionGrant,
@@ -22,14 +21,30 @@ import type {
   PluginTab,
   ProxyConfig,
   ThemeMode,
-  ThemePack,
   ThemeTokens
 } from '@shared/types/plugin'
+import type {
+  HardwareAccelSetResult,
+  HardwareAccelState,
+  PickFileOptions,
+  PluginLaunchSetResult,
+  ProxySetResult,
+  ShellSettingsSection,
+  ShellThemeResult
+} from '@shared/types/shell'
+import type { AppearanceSettings, AppearanceSnapshot, ThemePackV2, ThemeProfilePatch } from '@shared/types/appearance'
+import type { WorkspaceRoute } from '@shared/types/workspace'
+import { normalizePluginMemoryMonitor, type PluginMemoryMonitorSettings, type PluginMemorySnapshot } from '@shared/types/pluginMemory'
+import { migrateAppearanceSettings, patchThemeProfile, resolveAppearance, themeProfileKey } from '@shared/theme/appearance'
+import { BUILTIN_THEME_PACKS, DEFAULT_THEME_IDENTITY } from '@shared/theme/builtinThemes'
 import { createShortcutMock } from './shortcutMock'
 import { PLUGIN_PERMISSIONS } from '@shared/types/plugin'
 import { filterPermissionGrants, requiresUserConsent } from '@shared/pluginPermissionPolicy'
 import type {
   ShellEventPayload,
+  OrbEventPayload,
+  OrbRailState,
+  OrbRailSyncRequest,
   InstallJobInfo,
   PluginCallTraceEntry,
   ProxyTestResult,
@@ -49,7 +64,6 @@ import type {
   QuickOpenRequest
 } from '@shared/types/quick'
 import {
-  DEFAULT_SETTINGS,
   mockRegistry,
   readMockSettings,
   readMockTheme,
@@ -58,40 +72,13 @@ import {
   type ShellSettingsData,
 } from '@renderer/services/mockData'
 
-/** shell:get-theme 返回：ThemeTokens + 主题包列表 */
-export type ShellThemeResult = ThemeTokens & { packs: ThemePack[] }
-
-export interface PickFileOptions {
-  filters?: 'image' | 'video' | 'media' | 'font'
-}
-
-export interface HardwareAccelState {
-  enabled: boolean
-}
-
-export interface HardwareAccelSetResult {
-  needRestart: boolean
-}
-
-export interface ProxySetResult {
-  needRestart: boolean
-  proxy: ProxyConfig
-}
-
-/** shell:set-plugin-launch 返回体（与 preload PluginLaunchSetResult 对齐） */
-export interface PluginLaunchSetResult {
-  ok: boolean
-  error?: string
-  /** 成功后的最终配置（空配置为 null） */
-  config?: PluginLaunchConfig | null
-}
-
 /** preload 注入到渲染进程的完整 shell 能力面 */
 export interface ShellApi {
   getPlugins(): Promise<PluginSummary[]>
   getMarketStatus(refresh?: boolean): Promise<PluginMarketStatus>
   /** 只读性能采样，浏览器 mock 不提供原生进程数据。 */
   getPluginDiagnostics(): Promise<unknown>
+  getPluginMemorySnapshot(): Promise<PluginMemorySnapshot>
   restoreTabs(ids: string[]): Promise<void>
   /** enter.code 透传给插件 onEnter（首页卡片/轨道入口等贡献点打开场景） */
   openPlugin(id: string, enter?: { code?: string; payload?: unknown }): Promise<void>
@@ -101,31 +88,15 @@ export interface ShellApi {
   hidePlugins(): Promise<void>
   /** 设置插件内容区左侧 inset（px）；orb 悬浮窗模式恒为 0 */
   setPluginInset?(left: number): Promise<void>
+  setPluginTopInset?(top: number): Promise<void>
   /** 回首页（隐藏插件 + 主壳 setView home） */
   goHome?(): Promise<void>
   /** 主壳切换视图 */
   setShellView?(view: string): Promise<void>
   /** 圆轨 rail 视图展开/收起：主进程切换 WebContentsView 宽度 */
   setOrbRailExpanded?(expanded: boolean): Promise<void>
-  syncOrbState?(state: {
-    view: string
-    tabStyle: string
-    activeTabId: string | null
-    /** 可选：主进程以 settingsStore 为准，不信任该字段 */
-    animationLevel?: string
-    theme?: { mode: string; tokens: Record<string, string> }
-    tabs: unknown[]
-  }): Promise<void>
-  getOrbState?(): Promise<{
-    view: string
-    tabStyle: string
-    activeTabId: string | null
-    animationLevel: string
-    theme: { mode: string; tokens: Record<string, string> }
-    profile?: import('@shared/types/ipc').OrbRailState['profile']
-    tabs: unknown[]
-    contribEntries?: import('@shared/types/ipc').OrbRailState['contribEntries']
-  }>
+  syncOrbState?(state: OrbRailSyncRequest): Promise<void>
+  getOrbState?(): Promise<OrbRailState>
   /** 卸载插件：关 Tab → 清 storage → 删文件 → 重扫；结果经 uninstall-result 事件 */
   uninstallPlugin?(pluginId: string): Promise<void>
   /** 启用/禁用已安装插件（持久化）；成功返回更新后的 summary */
@@ -148,6 +119,19 @@ export interface ShellApi {
     opts?: { force?: boolean }
   ): Promise<MarketInstallResult>
   getTheme(): Promise<ShellThemeResult>
+  getAppearance(): Promise<AppearanceSnapshot>
+  updateThemeProfile(patch: ThemeProfilePatch): Promise<AppearanceSnapshot>
+  activateTheme(identity: { source: string; id: string }): Promise<AppearanceSnapshot>
+  setAppearanceMode(mode: ThemeMode): Promise<AppearanceSnapshot>
+  setHomeVisible?(visible: boolean): Promise<void>
+  navigateWorkspace?(route: WorkspaceRoute): Promise<void>
+  retryHome?(): Promise<void>
+  getHomeState?(): Promise<import('@shared/types/homeSurface').HomeSurfaceState>
+  pickAppearanceMedia?(options?: { imageOnly?: boolean }): Promise<import('@shared/types/plugin').BackgroundConfig | null>
+  importAppearanceFont?(): Promise<import('@shared/types/plugin').CustomFontMeta | null>
+  removeAppearanceFont?(id: string): Promise<void>
+  openNativeModal?(request: import('@shared/types/modal').NativeModalRequest): Promise<boolean>
+  setAppearancePerformanceLimited?(limited: boolean): Promise<AppearanceSnapshot>
   setTheme(
     mode: ThemeMode,
     overrides?: Record<string, string>,
@@ -168,20 +152,7 @@ export interface ShellApi {
   getSettings(): Promise<ShellSettingsData>
   setSettings(settings: Partial<ShellSettingsData>): Promise<void>
   /** 拉取插件已注册的设置 section 列表（Electron）；mock 返回空数组 */
-  getSettingsSections?(): Promise<
-    Array<{
-      id: string
-      title: string
-      pluginId: string
-      items: Array<{
-        key: string
-        type: string
-        label: string
-        default?: unknown
-        options?: Array<{ label: string; value: unknown }>
-      }>
-    }>
-  >
+  getSettingsSections?(): Promise<ShellSettingsSection[]>
   /** 写入单个插件设置项（Electron）；mock 回落 setSettings.plugins */
   setPluginSetting?(pluginId: string, key: string, value: unknown): Promise<void>
   getPaths(): Promise<AppPaths>
@@ -255,9 +226,7 @@ export interface ShellApi {
   ): () => void
   onEvent(cb: (payload: ShellEventPayload) => void): () => void
   /** orb 悬浮窗订阅 Tab 状态推送 */
-  onOrbEvent?(
-    cb: (payload: { type: 'orb-state'; state: import('@shared/types/ipc').OrbRailState }) => void
-  ): () => void
+  onOrbEvent?(cb: (payload: OrbEventPayload) => void): () => void
   minimizeWindow?(): void
   maximizeWindow?(): void
   closeWindow?(): void
@@ -271,6 +240,9 @@ export interface ShellApi {
   quickOpen?(req: QuickOpenRequest): Promise<{ ok: boolean; error?: string }>
   quickScanApps?(force?: boolean): Promise<ApplicationScanResult>
   quickGetConfig?(): Promise<QuickHotkeyConfig>
+  quickGetTheme?(): Promise<import('@shared/types/quickTheme').QuickThemeConfig | null>
+  quickAuthorizeTheme?(key: string): Promise<boolean>
+  onQuickThemeKey?(cb: (key: { key: string; meta?: boolean; ctrl?: boolean; alt?: boolean; shift?: boolean }) => void): () => void
   quickSetHotkeys?(payload: QuickHotkeyPatch): Promise<QuickHotkeyApplyResult>
   quickProbeHotkey?(acc: string): Promise<import('@shared/types/quick').QuickHotkeyProbeResult>
   quickResize?(height: number, animate?: boolean): void
@@ -288,6 +260,9 @@ function createMockApi(): ShellApi {
   const openTabs = new Map<string, PluginTab & { status: 'ready' | 'hibernated' }>()
   let activeTabId: string | null = null
   let tabRevision = 0
+  let appearanceRevision = 0
+  let appearanceKey = ''
+  let appearanceState: AppearanceSettings | undefined
 
   const emit = (payload: ShellEventPayload): void => {
     for (const cb of listeners) cb(payload)
@@ -326,6 +301,51 @@ function createMockApi(): ShellApi {
     database: '~/.eNest/data/enest.db'
   }
 
+  const mockAppearance = (): AppearanceSnapshot => {
+    theme = readMockTheme()
+    const settings = readMockSettings()
+    const general = settings.general ?? {}
+    const legacy = { theme, general: {
+      fontFamily: general.fontFamily, fontFamilyEn: general.fontFamilyEn,
+      fontSizeScale: general.fontSizeScale, animationLevel: general.animationLevel,
+      splashBackground: general.splashBackground, tabStyle: general.tabStyle
+    } }
+    if (!appearanceState) {
+      let saved: unknown
+      try { saved = JSON.parse(localStorage.getItem('enest.appearance.v2') ?? 'null') } catch { /* Preserve legacy settings if the new profile is corrupt. */ }
+      appearanceState = migrateAppearanceSettings(saved ?? {
+        version: 2,
+        revision: 0,
+        mode: theme.mode,
+        active: { ...DEFAULT_THEME_IDENTITY },
+        profiles: {},
+      }, legacy)
+    }
+    appearanceState.legacy = legacy
+    const state = appearanceState
+    const key = themeProfileKey(state.active)
+    const activePack = BUILTIN_THEME_PACKS.find(pack =>
+      pack.source === state.active.source && pack.id === state.active.id) ?? null
+    const profile = state.profiles[key] ?? {
+      identity: state.active, schemaVersion: 2, values: {}, colors: {}, quarantined: {}
+    }
+    if (!activePack) {
+      profile.colors = structuredClone(theme.overrides ?? {})
+      state.profiles[key] = profile
+    }
+    const systemDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    const contentKey = JSON.stringify([appearanceState, systemDark, reducedMotion, general.customFonts])
+    if (contentKey !== appearanceKey) { appearanceKey = contentKey; appearanceRevision++ }
+    const appearance = resolveAppearance({ settings: appearanceState, pack: activePack, systemDark, reducedMotion })
+    return {
+      appearance: { ...appearance, revision: appearanceRevision },
+      profile: structuredClone(state.profiles[key]),
+      packs: structuredClone(BUILTIN_THEME_PACKS) as ThemePackV2[],
+      customFonts: Array.isArray(general.customFonts) ? general.customFonts : []
+    }
+  }
+
   return {
     async getPlugins() {
       return mockRegistry.getPlugins()
@@ -337,6 +357,21 @@ function createMockApi(): ShellApi {
       return {
         sampledAt: Date.now(), platform: 'browser-mock',
         host: { logicalTabs: openTabs.size, activeTabId }, processes: []
+      }
+    },
+    async getPluginMemorySnapshot() {
+      const saved = readMockSettings()
+      return {
+        sampledAt: null,
+        intervalMs: 5000,
+        settings: normalizePluginMemoryMonitor(saved.general?.pluginMemoryMonitor as Partial<PluginMemoryMonitorSettings> | undefined),
+        totalMemoryBytes: null,
+        hostMemoryBytes: null,
+        sharedMemoryBytes: null,
+        unavailableProcessCount: 0,
+        plugins: [],
+        processes: [],
+        error: 'Browser preview cannot sample native plugin memory.'
       }
     },
     async restoreTabs(ids) {
@@ -391,6 +426,9 @@ function createMockApi(): ShellApi {
     async setPluginInset() {
       /* mock no-op */
     },
+    async setPluginTopInset() {
+      /* mock no-op */
+    },
     async goHome() {
       window.location.hash = ''
     },
@@ -410,6 +448,7 @@ function createMockApi(): ShellApi {
         activeTabId: null,
         animationLevel: 'medium',
         theme: { mode: 'light', tokens: {} },
+        profile: null,
         tabs: []
       }
     },
@@ -475,6 +514,77 @@ function createMockApi(): ShellApi {
         backgroundEffect: theme.backgroundEffect,
         packs: [],
       }
+    },
+    async getAppearance() { return mockAppearance() },
+    async updateThemeProfile(patch) {
+      const current = mockAppearance()
+      if (themeProfileKey(patch.theme) !== themeProfileKey(current.profile.identity)) throw new Error('theme unavailable')
+      const pack = current.packs.find(item => themeProfileKey(item) === themeProfileKey(patch.theme)) ?? null
+      const profile = patchThemeProfile(pack, current.profile, patch)
+      const next = structuredClone(appearanceState!)
+      next.profiles[themeProfileKey(patch.theme)] = profile
+      next.revision++
+      // localStorage throws on quota/security errors; do not acknowledge a failed save.
+      localStorage.setItem('enest.appearance.v2', JSON.stringify(next))
+      appearanceState = next
+      const activeKey = themeProfileKey(next.active)
+      if (!next.profiles[activeKey]) {
+        next.profiles[activeKey] = {
+          identity: structuredClone(next.active),
+          schemaVersion: 2,
+          values: Object.create(null),
+          colors: { light: {}, dark: {} },
+          quarantined: Object.create(null)
+        }
+      }
+      theme.overrides = structuredClone(profile.colors)
+      writeMockTheme(theme)
+      const snapshot = mockAppearance()
+      emit({ type: 'appearance-changed', revision: snapshot.appearance.revision, appearance: snapshot.appearance })
+      return snapshot
+    },
+    async activateTheme(identity) {
+      const current = mockAppearance()
+      const pack = current.packs.find(item => item.source === identity.source && item.id === identity.id)
+      if (!pack) throw new Error('theme unavailable')
+      const next = structuredClone(appearanceState!)
+      next.active = structuredClone(identity)
+      next.revision++
+      localStorage.setItem('enest.appearance.v2', JSON.stringify(next))
+      appearanceState = next
+      const activeKey = themeProfileKey(next.active)
+      if (!next.profiles[activeKey]) {
+        next.profiles[activeKey] = {
+          identity: structuredClone(next.active),
+          schemaVersion: 2,
+          values: Object.create(null),
+          colors: { light: {}, dark: {} },
+          quarantined: Object.create(null)
+        }
+      }
+      const snapshot = mockAppearance()
+      emit({ type: 'appearance-changed', revision: snapshot.appearance.revision, appearance: snapshot.appearance })
+      return snapshot
+    },
+    async setAppearanceMode(mode) {
+      const next = structuredClone(appearanceState!)
+      next.mode = mode
+      next.revision++
+      localStorage.setItem('enest.appearance.v2', JSON.stringify(next))
+      appearanceState = next
+      const activeKey = themeProfileKey(next.active)
+      if (!next.profiles[activeKey]) {
+        next.profiles[activeKey] = {
+          identity: structuredClone(next.active),
+          schemaVersion: 2,
+          values: Object.create(null),
+          colors: { light: {}, dark: {} },
+          quarantined: Object.create(null)
+        }
+      }
+      const snapshot = mockAppearance()
+      emit({ type: 'appearance-changed', revision: snapshot.appearance.revision, appearance: snapshot.appearance })
+      return snapshot
     },
     async setTheme(mode, overrides, extra) {
       const selection = extra?.backgroundEffect
@@ -551,7 +661,13 @@ function createMockApi(): ShellApi {
     },
     async getSettings() {
       settings = readMockSettings()
-      return { ...settings }
+      return {
+        ...settings,
+        general: {
+          ...settings.general,
+          pluginMemoryMonitor: normalizePluginMemoryMonitor(settings.general?.pluginMemoryMonitor as Partial<PluginMemoryMonitorSettings> | undefined)
+        }
+      }
     },
     async setSettings(partial) {
       if ('pluginShortcuts' in partial || 'pluginLaunch' in partial || 'quick' in partial) {
@@ -564,6 +680,9 @@ function createMockApi(): ShellApi {
         general: {
           ...settings.general,
           ...partial.general,
+          pluginMemoryMonitor: normalizePluginMemoryMonitor(
+            (partial.general?.pluginMemoryMonitor ?? settings.general?.pluginMemoryMonitor) as Partial<PluginMemoryMonitorSettings> | undefined
+          )
         },
         // plugins 按插件 id 合并，避免整包覆盖丢失其它插件/键
         plugins: partial.plugins
@@ -675,10 +794,10 @@ function createMockApi(): ShellApi {
     },
     async getProxy() {
       settings = readMockSettings()
-      return (settings.general?.proxy as ProxyConfig | undefined) ?? { type: 'none' }
+      return (settings.general?.proxy as ProxyConfig | undefined) ?? { type: 'system' }
     },
     async setProxy(config) {
-      const proxy: ProxyConfig = config && config.type ? config : { type: 'none' }
+      const proxy: ProxyConfig = config && config.type ? config : { type: 'system' }
       settings = {
         ...settings,
         general: { ...settings.general, proxy },
@@ -687,17 +806,8 @@ function createMockApi(): ShellApi {
       return { needRestart: false, proxy }
     },
     async testProxy(config) {
-      const c = config ?? (await this.getProxy?.()) ?? { type: 'none' }
-      if (!c.type || c.type === 'none') return { ok: true, latencyMs: 0 }
-      // 浏览器环境无法 TCP 探测，仅做格式校验
-      if (c.type === 'custom') {
-        try {
-          new URL(c.url ?? '')
-          return { ok: true, latencyMs: 0 }
-        } catch {
-          return { ok: false, error: 'invalid proxy url' }
-        }
-      }
+      const c = config ?? (await this.getProxy?.()) ?? { type: 'system' }
+      if (!c.type || c.type === 'system' || c.type === 'none') return { ok: true, latencyMs: 0 }
       if (!c.host || !c.port) return { ok: false, error: 'host/port required' }
       return { ok: true, latencyMs: 0 }
     },
@@ -872,6 +982,9 @@ function createMockApi(): ShellApi {
       return { apps: [], complete: false, errors: ['mock'] }
     },
     quickGetConfig: async () => shortcuts.quickConfig(),
+    quickGetTheme: async () => null,
+    quickAuthorizeTheme: async () => false,
+    onQuickThemeKey: () => () => undefined,
     quickSetHotkeys: async patch => shortcuts.setQuick(patch),
     quickProbeHotkey: async acc => {
       const probe = shortcuts.probe(acc, undefined, true)
@@ -895,6 +1008,9 @@ export const shellApi: ShellApi = rawShell
       getMarketStatus: (refresh = false) => rawShell.getMarketStatus
         ? rawShell.getMarketStatus(refresh)
         : Promise.reject(new Error('当前宿主未提供市场连接状态，请重启 eNest')),
+      getPluginMemorySnapshot: () => rawShell.getPluginMemorySnapshot
+        ? rawShell.getPluginMemorySnapshot()
+        : Promise.reject(new Error('当前宿主未提供插件内存监控接口，请重启 eNest')),
       getPaths: () => {
         if (rawShell.getPaths) return rawShell.getPaths()
         return mockApi.getPaths()
@@ -933,13 +1049,13 @@ export const shellApi: ShellApi = rawShell
       },
       getProxy: () => {
         if (rawShell.getProxy) return rawShell.getProxy()
-        return mockApi.getProxy?.() ?? Promise.resolve({ type: 'none' as const })
+        return mockApi.getProxy?.() ?? Promise.resolve({ type: 'system' as const })
       },
       setProxy: (config) => {
         if (rawShell.setProxy) return rawShell.setProxy(config)
         return (
           mockApi.setProxy?.(config) ??
-          Promise.resolve({ needRestart: false, proxy: { type: 'none' as const } })
+          Promise.resolve({ needRestart: false, proxy: { type: 'system' as const } })
         )
       },
       testProxy: (config) => {
@@ -950,6 +1066,37 @@ export const shellApi: ShellApi = rawShell
         if (rawShell.getTheme) return rawShell.getTheme()
         return mockApi.getTheme()
       },
+      getAppearance: () => {
+        if (rawShell.getAppearance) return rawShell.getAppearance()
+        return mockApi.getAppearance!()
+      },
+      updateThemeProfile: patch => {
+        if (rawShell.updateThemeProfile) return rawShell.updateThemeProfile(patch)
+        return mockApi.updateThemeProfile!(patch)
+      },
+      activateTheme: identity => {
+        if (rawShell.activateTheme) return rawShell.activateTheme(identity)
+        return mockApi.activateTheme!(identity)
+      },
+      setAppearanceMode: mode => {
+        if (rawShell.setAppearanceMode) return rawShell.setAppearanceMode(mode)
+        return mockApi.setAppearanceMode!(mode)
+      },
+      setHomeVisible: visible => {
+        if (rawShell.setHomeVisible) return rawShell.setHomeVisible(visible)
+        return Promise.resolve()
+      },
+      navigateWorkspace: route => rawShell.navigateWorkspace?.(route) ?? Promise.resolve(),
+      retryHome: () => {
+        if (rawShell.retryHome) return rawShell.retryHome()
+        return Promise.resolve()
+      },
+      getHomeState: () => rawShell.getHomeState?.() ?? Promise.resolve({ status: 'idle', generation: 0 }),
+      pickAppearanceMedia: options => rawShell.pickAppearanceMedia?.(options) ?? Promise.resolve(null),
+      importAppearanceFont: () => rawShell.importAppearanceFont?.() ?? Promise.resolve(null),
+      removeAppearanceFont: id => rawShell.removeAppearanceFont?.(id) ?? Promise.reject(new Error('Native font management is unavailable')),
+      openNativeModal: request => rawShell.openNativeModal?.(request) ?? Promise.resolve(false),
+      setAppearancePerformanceLimited: limited => rawShell.setAppearancePerformanceLimited?.(limited) ?? mockApi.getAppearance(),
       getSettingsSections: () => {
         if (rawShell.getSettingsSections) return rawShell.getSettingsSections()
         return mockApi.getSettingsSections?.() ?? Promise.resolve([])

@@ -40,9 +40,11 @@ test('HTTP proxy applies one valid URL to Chromium and Node, and restores inheri
   }
 })
 
-test('proxy URL generation preserves custom credentials, SOCKS5 and IPv6 hosts', () => {
+test('proxy rules preserve system auto detection, direct and specified IPv6 hosts', () => {
   const { api } = fixture()
+  assert.equal(api.buildProxyRules({ type: 'system' }), 'system')
+  assert.equal(api.buildProxyRules({ type: 'none' }), '')
   assert.equal(api.buildProxyEnvUrl({ type: 'http', host: '::1', port: 8888 }), 'http://[::1]:8888')
-  assert.equal(api.buildProxyEnvUrl({ type: 'socks5', host: 'localhost', port: 1080 }), 'socks5://localhost:1080')
-  assert.equal(api.buildProxyEnvUrl({ type: 'custom', url: 'http://fixture:dummy@localhost:8888' }), 'http://fixture:dummy@localhost:8888')
+  assert.equal(api.normalizeProxy({ type: 'socks5', host: 'localhost', port: 1080 }).type, 'system')
+  assert.equal(api.normalizeProxy({ type: 'custom', url: 'http://localhost:8888' }).type, 'system')
 })

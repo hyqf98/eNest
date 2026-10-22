@@ -68,8 +68,11 @@ export function PluginHostChrome() {
       {!pluginReady && !pluginError && (
         <div className="plugin-body plugin-launch-body">
           <div className="plugin-launch-state" role="status" aria-live="polite">
-            <span className="plugin-launch-spinner" aria-hidden="true" />
-            <span>正在启动 <strong>{tab.title}</strong>…</span>
+            <span className="plugin-launch-mark" aria-hidden="true">
+              <i /><i /><i />
+            </span>
+            <strong className="plugin-launch-title">{tab.title}</strong>
+            <span className="plugin-launch-caption">正在载入插件</span>
           </div>
         </div>
       )}

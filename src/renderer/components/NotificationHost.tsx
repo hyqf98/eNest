@@ -63,7 +63,7 @@ export function NotificationCard({ item, onDismiss, visible = true, onOpenLink }
     </svg></div>
     <div className="notify-content">
       <div className="notify-heading"><span className="notify-title">{item.title || LABELS[item.level]}</span>{item.source && <span className="notify-source">{item.source}</span>}</div>
-      <div className="notify-body" tabIndex={item.body.length > 300 ? 0 : undefined} onClick={openLink}>
+      <div className="notify-body" tabIndex={item.body ? 0 : undefined} role="region" aria-label="通知内容" onClick={openLink}>
         {item.format === 'markdown' ? <MarkdownView source={item.body}/> : item.format === 'html' ? <div className="notify-rich" dangerouslySetInnerHTML={{ __html: html }}/> : <div className="notify-text">{item.body}</div>}
       </div>
       {item.duration === 0 && <div className="notify-hint">阅读后可关闭</div>}
@@ -77,7 +77,7 @@ export function NotificationHost() {
   const dismiss = notifyStore(state => state.dismiss)
   return <>{(['top', 'center', 'bottom-right'] as NotificationPosition[]).map(position => {
     const current = items.filter(item => item.position === position).slice(0, position === 'bottom-right' ? 3 : 1)
-    return <div key={position} className={`notify-host notify-host-${position}`} role="region" aria-label="消息通知" aria-live="polite" aria-relevant="additions">
+    return <div key={position} className={`notify-host notify-host-${position}`} role="region" aria-label="消息通知" aria-live="polite" aria-relevant="additions" tabIndex={current.length ? 0 : undefined}>
       {current.map(item => <NotificationCard key={item.id} item={item} onDismiss={dismiss}/>) }
     </div>
   })}</>

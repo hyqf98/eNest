@@ -1,295 +1,324 @@
-/**
- * dshUpgradeService — DSH runtime 热更新版本管理与一键备份升级。
- * - 版本发现：eNest_plugin GitHub Releases 的 dsh-runtime-<ver>-<platform>.tgz 预编译
- *   资产（含 .sha256 边车）+ npm registry dist-tags 参考信息。
- * - 下载：流式落盘 → sha256 校验 → tar 解压到 {dataRoot}/dsh-runtime/<version>/
- *   （tgz 根即 node_modules/…）→ 布局校验；进度经 dsh:event 推送。
- * - 激活：active.json 标记 + `--version` 健康检查，失败自动回退标记。
- * - 一键备份升级：停进程 → home 全量备份 → 下载/激活 → 健康检查；
- *   任一步失败恢复备份并回退激活（回滚日志随事件推送）。
- * 关键依赖：node:fs、electron net.fetch（使用 proxyService 配置的 defaultSession）、
- * dshRuntimeStore、dshProfileService（备份）、dshRuntimeService（停进程）。
- */
+/** DSH native release installation and rollback-safe, source-aware runtime changes. */
 import { spawn } from 'node:child_process'
 import { net } from 'electron'
 import { createHash } from 'node:crypto'
-import { createWriteStream } from 'node:fs'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { pluginHost } from '@main/plugin/PluginHost'
+import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { logWarn } from '@main/logs/logService'
 import {
-  clearActiveMarker,
-  dshDataDirs,
-  getActiveMarker,
-  listInstalledRuntimes,
-  runtimeBinAt,
-  setActiveMarker
+  clearActiveMarker, dataRuntimeRoot, DSH_PLUGIN_ID, dshDataDirs, ensureDshDirs, getActiveMarker,
+  listInstalledRuntimes, resolveRuntime, resolveRuntimeSelection, runtimeIdentity, safeRuntimeVersion,
+  setActiveMarker, validateRuntimeRoot, type DshRuntimeSelection, type ResolvedRuntime
 } from '@main/dsh/dshRuntimeStore'
 import { createBackup, restoreBackup } from '@main/dsh/dshProfileService'
-import { stopSdk, stopWeb } from '@main/dsh/dshRuntimeService'
+import {
+  ownDshChild, probeDshRuntime, restartDshProcesses, snapshotDshProcesses, stopAllDshAndWait, withDshMaintenance
+} from '@main/dsh/dshRuntimeService'
 import type { DshRemoteVersion, DshRuntimeVersion, DshWorkbenchEvent } from '@shared/types/dsh-workbench'
 
-/** 预编译 runtime 资产所在的插件仓库（打包脚本同仓产出并上传 Release） */
 const BUNDLE_REPO = 'hyqf98/eNest_plugin'
 const GITHUB_API = `https://api.github.com/repos/${BUNDLE_REPO}/releases?per_page=30`
 const NPM_REGISTRY = 'https://registry.npmjs.org/@deepseek-ai%2fdsh'
-/** 下载超时 */
 const DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000
-
-function platformTag(): string {
-  return `${process.platform}-${process.arch}`
+const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
+const MAX_ARCHIVE_LIST_BYTES = 32 * 1024 * 1024
+function platformTag(): string { return `${process.platform}-${process.arch}` }
+function emit(pluginId: string, event: DshWorkbenchEvent): void { pluginHost.sendEvent(pluginId, { type: 'dsh.event', event }) }
+function errorMessage(error: unknown): string { return String((error as Error)?.message ?? error) }
+function operationScope(pluginId: string): PluginRuntimeScope {
+  const scope = getRuntimeScope(pluginId)
+  if (!scope || !scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
+  return scope
 }
-
-function emit(pluginId: string, event: DshWorkbenchEvent): void {
-  pluginHost.sendEvent(pluginId, { type: 'dsh.event', event })
+function assertCurrent(scope: PluginRuntimeScope): void {
+  if (!scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing; DSH operation cancelled')
 }
-
-// —— 版本发现 ——
-
-interface GithubAsset {
-  name: string
-  browser_download_url: string
-  size: number
+async function fetchTimed(url: string, signal?: AbortSignal): Promise<Response> {
+  return net.fetch(url, { headers: { accept: 'application/vnd.github+json' },
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000) })
 }
-
-async function fetchJson(url: string): Promise<unknown> {
-  const res = await net.fetch(url, { headers: { accept: 'application/vnd.github+json' } })
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`)
-  return res.json()
+interface GithubAsset { name: string; browser_download_url: string; size: number; digest?: string }
+interface DownloadableVersion extends DshRemoteVersion { checksumUrl?: string; assetName?: string }
+function validAssetUrl(value: string, name: string): string | undefined {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.username || url.password || url.search || url.hash
+      || !url.pathname.startsWith(`/${BUNDLE_REPO}/releases/download/`) || decodeURIComponent(url.pathname.split('/').pop()!) !== name) return undefined
+    return url.href
+  } catch { return undefined }
 }
-
-export async function listRemoteVersions(pluginId: string, limit = 20): Promise<DshRemoteVersion[]> {
-  const tag = platformTag()
+export function parseRuntimeChecksum(text: string, assetName?: string): string {
+  const content = text.trim().replace(/^sha256:/i, '')
+  if (/^[a-f0-9]{64}$/i.test(content)) return content.toLowerCase()
+  for (const line of content.split(/\r?\n/)) {
+    const match = /^([a-f0-9]{64})[ \t]+\*?(.+?)\s*$/i.exec(line)
+    if (match && (!assetName || match[2].replace(/^\.\//, '') === assetName)) return match[1].toLowerCase()
+  }
+  throw new Error('sha256 边车格式或资产文件名不匹配')
+}
+export async function listRemoteVersions(pluginId: string, limit = 20): Promise<DownloadableVersion[]> {
+  const signal = getRuntimeScope(pluginId)?.signal
+  const json = async (url: string) => { const response = await fetchTimed(url, signal); if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.json() }
   const [releases, npmMeta] = await Promise.all([
-    fetchJson(GITHUB_API).catch(() => null),
-    fetchJson(NPM_REGISTRY).catch(() => null)
+    json(GITHUB_API).catch(error => { throw new Error(`DSH 原生版本列表获取失败: ${errorMessage(error)}`) }),
+    json(NPM_REGISTRY).catch(() => null)
   ])
-  const times = (() => {
-    const meta = npmMeta as { time?: Record<string, string> } | null
-    return meta?.time ?? {}
-  })()
-  const latest = (() => {
-    const meta = npmMeta as { 'dist-tags'?: { latest?: string } } | null
-    return meta?.['dist-tags']?.latest
-  })()
-  const result = new Map<string, DshRemoteVersion>()
-  const assetVersion = (name: string): string | null => {
-    if (!name.startsWith('dsh-runtime-') || !name.endsWith('.tgz')) return null
-    if (!name.includes(`-${tag}.tgz`)) return null
-    return name.slice('dsh-runtime-'.length, -'.tgz'.length).replace(new RegExp(`-${tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), '')
-  }
+  if (!Array.isArray(releases)) throw new Error('DSH 原生版本列表响应格式错误')
+  const meta = npmMeta as { time?: Record<string, string>; 'dist-tags'?: { latest?: string } } | null
+  const result = new Map<string, DownloadableVersion>()
   if (Array.isArray(releases)) {
-    for (const release of releases as Array<{ tag_name?: string; assets?: GithubAsset[]; prerelease?: boolean; published_at?: string }>) {
+    for (const release of releases as Array<{ draft?: boolean; assets?: GithubAsset[]; published_at?: string }>) {
+      if (release.draft) continue
       for (const asset of release.assets ?? []) {
-        const version = assetVersion(asset.name)
-        if (!version) continue
-        result.set(version, {
-          version,
-          date: release.published_at,
-          assetUrl: asset.browser_download_url
-        })
+        const suffix = `-${platformTag()}.tgz`
+        if (!asset.name.startsWith('dsh-runtime-') || !asset.name.endsWith(suffix)) continue
+        const version = asset.name.slice('dsh-runtime-'.length, -suffix.length)
+        try { safeRuntimeVersion(version) } catch { continue }
+        if (result.has(version)) continue // GitHub returns newest releases first.
+        const assetUrl = validAssetUrl(asset.browser_download_url, asset.name)
+        if (!assetUrl) continue
+        const checksum = release.assets?.find(entry => entry.name === `${asset.name}.sha256`)
+        const checksumUrl = checksum && validAssetUrl(checksum.browser_download_url, checksum.name)
+        let sha256: string | undefined
+        try { if (asset.digest) sha256 = parseRuntimeChecksum(asset.digest) } catch { /* sidecar required below */ }
+        result.set(version, { version, date: release.published_at, assetUrl, checksumUrl, assetName: asset.name, sha256 })
       }
     }
   }
-  // npm 最新版参考（无预编译资产时仍展示，标记不可直装）
-  if (latest && !result.has(latest)) {
-    result.set(latest, { version: latest, distTag: 'latest', date: times[latest] })
+  const latest = meta?.['dist-tags']?.latest
+  if (typeof latest === 'string' && !result.has(latest)) {
+    try { safeRuntimeVersion(latest); result.set(latest, { version: latest, distTag: 'latest', date: meta?.time?.[latest] }) }
+    catch { /* invalid registry metadata */ }
   }
-  return [...result.values()]
-    .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
-    .slice(0, Math.max(1, Math.min(50, limit)))
-}
-
-// —— 下载与安装 ——
-
-async function downloadToFile(pluginId: string, url: string, dest: string, expectedSha256?: string): Promise<void> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS)
-  try {
-    const res = await net.fetch(url, { signal: controller.signal })
-    if (!res.ok || !res.body) throw new Error(`下载失败: HTTP ${res.status}`)
-    const total = Number(res.headers.get('content-length') ?? 0)
-    let received = 0
-    let lastReport = 0
-    const source = Readable.fromWeb(res.body as import('node:stream/web').ReadableStream)
-    source.on('data', (chunk: Buffer) => {
-      received += chunk.length
-      const now = Date.now()
-      if (now - lastReport > 400) {
-        lastReport = now
-        emit(pluginId, {
-          type: 'runtime-progress',
-          phase: 'download',
-          detail: `${received}${total ? `/${total}` : ''} bytes`,
-          percent: total > 0 ? Math.round((received / total) * 100) : undefined
-        })
-      }
-    })
-    await pipeline(source, createWriteStream(dest))
-    if (expectedSha256) {
-      const digest = createHash('sha256').update(readFileSync(dest)).digest('hex')
-      if (digest !== expectedSha256.replace(/^sha256:?/, '').trim()) {
-        throw new Error('sha256 校验失败')
-      }
+  const selected = [...result.values()].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
+    .slice(0, Math.max(1, Math.min(50, Number.isFinite(limit) ? Math.floor(limit) : 20)))
+  // Explicit remote refresh resolves verification metadata for the UI; cap concurrent sidecar reads.
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(4, selected.length) }, async () => {
+    while (next < selected.length) {
+      const entry = selected[next++]
+      if (entry.sha256 || !entry.checksumUrl) continue
+      try {
+        const response = await fetchTimed(entry.checksumUrl, signal)
+        if (response.ok) entry.sha256 = parseRuntimeChecksum(await response.text(), entry.assetName)
+      } catch { /* Still show the remote release honestly, but it is not verified/installable. */ }
     }
-  } finally {
-    clearTimeout(timer)
-  }
+  }))
+  return selected
 }
-
-function runTar(tgz: string, dest: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('/usr/bin/tar', ['-xzf', tgz, '-C', dest], { stdio: ['ignore', 'ignore', 'pipe'] })
-    let stderr = ''
-    child.stderr?.on('data', chunk => { stderr += String(chunk) })
-    child.once('error', reject)
-    child.once('close', code => (code === 0 ? resolve() : reject(new Error(`tar 解压失败: ${stderr.slice(-500)}`))))
+async function downloadToFile(pluginId: string, url: string, dest: string, sha256: string, scope: PluginRuntimeScope): Promise<void> {
+  const signal = AbortSignal.any([scope.signal, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)])
+  const response = await net.fetch(url, { signal })
+  if (!response.ok || !response.body) throw new Error(`下载失败: HTTP ${response.status}`)
+  const total = Number(response.headers.get('content-length') ?? 0)
+  if (total > MAX_ARCHIVE_BYTES) { await response.body.cancel(); throw new Error('runtime 下载超过大小限制') }
+  const hash = createHash('sha256')
+  let received = 0
+  let lastReport = 0
+  const source = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream)
+  source.on('data', (chunk: Buffer) => {
+    received += chunk.length
+    if (received > MAX_ARCHIVE_BYTES) { source.destroy(new Error('runtime 下载超过大小限制')); return }
+    hash.update(chunk)
+    if (Date.now() - lastReport > 400) {
+      lastReport = Date.now()
+      emit(pluginId, { type: 'runtime-progress', phase: 'download', detail: `${received}${total > 0 ? `/${total}` : ''} bytes`,
+        percent: total > 0 ? Math.min(100, Math.round(received / total * 100)) : undefined })
+    }
   })
+  await pipeline(source, createWriteStream(dest, { flags: 'wx', mode: 0o600 }), { signal })
+  assertCurrent(scope)
+  if (hash.digest('hex') !== sha256) throw new Error('sha256 校验失败')
 }
-
+async function runTar(pluginId: string, args: string[], scope: PluginRuntimeScope): Promise<string> {
+  assertCurrent(scope)
+  const command = process.platform === 'win32' ? 'tar.exe' : '/usr/bin/tar'
+  const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, LC_ALL: 'C' } })
+  const owned = ownDshChild(pluginId, child)
+  let stdout = ''
+  let stderr = ''
+  let overflow = false
+  child.stdout?.on('data', chunk => {
+    stdout += String(chunk)
+    if (stdout.length > MAX_ARCHIVE_LIST_BYTES) { overflow = true; stdout = ''; owned.stop() }
+  })
+  child.stderr?.on('data', chunk => { stderr = (stderr + String(chunk)).slice(-8192) })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const done = new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve) })
+    const code = await Promise.race([done, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { owned.stop(); reject(new Error('tar 操作超时')) }, 120_000)
+      timer.unref()
+    })])
+    await owned.waitForExit()
+    assertCurrent(scope)
+    if (overflow || code !== 0) throw new Error(`tar 失败: ${overflow ? '资产文件数超过限制' : stderr.slice(-500) || code}`)
+    return stdout
+  } catch (error) { owned.stop(); await owned.waitForExit(); throw error }
+  finally { if (timer) clearTimeout(timer) }
+}
+async function extractRuntime(pluginId: string, tgz: string, dest: string, scope: PluginRuntimeScope): Promise<void> {
+  // Preflight before extraction: tar's own traversal warnings are not an installation boundary.
+  const listing = await runTar(pluginId, ['-tzf', tgz], scope)
+  const entries = listing.split(/\r?\n/).filter(Boolean)
+  if (!entries.length || entries.length > 200_000) throw new Error('runtime 资产为空或文件过多')
+  for (const original of entries) {
+    const path = original.replace(/^(\.\/)+/, '').replace(/\/$/, '')
+    if (!path || path.includes('\\') || /[\x00-\x1f\x7f]/.test(path) || isAbsolute(path)
+      || path.split('/').some(part => !part || part === '..' || part === '.') || /^[A-Za-z]:/.test(path)
+      || !(path === 'package.json' || path === 'node_modules' || path.startsWith('node_modules/'))) {
+      throw new Error(`runtime 资产含非法路径: ${original.slice(0, 200)}`)
+    }
+  }
+  const verbose = await runTar(pluginId, ['-tvzf', tgz], scope)
+  // Published assets are dereferenced. Reject links/devices rather than risk writes outside staging.
+  if (verbose.split(/\r?\n/).filter(Boolean).some(line => !['-', 'd'].includes(line[0]))) throw new Error('runtime 资产包含链接或特殊文件，请使用重新构建的原生资产')
+  await runTar(pluginId, ['-xzf', tgz, '-C', dest, '--no-same-owner', '--no-same-permissions'], scope)
+}
 export async function installRuntimeVersion(pluginId: string, version: string): Promise<void> {
-  if (!/^[a-z0-9][a-z0-9.-]*$/i.test(version)) throw new Error(`非法版本号: ${version}`)
-  const { runtimeDir } = dshDataDirs()
-  const target = join(runtimeDir, version)
-  if (runtimeBinAt(target)) return // 已安装
-  const remote = (await listRemoteVersions(pluginId, 50)).find(v => v.version === version)
-  if (!remote?.assetUrl) throw new Error(`版本 ${version} 无 ${platformTag()} 预编译资产（需等待插件仓 Release 构建或手动安装）`)
-  emit(pluginId, { type: 'runtime-progress', phase: 'download-start', detail: remote.assetUrl })
-  const work = mkdtempSync(join(tmpdir(), 'enest-dsh-'))
-  const tgz = join(work, 'runtime.tgz')
-  try {
-    let sha256: string | undefined
+  safeRuntimeVersion(version)
+  return withDshMaintenance(pluginId, async () => {
+    const scope = operationScope(pluginId)
+    const { runtimeDir } = ensureDshDirs()
+    const target = dataRuntimeRoot(version)
+    if (existsSync(target)) { validateRuntimeRoot(target, version, true); return }
+    const remote = (await listRemoteVersions(pluginId, 50)).find(entry => entry.version === version)
+    assertCurrent(scope)
+    if (!remote?.assetUrl || !remote.assetName) throw new Error(`版本 ${version} 无 ${platformTag()} 预编译资产（npm 参考版本不等于可下载的原生资产）`)
+    let sha256 = remote.sha256
+    if (!sha256) {
+      if (!remote.checksumUrl) throw new Error(`版本 ${version} 缺少 sha256 校验资产，拒绝安装`)
+      const response = await fetchTimed(remote.checksumUrl, scope.signal)
+      if (!response.ok) throw new Error(`校验资产下载失败: HTTP ${response.status}`)
+      sha256 = parseRuntimeChecksum(await response.text(), remote.assetName)
+    }
+    const work = mkdtempSync(join(runtimeDir, '.install-'))
+    const tgz = join(work, 'runtime.tgz')
+    const staging = join(work, 'runtime')
     try {
-      const res = await net.fetch(`${remote.assetUrl}.sha256`)
-      if (res.ok) sha256 = (await res.text()).trim()
-    } catch {
-      /* 边车缺失时跳过校验（Release 可控） */
-    }
-    await downloadToFile(pluginId, remote.assetUrl, tgz, sha256)
-    emit(pluginId, { type: 'runtime-progress', phase: 'extract' })
-    mkdirSync(target, { recursive: true })
-    await runTar(tgz, target)
-    if (!runtimeBinAt(target)) {
-      rmSync(target, { recursive: true, force: true })
-      throw new Error('解压后未找到 dsh bin（资产布局不符合约定：tgz 根须为 node_modules/…）')
-    }
-    emit(pluginId, { type: 'runtime-progress', phase: 'installed', detail: version })
-  } finally {
-    rmSync(work, { recursive: true, force: true })
-  }
-}
-
-// —— 激活 / 移除 ——
-
-async function healthCheck(root: string): Promise<boolean> {
-  const bin = runtimeBinAt(root)
-  if (!bin) return false
-  return new Promise(resolve => {
-    const child = spawn(process.execPath, [bin, '--version'], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', DSH_HOME: dshDataDirs().dshHome },
-      // 检查只取退出码；不要留未消费的 pipe，让启动日志填满缓冲后卡住。
-      stdio: 'ignore'
-    })
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL')
-      resolve(false)
-    }, 20000)
-    child.once('error', () => { clearTimeout(timer); resolve(false) })
-    child.once('close', code => {
-      clearTimeout(timer)
-      resolve(code === 0)
-    })
+      emit(pluginId, { type: 'runtime-progress', phase: 'download-start', detail: remote.assetName })
+      await downloadToFile(pluginId, remote.assetUrl, tgz, sha256, scope)
+      mkdirSync(staging)
+      emit(pluginId, { type: 'runtime-progress', phase: 'extract' })
+      await extractRuntime(pluginId, tgz, staging, scope)
+      validateRuntimeRoot(staging, version, true)
+      assertCurrent(scope)
+      // Same filesystem, atomic promotion. Never overwrite an active/partially installed version.
+      if (existsSync(dataRuntimeRoot(version))) throw new Error(`版本 ${version} 安装目录已存在，请先检查或移除`)
+      renameSync(staging, target)
+      emit(pluginId, { type: 'runtime-progress', phase: 'installed', detail: version })
+    } finally { rmSync(work, { recursive: true, force: true }) }
   })
 }
 
-export async function activateRuntimeVersion(pluginId: string, version: string): Promise<void> {
-  const { runtimeDir } = dshDataDirs()
-  const target = join(runtimeDir, version)
-  if (!runtimeBinAt(target)) throw new Error(`版本 ${version} 未安装`)
-  const previous = getActiveMarker()
-  setActiveMarker(version)
-  emit(pluginId, { type: 'runtime-progress', phase: 'health-check', detail: version })
-  if (!(await healthCheck(target))) {
-    if (previous) setActiveMarker(previous)
-    else clearActiveMarker()
-    throw new Error(`版本 ${version} 健康检查失败，已回退到 ${previous ?? '捆绑/系统 runtime'}`)
-  }
-  emit(pluginId, { type: 'runtime-progress', phase: 'activated', detail: version })
-}
-
-export function removeRuntimeVersion(version: string): void {
-  const active = getActiveMarker()
-  if (active === version) throw new Error(`版本 ${version} 正在使用，先切换到其他版本再移除`)
-  const { runtimeDir } = dshDataDirs()
-  const target = join(runtimeDir, version)
-  if (!existsSync(target)) throw new Error(`版本 ${version} 未安装`)
-  rmSync(target, { recursive: true, force: true })
-}
-
-export function installedVersions(): DshRuntimeVersion[] {
-  return listInstalledRuntimes()
-}
-
-// —— 一键备份升级 ——
-
-export async function oneClickUpgrade(pluginId: string, version: string): Promise<{ backupId: string }> {
-  const steps: string[] = []
-  emit(pluginId, { type: 'runtime-progress', phase: 'upgrade-start', detail: `目标版本 ${version}` })
-  stopWeb(pluginId)
-  stopSdk(pluginId)
-  steps.push('stopped-processes')
-  const backupId = createBackup('home', `升级前快照 → ${version}`)
-  steps.push(`backup:${backupId}`)
-  let previousActive = getActiveMarker()
+export interface SwitchDshRuntimeInput extends DshRuntimeSelection { restart?: boolean }
+export interface DshRuntimeChangeResult { backupId: string; application: 'stopped' | 'restarted'; message: string }
+async function healthCheck(pluginId: string, runtime: ResolvedRuntime, scope: PluginRuntimeScope): Promise<void> {
+  const work = mkdtempSync(join(tmpdir(), 'enest-dsh-health-'))
+  const home = join(work, 'home')
+  mkdirSync(home)
   try {
-    await installRuntimeVersion(pluginId, version)
-    steps.push('installed')
-    previousActive = getActiveMarker()
-    await activateRuntimeVersion(pluginId, version)
-    steps.push('activated')
-    emit(pluginId, { type: 'runtime-progress', phase: 'upgrade-done', detail: version })
-    return { backupId }
-  } catch (error) {
-    // 回滚：恢复 home 备份 + 回退激活标记
-    const detail = String((error as Error).message ?? error)
-    emit(pluginId, { type: 'runtime-progress', phase: 'rollback', detail: `${detail}；恢复备份 ${backupId}` })
-    logWarn('dsh', `一键升级失败，执行回滚: ${detail}`)
-    try {
-      if (previousActive) setActiveMarker(previousActive)
-      restoreBackup(backupId)
-    } catch (rollbackError) {
-      throw new Error(`升级失败: ${detail}；回滚也失败: ${String((rollbackError as Error).message)}（备份 ${backupId} 保留在备份列表中）`)
+    assertCurrent(scope)
+    const actual = await probeDshRuntime(pluginId, runtime, home)
+    if (runtime.version && actual !== runtime.version && !actual.split(/\s+/).some(part => part.replace(/^v/, '') === runtime.version)) {
+      throw new Error(`健康检查版本不匹配（期望 ${runtime.version}，实际 ${actual}）`)
     }
-    throw new Error(`升级失败已回滚: ${detail}（备份 ${backupId} 保留）`)
-  }
+  } finally { rmSync(work, { recursive: true, force: true }) }
 }
-
-// —— 备份目录占用（诊断）——
-
+function restoreMarker(previous: DshRuntimeSelection | null): void {
+  if (previous) setActiveMarker(previous)
+  else clearActiveMarker()
+}
+async function changeRuntime(pluginId: string, input: SwitchDshRuntimeInput, install: boolean): Promise<DshRuntimeChangeResult> {
+  safeRuntimeVersion(input.version)
+  if (!['data', 'bundled', 'system'].includes(input.source)) throw new Error('非法 runtime 来源')
+  return withDshMaintenance(pluginId, async () => {
+    const scope = operationScope(pluginId)
+    const previous = getActiveMarker()
+    const snapshot = snapshotDshProcesses(pluginId)
+    const label = runtimeIdentity(input)
+    emit(pluginId, { type: 'runtime-progress', phase: 'upgrade-start', detail: `目标 ${label}` })
+    await stopAllDshAndWait(pluginId)
+    assertCurrent(scope)
+    ensureDshDirs()
+    const backupId = await createBackup('home', `运行时变更前快照 → ${label}`)
+    let committed = false
+    try {
+      if (install) await installRuntimeVersion(pluginId, input.version)
+      const target = resolveRuntimeSelection(input)
+      emit(pluginId, { type: 'runtime-progress', phase: 'health-check', detail: label })
+      await healthCheck(pluginId, target, scope)
+      assertCurrent(scope)
+      setActiveMarker(input)
+      committed = true
+      if (input.restart) await restartDshProcesses(pluginId, snapshot)
+      emit(pluginId, { type: 'runtime-progress', phase: 'activated', detail: label })
+      emit(pluginId, { type: 'runtime-progress', phase: 'upgrade-done', detail: label })
+      return { backupId, application: input.restart ? 'restarted' : 'stopped',
+        message: input.restart ? '运行时已切换并重新启动原进程；就绪状态以进程握手为准' : '运行时已切换且健康检查通过；进程保持停止，下次启动生效' }
+    } catch (error) {
+      const detail = errorMessage(error)
+      emit(pluginId, { type: 'runtime-progress', phase: 'rollback', detail: `${detail}；恢复备份 ${backupId}` })
+      logWarn('dsh', `运行时变更失败，回滚: ${detail}`)
+      const failures: string[] = []
+      // Never mutate home while an unconfirmed child may still be writing to it.
+      let stopped = false
+      try { await stopAllDshAndWait(pluginId); stopped = true } catch (stopError) { failures.push(errorMessage(stopError)) }
+      if (stopped) {
+        if (committed) { try { restoreMarker(previous) } catch (markerError) { failures.push(`标记: ${errorMessage(markerError)}`) } }
+        try { await restoreBackup(backupId, 'home') } catch (restoreError) { failures.push(`数据: ${errorMessage(restoreError)}`) }
+      }
+      if (failures.length) throw new Error(`运行时变更失败: ${detail}；回滚未完成: ${failures.join('；')}（备份 ${backupId} 保留）`)
+      throw new Error(`运行时变更失败已回滚: ${detail}（备份 ${backupId} 保留，进程已停止）`)
+    }
+  })
+}
+export async function switchDshRuntime(pluginId: string, input: SwitchDshRuntimeInput): Promise<DshRuntimeChangeResult> {
+  return changeRuntime(pluginId, input, false)
+}
+export async function activateRuntimeVersion(pluginId: string, version: string): Promise<DshRuntimeChangeResult> {
+  return switchDshRuntime(pluginId, { source: 'data', version })
+}
+export async function oneClickUpgrade(pluginId: string, version: string): Promise<DshRuntimeChangeResult> {
+  return changeRuntime(pluginId, { version, source: 'data' }, true)
+}
+export async function removeRuntimeVersion(version: string, pluginId = DSH_PLUGIN_ID): Promise<void> {
+  safeRuntimeVersion(version)
+  return withDshMaintenance(pluginId, async () => {
+    operationScope(pluginId)
+    const marker = getActiveMarker()
+    const active = resolveRuntime()
+    if (marker?.source === 'data' && marker.version === version || active.source === 'data' && active.version === version) {
+      throw new Error(`版本 data:${version} 正在使用，先切换到其他来源/版本再移除`)
+    }
+    const target = dataRuntimeRoot(version)
+    if (!existsSync(target)) throw new Error(`版本 ${version} 未安装`)
+    if (lstatSync(target).isSymbolicLink() || !lstatSync(target).isDirectory()) throw new Error('非法 runtime 目录')
+    // Quiesce before unlinking even if an older process predates the current selection marker.
+    await stopAllDshAndWait(pluginId)
+    dataRuntimeRoot(version)
+    rmSync(target, { recursive: true, force: false })
+  })
+}
+export function installedVersions(): DshRuntimeVersion[] { return listInstalledRuntimes() }
 export function backupsDiskUsage(): { bytes: number; count: number } {
   const { backupDir } = dshDataDirs()
   if (!existsSync(backupDir)) return { bytes: 0, count: 0 }
   let bytes = 0
-  let count = 0
-  const walk = (dir: string, depth: number): void => {
+  const walk = (dir: string, depth: number) => {
     if (depth > 6) return
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, entry.name)
-      if (entry.isDirectory()) walk(full, depth + 1)
-      else {
-        try {
-          bytes += statSync(full).size
-        } catch {
-          /* ignore */
-        }
-      }
+      const path = join(dir, entry.name)
+      if (entry.isSymbolicLink()) continue
+      if (entry.isDirectory()) walk(path, depth + 1)
+      else { try { bytes += statSync(path).size } catch { /* ignore inaccessible entries */ } }
     }
   }
   walk(backupDir, 0)
-  count = readdirSync(backupDir, { withFileTypes: true }).filter(e => e.isDirectory()).length
-  return { bytes, count }
+  return { bytes, count: readdirSync(backupDir, { withFileTypes: true }).filter(entry => entry.isDirectory()).length }
 }

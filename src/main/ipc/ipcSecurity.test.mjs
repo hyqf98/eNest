@@ -73,3 +73,25 @@ test('detached chrome has only the seven instance-window commands, no shell read
  event.sender.emit('destroyed')
  assert.equal(api.getTrustedSurfaceRole(event.sender.id), null)
 })
+
+test('home surfaces use the home capability set and explicit revocation', () => {
+ const { event, wc } = surface('home')
+ for (const channel of ['HomeReady', 'HomeAck', 'HomeGetAppearance', 'HomeGetConfig', 'HomeGetCatalog', 'HomeGetDetail', 'HomeSearch', 'HomeRefresh', 'HomeAction']) {
+  assert.doesNotThrow(() => api.assertSurfaceSender(event, api.IpcChannels[channel]))
+ }
+ for (const channel of ['ShellGetSettings', 'ShellSetSettings', 'ShellGetTheme', 'ShellOpenPlugin', 'NotificationShow', 'PluginWindowCommand']) {
+  assert.throws(() => api.assertSurfaceSender(event, api.IpcChannels[channel]), /capability/)
+ }
+ api.revokeTrustedSurface(wc)
+ assert.equal(api.getTrustedSurfaceRole(wc.id), null)
+ assert.throws(() => api.assertSurfaceSender(event, api.IpcChannels.HomeReady), /untrusted/)
+})
+
+test('home channels are not inherited by unrelated restricted surfaces', () => {
+ for (const role of ['quick', 'orb', 'notification', 'install', 'modal', 'detached']) {
+  const {event} = surface(role)
+  for (const channel of ['HomeGetConfig', 'HomeAck']) {
+   assert.throws(() => api.assertSurfaceSender(event, api.IpcChannels[channel]), /capability/)
+  }
+ }
+})

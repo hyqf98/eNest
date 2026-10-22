@@ -7,7 +7,7 @@ import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
  * 兼任 mini 插件容器：提供 getQuickPluginBounds（插件 view 铺输入条以下区域），
  * 尺寸变更联动 relayoutQuickPlugins（PluginHost 注入，避免循环依赖）。
  * 被 index.ts / quickHotkey / quickHandlers / PluginHost 调用。
- * 关键依赖：resolvePreload、settingsStore（动画）、logService。
+ * 关键依赖：resolvePreload、logService；外观由 renderer 的权威快照同步。
  */
 import { capturePasteTarget } from '@main/clipboard/nativeClipboard'
 import { join } from 'node:path'
@@ -23,8 +23,8 @@ import {
 } from '@shared/constants'
 import { IpcChannels } from '@shared/types/ipc'
 import { ensureShellSessionProtocol } from '@main/plugin/pluginProtocol'
+import { registerQuickThemeWebContentsPolicy } from '@main/theme/quickThemeProtocol'
 import { logError, logInfo } from '@main/logs/logService'
-import { settingsStore } from '@main/settings/SettingsStore'
 import { resolvePreload, setQuickEventSink } from './createShellWindow'
 
 /** Explicit shell view lets one native surface clip shell and plugin together. */
@@ -45,6 +45,8 @@ class QuickWindow extends BaseWindow {
     } })
     this.shellView.setBackgroundColor('#00000000')
     this.webContents = this.shellView.webContents
+    registerQuickThemeWebContentsPolicy(this.webContents, () =>
+      !this.isDestroyed() && this.isVisible() && this.isFocused())
     // BaseWindow does not own/close WebContents automatically.
     this.once('closed', () => {
       if (!this.webContents.isDestroyed()) this.webContents.close({ waitForBeforeUnload: false })
@@ -77,7 +79,6 @@ export function finishQuickPluginReveal(): void {
   layoutQuickSurface()
 }
 
-let lastPushedAnim = ''
 let currentTargetHeight = QUICK_HOME_HEIGHT
 const WORK_AREA_INSET = 16
 /** blur 宽限截止：在此之前只抢焦点、不 hide */
@@ -85,6 +86,7 @@ let blurGuardUntil = 0
 /** toggle 防抖 */
 let lastToggleAt = 0
 let showRevision = 0
+let mainActivationGuardUntil = 0
 /** 待执行的 blur-hide 定时器 */
 let pendingBlurTimer: ReturnType<typeof setTimeout> | null = null
 const TOGGLE_DEBOUNCE_MS = 260
@@ -129,17 +131,6 @@ export function getQuickPluginBounds(): Electron.Rectangle {
     width: Math.max(0, bounds.width - QUICK_BORDER_WIDTH * 2),
     height: Math.max(0, bounds.height - QUICK_BAR_AREA_H - QUICK_BORDER_WIDTH)
   }
-}
-
-/** 把动画档位写入 Quick 文档根，供 CSS [data-anim] 分档 */
-function pushAnimLevel(): void {
-  const wc = quickWindow?.webContents
-  if (!wc || wc.isDestroyed()) return
-  const level = settingsStore.getAll().general.animationLevel || 'medium'
-  if (level === lastPushedAnim) return
-  lastPushedAnim = level
-  const js = `document.documentElement.dataset.anim=${JSON.stringify(level)}`
-  void wc.executeJavaScript(js).catch(() => undefined)
 }
 
 function loadQuickRenderer(win: QuickWindow): void {
@@ -248,6 +239,15 @@ export function isQuickVisible(): boolean {
   return !!quickWindow && !quickWindow.isDestroyed() && quickWindow.isVisible()
 }
 
+/** Native Quick focus changes are not requests to open the desktop window. */
+export function shouldSuppressMainWindowActivation(): boolean {
+  return isQuickVisible() || Date.now() < mainActivationGuardUntil
+}
+
+function guardMainWindowActivation(): void {
+  mainActivationGuardUntil = Date.now() + SHOW_BLUR_GRACE_MS
+}
+
 /** 确保窗口存在；启动时可预创建（隐藏），热键只 show */
 export function ensureQuickWindow(): QuickWindow {
   if (quickWindow && !quickWindow.isDestroyed()) return quickWindow
@@ -293,11 +293,6 @@ export function ensureQuickWindow(): QuickWindow {
     logError('quick', `render-process-gone: ${details.reason} exitCode=${details.exitCode}`)
   })
 
-  win.webContents.on('did-finish-load', () => {
-    lastPushedAnim = ''
-    pushAnimLevel()
-  })
-
   win.on('blur', () => {
     try {
       if (!quickWindow || quickWindow.isDestroyed()) return
@@ -327,8 +322,7 @@ export function ensureQuickWindow(): QuickWindow {
             'quick',
             `blur → hide visible=${quickWindow.isVisible()} focused=${quickWindow.isFocused()}`
           )
-          quickWindow.hide()
-          quickPluginHiddenHook?.()
+          hideQuickWindow('blur')
         } catch (err) {
           logError('quick', `blur-hide failed: ${(err as Error).message}`)
         }
@@ -347,7 +341,6 @@ export function ensureQuickWindow(): QuickWindow {
     pendingBlurTimer = null
     quickWindow = null
     nativeInteractions.clear()
-    lastPushedAnim = ''
   })
 
   quickWindow = win
@@ -358,6 +351,8 @@ export function ensureQuickWindow(): QuickWindow {
 /** 把 Quick 窗前置并拿到键盘焦点。
  * 注意：不要在 show 前 app.focus——会先把主窗设成 key window，quick 立刻 blur 被收起。 */
 function presentAndFocus(win: QuickWindow): void {
+  // Guard before show: macOS may activate the app before Quick reports visible.
+  guardMainWindowActivation()
   blurGuardUntil = Date.now() + SHOW_BLUR_GRACE_MS
   if (pendingBlurTimer) {
     clearTimeout(pendingBlurTimer)
@@ -456,10 +451,12 @@ export function presentQuickWindowForPlugin(commit?: () => void): boolean {
   if (!wasVisible) win.webContents.send(IpcChannels.QuickShown)
   try { commit?.() }
   catch (error) {
-    if (!wasVisible && !win.isDestroyed()) win.hide()
+    if (!wasVisible && !win.isDestroyed()) {
+      guardMainWindowActivation()
+      win.hide()
+    }
     throw error
   }
-  pushAnimLevel()
   return true
 }
 
@@ -489,7 +486,6 @@ export async function showQuickWindow(canShow: () => boolean = () => true): Prom
         if (!wc || wc.isDestroyed()) return
         wc.focus()
         wc.send(IpcChannels.QuickShown)
-        pushAnimLevel()
         logInfo('quick', 'afterPresent ok')
       } catch (err) {
         logError('quick', `afterPresent failed: ${(err as Error).stack || String(err)}`)
@@ -567,6 +563,11 @@ export function setQuickPluginHiddenHook(fn: (() => void) | null): void {
 
 export function hideQuickWindow(reason = 'explicit'): void {
   showRevision++
+  // The delayed activate event from ordering Quick out must not reopen main.
+  guardMainWindowActivation()
+  blurGuardUntil = 0
+  if (pendingBlurTimer) clearTimeout(pendingBlurTimer)
+  pendingBlurTimer = null
   if (quickWindow && !quickWindow.isDestroyed() && quickWindow.isVisible()) {
     logInfo(
       `quick`,

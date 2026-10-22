@@ -26,10 +26,12 @@ function visibleEntries(layer: Layer): NotificationItem[] {
 function state(layer: Layer): NotificationOverlayState {
   const { win } = layer.host
   const raw = settingsStore.getAll().general.animationLevel
+  const theme = resolveThemeTokens('auto')
   return {
     items: visibleEntries(layer), position: layer.position,
-    animationLevel: raw === 'low' || raw === 'high' ? raw : 'medium',
-    theme: resolveThemeTokens('auto'),
+    animationLevel: theme.appearance?.animation.effective ?? (raw === 'low' || raw === 'high' ? raw : 'medium'),
+    theme,
+    appearance: theme.appearance,
     visible: !win.isDestroyed() && win.isVisible() && !win.isMinimized()
   }
 }

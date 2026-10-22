@@ -25,7 +25,7 @@ async function poll(read, accept, label, timeout = 15000) {
 
 function harness(app) {
   const evaluate = (target, code, id = ids[0]) => app.evaluate(({ BaseWindow, webContents }, { target, code, id }) => {
-    const plugin = wc => { try { const url = new URL(wc.getURL()); return url.searchParams.get('pid') === id || url.protocol === 'enest:' && url.hostname === id } catch { return false } }
+    const plugin = wc => { try { const url = new URL(wc.getURL()); return url.searchParams.get('pid') === id || url.protocol === 'enest:' && url.hostname === 'plugin' && url.pathname.split('/')[1] === id } catch { return false } }
     const children = view => [...(view.webContents ? [view.webContents] : []), ...view.children.flatMap(children)]
     let contents
     if (target === 'detached') {
@@ -45,7 +45,7 @@ function harness(app) {
       windows: BaseWindow.getAllWindows().map(win => ({ id:win.id, title:win.getTitle(), visible:win.isVisible(), minimized:win.isMinimized(), maximized:win.isMaximized(), alwaysOnTop:win.isAlwaysOnTop(), bounds:win.getNormalBounds(),
         views: children(win.contentView).map(({wc,bounds,visible}) => {
           let pluginId = null, chromePluginId = null
-          try { const url = new URL(wc.getURL()); pluginId = ids.find(id => url.searchParams.get('pid') === id || url.protocol === 'enest:' && url.hostname === id) ?? null; if (url.pathname.endsWith('/detached-plugin.html')) chromePluginId = url.searchParams.get('pluginId') } catch {}
+          try { const url = new URL(wc.getURL()); pluginId = ids.find(id => url.searchParams.get('pid') === id || url.protocol === 'enest:' && url.hostname === 'plugin' && url.pathname.split('/')[1] === id) ?? null; if (url.pathname.endsWith('/detached-plugin.html')) chromePluginId = url.searchParams.get('pluginId') } catch {}
           return {wcId:wc.id,url:wc.getURL(),pluginId,chromePluginId,bounds,visible}
         }) })) }
   }, matrixIds)
@@ -62,7 +62,7 @@ function harness(app) {
 
 async function installFixtures(dataRoot) {
   for (const id of [...matrixIds, transientId]) {
-    const folder = join(dataRoot,'plugins',id,'1.0.0')
+    const folder = join(dataRoot,'plugins',id.split('.').pop(),'1.0.0')
     await mkdir(join(folder,'assets/market/screenshots'),{recursive:true})
     await writeFile(join(folder,'assets/market/icon.svg'),'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#175"/></svg>')
     await writeFile(join(folder,'assets/market/README.md'),'# Isolated detached window fixture')

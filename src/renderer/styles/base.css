@@ -18,7 +18,7 @@ body {
   height: 100%;
   overflow: hidden;
   font-family: var(--font);
-  /* 字号档：useFont 写 --font-size-base（缺省 14px）；与 --shell-scale 窗口密度独立 */
+  /* 外观快照写 --font-size-base（缺省 14px）；与 --shell-scale 窗口密度独立 */
   font-size: var(--font-size-base, 14px);
   color: var(--text);
   /* 启动期与 Splash 同色，避免首帧白闪 */
@@ -53,21 +53,7 @@ button {
   padding: 0;
 }
 
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--text-3) 40%, transparent);
-  border: 3px solid transparent;
-  border-radius: 99px;
-  background-clip: content-box;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+/* Scrollbar visuals live in the shared appearance stylesheet. */
 
 :focus-visible {
   outline: 2px solid var(--link);

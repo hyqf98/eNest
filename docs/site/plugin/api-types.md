@@ -82,23 +82,19 @@ export interface EnestPluginApi {
             mode: 'light' | 'dark';
             tokens: PluginThemeTokens;
         }>;
+        /** Phase 1 read-only semantic appearance; home references are availability only. */
+        getAppearance(): Promise<ResolvedAppearance>;
+        /** Subscribe to semantic appearance changes; returns an unsubscribe function. */
+        onAppearanceChange(cb: (appearance: ResolvedAppearance) => void): Unsubscribe;
         /**
          * 注册主题包到壳子设置 → 主题 下拉列表。
-         * ThemePack: { id, name, mode, tokens, source?, background? }
+         * V1 ThemePack or ThemePackV2; source is host-bound and ignored in requests.
          */
-        register(pack: {
-            id: string;
-            name: string;
-            mode?: 'light' | 'dark' | 'system';
-            tokens: Record<string, string>;
-            source?: string;
-            background?: {
-                type: 'none' | 'color' | 'image' | 'video';
-                value: string;
-                opacity?: number;
-                fit?: 'cover' | 'contain';
-            };
-        }): Promise<unknown>;
+        register(pack: ThemePackRegistrationInput): Promise<unknown>;
+    };
+    /** Confirm an own, installed and enabled manifest home entry; never activates it. */
+    home: {
+        register(contribution: HomePageRegistrationInput): Promise<HomePageRegistrationResult>;
     };
     /** 全局热键命名空间：enest.hotkey.register/unregister；需 'hotkey' 权限 */
     hotkey: {
@@ -677,6 +673,41 @@ export interface EnestPluginApi {
     onModeChange(cb: (mode: PluginLaunchMode) => void): Unsubscribe;
 }
 
+/** Present only in a dedicated Home WebContentsView, never an ordinary business plugin. */
+export interface EnestHomeApi {
+    ready(payload?: HomeReadyPayload): Promise<void>;
+    ackNavigation(payload: WorkspaceNavigationAck): Promise<void>;
+    getAppearance(): Promise<HomeAppearanceSnapshot>;
+    getConfig(): Promise<HomeRuntimeConfig>;
+    getCatalog(): Promise<HomeCatalog>;
+    getDetail(id: string): Promise<HomeDetail | null>;
+    search(request: {
+        query: string;
+        scope?: HomeSearchScope;
+        limit?: number;
+    }): Promise<HomeSearchResult>;
+    refresh(request?: {
+        reason?: 'manual' | 'boot';
+    }): Promise<HomeCatalog>;
+    action(request: HomeAction): Promise<HomeActionResponse>;
+    onAppearance(listener: (payload: HomeAppearanceSnapshot) => void): () => void;
+    onCommand(listener: (payload: HomeCommand) => void): () => void;
+}
+
+/** The full workspace bridge. enestHome remains an alias for existing providers. */
+export type EnestWorkspaceApi = EnestHomeApi;
+
+/** Only available inside an isolated ThemePackV2.quick page, never an ordinary plugin page. */
+export interface EnestQuickApi {
+    ready(): void;
+    getState(): Promise<QuickThemeSnapshot>;
+    onState(listener: (state: QuickThemeSnapshot) => void): () => void;
+    onFocus(listener: (request: {
+        selectAll: boolean;
+    }) => void): () => void;
+    action(action: QuickThemeAction): Promise<QuickThemeActionResult>;
+}
+
 export type Listener = (data: unknown) => void;
 
 /** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗） */
@@ -980,6 +1011,55 @@ export type SysPortInfo = {
 
 export type Unsubscribe = () => void;
 
+/** V1 fields remain present as a compatibility view for older consumers. */
+export interface ThemePackV2 extends ThemePack {
+    schemaVersion: 2;
+    version: number;
+    description?: string;
+    variants: Record<AppearanceColorMode, ThemeVariant>;
+    settings: ThemeSettingsSchema;
+    /** Extra atmosphere presets usable from `background.palette`; ids never shadow host presets. */
+    palettes?: ThemeBackgroundPaletteDeclaration[];
+    /** Omission uses the built-in workspace; a supplied provider must support Workspace V1. */
+    home?: ThemeHomeReference;
+    /** Isolated Quick presentation. Omission keeps the host's built-in launcher. */
+    quick?: ThemeQuickReference;
+}
+
+export interface ResolvedAppearance {
+    version: 2;
+    revision: number;
+    theme: ThemeIdentity & {
+        name: string;
+        version: number;
+        legacy: boolean;
+    };
+    requestedMode: ThemeMode;
+    mode: AppearanceColorMode;
+    tokens: Record<string, string>;
+    fonts: AppearanceFonts;
+    components: AppearanceComponents;
+    background: AppearanceBackground;
+    splash: AppearanceSplash;
+    layout: AppearanceLayout;
+    notifications: ThemeNotificationStyle;
+    animation: {
+        requested: AnimationLevel;
+        effective: AnimationLevel;
+        continuous: boolean;
+    };
+    home: ThemeHomeReference;
+    quick?: ThemeQuickReference;
+    diagnostics: AppearanceDiagnostic[];
+    /** Host-owned public font handles; no local paths or custom-font metadata. */
+    resources?: {
+        fonts: Array<{
+            family: string;
+            url: string;
+        }>;
+    };
+}
+
 export type DbWorkbenchRequest = {
     action: 'drivers.list';
     input?: Record<string, never>;
@@ -1100,6 +1180,9 @@ export type DshWorkbenchRequest =
         maxEvents?: number;
     };
 } | {
+    action: 'settings.get';
+    input?: Record<string, never>;
+} | {
     action: 'profiles.list';
     input?: Record<string, never>;
 } | {
@@ -1129,7 +1212,7 @@ export type DshWorkbenchRequest =
 // dsh.chat（会话写）
  | {
     action: 'sdk.start';
-    input: DshSdkStartInput;
+    input?: DshSdkStartInput;
 } | {
     action: 'sdk.stop';
     input?: Record<string, never>;
@@ -1143,7 +1226,7 @@ export type DshWorkbenchRequest =
 // dsh.admin（进程/profile/备份/热更新）
  | {
     action: 'web.start';
-    input: {
+    input?: {
         profile?: string;
         port?: number;
     };
@@ -1157,11 +1240,37 @@ export type DshWorkbenchRequest =
         port?: number;
     };
 } | {
+    action: 'sdk.restart';
+    input?: DshSdkStartInput;
+} | {
+    action: 'settings.update';
+    input: Partial<DshWorkbenchSettings>;
+}
+/** 显式编辑读取包含 profile 密钥，不能降为 connect。 */
+ | {
+    action: 'profiles.read';
+    input: {
+        name: string;
+    };
+} | {
     action: 'profiles.create';
     input: {
         name: string;
-        template: string;
+        template: DshProfileTemplate;
     };
+} | {
+    action: 'profiles.update';
+    input: DshProfileUpdateInput;
+} | {
+    action: 'profiles.sync';
+    input: {
+        source: string;
+        target: string;
+        scope?: 'environment' | 'configuration';
+    };
+} | {
+    action: 'environment.reset';
+    input: DshEnvironmentResetInput;
 } | {
     action: 'profiles.delete';
     input: {
@@ -1202,6 +1311,7 @@ export type DshWorkbenchRequest =
     action: 'runtime.activate';
     input: {
         version: string;
+        source?: 'data' | 'bundled' | 'system';
     };
 } | {
     action: 'runtime.remove';
@@ -1237,6 +1347,19 @@ export interface FocusTimerRecordPatch {
     counted?: boolean;
     deleted?: boolean;
 }
+
+/** Runtime registration confirms an exact manifest declaration; source is host-bound. */
+export type HomePageRegistrationInput = Omit<HomePageContribution, 'source'> & {
+    source?: string;
+};
+
+export type HomePageRegistrationResult = {
+    ok: true;
+    contribution: HomePageContribution;
+} | {
+    ok: false;
+    error: string;
+};
 
 /** A user-selected local file capability, scoped to the calling plugin. */
 export interface LocalFileHandle {
@@ -1639,7 +1762,7 @@ export interface ClipboardHistoryEntry {
  */
 export type PluginLaunchMode = 'quick' | 'shell';
 
-/** 可由主题插件动态注册的主题包 */
+/** 可由主题插件动态注册的主题包（V2 完整契约见 types/appearance.ts） */
 export interface ThemePack {
     id: string;
     name: string;
@@ -1651,6 +1774,12 @@ export interface ThemePack {
     /** 最多 8 个声明式动效；随主题包来源注册、禁用和卸载。 */
     backgroundEffects?: BackgroundEffectDefinition[];
 }
+
+export type ThemePackRegistrationInput = Omit<ThemePack, 'source' | 'mode' | 'background'> & {
+    mode?: ThemeMode;
+    source?: string;
+    background?: ThemePackV2['background'];
+} | ThemePackV2Input;
 
 /** SSH / Database 插件宿主 API 共享类型（Spec docs/compose/spec/ssh-db-plugins.md） */
 // —— Vault ——
@@ -2056,6 +2185,208 @@ export interface SshWorkbenchRequest {
     answers?: string[];
 }
 
+export interface HomeAppearanceSnapshot {
+    appearance: HomeResolvedAppearance;
+    generation?: number;
+    resources?: {
+        fonts: Array<{
+            family: string;
+            url: string;
+        }>;
+    };
+}
+
+export interface HomeCatalog {
+    items: HomeCatalogItem[];
+    revision: number;
+}
+
+export interface HomeDetail {
+    pluginId: string;
+    name: string;
+    description?: string;
+    category?: string;
+    author?: string;
+    version?: string;
+    latestVersion?: string;
+    installs?: string;
+    installed?: boolean;
+    enabled?: boolean;
+    icon?: string | null;
+    color?: string;
+    glyph?: string;
+    tags?: string[];
+    permissions?: PluginPermission[];
+    packageSize?: number;
+    readmeUrl?: string;
+    /** Authored README image references mapped only to declared screenshot resource slots. */
+    readmeImages?: Record<string, string>;
+    screenshots?: string[];
+}
+
+export interface HomeSearchResult {
+    items: HomeSearchEntry[];
+    revision: number;
+}
+
+export type HomeSearchScope = 'all' | 'installed' | 'market' | 'action' | 'app' | 'plugin';
+
+export interface HomeRuntimeConfig {
+    locale: 'zh-CN' | 'en-US';
+    installedFirst: boolean;
+    offline: boolean;
+    warmInstall: boolean;
+    revision: number;
+}
+
+export type HomeAction = {
+    type: 'navigate';
+    route: WorkspaceRoute;
+} | {
+    type: 'activateSearchResult';
+    handle: string;
+} | {
+    type: 'openPlugin';
+    pluginId: string;
+} | {
+    type: 'openMarket';
+    pluginId?: string;
+} | {
+    type: 'openSettings';
+} | {
+    type: 'refreshApps';
+} | {
+    type: 'installPlugin';
+    pluginId: string;
+} | {
+    type: 'updatePlugin';
+    pluginId: string;
+} | {
+    type: 'setPluginEnabled';
+    pluginId: string;
+    enabled: boolean;
+} | {
+    type: 'uninstallPlugin';
+    pluginId: string;
+} | {
+    type: 'refreshCatalog';
+    reason?: 'manual' | 'boot';
+} | {
+    type: 'setHomeVisible';
+    visible: boolean;
+};
+
+export interface HomeActionResponse {
+    ok: boolean;
+    error?: string;
+}
+
+export interface HomeReadyPayload {
+    revision?: number;
+    workspaceVersion?: 1;
+    routes?: WorkspacePage[];
+}
+
+export type HomeCommand = {
+    type: 'settingsChanged';
+} | {
+    type: 'navigate';
+    route: WorkspaceRoute;
+    requestId: string;
+    generation: number;
+    revision: number;
+} | {
+    type: 'visibility';
+    visible: boolean;
+    revision: number;
+} | {
+    type: 'refresh';
+    reason: 'manual' | 'boot';
+    revision: number;
+} | {
+    type: 'openMarket';
+    pluginId?: string;
+    revision: number;
+    generation: number;
+} | {
+    type: 'install';
+    pluginId?: string;
+    jobId?: string;
+    name?: string;
+    status: 'queued' | 'progress' | 'done' | 'error';
+    progress?: number;
+    error?: string;
+};
+
+export interface WorkspaceNavigationAck {
+    generation: number;
+    requestId: string;
+    ok: boolean;
+}
+
+export interface QuickThemeSnapshot {
+    version: 1;
+    revision: number;
+    query: string;
+    filter: QuickCommandKind | null;
+    searching: boolean;
+    loading: boolean;
+    busy: boolean;
+    error: string | null;
+    items: QuickThemeItem[];
+    selectedId: string | null;
+    expanded: boolean;
+    hiddenCount: number;
+    emptyMarket: boolean;
+    plugin: {
+        title: string;
+        loading: boolean;
+        placeholder: string;
+    } | null;
+    appearance: QuickThemeAppearance;
+    bounds: {
+        width: number;
+        height: number;
+        inputHeight: number;
+    };
+}
+
+export type QuickThemeAction = {
+    type: 'query';
+    query: string;
+} | {
+    type: 'filter';
+    kind: QuickCommandKind | null;
+} | {
+    type: 'select';
+    id: string;
+} | {
+    type: 'open';
+    id: string;
+    container?: 'quick' | 'shell';
+} | {
+    type: 'expand';
+    expanded: boolean;
+} | {
+    type: 'open-market' | 'hide' | 'plugin-back' | 'plugin-pin' | 'plugin-focus';
+} | {
+    type: 'layout';
+    columns: number;
+    height: number;
+} | {
+    type: 'key';
+    key: string;
+    shift?: boolean;
+    meta?: boolean;
+    ctrl?: boolean;
+    alt?: boolean;
+};
+
+export interface QuickThemeActionResult {
+    ok: boolean;
+    error?: string;
+}
+
 // —— 插件生命周期（对标 uTools onPluginEnter / onPluginOut）——
 /** openPlugin 可选进入载荷：code 对应 feature 指令，payload 为任意透传数据 */
 export interface PluginEnterPayload {
@@ -2098,6 +2429,135 @@ export type AgentAssetInput = {
     contentText?: string;
     contentBase64?: string;
 };
+
+export type AppearanceColorMode = 'light' | 'dark';
+
+/** A pack-declared atmosphere preset; both paints are validated before the pack is accepted. */
+export interface ThemeBackgroundPaletteDeclaration {
+    id: string;
+    name: string;
+    css: string;
+    swatch?: string;
+}
+
+export interface ThemeSettingsSchema {
+    version: number;
+    groups: Array<{
+        id: string;
+        title: string;
+        description?: string;
+        fields: ThemeSettingsField[];
+    }>;
+}
+
+export interface ThemeHomeReference {
+    source: string;
+    id: string;
+    variant: string;
+}
+
+export interface ThemeVariant {
+    tokens: Partial<Record<ThemeColorToken, string>>;
+    fonts: AppearanceFonts;
+    components: AppearanceComponents;
+    background: AppearanceBackground;
+    layout: AppearanceLayout;
+    /** Host-authored notification structure; omission retains host defaults. */
+    notifications?: ThemeNotificationStyle;
+    /** Independent startup fallback, after any shared effect/atmosphere precedence. */
+    splash?: AppearanceSplash;
+    animation: AnimationLevel;
+}
+
+/** Package-relative entry owned by the declaring theme. The host owns native geometry. */
+export interface ThemeQuickReference {
+    version: 1;
+    entry: string;
+}
+
+/** Source is assigned by the host, never trusted from a plugin request. */
+export interface ThemeIdentity {
+    source: string;
+    id: string;
+}
+
+export interface ThemeNotificationStyle {
+    layout: 'card' | 'compact' | 'banner';
+    accent: 'stripe' | 'icon' | 'none';
+    radius: number;
+    borderWidth: number;
+    density: number;
+    shadow: 'none' | 'soft' | 'raised';
+}
+
+export interface AppearanceFonts {
+    body: string;
+    heading: string;
+    mono: string;
+    scale: number;
+    /** Latin precedes CJK in the composed body stack; empty slots use the authored body. */
+    cjk?: string;
+    latin?: string;
+}
+
+export interface AppearanceComponents {
+    controlRadius: number;
+    cardRadius: number;
+    panelRadius: number;
+    borderWidth: number;
+}
+
+export interface AppearanceLayout {
+    variant: string;
+    tabStyle?: TabStyle;
+    /** Titlebar background opacity, 0–1; labels, icons and window controls stay opaque. */
+    tabOpacity?: number;
+    /** Classic titlebar collapses to an 8px host-owned reveal strip. */
+    tabAutoHide?: boolean;
+    density: number;
+    gap: number;
+    sidebarWidth: number;
+    contentWidth: number;
+    columns: number;
+}
+
+export interface AppearanceBackground {
+    media: BackgroundConfig | null;
+    effect: string;
+    texture: string;
+    intensity: number;
+    speed: number;
+    direction: number;
+    /** Independent material controls; omitted V2 fields retain host defaults. */
+    warmth?: number;
+    grain?: number;
+    scale?: number;
+    wash?: number;
+    kind?: ThemeBackgroundKind;
+    /** Built-in preset id, or an id the active pack declared in `ThemePackV2.palettes`. */
+    palette?: ThemeBackgroundPalette | (string & {});
+    color?: string;
+    opacity?: number;
+    fit?: 'cover' | 'contain';
+}
+
+export interface AppearanceSplash {
+    type: 'brand' | 'none' | 'image' | 'paper';
+    media: BackgroundConfig | null;
+    opacity: number;
+}
+
+export interface AppearanceDiagnostic {
+    path: string;
+    code: string;
+    message: string;
+}
+
+/** 主题模式：浅色 / 深色 / 跟随系统 */
+export type ThemeMode = 'light' | 'dark' | 'system';
+
+/** 动画效果强度：low 几乎无动画 / medium 默认 / high 加强动效 */
+export type AnimationLevel = 'low' | 'medium' | 'high';
 
 export interface DbTablePage {
     table: TableRef;
@@ -2178,13 +2638,42 @@ export interface TableRef {
 
 // —— SDK JSON-RPC（stdio 换行协议；方法集见 @deepseek-ai/dsh-sdk-protocol）——
 export interface DshSdkStartInput {
-    /** 记录在 SDK 会话头的工作目录 */
-    cwd: string;
+    /** 未指定时使用持久化设置选定的 SDK profile。 */
+    profile?: string;
+    /** 记录在 SDK 会话头的工作目录；未指定时使用隔离 DSH_HOME。 */
+    cwd?: string;
     /** 模型路由（provider + model；需先在完全体 Settings→Models 配置凭据） */
-    provider: string;
-    model: string;
+    provider?: string;
+    model?: string;
     reasoningEffort?: string;
     maxTokens?: number;
+}
+
+// —— profile 管理 ——
+export type DshProfileTemplate = 'web' | 'headless' | 'sdk' | 'sdk-minimal' | 'acp';
+
+/** 宿主拥有的启动选择，不是 DSH 全局环境变量或原生 profile 字段。 */
+export interface DshWorkbenchSettings {
+    webProfile: string;
+    sdkProfile: string;
+    webPortPolicy: 'auto' | 'fixed';
+    /** 固定策略下使用；自动策略仍保留上次配置值。 */
+    webPort: number;
+}
+
+export interface DshProfileUpdateInput {
+    name: string;
+    bundles: string[];
+    patch: string;
+    environment: Record<string, string>;
+}
+
+export interface DshEnvironmentResetInput {
+    /** 默认 config 保留所有会话/存储；home 明确清空隔离 home（含会话）。 */
+    scope: 'config' | 'home';
+    backup: true;
+    /** 必须与 scope 精确匹配，不接受布尔式确认。 */
+    confirmation: 'RESET CONFIG' | 'RESET HOME';
 }
 
 export interface FocusTimerState {
@@ -2206,6 +2695,15 @@ export interface FocusTimerRecord {
     durationMs: number;
     outcome: 'completed' | 'skipped' | 'stopped';
     counted: boolean;
+}
+
+export interface HomePageContribution {
+    id: string;
+    source: string;
+    version: number;
+    /** Package-relative HTML entry. No remote URLs or traversal. */
+    entry: string;
+    variants: string[];
 }
 
 export interface MwConnectionConfig {
@@ -2360,9 +2858,6 @@ export interface ClipboardFile {
     directory?: boolean;
 }
 
-/** 主题模式：浅色 / 深色 / 跟随系统 */
-export type ThemeMode = 'light' | 'dark' | 'system';
-
 export interface BackgroundConfig {
     type: BackgroundType;
     /** color: hex；image/video: 本地绝对路径或 enest:// 资源 URL */
@@ -2391,6 +2886,11 @@ export type BackgroundEffectDefinition = BackgroundEffectBase & ({
     /** 本插件的 png/jpeg/webp/avif/gif 静态封面。 */
     poster?: string;
 });
+
+export interface ThemePackV2Input extends Omit<ThemePackV2, 'source' | 'mode'> {
+    source?: string;
+    mode?: ThemeMode;
+}
 
 // —— SSH ——
 export type SshAuthType = 'password' | 'key' | 'agent' | 'keyboard-interactive';
@@ -2489,6 +2989,152 @@ export interface CompletionItem {
 
 export type DbDialect = 'mysql' | 'sqlite' | 'postgres' | 'influxql' | 'tdengine' | string;
 
+/**
+ * The home renderer gets rendering values only. Theme/profile bags, custom-font
+ * metadata, diagnostics, and local media paths remain host-private.
+ */
+export interface HomeResolvedAppearance {
+    version: 2;
+    revision: number;
+    theme: ThemeIdentity & {
+        name: string;
+        version: number;
+        legacy: boolean;
+    };
+    requestedMode: ThemeMode;
+    mode: AppearanceColorMode;
+    tokens: Record<string, string>;
+    fonts: AppearanceFonts;
+    components: {
+        controlRadius: number;
+        cardRadius: number;
+        panelRadius: number;
+        borderWidth: number;
+    };
+    notifications: ThemeNotificationStyle;
+    background: AppearanceBackground;
+    splash?: AppearanceSplash;
+    layout: {
+        variant: string;
+        density: number;
+        gap: number;
+        sidebarWidth: number;
+        contentWidth: number;
+        columns: number;
+        tabStyle?: 'classic' | 'orb';
+    };
+    animation: {
+        requested: AnimationLevel;
+        effective: AnimationLevel;
+        continuous: boolean;
+    };
+}
+
+export interface HomeCatalogItem {
+    pluginId: string;
+    name: string;
+    description?: string;
+    category?: string;
+    author?: string;
+    version?: string;
+    installed?: boolean;
+    enabled?: boolean;
+    icon?: string | null;
+    color?: string;
+    glyph?: string;
+    tags?: string[];
+    featured?: boolean;
+    screenshots?: string[];
+    packageSize?: number;
+    installs?: string;
+    latestVersion?: string;
+}
+
+/** 宿主能力标识；基础能力直接可用，敏感能力需在 manifest 声明并取得用户授权。 */
+export type PluginPermission = 'backend.node' | 'clipboard.read' | 'clipboard.write' | 'clipboard.readImage' | 'clipboard.writeImage' | 'clipboard.history' | 'clipboard.paste' | 'timer.background' | 'screen.capture' | 'screen.record' | 'pin.create' | 'net.fetch' | 'shell.openExternal' | 'storage.local' | 'notify' | 'ui.setTitle' | 'ui.setIcon' | 'ui.setBadge' | 'ui.resize' | 'ui.toast' | 'settings.register' | 'settings.page' | 'hotkey' | 'contribute' | 'vault.write' | 'ssh.session' | 'ssh.exec' | 'ssh.sftp' | 'db.connect' | 'db.query' | 'db.schema' | 'mw.connect' | 'mw.query' | 'mw.admin' | 'dsh.connect' | 'dsh.chat' | 'dsh.admin' | 'net.socket' | 'lan.share' | 'fs.rename' | 'fs.read' | 'fs.write' | 'sys.control' | 'ssh.agent' | 'config.agent.read' | 'config.agent.write' | 'sys.inspect' | 'theme';
+
+export interface HomeSearchEntry {
+    handle: string;
+    kind?: 'app' | 'plugin' | 'market' | 'action';
+    title: string;
+    subtitle?: string;
+    icon?: string | null;
+    color?: string;
+    glyph?: string;
+    pluginId?: string;
+    installed?: boolean;
+    enabled?: boolean;
+    disabled?: boolean;
+    tags?: string[];
+}
+
+export type WorkspaceRoute = {
+    page: 'catalog' | 'installed';
+} | {
+    page: 'detail';
+    pluginId: string;
+};
+
+export type WorkspacePage = 'catalog' | 'installed' | 'detail';
+
+/**
+ * shared/types/quick — 快捷启动（Quick Launcher）跨进程类型
+ * 职责：定义命令项、本地应用、热键配置与搜索/打开请求体。
+ * 被 main/hotkey、main/launcher、quickHandlers、preload、Quick 渲染层共同引用。
+ */
+export type QuickCommandKind = 'app' | 'plugin' | 'action';
+
+export interface QuickThemeAppearance {
+    mode: AppearanceColorMode;
+    tokens: Record<string, string>;
+    fonts: AppearanceFonts;
+    components: AppearanceComponents;
+    animation: AnimationLevel;
+    resources: {
+        fonts: Array<{
+            family: string;
+            url: string;
+        }>;
+    };
+}
+
+/** Opaque handles expire whenever the current result set changes. No launch paths or payloads. */
+export interface QuickThemeItem {
+    id: string;
+    kind: QuickCommandKind;
+    title: string;
+    subtitle: string;
+    group: string;
+}
+
+export interface ThemeSettingsField {
+    key: string;
+    label: string;
+    type: 'color' | 'slider' | 'switch' | 'select' | 'font' | 'media' | 'token';
+    default: ThemeSettingValue;
+    binding: ThemeSettingBinding;
+    min?: number;
+    max?: number;
+    step?: number;
+    options?: ThemeSettingOption[];
+    /** Preferred widget shape; the host validates it against the field's type and binding. */
+    presentation?: ThemeSettingPresentation;
+    help?: string;
+    visibleWhen?: {
+        field: string;
+        equals: string | number | boolean;
+    };
+}
+
+export type ThemeColorToken = '--bg' | '--surface' | '--surface-2' | '--surface-3' | '--text' | '--text-2' | '--text-3' | '--accent' | '--ok' | '--danger' | '--border' | '--border-strong' | '--link';
+
+/** Tab 呈现方式：classic 顶栏条 / orb 左侧悬浮圆形轨道 */
+export type TabStyle = 'classic' | 'orb';
+
+export type ThemeBackgroundKind = 'none' | 'gradient' | 'color' | 'image' | 'video';
+
+export type ThemeBackgroundPalette = 'theme' | 'dawn' | 'mint' | 'linen' | 'peach' | 'ocean' | 'forest' | 'ink';
+
 export interface DbTableFilter {
     column: string;
     operator: 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'in' | 'is-null' | 'not-null';
@@ -2563,8 +3209,78 @@ export type SshCompletionKind = 'cmd' | 'flag' | 'path' | 'history' | 'snippet';
 
 export type CompletionItemKind = 'keyword' | 'table' | 'view' | 'column' | 'function' | 'database' | 'schema' | 'snippet' | 'alias' | 'measurement';
 
+export type ThemeSettingValue = string | number | boolean | BackgroundConfig | null;
+
+/** Declarative bindings are semantic destinations, not CSS selectors or executable expressions. */
+export type ThemeSettingBinding = {
+    target: 'token';
+    key: ThemeColorToken;
+} | {
+    target: 'layout';
+    key: ThemeLayoutKey;
+} | {
+    target: 'background';
+    key: ThemeBackgroundKey;
+} | {
+    target: 'component';
+    key: ThemeComponentKey;
+} | {
+    target: 'font';
+    key: ThemeFontKey;
+} | {
+    target: 'splash';
+    key: ThemeSplashKey;
+} | {
+    target: 'notification';
+    key: ThemeNotificationKey;
+} | {
+    target: 'animation';
+    key: 'level';
+};
+
+/**
+ * Declarative widget hint. The host still owns every control, its behaviour and its styles;
+ * a pack only names the shape it prefers and the host falls back when the hint is unsupported.
+ */
+export type ThemeSettingPresentation = 'segmented' | 'cards' | 'slider-cluster';
+
+export interface ThemeSettingOption {
+    label: string;
+    value: string | number | boolean;
+    description?: string;
+    /** Host-rendered thumbnail; omitted options render a text-only card. */
+    preview?: ThemeSettingOptionPreview;
+}
+
 export type DbScalar = string | number | boolean | null;
 
-declare global { interface Window { enest: EnestPluginApi; /** @deprecated Use enest. */ zapi: EnestPluginApi } }
+export type ThemeLayoutKey = 'density' | 'gap' | 'sidebarWidth' | 'contentWidth' | 'columns' | 'tabStyle' | ThemeTabStripKey;
+
+export type ThemeBackgroundKey = 'texture' | 'intensity' | 'speed' | 'direction' | 'effect' | 'media' | 'warmth' | 'grain' | 'scale' | 'wash' | 'kind' | 'palette' | 'color' | 'opacity' | 'fit';
+
+export type ThemeComponentKey = 'controlRadius' | 'cardRadius' | 'panelRadius' | 'borderWidth';
+
+export type ThemeFontKey = 'body' | 'heading' | 'mono' | 'scale' | 'cjk' | 'latin';
+
+export type ThemeSplashKey = 'type' | 'media' | 'opacity';
+
+export type ThemeNotificationKey = keyof ThemeNotificationStyle;
+
+/** A validated option thumbnail. Code is never executed; assets resolve inside the declaring plugin. */
+export type ThemeSettingOptionPreview = {
+    kind: 'swatch';
+    stops: [
+        string,
+        string
+    ];
+} | {
+    kind: 'asset';
+    src: string;
+};
+
+/** Options a theme can expose for the classic top tab strip. */
+export type ThemeTabStripKey = 'tabOpacity' | 'tabAutoHide';
+
+declare global { interface Window { enest: EnestPluginApi; /** @deprecated Use enest. */ zapi: EnestPluginApi; /** Dedicated workspace surfaces only. */ enestWorkspace?: EnestWorkspaceApi; /** Compatibility alias for enestWorkspace. */ enestHome?: EnestHomeApi; /** Isolated Quick theme pages only. */ enestQuick?: EnestQuickApi } }
 export {}
 ```

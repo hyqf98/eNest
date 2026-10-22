@@ -1,5 +1,6 @@
 import { registerNotificationHandlers } from '@main/window/notificationOverlay'
 import { registerInstallSurfaceHandlers } from '@main/window/installSurface'
+import { registerModalSurfaceHandlers } from '@main/window/modalSurface'
 import { disposeNativeClipboard } from '@main/clipboard/nativeClipboard'
 /**
  * Main entry — Electron 主进程入口
@@ -9,7 +10,7 @@ import { disposeNativeClipboard } from '@main/clipboard/nativeClipboard'
  * 关键依赖：hardwareAcceleration、pathsService、migrate、sqliteService、themePacks、
  * PluginRegistry、PluginHost、SettingsStore、createShellWindow。
  */
-import { app, BaseWindow, globalShortcut, Notification } from 'electron'
+import { app, BaseWindow, globalShortcut, Notification, protocol } from 'electron'
 import { APP_NAME } from '@shared/constants'
 if (process.env.ENEST_TEST_USER_DATA) app.setPath('userData', process.env.ENEST_TEST_USER_DATA)
 // macOS Dock 的名称来自开发 bundle 的 Info.plist；Electron API/菜单另行统一。
@@ -33,10 +34,13 @@ import {
   layoutOrbRailViews
 } from '@main/window/orbRailViews'
 import { destroyQuickWindow } from '@main/window/createQuickWindow'
+import { showMainWindowOnActivate } from '@main/window/mainWindowActivation'
 import { pluginHost } from '@main/plugin/PluginHost'
+import { startPluginMemoryMonitor, stopPluginMemoryMonitor } from '@main/plugin/pluginMemoryMonitor'
 import { broadcastNotice } from '@main/plugin/shellNotices'
 import { refreshProfileOnBoot } from '@main/auth/githubAuthService'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { appearanceService } from '@main/theme/appearanceService'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { applyProxyFromSettings } from '@main/proxy/proxyService'
 import { restoreDevPlugins } from '@main/dev/DevConsole'
@@ -62,9 +66,20 @@ import {
 import { disposePluginInstallWorkers } from '@main/plugin/pluginInstallTasks'
 import { disposeScreenService, finishRecordingsForShutdown } from '@main/screen/screenService'
 import { disposePinService } from '@main/pin/pinService'
+import {
+  destroyHomeSurface,
+  homeSurfaceManager,
+  layoutHomeSurface,
+  prewarmHomeSurface
+} from '@main/home/HomeSurfaceManager'
+import { registerHomeIpc } from '@main/home/homeIpc'
 import { initFocusTimers, shutdownFocusTimers, shutdownFocusTimersSync, stopFocusTimer } from '@main/timer/focusTimerService'
 
 registerSchemesAsPrivileged()
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'enest-home',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
+}])
 
 // 硬件加速必须在 app ready 之前根据 settings.json 决策
 applyHardwareAccelerationBeforeReady()
@@ -108,6 +123,7 @@ function beginShutdown(reason: string): void {
     flushMainWindowState(true)
     logInfo('main', `shutdown begin (${reason})`)
   }
+  stopPluginMemoryMonitor()
   // 无论是否重复触发，都立刻释放热键
   releaseAllGlobalShortcutsSync()
 }
@@ -216,6 +232,7 @@ void app.whenReady().then(async () => {
     const backend = await kvStore.initDatabase()
     logInfo('main', `kv backend=${backend}`)
     await themePackRegistry.load()
+    appearanceService.invalidate()
     logInfo('main', 'theme packs ok')
     await pluginRegistry.scan()
     logInfo('main', 'registry ok')
@@ -249,8 +266,17 @@ void app.whenReady().then(async () => {
     win.on('minimize', syncShellVisibility)
     win.on('show', syncShellVisibility)
     win.on('restore', syncShellVisibility)
+    const syncHomeVisibility = () => {
+      const visible = win.isVisible() && !win.isMinimized()
+      homeSurfaceManager.setWindowVisible(visible)
+    }
+    win.on('hide', syncHomeVisibility)
+    win.on('minimize', syncHomeVisibility)
+    win.on('show', syncHomeVisibility)
+    win.on('restore', syncHomeVisibility)
     win.on('resize', () => {
       pluginHost.layoutAll()
+      layoutHomeSurface()
       layoutOrbRailViews()
     })
 
@@ -296,11 +322,15 @@ void app.whenReady().then(async () => {
 
     registerInstallSurfaceHandlers()
     registerNotificationHandlers()
+    registerModalSurfaceHandlers()
     registerShellHandlers()
     registerPluginHandlers()
     registerQuickHandlers()
     registerPluginWindowHandlers()
+    registerHomeIpc(homeSurfaceManager)
     logInfo('main', 'ipc ok')
+    startPluginMemoryMonitor()
+    void prewarmHomeSurface().catch(error => logWarn('home', `startup prepare failed: ${String(error)}`))
 
     // 快捷启动：注册全局热键 + 后台扫描；小窗懒创建（首次呼出时）
     // 不要在这里 ensureQuickWindow()：透明小窗按需创建，避免启动阶段并发初始化原生窗口。
@@ -321,7 +351,7 @@ void app.whenReady().then(async () => {
 
     app.on('activate', () => {
       if (shuttingDown || quitting) return
-      if (!win.isDestroyed()) win.show()
+      showMainWindowOnActivate(win)
     })
   } catch (err) {
     logError('main', `boot failed: ${(err as Error).stack || String(err)}`)
@@ -369,6 +399,7 @@ app.on('before-quit', (event) => {
   disposePinService()
   // 壳统一通知：应用即将退出（插件随后收到 beforeClose(app-quit)）
   broadcastNotice('app.before-quit', { reason: 'quit' })
+  destroyHomeSurface()
   // 先 destroyAll 再销毁 Quick 小窗：Quick 内嵌插件的 webContents 仍存活，
   // 能真正收到 beforeClose 并 flush；若先毁小窗，向已销毁目标只能空等 ack
   void Promise.allSettled([pluginHost.destroyAll(), disposePluginInstallWorkers(), disposeQuickPatternMatching(), shutdownFocusTimers().catch(error => logWarn('timer', `shutdown save failed: ${String(error)}`))])

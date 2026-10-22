@@ -36,7 +36,10 @@ export function startBackgroundEffect(
   const quality = QUALITY[options.level]
   const animate = quality.fps > 0 && !options.reducedMotion
   const requestedSpeed = Number.isFinite(options.speed) ? Math.max(0.2, Math.min(2.5, options.speed!)) : 1
-  const speed = requestedSpeed * (options.level === 'low' ? 0.35 : 1)
+  // 低档的降速只约束稳态背景；开屏入场是短暂的表演时刻，压到 0.35 会让揭示看起来"没有动效"。
+  const speed = requestedSpeed * (options.level === 'low' && !options.launch ? 0.35 : 1)
+  // 低档开屏生命周期约 1.1s（splashMotion），揭示必须在这个窗口内走完；其它场景保持 2.1s 从容展开。
+  const revealDuration = options.launch && options.level === 'low' ? 0.88 : 2.1
   const root = document.documentElement
   let gl: WebGLRenderingContext | null = null
   let program: WebGLProgram | null = null
@@ -108,7 +111,7 @@ export function startBackgroundEffect(
 
   function draw(): void {
     if (disposed || !gl || !drawable) return
-    const reveal = Math.max(0, Math.min(1, (age - 0.12) / 2.1))
+    const reveal = Math.max(0, Math.min(1, (age - 0.12) / revealDuration))
     gl.uniform2f(uniforms.pointer, pointerX, pointerY)
     gl.uniform1f(uniforms.time, elapsed)
     gl.uniform1f(uniforms.opening, 1 - Math.pow(1 - reveal, 3))

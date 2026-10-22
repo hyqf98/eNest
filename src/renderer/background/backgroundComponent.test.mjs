@@ -27,10 +27,11 @@ const bundle = await build({
         return () => { entry.stopped=true; };
       }`,
       '@renderer/hooks/useAnimationLevel': `
-        export const useAnimationLevelStore=selector=>selector({level:window.componentLevel});
+        export const useAnimationLevel=()=>({level:window.componentLevel});
         export const useReducedMotion=()=>window.componentReduced;
       `,
-      '@renderer/hooks/useTheme': 'export const useThemeStore=selector=>selector({background:window.componentBackground});',
+      '@renderer/hooks/useReducedMotion': 'export const useReducedMotion=()=>window.componentReduced;',
+      '@renderer/hooks/useAppearance': 'export const useAppearanceStore=selector=>selector({appearance:{animation:{effective:window.componentLevel},background:{media:window.componentBackground}}});',
     }
     b.onResolve({ filter: /.*/ }, ({ path }) => path in adapters ? { path, namespace: 'fixture' } : undefined)
     b.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ contents: adapters[path] }))
@@ -112,14 +113,20 @@ test('background component owns StrictMode canvases and video resources', {
     await page.evaluate(async () => {
       const canvas = document.createElement('canvas')
       canvas.width = canvas.height = 32
-      canvas.getContext('2d').fillRect(0, 0, 32, 32)
-      const stream = canvas.captureStream(10)
+      const context = canvas.getContext('2d')
+      const stream = canvas.captureStream(0)
       const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' })
       const chunks = []
       recorder.ondataavailable = (event) => chunks.push(event.data)
       const stopped = new Promise((resolve) => { recorder.onstop = resolve })
       recorder.start()
-      await new Promise((resolve) => setTimeout(resolve, 250))
+      // A pre-painted static canvas can produce an empty recording in headless Chromium.
+      for (let frame = 0; frame < 6; frame++) {
+        context.fillStyle = frame % 2 ? 'teal' : 'navy'
+        context.fillRect(0, 0, 32, 32)
+        stream.getVideoTracks()[0].requestFrame()
+        await new Promise((resolve) => setTimeout(resolve, 60))
+      }
       recorder.stop()
       await stopped
       stream.getTracks().forEach((track) => track.stop())
@@ -150,10 +157,16 @@ test('background component owns StrictMode canvases and video resources', {
         window.dispatchEvent(new Event('focus'))
       })
       assert.equal(await page.locator('video').count(), 1)
+      await page.waitForFunction(() => document.querySelector('video')?.readyState >= 2)
       assert.ok(await page.evaluate(() => mediaCalls.play) > 0)
-      const activeCalls = await page.evaluate(() => ({ ...mediaCalls }))
+      const activeCalls = await page.evaluate(() => {
+        window.activeDecoder = document.querySelector('video')
+        return { pause: mediaCalls.pause, release: mediaCalls.release, source: activeDecoder.src }
+      })
       await page.evaluate(() => renderEffect({ effect: { ...videoEffect, name: 'Refreshed video label' } }))
-      assert.deepEqual(await page.evaluate(() => ({ ...mediaCalls })), activeCalls, 'metadata refresh does not reload the active decoder')
+      // loadeddata can independently call play(); decoder ownership must remain unchanged.
+      assert.equal(await page.evaluate(() => activeDecoder === document.querySelector('video')), true)
+      assert.deepEqual(await page.evaluate(() => ({ pause: mediaCalls.pause, release: mediaCalls.release, source: activeDecoder.src })), activeCalls, 'metadata refresh does not reload the active decoder')
       const before = await page.evaluate(() => mediaCalls.release)
       await page.evaluate(() => document.querySelector('video').dispatchEvent(new Event('error')))
       await page.waitForTimeout(30)

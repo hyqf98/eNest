@@ -2,6 +2,7 @@ import { utilityProcess, type UtilityProcess } from 'electron'
 import { getRuntimeScope, type PluginRuntimeScope } from './PluginRuntimeScope'
 import { resolvePluginBackendEntry } from './pluginBackend'
 import { pluginHost } from './PluginHost'
+import { registerPluginProcess } from './pluginOwnedProcesses'
 
 interface Pending {
   resolve: (value: unknown) => void
@@ -40,9 +41,17 @@ function stop(backend: Backend, reason: string): void {
   if (backend.child.pid && !backend.killTimer) {
     const pid = backend.child.pid
     backend.killTimer = setTimeout(() => {
-      if (!backend.exited) { try { process.kill(pid, 'SIGKILL') } catch { /* exit listener owns cleanup */ } }
+      if (!backend.exited && backend.child.pid === pid) { try { process.kill(pid, 'SIGKILL') } catch { /* exit listener owns cleanup */ } }
     }, 250)
+    backend.killTimer.unref()
   }
+}
+
+async function waitForExit(backend: Backend): Promise<void> {
+  if (backend.exited) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try { await Promise.race([backend.exit, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('plugin backend exit not confirmed')), 1000) })]) }
+  finally { if (timer) clearTimeout(timer) }
 }
 
 function backendFor(pluginId: string): Backend {
@@ -60,24 +69,26 @@ function backendFor(pluginId: string): Backend {
   const backend: Backend = { scope, child, exit, resolveExit, pending: new Map(), closed: false, exited: false, detach: () => {}, releases: new Set() }
   backends.set(pluginId, backend)
   const abort = () => stop(backend, 'plugin backend closed')
-  scope.signal.addEventListener('abort', abort, { once: true })
-  backend.detach = scope.addDisposer(async () => {
-    abort()
-    let timer: ReturnType<typeof setTimeout> | undefined
-    try { await Promise.race([exit, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('plugin backend exit not confirmed')), 1000) })]) }
-    finally { if (timer) clearTimeout(timer) }
-  })
-  child.once('spawn', () => { if (backend.closed) stop(backend, 'plugin backend closed') })
+  const shutdown = async () => { abort(); await waitForExit(backend) }
+  const unregister = registerPluginProcess({ pluginId, generation: scope.owner.generation, kind: 'backend', getPid: () => backend.exited ? undefined : child.pid, stop: shutdown })
+  child.once('spawn', () => { if (backend.closed || scope.signal.aborted) stop(backend, 'plugin backend closed') })
+  // UtilityProcess fatal errors are followed by exit; retain ownership until then.
+  child.once('error', () => stop(backend, 'plugin backend failed'))
   child.once('exit', () => {
     backend.exited = true
     stop(backend, 'plugin backend exited')
     if (backend.killTimer) clearTimeout(backend.killTimer)
+    unregister()
     scope.signal.removeEventListener('abort', abort)
     backend.detach()
     for (const release of backend.releases) release()
+    backend.releases.clear()
     if (backends.get(pluginId) === backend) backends.delete(pluginId)
     resolveExit()
   })
+  scope.signal.addEventListener('abort', abort, { once: true })
+  backend.detach = scope.addDisposer(shutdown)
+  if (scope.signal.aborted) abort()
   child.on('message', (message: { id?: number; ok?: boolean; data?: unknown; error?: string; event?: string }) => {
     if (backend.closed || !scope.isCurrent() || scope.isClosing) return
     try {

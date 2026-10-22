@@ -26,6 +26,8 @@ function fixture(initialSettings = { general: { sessionTabs: [{ pluginId: 'a' },
     activatePlugin: async id => { calls.push(['activate', id]) },
     closePlugin: async id => { calls.push(['close', id]) },
     hidePlugins: async () => { calls.push(['hide']) },
+    setHomeVisible: async visible => { calls.push(['home-visible', visible]) },
+    navigateWorkspace: async route => { calls.push(['workspace', route]) },
   }
   const create = initialize => {
     let state
@@ -51,11 +53,27 @@ function fixture(initialSettings = { general: { sessionTabs: [{ pluginId: 'a' },
   })
   const store = module.exports.useShellStore
   store.setState({ plugins })
+  store.getState().setNativeChromeSyncEnabled(true)
+  orbStates.length = 0
   return { api, calls, store, emit: event => receive(event), notifications, persisted, orbStates,
     flushTimers: () => { const pending = [...timers.values()]; timers.clear(); pending.forEach(callback => callback()) } }
 }
 
 const tabs = (...ids) => ids.map(id => ({ id: `t-${id}`, title: id, status: 'ready' }))
+
+test('view switches hide the Workspace surface for native views; host events do not replay IPC', () => {
+  const { store, calls } = fixture()
+  // settings 由原生壳渲染层独占：隐藏 Home 表面即可，不再导航 Workspace 设置路由
+  store.getState().setView('settings')
+  assert.equal(JSON.stringify(calls), JSON.stringify([['home-visible', false], ['hide']]))
+  calls.length = 0
+  store.getState().applyView('home')
+  assert.equal(store.getState().view, 'home')
+  assert.deepEqual(calls, [])
+  store.getState().goHome()
+  // goHome 先 setView('home')（home 不需要隐藏 Home 表面），再导航回目录
+  assert.equal(JSON.stringify(calls), JSON.stringify([['hide'], ['workspace', { page: 'catalog' }]]))
+})
 
 test('authoritative snapshots set order/readiness and ignore old snapshots and legacy activation', async () => {
   const { store, emit } = fixture()
@@ -107,6 +125,32 @@ test('restore keeps even the saved active plugin lazy until the user opens its t
   assert.equal(store.getState().pluginReady, false)
   await store.getState().activateTab('t-b')
   assert.equal(JSON.stringify(calls), JSON.stringify([['restore', ['a', 'b']], ['activate', 't-b']]))
+})
+
+test('startup session restore reuses the already-read IDs without another settings request', async () => {
+  const { store, api, calls } = fixture()
+  api.getSettings = async () => { throw Error('Startup must reuse its settings read') }
+  await store.getState().hydrateSessionTabs(['b', 'a'])
+  assert.equal(JSON.stringify(calls), JSON.stringify([['restore', ['b', 'a']]]))
+  assert.equal(store.getState().tabs.every(tab => tab.lazy), true)
+  assert.equal(store.getState().activeTabId, null)
+})
+
+test('session projections and view changes cannot show native orb chrome over the launch screen', async () => {
+  const { store, emit, orbStates } = fixture()
+  store.getState().setNativeChromeSyncEnabled(false)
+  assert.equal(orbStates.at(-1).chromeVisible, false, 'hides an existing native rail during preview or renderer remount')
+  orbStates.length = 0
+  await store.getState().hydrateSessionTabs(['a'])
+  emit({ type: 'plugin-tabs', revision: 2, tabs: tabs('a', 'b'), activeTabId: null })
+  store.getState().applyView('home')
+  store.getState().applyTabStyle('orb')
+  assert.equal(orbStates.length, 0)
+  store.getState().setNativeChromeSyncEnabled(true)
+  assert.equal(orbStates.length, 1)
+  assert.equal(orbStates[0].tabStyle, 'orb')
+  assert.equal(orbStates[0].chromeVisible, true)
+  assert.equal(orbStates[0].tabs.length, 2)
 })
 
 test('early plugin open and close cannot overwrite startup settings or resurrect the transient tab', async () => {

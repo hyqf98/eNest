@@ -2,6 +2,8 @@
 
 核对日期：2026-10-13。ZTools 源码固定为 [`6c9dee8c998ed7b4e6d0a80ad4311d3d8d24f72c`](https://github.com/ZToolsCenter/ZTools/tree/6c9dee8c998ed7b4e6d0a80ad4311d3d8d24f72c)，官方文档固定为 [`8d3068edf31e45d665a19c77332710240a021032`](https://github.com/ZToolsCenter/ZTools-doc/tree/8d3068edf31e45d665a19c77332710240a021032)。以下区分已核对的上游事实与 eNest 自己的设计决定，不把二者描述为完全兼容。
 
+> 历史比较与整改快照：能力数量、背景来源机制和验证结果均对应上述日期。现行权限以 [权限说明](../site/plugin/permissions.md) 为准，主题迁移与设置标准见 [THEME_STANDARD.md](THEME_STANDARD.md)，不继续使用旧独立主题 store。
+
 ## 官方资料能够证明什么
 
 | 已核对事实 | 官方证据 |
@@ -49,10 +51,6 @@ manifest 中声明式 `features`、首页卡片、设置/主题入口属于普�
 
 旧配置中只有 `packId/background`，无法可靠区分用户手选背景与旧主题复制的背景。**未标来源的旧值继续保留，没有自动清洗历史背景快照**；用户重新选择主题或背景后才建立来源。现有本地媒体目录授权迁移也未扩大处理。旧 `color` 值显示改为 `backgroundColor`；兼容既有无资源函数的渐变，通过受限 `backgroundImage` 显示，拒绝 `url/image-set/image/cross-fade/paint`、转义、引号和注释，保留内置 `color-mix/var` 渐变。
 
-独立设置、密钥库和主题来源/背景样式回归 **13/13** 通过：实际自授权路径、历史保留字段过滤、跨插件隔离、正常加密、弱后端/坏密文/写入失败、UTF-8 长度和数量/容量上限、已有超额数据缩减，以及主题刷新/卸载、用户覆盖、旧值保留、合法渐变和资源函数拒绝。命令：
-
-```sh
-node --test src/main/settings/pluginSettingsBoundary.test.mjs src/main/vault/secretVault.test.mjs src/renderer/hooks/useTheme.test.mjs src/renderer/components/backgroundColorStyle.test.mjs
-```
+当时独立设置、密钥库和主题来源/背景样式回归 **13/13** 通过：实际自授权路径、历史保留字段过滤、跨插件隔离、正常加密、弱后端/坏密文/写入失败、UTF-8 长度和数量/容量上限、已有超额数据缩减，以及主题刷新/卸载、用户覆盖、旧值保留、合法渐变和资源函数拒绝。旧主题测试已随统一外观架构替换；现行检查入口见 [宿主开发](../site/plugin/host-development.md)，这里不保留失效执行命令。
 
 密钥库测试使用临时文件与模拟 Electron safeStorage 后端验证宿主分支，不代表本轮在 Windows/Linux 真实桌面密钥库上完成运行验收。

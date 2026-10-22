@@ -11,12 +11,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseRemoteMarket, type MarketPluginSummary } from '@main/plugin/marketMetadata'
 import { logInfo, logWarn } from '@main/logs/logService'
+import { getActiveProxy } from '@main/proxy/proxyService'
+import { MARKET_REPO_OWNER, MARKET_REPO_NAME, type CatalogResource } from './catalogResources'
+import { fetchMarketResource } from './marketResources'
 
+export { MARKET_REPO_OWNER, MARKET_REPO_NAME } from './catalogResources'
 export type { MarketPluginSummary } from '@main/plugin/marketMetadata'
-
-/** 官方插件市场仓库（hyqf98/eNest_plugin） */
-export const MARKET_REPO_OWNER = 'hyqf98'
-export const MARKET_REPO_NAME = 'eNest_plugin'
 
 /** GitHub Release latest 下载基址（registry.json 与 .enestplugin 资产同源） */
 const RELEASE_BASE = `https://github.com/${MARKET_REPO_OWNER}/${MARKET_REPO_NAME}/releases/latest/download/`
@@ -29,40 +29,26 @@ const REGISTRY_URLS = [
 async function fetchJson(url: string): Promise<unknown> {
   try {
     // Node undici fetch（不走 Chromium net/c-ares）：主进程外部请求须避开内置解析器，
-    // 见 index.ts host-resolver-rules 注释；代理经 proxyService 设置的 HTTP(S)_PROXY 生效
+    // 见 index.ts host-resolver-rules 注释；沿用 proxyService 配置的全局 undici dispatcher
+    const proxy = getActiveProxy()
     const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(15_000) })
-    if (!res.ok) return null
+    if (!res.ok) {
+      logWarn('registry', `market ${url} → HTTP ${res.status} (proxy=${proxy.type})`)
+      return null
+    }
     return await res.json()
-  } catch {
+  } catch (err) {
+    const proxy = getActiveProxy()
+    logWarn('registry', `market ${url} → ${(err as Error).message} (proxy=${proxy.type})`)
     return null
   }
 }
 
-const readmeCache = new Map<string, string>()
-/** Only registry-owned URLs reach this function; bound time, bytes and retained cache. */
-export async function fetchMarketReadme(url: string): Promise<string> {
-  const parsed = new URL(url)
-  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('invalid README URL')
-  const cached = readmeCache.get(url)
-  if (cached !== undefined) { readmeCache.delete(url); readmeCache.set(url, cached); return cached }
-  const response = await fetch(url, { signal: AbortSignal.timeout(10_000) })
-  if (!response.ok || !response.body) throw new Error(`插件说明读取失败：HTTP ${response.status}`)
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let bytes = 0
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      bytes += value.byteLength
-      if (bytes > 512 * 1024) throw new Error('插件说明超过 512 KiB')
-      chunks.push(value)
-    }
-  } finally { await reader.cancel().catch(() => {}); reader.releaseLock() }
-  const markdown = Buffer.concat(chunks).toString('utf8')
-  readmeCache.set(url, markdown)
-  while (readmeCache.size > 20) readmeCache.delete(readmeCache.keys().next().value!)
-  return markdown
+/** The legacy shell path uses the same registered descriptor, limits and cache as Workspace. */
+export async function fetchMarketReadme(resource: Extract<CatalogResource, { source: 'remote' }>): Promise<string> {
+  if (resource.kind !== 'readme') throw new Error('invalid README resource')
+  const result = await fetchMarketResource(resource)
+  return Buffer.from(result.body).toString('utf8')
 }
 
 /**

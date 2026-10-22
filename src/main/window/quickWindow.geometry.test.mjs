@@ -10,7 +10,8 @@ const standardPluginBounds = { x: 1, y: 64, width: 718, height: 480 }
 const adapters = {
   'quick-geometry-fixture': `export const state = {
     windows: [], workArea: { x: 100, y: 40, width: 1600, height: 1000 },
-    captureCalls: 0, captureGate: null, logs: [], trusted: [], eventSink: null
+    captureCalls: 0, captureGate: null, logs: [], trusted: [], eventSink: null,
+    onShow: null, onHide: null
   };`,
   electron: `
     import { EventEmitter } from 'node:events';
@@ -65,9 +66,10 @@ const adapters = {
       show() {
         this.showAttempts++;
         if (this.destroyed) throw new Error('cannot show a destroyed window');
+        state.onShow?.();
         this.visible = true;
       }
-      hide() { this.visible = false; this.focused = false; }
+      hide() { this.visible = false; this.focused = false; state.onHide?.(); }
       focus() { this.focused = true; }
       moveTop() {}
       setAlwaysOnTop() {}
@@ -94,7 +96,7 @@ let fixtureId = 0
 async function fixture(t) {
   const result = await build({
     stdin: {
-      contents: `export * from '@main/window/createQuickWindow'; export { state } from 'quick-geometry-fixture'; export { screen, View } from 'electron'; export const fixtureId = ${++fixtureId};`,
+      contents: `export * from '@main/window/createQuickWindow'; export * from '@main/window/mainWindowActivation'; export { state } from 'quick-geometry-fixture'; export { screen, View } from 'electron'; export const fixtureId = ${++fixtureId};`,
       resolveDir: root
     },
     tsconfig: root + 'tsconfig.node.json', bundle: true, write: false, format: 'esm', platform: 'node',
@@ -157,6 +159,91 @@ test('show and reopen use two home rows; entering a plugin expands the complete 
   assert.equal(win.webContents.loads, 1)
   assert.equal(api.state.captureCalls, 2)
   assert.equal(api.state.windows.length, 1)
+})
+
+test('Quick snapshots forward while hidden and lazy load/reopen never write a legacy animation script', async t => {
+  const api = await fixture(t)
+  const lazy = api.ensureQuickWindow()
+  assert.equal(lazy.webContents.loads, 0, 'native creation keeps renderer hydration lazy')
+  const win = await showLoaded(api)
+  assert.equal(win, lazy)
+  assert.deepEqual(win.webContents.scripts, [], 'did-finish-load and first show must leave animation to useAppearanceSync')
+
+  const change = {
+    type: 'appearance-changed', revision: 8,
+    appearance: { revision: 8, animation: { requested: 'high', effective: 'low', continuous: false } }
+  }
+  api.hideQuickWindow('appearance-edit')
+  api.state.eventSink(change)
+  assert.deepEqual(win.webContents.messages.at(-1), { channel: 'shell:event', payload: change })
+  assert.equal(win.isVisible(), false, 'appearance updates do not reveal or focus Quick')
+  assert.equal(await showLoaded(api), win)
+  assert.equal(win.webContents.loads, 1, 'reopen keeps the hydrated appearance document')
+  assert.deepEqual(win.webContents.scripts, [], 'reopen cannot overwrite the effective low animation with legacy high')
+  assertGeometry(api)
+
+  api.hideQuickWindow('dock-appearance')
+  assert.equal(await api.prepareQuickWindowForPlugin(), true)
+  assert.equal(api.presentQuickWindowForPlugin(), true)
+  assert.deepEqual(win.webContents.scripts, [], 'plugin docking also preserves snapshot-owned animation')
+})
+
+test('Quick show, Escape hide and delayed activation never open main; a later Dock activation still works', async t => {
+  const api = await fixture(t)
+  let now = 10000, mainShows = 0, hidden = 0
+  t.mock.method(Date, 'now', () => now)
+  const main = { isDestroyed: () => false, show: () => { mainShows++ } }
+  const activate = () => api.showMainWindowOnActivate(main)
+  activate()
+  assert.equal(mainShows, 1, 'ordinary Dock activation opens the desktop')
+  mainShows = 0
+  api.state.onShow = activate
+  api.state.onHide = activate
+  api.setQuickPluginHiddenHook(() => { hidden++ })
+
+  const quick = await showLoaded(api)
+  assert.equal(mainShows, 0, 'activation may arrive before native show reports visible')
+  now += 2000
+  activate()
+  assert.equal(mainShows, 0, 'a visible Quick retains focus even after its show grace period')
+  api.hideQuickWindow('escape')
+  assert.equal(quick.isVisible(), false)
+  assert.equal(hidden, 1)
+  assert.equal(mainShows, 0, 'activation during native hide must not reopen main')
+  now += 300
+  activate()
+  assert.equal(mainShows, 0, 'late activation after Escape remains a Quick-only transition')
+  now += 1000
+  activate()
+  assert.equal(mainShows, 1, 'suppression is bounded so the Dock can reopen main')
+  api.showMainWindowOnActivate({ isDestroyed: () => true, show: () => { throw Error('destroyed main') } })
+})
+
+test('blur dismissal shares activation protection and explicit hide cancels a pending blur callback', async t => {
+  const api = await fixture(t)
+  let now = 10000, mainShows = 0, hidden = 0
+  t.mock.method(Date, 'now', () => now)
+  api.setQuickPluginHiddenHook(() => { hidden++ })
+  api.state.onHide = () => api.showMainWindowOnActivate({ isDestroyed: () => false, show: () => { mainShows++ } })
+  const quick = await showLoaded(api)
+  now += 2000
+  const revision = api.getQuickShowRevision()
+  quick.focused = false
+  quick.emit('blur')
+  await new Promise(resolve => setTimeout(resolve, 190))
+  assert.equal(quick.isVisible(), false)
+  assert.equal(api.getQuickShowRevision(), revision + 1)
+  assert.equal(hidden, 1)
+  assert.equal(mainShows, 0)
+
+  await showLoaded(api)
+  quick.focused = false
+  quick.emit('blur')
+  api.hideQuickWindow('escape')
+  await new Promise(resolve => setTimeout(resolve, 190))
+  assert.equal(hidden, 2, 'Escape and its pending blur must not notify the plugin twice')
+  assert.equal(quick.isVisible(), false)
+  assert.equal(mainShows, 0)
 })
 
 test('list measurements grow and shrink within the maximum while width stays constant', async t => {

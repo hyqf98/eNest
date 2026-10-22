@@ -16,7 +16,7 @@ import {
   type Rectangle,
   type WebContents
 } from 'electron'
-import { APP_NAME, SHELL_PARTITION, TITLEBAR_HEIGHT, PLUGIN_BAR_HEIGHT, pluginChromeBarHeight } from '@shared/constants'
+import { APP_NAME, SHELL_PARTITION, TITLEBAR_HEIGHT, TITLEBAR_REVEAL_HEIGHT, PLUGIN_BAR_HEIGHT, pluginChromeBarHeight } from '@shared/constants'
 import { IpcChannels, type ShellEventPayload } from '@shared/types/ipc'
 import { readMainWindowState, trackMainWindowState } from '@main/window/mainWindowState'
 import { devShortcutAction, toggleDevTools } from '@main/dev/devShortcuts'
@@ -160,6 +160,7 @@ export function createShellWindow(): BaseWindow {
   win.on('closed', () => {
     // BaseWindow 不负责销毁子 WebContents；摘引用前显式结束 renderer。
     if (!contents.isDestroyed()) contents.close({ waitForBeforeUnload: false })
+    setPluginTopInset(0)
     mainWindow = null
     shellView = null
   })
@@ -196,13 +197,27 @@ export function getPluginLeftInset(): number {
   return pluginLeftInset
 }
 
+/** 让出的标题栏高度，必须保留 shell 的顶部鼠标唤出区。 */
+let pluginTopInset = 0
+
+export function setPluginTopInset(px: number): void {
+  pluginTopInset = Number.isFinite(px)
+    ? Math.min(TITLEBAR_HEIGHT - TITLEBAR_REVEAL_HEIGHT, Math.max(0, Math.round(px)))
+    : 0
+}
+
+export function getPluginTopInset(): number {
+  return pluginTopInset
+}
+
 /**
  * 获取插件内容区边界：扣除标题栏、插件条高度与左侧 orb 通道。
  * @param chromeBarHeight 插件条像素高；由 active 插件 manifest.ui.chrome 决定（default 48 / minimal 28 / none 0）
  */
 export function getPluginContentBounds(chromeBarHeight: number = PLUGIN_BAR_HEIGHT): Rectangle {
   const b = getShellBounds()
-  const top = TITLEBAR_HEIGHT + Math.max(0, chromeBarHeight)
+  // pluginTopInset 表示“标题栏让出的高度”，因此从顶部基准里扣掉。
+  const top = TITLEBAR_HEIGHT - pluginTopInset + Math.max(0, chromeBarHeight)
   const left = pluginLeftInset
   return {
     x: left,
@@ -243,10 +258,16 @@ const appearanceSettings = new Set(['locale', 'animationLevel', 'fontFamily', 'f
 
 let installEventSink: ((payload: ShellEventPayload) => void) | null = null
 export function setInstallEventSink(sink: (payload: ShellEventPayload) => void): void { installEventSink = sink }
+let homeEventSink: ((payload: ShellEventPayload) => void) | null = null
+export function setHomeEventSink(sink: ((payload: ShellEventPayload) => void) | null): void { homeEventSink = sink }
+let modalEventSink: ((payload: ShellEventPayload) => void) | null = null
+export function setModalEventSink(sink: (payload: ShellEventPayload) => void): void { modalEventSink = sink }
 
 export function sendShellEvent(payload: ShellEventPayload): void {
+  try { homeEventSink?.(payload) } catch { /* home retirement must not interrupt the host event */ }
   try { installEventSink?.(payload) } catch { /* transient UI must not interrupt installation */ }
-  if (payload.type === 'theme-changed' || payload.type === 'theme-packs-changed' || payload.type === 'settings-changed' && payload.generalKeys.some(key => appearanceSettings.has(key))) {
+  try { modalEventSink?.(payload) } catch { /* modal retirement must not interrupt the host */ }
+  if (payload.type === 'appearance-changed' || payload.type === 'theme-changed' || payload.type === 'theme-packs-changed' || payload.type === 'settings-changed' && payload.generalKeys.some(key => appearanceSettings.has(key))) {
     try { detachedAppearanceSink?.() } catch { /* independent chrome may be retiring */ }
     try { notificationAppearanceSink?.() } catch { /* notifications may be retiring */ }
   }
@@ -262,6 +283,7 @@ export function sendShellEvent(payload: ShellEventPayload): void {
     payload.type === 'plugins-changed' ||
     payload.type === 'theme-changed' ||
     payload.type === 'theme-packs-changed' ||
+    payload.type === 'appearance-changed' ||
     payload.type === 'settings-changed'
   ) {
     try {

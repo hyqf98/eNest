@@ -11,6 +11,8 @@ export const SHELL_PARTITION = 'enest-shell'
 
 /** 内容区标题栏高度（壳子 renderer）— 与 CSS --titlebar-h 保持一致 */
 export const TITLEBAR_HEIGHT = 36
+/** 原生子视图不能覆盖这条唤出区，否则壳页面收不到顶部鼠标事件。 */
+export const TITLEBAR_REVEAL_HEIGHT = 8
 /** 插件工具条高度：default / minimal / none */
 export const PLUGIN_BAR_HEIGHT = 48
 export const PLUGIN_BAR_HEIGHT_MINIMAL = 28

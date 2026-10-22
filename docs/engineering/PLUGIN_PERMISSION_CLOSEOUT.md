@@ -2,6 +2,8 @@
 
 日期：2026-10-13。接续[通用插件整改](PLUGIN_STANDARDIZATION_REPORT.md)，按“壳提供统一能力、插件自行实现业务、只管理敏感权限”的要求实施。ZTools 官方资料与本项目的取舍见 [ZTools 能力边界](ZTOOLS_CAPABILITY_BOUNDARY.md)。未提交、推送或发布。
 
+> 历史交付记录：能力数量、插件数量与验证结果不是当前版本快照。现行契约见 [权限说明](../site/plugin/permissions.md) 和 [主题与工作区标准](THEME_STANDARD.md)。
+
 ## 本轮行为
 
 - 插件私有存储、Tab 标题/图标/角标、受限尺寸、壳内提示、插件设置、主题注册和私有密钥保存直接可用。对应 10 个已有能力键无需 manifest 声明、无需用户授权，旧基础能力的拒绝记录不再阻挡运行。
@@ -25,20 +27,7 @@
 - 插件仓库完整测试 **83/83，0 跳过**；最终 35 ZIP、105 个必需媒体及索引摘要全部核验。此前 210 个布局组合的证据保留，本轮权限 UI 另验证全部 35 个设置入口、敏感授权持久化与事件同步，以及 1080/560/400 宽度下设置页和详情页无横向溢出、无脚本异常。见[插件验收报告](../../eNest_plugin/docs/PLUGIN_AUDIT_2026-10-13.md)和本地 `eNest_plugin/dist/permission-ui-audit.json`。
 - SDK 的 133 个生成类型、16 篇同步指南、声明文件 TypeScript 检查、skill 结构校验及两仓 `git diff --check` 均通过。
 
-权限相关定向回归可按以下命令运行；原生用例需要先执行宿主 build：
-
-```sh
-node --test src/main/plugin/PermissionService.test.mjs \
-  src/main/ipc/pluginPermissionPolicy.test.mjs \
-  src/main/settings/pluginPermissionSettings.test.mjs \
-  src/main/settings/pluginSettingsBoundary.test.mjs \
-  src/main/vault/secretVault.test.mjs \
-  src/main/theme/themePacks.test.mjs \
-  src/main/plugin/PluginRegistry.theme.test.mjs \
-  src/renderer/hooks/useTheme.test.mjs \
-  src/renderer/components/backgroundColorStyle.test.mjs
-ENEST_APP_SMOKE=1 node --test src/main/plugin/pluginBuiltinCapabilities.smoke.test.mjs
-```
+旧独立主题测试已随统一外观架构替换，不再保留本阶段的执行命令清单。现行检查方法见 [宿主开发](../site/plugin/host-development.md)，原生测试按对应文件说明启用；上述历史通过数不代表后续改动已复测。
 
 ## 兼容与边界
 

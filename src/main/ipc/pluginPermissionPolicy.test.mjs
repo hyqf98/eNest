@@ -9,8 +9,8 @@ const root = new URL('../../../', import.meta.url)
 
 function fixture() {
   const pluginId = 'com.test.permissions', handlers = new Map(), calls = [], grants = new Map(), saved = new Map()
-  const control = { allow: true, confirm: true, confirmations: [], wait: null, closed: 0, requested: [], sections: [], settings: {} }
-  const shell = { id: 2 }, sender = { id: 1, mainFrame: { url: `enest://plugin/${pluginId}/index.html` } }
+  const control = { allow: true, confirm: true, confirmations: [], wait: null, closed: 0, requested: [], sections: [], settings: {}, homeRegistrations: [], homeWait: null }
+  const shell = { id: 2 }, sender = { id: 1, mainFrame: { url: `enest://plugin/${pluginId}/index.html` }, isDestroyed: () => false }
   const event = { sender, senderFrame: sender.mainFrame }, shellEvent = { sender: shell }
   const manifest = { id: pluginId, name: 'Permissions fixture', version: '1.0.0', main: 'index.html', permissions: [] }
   const mocks = {
@@ -78,6 +78,11 @@ function fixture() {
       getPluginStorageValue: (id, key) => saved.get(id + ':' + key)
     },
     '@main/theme/themePacks': { themePackRegistry: { registerPlugin: async (pack, source) => { const saved = { ...pack, source }; calls.push({ method: 'theme', pack: saved }); return saved } } },
+    '@main/home/homeRegistry': { registerDeclaredHomeContribution: async (source, input) => {
+      control.homeRegistrations.push({ source, input })
+      if (control.homeWait) await control.homeWait
+      return { ok: true, contribution: { ...input, source } }
+    } },
     '@main/settings/PluginSettingsBridge': { pluginSettingsBridge: {
       register: (id, section) => control.sections.push({ ...section, pluginId: id }),
       listAll: () => control.sections,
@@ -128,6 +133,7 @@ function fixture() {
     pluginId, manifest, grants, calls, control, scope, event, shellEvent, permissions,
     builtin: load(real.get('@shared/pluginPermissionPolicy')).BUILTIN_PLUGIN_CAPABILITIES,
     call: (method, args = [], ev = event, requestedId) => handlers.get(channels.PluginCall)(ev, { method, args, pluginId: requestedId }),
+    registerHome: (input, ev = event) => handlers.get(channels.PluginHomeRegister)(ev, input),
     setGrant: (permission, grant) => handlers.get(channels.PermissionGrantsSet)(shellEvent, { pluginId, permission, grant })
   }
 }
@@ -145,6 +151,28 @@ test('a plugin with no permissions can use built-in storage/title/theme despite 
     const result = await f.call('theme.register', [{ id: 'fixture', source: 'forged-source', tokens: { '--accent': '#eee' } }])
     assert.equal(result.data.source, f.pluginId)
     assert.deepEqual(f.control.requested, [])
+  } finally { await f.scope.dispose() }
+})
+
+test('home registration is source-bound, frame-verified and invalidated when its plugin runtime closes', async () => {
+  const f = fixture()
+  try {
+    const home = { source: 'com.forged.source', id: 'dashboard', version: 1, entry: 'homes/dashboard.html', variants: ['ink'] }
+    const registered = await f.registerHome(home)
+    assert.equal(registered.ok, true)
+    assert.equal(registered.contribution.source, f.pluginId)
+    assert.deepEqual(f.control.homeRegistrations, [{ source: f.pluginId, input: home }])
+    assert.deepEqual(f.control.requested, [], 'confirming a declared own home is not a sensitive capability')
+    assert.equal((await f.registerHome(home, { ...f.event, senderFrame: { url: f.event.sender.mainFrame.url } })).error, 'unauthorized sender')
+    assert.equal((await f.registerHome(home, { ...f.event, sender: { ...f.event.sender, id: 10 } })).error, 'unauthorized sender')
+    let release
+    f.control.homeWait = new Promise(resolve => { release = resolve })
+    const pending = f.registerHome(home)
+    f.scope.markClosing()
+    release()
+    assert.match((await pending).error, /closing or stale/)
+    assert.match((await f.registerHome(home)).error, /closing or stale/)
+    assert.equal(f.control.homeRegistrations.length, 2)
   } finally { await f.scope.dispose() }
 })
 

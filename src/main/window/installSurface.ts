@@ -74,9 +74,9 @@ function publish(surface: Surface): void {
     ? { x: 0, y: 0, width: bounds.width, height: bounds.height }
     : { x: Math.max(0, bounds.width - width - 8), y: TITLEBAR_HEIGHT + 4, width, height })
   if (surface.ready) {
-    const { mode, tokens } = resolveThemeTokens()
+    const { mode, tokens, appearance } = resolveThemeTokens()
     const state: InstallSurfaceState = { dragging: surface.dragging, jobs, theme: mode, tokens,
-      animation: settingsStore.getPluginAppearance().animationLevel ?? 'medium' }
+      animation: appearance?.animation.effective ?? settingsStore.getPluginAppearance().animationLevel ?? 'medium', appearance }
     surface.view.webContents.send(IpcChannels.InstallSurfaceState, state)
   }
   raiseTransientViews(surface.win)
@@ -116,7 +116,7 @@ function finish(surface: Surface, job: InstallProgressItem): void {
   }
 }
 function receive(payload: ShellEventPayload): void {
-  if (payload.type === 'theme-changed' || payload.type === 'settings-changed' || payload.type === 'theme-packs-changed') { surfaceLayout(); return }
+  if (payload.type === 'appearance-changed' || payload.type === 'theme-changed' || payload.type === 'settings-changed' || payload.type === 'theme-packs-changed') { surfaceLayout(); return }
   if (payload.type === 'install-queue') {
     const running = [...payload.active, ...payload.waiting]
     for (const job of running) {

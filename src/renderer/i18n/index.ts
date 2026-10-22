@@ -6,7 +6,6 @@
  * 依赖：zustand、shellApi、zh-CN/en-US 词典。
  */
 import { create } from 'zustand'
-import { shellApi } from '@renderer/services/shellApi'
 import zhCN from '@renderer/i18n/zh-CN'
 import enUS from '@renderer/i18n/en-US'
 
@@ -20,6 +19,18 @@ export type FlatDict = Record<string, string>
 type NestedDict = { [key: string]: string | NestedDict }
 
 const LOCALES: readonly Locale[] = ['zh-CN', 'en-US']
+
+interface LocalePersistence {
+  read: () => Promise<unknown>
+  write: (locale: Locale) => Promise<void>
+}
+
+let persistence: LocalePersistence | undefined
+
+/** Only the trusted shell supplies persistence. Isolated theme views receive locale as data. */
+export function configureLocalePersistence(adapter: LocalePersistence): void {
+  persistence = adapter
+}
 
 /** 默认语言 */
 export const DEFAULT_LOCALE: Locale = 'zh-CN'
@@ -97,9 +108,7 @@ export const useI18nStore = create<I18nState>((set, get) => ({
     if (get().hydrated) return
     let locale: Locale = DEFAULT_LOCALE
     try {
-      const settings = await shellApi.getSettings()
-      const general = settings.general as { locale?: unknown } | undefined
-      const candidate = general?.locale
+      const candidate = await persistence?.read()
       if (isLocale(candidate)) {
         locale = candidate
       } else if (typeof candidate === 'string' && candidate.startsWith('en')) {
@@ -116,7 +125,7 @@ export const useI18nStore = create<I18nState>((set, get) => ({
     document.documentElement.lang = locale
     set({ locale })
     try {
-      await shellApi.setSettings({ general: { locale } })
+      await persistence?.write(locale)
     } catch {
       /* mock 或 IPC 失败时仅本地生效 */
     }

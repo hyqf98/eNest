@@ -15,6 +15,7 @@
   * [UI 集成标准](ui-standard.md)
   * [双模式工具接口](dual-mode-tools.md)
   * [主题与综合插件](themes.md)
+  * [主题工作区与设置](home.md)
   * [宿主开发](host-development.md)
 
 * **参考**

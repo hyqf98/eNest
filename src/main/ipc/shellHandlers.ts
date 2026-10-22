@@ -1,5 +1,5 @@
 import { getAccountState, loginAccount, cancelAccountLogin, logoutAccount } from '@main/auth/accountAuthService'
-import { handleShellIpc, onShellIpc } from '@main/ipc/ipcSecurity'
+import { getTrustedSurfaceRole, handleShellIpc, onShellIpc } from '@main/ipc/ipcSecurity'
 import { registerShortcutHandlers } from '@main/ipc/shortcutHandlers'
 /**
  * shellHandlers — 壳子 IPC 处理器
@@ -10,13 +10,16 @@ import { registerShortcutHandlers } from '@main/ipc/shortcutHandlers'
  * themePacks、createShellWindow、DevConsole。
  */
 import { getPluginDiagnostics } from '@main/plugin/pluginDiagnostics'
+import { getPluginMemorySnapshot, refreshPluginMemoryAfterClose } from '@main/plugin/pluginMemoryMonitor'
+import { showNotification } from '@main/window/notificationOverlay'
 import { copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
-import { dialog, ipcMain, Notification } from 'electron'
-import { IpcChannels } from '@shared/types/ipc'
-import { APP_NAME, FONTS_DIR, toTabId } from '@shared/constants'
-import type { DevPluginLoadOptions, PluginLaunchConfig, PluginLaunchPatch, ThemeTokens } from '@shared/types/plugin'
+import { dialog, Notification } from 'electron'
+import { IpcChannels, type OrbRailSyncRequest } from '@shared/types/ipc'
+import type { ResolvedAppearance, ThemeProfilePatch } from '@shared/types/appearance'
+import { APP_NAME, FONTS_DIR, toPluginId, toTabId } from '@shared/constants'
+import type { DevPluginLoadOptions, PluginLaunchPatch, ThemeTokens } from '@shared/types/plugin'
 import { forgetDevPlugin, pickAndLoadDevPlugin, rebuildDevPlugin, setDevPluginMode } from '@main/dev/DevConsole'
 import { setDevPluginKillOnHide } from '@main/dev/devPluginsStore'
 import { logInfo, logWarn } from '@main/logs/logService'
@@ -59,6 +62,11 @@ import {
   testProxyConnectivity
 } from '@main/proxy/proxyService'
 import { themePackRegistry } from '@main/theme/themePacks'
+import { appearanceService } from '@main/theme/appearanceService'
+import { importAppearanceFont, pickAppearanceMedia, removeAppearanceFont, resolveAppearanceResource } from '@main/theme/appearanceResources'
+import { homeSurfaceManager, prewarmHomeSurface, retryHomeSurface, setHomeSurfaceVisible } from '@main/home/HomeSurfaceManager'
+import { normalizeWorkspaceRoute } from '@main/home/workspaceRoute'
+import type { WorkspaceRoute } from '@shared/types/workspace'
 import {
   checkForUpdates,
   downloadUpdate,
@@ -69,7 +77,8 @@ import {
   getMainWindow,
   getShellWebContents,
   sendShellEvent,
-  setPluginLeftInset
+  setPluginLeftInset,
+  setPluginTopInset
 } from '@main/window/createShellWindow'
 import {
   applyOrbRailVisibility,
@@ -112,7 +121,8 @@ async function readPluginReadme(pluginId: string): Promise<string> {
   const path = pluginRegistry.getAssetManifest(pluginId)?.market?.readme
   if (!root || !path) {
     const summary = pluginRegistry.get(pluginId)
-    return !summary?.installed && summary?.readmeUrl ? fetchMarketReadme(summary.readmeUrl) : ''
+    const resource = pluginRegistry.getCatalogResources(pluginId).readme
+    return !summary?.installed && resource?.source === 'remote' ? fetchMarketReadme(resource) : ''
   }
   const file = await resolvePluginFile(root, path, pluginRegistry.get(pluginId)?.devSource === true)
   if (!file) return ''
@@ -121,10 +131,26 @@ async function readPluginReadme(pluginId: string): Promise<string> {
   return readFile(file, 'utf-8')
 }
 
+let workspaceNavigationIntent = 0
+
+async function navigateWorkspace(input: WorkspaceRoute): Promise<void> {
+  const route = normalizeWorkspaceRoute(input)
+  const intent = ++workspaceNavigationIntent
+  const recoveryEpoch = homeSurfaceManager.recoveryEpoch
+  pluginHost.hideAllViews()
+  // Startup handoff includes a paired fallback, not just the first provider's ACK.
+  await prewarmHomeSurface()
+  if (homeSurfaceManager.recoveryEpoch !== recoveryEpoch) throw new Error('Workspace navigation was cancelled by recovery')
+  if (intent !== workspaceNavigationIntent) throw new Error('Workspace navigation was replaced')
+  sendShellEvent({ type: 'set-view', view: 'home', workspaceRoute: route })
+  await homeSurfaceManager.navigate(route)
+}
+
 /** 注册壳子渲染层所有 IPC 通道处理器 */
 export function registerShellHandlers(): void {
   registerShortcutHandlers()
   handleShellIpc(IpcChannels.ShellGetPluginDiagnostics, () => getPluginDiagnostics())
+  handleShellIpc(IpcChannels.ShellGetPluginMemorySnapshot, () => getPluginMemorySnapshot())
   handleShellIpc(IpcChannels.ShellRestoreTabs, (_e, ids: string[]) => pluginHost.restoreTabs(Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : []))
   handleShellIpc(IpcChannels.ShellGetPlugins, () => pluginRegistry.list())
   handleShellIpc(IpcChannels.ShellGetMarketStatus, (_event, refresh?: boolean) => pluginRegistry.getMarketStatus(refresh === true))
@@ -144,8 +170,29 @@ export function registerShellHandlers(): void {
   )
 
   handleShellIpc(IpcChannels.ShellClosePlugin, async (_e, tabId: string) => {
-    void pluginHost.closePlugin(tabId, 'tab-close').catch((error) => logWarn('lifecycle', String(error)))
-    return { ok: true }
+    try {
+      if (typeof tabId !== 'string' || tabId.length > 300) throw new Error('Invalid plugin identifier')
+      const hasWorkspace = homeSurfaceManager.getMemoryOwners().some(owner => owner.pluginId === toPluginId(tabId))
+      // 普通 Tab 与同 ID 的 Workspace 是不同实例；仅拒绝释放仍被 Workspace 独占的插件。
+      if (hasWorkspace && !pluginHost.hasShellTab(tabId)) {
+        return { ok: false, error: settingsStore.getAll().general.locale === 'en-US'
+          ? 'Switch themes before releasing this workspace plugin' : '请先切换主题，再释放正在使用的首页插件' }
+      }
+      await pluginHost.closePlugin(tabId, 'tab-close', false, hasWorkspace)
+      await refreshPluginMemoryAfterClose()
+      return { ok: true }
+    } catch (error) {
+      logWarn('lifecycle', String(error))
+      const en = settingsStore.getAll().general.locale === 'en-US'
+      try {
+        showNotification(getMainWindow(), {
+          title: en ? 'Plugin cleanup incomplete' : '插件资源回收未完成', level: 'error', duration: 12000,
+          body: en ? 'Some plugin resources could not be confirmed as released. Check Settings > General for remaining processes.'
+            : '部分资源尚未确认释放，请在“设置 → 通用”查看剩余进程。'
+        }, { owner: pluginHost, source: 'eNest' })
+      } catch { /* The closing window may no longer have a notification surface. */ }
+      return { ok: false, error: en ? 'Plugin cleanup incomplete' : '插件资源回收未完成' }
+    }
   })
 
   handleShellIpc(IpcChannels.ShellActivatePlugin, (_e, tabId: string) => {
@@ -164,30 +211,47 @@ export function registerShellHandlers(): void {
     return { ok: true }
   })
 
-  handleShellIpc(IpcChannels.ShellSyncOrbState, (_e, state) => {
-    setOrbRailState(state)
-    if (state?.tabStyle) applyOrbRailVisibility(state.tabStyle)
+  handleShellIpc(IpcChannels.ShellSetPluginTopInset, (event, top: number) => {
+    const win = getMainWindow()
+    if (!win || win.isDestroyed() || event.sender !== getShellWebContents()) throw new Error('Main shell required')
+    if (typeof top !== 'number' || !Number.isFinite(top)) throw new Error('Invalid titlebar inset')
+    const layout = appearanceService.getAppearance().layout
+    setPluginTopInset(layout.tabStyle !== 'orb' && layout.tabAutoHide === true ? top : 0)
+    pluginHost.layoutAll()
+    homeSurfaceManager.layout()
+    return { ok: true }
+  })
+
+  handleShellIpc(IpcChannels.ShellSyncOrbState, (event, state: OrbRailSyncRequest) => {
+    if (event.sender !== getShellWebContents()) throw new Error('Main shell required')
+    const tabStyle = appearanceService.getAppearance().layout.tabStyle === 'orb' ? 'orb' : 'classic'
+    const { chromeVisible, ...projection } = state
+    setOrbRailState({ ...projection, tabStyle })
+    // Only App opens this gate; classic still needs the native global settings dock.
+    applyOrbRailVisibility(tabStyle, chromeVisible === true)
     return { ok: true }
   })
 
   handleShellIpc(IpcChannels.ShellGetOrbState, () => getOrbRailState())
 
-  handleShellIpc(IpcChannels.ShellGoHome, () => {
-    pluginHost.hideAllViews()
-    sendShellEvent({ type: 'go-home' })
+  handleShellIpc(IpcChannels.ShellGoHome, async () => {
+    await navigateWorkspace({ page: 'catalog' })
     return { ok: true }
   })
 
-  handleShellIpc(IpcChannels.ShellSetView, (_e, view: string) => {
-    if (view !== 'plugin') pluginHost.hideAllViews()
-    sendShellEvent({
-      type: 'set-view',
-      view: (['home', 'settings', 'plugin', 'dev'] as const).includes(view as 'home')
-        ? (view as 'home' | 'settings' | 'plugin' | 'dev')
-        : 'home'
-    })
+  handleShellIpc(IpcChannels.ShellSetView, async (event, view: string) => {
+    if (getTrustedSurfaceRole(event.sender.id) === 'dock' && view !== 'settings') throw new Error('Settings dock action required')
+    if (view === 'settings') {
+      workspaceNavigationIntent++
+      setHomeSurfaceVisible(false)
+      pluginHost.hideAllViews()
+      sendShellEvent({ type: 'set-view', view: 'settings' })
+    } else if (view === 'plugin') sendShellEvent({ type: 'set-view', view })
+    else await navigateWorkspace({ page: 'catalog' })
     return { ok: true }
   })
+
+  handleShellIpc(IpcChannels.ShellNavigateWorkspace, (_event, route: WorkspaceRoute) => navigateWorkspace(route))
 
   /** 圆轨 rail 视图展开/收起：renderer CSS 动画先行，主进程跟进切换视图宽度 */
   handleShellIpc(IpcChannels.ShellSetOrbRailExpanded, (_e, expanded: boolean) => {
@@ -346,13 +410,72 @@ export function registerShellHandlers(): void {
 
   handleShellIpc(IpcChannels.ShellSetTheme, async (_e, theme: Partial<ThemeTokens>) => {
     const saved = await settingsStore.setTheme(theme)
-    // 壳子主题变更后，向所有已打开的 themeAware 插件广播新 Token
-    pluginHost.broadcastTheme()
-    broadcastNotice('appearance.changed', { kind: 'theme' })
-    // 圆轨/设置钮为独立视图，主题需单独推送
-    setOrbTheme()
+    appearanceService.invalidate()
     return saved
   })
+
+  handleShellIpc(IpcChannels.ShellGetAppearance, () => appearanceService.getAppearanceSnapshot())
+
+  handleShellIpc(IpcChannels.ShellUpdateThemeProfile, async (_e, patch: ThemeProfilePatch) => {
+    for (const value of Object.values(patch?.values ?? {})) {
+      if (!value || typeof value !== 'object' || !('value' in value) || typeof value.value !== 'string' || !value.value.startsWith('enest://appearance/')) continue
+      const id = value.value.slice('enest://appearance/media/'.length)
+      if (!value.value.startsWith('enest://appearance/media/') || !await resolveAppearanceResource('media', id)) throw new Error('背景资源未获授权或已失效')
+    }
+    const snapshot = appearanceService.updateThemeProfile(patch)
+    return snapshot
+  })
+
+  handleShellIpc(IpcChannels.ShellActivateTheme, async (_e, identity: { source?: unknown; id?: unknown }) => {
+    if (!identity || typeof identity !== 'object' || typeof identity.source !== 'string' || typeof identity.id !== 'string') {
+      throw new Error('Invalid theme identity')
+    }
+    return appearanceService.activateTheme({ source: identity.source, id: identity.id })
+  })
+
+  handleShellIpc(IpcChannels.ShellSetAppearanceMode, async (_e, mode: unknown) => {
+    if (mode !== 'light' && mode !== 'dark' && mode !== 'system') throw new Error('Invalid appearance mode')
+    return appearanceService.setAppearanceMode(mode)
+  })
+
+  handleShellIpc(IpcChannels.ShellSetHomeVisible, (_e, visible: unknown) => {
+    if (typeof visible !== 'boolean') throw new Error('Invalid home visibility')
+    setHomeSurfaceVisible(visible)
+  })
+
+  handleShellIpc(IpcChannels.ShellRetryHome, () => retryHomeSurface(true))
+  handleShellIpc(IpcChannels.ShellGetHomeState, () => homeSurfaceManager.getState())
+  handleShellIpc(IpcChannels.ShellPickAppearanceMedia, (event, options?: { imageOnly?: boolean }) => {
+    if (options !== undefined && (!options || typeof options !== 'object' || Array.isArray(options)
+      || Object.keys(options).some(key => key !== 'imageOnly') || (options.imageOnly !== undefined && typeof options.imageOnly !== 'boolean'))) throw new Error('Invalid media options')
+    return pickAppearanceMedia(() => !event.sender.isDestroyed(), options)
+  })
+  handleShellIpc(IpcChannels.ShellRemoveAppearanceFont, async (event, id: string) => {
+    if (typeof id !== 'string' || !id || id.length > 200) throw new Error('Invalid font identity')
+    await removeAppearanceFont(id, () => !event.sender.isDestroyed())
+    appearanceService.invalidate()
+  })
+  handleShellIpc(IpcChannels.ShellImportAppearanceFont, async () => {
+    const font = await importAppearanceFont()
+    if (font) {
+      appearanceService.invalidate()
+      sendShellEvent({ type: 'settings-changed', generalKeys: ['customFonts'] })
+    }
+    return font
+  })
+  handleShellIpc(IpcChannels.ShellSetAppearancePerformanceLimited, (_e, limited: unknown) => {
+    if (typeof limited !== 'boolean') throw new Error('Invalid runtime performance limit')
+    return appearanceService.setPerformanceLimited(limited)
+  })
+
+  const broadcastAppearance = (revision: number, appearance: ResolvedAppearance): void => {
+    sendShellEvent({ type: 'appearance-changed', revision, appearance })
+    pluginHost.broadcastTheme()
+    setOrbTheme()
+    broadcastNotice('appearance.changed', { kind: 'theme' })
+  }
+
+  appearanceService.subscribeAppearance(({ revision, appearance }) => broadcastAppearance(revision, appearance))
 
   handleShellIpc(IpcChannels.ShellLoadDevPlugin, async (_e, dirPath?: string, options: DevPluginLoadOptions = {}) => {
     try {
@@ -479,6 +602,9 @@ export function registerShellHandlers(): void {
       broadcastNotice('appearance.changed', { kind: 'animation' })
     }
     const generalPatch = (partial as { general?: Record<string, unknown> } | undefined)?.general
+    if (generalPatch && ['fontFamily', 'fontFamilyEn', 'fontSizeScale', 'animationLevel', 'customFonts'].some(key => key in generalPatch)) {
+      appearanceService.invalidate()
+    }
     if (generalPatch && ['fontFamily', 'fontFamilyEn', 'fontSizeScale', 'customFonts'].some(key => key in generalPatch)) {
       pluginHost.broadcastTheme()
       broadcastNotice('appearance.changed', { kind: 'font' })

@@ -83,15 +83,28 @@ test('plugin detail uses real grid/featured/search origins and survives interrup
   await mkdir(output, { recursive: true })
   const fixture = await createMarketBrowserFixture()
   const { page, errors, plugins, registry } = fixture
-  const report = { generatedAt: registry.generatedAt, catalogCount: plugins.length, fixture: 'Actual App, local real release catalog/media/README; installed flags are isolated. Headless Chromium, no animation freezing.', cases: [] }
+  const report = { generatedAt: registry.generatedAt, catalogCount: plugins.length, fixture: 'Actual App, local real release catalog/media/README; installed flags are isolated. Headless Chromium, no animation freezing.', cases: [], scrollCheckpoints: [] }
+  const recordScroll = async label => {
+    const checkpoint = await page.locator('.page-home').evaluate((element, label) => ({ label, top: element.scrollTop,
+      overflow: element.style.overflow, computedOverflow: getComputedStyle(element).overflowY,
+      scrollHeight: element.scrollHeight, clientHeight: element.clientHeight,
+      active: document.activeElement?.outerHTML.slice(0, 250),
+      phase: document.querySelector('.detail-overlay')?.dataset.detailPhase,
+    }), label)
+    report.scrollCheckpoints.push(checkpoint)
+    return checkpoint
+  }
   try {
     await installRecorder(page)
     const grid = page.locator('.market-category').last().locator('[data-plugin-card]').first()
     await start(page, 'grid-medium', grid)
     const before = await page.locator('.page-home').evaluate(element => element.scrollTop)
+    await recordScroll('before-click')
     assert.ok(before > 0, 'grid fixture exercises a scrolled background')
     await grid.locator('.card-detail-trigger').click()
+    await recordScroll('after-click')
     await openSettled(page)
+    await recordScroll('open-settled')
     assert.equal(await page.locator('[data-detail-close]').evaluate(element => element === document.activeElement), true, 'initial focus enters dialog close button')
     await page.evaluate(() => {
       const elements = [...document.querySelector('.detail-modal').querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])')]
@@ -103,11 +116,14 @@ test('plugin detail uses real grid/featured/search origins and survives interrup
     assert.equal(await page.evaluate(() => document.activeElement === window.detailFocusEnds[0]), true, 'Tab loops to first dialog control')
     await page.keyboard.press('Shift+Tab')
     assert.equal(await page.evaluate(() => document.activeElement === window.detailFocusEnds[1]), true, 'Shift+Tab loops to last dialog control')
+    await recordScroll('after-focus-loop')
     await page.locator('.detail-body').evaluate(element => { element.scrollTop = 0 })
     await page.screenshot({ path: join(output, 'grid-open.png') })
+    await recordScroll('before-background-wheel')
     await page.mouse.move(12, 500); await page.mouse.wheel(0, 540)
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-    assert.ok(Math.abs(await page.locator('.page-home').evaluate(element => element.scrollTop) - before) <= 2, 'background scroll is locked while dialog is open')
+    const afterWheel = await recordScroll('after-background-wheel')
+    assert.ok(Math.abs(afterWheel.top - before) <= 2, `background scroll is locked while dialog is open: ${JSON.stringify(report.scrollCheckpoints)}`)
     await page.locator('.detail-gallery-open').click()
     await page.locator('dialog[open]').waitFor()
     await page.keyboard.press('Escape')
@@ -128,7 +144,11 @@ test('plugin detail uses real grid/featured/search origins and survives interrup
     await page.waitForFunction(before => Math.abs(document.querySelector('.page-home').scrollTop - before) > 10, before)
     report.cases.push({ name: 'grid origin, native wheel background lock, shrink return and scroll restore', passed: true, record: gridRecord })
 
-    const featured = page.locator('.product-slide.is-current:not([data-product-clone])')
+    const featuredPlugin = plugins.find(plugin => plugin.featured && !plugin.installed)
+    assert.ok(featuredPlugin, 'featured detail scenario uses an uninstalled catalog item, not the launch action')
+    await page.locator('.product-pagination').getByRole('button', { name: `查看 ${featuredPlugin.name}`, exact: true }).click()
+    const featured = page.locator(`.product-slide.is-current:not([data-product-clone])[data-plugin-id="${featuredPlugin.id}"]`)
+    await featured.waitFor()
     await start(page, 'featured-medium', featured)
     await featured.locator('.product-title button').click()
     await openSettled(page)
@@ -182,7 +202,7 @@ test('plugin detail uses real grid/featured/search origins and survives interrup
     report.cases.push({ name: 'resize during closing retires overlay and restores scroll styles', passed: true, record: await end(page) })
     await page.setViewportSize({ width: 1440, height: 1000 })
 
-    await page.evaluate(async () => { const { useAnimationLevelStore } = await import('/hooks/useAnimationLevel.ts'); await useAnimationLevelStore.getState().setLevel('high') })
+    await page.evaluate(async () => { const { useAppearanceStore } = await import('/hooks/useAppearance.ts'); const state = useAppearanceStore.getState(); await state.updateThemeProfile({ theme: { source: state.appearance.theme.source, id: state.appearance.theme.id }, values: { motion: 'high' } }) })
     await start(page, 'grid-high', grid)
     await grid.locator('.card-detail-trigger').click()
     await page.waitForFunction(() => document.querySelector('.detail-overlay')?.dataset.detailPhase === 'opening' && new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.detail-modal')).transform).a > .5)
@@ -196,7 +216,7 @@ test('plugin detail uses real grid/featured/search origins and survives interrup
     assertOriginJourney(highRecord)
     report.cases.push({ name: 'high setting uses source geometry; mid-transition screenshots without freezing', passed: true, captures, record: highRecord })
 
-    await page.evaluate(async () => { const { useAnimationLevelStore } = await import('/hooks/useAnimationLevel.ts'); await useAnimationLevelStore.getState().setLevel('low') })
+    await page.evaluate(async () => { const { useAppearanceStore } = await import('/hooks/useAppearance.ts'); const state = useAppearanceStore.getState(); await state.updateThemeProfile({ theme: { source: state.appearance.theme.source, id: state.appearance.theme.id }, values: { motion: 'low' } }) })
     await start(page, 'low-motion', grid)
     await grid.locator('.card-detail-trigger').click()
     await openSettled(page)
@@ -206,7 +226,7 @@ test('plugin detail uses real grid/featured/search origins and survives interrup
     assert.ok(lowMatrix.every(matrix => Math.abs(matrix.x) <= 7 && Math.abs(matrix.y) <= 7 && matrix.sx >= .97 && matrix.sy >= .97), 'low animation keeps displacement and scale bounded')
     report.cases.push({ name: 'low setting has small DOM-measured motion', passed: true, record: lowRecord })
 
-    await page.evaluate(async () => { const { useAnimationLevelStore } = await import('/hooks/useAnimationLevel.ts'); await useAnimationLevelStore.getState().setLevel('medium') })
+    await page.evaluate(async () => { const { useAppearanceStore } = await import('/hooks/useAppearance.ts'); const state = useAppearanceStore.getState(); await state.updateThemeProfile({ theme: { source: state.appearance.theme.source, id: state.appearance.theme.id }, values: { motion: 'medium' } }) })
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await start(page, 'reduced-motion', grid)
     await grid.locator('.card-detail-trigger').click()

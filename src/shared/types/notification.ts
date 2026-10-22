@@ -42,6 +42,7 @@ export interface NotificationOverlayState {
   animationLevel: AnimationLevel
   theme: { mode: 'light' | 'dark'; tokens: Record<string, string> }
   visible: boolean
+  appearance?: import('./appearance').ResolvedAppearance
 }
 
 export interface NotificationClientApi {

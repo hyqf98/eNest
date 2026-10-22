@@ -1,13 +1,13 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
-import type { PluginSummary } from '@shared/types/plugin'
+import type { PluginPresentation } from './pluginPresentation'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from '@renderer/components/icons'
 import { PluginIcon } from '@renderer/components/PluginIcon'
 import '@renderer/styles/productVisual.css'
 
 interface Props {
-  plugin: PluginSummary
+  plugin: PluginPresentation
   active: boolean
   screenshot?: string
   onScreenshotChange?: (url: string) => void

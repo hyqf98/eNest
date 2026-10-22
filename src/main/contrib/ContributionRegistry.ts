@@ -1,6 +1,6 @@
 /**
  * ContributionRegistry — 插件贡献点注册中心（插槽化架构核心）
- * 职责：统一管理插件的声明式贡献（settings/home-cards/rail-entries/theme-packs）
+ * 职责：统一管理插件的声明式贡献（settings/home-cards/rail-entries/theme-packs/home-pages）
  *       与运行时贡献（Quick 搜索 provider），声明式贡献持久化到 enest.db
  *       contributions 表，重启后无需插件运行即可回显。
  * 存储：
@@ -38,7 +38,8 @@ const DECLARABLE_SLOTS: Record<ContributionSlot, keyof PluginContributes> = {
   settings: 'settings',
   'home-cards': 'homeCards',
   'rail-entries': 'railEntries',
-  'theme-packs': 'themePacks'
+  'theme-packs': 'themePacks',
+  'home-pages': 'homePages'
 }
 
 interface ContribStatements {
@@ -110,8 +111,12 @@ function rowToSourced<T>(row: { source: string; id: string; json: string }): {
 }
 
 /** 贡献声明版本检查：不匹配（且非缺省）拒绝注册 */
-function versionOk(entry: { schemaVersion?: string } | undefined): boolean {
+function versionOk(slot: ContributionSlot, entry: { schemaVersion?: string | number } | undefined): boolean {
   if (entry?.schemaVersion === undefined) return true
+  if (slot === 'theme-packs') {
+    // Legacy V1 packs predate the contribution string version; V2 uses its numeric pack contract.
+    return entry.schemaVersion === CONTRIB_SCHEMA_VERSION || entry.schemaVersion === 2
+  }
   return entry.schemaVersion === CONTRIB_SCHEMA_VERSION
 }
 
@@ -122,7 +127,7 @@ export class ContributionRegistry {
   /** Runtime settings registration updates only this section, preserving other slots. */
   registerSettingsSection(pluginId: string, section: SettingsSectionContribution): void {
     const db = kvStore.getDatabase()
-    if (!pluginId || !section.id || !versionOk(section) || !ensureInit() || !db) return
+    if (!pluginId || !section.id || !versionOk('settings', section) || !ensureInit() || !db) return
     statementsFor(db)!.upsert.run(pluginId, 'settings', section.id, JSON.stringify(section))
     sendShellEvent({ type: 'contributions-changed', slot: 'settings', source: pluginId })
   }
@@ -165,7 +170,7 @@ export class ContributionRegistry {
               logWarn('contrib', `skip invalid ${slot} entry (missing id) from ${pluginId}`)
               continue
             }
-            if (!versionOk(raw as { schemaVersion?: string })) {
+            if (!versionOk(slot, raw as { schemaVersion?: string | number })) {
               logWarn(
                 'contrib',
                 `skip ${slot}/${String(entry.id)} from ${pluginId}: schemaVersion mismatch ` +
@@ -270,7 +275,7 @@ export class ContributionRegistry {
   ): { ok: true } | { ok: false; error: string } {
     const id = String(meta?.id ?? '').trim()
     if (!id) return { ok: false, error: 'provider id required' }
-    if (!versionOk(meta)) {
+    if (!versionOk('rail-entries', meta)) {
       return {
         ok: false,
         error: `schemaVersion mismatch (want ${CONTRIB_SCHEMA_VERSION})`

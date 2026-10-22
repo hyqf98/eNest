@@ -11,3 +11,12 @@ test('Markdown images only resolve declared same-package local paths and version
  assert.equal(resolveMarkdownImage('./screenshots/one.png',remote,{'screenshots/one.png':'https://example.com/release/test@1.0-screenshot-1.png'}),'https://example.com/release/test@1.0-screenshot-1.png')
  assert.equal(resolveMarkdownImage('./screenshots/one.png',remote,{'screenshots/one.png':'https://evil.test/track.png'}),undefined)
 })
+test('Home README images use only the same plugin declared screenshot slots',()=>{
+ const base='enest-home://catalog/com.example.test/readme'
+ const image='enest-home://catalog/com.example.test/screenshot/0'
+ assert.equal(resolveMarkdownImage('./screenshots/one.png',base,{'screenshots/one.png':image}),image)
+ assert.equal(resolveMarkdownImage('./screenshots/one.png',base),undefined)
+ for(const target of ['enest-home://catalog/com.other/screenshot/0','enest-home://catalog/com.example.test/icon','enest-home://catalog/com.example.test/screenshot/8','enest-home://catalog/com.example.test/screenshot/0?url=https://evil.test','https://evil.test/one.png']){
+  assert.equal(resolveMarkdownImage('./screenshots/one.png',base,{'screenshots/one.png':target}),undefined,target)
+ }
+})

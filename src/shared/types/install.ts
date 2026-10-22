@@ -10,4 +10,5 @@ export interface InstallSurfaceState {
   theme: 'light' | 'dark'
   tokens: Record<string, string>
   animation: 'low' | 'medium' | 'high'
+  appearance?: import('./appearance').ResolvedAppearance
 }

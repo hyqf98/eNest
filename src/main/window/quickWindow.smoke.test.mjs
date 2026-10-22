@@ -72,6 +72,13 @@ function assertNativeGeometry(state, label, contentHeight) {
   }
 }
 
+function assertHeaderAlignment(state, label) {
+  if (state.mode !== 'list' || state.access.open || state.access.brandTransform !== 'none') return
+  const { searchLeft, brandRight, resultsLeft, resultsRight } = state.alignment
+  assert.ok(Math.abs(searchLeft - resultsLeft) <= 0.5, `${label}: search icon ${searchLeft} aligns with list left edge ${resultsLeft}`)
+  assert.ok(Math.abs(brandRight - resultsRight) <= 0.5, `${label}: brand icon ${brandRight} aligns with list right edge ${resultsRight}`)
+}
+
 /** All access starts at Electron's own window/WebContents inventory, not page order. */
 function createQuickHarness(app, id, artifacts) {
   const evaluate = (target, code, targetPluginId = id) => app.evaluate(({ webContents }, { target, code, id }) => {
@@ -79,7 +86,7 @@ function createQuickHarness(app, id, artifacts) {
       if (contents.isDestroyed()) return false
       try {
         const url = new URL(contents.getURL())
-        if (target === 'plugin') return url.searchParams.get('pid') === id || (url.protocol === 'enest:' && url.hostname === id)
+        if (target === 'plugin') return url.searchParams.get('pid') === id || (url.protocol === 'enest:' && url.hostname === 'plugin' && url.pathname.split('/')[1] === id)
         if (target === 'quick') return url.searchParams.get('surface') === 'quick'
         return url.pathname.endsWith('/renderer/index.html') && !url.searchParams.get('surface')
       } catch { return false }
@@ -106,7 +113,7 @@ function createQuickHarness(app, id, artifacts) {
       if (wc && !wc.isDestroyed()) {
         try {
           const url = new URL(wc.getURL())
-          const pluginId = ids.find(id => url.searchParams.get('pid') === id || (url.protocol === 'enest:' && url.hostname === id))
+          const pluginId = ids.find(id => url.searchParams.get('pid') === id || (url.protocol === 'enest:' && url.hostname === 'plugin' && url.pathname.split('/')[1] === id))
           if (pluginId) {
             plugins.push({ pluginId, wcId: wc.id, visible, localBounds: bounds, bounds: absoluteBounds, ancestors })
           } else if (url.searchParams.get('surface') === 'quick') {
@@ -120,7 +127,9 @@ function createQuickHarness(app, id, artifacts) {
       for (const child of view.children) visit(child, x, y, visible, nextAncestors)
     }
     visit(win.contentView, 0, 0, true, [], true)
+    const main = BaseWindow.getAllWindows().find(candidate => candidate.getTitle() === 'eNest');
     return { windowId: win.id, visible: win.isVisible(), focused: win.isFocused(), bounds: win.getBounds(), contentBounds: win.getContentBounds(),
+      main: main ? { visible: main.isVisible(), focused: main.isFocused(), events: main.__quickSmokeActivationEvents ?? [] } : null,
       workArea: screen.getDisplayMatching(win.getBounds()).workArea, plugins, shells, containers }
   }, [id, largePluginId])
 
@@ -132,15 +141,36 @@ function createQuickHarness(app, id, artifacts) {
     const rect = bar.getBoundingClientRect();
     const style = element => {
       const computed = getComputedStyle(element);
-      return { appRegion: computed.getPropertyValue('-webkit-app-region') || computed.getPropertyValue('app-region'), userSelect: computed.userSelect };
+      return { appRegion: computed.getPropertyValue('-webkit-app-region') || computed.getPropertyValue('app-region'), userSelect: computed.userSelect,
+        background: computed.backgroundColor, backgroundImage: computed.backgroundImage, shadow: computed.boxShadow,
+        backdropFilter: computed.backdropFilter || computed.webkitBackdropFilter, borderBottomWidth: computed.borderBottomWidth };
     };
     return { mode: root.dataset.mode, expanded: root.dataset.expanded, query: input.value,
       bar: { top: rect.top, bottom: rect.bottom, height: rect.height, ...style(bar) },
-      input: { ...style(input), width: input.getBoundingClientRect().width, height: input.getBoundingClientRect().height, fontSize: getComputedStyle(input).fontSize }, buttons: [...bar.querySelectorAll('button')].map(button => ({ label: button.getAttribute('aria-label') || button.title, ...style(button) })),
+      input: { ...style(input), width: input.getBoundingClientRect().width, height: input.getBoundingClientRect().height, fontSize: getComputedStyle(input).fontSize },
+      searchBox: (() => { const box = document.querySelector('.quick-search-bar .search-box'); const boxRect = box?.getBoundingClientRect(); return boxRect ? { ...style(box), left: boxRect.left, right: boxRect.right, width: boxRect.width, height: boxRect.height, borderRadius: getComputedStyle(box).borderRadius, borderWidth: getComputedStyle(box).borderTopWidth } : null })(),
+      toolbar: (() => { const toolbar = document.querySelector('.quick-inline-tools'); const toolbarRect = toolbar?.getBoundingClientRect(); return toolbarRect ? { left: toolbarRect.left, right: toolbarRect.right, width: toolbarRect.width, height: toolbarRect.height } : null })(),
+      alignment: (() => {
+        const results = (document.querySelector('.quick-group-items') ?? document.querySelector('.quick-results'))?.getBoundingClientRect();
+        const search = document.querySelector('.quick-search-leading svg')?.getBoundingClientRect();
+        const brand = document.querySelector('.quick-access-brand')?.getBoundingClientRect();
+        return results && search && brand ? { searchLeft: search.left, brandRight: brand.right, resultsLeft: results.left, resultsRight: results.right } : null;
+      })(),
+      buttons: [...bar.querySelectorAll('button')].map(button => ({ label: button.getAttribute('aria-label') || button.title, ...style(button) })),
       grip: (() => { const grip = bar.querySelector('.quick-plugin-grip'); if (!grip) return null; const bounds = grip.getBoundingClientRect(); return { ...style(grip), left: bounds.left, right: bounds.right, width: bounds.width, gap: parseFloat(getComputedStyle(bar).columnGap) || 0 }; })(),
       resultsVisible: Boolean(document.querySelector('#quick-results')),
       footerVisible: Boolean(document.querySelector('.quick-footer')),
-      marketIconLoaded: Boolean(document.querySelector('.quick-market img')?.naturalWidth),
+      marketIconLoaded: Boolean(document.querySelector('.quick-access-brand')?.naturalWidth),
+      access: (() => { const menu = document.querySelector('.quick-access'), actions = document.querySelector('.quick-access-actions'); const bounds = actions?.getBoundingClientRect(); return menu && bounds ? {
+        open: menu.dataset.open === 'true', top: bounds.top, bottom: bounds.bottom, left: bounds.left, right: bounds.right,
+        brandOpacity: getComputedStyle(menu.querySelector('.quick-access-brand')).opacity,
+        brandTransform: getComputedStyle(menu.querySelector('.quick-access-brand')).transform,
+        gearOpacity: getComputedStyle(menu.querySelector('.quick-access-gear')).opacity,
+        gearTransform: getComputedStyle(menu.querySelector('.quick-access-gear')).transform
+      } : null })(),
+      panel: (() => { const panel = document.querySelector('.quick-panel'); return panel ? { ...style(panel), borderTopWidth: getComputedStyle(panel).borderTopWidth } : null })(),
+      backgroundBounds: (() => { const rect = document.querySelector('.ambient-particles')?.getBoundingClientRect(); return rect ? { top: rect.top, bottom: rect.bottom } : null })(),
+      appearanceReady: document.documentElement.dataset.theme === 'dark' && document.documentElement.classList.contains('has-bg-atmosphere'),
       enriching: Boolean(document.querySelector('.quick-spinner')),
       grids: [...document.querySelectorAll('.quick-group-items')].map(grid => ({ columns: getComputedStyle(grid).gridTemplateColumns, height: grid.getBoundingClientRect().height })),
       resultCount: document.querySelectorAll('.quick-result').length,
@@ -149,7 +179,7 @@ function createQuickHarness(app, id, artifacts) {
       focusInInput: document.activeElement === input };
   })()`)
 
-  const key = (target, type = 'keyDown', repeat = false) => app.evaluate(async ({ app: electronApp, BaseWindow, webContents }, { id, target, type, repeat }) => {
+  const key = (target, type = 'keyDown', repeat = false, focusInput = true, keyCode = 'Escape') => app.evaluate(async ({ app: electronApp, BaseWindow, webContents }, { id, target, type, repeat, focusInput, keyCode }) => {
     const win = BaseWindow.getAllWindows().find(candidate => {
       try { return candidate.getTitle() === 'eNest Quick' || new URL(candidate.webContents?.getURL()).searchParams.get('surface') === 'quick' } catch { return false }
     })
@@ -157,19 +187,33 @@ function createQuickHarness(app, id, artifacts) {
     const wc = target === 'quick' ? win.webContents : webContents.getAllWebContents().find(contents => {
       try {
         const url = new URL(contents.getURL())
-        return url.searchParams.get('pid') === id || (url.protocol === 'enest:' && url.hostname === id)
+        return url.searchParams.get('pid') === id || (url.protocol === 'enest:' && url.hostname === 'plugin' && url.pathname.split('/')[1] === id)
       } catch { return false }
     })
     if (!wc || wc.isDestroyed()) throw new Error(`Missing ${target} keyboard target`)
     // Win.focus alone does not activate the process after macOS screenshot or
     // other desktop automation has made a different application foreground.
-    electronApp.focus({ steal: true })
-    win.focus()
-    wc.focus()
-    if (target === 'quick') await wc.executeJavaScript("document.querySelector('.quick-search-bar input')?.focus()")
-    wc.__quickSmokeExpectedInput = { type, key: 'Escape' }
-    wc.sendInputEvent({ type, keyCode: 'Escape', modifiers: repeat ? ['isautorepeat'] : [] })
-  }, { id, target, type, repeat })
+    if (type === 'keyDown') {
+      electronApp.focus({ steal: true })
+      win.focus()
+      wc.focus()
+      if (target === 'quick' && focusInput) await wc.executeJavaScript("document.querySelector('.quick-search-bar input')?.focus()")
+    }
+    wc.__quickSmokeExpectedInput = { type, key: keyCode }
+    wc.sendInputEvent({ type, keyCode, modifiers: repeat ? ['isautorepeat'] : [] })
+  }, { id, target, type, repeat, focusInput, keyCode })
+
+  const pointer = async (selector, click = false) => {
+    const position = await evaluate('quick', `(() => { const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) } })()`)
+    await app.evaluate(({ BaseWindow }, { position, click }) => {
+      const wc = BaseWindow.getAllWindows().find(win => win.getTitle() === 'eNest Quick').webContents
+      wc.sendInputEvent({ type: 'mouseMove', ...position })
+      if (click) {
+        wc.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...position })
+        wc.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...position })
+      }
+    }, { position, click })
+  }
 
   const screenshot = async name => {
     const output = join(artifacts, `${name}.png`)
@@ -192,7 +236,7 @@ function createQuickHarness(app, id, artifacts) {
         try {
           const url = new URL(wc.getURL())
           if (url.searchParams.get('surface') === 'quick') kind = 'shell-only'
-          else if (url.searchParams.get('pid') === id || (url.protocol === 'enest:' && url.hostname === id)) kind = 'plugin-only'
+          else if (url.searchParams.get('pid') === id || (url.protocol === 'enest:' && url.hostname === 'plugin' && url.pathname.split('/')[1] === id)) kind = 'plugin-only'
         } catch { continue }
         if (kind) images.push({ kind, png: (await wc.capturePage()).toPNG().toString('base64') })
       }
@@ -207,7 +251,7 @@ function createQuickHarness(app, id, artifacts) {
     return { kind: 'separate-webcontents', files }
   }
 
-  return { evaluate, nativeState, domState, key, screenshot }
+  return { evaluate, nativeState, domState, key, pointer, screenshot }
 }
 
 test('Quick keeps a 248px home, content-sized search and fixed 545px plugins through Escape and migration', {
@@ -226,7 +270,8 @@ test('Quick keeps a 248px home, content-sized search and fixed 545px plugins thr
       [pluginId, 'Quick layout smoke', { width: 640, height: 120 }],
       [largePluginId, 'Quick large layout fixture', { width: 1600, height: 1600 }]
     ]) {
-      const fixture = join(dataRoot, 'plugins', id, '1.0.0')
+      // Installed layout is plugins/<id-last-segment>/<version>, not the full reverse-domain id.
+      const fixture = join(dataRoot, 'plugins', id.split('.').pop(), '1.0.0')
       await mkdir(join(fixture, 'assets/market/screenshots'), { recursive: true })
       await writeFile(join(fixture, 'assets/market/icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#257"/></svg>')
       await writeFile(join(fixture, 'assets/market/README.md'), '# Isolated smoke fixture')
@@ -247,7 +292,7 @@ test('Quick keeps a 248px home, content-sized search and fixed 545px plugins thr
       await writeFile(join(fixture, 'assets/fixture.js'), "window.__quickSmokeReady = typeof window.enest?.quickInput?.configure === 'function'; window.__quickSmokeEnters = []; window.enest.onEnter(event => window.__quickSmokeEnters.push(event));")
     }
     await writeFile(join(dataRoot, 'settings.json'), JSON.stringify({
-      theme: { mode: 'light', overrides: {} },
+      theme: { mode: 'dark', overrides: {}, background: { type: 'color', value: '#327a63', opacity: 0.78 } },
       general: { animationLevel: 'high', quickLauncher: { enabled: false }, closeBehavior: 'quit', tabStyle: 'classic', sessionTabs: [] }, plugins: {}
     }))
     const env = { ...process.env, ENEST_TEST_DATA_ROOT: dataRoot, ENEST_TEST_USER_DATA: userData }
@@ -260,7 +305,7 @@ test('Quick keeps a 248px home, content-sized search and fixed 545px plugins thr
     app.process().stdout.on('data', chunk => { stdout = (stdout + chunk).slice(-64000) })
     assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), userData)
     harness = createQuickHarness(app, pluginId, artifacts)
-    const { evaluate, nativeState, domState, key, screenshot } = harness
+    const { evaluate, nativeState, domState, key, pointer, screenshot } = harness
     await poll(() => evaluate('shell', 'typeof window.enestShell?.quickToggle'), value => value === 'function', 'Main shell preload')
     const installed = await evaluate('shell', 'window.enestShell.getPlugins()')
     assert.ok(installed.some(plugin => plugin.id === pluginId && plugin.installed), JSON.stringify(installed))
@@ -279,6 +324,15 @@ test('Quick keeps a 248px home, content-sized search and fixed 545px plugins thr
       electronApp.on('web-contents-created', (_event, wc) => isolateInput(wc))
     })
     evidence.physicalKeyboardIsolated = true
+    await poll(() => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(win => win.getTitle() === 'eNest')?.isVisible()), Boolean, 'Initial main renderer presentation')
+    // AppKit can deliver the initial show notification after isVisible changes.
+    await pause(180)
+    await app.evaluate(({ BaseWindow }) => {
+      const main = BaseWindow.getAllWindows().find(win => win.getTitle() === 'eNest')
+      main.hide()
+      main.__quickSmokeActivationEvents = []
+      for (const event of ['show', 'focus']) main.on(event, () => main.__quickSmokeActivationEvents.push(event))
+    })
     await evaluate('shell', 'window.enestShell.quickToggle()')
     await poll(domState, state => state?.mode === 'list', 'Quick renderer')
     const initial = await poll(nativeState, state => {
@@ -339,8 +393,9 @@ test('Quick keeps a 248px home, content-sized search and fixed 545px plugins thr
       const snapshot = { label, dom: await domState(), native: await nativeState() }
       evidence.snapshots.push(snapshot)
       const height = snapshot.dom.mode === 'plugin' ? quickHeight
-        : snapshot.dom.query === '' ? homeHeight : Math.ceil(snapshot.dom.surfaceBottom)
+        : snapshot.dom.query === '' ? homeHeight : Math.ceil(snapshot.dom.surfaceBottom + 1)
       assertNativeGeometry(snapshot.native, label, height)
+      assertHeaderAlignment(snapshot.dom, label)
       return snapshot
     }
     const typeQuery = async query => {
@@ -406,7 +461,88 @@ test('Quick keeps a 248px home, content-sized search and fixed 545px plugins thr
     assert.ok(Math.abs(home.dom.panelTop - barHeight) < 0.001, `Home panel edge ${home.dom.panelTop} did not settle at ${barHeight}`)
     assert.equal(home.dom.footerVisible, false)
     assert.equal(home.dom.marketIconLoaded, true)
+    assert.equal(home.dom.appearanceReady, true, 'Quick hydrates dark mode and atmosphere background')
+    const assertContinuousBackground = state => {
+      for (const surface of [state.bar, state.searchBox, state.input, state.panel]) {
+        assert.equal(surface.background, 'rgba(0, 0, 0, 0)', 'bar and results share the shell background')
+        assert.equal(surface.backgroundImage, 'none')
+        assert.equal(surface.shadow, 'none', 'no shared search-field focus ring or divider')
+        assert.equal(surface.backdropFilter, 'none', 'no separate blur hiding the background effect')
+      }
+      assert.equal(state.searchBox.borderBottomWidth, '0px')
+      assert.equal(state.panel.borderTopWidth, '0px')
+      assert.equal(state.backgroundBounds.top, 0)
+      assert.ok(state.backgroundBounds.bottom >= state.surfaceBottom - 1, 'one background covers input and results')
+    }
+    assertContinuousBackground(home.dom)
+    assert.equal(home.native.main.visible, false, 'opening Quick never reveals the hidden main window')
+    assert.deepEqual(home.native.main.events, [])
     evidence.screenshots.push(await screenshot('quick-home-two-rows'))
+
+    // Overlay scrollbars reserve no gutter; the same alignment must hold there.
+    try {
+      await evaluate('quick', "document.querySelector('.quick-panel').style.scrollbarGutter = 'auto'")
+      await poll(domState, state => state?.alignment.resultsLeft < home.dom.alignment.resultsLeft &&
+        Math.abs(state.alignment.searchLeft - state.alignment.resultsLeft) <= 0.5 &&
+        Math.abs(state.alignment.brandRight - state.alignment.resultsRight) <= 0.5, 'header follows a list without reserved scrollbar gutters')
+      await record('home-without-scrollbar-gutters')
+    } finally {
+      await evaluate('quick', "document.querySelector('.quick-panel').style.removeProperty('scrollbar-gutter')")
+    }
+    await poll(domState, state => state?.alignment.resultsLeft === home.dom.alignment.resultsLeft &&
+      Math.abs(state.alignment.searchLeft - state.alignment.resultsLeft) <= 0.5 &&
+      Math.abs(state.alignment.brandRight - state.alignment.resultsRight) <= 0.5, 'header follows restored scrollbar gutters')
+
+    await pointer('.quick-access-trigger')
+    const access = await poll(domState, state => state?.access.open && state.access.brandOpacity === '0' && state.access.gearOpacity === '1', 'brand morphs into settings on hover')
+    assert.ok(access.access.top >= 0 && access.access.bottom < barHeight && access.access.left > 0 && access.access.right <= quickWidth,
+      'all access actions fit inside the native search bar')
+    assertContinuousBackground(access)
+    evidence.screenshots.push(await screenshot('quick-access-hover'))
+    await pointer('.quick-search-bar input')
+    await poll(domState, state => state?.access.open === false, 'leaving the entry restores the brand')
+    assert.equal(await evaluate('quick', "document.querySelector('.quick-access-actions').inert"), true, 'closed actions leave the keyboard and accessibility tree')
+    await key('quick', 'keyDown', false, true, 'F6')
+    await key('quick', 'keyUp', false, false, 'F6')
+    await poll(domState, state => state?.access.open, 'keyboard focus exposes access actions')
+    await key('quick', 'keyDown', false, false, 'Tab')
+    await key('quick', 'keyUp', false, false, 'Tab')
+    assert.equal(await evaluate('quick', "document.activeElement.getAttribute('aria-label')"), '打开插件市场', 'keyboard can reach the market action from search')
+    await key('quick', 'keyDown', false, false)
+    await key('quick', 'keyUp')
+    await poll(domState, state => state?.access.open === false && state.focusInInput, 'Escape closes access actions and restores search focus')
+
+    await pointer('.quick-access-trigger')
+    await poll(domState, state => state?.access.open && state.access.gearOpacity === '1', 'filter access exposed')
+    await pointer('.quick-scope-toggle', true)
+    await poll(() => evaluate('quick', "document.querySelector('.quick-search-bar').dataset.tools"), value => value === 'expanded', 'search categories remain available')
+    await pointer('.quick-category[aria-label="插件"]', true)
+    await poll(() => evaluate('quick', "document.querySelector('.quick-category[aria-label=\"插件\"]').getAttribute('aria-pressed')"), value => value === 'true', 'category selection retained')
+    await key('quick')
+    await key('quick', 'keyUp')
+    await poll(() => evaluate('quick', "document.querySelectorAll('.quick-category[aria-pressed=true]').length"), count => count === 0, 'Escape clears category before dismissing Quick')
+
+    // Regression: process activation while opening/dismissing Quick is not a Dock request.
+    await app.evaluate(({ app }) => { app.emit('activate', {}, true) })
+    await key('quick')
+    await key('quick', 'keyUp')
+    await app.evaluate(({ app }) => { app.emit('activate', {}, true) })
+    await poll(nativeState, state => state && !state.visible, 'blank Escape hides Quick')
+    await pause(1100)
+    const dismissed = await nativeState()
+    assert.equal(dismissed.main.visible, false, 'Escape does not reveal the main window')
+    assert.equal(dismissed.main.focused, false, 'Escape does not focus the main window')
+    assert.deepEqual(dismissed.main.events, [], 'no transient main show/focus during Quick activation or dismissal')
+    evidence.escapeDismissal = dismissed
+    await evaluate('shell', 'window.enestShell.quickToggle()')
+    await assertBlankLauncher('reshown-after-hide')
+
+    for (const mode of ['light', 'dark']) {
+      await evaluate('shell', `window.enestShell.setSettings({ theme: { mode: ${JSON.stringify(mode)} } })`)
+      await poll(() => evaluate('quick', 'document.documentElement.dataset.theme'), theme => theme === mode, 'Quick theme sync')
+      assertContinuousBackground(await domState())
+      if (mode === 'light') evidence.screenshots.push(await screenshot('quick-light-continuous-background'))
+    }
 
     // Search result height follows its DOM surface, capped at the plugin height.
     await typeQuery('__no_quick_smoke_results__')
@@ -432,11 +568,11 @@ test('Quick keeps a 248px home, content-sized search and fixed 545px plugins thr
     const searchResults = await record('global-search-results')
     assert.equal(searchResults.native.contentBounds.width, expected.width)
     assert.equal(searchResults.native.contentBounds.height,
-      expectedGeometry(searchResults.native.workArea, Math.ceil(searchResults.dom.surfaceBottom)).height)
+      expectedGeometry(searchResults.native.workArea, Math.ceil(searchResults.dom.surfaceBottom + 1)).height)
     assert.equal(searchResults.dom.input.fontSize, home.dom.input.fontSize)
-    assert.equal(searchResults.dom.input.width, home.dom.input.width)
-    assert.equal(searchResults.dom.bar.bottom, barHeight)
-    assert.equal(searchResults.dom.panelTop, barHeight)
+    assert.equal(searchResults.dom.searchBox.width, home.dom.searchBox.width)
+    assert.equal(searchResults.dom.bar.bottom, home.dom.bar.bottom)
+    assert.equal(searchResults.dom.panelTop, home.dom.panelTop)
     assert.ok(searchResults.native.contentBounds.height <= expected.height)
     evidence.screenshots.push(await screenshot('quick-global-results'))
     await key('quick')
@@ -460,9 +596,13 @@ test('Quick keeps a 248px home, content-sized search and fixed 545px plugins thr
     assert.equal(expanded.native.contentBounds.width, expected.width)
     assert.equal(expanded.dom.input.fontSize, home.dom.input.fontSize)
     assert.equal(expanded.dom.input.height, home.dom.input.height)
+    assert.ok(home.dom.searchBox && home.dom.toolbar, 'styled Quick capsules exist')
+    assert.equal(home.dom.searchBox.borderRadius, '20px 20px 0px 0px')
+    assert.equal(home.dom.searchBox.borderWidth, '0px')
     assert.ok(expanded.dom.grip && expanded.dom.grip.width > 0, 'plugin mode exposes its tear-out grip')
     assert.equal(expanded.dom.grip.appRegion, 'no-drag')
-    assert.ok(Math.abs(home.dom.input.width - expanded.dom.input.width - expanded.dom.grip.width - expanded.dom.grip.gap) <= 1, 'only the grip and its gap reduce the input width')
+    assert.ok(home.dom.toolbar.right < home.dom.searchBox.right && home.dom.toolbar.left > home.dom.searchBox.left,
+      'inline tools stay within the home input capsule')
     assert.equal(expanded.dom.marketIconLoaded, true)
     assert.equal(expanded.dom.bar.top, 0)
     assert.equal(expanded.dom.bar.bottom, barHeight)
@@ -474,6 +614,10 @@ test('Quick keeps a 248px home, content-sized search and fixed 545px plugins thr
     assert.ok(expanded.dom.buttons.length > 0)
     assert.ok(expanded.dom.buttons.every(button => button.appRegion === 'no-drag'), JSON.stringify(expanded.dom.buttons))
     evidence.screenshots.push(await screenshot('quick-expanded'))
+    await pointer('.quick-access-trigger')
+    const pluginAccess = await poll(domState, state => state?.access.open, 'plugin mode access entry opens')
+    assert.ok(pluginAccess.access.top >= 0 && pluginAccess.access.bottom < barHeight, 'plugin WebContentsView cannot cover the access actions')
+    await pointer('.quick-search-bar input')
 
     for (const [label, code] of [
       ['resize-small', 'window.enest.ui.resize({ width: 320, height: 80 })'],
@@ -526,7 +670,7 @@ test('Quick keeps a 248px home, content-sized search and fixed 545px plugins thr
     }
     await openFixture()
     const reopened = await record('reopened-after-interruptions')
-    assert.equal(reopened.native.plugins.length, 1)
+    assert.equal(reopened.native.plugins.filter(plugin => plugin.visible).length, 1)
     assert.equal(reopened.native.plugins[0].bounds.y, barHeight)
     assert.equal(reopened.native.plugins[0].bounds.width, expected.plugin.width)
     assert.equal(reopened.native.plugins[0].bounds.height, expected.plugin.height)
@@ -571,11 +715,21 @@ test('Quick keeps a 248px home, content-sized search and fixed 545px plugins thr
     await evaluate('shell', `window.__quickMarketEvents = []; void window.enestShell.onEvent(event => {
       if (event.type === 'quick-open-view') window.__quickMarketEvents.push(event.view)
     })`)
-    await evaluate('quick', "document.querySelector('.quick-market').click()")
-    await poll(() => evaluate('shell', 'window.__quickMarketEvents.at(-1)'), view => view === 'home', 'Brand icon opens desktop plugin market')
-    await poll(nativeState, state => state && !state.visible, 'Brand icon dismisses Quick')
+    await pointer('.quick-access-trigger')
+    await poll(domState, state => state?.access.open && state.access.gearOpacity === '1', 'market access exposed')
+    await pointer('.quick-market', true)
+    await poll(() => evaluate('shell', 'window.__quickMarketEvents.at(-1)'), view => view === 'home', 'Merged entry opens desktop plugin market')
+    await poll(nativeState, state => state && !state.visible && state.main.visible, 'Market action explicitly shows desktop and dismisses Quick')
     await evaluate('shell', 'window.enestShell.quickToggle()')
     await poll(nativeState, state => state?.visible, 'Quick reshown after opening market')
+    await openFixture()
+    await pointer('.quick-access-trigger')
+    await poll(domState, state => state?.access.open && state.access.gearOpacity === '1', 'settings access exposed above native plugin')
+    await pointer('.quick-settings', true)
+    await poll(() => evaluate('shell', 'window.__quickMarketEvents.at(-1)'), view => view === 'settings', 'Merged entry opens desktop settings from a live plugin')
+    await poll(nativeState, state => state && !state.visible && state.main.visible, 'Settings action explicitly shows desktop and dismisses Quick')
+    await evaluate('shell', 'window.enestShell.quickToggle()')
+    await poll(nativeState, state => state?.visible, 'Quick reshown after opening settings')
     await openFixture()
     const geometryChanges = await app.evaluate(({ BaseWindow }) =>
       BaseWindow.getAllWindows().find(win => win.getTitle() === 'eNest Quick').__quickSmokeGeometryChanges)

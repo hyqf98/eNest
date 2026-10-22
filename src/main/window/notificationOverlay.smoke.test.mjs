@@ -21,7 +21,7 @@ async function poll(read, check, label, timeout = 15000) {
 test('native notification views stay above plugins in shell, Quick and detached containers; rich content is inert and isolated', { skip: process.env.ENEST_NOTIFICATION_SMOKE !== '1', timeout: 90000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'enest-notification-native-'))
   const dataRoot = join(directory, 'data'), userData = join(directory, 'profile')
-  const folder = join(dataRoot, 'plugins', pluginId, '1.0.0')
+  const folder = join(dataRoot, 'plugins', pluginId.split('.').pop(), '1.0.0')
   let app, logs = ''
   const evidence = { platform: process.platform, containers: [] }
   try {
@@ -40,7 +40,7 @@ test('native notification views stay above plugins in shell, Quick and detached 
     const run = (target, code) => app.evaluate(({ webContents }, { target, code, pluginId }) => {
       const wc = webContents.getAllWebContents().find(wc => {
         const url = wc.getURL()
-        if (target === 'plugin') return url.startsWith('enest://') && url.includes(pluginId)
+        if (target === 'plugin') return url.startsWith(`enest://plugin/${pluginId}/`)
         if (target === 'notice') return url.endsWith('/notification-overlay.html')
         if (target === 'detached') return url.includes('/detached-plugin.html')
         if (target === 'quick') return url.includes('surface=quick')
@@ -51,7 +51,7 @@ test('native notification views stay above plugins in shell, Quick and detached 
     }, { target, code, pluginId })
     const inventory = () => app.evaluate(({ BaseWindow }, pluginId) => {
       const walk = view => [{ view, wc: view.webContents }, ...view.children.flatMap(walk)]
-      return BaseWindow.getAllWindows().map(win => ({ id: win.id, title: win.getTitle(), visible: win.isVisible(), bounds: win.getContentBounds(), views: walk(win.contentView).filter(entry => entry.wc).map(({ view, wc }) => ({ id: wc.id, url: wc.getURL(), bounds: view.getBounds(), visible: view.getVisible(), topIndex: win.contentView.children.indexOf(view), plugin: wc.getURL().startsWith('enest://') && wc.getURL().includes(pluginId) })) }))
+      return BaseWindow.getAllWindows().map(win => ({ id: win.id, title: win.getTitle(), visible: win.isVisible(), bounds: win.getContentBounds(), views: walk(win.contentView).filter(entry => entry.wc).map(({ view, wc }) => ({ id: wc.id, url: wc.getURL(), bounds: view.getBounds(), visible: view.getVisible(), topIndex: win.contentView.children.indexOf(view), plugin: wc.getURL().startsWith(`enest://plugin/${pluginId}/`) })) }))
     }, pluginId)
     await poll(() => run('shell', 'typeof window.enestNotifications?.show'), value => value === 'function', 'notification client')
     assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), userData)

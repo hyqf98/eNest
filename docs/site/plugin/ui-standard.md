@@ -126,7 +126,7 @@ enest.onModeChange((mode) => applyMode(mode))
 }
 ```
 
-Quick 默认呼出显示两行常用项，总高 248px；搜索随结果数量调整高度，最多 545px。进入插件后才统一展开为 720 × 545px：输入区 64px、内容区 480px、底边 1px。插件实际视口为 718 × 480px；屏幕工作区不足时整体缩小。manifest 的 `window.width` / `height` / `minWidth` / `minHeight` 保留兼容，不改变 Quick 外框。
+Quick 默认呼出显示两行常用项，总高 248px；输入搜索后也先显示实际网格的两行匹配项，跨分组累计行数，超过部分通过「更多 N」展开并可收起。查询或类别改变时收起，同查询的增量结果不打断已展开状态；键盘选择只操作当前可见项。搜索随折叠/展开后的内容调整高度，最多 545px。进入插件后才统一展开为 720 × 545px：输入区 64px、内容区 480px、底边 1px。插件实际视口为 718 × 480px；屏幕工作区不足时整体缩小。manifest 的 `window.width` / `height` / `minWidth` / `minHeight` 保留兼容，不改变 Quick 外框。
 
 - `await enest.ui.resize({ width, height })`：保留兼容调用及参数校验，支持只传高度；不改变 Quick 或主窗尺寸。
 - `await enest.ui.setHeight(height)`：与 `resize({ height })` 等价，调用成功不改变固定视口。
@@ -155,6 +155,12 @@ async function expandWorkspace() {
   await enest.ui.openInShell()
 }
 ```
+
+### Quick 主题表面与搜索空态
+
+业务插件仍只渲染自己的内容区域。主题插件可在 `ThemePackV2.quick` 声明隔离的自绘搜索栏、结果和装饰页面，专用 API 是 `window.enestQuick`，不是普通插件 `enest.quickInput`，也没有完整 `shellApi`。原生宽高与业务视图边界归宿主；加载失败回退内置页面，详见[Quick 自绘页面 V1](themes.md#quick-自绘页面-v1)。
+
+全局搜索在插件和本机应用均无匹配、搜索阶段结束且无已报告错误时，提供「去插件市场」入口。按钮打开桌面主窗当前主题的插件市场目录并收起 Quick，不在小窗嵌入市场；分类过滤、输入法组合与搜索失败不能伪装成确认无结果。
 
 ### Quick 交互与键盘
 
@@ -217,12 +223,19 @@ const off = enest.ui.onThemeChange(({ mode, tokens }) => {
 | `--danger` | 危险色 | `#c54f46` | `#e79589` |
 | `--link` | 链接色 | `#bd542b` | `#e98654` |
 
-> 预设以 `src/shared/theme/presets.ts` 的 `THEME_TOKEN_PRESETS` 为准；活动主题包与用户 overrides 会覆盖上表。`--accent-soft` / `--ok-soft` / `--danger-soft` / `--link` / `--glow-color` / `--bg-dot` / `--border-dashed` 为派生 token（`resolveThemePalette`，soft 比例 light 12% / dark 16%）。
+> 基础色以 `src/shared/theme/presets.ts` 的 `THEME_TOKEN_PRESETS` 为准；实际值由活动主题 variant 与 Profile 解析为同一 `ResolvedAppearance`，插件不自行叠加旧 overrides。`--accent-soft` / `--ok-soft` / `--danger-soft` / `--link` / `--glow-color` / `--bg-dot` / `--border-dashed` 为派生 token（`resolveThemePalette`，soft 比例 light 12% / dark 16%）。
 
 注入时还会设置：
 
 - `document.documentElement.dataset.theme` = `"light"` | `"dark"`
-- `color-scheme` 与之一致（影响滚动条、表单控件原生外观）
+- `color-scheme` 与之一致（影响表单控件原生外观）
+- 主题感知插件注入与主壳同源的滚动条样式，轨道、滑块和悬停颜色随 `--surface / --text-3 / --accent` 等语义变量变化；不需要插件自行复制固定浅色或深色滚动条。横向滚动同样适用，显式隐藏的标签栏和轮播滚动条继续隐藏。
+
+### 滚动区域与提示留白
+
+宿主滚动条的唯一样式源为 `src/shared/theme/scrollbar.css`；官方 plugin-kit 派生同一规则。独立 Workspace 与自绘页面不继承壳 DOM 样式，应在自己的样式中使用相同语义变量，不能依赖壳层 CSS 穿透原生视图。
+
+有长文本的弹框正文应设置 `min-width: 0`、`scrollbar-gutter: stable`，并在滚动容器内保留右侧内容间距。统一通知由宿主提供这层留白；代码块可独立横向滚动，不把按钮与整张提示一起滚走。不要通过设置全局 `overflow: auto` 获得滚动条，也不要让标准 `scrollbar-width: thin` 覆盖 Chromium 的完整主题样式。
 
 ### 在 CSS 中使用
 
@@ -288,11 +301,13 @@ api?.ui.onThemeChange(({ tokens }) => {
 ### 叠加顺序
 
 ```text
-内置 light/dark 预设
+宿主 light/dark 基础值
         ↓
-活动主题包 tokens
+活动主题 variants[mode]
         ↓
-用户在设置页的 overrides
+Schema 默认值 + 当前 Profile 参数与分模式颜色
+        ↓
+ResolvedAppearance（含派生色与动态效果约束）
         ↓
 document.documentElement 上的 CSS 变量
 ```
@@ -305,42 +320,11 @@ document.documentElement 上的 CSS 变量
 
 ## 主题包注册（主题类插件）
 
-主题插件在加载后调用 `enest.theme.register(ThemePack)`：
+新主题使用 `ThemePackV2`，优先在 `plugin.json.contributes.themePacks` 声明，安装扫描即可发现，无需先打开普通插件页面。运行时 `enest.theme.register(pack)` 仅登记或更新自己的主题，不会自动激活，也不能写宿主设置。
 
-```js
-await enest.theme.register({
-  id: 'com.example.forest',
-  name: '森林',
-  mode: 'dark',
-  tokens: {
-    '--bg': '#0a1f1c',
-    '--surface': '#0f2924',
-    '--surface-2': '#14352f',
-    '--text': '#e8fff8',
-    '--text-2': '#9ccfc0',
-    '--text-3': '#6a9a8c',
-    '--accent': '#2dd4a8',
-    '--border': 'rgba(255,255,255,0.08)',
-    '--border-strong': 'rgba(255,255,255,0.14)',
-    '--ok': '#3dd68c',
-    '--danger': '#ff7a8e'
-  },
-  background: {
-    type: 'color',
-    value: '#0a1f1c',
-    opacity: 0.9,
-    fit: 'cover'
-  }
-})
-```
+主题选择卡片只显示合法 V2 包。用户确认后由宿主事务激活，外观通过统一快照同步；`theme-packs-changed` 只是注册表列表通知，不是主题已应用的信号。旧 V1 注册/读取 API 仅保留兼容，不作为新主题模板。
 
-壳子会：
-
-1. 写入主题包注册表（`~/.eNest` 数据根下 `themes/registry.json`；同一 `enest.db` 生态的持久化存储）
-2. 推送 `theme-packs-changed`
-3. 设置 → 主题 →「主题包」下拉 **即时出现**，用户选择后全壳生效
-
-运行时和声明式主题注册都是基础能力，无需在 `permissions` 声明或单项授权；完整字段与限制见 [enest API → theme.register](api.md#theme-register-pack)。
+注册属于基础能力，无需单项授权，仍校验真实来源、字段与配额。完整示例、动态设置 Schema 和迁移边界统一维护在[主题包规范](themes.md)，四路由布局与受限桥接见[主题工作区](home.md)，这里不重复维护另一份主题实现。
 
 ---
 

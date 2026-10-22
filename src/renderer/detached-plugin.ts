@@ -2,6 +2,7 @@ import type { DetachedPluginState, PluginWindowCommand } from '@shared/types/plu
 import type { QuickInputState } from '@shared/types/plugin-tools'
 import { IS_MAC } from '@shared/platform'
 import { applyLevelToDefaults } from '@renderer/gsap/marketMotion'
+import { applyAppearanceToDom } from '@renderer/services/appearanceDom'
 import { startBackgroundEffect } from '@renderer/background/backgroundEffect'
 import { validateBackgroundEffects } from '@shared/backgroundEffects'
 import { backgroundAtmosphereStyle, syncBackgroundAtmosphere, syncBackgroundAtmosphereTheme } from '@renderer/components/backgroundAtmosphere'
@@ -9,6 +10,7 @@ import { bindPluginDragSource } from '@renderer/services/pluginWindowDrag'
 import './detached-plugin.css'
 import '@renderer/styles/plugin-window-drag.css'
 import '@renderer/styles/backgroundEffect.css'
+import '@renderer/styles/appearance.css'
 
 const api = window.enestWindows
 const root = document.documentElement
@@ -206,6 +208,7 @@ function applyState(state: DetachedPluginState, preserveInput = false): void {
     const scale = Math.min(1.3, Math.max(.9, appearance.fontSizeScale ?? 1))
     root.style.setProperty('--font-size-base', `${14 * scale}px`)
     root.lang = appearance.locale || 'zh-CN'
+    if (appearance.resolved) applyAppearanceToDom(appearance.resolved)
   }
   syncBackground()
 }
@@ -276,7 +279,7 @@ if (api) disposers.push(api.onEvent(event => {
     if (window.enestNotifications) void window.enestNotifications.show(options).catch(() => showNotice(options.body ?? ''))
     else showNotice(options.body ?? '')
   }
-  else if (message.type === 'settings-changed' || message.type === 'theme-changed' || message.type === 'theme-packs-changed') void refresh()
+  else if (message.type === 'appearance-changed' || message.type === 'settings-changed' || message.type === 'theme-changed' || message.type === 'theme-packs-changed') void refresh()
 }))
 void refresh()
 function dispose(): void {

@@ -11,7 +11,8 @@
 
 | 层 | 说明 |
 |----|------|
-| Shell | React 壳子 UI：市场、Tab 栏、设置、开发者控制台 |
+| Shell | 可信标题栏、Tab、权限确认、直接启动与原生设置/故障恢复；没有首启主题向导 |
+| Theme Workspace | 隔离 WebContentsView：插件目录、已安装和详情；默认包随壳源码编译，其它布局可由主题插件实现 |
 | Node Backend（可选） | 插件包内 backend 入口；获得 backend.node 完整本机信任后，在 utilityProcess 中运行 |
 | Plugin View | 独立 `WebContentsView`，partition = `persist:plugin-{id}` |
 | 协议 | `enest://plugin/{id}/...`，仅映射许可的页面与公开资源，不暴露 backend |
@@ -21,7 +22,7 @@
 
 - eNest 面向**桌面多窗口工作台**：顶部多 Tab，不是全局呼出搜索框为主。
 - 插件页面默认**进程 / 会话隔离**；Node 后端是显式信任的独立进程，不是操作系统沙箱。关闭实例按生命周期回收页面与后端资源。
-- 市场支持远端 registry 与最终包资源；开发检出可预览本地 dist 的对应版本。
+- 市场支持远端 registry 与最终包资源；开发检出优先预览本地 dist，未构建时可读取源码的公开市场资源。图标、截图与 README 经宿主受控槽位提供，卡片显示安装包大小而非下载量。
 
 ## 文档结构
 
@@ -34,6 +35,7 @@
 | [插件本机后端](backend.md) | 通用 backend.call、utility 协议、依赖打包与完整 Node 信任边界 |
 | [TypeScript 类型](api-types.md) | `window.enest` 接口声明与使用建议 |
 | [UI 集成标准](ui-standard.md) | chrome / 主题变量 / 透明底 / Canvas |
+| [主题工作区](home.md) | 四路由、ACK、动态设置描述符、隔离桥接及资源协议 |
 | [权限说明](permissions.md) | 权限键与 API 对照表 |
 | [调试与热更新](debug.md) | 开发者控制台、Vite HMR、DevTools |
 | [生命周期](lifecycle.md) | 状态机、事件时间线、handler 示例 |

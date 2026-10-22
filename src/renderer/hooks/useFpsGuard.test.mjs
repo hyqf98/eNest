@@ -24,17 +24,27 @@ function eventTarget() {
 function fixture({ level = 'high', reduced = false, focused = true, hidden = false, enabled = true } = {}) {
   const pending = new Map()
   const writes = []
+  const legacyWrites = []
+  const snapshots = []
   const notices = []
   const document = { ...eventTarget(), hidden, hasFocus: () => focused }
   const window = eventTarget()
   let nextId = 0
   let cleanup
   let dependencies
-  const animationStore = selector => selector({ level })
-  animationStore.getState = () => ({ setLevel: async value => { writes.push(value) } })
+  const appearanceStore = selector => selector({ appearance: { animation: { effective: level, requested: level } } })
+  appearanceStore.getState = () => ({ applySnapshot: value => { snapshots.push(value) } })
   const imports = {
     react: { useEffect: (setup, deps) => { cleanup = setup(); dependencies = deps } },
-    '@renderer/hooks/useAnimationLevel': { useAnimationLevelStore: animationStore, useReducedMotion: () => reduced },
+    '@renderer/hooks/useAnimationLevel': { useReducedMotion: () => reduced },
+    '@renderer/hooks/useAppearance': { useAppearanceStore: appearanceStore },
+    '@renderer/services/shellApi': { shellApi: {
+      setAppearancePerformanceLimited: async limited => {
+        writes.push(limited)
+        return { appearance: { animation: { requested: level, effective: limited ? 'low' : level } } }
+      },
+      setSettings: async value => { legacyWrites.push(value) },
+    } },
     '@renderer/services/notifyService': { notify: { info: (...args) => notices.push(args) } },
   }
   const module = { exports: {} }
@@ -49,7 +59,7 @@ function fixture({ level = 'high', reduced = false, focused = true, hidden = fal
   const mount = () => module.exports.useFpsGuard(enabled)
   mount()
   return {
-    pending, writes, notices, document, window,
+    pending, writes, legacyWrites, snapshots, notices, document, window,
     get dependencies() { return dependencies },
     tick(time) {
       const current = [...pending.entries()]
@@ -105,7 +115,7 @@ test('blur and visibility stop RAF immediately and restoration never creates par
   assert.equal(f.listenerCount(), 0)
 })
 
-test('idle time is excluded from the FPS window and actual slow frames degrade once', () => {
+test('idle time is excluded and slow frames only reduce runtime effective intensity once', async () => {
   const f = fixture()
   for (let time = 0; time < 4000; time += 50) f.tick(time)
   assert.deepEqual(f.writes, [])
@@ -116,7 +126,11 @@ test('idle time is excluded from the FPS window and actual slow frames degrade o
   for (let time = 3_600_050; time < 3_604_900; time += 50) f.tick(time)
   assert.deepEqual(f.writes, [])
   for (let time = 3_604_900; time <= 3_606_000; time += 50) f.tick(time)
-  assert.deepEqual(f.writes, ['medium'])
+  await Promise.resolve()
+  assert.deepEqual(f.writes, [true])
+  assert.deepEqual(f.legacyWrites, [])
+  assert.equal(f.snapshots[0].appearance.animation.requested, 'high')
+  assert.equal(f.snapshots[0].appearance.animation.effective, 'low')
   assert.equal(f.notices.length, 1)
   assert.equal(f.pending.size, 0)
   f.hide(true)

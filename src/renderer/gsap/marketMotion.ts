@@ -80,11 +80,6 @@ export function ease(fallback: string): string {
   return fallback
 }
 
-function exitDuration(enterDur: number): number {
-  const t = tokens()
-  return Math.max(msToSec(t.duration.fast) * t.exitRatio, enterDur * t.exitRatio)
-}
-
 /** Reveal the marketplace in reading order without masking or rotating its content. */
 export function playHeroIn(root: HTMLElement | null): void {
   if (!root) return

@@ -88,9 +88,10 @@ function appearance(): NonNullable<DetachedPluginState['appearance']> {
   const selectedTheme = settingsStore.getTheme()
   const packs = themePackRegistry.list()
   return {
-    theme: theme.mode, tokens: theme.tokens, animationLevel: general.animationLevel ?? 'medium',
-    backgroundEffect: resolveBackgroundEffect(selectedTheme.backgroundEffect, packs),
-    background: resolveThemeBackground(selectedTheme, packs),
+    resolved: theme.appearance,
+    theme: theme.mode, tokens: theme.tokens, animationLevel: theme.appearance?.animation.effective ?? general.animationLevel ?? 'medium',
+    backgroundEffect: theme.appearance ? resolveBackgroundEffect(theme.appearance.background.effect, packs) : resolveBackgroundEffect(selectedTheme.backgroundEffect, packs),
+    background: theme.appearance && !theme.appearance.theme.legacy ? theme.appearance.background.media : resolveThemeBackground(selectedTheme, packs),
     fontFamily: general.fontFamily, fontFamilyEn: general.fontFamilyEn,
     fontSizeScale: general.fontSizeScale, locale: general.locale
   }

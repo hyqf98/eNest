@@ -32,6 +32,9 @@ import { normalizeSearchText } from '@shared/search'
 import { filterPermissionGrants, isBuiltinCapability } from '@shared/pluginPermissionPolicy'
 import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
 import type { PluginShortcutBinding } from '@shared/types/shortcuts'
+import { DEFAULT_PLUGIN_MEMORY_MONITOR, normalizePluginMemoryMonitor } from '@shared/types/pluginMemory'
+import type { AppearanceSettings, LegacyAppearanceBackup } from '@shared/types/appearance'
+import { migrateAppearanceSettings, THEME_PROFILE_LEGACY, themeProfileKey } from '@shared/theme/appearance'
 import { migratePluginShortcuts } from './pluginShortcutMigration'
 
 /** 通用设置：以 shared 契约为准，保留历史 openAtLogin 扩展字段 */
@@ -51,6 +54,7 @@ export function defaultQuickLauncher(): QuickLauncherSettings {
 
 export interface SettingsData {
   theme: ThemeTokens
+  appearance?: AppearanceSettings
   general: GeneralSettings
   plugins: Record<string, Record<string, unknown>>
   /** 每插件 Quick 搜索偏好（启动方式/触发词）；键 = pluginId */
@@ -67,6 +71,7 @@ const DEFAULTS: SettingsData = {
     hardwareAcceleration: true,
     closeBehavior: 'minimize-tray',
     notifyPosition: 'bottom-right',
+    pluginMemoryMonitor: { ...DEFAULT_PLUGIN_MEMORY_MONITOR },
     tabStyle: 'classic',
     animationLevel: 'medium',
     fontFamily: '',
@@ -75,7 +80,7 @@ const DEFAULTS: SettingsData = {
     customFonts: [],
     sessionTabs: [],
     sessionActivePluginId: '',
-    proxy: { type: 'none' },
+    proxy: { type: 'system' },
     quickLauncher: defaultQuickLauncher(),
     splashBackground: { type: 'brand', opacity: 0.55 }
   },
@@ -222,11 +227,18 @@ export class SettingsStore {
 
   /** 合并默认值与存量数据（浅合并，theme.overrides 单独保底） */
   private mergeDefaults(raw: Partial<SettingsData> | null): SettingsData {
-    if (!raw) return structuredClone(DEFAULTS)
+    raw ??= {}
     const migrated = migratePluginShortcuts(raw.pluginLaunch, raw.pluginShortcuts)
+    const migratedAppearance = migrateAppearanceSettings(raw.appearance, {
+      theme: raw.theme ?? structuredClone(DEFAULTS.theme),
+      general: this.legacyAppearanceGeneral(raw.general ?? {})
+    })
+    const general = { ...DEFAULTS.general, ...raw.general }
+    Reflect.deleteProperty(general, 'themeSetupComplete')
     return {
       theme: { ...DEFAULTS.theme, ...raw.theme, overrides: raw.theme?.overrides ?? {} },
-      general: { ...DEFAULTS.general, ...raw.general },
+      appearance: migratedAppearance,
+      general,
       plugins: { ...raw.plugins },
       pluginLaunch: migrated.pluginLaunch,
       pluginShortcuts: migrated.pluginShortcuts,
@@ -241,6 +253,16 @@ export class SettingsStore {
   getAll(): SettingsData {
     this.ensureLoaded()
     return structuredClone(this.data)
+  }
+
+  getPluginMemoryMonitorSettings() {
+    this.ensureLoaded()
+    return normalizePluginMemoryMonitor(this.data.general.pluginMemoryMonitor)
+  }
+
+  getLocale(): GeneralSettings['locale'] {
+    this.ensureLoaded()
+    return this.data.general.locale
   }
 
   getQuickLauncherSettings(): QuickLauncherSettings {
@@ -344,34 +366,108 @@ export class SettingsStore {
     return structuredClone(this.data.theme)
   }
 
+  private legacyAppearanceGeneral(general: Partial<GeneralSettings>): LegacyAppearanceBackup['general'] {
+    const { fontFamily, fontFamilyEn, fontSizeScale, animationLevel, splashBackground, tabStyle } = general
+    return structuredClone({ fontFamily, fontFamilyEn, fontSizeScale, animationLevel, splashBackground, tabStyle })
+  }
+
+  /** Keep V1 fields current without overriding the migrated V2 mode authority. */
+  getAppearanceSettings(): AppearanceSettings {
+    this.ensureLoaded()
+    const legacy = { theme: this.getTheme(), general: this.legacyAppearanceGeneral(this.data.general) }
+    const settings = migrateAppearanceSettings(this.data.appearance, legacy)
+    settings.legacy = legacy
+    return settings
+  }
+
+  /** No success state or revision is exposed before the durable write succeeds. */
+  commitAppearanceSettings(appearance: AppearanceSettings): void {
+    this.ensureLoaded()
+    const next = { ...this.data, appearance: structuredClone(appearance) }
+    this.commitShortcutSettings(next)
+  }
+
+  /** Revoke a font and its exact selections in one durable write; keep all other profiles. */
+  commitAppearanceFontRemoval(fontId: string, family: string, fontFields: Record<string, string[]>): void {
+    this.ensureLoaded()
+    const matches = (value: unknown): value is string => typeof value === 'string' && value.split(',')
+      .some(part => part.trim().replace(/^(["'])(.*)\1$/, '$2') === family)
+    const fonts = this.data.general.customFonts ?? []
+    if (!family || !fonts.some(font => font.id === fontId && font.family === family)) throw new Error('Font library changed; refresh before editing')
+    const appearance = structuredClone(this.getAppearanceSettings())
+    for (const [profileKey, profile] of Object.entries(appearance.profiles)) {
+      for (const key of fontFields[profileKey] ?? []) if (matches(profile.values[key])) delete profile.values[key]
+    }
+    const general = { ...this.data.general, customFonts: fonts.filter(font => font.id !== fontId) }
+    if (matches(general.fontFamily)) general.fontFamily = ''
+    if (matches(general.fontFamilyEn)) general.fontFamilyEn = ''
+    appearance.revision++
+    appearance.legacy = { ...appearance.legacy, general: this.legacyAppearanceGeneral(general) }
+    this.commitShortcutSettings({ ...this.data, general, appearance })
+    sendShellEvent({ type: 'settings-changed', generalKeys: ['customFonts', 'fontFamily', 'fontFamilyEn'] })
+  }
+
+  /** The workspace receives descriptors, not permission to replace a settings bag. */
+  commitGeneralPreferences(patch: Partial<Pick<GeneralSettings, 'locale' | 'hardwareAcceleration' | 'closeBehavior' | 'notifyPosition'>>): void {
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch) ||
+      ![null, Object.prototype].includes(Object.getPrototypeOf(patch))) throw new Error('Invalid general preferences')
+    const descriptors = Object.getOwnPropertyDescriptors(patch)
+    const allowed = new Set(['locale', 'hardwareAcceleration', 'closeBehavior', 'notifyPosition'])
+    for (const key of Reflect.ownKeys(patch)) {
+      if (typeof key !== 'string' || !allowed.has(key) || !('value' in descriptors[key])) throw new Error('Invalid general preference key')
+      const value: unknown = descriptors[key].value
+      if (key === 'locale' ? value !== 'zh-CN' && value !== 'en-US'
+        : key === 'hardwareAcceleration' ? typeof value !== 'boolean'
+          : key === 'closeBehavior' ? value !== 'quit' && value !== 'minimize-tray'
+            : value !== 'center' && value !== 'bottom-right') throw new Error('Invalid general preference value')
+    }
+    if (!Object.keys(patch).length) return
+    this.ensureLoaded()
+    const next = { ...this.data, general: { ...this.data.general, ...patch } }
+    this.commitShortcutSettings(next)
+    sendShellEvent({ type: 'settings-changed', generalKeys: Object.keys(patch) })
+  }
+
   /** 更新主题 mode / overrides / packId / background，持久化后推送 theme-changed */
   async setTheme(theme: Partial<ThemeTokens>): Promise<ThemeTokens> {
     validateBackgroundEffectSelection(theme.backgroundEffect)
+    if (theme.mode !== undefined && !['light', 'dark', 'system'].includes(theme.mode)) {
+      throw new Error('invalid theme mode')
+    }
     if (theme.backgroundSource !== undefined && theme.backgroundSource !== 'user' && theme.backgroundSource !== 'pack') {
       throw new Error('invalid background source')
     }
     this.ensureLoaded()
-    if (theme.mode) this.data.theme.mode = theme.mode as ThemeMode
+    const appearance = this.getAppearanceSettings()
+    const nextTheme = structuredClone(this.data.theme)
+    if (theme.mode) {
+      nextTheme.mode = theme.mode as ThemeMode
+      appearance.mode = nextTheme.mode
+    }
     if (theme.overrides) {
       const ov = theme.overrides as Record<string, Record<string, string> | undefined>
+      const legacyProfile = appearance.profiles[themeProfileKey(THEME_PROFILE_LEGACY)]
       for (const key of ['light', 'dark'] as const) {
         if (ov[key]) {
-          this.data.theme.overrides[key] = ov[key]
+          nextTheme.overrides[key] = structuredClone(ov[key])
+          legacyProfile.colors[key] = structuredClone(ov[key])
         }
       }
       // system 模式：preload 把 overrides 写在 system 键，这里按 nativeTheme 落到 light/dark
       if (ov.system) {
         const resolved: 'light' | 'dark' = nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
-        this.data.theme.overrides[resolved] = ov.system
+        nextTheme.overrides[resolved] = structuredClone(ov.system)
+        legacyProfile.colors[resolved] = structuredClone(ov.system)
       }
     }
     // 用 `in` 判断：显式传 undefined/null 可清除 packId / background（取消主题包/背景）
-    if ('packId' in theme) this.data.theme.packId = theme.packId
-    if ('backgroundSource' in theme) this.data.theme.backgroundSource = theme.backgroundSource
-    if ('backgroundEffect' in theme) this.data.theme.backgroundEffect = theme.backgroundEffect
-    if (this.data.theme.backgroundSource === 'pack') delete this.data.theme.background
-    else if ('background' in theme) this.data.theme.background = theme.background
-    this.schedulePersist()
+    if ('packId' in theme) nextTheme.packId = theme.packId
+    if ('backgroundSource' in theme) nextTheme.backgroundSource = theme.backgroundSource
+    if ('backgroundEffect' in theme) nextTheme.backgroundEffect = theme.backgroundEffect
+    if (nextTheme.backgroundSource === 'pack') delete nextTheme.background
+    else if ('background' in theme) nextTheme.background = structuredClone(theme.background)
+    appearance.legacy = { ...appearance.legacy, theme: structuredClone(nextTheme) }
+    this.commitShortcutSettings({ ...this.data, theme: nextTheme, appearance })
     sendShellEvent({ type: 'theme-changed', mode: this.data.theme.mode })
     return this.getTheme()
   }
@@ -379,6 +475,15 @@ export class SettingsStore {
   /** 浅合并更新 theme/general/plugins 并持久化；dataRoot 变更即时生效 */
   async setAll(partial: Partial<Omit<SettingsData, 'general'>> & { general?: Partial<GeneralSettings> }): Promise<SettingsData> {
     validateBackgroundEffectSelection(partial.theme?.backgroundEffect)
+    if (partial.general && Object.hasOwn(partial.general, 'pluginMemoryMonitor')) {
+      const value = partial.general.pluginMemoryMonitor
+      if (!value || typeof value !== 'object' || Array.isArray(value)
+        || typeof value.enabled !== 'boolean' || typeof value.alertsEnabled !== 'boolean'
+        || !Number.isInteger(value.warningThresholdMiB) || value.warningThresholdMiB < 128 || value.warningThresholdMiB > 8192) {
+        throw new Error('invalid plugin memory monitor preferences')
+      }
+      partial = { ...partial, general: { ...partial.general, pluginMemoryMonitor: normalizePluginMemoryMonitor(value) } }
+    }
     if (partial.general && 'dataRoot' in partial.general) {
       const root = partial.general.dataRoot
       if (root != null && typeof root !== 'string') throw new Error('数据目录必须是本地路径')
@@ -388,35 +493,39 @@ export class SettingsStore {
       } }
     }
     this.ensureLoaded()
+    const next = this.data
     const prevRoot = this.data.general.dataRoot as string | undefined
-    if (partial.theme) this.data.theme = { ...this.data.theme, ...partial.theme }
-    if (partial.general) this.data.general = { ...this.data.general, ...partial.general }
+    if (partial.theme) next.theme = { ...next.theme, ...partial.theme }
+    if (partial.general) {
+      next.general = { ...next.general, ...partial.general }
+      Reflect.deleteProperty(next.general, 'themeSetupComplete')
+    }
     // plugins 按插件 id 合并 bag，避免整包覆盖丢失未提交的键
     if (partial.plugins) {
       for (const [id, bag] of Object.entries(partial.plugins)) {
-        this.data.plugins[id] = { ...(this.data.plugins[id] ?? {}), ...(bag ?? {}) }
+        next.plugins[id] = { ...(next.plugins[id] ?? {}), ...(bag ?? {}) }
       }
     }
     // pluginLaunch 按插件 id 合并（null = 删除该插件配置）
     if (partial.pluginLaunch) {
-      this.pluginLaunchRevision++
       for (const [id, cfg] of Object.entries(partial.pluginLaunch)) {
-        if (cfg === null) delete this.data.pluginLaunch[id]
+        if (cfg === null) delete next.pluginLaunch[id]
         else {
           const { hotkey: _legacyHotkey, ...preferences } = cfg
-          this.data.pluginLaunch[id] = { ...(this.data.pluginLaunch[id] ?? {}), ...preferences }
+          next.pluginLaunch[id] = { ...(next.pluginLaunch[id] ?? {}), ...preferences }
         }
       }
     }
     // profile 浅合并（githubClientId 等；user 字段由 githubAuthService 经 setProfileUser 管理）
     if (partial.profile) {
       const { user: _incomingUser, ...rest } = partial.profile
-      this.data.profile = { ...this.data.profile, ...rest, user: this.data.profile.user }
+      next.profile = { ...next.profile, ...rest, user: next.profile.user }
     }
+    this.schedulePersist()
+    if (partial.pluginLaunch) this.pluginLaunchRevision++
     if (partial.general && 'dataRoot' in partial.general) {
       setAppPathsRoot(this.data.general.dataRoot ?? null)
     }
-    this.schedulePersist()
     // dataRoot 变更：锚点立即更新，并把设置行预写到新根的库，避免下次启动读到空库
     const nextRoot = this.data.general.dataRoot as string | undefined
     if (nextRoot !== prevRoot && !this.fileFallback) {
@@ -528,7 +637,7 @@ export class SettingsStore {
     }
   }
 
-  /** 触发防抖持久化；所有写路径（setTheme/setAll/setPluginSetting/…）统一走这里 */
+  /** 普通偏好防抖持久化；需要确认成功的外观和快捷键设置使用同步提交。 */
   private schedulePersist(): void {
     if (this.persistTimer) return
     this.persistTimer = setTimeout(() => {

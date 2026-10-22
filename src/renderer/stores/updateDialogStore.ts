@@ -4,7 +4,7 @@
  * 设置页与弹框共用保存/安装动作，原生 updater 关闭窗口前完成保存等待。
  */
 import { create } from 'zustand'
-import { shellApi } from '@renderer/services/shellApi'
+import { isMockShell, shellApi } from '@renderer/services/shellApi'
 import { notify } from '@renderer/services/notifyService'
 import { t } from '@renderer/i18n'
 import type { PluginDirtyState } from '@shared/types/ipc'
@@ -23,7 +23,13 @@ export const useUpdateDialogStore = create<UpdateDialogState>((set, get) => ({
   open: false,
   saving: false,
   dirtyItems: null,
-  openDialog: () => set({ open: true }),
+  openDialog: () => {
+    if (!isMockShell && shellApi.openNativeModal) {
+      void shellApi.openNativeModal({ kind: 'update' }).catch(() => notify.error('更新窗口未能打开，请重试'))
+      return
+    }
+    set({ open: true })
+  },
   closeDialog: () => { if (!get().saving) set({ open: false }) },
   setDirtyItems: (dirtyItems) => set({ dirtyItems }),
   restartAfterSave: async () => {

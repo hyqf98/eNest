@@ -218,7 +218,7 @@ export interface GeneralSettingsData {
   /** 会话恢复：上次激活的插件 id */
   sessionActivePluginId?: string
   /** 网络代理；none/缺省 = 直连 */
-  proxy?: { type: 'none' | 'http' | 'socks5' | 'custom'; host?: string; port?: number; url?: string }
+  proxy?: { type: 'system' | 'none' | 'http'; host?: string; port?: number }
   /** 启动 Splash 背景；缺省 brand = 默认品牌色 */
   splashBackground?: SplashBackgroundConfig
   [key: string]: unknown
@@ -260,7 +260,7 @@ export const DEFAULT_SETTINGS: ShellSettingsData = {
     customFonts: [],
     sessionTabs: [],
     sessionActivePluginId: '',
-    proxy: { type: 'none' },
+    proxy: { type: 'system' },
     splashBackground: { type: 'brand', opacity: 0.55 },
   },
   profile: {},
@@ -277,6 +277,7 @@ export function readMockSettings(): ShellSettingsData {
     if (raw) {
       const saved = JSON.parse(raw) as Partial<ShellSettingsData>
       const general = { ...DEFAULT_SETTINGS.general, ...saved.general }
+      Reflect.deleteProperty(general, 'themeSetupComplete')
       // 历史 localStorage 可能存 'tray'，归一到共享契约 'minimize-tray'
       if ((general.closeBehavior as string | undefined) === 'tray') {
         general.closeBehavior = 'minimize-tray'
@@ -297,5 +298,7 @@ export function readMockSettings(): ShellSettingsData {
 
 /** 写入 mock 设置到 localStorage */
 export function writeMockSettings(data: ShellSettingsData): void {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(data))
+  const next = { ...data, general: { ...data.general } }
+  Reflect.deleteProperty(next.general, 'themeSetupComplete')
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(next))
 }

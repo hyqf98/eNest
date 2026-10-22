@@ -4,7 +4,7 @@
  * 持久化（插槽化架构修复「重启即失」）：
  *  - section 声明写入 ContributionRegistry 的 contributions 表（slot='settings'），
  *    listAll() 优先读表 —— 重启后插件未打开也能显示声明式 section；
- *  - 运行值仍走 settingsStore（settings.json plugins 段，现有机制），bridge 内存值仅兜底。
+ *  - 运行值仍走 settingsStore 的 plugins 段，bridge 内存值仅兜底。
  * 被 pluginHandlers（settings.register/get/set）、shellHandlers（ShellGetSettingsSections）调用。
  * 关键依赖：createShellWindow.sendShellEvent、ContributionRegistry、settingsStore。
  */
@@ -12,28 +12,9 @@ import { sendShellEvent } from '@main/window/createShellWindow'
 import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { settingsStore } from '@main/settings/SettingsStore'
 import type { SettingsSectionContribution } from '@shared/types/plugin'
+import type { ShellSettingsSection } from '@shared/types/shell'
 import { logWarn } from '@main/logs/logService'
 import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
-
-export interface SettingsSectionItem {
-  key: string
-  type: string
-  label: string
-  entry?: { code: string; payload?: unknown }
-  default?: unknown
-  options?: Array<{ label: string; value: unknown }>
-  /** type=slider：范围与步长（渲染层消费） */
-  min?: number
-  max?: number
-  step?: number
-}
-
-export interface SettingsSection {
-  id: string
-  title: string
-  pluginId: string
-  items: SettingsSectionItem[]
-}
 
 export class PluginSettingsBridge {
   private values = new Map<string, Record<string, unknown>>()
@@ -43,7 +24,7 @@ export class PluginSettingsBridge {
    * 1. 声明（含 items schema）落 contributions 表（slot='settings'）——持久化，重启回显；
    * 2. 首次注册时用 items 的 default 初始化运行时值，已持久化值优先回填。
    */
-  register(pluginId: string, section: Omit<SettingsSection, 'pluginId'>): void {
+  register(pluginId: string, section: SettingsSectionContribution): void {
     if (!pluginId || !section?.id || !section.title) {
       logWarn('settings-bridge', 'register rejected: invalid section')
       return
@@ -90,7 +71,7 @@ export class PluginSettingsBridge {
    * 全部 section：优先读 contributions 表（声明式 + 运行时注册统一入表），
    * 表不可用（sqlite 初始化失败）时降级为空列表。重启后插件未打开也在此拿到声明。
    */
-  listAll(): SettingsSection[] {
+  listAll(): ShellSettingsSection[] {
     return contributionRegistry
       .listSlot<SettingsSectionContribution>('settings')
       .filter((row) => row.data && Array.isArray(row.data.items))
@@ -98,7 +79,7 @@ export class PluginSettingsBridge {
         id: row.id,
         title: row.data.title,
         pluginId: row.source,
-        items: (row.data.items as SettingsSectionItem[]).filter(item => isPluginSettingKey(item?.key))
+        items: row.data.items.filter(item => isPluginSettingKey(item?.key))
       }))
   }
 

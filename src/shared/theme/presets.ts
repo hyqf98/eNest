@@ -1,8 +1,8 @@
 /**
  * theme presets — light/dark 内置 Token 预设（单一事实来源）
  * 与 tokens.css 的 :root / [data-theme="dark"] 保持一致；
- * 壳子 useTheme（renderer）与主进程 resolveThemeCss（注入插件 / orb 圆轨）共用。
- * 修改任一色值时三处同步：本文件 + tokens.css +（如涉及）useTheme 文案。
+ * 由统一 appearance 解析器补齐语义 Token；启动前 CSS 使用同名回退值。
+ * 修改基础色值时同步 tokens.css；默认主题配色在 builtinThemes.ts 中声明。
  */
 import { compositeThemeColor, parseThemeColor } from '@shared/theme/colors'
 

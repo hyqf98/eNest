@@ -1,13 +1,13 @@
 /**
- * useFpsGuard — 高动画档 FPS 守卫（high 自动降级 medium）
+ * useFpsGuard — 高动画档 FPS 守卫（仅降低本次运行的有效强度）
  * 职责：仅 high 档、允许动态效果且窗口可见并聚焦时启用 rAF 采样；滑动窗口（逐秒桶 × 5 秒）统计帧率，
- * 连续 5 秒平均 FPS < 45 → 自动降为 medium 并发 info 通知。
- * 防抖：降级后本次「high 会话」内不再重复触发；用户手动改回 high 视为新会话，允许再次降级。
- * 降级路径与 useAnimationLevel.setLevel 完全一致（store set + data-anim + shellApi.setSettings 落盘）。
- * 挂载：AppBackground（壳子常驻组件，quick 小窗不渲染）。依赖 useAnimationLevelStore、notifyService。
+ * 连续 5 秒平均 FPS < 45 → 请求宿主运行时性能限制，不改写用户保存的动画强度。
+ * 隐藏、失焦和减少动态效果时停止采样；退出时释放监听器。
  */
 import { useEffect } from 'react'
-import { useAnimationLevelStore, useReducedMotion } from '@renderer/hooks/useAnimationLevel'
+import { useReducedMotion } from '@renderer/hooks/useAnimationLevel'
+import { useAppearanceStore } from '@renderer/hooks/useAppearance'
+import { shellApi } from '@renderer/services/shellApi'
 import { notify } from '@renderer/services/notifyService'
 
 /** 触发降级的平均 FPS 阈值 */
@@ -23,7 +23,7 @@ interface FpsBucket {
 }
 
 export function useFpsGuard(enabled = true): void {
-  const level = useAnimationLevelStore((s) => s.level)
+  const level = useAppearanceStore((s) => s.appearance.animation.effective)
   const reducedMotion = useReducedMotion()
 
   useEffect(() => {
@@ -37,16 +37,18 @@ export function useFpsGuard(enabled = true): void {
     const windowBuckets: FpsBucket[] = []
     let current: FpsBucket | null = null
     let degraded = false
+    let disposed = false
 
     const degrade = () => {
       if (degraded) return
       degraded = true
       running = false
-      void useAnimationLevelStore.getState().setLevel('medium')
-      notify.info(
-        '检测到画面帧率偏低，已自动将动画效果从「高」降为「中」；可在 设置 → 动画效果 中改回。',
-        { duration: 5200 },
-      )
+      if (!shellApi.setAppearancePerformanceLimited) return
+      void shellApi.setAppearancePerformanceLimited(true).then(snapshot => {
+        if (disposed) return
+        useAppearanceStore.getState().applySnapshot(snapshot)
+        notify.info('检测到画面帧率偏低，已暂时减少动态效果；你保存的动画强度未改变。', { duration: 5200 })
+      }).catch(() => undefined)
     }
 
     const sample = (ts: number) => {
@@ -101,6 +103,7 @@ export function useFpsGuard(enabled = true): void {
     syncActivity()
 
     return () => {
+      disposed = true
       running = false
       if (raf) cancelAnimationFrame(raf)
       raf = 0
@@ -108,7 +111,6 @@ export function useFpsGuard(enabled = true): void {
       window.removeEventListener('focus', onFocus)
       window.removeEventListener('blur', onBlur)
     }
-    // 依赖 level：降级为 medium 后本 effect 重启，条件不满足即零开销；
-    // 用户手动改回 high 时重新进入（fresh degraded 标记），允许再次降级
+    // Effective low releases the sampler; persisted requested intensity is untouched.
   }, [level, enabled, reducedMotion])
 }

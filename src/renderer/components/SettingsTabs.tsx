@@ -87,7 +87,6 @@ export function SettingsTabs({ tabs, active, moreLabel, onChange }: Props) {
     }
   }, [moreOpen])
 
-  const visible = tabs.slice(0, visibleCount)
   const overflow = tabs.slice(visibleCount)
   const activeOverflow = overflow.find((x) => x.id === active)
 

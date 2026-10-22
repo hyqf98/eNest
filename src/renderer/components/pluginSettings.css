@@ -36,7 +36,7 @@
 .plugin-settings-card .field .plugin-setting-input,
 .plugin-settings-card .plugin-setting-select .ui-select-trigger {
   box-sizing: border-box;
-  height: 38px;
+  height: var(--settings-control-h, 36px);
   padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: 10px;

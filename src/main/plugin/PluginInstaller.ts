@@ -413,13 +413,26 @@ async function findPluginRoot(dir: string): Promise<string> {
 
 async function validatePublishedFiles(root: string, manifest: PluginManifest): Promise<void> {
   const id = manifest.id
+  const htmlEntries = new Set(['index.html', ...(manifest.contributes?.homePages ?? []).map(home => home.entry),
+    ...(manifest.contributes?.themePacks ?? []).flatMap(pack => {
+      const quick = (pack as import('@shared/types/appearance').ThemePackV2).quick
+      return quick ? [quick.entry] : []
+    })])
+  for (const entry of htmlEntries) {
+    if (!isPluginAssetPath(entry) || !/\.html$/.test(entry) || /(?:^|\/)(?:backend|runtime|node_modules|src|tests?)(?:\/|$)/.test(entry)) throw new Error('非法主题页面入口')
+    const info = await lstat(join(root, entry))
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error('主题页面入口不存在')
+  }
   async function visit(dir: string, prefix = ''): Promise<void> {
     for (const name of await readdir(dir)) {
       const rel = prefix + name
       const info = await lstat(join(dir, name))
       if (info.isSymbolicLink()) throw new Error(`插件包不允许符号链接: ${rel}`)
       if (!prefix && name === '.enest-build.json' && info.isFile()) continue // host-owned revision metadata
-      if (!prefix && !['plugin.json', 'index.html', 'assets', ...(manifest.backend ? ['backend'] : []), ...(id === 'com.github.eNest.dsh' ? ['runtime'] : [])].includes(name)) {
+      const declaredHtml = htmlEntries.has(rel) || (info.isDirectory() && [...htmlEntries].some(entry => entry.startsWith(`${rel}/`)))
+      if (!declaredHtml && !rel.startsWith('assets/') && rel !== 'assets' && rel !== 'plugin.json'
+        && !(manifest.backend && (rel === 'backend' || rel.startsWith('backend/')))
+        && !(id === 'com.github.eNest.dsh' && (rel === 'runtime' || rel.startsWith('runtime/')))) {
         throw new Error(`非标准发布内容: ${rel}`)
       }
       const runtime = id === 'com.github.eNest.dsh' && (rel === 'runtime' || rel.startsWith('runtime/'))

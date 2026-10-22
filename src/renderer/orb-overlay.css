@@ -380,7 +380,7 @@ body {
   overflow: hidden;
 }
 
-/* dock 双层：默认头像（未登录 user 图形占位），hover / 设置页激活时切换为设置图标 */
+/* The global action is a gear at rest, never an account avatar that needs hover. */
 .orb-dock-layer {
   position: absolute;
   inset: 0;
@@ -388,51 +388,25 @@ body {
   place-items: center;
   border-radius: inherit;
   pointer-events: none;
-  transition:
-    opacity var(--orb-dock-duration) ease-in-out,
-    transform var(--orb-dock-duration) cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--orb-dock-duration) cubic-bezier(0.22, 1, 0.36, 1);
 }
-
-.orb-avatar-img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: inherit;
-  pointer-events: none;
-  display: block;
-}
-
-.orb-avatar-img,
-.orb-avatar-glyph {
-  opacity: 0;
-  transform: scale(var(--orb-dock-scale));
-  transition: opacity var(--orb-dock-duration) ease-in-out, transform var(--orb-dock-duration) cubic-bezier(0.22, 1, 0.36, 1);
-}
-.orb-avatar-glyph { display: grid; place-items: center; color: var(--text-2, #5c6578); }
-.orb-dock-avatar[data-avatar-slot='none'] .orb-avatar-glyph,
-.orb-dock-avatar[data-avatar-slot='0'] [data-avatar-image='0'],
-.orb-dock-avatar[data-avatar-slot='1'] [data-avatar-image='1'] { opacity: 1; transform: scale(1); }
-.orb-dock-avatar { opacity: 1; transform: rotate(0deg) scale(1); }
-
-.orb-dock-icon {
-  opacity: 0;
-  transform: rotate(calc(-1 * var(--orb-dock-turn))) scale(var(--orb-dock-scale));
-}
-
-.orb-settings:hover .orb-dock-avatar,
-.orb-settings:focus-visible .orb-dock-avatar,
-.orb-settings.active .orb-dock-avatar {
-  opacity: 0;
-  transform: rotate(var(--orb-dock-turn)) scale(var(--orb-dock-scale));
-}
-
+.orb-dock-icon { opacity: 1; transform: none; }
 .orb-settings:hover .orb-dock-icon,
-.orb-settings:focus-visible .orb-dock-icon,
-.orb-settings.active .orb-dock-icon {
-  opacity: 1;
-  transform: none;
+.orb-settings:focus-visible .orb-dock-icon { transform: rotate(var(--orb-dock-turn)); }
+.orb-settings.active { color: var(--accent, #bd542b); }
+.orb-dock-caption {
+  position: absolute;
+  left: 50%;
+  bottom: -16px;
+  transform: translateX(-50%);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text-2, #5c6578);
+  background: var(--orb-face-bg);
+  font-size: 10px;
+  line-height: 13px;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* Low still communicates the switch, with a short fade and minimal movement. */
@@ -535,10 +509,7 @@ body {
   .orb-rail .orb-item.active .orb-face {
     transform: none !important;
   }
-  .orb-rail .orb-dock-layer,
-  .orb-rail .orb-avatar-img,
-  .orb-rail .orb-avatar-glyph {
+  .orb-rail .orb-dock-layer {
     transform: none !important;
-    transition: opacity 120ms linear !important;
   }
 }

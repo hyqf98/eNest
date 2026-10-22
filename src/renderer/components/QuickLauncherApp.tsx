@@ -3,18 +3,22 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { CSSProperties, KeyboardEvent } from 'react'
 import gsap from 'gsap'
 import type { QuickCommand, QuickCommandKind, QuickOpenRequest, QuickPluginModeInfo } from '@shared/types/quick'
-import { QUICK_BAR_AREA_H, QUICK_BORDER_WIDTH, QUICK_CONTENT_HEIGHT, QUICK_CORNER_RADIUS, QUICK_GRID_COLUMNS, QUICK_HEIGHT, QUICK_HOME_HEIGHT, QUICK_HOME_ROWS } from '@shared/constants'
+import type { QuickThemeAction, QuickThemeActionResult, QuickThemeConfig, QuickThemeSnapshot } from '@shared/types/quickTheme'
+import { useAppearanceStore } from '@renderer/hooks/useAppearance'
+import { QuickThemeSurface, type QuickThemeSurfaceHandle } from './QuickThemeSurface'
+import { QUICK_BAR_AREA_H, QUICK_BORDER_WIDTH, QUICK_CONTENT_HEIGHT, QUICK_CORNER_RADIUS, QUICK_GRID_COLUMNS, QUICK_HOME_HEIGHT, QUICK_HOME_ROWS } from '@shared/constants'
 import { IS_MAC } from '@shared/platform'
 import { d, ease } from '@renderer/gsap/marketMotion'
 import { shellApi } from '@renderer/services/shellApi'
-import enestIcon from '@renderer/assets/enest-mark.png'
-import { useAppearanceSync } from '@renderer/hooks/useAppearanceSync'
+import { Button } from '@renderer/components/ui/Button'
 import { bindPluginDragSource, bindPluginDropTarget } from '@renderer/services/pluginWindowDrag'
 import '@renderer/styles/plugin-window-drag.css'
-import { AmbientParticles } from './AmbientParticles'
+import { AppBackground } from './AppBackground'
 import { SearchField } from './SearchField'
+import { QuickAccessMenu } from './QuickAccessMenu'
 import { ChevronLeftIcon, HouseIcon, RotateCwIcon, SearchIcon, SettingsIcon } from './icons'
 import { appendQuickProviders, groupQuickCommands, mergeQuickEnriched, moveQuickGridSelection, quickSelectionIndex, type QuickGridKey } from './quickGrid'
+import { getQuickSearchResults } from './quickSearchResults'
 import './quick.css'
 
 const FILTERS: { kind: QuickCommandKind; label: string }[] = [
@@ -44,12 +48,28 @@ function HighlightTitle({ text, query }: { text: string; query: string }) {
 }
 
 export function QuickLauncherApp() {
-  useAppearanceSync()
+  const appearanceRevision = useAppearanceStore(state => state.appearance.revision)
+  const [themeConfig, setThemeConfig] = useState<QuickThemeConfig | null>(null)
+  const [themeReady, setThemeReady] = useState(false)
+  const themeReadyRef = useRef(false)
+  const themeConfigKeyRef = useRef<string | null>(null)
+  const themeViewRef = useRef<QuickThemeSurfaceHandle>(null)
+  const themeSnapshotRevision = useRef(0)
+  const [themeBounds, setThemeBounds] = useState({ width: window.innerWidth, height: window.innerHeight, inputHeight: QUICK_BAR_AREA_H })
   const [query, setQuery] = useState('')
   const [kind, setKind] = useState<QuickCommandKind>()
   const [items, setItems] = useState<QuickCommand[]>([])
+  const [resultsExpanded, setResultsExpanded] = useState(false)
+  const [columns, setColumns] = useState(QUICK_GRID_COLUMNS)
+  const resultsScopeRef = useRef({ query, kind })
+  const moreButtonRef = useRef<HTMLButtonElement>(null)
+  const marketButtonRef = useRef<HTMLButtonElement>(null)
   const [index, setIndex] = useState(0)
   const selectedIdRef = useRef<string | null>(null)
+  const focusSearch = useCallback((selectAll = false) => {
+    if (themeReadyRef.current) themeViewRef.current?.focus(selectAll)
+    else { inputRef.current?.focus(); if (selectAll) inputRef.current?.select() }
+  }, [])
   const [busy, setBusy] = useState(false)
   const [backgroundBusy, setBackgroundBusy] = useState(false)
   const [composing, setComposing] = useState(false)
@@ -72,10 +92,42 @@ export function QuickLauncherApp() {
   // Typing a new global query exits plugin mode without discarding that query.
   const pendingGlobalQuery = useRef<string | null>(null)
   const escapingRef = useRef<Promise<boolean> | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void shellApi.quickGetTheme?.().then(config => {
+      if (cancelled) return
+      if (themeConfigKeyRef.current !== (config?.key ?? null)) {
+        themeConfigKeyRef.current = config?.key ?? null
+        themeReadyRef.current = false
+        setThemeReady(false)
+      }
+      setThemeConfig(config)
+    }).catch(() => { if (!cancelled) { themeConfigKeyRef.current = null; setThemeConfig(null); themeReadyRef.current = false; setThemeReady(false) } })
+    return () => { cancelled = true }
+  }, [appearanceRevision, revision, shown])
+  useEffect(() => {
+    const resize = () => setThemeBounds({ width: window.innerWidth, height: window.innerHeight, inputHeight: QUICK_BAR_AREA_H })
+    window.addEventListener('resize', resize)
+    return () => window.removeEventListener('resize', resize)
+  }, [])
+  useLayoutEffect(() => {
+    themeReadyRef.current = themeReady
+    const canonical = rootRef.current?.querySelector<HTMLElement>('.quick-shell')
+    if (canonical) canonical.inert = themeReady
+    if (themeReady) themeViewRef.current?.focus(false)
+    return () => { if (canonical) canonical.inert = false }
+  }, [themeReady])
   const searching = Boolean(query.trim())
   const showResults = !pluginMode
-  const groups = useMemo(() => showResults ? groupQuickCommands(items, searching || kind === 'action', QUICK_GRID_COLUMNS * QUICK_HOME_ROWS) : [], [items, searching, showResults, kind])
-  const visibleItems = useMemo(() => groups.flatMap((group) => group.items), [groups])
+  const showMarketEmpty = searching && !kind && showResults && !busy && !backgroundBusy && !composing && !error
+    && !items.some(item => item.kind === 'app' || item.kind === 'plugin')
+  const allGroups = useMemo(() => showResults ? groupQuickCommands(items, searching || kind === 'action', QUICK_GRID_COLUMNS * QUICK_HOME_ROWS) : [], [items, searching, showResults, kind])
+  const { groups, visibleItems, overflowCount } = useMemo(
+    () => getQuickSearchResults(allGroups, columns, searching, resultsExpanded),
+    [allGroups, columns, searching, resultsExpanded]
+  )
+  // Resolve against the rendered prefix even before selection restoration runs.
+  const activeIndex = quickSelectionIndex(visibleItems, selectedIdRef.current, index)
   const selectIndex = (nextIndex: number) => {
     selectedIdRef.current = visibleItems[nextIndex]?.id ?? null
     setIndex(nextIndex)
@@ -89,6 +141,17 @@ export function QuickLauncherApp() {
     setBusy(false)
     setBackgroundBusy(false)
   }, [])
+
+  useLayoutEffect(() => {
+    const previous = resultsScopeRef.current
+    resultsScopeRef.current = { query, kind }
+    // Incremental phases and same-query refreshes must not collapse expanded results.
+    if (previous.query === query && previous.kind === kind) return
+    setResultsExpanded(false)
+    selectedIdRef.current = null
+    setIndex(0)
+    if (panelRef.current) panelRef.current.scrollTop = 0
+  }, [query, kind])
 
   useEffect(() => {
     const bar = rootRef.current?.querySelector<HTMLElement>('.quick-search-bar')
@@ -122,7 +185,7 @@ export function QuickLauncherApp() {
         // Neither icon extraction nor a runtime provider can delay the first
         // usable grid. The two follow-up requests settle independently.
         const phases: ('enriched' | 'providers')[] = searching ? ['enriched', 'providers'] : ['enriched']
-        await Promise.allSettled(phases.map(async phase => {
+        const phaseResults = await Promise.allSettled(phases.map(async phase => {
           const additional = await shellApi.quickSearch?.(query, limit, kind, phase)
           if (version !== searchVersion.current) return
           setItems(current => {
@@ -132,6 +195,7 @@ export function QuickLauncherApp() {
               : appendQuickProviders(current, additional?.items ?? [])
           })
         }))
+        if (version === searchVersion.current && phaseResults.some(result => result.status === 'rejected')) setError('部分搜索来源暂时不可用，请重试。')
       } catch {
         if (version === searchVersion.current) { setItems([]); setError('搜索暂时不可用，请重试。') }
       } finally {
@@ -155,7 +219,7 @@ export function QuickLauncherApp() {
         setCategoriesOpen(false)
         setError('')
         setOpening(null)
-        requestAnimationFrame(() => inputRef.current?.focus())
+        requestAnimationFrame(() => focusSearch())
         if (event.mode) void shellApi.quickInput?.().then(state => {
           if (revision === inputRevision.current && state && typeof state === 'object' && modeRef.current?.pluginId === state.pluginId) {
             pluginInputRef.current = state; setPluginInput(state); setQuery(state.value)
@@ -172,8 +236,7 @@ export function QuickLauncherApp() {
         setPluginMode(current => current ? { ...current, loading: false } : current)
         setError(event.message)
       } else if (event.type === 'quick-focus-search') {
-        inputRef.current?.focus()
-        inputRef.current?.select()
+        focusSearch(true)
       } else if (event.type === 'plugins-changed') setRevision((v) => v + 1)
     })
     const offShown = shellApi.onQuickShown?.(() => {
@@ -183,11 +246,11 @@ export function QuickLauncherApp() {
       resetResults()
       setRevision((v) => v + 1)
       setShown((v) => v + 1)
-      requestAnimationFrame(() => inputRef.current?.focus())
+      requestAnimationFrame(() => focusSearch())
     })
-    inputRef.current?.focus()
+    focusSearch()
     return () => { off?.(); offShown?.() }
-  }, [resetResults])
+  }, [resetResults, focusSearch])
 
   // Keep the bar anchored at y=0 so its lower edge stays joined to native content.
   useLayoutEffect(() => {
@@ -210,17 +273,32 @@ export function QuickLauncherApp() {
 
   useLayoutEffect(() => {
     const panel = panelRef.current
-    if (!panel || pluginMode) return
+    if (!panel || pluginMode || themeReady) return
     let frame = 0
     let lastHeight = 0
     const measure = () => {
       frame = 0
       const style = getComputedStyle(panel)
-      // Measure intrinsic children: the viewport clips the panel before native
-      // resize, and its scrollHeight can retain the previous window's height.
+      const results = panel.querySelector<HTMLElement>('.quick-results')
+      const root = rootRef.current
+      if (results && root) {
+        // Share the real list edge, including native scrollbar gutters, with the header.
+        const inset = `${results.getBoundingClientRect().left - panel.getBoundingClientRect().left}px`
+        if (root.style.getPropertyValue('--quick-content-inset') !== inset) root.style.setProperty('--quick-content-inset', inset)
+      }
+      const grid = results?.querySelector<HTMLElement>('.quick-group-items')
+      if (grid) {
+        const nextColumns = getComputedStyle(grid).gridTemplateColumns.split(/\s+/).filter(track => track && track !== 'none').length
+        if (nextColumns && nextColumns !== columns) {
+          setColumns(nextColumns)
+          return // Re-fold with the actual CSS tracks before requesting native resize.
+        }
+      }
+      // Measure intrinsic children, including the disclosure: the viewport clips
+      // the panel before native resize. The host owns screen/maximum-height caps.
       const contentHeight = Array.from(panel.children).reduce((height, child) => height + child.getBoundingClientRect().height, 0)
       const height = searching
-        ? Math.min(QUICK_HEIGHT, Math.ceil(QUICK_BAR_AREA_H + contentHeight + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + QUICK_BORDER_WIDTH))
+        ? Math.ceil(panel.getBoundingClientRect().top + contentHeight + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + 1)
         : QUICK_HOME_HEIGHT
       if (height !== lastHeight) {
         lastHeight = height
@@ -235,7 +313,7 @@ export function QuickLauncherApp() {
     for (const child of panel.children) observer.observe(child)
     measure()
     return () => { observer.disconnect(); cancelAnimationFrame(frame) }
-  }, [pluginMode, searching, shown, visibleItems.length])
+  }, [pluginMode, searching, shown, visibleItems.length, columns, resultsExpanded, overflowCount, showMarketEmpty, themeReady])
 
   useLayoutEffect(() => {
     // Restore by ID before paint: inserted match groups must not move selection
@@ -298,7 +376,7 @@ export function QuickLauncherApp() {
   }, [escapePlugin, resetResults])
 
   const openItem = useCallback(async (cmd: QuickCommand, mainWindow = false) => {
-    if (busy) return
+    if (busy) return false
     let request: QuickOpenRequest | undefined
     if (cmd.kind === 'app' && cmd.path) request = { kind: 'app', path: cmd.path, query }
     // 缺省不带 container：主进程按「显式 > 每插件启动方式设置 > 跟随入口(quick)」决策；
@@ -309,7 +387,10 @@ export function QuickLauncherApp() {
         : { kind: 'plugin', pluginId: cmd.pluginId, code: cmd.code, type: cmd.type, payload: cmd.payload, query }
     }
     if (cmd.kind === 'action' && cmd.action) request = { kind: 'action', action: cmd.action, query }
-    if (request && await execute(request, cmd.id) && cmd.action === 'refresh-apps') setRevision((v) => v + 1)
+    if (!request) return false
+    const ok = await execute(request, cmd.id)
+    if (ok && cmd.action === 'refresh-apps') setRevision((v) => v + 1)
+    return ok
   }, [busy, execute, query])
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -318,6 +399,13 @@ export function QuickLauncherApp() {
     const hasSelection = inInput && inputRef.current?.selectionStart !== inputRef.current?.selectionEnd
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault(); inputRef.current?.focus(); inputRef.current?.select(); return
+    }
+    // Tab is reserved for grid/plugin navigation; F6 cycles to the shared toolbar.
+    if (event.key === 'F6' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault()
+      if (inInput) rootRef.current?.querySelector<HTMLButtonElement>('.quick-access-trigger')?.focus()
+      else inputRef.current?.focus()
+      return
     }
     if (event.key === 'Escape' && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
       event.preventDefault()
@@ -328,6 +416,21 @@ export function QuickLauncherApp() {
       else if (kind) { setKind(undefined); resetResults() }
       else shellApi.quickHide?.()
       return
+    }
+    if (showMarketEmpty && !visibleItems.length && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (inInput && !event.shiftKey) {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          void execute({ kind: 'action', action: 'open-market', query }, 'open-market')
+          return
+        }
+        if (event.key === 'ArrowDown' || event.key === 'Tab') {
+          event.preventDefault(); marketButtonRef.current?.focus(); return
+        }
+      }
+      if (event.target === marketButtonRef.current && (event.key === 'Tab' || (event.key === 'ArrowUp' && !event.shiftKey))) {
+        event.preventDefault(); inputRef.current?.focus(); return
+      }
     }
     if (hasSelection && ['Enter', 'Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return
     if (pluginMode) {
@@ -342,6 +445,12 @@ export function QuickLauncherApp() {
       }
       return
     }
+    if (event.target === moreButtonRef.current && event.key === 'Tab' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault()
+      selectIndex(event.shiftKey ? Math.max(0, visibleItems.length - 1) : 0)
+      inputRef.current?.focus()
+      return
+    }
     const inGrid = event.target instanceof Element && Boolean(event.target.closest('[data-quick-command]'))
     if ((!inInput && !inGrid) || busy || !showResults) return
     const navigationKeys: QuickGridKey[] = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab']
@@ -351,25 +460,123 @@ export function QuickLauncherApp() {
       if (inInput && query && ['ArrowLeft', 'ArrowRight'].includes(event.key)) return
       if (!visibleItems.length) return
       event.preventDefault()
-      const grid = panelRef.current?.querySelector<HTMLElement>('.quick-group-items')
-      const columns = grid ? getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length : QUICK_GRID_COLUMNS
-      selectIndex(moveQuickGridSelection(index, groups.map(group => group.items.length), columns, event.key as QuickGridKey, event.shiftKey))
+      if (event.key === 'Tab' && moreButtonRef.current && (event.shiftKey ? activeIndex === 0 : activeIndex === visibleItems.length - 1)) {
+        moreButtonRef.current.focus()
+        return
+      }
+      selectIndex(moveQuickGridSelection(activeIndex, groups.map(group => group.items.length), columns, event.key as QuickGridKey, event.shiftKey))
       inputRef.current?.focus()
     }
     if (event.key === 'Enter' && !event.altKey && !event.shiftKey) {
       event.preventDefault()
-      if (visibleItems[index]) void openItem(visibleItems[index], event.metaKey || event.ctrlKey)
+      if (visibleItems[activeIndex]) void openItem(visibleItems[activeIndex], event.metaKey || event.ctrlKey)
     }
 
   }
 
-  const selected = visibleItems[index]
+  const selected = visibleItems[activeIndex]
   const modifier = IS_MAC ? '⌘' : 'Ctrl'
+  const handles = useMemo(() => {
+    const nonce = crypto.randomUUID()
+    return visibleItems.map((command, i) => ({ id: `${nonce}-${i}`, command }))
+  }, [visibleItems, query, kind, pluginMode, shown, themeConfig?.key])
+  const currentHandles = useRef(handles)
+  currentHandles.current = handles
+  const publicItems = handles.map(({ id, command }) => ({
+    id, kind: command.kind, title: command.title.slice(0, 256),
+    subtitle: command.kind === 'app' ? '本机应用' : command.kind === 'plugin' ? '插件指令' : '系统操作',
+    group: groups.find(group => group.items.some(item => item.id === command.id))?.title ?? ''
+  }))
+  const themeSnapshot: QuickThemeSnapshot | null = themeConfig ? {
+    version: 1, revision: ++themeSnapshotRevision.current,
+    query, filter: kind ?? null, searching, loading: busy || backgroundBusy, busy: Boolean(opening),
+    error: error ? '操作暂时无法完成，请重试。' : null,
+    items: publicItems, selectedId: handles[activeIndex]?.id ?? null,
+    expanded: resultsExpanded, hiddenCount: overflowCount, emptyMarket: showMarketEmpty,
+    plugin: pluginMode ? { title: pluginMode.title, loading: pluginMode.loading === true, placeholder: pluginInput?.placeholder?.slice(0, 256) || '搜索其它应用或插件…' } : null,
+    appearance: themeConfig.appearance, bounds: themeBounds
+  } : null
+  const themeKey = useCallback(async (input: { key: string; shift?: boolean; meta?: boolean; ctrl?: boolean; alt?: boolean }, trusted = false) => {
+    if (input.key === 'Escape') {
+      if (!trusted) return { ok: false }
+      if (modeRef.current) { pendingGlobalQuery.current = null; return { ok: await escapePlugin() } }
+      if (query) changeQuery('')
+      else if (kind) { setKind(undefined); resetResults() }
+      else shellApi.quickHide?.()
+      return { ok: true }
+    }
+    if ((input.meta || input.ctrl) && input.key.toLowerCase() === 'k') { focusSearch(true); return { ok: true } }
+    if (modeRef.current) {
+      const current = modeRef.current
+      if (input.key === 'Enter' && (input.meta || input.ctrl)) {
+        if (!trusted && !await shellApi.quickAuthorizeTheme?.(themeConfig?.key ?? '')) return { ok: false }
+        return { ok: await execute({ kind: 'plugin-pin', pluginId: current.pluginId }, current.pluginId) }
+      }
+      const currentInput = pluginInputRef.current
+      if (currentInput && ['ArrowDown', 'ArrowUp', 'Enter'].includes(input.key)) {
+        if (input.key === 'Enter' && !trusted && !await shellApi.quickAuthorizeTheme?.(themeConfig?.key ?? '')) return { ok: false }
+        await shellApi.quickInput?.({ pluginId: currentInput.pluginId, generation: currentInput.generation, type: 'action', action: input.key === 'ArrowDown' ? 'next' : input.key === 'ArrowUp' ? 'previous' : 'submit' })
+        return { ok: true }
+      }
+      if (input.key === 'Tab') { await shellApi.quickOpen?.({ kind: 'plugin-tab', pluginId: current.pluginId, shift: input.shift }); return { ok: true } }
+      return { ok: true }
+    }
+    if (busy || composingRef.current) return { ok: false }
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab'].includes(input.key)) {
+      if (visibleItems.length) selectIndex(moveQuickGridSelection(activeIndex, groups.map(group => group.items.length), columns, input.key as QuickGridKey, input.shift))
+      return { ok: true }
+    }
+    if (input.key === 'Enter') {
+      if (!trusted && !await shellApi.quickAuthorizeTheme?.(themeConfig?.key ?? '')) return { ok: false }
+      if (currentHandles.current !== handles) return { ok: false }
+      if (selected) return { ok: await openItem(selected, input.meta || input.ctrl) }
+      if (showMarketEmpty) return { ok: await execute({ kind: 'action', action: 'open-market', query }, 'open-market') }
+      return { ok: false }
+    }
+    return { ok: true }
+  }, [activeIndex, busy, changeQuery, columns, escapePlugin, execute, focusSearch, groups, kind, openItem, query, resetResults, selected, showMarketEmpty, themeConfig?.key, visibleItems.length, handles])
+  useEffect(() => shellApi.onQuickThemeKey?.(input => { if (themeReadyRef.current) void themeKey(input, true) }), [themeKey])
+  const onThemeAction = async (action: QuickThemeAction): Promise<QuickThemeActionResult> => {
+    if (!themeReadyRef.current || !themeConfig) return { ok: false }
+    if (action.type === 'query') { if (action.query !== query) changeQuery(action.query); return { ok: true } }
+    if (action.type === 'filter') {
+      const nextKind = action.kind ?? undefined
+      if (nextKind !== kind) { resetResults(); setBusy(true); setKind(nextKind) }
+      return { ok: true }
+    }
+    if (action.type === 'layout') {
+      setColumns(Math.max(1, Math.min(8, Math.round(action.columns))))
+      if (!modeRef.current) shellApi.quickResize?.(Math.max(QUICK_BAR_AREA_H + 1, Math.min(545, Math.round(action.height))))
+      return { ok: true }
+    }
+    if (action.type === 'expand') { setResultsExpanded(action.expanded); return { ok: true } }
+    if (action.type === 'select') {
+      const i = handles.findIndex(item => item.id === action.id)
+      if (i < 0) return { ok: false }
+      selectIndex(i); return { ok: true }
+    }
+    if (action.type === 'key') return themeKey(action)
+    if (!await shellApi.quickAuthorizeTheme?.(themeConfig.key)) return { ok: false, error: '请通过点击或按键执行此操作。' }
+    if (!themeReadyRef.current || currentHandles.current !== handles) return { ok: false }
+    if (action.type === 'open') {
+      const found = handles.find(item => item.id === action.id)
+      if (!found || busy || openingRef.current) return { ok: false }
+      return { ok: await openItem(found.command, action.container === 'shell') }
+    }
+    if (action.type === 'open-market') return { ok: await execute({ kind: 'action', action: 'open-market', query }, 'open-market') }
+    if (action.type === 'hide') { shellApi.quickHide?.(); return { ok: true } }
+    const current = modeRef.current
+    if (!current) return { ok: false }
+    if (action.type === 'plugin-back') { pendingGlobalQuery.current = null; return { ok: await escapePlugin() } }
+    if (action.type === 'plugin-pin') return { ok: await execute({ kind: 'plugin-pin', pluginId: current.pluginId }, current.pluginId) }
+    if (action.type === 'plugin-focus') { await shellApi.quickOpen?.({ kind: 'plugin-tab', pluginId: current.pluginId }); return { ok: true } }
+    return { ok: false }
+  }
 
-  return <div ref={rootRef} className="quick-root" data-mode={pluginMode ? 'plugin' : 'list'} data-expanded="true" data-home={!searching && !pluginMode}
+  return <div ref={rootRef} className={`quick-root${themeReady ? ' has-quick-theme' : ''}`} data-mode={pluginMode ? 'plugin' : 'list'} data-expanded="true" data-home={!searching && !pluginMode}
     style={{ '--quick-bar-h': `${QUICK_BAR_AREA_H}px`, '--quick-border-w': `${QUICK_BORDER_WIDTH}px`, '--quick-home-h': `${QUICK_HOME_HEIGHT}px`, '--quick-content-max-h': `${QUICK_CONTENT_HEIGHT}px`, '--quick-radius': `${QUICK_CORNER_RADIUS}px`, '--quick-grid-columns': QUICK_GRID_COLUMNS, '--quick-home-rows': QUICK_HOME_ROWS } as CSSProperties} onKeyDown={onKeyDown}>
     <div className="quick-shell">
-      <AmbientParticles />
+      <AppBackground />
       <div className="quick-search-bar" role="search" data-tools={pluginMode ? 'plugin' : categoriesOpen ? 'expanded' : 'collapsed'}>
         <SearchField value={query} onChange={changeQuery} inputRef={inputRef}
           placeholder={pluginMode ? pluginInput?.placeholder || '搜索其它应用或插件…' : kind === 'app' ? '搜索软件…' : kind === 'plugin' ? '搜索插件…' : kind === 'action' ? '搜索系统操作…' : '搜索应用、插件与指令…'}
@@ -380,24 +587,28 @@ export function QuickLauncherApp() {
               <span aria-hidden="true">⠿</span><span>{pluginMode.title}</span>
             </button>
           </> : <span className="quick-search-leading" aria-hidden><SearchIcon size={19} /></span>}
-          trailing={<span className="search-shortcut" aria-hidden />}
-          accessory={<span className="quick-input-status">{!pluginMode && (busy || backgroundBusy) && <span className="quick-spinner" aria-label="搜索中" />}</span>}
-          inputProps={{ role: 'combobox', 'aria-expanded': showResults, 'aria-controls': showResults ? 'quick-results' : undefined, 'aria-activedescendant': showResults && selected && !busy ? `quick-item-${index}` : undefined,
+          accessory={<>
+            {!pluginMode && (busy || backgroundBusy) && <span className="quick-input-status"><span className="quick-spinner" aria-label="搜索中" /></span>}
+            <span className="quick-inline-tools">
+              {pluginMode && <button className="quick-tool quick-pin" type="button" title={`移到主窗口（${modifier} Enter）`} aria-label="移到主窗口" onClick={() => void execute({ kind: 'plugin-pin', pluginId: pluginMode.pluginId }, pluginMode.pluginId)}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M14 3h7v7m0-7-10 10" /><path d="M10 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-5" /></svg>
+              </button>}
+              <QuickAccessMenu key={`${shown}-${pluginMode?.pluginId ?? 'list'}`}
+                onMarket={() => void execute({ kind: 'action', action: 'open-market' }, 'open-market')}
+                onSettings={() => void execute({ kind: 'action', action: 'open-settings' }, 'open-settings')}
+                onDismiss={() => inputRef.current?.focus()}>
+                {!pluginMode && <Button className="quick-tool quick-scope-toggle" aria-expanded={categoriesOpen} aria-controls="quick-categories"
+                  aria-label={categoriesOpen ? '收起搜索分类' : '展开搜索分类'} data-filtered={Boolean(kind)}
+                  title={`${categoriesOpen ? '收起' : '展开'}搜索分类${kind ? ` · 当前：${FILTERS.find(filter => filter.kind === kind)!.label}` : ''}`}
+                  onClick={() => { setCategoriesOpen(open => !open); inputRef.current?.focus() }}>
+                  {kind ? <CategoryIcon kind={kind} /> : <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden><path d="M4 7h9m4 0h3M4 17h3m4 0h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>}
+                </Button>}
+              </QuickAccessMenu>
+            </span>
+          </>}
+          inputProps={{ role: 'combobox', 'aria-expanded': showResults, 'aria-controls': showResults ? 'quick-results' : undefined, 'aria-activedescendant': showResults && selected && !busy ? `quick-item-${activeIndex}` : undefined,
             onCompositionStart: () => { composingRef.current = true; setComposing(true) },
             onCompositionEnd: () => { composingRef.current = false; setComposing(false) } }} />
-        <div className="quick-toolbar">
-          {pluginMode ? <button className="quick-tool quick-pin" type="button" title={`移到主窗口（${modifier} Enter）`} aria-label="移到主窗口" onClick={() => void execute({ kind: 'plugin-pin', pluginId: pluginMode.pluginId }, pluginMode.pluginId)}>
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M14 3h7v7m0-7-10 10" /><path d="M10 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-5" /></svg>
-          </button> : <button type="button" className="quick-tool quick-scope-toggle" aria-expanded={categoriesOpen} aria-controls="quick-categories"
-            aria-label={categoriesOpen ? '收起搜索分类' : '展开搜索分类'} data-filtered={Boolean(kind)}
-            title={`${categoriesOpen ? '收起' : '展开'}搜索分类${kind ? ` · 当前：${FILTERS.find(filter => filter.kind === kind)!.label}` : ''}`}
-            onClick={() => { setCategoriesOpen(open => !open); inputRef.current?.focus() }}>
-            {kind ? <CategoryIcon kind={kind} /> : <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden><path d="M4 7h9m4 0h3M4 17h3m4 0h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>}
-          </button>}
-          <button type="button" className="quick-market" title="打开插件市场" aria-label="打开插件市场" onClick={() => void execute({ kind: 'action', action: 'open-market' }, 'open-market')}>
-            <img src={enestIcon} alt="eNest" draggable={false} />
-          </button>
-        </div>
         {!pluginMode && <div className="quick-categories-slot" id="quick-categories" aria-hidden={!categoriesOpen}>
           <div className="quick-categories" aria-label="搜索范围">
             {FILTERS.map(filter => <button key={filter.kind} type="button" className="quick-category" tabIndex={categoriesOpen ? 0 : -1} aria-label={filter.label} aria-pressed={kind === filter.kind}
@@ -418,8 +629,8 @@ export function QuickLauncherApp() {
               <div className="quick-group-items">
                 {group.items.map((cmd, groupIndex) => {
                   const i = group.offset + groupIndex
-                  return <button key={cmd.id} id={`quick-item-${i}`} type="button" role="option" aria-selected={index === i} tabIndex={-1} data-index={i} data-quick-command
-                    className={`quick-item quick-result${index === i ? ' active' : ''}`} title={`${cmd.title} · ${cmd.kind === 'plugin' ? '插件' : cmd.kind === 'app' ? '本机应用' : cmd.subtitle}`}
+                  return <button key={cmd.id} id={`quick-item-${i}`} type="button" role="option" aria-selected={activeIndex === i} tabIndex={-1} data-index={i} data-quick-command
+                    className={`quick-item quick-result${activeIndex === i ? ' active' : ''}`} title={`${cmd.title} · ${cmd.kind === 'plugin' ? '插件' : cmd.kind === 'app' ? '本机应用' : cmd.subtitle}`}
                     disabled={Boolean(opening)} onMouseEnter={() => selectIndex(i)} onMouseDown={event => event.preventDefault()} onClick={() => void openItem(cmd)}>
                     <ItemIcon cmd={cmd} /><span className="quick-item-copy"><span className="quick-item-title"><HighlightTitle text={cmd.title} query={query} /></span></span>
                     {opening === cmd.id && <span className="quick-item-opening" aria-label="打开中" /> }
@@ -428,10 +639,33 @@ export function QuickLauncherApp() {
               </div>
             </div>)}
           </div>
-          {!visibleItems.length && <div className="quick-empty"><span>{busy || backgroundBusy ? '正在查找应用与插件…' : searching ? '没有找到匹配项' : '暂时没有常用应用或插件'}</span><small>{busy || backgroundBusy ? '正在补齐搜索结果，请稍候' : searching ? '试试应用名称、插件名或指令关键词' : '搜索并打开后会显示在这里'}</small>
+          {searching && overflowCount > 0 && <div className="quick-results-disclosure">
+            <Button ref={moreButtonRef} className="quick-results-more" variant="ghost" size="sm" aria-expanded={resultsExpanded} aria-controls="quick-results"
+              aria-label={resultsExpanded ? '收起搜索结果' : `展开全部搜索结果，另有 ${overflowCount} 项`}
+              onClick={() => {
+                if (resultsExpanded) {
+                  selectIndex(0)
+                  if (panelRef.current) panelRef.current.scrollTop = 0
+                }
+                setResultsExpanded(expanded => !expanded)
+                inputRef.current?.focus()
+              }}>
+              {resultsExpanded ? '收起' : `更多 ${overflowCount}`}
+            </Button>
+          </div>}
+          {showMarketEmpty && <div className="quick-empty">
+            <span role="status">没有找到插件或本机应用，可以到插件市场找找</span>
+            <Button ref={marketButtonRef} className="quick-empty-market" variant="ghost" size="sm" disabled={Boolean(opening)}
+              onClick={() => void execute({ kind: 'action', action: 'open-market', query }, 'open-market')}>去插件市场</Button>
+          </div>}
+          {!showMarketEmpty && !visibleItems.length && <div className="quick-empty"><span>{busy || backgroundBusy ? '正在查找应用与插件…' : searching ? '没有找到匹配项' : '暂时没有常用应用或插件'}</span><small>{busy || backgroundBusy ? '正在补齐搜索结果，请稍候' : searching ? '试试应用名称、插件名或指令关键词' : '搜索并打开后会显示在这里'}</small>
             {!busy && !backgroundBusy && <button type="button" onClick={() => void execute({ kind: 'action', action: 'refresh-apps' }, 'refresh').then((ok) => { if (ok) setRevision((v) => v + 1) })}>重新扫描应用</button>}</div>}
         </div>
       </>}
     </div>
+    {themeConfig && themeSnapshot && <QuickThemeSurface key={themeConfig.key} ref={themeViewRef}
+      config={themeConfig} snapshot={themeSnapshot} onAction={onThemeAction}
+      onReady={ready => { themeReadyRef.current = ready; setThemeReady(ready) }}
+      onFailure={() => { themeReadyRef.current = false; setThemeReady(false); setThemeConfig(null); requestAnimationFrame(() => inputRef.current?.focus()) }} />}
   </div>
 }

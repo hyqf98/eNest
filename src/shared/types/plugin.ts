@@ -1,3 +1,5 @@
+import type { PluginMemoryMonitorSettings } from './pluginMemory'
+
 /** 宿主能力标识；基础能力直接可用，敏感能力需在 manifest 声明并取得用户授权。 */
 export type PluginPermission =
   | 'backend.node'
@@ -249,7 +251,7 @@ export interface QuickProviderContribution {
   schemaVersion?: string
 }
 
-/** 设置 section 贡献项形状（与 PluginSettingsBridge 的 SettingsSection item 对齐） */
+/** 设置 section 贡献项：manifest、主进程设置桥和动态渲染共用。 */
 export interface SettingsSectionContributionItem {
   key: string
   /**
@@ -313,7 +315,7 @@ export interface RailEntryContribution {
 
 /**
  * 插件贡献点声明（manifest.contributes + 运行时注册统一形状）。
- * - settings / homeCards / railEntries / themePacks：声明式，Registry scan 时入库；
+ * - settings / homeCards / railEntries / themePacks / homePages：声明式，Registry scan 时入库；
  * - quickProviders：运行时注册（provider 逻辑在插件 webContents 内，不可序列化）。
  */
 export interface PluginContributes {
@@ -327,10 +329,12 @@ export interface PluginContributes {
   railEntries?: RailEntryContribution[]
   /** 主题包（并入统一语义，等价现有 theme.register） */
   themePacks?: ThemePack[]
+  /** 首页提供者（来源绑定，入口由宿主校验） */
+  homePages?: import('./appearance').HomePageContribution[]
 }
 
 /** 贡献点插槽名（contributions 表 slot 字段枚举） */
-export type ContributionSlot = 'settings' | 'home-cards' | 'rail-entries' | 'theme-packs'
+export type ContributionSlot = 'settings' | 'home-cards' | 'rail-entries' | 'theme-packs' | 'home-pages'
 
 /** 运行时读取贡献项时附加的来源信息 */
 export interface SourcedContribution<T> {
@@ -526,7 +530,7 @@ export interface PluginTab {
   badge?: string
 }
 
-export type ShellView = 'home' | 'settings' | 'dev' | 'plugin'
+export type ShellView = 'home' | 'settings' | 'plugin'
 
 /** 主题模式：浅色 / 深色 / 跟随系统 */
 export type ThemeMode = 'light' | 'dark' | 'system'
@@ -574,7 +578,7 @@ export type BackgroundEffectDefinition = BackgroundEffectBase & (
   }
 )
 
-/** 可由主题插件动态注册的主题包 */
+/** 可由主题插件动态注册的主题包（V2 完整契约见 types/appearance.ts） */
 export interface ThemePack {
   id: string
   name: string
@@ -586,6 +590,19 @@ export interface ThemePack {
   /** 最多 8 个声明式动效；随主题包来源注册、禁用和卸载。 */
   backgroundEffects?: BackgroundEffectDefinition[]
 }
+
+export interface ThemePackV2Input extends Omit<import('./appearance').ThemePackV2, 'source' | 'mode'> {
+  source?: string
+  mode?: ThemeMode
+}
+
+export type ThemePackRegistrationInput =
+  | Omit<ThemePack, 'source' | 'mode' | 'background'> & {
+    mode?: ThemeMode
+    source?: string
+    background?: import('./appearance').ThemePackV2['background']
+  }
+  | ThemePackV2Input
 
 export interface ThemeTokens {
   mode: ThemeMode
@@ -616,18 +633,16 @@ export interface CustomFontMeta {
   fileName: string
 }
 
-/** 代理类型：直连 / HTTP / SOCKS5 / 自定义 URL（scheme://[user:pass@]host:port） */
-export type ProxyType = 'none' | 'http' | 'socks5' | 'custom'
+/** 代理类型：自动跟随系统 / 直连 / 指定主机端口 */
+export type ProxyType = 'system' | 'none' | 'http'
 
 /** 代理配置；type=none 或缺省表示直连 */
 export interface ProxyConfig {
   type: ProxyType
-  /** http/socks5 主机名或 IP */
+  /** http 主机名或 IP */
   host?: string
-  /** http/socks5 端口 */
+  /** http 端口 */
   port?: number
-  /** custom：完整代理 URL，如 socks5://127.0.0.1:1080 或 http://user:pass@host:8080 */
-  url?: string
 }
 
 /** Quick 最近使用一条记录 */
@@ -700,6 +715,8 @@ export interface GeneralSettings {
   closeBehavior: 'minimize-tray' | 'quit'
   /** 消息通知默认位置（中间弹框 / 右下角）；变更对新消息即时生效 */
   notifyPosition?: 'center' | 'bottom-right'
+  /** 插件内存监控任务及异常通知偏好。 */
+  pluginMemoryMonitor?: PluginMemoryMonitorSettings
   /** Tab 样式；变更即时生效 */
   tabStyle?: TabStyle
   /** 动画效果强度；变更即时生效 */

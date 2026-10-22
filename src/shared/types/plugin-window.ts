@@ -19,6 +19,7 @@ export interface DetachedPluginState {
   badge?: string
   input?: QuickInputState | null
   appearance?: {
+    resolved?: import('./appearance').ResolvedAppearance
     theme: 'light' | 'dark'
     tokens: Record<string, string>
     animationLevel: AnimationLevel

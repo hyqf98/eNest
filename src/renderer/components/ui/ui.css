@@ -9,7 +9,7 @@
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
-  font-size: 12px;
+  font-size: calc(12px * var(--appearance-font-scale, 1));
   line-height: 1.45;
   box-shadow: var(--shadow-float, 0 6px 24px rgba(20, 32, 52, 0.12));
   user-select: none;
@@ -122,12 +122,12 @@
 }
 .ui-dialog-title {
   margin: 0 0 6px;
-  font-size: 15px;
+  font-size: calc(15px * var(--appearance-font-scale, 1));
   font-weight: 650;
 }
 .ui-dialog-description {
   margin: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--appearance-font-scale, 1));
   line-height: 1.55;
   color: var(--text-2);
 }

@@ -145,9 +145,13 @@ import { clearQuickInput, escapeQuickInput, getQuickInputState } from '@main/plu
 import type { PluginInputContext } from '@shared/types/local-files'
 import { releaseLocalFiles } from '@main/plugin/localFiles'
 import { resolveThemeTokens, themeTokensToInjectScript } from '@main/theme/resolveThemeCss'
+import { appearanceService } from '@main/theme/appearanceService'
 import { routeExternal, isInternalNavigation } from '@main/plugin/externalLinks'
 import type { DetachedPluginState, PluginPlacement } from '@shared/types/plugin-window'
 import { settingsStore } from '@main/settings/SettingsStore'
+import { resumeDevServer, stopDevServer, stopDevServerAndWait } from '@main/dev/devServerManager'
+import { stopPluginProcesses } from '@main/plugin/pluginOwnedProcesses'
+import { stopFocusTimer } from '@main/timer/focusTimerService'
 import { PluginWindowSession } from '@main/plugin/pluginWindowSession'
 import {
   bindDetachedWindowHost, createDetachedWindow, destroyDetachedWindow,
@@ -218,7 +222,7 @@ export class PluginHost {
   private generation = 0
   private shuttingDown = false
   private barriers = new Map<string, number>()
-  private opening = new Map<string, { cancelled: boolean; promise: Promise<string> }>()
+  private opening = new Map<string, { cancelled: boolean; preserveDevServer?: boolean; promise: Promise<string> }>()
   private finalClosing = new Map<string, { preserveSession: boolean }>()
   private closing = new Map<string, Promise<void>>()
   private reloading = new Map<string, { cancelled: boolean; promise: Promise<void> }>()
@@ -229,6 +233,7 @@ export class PluginHost {
   private tabPresentation = new Map<string, { title?: string; glyph?: string; badge?: string }>()
   private tabRevision = 0
   private entries = new Map<string, PluginEntry>()
+  private closingEntries = new Map<string, PluginEntry>()
   private byWcId = new Map<number, string>()
   private activeTabId: string | null = null
   private shellVisible = true
@@ -516,6 +521,17 @@ export class PluginHost {
         state: this.getState(entry.pluginId), container: entry.container
       }))
     }
+  }
+
+  getMemoryOwners(): Array<{ pluginId: string; wcId: number; closing: boolean }> {
+    const entries = new Set([...this.entries.values(), ...this.closingEntries.values(), ...this.retiringViews.values()])
+    return [...entries].map(entry => ({
+      pluginId: entry.pluginId, wcId: entry.scope.owner.wcId, closing: entry.scope.isClosing
+    }))
+  }
+
+  isClosing(pluginId: string): boolean {
+    return this.closing.has(pluginId) || this.finalClosing.has(pluginId) || this.retiringViews.has(pluginId)
   }
 
   getPluginIdByWebContentsId(wcId: number): string | undefined {
@@ -864,7 +880,7 @@ export class PluginHost {
     pluginId: string,
     enter?: PluginEnterPayload,
     opts?: PluginOpenOptions,
-    operation?: { cancelled: boolean }
+    operation?: { cancelled: boolean; preserveDevServer?: boolean }
   ): Promise<string> {
     const resumeIdentity = this.hibernated.get(pluginId)
     const existing = this.entries.get(pluginId)
@@ -901,6 +917,17 @@ export class PluginHost {
     }
 
     const summary = await pluginRegistry.ensureInstalled(pluginId)
+    if (summary.dev && summary.devUrl && summary.devMode !== 'prod') {
+      const devUrl = await resumeDevServer(pluginId)
+      if (operation?.cancelled || this.shuttingDown || this.barriers.has(pluginId)) {
+        if (!operation?.preserveDevServer) stopDevServer(pluginId)
+        throw new Error('plugin opening cancelled')
+      }
+      if (devUrl && devUrl !== summary.devUrl) {
+        summary.devUrl = devUrl
+        pluginRegistry.addDevPlugin(summary, pluginRegistry.getManifest(pluginId) ?? undefined)
+      }
+    }
     if (opts?.guard && !opts.guard()) throw new Error('plugin launch cancelled')
     if (operation?.cancelled || this.shuttingDown || this.barriers.has(pluginId) || !isEnabledSync(pluginId)) throw new Error('plugin opening cancelled')
     const rootPath = summary.rootPath
@@ -1029,16 +1056,18 @@ export class PluginHost {
     const scope = createRuntimeScope({ pluginId, generation, wcId: view.webContents.id })
     scope.onActivityChanged(() => { this.scheduleHibernate(pluginId); this.enforceAliveLimit() })
     scope.addDisposer(() => releasePluginEndpoints(pluginId))
+    scope.addDisposer(() => ses.closeAllConnections())
     scope.addDisposer(() => releasePluginHotkeys(pluginId))
     scope.addDisposer(() => { contributionRegistry.releaseQuickProviders(pluginId) })
     scope.addDisposer(() => releasePluginActivities(pluginId))
     scope.addDisposer(() => { this.inputContexts.delete(pluginId) })
     scope.addDisposer(() => { closeAllPins(pluginId) })
     scope.addDisposer(() => releaseSshSessions(pluginId, generation))
-    scope.addDisposer(() => releaseDbSessions(pluginId))
+    scope.addDisposer(() => releaseDbSessions(pluginId, generation))
+    scope.addDisposer(() => stopPluginProcesses(pluginId, generation))
     scope.addDisposer(() => releaseSockets(pluginId, generation))
     scope.addDisposer(() => releaseLanShares(pluginId, generation))
-    scope.addDisposer(() => releaseDshRuntime(pluginId))
+    scope.addDisposer(() => releaseDshRuntime(pluginId, generation))
     scope.addDisposer(() => releaseLocalFiles(pluginId))
     scope.addDisposer(() => { if (!releasePluginStorage(pluginId)) throw new Error('pending local storage writes retained for retry') })
     const entry: PluginEntry = {
@@ -1117,8 +1146,9 @@ export class PluginHost {
    * 关闭插件：立即摘除视图和逻辑 Tab，再在共享期限内通知并回收资源。
    * reason 决定 beforeClose 载荷；日常关 Tab 用 tab-close，卸载用 uninstall，退出用 app-quit。
    * 休眠中的插件也可被关闭（无 entry，直接落 closed 语义）。
+   * preserveSharedResources 由宿主在同 ID 的 Workspace 仍存活时指定，不停止共享开发服或无代际归属的进程。
    */
-  closePlugin(tabId: string, reason: PluginCloseReason = 'tab-close', preserveSession = false): Promise<void> {
+  closePlugin(tabId: string, reason: PluginCloseReason = 'tab-close', preserveSession = false, preserveSharedResources = false): Promise<void> {
     const pluginId = toPluginId(tabId)
     if (!preserveSession) this.closeRevisions.set(pluginId, (this.closeRevisions.get(pluginId) ?? 0) + 1)
     if (!preserveSession) this.restoredSessionIds.add(pluginId)
@@ -1151,16 +1181,28 @@ export class PluginHost {
     this.pendingAcks.get(pluginId)?.resolve()
     const deadline = Date.now() + BEFORE_CLOSE_ACK_TIMEOUT
     const opening = this.opening.get(pluginId)
-    if (opening) opening.cancelled = true
+    if (opening) {
+      opening.cancelled = true
+      if (preserveSharedResources) opening.preserveDevServer = true
+    }
     this.clearHibernateTimer(pluginId)
     permissionService.cancelFor(pluginId)
     const entry = this.entries.get(pluginId)
+    entry?.scope.markClosing()
+    const instanceOnly = preserveSession || preserveSharedResources
+    const stopping = Promise.allSettled([
+      // undefined generation means all owners; a missing ordinary instance must not release Workspace resources.
+      ...(!instanceOnly ? [stopPluginProcesses(pluginId)] : entry ? [stopPluginProcesses(pluginId, entry.generation)] : []),
+      ...(!instanceOnly ? [stopDevServerAndWait(pluginId)] : []),
+      ...(!preserveSession && reason !== 'app-quit' ? [stopFocusTimer(pluginId)] : [])
+    ])
     const ids = [...this.logicalTabs.keys()]
     const index = ids.indexOf(pluginId)
     const next = ids[index + 1] ?? ids[index - 1]
     if (!preserveSession) this.logicalTabs.delete(pluginId)
     this.hibernated.delete(pluginId)
     if (entry) {
+      this.closingEntries.set(pluginId, entry)
       entry.scope.markClosing()
       this.detachView(entry)
       this.entries.delete(pluginId)
@@ -1183,16 +1225,30 @@ export class PluginHost {
     if (!preserveSession) sendShellEvent({ type: 'tab-closed', tabId: toTabId(pluginId) })
     this.publishTabs()
     const operation = Promise.resolve().then(async () => {
-      if (pending) await pending
-      if (entry) {
-        const operationId = randomUUID()
-        const ack = this.waitForBeforeCloseAck(pluginId, entry.view.webContents, operationId, deadline - 300)
-        this.sendToPlugin(entry.view.webContents, { event: 'beforeClose', reason, operationId })
-        await ack
-        this.sendToPlugin(entry.view.webContents, { event: 'destroy' })
-        await this.disposeEntry(entry, deadline)
-        this.byWcId.delete(entry.scope.owner.wcId)
+      let failure: unknown
+      try {
+        if (pending) await pending
+        if (entry) {
+          try {
+            const operationId = randomUUID()
+            const ack = this.waitForBeforeCloseAck(pluginId, entry.view.webContents, operationId, deadline - 300)
+            this.sendToPlugin(entry.view.webContents, { event: 'beforeClose', reason, operationId })
+            await ack
+            this.sendToPlugin(entry.view.webContents, { event: 'destroy' })
+          } finally {
+            await this.disposeEntry(entry, deadline)
+            this.byWcId.delete(entry.scope.owner.wcId)
+          }
+        }
+      } catch (error) { failure = error }
+      const stops = await stopping
+      if (entry) invalidatePluginFileCache(entry.rootPath)
+      else {
+        const root = pluginRegistry.getRootPath(pluginId)
+        if (root) invalidatePluginFileCache(root)
       }
+      const rejected = stops.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+      if (failure || rejected) throw failure ?? rejected?.reason
     }).finally(() => {
       // A native destruction failure keeps its retiring guard, but must not keep
       // closed logical-session payloads or queued UI state alive.
@@ -1208,6 +1264,7 @@ export class PluginHost {
       sendShellEvent({ type: 'plugins-changed' })
       if (this.closing.get(pluginId) === operation) this.closing.delete(pluginId)
       this.finalClosing.delete(pluginId)
+      if (this.closingEntries.get(pluginId) === entry) this.closingEntries.delete(pluginId)
       if (entry) this.byWcId.delete(entry.scope.owner.wcId)
     })
     this.closing.set(pluginId, operation)
@@ -1952,6 +2009,11 @@ export class PluginHost {
             true
           ).catch(() => { /* renderer may close during theme injection */ })
           entry.view.webContents.send(IpcChannels.PluginEvent, payload)
+          const appearance = appearanceService.getAppearance(entry.ui.preferredColorScheme)
+          entry.view.webContents.send(IpcChannels.PluginEvent, {
+            type: 'appearance-change',
+            appearance
+          } satisfies PluginEventPayload)
         }
       } catch {
         // view 可能正在销毁
@@ -2234,6 +2296,7 @@ export class PluginHost {
     if (entry.scope.failures.length) logWarn('lifecycle', `${entry.pluginId}/${entry.generation}: resource cleanup: ${entry.scope.failures.join('; ')}`)
     const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
     if (failed) throw failed.reason
+    if (entry.scope.failures.length) throw new Error(`Plugin resource cleanup incomplete: ${entry.scope.failures.join('; ')}`)
   }
 
   private teardownView(entry: PluginEntry): Promise<void> {

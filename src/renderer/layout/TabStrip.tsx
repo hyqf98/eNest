@@ -6,6 +6,7 @@
  * - lazy（惰性会话恢复占位）：半透明 + 骨架呼吸效果，title 提示「点击加载」
  * - crashed（渲染进程崩溃且不再自动重启）：红色小点 + 重试图标，点击重新 openPlugin
  * 依赖：shellStore（view/tabs/activeTabId/goHome/activateTab/closeTab）、animateTabIn。
+ * 标题栏的自动隐藏与透明度由 TitleBar 统一处理，这里只负责 Tab 本身。
  */
 import { useEffect, useRef } from 'react'
 import gsap from 'gsap'

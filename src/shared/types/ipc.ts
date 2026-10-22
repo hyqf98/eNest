@@ -11,8 +11,11 @@ import type {
   PluginLaunchMode,
   PluginPermission,
   PluginPermissionGrant,
+  ShellView,
+  TabStyle,
   UserProfile
 } from './plugin'
+import type { ResolvedAppearance } from './appearance'
 import type { QuickPluginModeInfo } from './quick'
 import type { SshPluginEvent } from './ssh-db'
 import type { MwMessage } from './mw-workbench'
@@ -22,6 +25,7 @@ import type { FocusTimerSnapshot } from './focus-timer'
 import type { ShellNotice } from './notice'
 import type { PluginShortcutsSnapshot } from './shortcuts'
 import type { NotificationOptions } from './notification'
+import type { ShellSettingsSection } from './shell'
 
 /**
  * IPC 通道常量 — 主进程 / preload / 渲染进程共用。
@@ -47,8 +51,11 @@ export const IpcChannels = {
   ShellHidePlugins: 'shell:hide-plugins',
   /** 设置插件内容区左侧 inset（orb 传统通道模式；overlay 模式恒为 0） */
   ShellSetPluginInset: 'shell:set-plugin-inset',
+  /** 主壳标题栏让出的高度；原生子视图始终保留顶部唤出区。 */
+  ShellSetPluginTopInset: 'shell:set-plugin-top-inset',
   /** 壳子 → 主进程：同步圆轨悬浮窗所需 Tab 状态 */
   ShellGetPluginDiagnostics: 'shell:get-plugin-diagnostics',
+  ShellGetPluginMemorySnapshot: 'shell:get-plugin-memory-snapshot',
   ShellRestoreTabs: 'shell:restore-tabs',
   ShellSyncOrbState: 'shell:sync-orb-state',
   /** 悬浮窗 → 主进程：读取圆轨状态 */
@@ -63,6 +70,22 @@ export const IpcChannels = {
   ShellSetOrbRailExpanded: 'shell:set-orb-rail-expanded',
   ShellGetTheme: 'shell:get-theme',
   ShellSetTheme: 'shell:set-theme',
+  ShellGetAppearance: 'shell:get-appearance',
+  ShellUpdateThemeProfile: 'shell:update-theme-profile',
+  ShellActivateTheme: 'shell:activate-theme',
+  ShellSetAppearanceMode: 'shell:set-appearance-mode',
+  ShellSetHomeVisible: 'shell:set-home-visible',
+  ShellNavigateWorkspace: 'shell:navigate-workspace',
+  ShellRetryHome: 'shell:retry-home',
+  ShellGetHomeState: 'shell:get-home-state',
+  ShellPickAppearanceMedia: 'shell:pick-appearance-media',
+  ShellImportAppearanceFont: 'shell:import-appearance-font',
+  ShellRemoveAppearanceFont: 'shell:remove-appearance-font',
+  ShellSetAppearancePerformanceLimited: 'shell:set-appearance-performance-limited',
+  ModalOpen: 'modal:open',
+  ModalReady: 'modal:ready',
+  ModalState: 'modal:state',
+  ModalRespond: 'modal:respond',
   ShellLoadDevPlugin: 'shell:load-dev-plugin',
   ShellForgetDevPlugin: 'shell:forget-dev-plugin',
   /** 开发者控制台：切换 dev 插件「退出到后台立即结束运行」（对齐 uTools） */
@@ -163,12 +186,27 @@ export const IpcChannels = {
   QuickOpen: 'quick:open',
   QuickScanApps: 'quick:scan-apps',
   QuickGetConfig: 'quick:get-config',
+  QuickThemeGetConfig: 'quick:theme-get-config',
+  QuickThemeAuthorize: 'quick:theme-authorize',
+  QuickThemeKey: 'quick:theme-key',
   QuickSetHotkeys: 'quick:set-hotkeys',
   /** 探测组合键是否可被本进程注册（用于录制时发现系统/他应用占用） */
   QuickProbeHotkey: 'quick:probe-hotkey',
   /** 渲染层测量内容高度后请求调整小窗高度（内容撑开/收起） */
   QuickResize: 'quick:resize',
   QuickInput: 'quick:plugin-input',
+
+  /** Restricted full-page home runtime. The host owns entry, generation and lifecycle. */
+  HomeReady: 'home:ready',
+  HomeAck: 'home:ack',
+  HomeGetCatalog: 'home:get-catalog',
+  HomeGetDetail: 'home:get-detail',
+  HomeSearch: 'home:search',
+  HomeRefresh: 'home:refresh',
+  HomeAction: 'home:action',
+  HomeGetAppearance: 'home:get-appearance',
+  HomeGetConfig: 'home:get-config',
+  HomeEvent: 'home:event',  PluginHomeRegister: 'plugin:home-register',
 
   WindowMinimize: 'window:minimize',
   WindowMaximize: 'window:maximize',
@@ -229,6 +267,8 @@ export type ToastKind = 'info' | 'success' | 'warn' | 'error'
 
 /** shell:event 负载类型 */
 export type ShellEventPayload =
+  | { type: 'preview-splash' }
+  | { type: 'home-status'; state: import('./homeSurface').HomeSurfaceState }
   | { type: 'quick-input'; state: QuickInputState | null }
   | { type: 'plugin-open-settings'; pluginId: string }
   | { type: 'plugins-changed' }
@@ -237,12 +277,13 @@ export type ShellEventPayload =
   | { type: 'plugin-tabs'; revision: number; tabs: Array<{id: string; title: string; icon?: string | null; glyph?: string; color?: string; badge?: string; status: 'loading' | 'ready' | 'error' | 'hibernated'}>; activeTabId: string | null }
   | { type: 'tab-closed'; tabId: string }
   | { type: 'plugin-error'; pluginId: string; message: string }
-  | { type: 'settings-sections'; sections: unknown[] }
+  | { type: 'settings-sections'; sections: ShellSettingsSection[] }
   | { type: 'theme-changed'; mode: 'light' | 'dark' | 'system' }
   /** 独立窗口按变更键重读设置，不携带插件私有设置或重复触发持久化。 */
   | { type: 'settings-changed'; generalKeys: string[] }
   | { type: 'locale-changed'; locale: 'zh-CN' | 'en-US' }
   | { type: 'theme-packs-changed' }
+  | { type: 'appearance-changed'; revision: number; appearance: ResolvedAppearance }
   | { type: 'plugin-active'; tabId: string | null }
   | { type: 'plugin-title'; tabId: string; title: string }
   | { type: 'plugin-icon'; tabId: string; icon: string }
@@ -265,7 +306,7 @@ export type ShellEventPayload =
   /** 悬浮窗请求主壳回首页 */
   | { type: 'go-home' }
   /** 悬浮窗请求主壳切换视图 */
-  | { type: 'set-view'; view: 'home' | 'settings' | 'plugin' | 'dev' }
+  | { type: 'set-view'; view: 'home' | 'settings' | 'plugin'; workspaceRoute?: import('./workspace').WorkspaceRoute; sectionId?: string }
   /** 快捷键注册失败（至少部分占用） */
   | { type: 'quick-hotkey-failed'; failed: string[]; registered: string[] }
   | { type: 'quick-hotkey-used'; acc: string }
@@ -275,7 +316,7 @@ export type ShellEventPayload =
   | { type: 'plugin-launch-changed'; pluginId: string; config: PluginLaunchConfig | null }
   | { type: 'plugin-shortcuts-changed'; snapshot: PluginShortcutsSnapshot }
   /** 命令面要求壳子切换视图 */
-  | { type: 'quick-open-view'; view: 'home' | 'settings' | 'dev' }
+  | { type: 'quick-open-view'; view: 'home' | 'settings' }
   /**
    * Quick 小窗插件态切换（主进程 → Quick 渲染层，经通用 shell:event 下发）：
    * 挂载 mini 插件 = { pluginId, title }；Esc 固定/收起回列表态 = null。
@@ -303,10 +344,10 @@ export type ShellEventPayload =
       osHint?: 'system-pending' | 'denied'
     }
 
-/** orb 悬浮窗同步的 Tab 状态（壳子 renderer → main → overlay） */
+/** orb 状态快照（main → overlay）；主题、动画及账号由宿主补全。 */
 export interface OrbRailState {
-  view: 'home' | 'settings' | 'dev' | 'plugin'
-  tabStyle: 'classic' | 'orb'
+  view: ShellView
+  tabStyle: TabStyle
   activeTabId: string | null
   /** 动画档位：overlay 独立文档不读主壳 DOM，档位随状态下发 */
   animationLevel: AnimationLevel
@@ -314,6 +355,7 @@ export interface OrbRailState {
   theme: {
     mode: 'light' | 'dark'
     tokens: Record<string, string>
+    appearance?: ResolvedAppearance
   }
   /** 已连接账号（dock 设置钮默认显示头像）；未登录为 null */
   profile: {
@@ -333,8 +375,7 @@ export interface OrbRailState {
   /**
    * rail-entries 插槽贡献（插件贡献点，声明式）：orb 模式左侧轨道底部入口。
    * 点击经 shellApi.openPlugin(pluginId, { code: openCode }) 打开来源插件。
-   * 本期仅数据层（主进程下发）；渲染消费由 orb-overlay 后续批次接线。
-   * 可选字段：overlay/壳子同步路径尚未携带时不影响既有消费方。
+   * 由主进程从贡献表读取，orb-overlay 负责渲染。
    */
   contribEntries?: Array<{
     id: string
@@ -344,6 +385,14 @@ export interface OrbRailState {
     title: string
     openCode?: string
   }>
+}
+
+/** Renderer-owned projection; appearance and account data remain host-owned. */
+export type OrbRailProjection = Pick<OrbRailState, 'view' | 'tabStyle' | 'activeTabId' | 'tabs'>
+
+export type OrbRailSyncRequest = OrbRailProjection & {
+  /** Startup and previews may hide native chrome without changing the theme. */
+  chromeVisible?: boolean
 }
 
 /** shell:orb-event 负载：主进程 → 悬浮窗 */
@@ -417,6 +466,7 @@ export type PluginEventPayload =
       mode: 'light' | 'dark'
       tokens: Record<string, string>
     }
+  | { type: 'appearance-change'; appearance: ResolvedAppearance }
   /** 插件注册的全局热键被按下（enest.hotkey.register 的回调触发） */
   | {
       type: 'hotkey'

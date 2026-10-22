@@ -9,6 +9,7 @@ import { SegmentTabs } from '@renderer/components/SegmentTabs'
 import { FeaturedCarousel } from '@renderer/components/FeaturedCarousel'
 import { MarketCategorySection } from '@renderer/components/MarketCategorySection'
 import { PluginDetailModal } from '@renderer/components/PluginDetailModal'
+import { RotateCwIcon } from '@renderer/components/icons'
 import { animateCards, playHeroIn } from '@renderer/gsap/marketMotion'
 import type { HomeCardContribution, PluginMarketStatus } from '@shared/types/plugin'
 import { matchesSearchTerms, normalizeSearchText } from '@shared/search'
@@ -143,19 +144,21 @@ export function MarketPage() {
             <h1>{english ? 'Plugin marketplace' : '插件市场'}</h1>
             <p>{english ? `${plugins.length} plugins · ${installedCount} installed` : `${plugins.length} 个插件 · 已安装 ${installedCount} 个`}</p>
           </div>
-          <button type="button" className="market-refresh" onClick={retry} disabled={refreshing} aria-busy={refreshing}>
-            {refreshing ? english ? 'Refreshing…' : '正在刷新…' : english ? 'Refresh marketplace' : '刷新市场'}
+          <button
+            type="button"
+            className="market-refresh"
+            onClick={retry}
+            disabled={refreshing}
+            aria-busy={refreshing}
+            title={refreshing ? (english ? 'Refreshing…' : '正在刷新…') : english ? 'Refresh marketplace' : '刷新市场'}
+            aria-label={refreshing ? (english ? 'Refreshing marketplace' : '正在刷新插件市场') : english ? 'Refresh marketplace' : '刷新插件市场'}
+          >
+            <RotateCwIcon size={15} />
           </button>
         </header>
         <HomeSearch value={query} onChange={setQuery} plugins={plugins} onDetail={handleDetail}
           onBrowseAll={() => { setQuery(''); setCategory('全部'); setSeg('browse') }} />
 
-        {unavailable && <div className="market-source-notice" role="status">
-          <span>{marketStatus?.catalogCount
-            ? english ? 'Marketplace unavailable. Showing the catalog loaded earlier; installed plugins remain available.' : '暂时无法连接插件市场，正在展示此前加载的目录；已安装插件仍可使用。'
-            : english ? 'Marketplace unavailable. Installed and local plugins remain available.' : '暂时无法连接插件市场，已安装及本地插件仍可使用。'}</span>
-          <button type="button" onClick={retry} disabled={refreshing}>{english ? 'Retry' : '重试'}</button>
-        </div>}
         {marketStatus?.state === 'preview' && <div className="market-source-notice" role="status">
           {english ? 'Browser preview · sample data for UI development only. Open the desktop app for the live marketplace.' : '浏览器预览 · 当前为界面开发示例数据，真实插件市场请在桌面应用中查看。'}
         </div>}
@@ -185,8 +188,9 @@ export function MarketPage() {
           <div className="market-category-list" ref={gridRef} aria-busy={waitingForCatalog}>
             {waitingForCatalog ? (
               <div className="market-loading" role="status">
-                <span>{t('common.loading')}</span>
-                <div className="market-skeletons" aria-hidden="true"><i /><i /><i /></div>
+                <span className="market-loading-icon" aria-hidden="true"><i /><i /><i /></span>
+                <strong>{english ? 'Preparing the marketplace' : '正在准备插件市场'}</strong>
+                <span>{english ? 'Installed and local plugins stay available' : '已安装与本地插件保持可用'}</span>
               </div>
             ) : unavailable && plugins.length === 0 && seg === 'browse' ? (
               <div className="empty">

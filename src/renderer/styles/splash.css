@@ -1,5 +1,8 @@
 /* Launch colors follow the selected background mode; particles inherit local tokens. */
 .splash {
+  --splash-bg: #122420;
+  --splash-accent: #8ec7b6;
+  --splash-text: #e8f3ed;
   position: fixed;
   inset: 0;
   z-index: 9999;
@@ -16,33 +19,10 @@
   background: var(--splash-bg, #122420);
 }
 
-.splash-photo {
-  position: absolute;
-  inset: 0;
-  background-position: center;
-  background-size: cover;
-  background-repeat: no-repeat;
-  pointer-events: none;
-}
-
-.splash--photo::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(12, 28, 24, 0.4);
-  pointer-events: none;
-}
-
-.splash-field {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  color: color-mix(in srgb, var(--splash-text, #e8f3ed) 82%, var(--splash-accent, #8ec7b6));
-  opacity: 0.85;
-}
+.splash--theme, .splash--effect { --splash-bg:var(--bg); --splash-accent:var(--accent); --splash-text:var(--text); }
+.splash-photo { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; pointer-events:none; }
+.splash--photo::after { content:''; position:absolute; inset:0; background:rgba(12,28,24,.4); pointer-events:none; }
+.splash-field { position:absolute; inset:0; z-index:1; width:100%; height:100%; pointer-events:none; }
 
 .splash-stage {
   position: relative;
@@ -132,3 +112,60 @@
 .splash-close:focus-visible { outline: 2px solid var(--splash-accent); outline-offset: 4px; }
 
 .splash[data-ready="false"] .splash-stage { opacity: 0; }
+
+.paper-splash {
+  --splash-bg: var(--bg);
+  --splash-accent: var(--accent);
+  --splash-text: var(--text);
+  background: var(--bg);
+  color: var(--text);
+}
+.paper-splash-wash {
+  position: absolute;
+  inset: -4%;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 18% 28%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 54%),
+    radial-gradient(ellipse at 82% 76%, color-mix(in srgb, var(--ok) 6%, transparent), transparent 52%);
+}
+.paper-splash-stage { gap: 30px; }
+.paper-splash-sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 236px;
+  padding: 23px 28px 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px 5px 4px 2px;
+  color: var(--text);
+  background-color: color-mix(in srgb, var(--surface) 92%, var(--bg));
+  background-image: repeating-linear-gradient(0deg, transparent, transparent 25px, color-mix(in srgb, var(--border) 26%, transparent) 25px, transparent 26px);
+  box-shadow: 5px 7px 0 color-mix(in srgb, var(--text) 5%, transparent), 0 15px 36px color-mix(in srgb, var(--text) 6%, transparent);
+}
+.paper-splash-sheet::before {
+  content: '';
+  position: absolute;
+  inset: 8px auto 8px 12px;
+  width: 3px;
+  border-left: 1px dashed var(--border);
+}
+.paper-splash-tape {
+  position: absolute;
+  top: -10px;
+  left: 79px;
+  width: 70px;
+  height: 22px;
+  transform: rotate(-6deg);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  clip-path: polygon(2% 0, 100% 4%, 97% 100%, 0 94%);
+}
+.paper-splash-tabs { position: absolute; left: 100%; top: 58px; display: grid; gap: 10px; }
+.paper-splash-tab { width: 20px; height: 25px; border: 1px solid var(--border); border-left: 0; border-radius: 0 3px 4px 0; background: color-mix(in srgb, var(--accent) 30%, var(--surface)); }
+.paper-splash-tab:nth-child(2) { width: 16px; background: color-mix(in srgb, var(--ok) 26%, var(--surface)); }
+.paper-splash-tab:nth-child(3) { width: 23px; background: color-mix(in srgb, var(--text-3) 20%, var(--surface)); }
+.paper-splash-mark { width: 148px; height: 133px; overflow: visible; }
+.paper-splash-echo { opacity: .3; }
+.paper-splash-word { margin-top: 2px; color: var(--text); font: 500 38px/1.15 var(--font-heading, var(--font)); letter-spacing: -.035em; }
+.paper-splash-underline { width: 116px; height: 12px; margin-top: 1px; color: color-mix(in srgb, var(--accent) 66%, var(--text)); }
+.paper-splash .splash-sub { letter-spacing: .08em; }

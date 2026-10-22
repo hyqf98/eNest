@@ -1,12 +1,15 @@
 # eNest 当前技术架构
 
-更新于 2026-10-15，宿主版本 0.2.0。插件页面运行在 Electron 44 的 WebContentsView 中，可选的插件自有 Node 后端运行在 utilityProcess；壳界面使用 React、TypeScript、zustand 和 GSAP。根目录 ARCHITECTURE.md 保留早期决策，当前插件开发契约以[开发文档](../site/plugin/README.md)和仓库生成的 schema/SDK 为准。
+更新于 2026-10-19，宿主版本 0.2.0。插件页面运行在 Electron 44 的 WebContentsView 中，可选的插件自有 Node 后端运行在 utilityProcess；壳界面使用 React、TypeScript、zustand 和 GSAP。根目录 ARCHITECTURE.md 保留早期决策，当前插件开发契约以[开发文档](../site/plugin/README.md)和仓库生成的 schema/SDK 为准。
+
+2026-10-19 外观扩展更新：安装包只保留 eNest 默认主题（`enest.builtin / default`），恢复原页面、动效和外观设置；目录、已安装、详情统一为隔离主题 Workspace（三路由 ACK）。设置只有一个原生壳视图，主题外观字段在其主题 Tab 内动态渲染。主进程 appearanceService 是唯一外观权威，通知通过受限语义样式扩展。敏感设置、窗口控制与故障恢复仍由宿主拥有，详见[主题与工作区标准](THEME_STANDARD.md)。
 
 ## 进程与视图
 
 ```text
 Main
 ├── BaseWindow / Shell WebContentsView（主窗 React 界面）
+├── Theme Workspace WebContentsView（目录、已安装、详情、普通设置）
 ├── Plugin WebContentsView × N（各插件独立 persist:plugin-{id}）
 ├── Quick BrowserWindow / Plugin WebContentsView（快捷面板）
 ├── orb rail WebContentsView（主窗内顶层导航）
@@ -16,7 +19,9 @@ Main
 
 所有 renderer 关闭 Node 集成、开启 contextIsolation 和 Chromium sandbox。preload 构建为自包含 `.cjs`，仅暴露 contextBridge API；插件不能自带可执行 preload。可选后端需要 `backend.node` 完整本机信任，具备当前用户可用的 Node 文件、网络和进程能力；utilityProcess 只隔离故障与生命周期，不是操作系统沙箱。DSH 保留专属外部 Node runtime，同样不属于页面沙箱的保证范围。
 
-原生插件视图在 shell DOM 之上，返回首页/设置必须隐藏它；授权使用主进程原生对话框。orb rail 在插件挂载后重新置顶。主窗标题栏固定 36px，插件内容 bounds 由窗口实际尺寸和 chrome 高度计算；Quick 启动模式与主窗通过 API 明确切换，断点只调整空间布局。
+原生插件视图在 shell DOM 之上。返回目录走 `navigateWorkspace`，隐藏业务视图并等待路由 ACK；进入设置则隐藏 Workspace 表面并切到原生设置视图（`set-view: settings`），不存在受保护设置恢复通道。授权使用主进程原生对话框。orb rail 在插件挂载后重新置顶。主窗标题栏固定 36px，插件内容 bounds 由窗口实际尺寸和 chrome 高度计算；Quick 启动模式与主窗通过 API 明确切换，断点只调整空间布局。
+
+启动在 Home IPC 就绪后直接隐藏预热工作区，与源码内置主题的开屏和轻量会话恢复并行；首次启动不再显示主题选择或写入完成标记，后续保留有效插件主题选择；`ready`、路由 ACK 和事务提交完成后，直接显示同一个实例，不插入正常加载/准备页。原生 orb 投影等壳完成启动再开启。设置/注册表和解析外观使用主进程内存状态，不把完整设置或资源授权复制到工作区持久缓存；具体门禁和缓存边界见 `THEME_STANDARD.md`。
 
 ## 模块与公共契约
 
@@ -28,9 +33,10 @@ Main
 | `src/main/paths`、`db`、`settings` | 数据根、迁移、SQLite、缓冲 KV 与设置 |
 | `src/main/database`、`middleware`、`ssh` | 旧 API 的 RPC 门面、文件/密钥桥和实例回收；不持有协议驱动实现 |
 | `src/main/window` | 窗口创建、原生层 bounds 与可见性 |
+| `src/main/home`、`src/main/theme` | 隔离 Workspace 生命周期与安全数据、统一外观解析/事务/资源 |
 | `src/preload` | 壳、插件和辅助窗口的最小 API 桥 |
 | `src/renderer` | React UI、布局、状态、主题、动效 |
-| `src/shared` | 跨端类型、IPC 常量、标准路径和生成的 manifest schema |
+| `src/shared` | 跨端类型、IPC 常量、无平台依赖的纯模型和 canonical manifest schema |
 | 独立插件仓库 | `plugins/<id>` 的前端与 backend、共享业务包（如 ssh-backend）、workspace kit、SDK、构建/验收工具、开发 skill |
 
 壳的跨目录导入使用 `@main`、`@preload`、`@renderer`、`@shared` 别名。公共 API 修改必须同步类型、preload、宿主分发、权限和资源回收；SDK 和文档由插件仓库脚本生成并提供无写入检查模式。

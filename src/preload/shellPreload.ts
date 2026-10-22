@@ -18,7 +18,9 @@ import type { QuickInputMessage, QuickInputState } from '@shared/types/plugin-to
 import {
   IpcChannels,
   type InstallJobInfo,
+  type OrbEventPayload,
   type OrbRailState,
+  type OrbRailSyncRequest,
   type PluginCallTraceEntry,
   type PluginDirtyState,
   type PluginSaveSummary,
@@ -39,9 +41,20 @@ import type {
   PluginSummary,
   ProxyConfig,
   ThemeMode,
-  ThemePack,
   ThemeTokens
 } from '@shared/types/plugin'
+import type {
+  HardwareAccelSetResult,
+  HardwareAccelState,
+  PickFileOptions,
+  PluginLaunchSetResult,
+  ProxySetResult,
+  ShellSettingsSection,
+  ShellThemeResult
+} from '@shared/types/shell'
+import type { AppearanceSnapshot, ThemeProfilePatch } from '@shared/types/appearance'
+import type { WorkspaceRoute } from '@shared/types/workspace'
+import type { PluginMemorySnapshot } from '@shared/types/pluginMemory'
 import type { ProxyTestResult } from '@shared/types/ipc'
 import type {
   ApplicationScanResult,
@@ -56,9 +69,6 @@ import type {
 
 type Unsubscribe = () => void
 
-/** shell:get-theme 返回：ThemeTokens + 主题包列表 */
-export type ShellThemeResult = ThemeTokens & { packs: ThemePack[] }
-
 export interface ShellSettingsData {
   theme?: ThemeTokens
   general?: Record<string, unknown>
@@ -67,48 +77,6 @@ export interface ShellSettingsData {
   pluginLaunch?: Record<string, PluginLaunchConfig>
   pluginShortcuts?: PluginShortcutBinding[]
   [key: string]: unknown
-}
-
-/** shell:set-plugin-launch 返回体 */
-export interface PluginLaunchSetResult {
-  ok: boolean
-  error?: string
-  /** 成功后的最终配置（空配置为 null） */
-  config?: PluginLaunchConfig | null
-}
-
-/** 插件注册的设置 section（与主进程 PluginSettingsBridge 对齐） */
-export interface ShellSettingsSectionItem {
-  key: string
-  type: string
-  label: string
-  entry?: { code: string; payload?: unknown }
-  default?: unknown
-  options?: Array<{ label: string; value: unknown }>
-}
-
-export interface ShellSettingsSection {
-  id: string
-  title: string
-  pluginId: string
-  items: ShellSettingsSectionItem[]
-}
-
-export interface PickFileOptions {
-  filters?: 'image' | 'video' | 'media' | 'font'
-}
-
-export interface HardwareAccelState {
-  enabled: boolean
-}
-
-export interface HardwareAccelSetResult {
-  needRestart: boolean
-}
-
-export interface ProxySetResult {
-  needRestart: boolean
-  proxy: ProxyConfig
 }
 
 /** 解包 ok/data/error 结构，失败时抛出 Error */
@@ -129,6 +97,7 @@ export interface EnestShellApi {
   getMarketStatus(refresh?: boolean): Promise<PluginMarketStatus>
   /** 只读性能采样：仅包含当前应用的进程与插件资源计数。 */
   getPluginDiagnostics(): Promise<unknown>
+  getPluginMemorySnapshot(): Promise<PluginMemorySnapshot>
   restoreTabs(ids: string[]): Promise<void>
   openPlugin(id: string, enter?: { code?: string; payload?: unknown }): Promise<void>
   closePlugin(tabId: string): Promise<void>
@@ -137,6 +106,8 @@ export interface EnestShellApi {
   hidePlugins(): Promise<void>
   /** 设置插件内容区左侧 inset（orb 圆轨通道） */
   setPluginInset(left: number): Promise<void>
+  /** 同步主壳标题栏收起高度；保留顶部热区，主进程统一重排首页与插件。 */
+  setPluginTopInset(top: number): Promise<void>
   /** 回首页 */
   goHome(): Promise<void>
   /** 主壳切换视图 */
@@ -144,25 +115,8 @@ export interface EnestShellApi {
   /** 圆轨 rail 视图展开/收起：主进程切换 WebContentsView 宽度 */
   setOrbRailExpanded(expanded: boolean): Promise<void>
   /** 同步圆轨状态到悬浮窗 */
-  syncOrbState(state: {
-    view: string
-    tabStyle: string
-    activeTabId: string | null
-    /** 可选：主进程以 settingsStore 为准，不信任该字段 */
-    animationLevel?: string
-    theme?: { mode: string; tokens: Record<string, string> }
-    tabs: unknown[]
-  }): Promise<void>
-  getOrbState(): Promise<{
-    view: string
-    tabStyle: string
-    activeTabId: string | null
-    animationLevel: string
-    theme: { mode: string; tokens: Record<string, string> }
-    profile?: OrbRailState['profile']
-    tabs: unknown[]
-    contribEntries?: OrbRailState['contribEntries']
-  }>
+  syncOrbState(state: OrbRailSyncRequest): Promise<void>
+  getOrbState(): Promise<OrbRailState>
   /** 卸载插件：关 Tab → 清 storage → 删文件 → 重扫；结果经 uninstall-result 事件 */
   uninstallPlugin(pluginId: string): Promise<void>
   /** 启用/禁用已安装插件（持久化）；成功返回更新后的 summary */
@@ -185,6 +139,19 @@ export interface EnestShellApi {
     opts?: { force?: boolean }
   ): Promise<MarketInstallResult>
   getTheme(): Promise<ShellThemeResult>
+  getAppearance(): Promise<AppearanceSnapshot>
+  updateThemeProfile(patch: ThemeProfilePatch): Promise<AppearanceSnapshot>
+  activateTheme(identity: { source: string; id: string }): Promise<AppearanceSnapshot>
+  setAppearanceMode(mode: ThemeMode): Promise<AppearanceSnapshot>
+  setHomeVisible(visible: boolean): Promise<void>
+  navigateWorkspace(route: WorkspaceRoute): Promise<void>
+  retryHome(): Promise<void>
+  getHomeState(): Promise<import('@shared/types/homeSurface').HomeSurfaceState>
+  pickAppearanceMedia(options?: { imageOnly?: boolean }): Promise<import('@shared/types/plugin').BackgroundConfig | null>
+  importAppearanceFont(): Promise<import('@shared/types/plugin').CustomFontMeta | null>
+  removeAppearanceFont(id: string): Promise<void>
+  openNativeModal(request: import('@shared/types/modal').NativeModalRequest): Promise<boolean>
+  setAppearancePerformanceLimited(limited: boolean): Promise<AppearanceSnapshot>
   setTheme(
     mode: ThemeMode,
     overrides?: Record<string, string>,
@@ -285,7 +252,7 @@ export interface EnestShellApi {
   onEvent(cb: (payload: ShellEventPayload) => void): Unsubscribe
 
   /** orb 悬浮窗：订阅主进程推送的 Tab 状态 */
-  onOrbEvent(cb: (payload: { type: 'orb-state'; state: OrbRailState }) => void): Unsubscribe
+  onOrbEvent(cb: (payload: OrbEventPayload) => void): Unsubscribe
 
   minimizeWindow(): void
   maximizeWindow(): void
@@ -298,6 +265,9 @@ export interface EnestShellApi {
   quickOpen(req: QuickOpenRequest): Promise<QuickOpenResult>
   quickScanApps(force?: boolean): Promise<ApplicationScanResult>
   quickGetConfig(): Promise<QuickHotkeyConfig>
+  quickGetTheme(): Promise<import('@shared/types/quickTheme').QuickThemeConfig | null>
+  quickAuthorizeTheme(key: string): Promise<boolean>
+  onQuickThemeKey(cb: (key: { key: string; meta?: boolean; ctrl?: boolean; alt?: boolean; shift?: boolean }) => void): Unsubscribe
   quickSetHotkeys(payload: QuickHotkeyPatch): Promise<QuickHotkeyApplyResult>
   quickProbeHotkey(acc: string): Promise<import('@shared/types/quick').QuickHotkeyProbeResult>
   /** 请求主进程按内容高度调整小窗 */
@@ -310,6 +280,7 @@ const api: EnestShellApi = {
   getPlugins: () => ipcRenderer.invoke(IpcChannels.ShellGetPlugins),
   getMarketStatus: (refresh = false) => ipcRenderer.invoke(IpcChannels.ShellGetMarketStatus, refresh),
   getPluginDiagnostics: () => ipcRenderer.invoke(IpcChannels.ShellGetPluginDiagnostics),
+  getPluginMemorySnapshot: () => ipcRenderer.invoke(IpcChannels.ShellGetPluginMemorySnapshot) as Promise<PluginMemorySnapshot>,
   restoreTabs: (ids) => ipcRenderer.invoke(IpcChannels.ShellRestoreTabs, ids).then(() => undefined),
 
   openPlugin: (id: string, enter?: { code?: string; payload?: unknown }) =>
@@ -326,6 +297,9 @@ const api: EnestShellApi = {
   setPluginInset: (left: number) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellSetPluginInset, left)),
 
+  setPluginTopInset: (top: number) =>
+    expectOk(ipcRenderer.invoke(IpcChannels.ShellSetPluginTopInset, top)),
+
   goHome: () => expectOk(ipcRenderer.invoke(IpcChannels.ShellGoHome)),
 
   setShellView: (view: string) =>
@@ -338,16 +312,7 @@ const api: EnestShellApi = {
     expectOk(ipcRenderer.invoke(IpcChannels.ShellSyncOrbState, state)),
 
   getOrbState: () =>
-    ipcRenderer.invoke(IpcChannels.ShellGetOrbState) as Promise<{
-      view: string
-      tabStyle: string
-      activeTabId: string | null
-      animationLevel: string
-      theme: { mode: string; tokens: Record<string, string> }
-      profile?: OrbRailState['profile']
-      tabs: unknown[]
-      contribEntries?: OrbRailState['contribEntries']
-    }>,
+    ipcRenderer.invoke(IpcChannels.ShellGetOrbState) as Promise<OrbRailState>,
 
   uninstallPlugin: (pluginId: string) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellUninstallPlugin, pluginId)),
@@ -373,6 +338,22 @@ const api: EnestShellApi = {
     ),
 
   getTheme: () => ipcRenderer.invoke(IpcChannels.ShellGetTheme) as Promise<ShellThemeResult>,
+  getAppearance: () => ipcRenderer.invoke(IpcChannels.ShellGetAppearance) as Promise<AppearanceSnapshot>,
+  updateThemeProfile: patch =>
+    ipcRenderer.invoke(IpcChannels.ShellUpdateThemeProfile, patch) as Promise<AppearanceSnapshot>,
+  activateTheme: identity =>
+    ipcRenderer.invoke(IpcChannels.ShellActivateTheme, identity) as Promise<AppearanceSnapshot>,
+  setAppearanceMode: mode =>
+    ipcRenderer.invoke(IpcChannels.ShellSetAppearanceMode, mode) as Promise<AppearanceSnapshot>,
+  setHomeVisible: visible => ipcRenderer.invoke(IpcChannels.ShellSetHomeVisible, visible) as Promise<void>,
+  navigateWorkspace: route => ipcRenderer.invoke(IpcChannels.ShellNavigateWorkspace, route) as Promise<void>,
+  retryHome: () => ipcRenderer.invoke(IpcChannels.ShellRetryHome) as Promise<void>,
+  getHomeState: () => ipcRenderer.invoke(IpcChannels.ShellGetHomeState),
+  pickAppearanceMedia: options => ipcRenderer.invoke(IpcChannels.ShellPickAppearanceMedia, options),
+  importAppearanceFont: () => ipcRenderer.invoke(IpcChannels.ShellImportAppearanceFont),
+  removeAppearanceFont: id => ipcRenderer.invoke(IpcChannels.ShellRemoveAppearanceFont, id),
+  openNativeModal: request => ipcRenderer.invoke(IpcChannels.ModalOpen, request),
+  setAppearancePerformanceLimited: limited => ipcRenderer.invoke(IpcChannels.ShellSetAppearancePerformanceLimited, limited),
 
   setTheme: async (mode, overrides, extra) => {
     const current = (await ipcRenderer.invoke(IpcChannels.ShellGetTheme)) as ShellThemeResult
@@ -572,7 +553,7 @@ const api: EnestShellApi = {
   onOrbEvent(cb): Unsubscribe {
     const handler = (
       _e: Electron.IpcRendererEvent,
-      payload: { type: 'orb-state'; state: OrbRailState }
+      payload: OrbEventPayload
     ) => cb(payload)
     ipcRenderer.on(IpcChannels.ShellOrbEvent, handler)
     return () => ipcRenderer.removeListener(IpcChannels.ShellOrbEvent, handler)
@@ -594,6 +575,13 @@ const api: EnestShellApi = {
     ipcRenderer.invoke(IpcChannels.QuickScanApps, { force }) as Promise<ApplicationScanResult>,
   quickGetConfig: () =>
     ipcRenderer.invoke(IpcChannels.QuickGetConfig) as Promise<QuickHotkeyConfig>,
+  quickGetTheme: () => ipcRenderer.invoke(IpcChannels.QuickThemeGetConfig),
+  quickAuthorizeTheme: key => ipcRenderer.invoke(IpcChannels.QuickThemeAuthorize, key),
+  onQuickThemeKey(cb) {
+    const handler = (_event: unknown, data: { key: string; meta?: boolean; ctrl?: boolean; alt?: boolean; shift?: boolean }) => cb(data)
+    ipcRenderer.on(IpcChannels.QuickThemeKey, handler)
+    return () => ipcRenderer.removeListener(IpcChannels.QuickThemeKey, handler)
+  },
   quickSetHotkeys: (payload: QuickHotkeyPatch) => ipcRenderer.invoke(IpcChannels.QuickSetHotkeys, payload) as Promise<QuickHotkeyApplyResult>,
   quickProbeHotkey: (acc: string) =>
     ipcRenderer.invoke(IpcChannels.QuickProbeHotkey, { acc }) as Promise<

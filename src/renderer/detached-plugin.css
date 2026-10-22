@@ -17,8 +17,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .detached-grip:hover { background: var(--surface-2); }
 .detached-icon { flex: 0 0 20px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; overflow: hidden; color: var(--accent); }
 .detached-icon img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
-#plugin-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 550; }
-#plugin-badge { padding: 1px 4px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 10px; }
+#plugin-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 550; }
+#plugin-badge { min-width: 0; max-width: 45%; padding: 1px 4px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .detached-drag-space { flex: 1; align-self: stretch; min-width: 8px; }
 .detached-status { flex-shrink: 0; font-size: 10px; color: var(--text-3); }
 .detached-dock { display: flex; align-items: center; gap: 2px; margin-right: 6px; }
@@ -49,10 +49,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .detached-quick-bar input:disabled { opacity: .65; }
 .detached-quick-bar button { font-size: 10px; color: var(--text-3); border: 1px solid var(--border); border-radius: 5px; padding: 3px 5px; }
 .detached-quick-bar button:disabled { cursor: default; opacity: .5; }
-.detached-placeholder { position: absolute; inset: 36px 0 0; display: grid; place-items: center; padding: 24px; }
+.detached-placeholder { position: absolute; inset: 36px 0 0; display: grid; place-items: center; padding: 24px; min-width: 0; overflow: auto; overscroll-behavior: contain; }
 .detached-loading { display: none; position: absolute; inset: 36px 0 0; place-items: center; color: var(--text-3); pointer-events: none; }
 :root[data-status='loading'] .detached-loading { display: grid; }
-.detached-open { min-height: 36px; padding: 8px 16px; border-radius: 7px; color: var(--text-2); background: var(--surface-2); font-size: 13px; }
+.detached-open { min-width: 0; max-width: 100%; min-height: 36px; padding: 8px 16px; border-radius: 7px; color: var(--text-2); background: var(--surface-2); font-size: 13px; white-space: normal; overflow-wrap: anywhere; }
 .detached-open:hover, .detached-open:focus-visible { color: var(--accent); background: var(--accent-soft); }
 .detached-open:active { background: var(--surface-3, var(--surface-2)); }
 .detached-notice { position: fixed; top: 4px; left: 50%; transform: translateX(-50%); z-index: 5; max-width: min(420px, 75vw); padding: 5px 10px; border-radius: 6px; background: var(--surface-2); color: var(--text); box-shadow: 0 2px 8px #0002; font-size: 11px; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

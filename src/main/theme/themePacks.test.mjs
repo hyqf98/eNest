@@ -14,17 +14,67 @@ function load(file, mocks = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
   }).outputText
   const module = { exports: {} }
-  new Function('require', 'module', 'exports', js)(name => mocks[name] ?? require(name), module, module.exports)
+  new Function('require', 'module', 'exports', js)(name => mocks[name] ?? (name === '@shared/theme/builtinThemes' ? builtinThemes : name.startsWith('@shared/') ? load(`../../shared/${name.slice('@shared/'.length)}.ts`) : require(name)), module, module.exports)
   return module.exports
 }
+const builtinThemes = load('../../shared/theme/builtinThemes.ts')
 const contract = load('../../shared/pluginContract.ts')
 const backgroundEffects = load('../../shared/backgroundEffects.ts', { '@shared/pluginContract': contract })
+const appearance = load('../../shared/theme/appearance.ts', {
+  '@shared/types/appearance': {},
+  '@shared/theme/presets': load('../../shared/theme/presets.ts', { '@shared/theme/colors': load('../../shared/theme/colors.ts') }),
+  '@shared/theme/colors': load('../../shared/theme/colors.ts'),
+  '@shared/backgroundEffects': backgroundEffects,
+  '@shared/pluginContract': contract
+})
+const validV2 = (id = 'v2-theme') => ({
+  schemaVersion: 2,
+  version: 1,
+  id,
+  name: 'V2 Theme',
+  mode: 'system',
+  tokens: { '--accent': '#bd542b' },
+  variants: {
+    light: {
+      tokens: { '--accent': '#bd542b' },
+      fonts: { body: '-apple-system', heading: '-apple-system', mono: 'SF Mono', scale: 1 },
+      components: { controlRadius: 6, cardRadius: 10, panelRadius: 8, borderWidth: 1 },
+      background: { media: null, effect: 'none', texture: 'none', intensity: 0, speed: 1, direction: 0 },
+      layout: { variant: 'comfortable', density: 1, gap: 12, sidebarWidth: 260, contentWidth: 1200, columns: 2 },
+      animation: 'medium'
+    },
+    dark: {
+      tokens: { '--accent': '#e98654' },
+      fonts: { body: '-apple-system', heading: '-apple-system', mono: 'SF Mono', scale: 1 },
+      components: { controlRadius: 6, cardRadius: 10, panelRadius: 8, borderWidth: 1 },
+      background: { media: null, effect: 'none', texture: 'none', intensity: 0, speed: 1, direction: 0 },
+      layout: { variant: 'comfortable', density: 1, gap: 12, sidebarWidth: 260, contentWidth: 1200, columns: 2 },
+      animation: 'medium'
+    }
+  },
+  settings: {
+    version: 2,
+    groups: [{
+      id: 'accent',
+      title: 'Accent',
+      fields: [{
+        key: 'accent',
+        label: 'Accent',
+        type: 'color',
+        default: '#bd542b',
+        binding: { target: 'token', key: '--accent' }
+      }]
+    }]
+  },
+  home: { source: 'com.test.theme', id: 'home', variant: 'legacy' }
+})
 test('plugin theme tokens cannot inject selectors or non-token root properties, including persisted packs', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'enest-theme-tokens-'))
   const mocks = {
     '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
     '@main/logs/logService': { logWarn() {} },
-    '@shared/backgroundEffects': backgroundEffects, '@shared/pluginContract': contract
+    '@shared/backgroundEffects': backgroundEffects, '@shared/pluginContract': contract, '@shared/theme/appearance': appearance,
+    '@shared/theme/builtinThemes': builtinThemes,
   }
   const js = ts.transpileModule(readFileSync(new URL('./themePacks.ts', import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
@@ -57,7 +107,8 @@ test('concurrent theme sources serialize atomic registry writes and leave valid 
   const mocks = {
     '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
     '@main/logs/logService': { logWarn() {} },
-    '@shared/backgroundEffects': backgroundEffects, '@shared/pluginContract': contract,
+    '@shared/backgroundEffects': backgroundEffects, '@shared/pluginContract': contract, '@shared/theme/appearance': appearance,
+    '@shared/theme/builtinThemes': builtinThemes,
     'node:fs/promises': { ...fs, writeFile: async (...args) => {
       active++; maximum = Math.max(maximum, active)
       try { await new Promise(resolve => setTimeout(resolve, 5)); return await writeFile(...args) }
@@ -85,7 +136,7 @@ test('plugin themes cannot use shell backgrounds for remote, local-file or cross
   const directory = await mkdtemp(join(tmpdir(), 'enest-theme-background-'))
   const { ThemePackRegistry } = load('./themePacks.ts', {
     '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
-    '@main/logs/logService': { logWarn() {} }, '@shared/backgroundEffects': backgroundEffects, '@shared/pluginContract': contract
+    '@main/logs/logService': { logWarn() {} }, '@shared/backgroundEffects': backgroundEffects, '@shared/pluginContract': contract, '@shared/theme/appearance': appearance
   })
   const source = 'com.test.theme', pack = { id: 'background', name: 'Background', source, tokens: { '--accent': '#fff' } }
   const bad = [
@@ -126,12 +177,13 @@ test('plugin theme sources cannot impersonate built-ins or bypass per-source quo
   const directory = await mkdtemp(join(tmpdir(), 'enest-theme-owner-'))
   const { ThemePackRegistry } = load('./themePacks.ts', {
     '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
-    '@main/logs/logService': { logWarn() {} }, '@shared/backgroundEffects': backgroundEffects, '@shared/pluginContract': contract
+    '@main/logs/logService': { logWarn() {} }, '@shared/backgroundEffects': backgroundEffects, '@shared/pluginContract': contract, '@shared/theme/appearance': appearance
   })
   try {
-    const registry = new ThemePackRegistry(), pack = { id: 'fixture', name: 'Fixture', source: 'enest.builtin', tokens: {} }
+    const registry = new ThemePackRegistry(), pack = { id: 'default', name: 'Fixture', source: 'enest.builtin', tokens: {} }
     await assert.rejects(registry.registerPlugin(pack, 'enest.builtin'), /reserved theme source/)
-    await registry.register(pack)
+    await assert.rejects(registry.register(pack), /reserved theme source/)
+    await registry.registerBuiltin(pack.id)
     await assert.rejects(registry.registerPlugin(pack, 'com.test.theme'), /already registered by enest.builtin/)
     for (let i = 0; i < 8; i++) {
       const saved = await registry.registerPlugin({ ...pack, id: 'plugin-' + i }, 'com.test.theme')
@@ -141,11 +193,122 @@ test('plugin theme sources cannot impersonate built-ins or bypass per-source quo
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+test('host startup restores only the single compiled default and keeps retired themes and the reserved source private', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'enest-theme-builtin-boot-'))
+  const { ThemePackRegistry } = load('./themePacks.ts', {
+    '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
+    '@main/logs/logService': { logWarn() {} }, '@shared/backgroundEffects': backgroundEffects,
+    '@shared/pluginContract': contract, '@shared/theme/appearance': appearance,
+  })
+  try {
+    const registry = new ThemePackRegistry()
+    await registry.load()
+    assert.deepEqual(registry.list(), builtinThemes.BUILTIN_THEME_PACKS, 'compiled package loads without a disk registry')
+    await assert.rejects(readFile(join(directory, 'registry.json')), { code: 'ENOENT' })
+    assert.deepEqual([...builtinThemes.BUILTIN_THEME_IDS], ['default'])
+    assert.equal(builtinThemes.BUILTIN_THEME_PACKS.length, 1)
+    for (const pack of builtinThemes.BUILTIN_THEME_PACKS) {
+      assert.deepEqual(await registry.registerBuiltin(pack.id), pack)
+      await assert.rejects(registry.register(pack), /reserved theme source/)
+      await assert.rejects(registry.registerPlugin(pack, 'enest.builtin'), /reserved theme source/)
+      await assert.rejects(registry.registerPlugin(pack, 'com.test.theme'), /home/)
+    }
+    assert.deepEqual(registry.list(), builtinThemes.BUILTIN_THEME_PACKS)
+    assert.equal(await registry.remove('default'), false, 'the compiled fallback package cannot be removed')
+    assert.deepEqual(await registry.removeBySource('enest.builtin'), [])
+    for (const id of ['warm', 'ink', 'sketch', 'painted', 'tech', 'legacy-custom']) {
+      await assert.rejects(registry.registerBuiltin(id), /unknown built-in theme/)
+      assert.equal(registry.get(id), null)
+    }
+    await assert.rejects(registry.registerBuiltin('forged'), /unknown built-in theme/)
+    await assert.rejects(registry.registerBuiltin({ ...builtinThemes.BUILTIN_THEME_PACKS[0] }), /unknown built-in theme/)
+    const detached = await registry.registerBuiltin('default')
+    detached.home.variant = 'forged'
+    assert.equal(registry.get('default').home.variant, 'default')
+
+    await writeFile(join(directory, 'registry.json'), JSON.stringify([
+      ...builtinThemes.BUILTIN_THEME_PACKS.map(pack => ({ ...pack, name: 'Forged from disk' })),
+      ...['warm', 'ink', 'sketch', 'painted', 'tech'].map(id => ({ ...builtinThemes.BUILTIN_THEME_PACKS[0], id })),
+      { ...builtinThemes.BUILTIN_THEME_PACKS[0], id: 'forged' },
+    ]))
+    const reloaded = new ThemePackRegistry()
+    await reloaded.load()
+    assert.deepEqual(reloaded.list(), builtinThemes.BUILTIN_THEME_PACKS, 'disk cannot replace compiled reserved-source definitions')
+    const extension = await reloaded.registerPlugin({ id: 'extension', name: 'Extension', tokens: {} }, 'com.test.theme')
+    assert.deepEqual(JSON.parse(await readFile(join(directory, 'registry.json'), 'utf8')), [extension], 'only external registrations are persisted')
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('V2 theme packs register without activation and retain strict source and quota ownership', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'enest-theme-v2-'))
+  const { ThemePackRegistry } = load('./themePacks.ts', {
+    '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
+    '@main/logs/logService': { logWarn() {} },
+    '@shared/backgroundEffects': backgroundEffects,
+    '@shared/pluginContract': contract,
+    '@shared/theme/appearance': appearance
+  })
+  try {
+    const registry = new ThemePackRegistry()
+    const saved = await registry.registerPlugin({ ...validV2(), source: 'forged.source' }, 'com.test.theme')
+    assert.equal(saved.source, 'com.test.theme')
+    assert.equal(saved.schemaVersion, 2)
+    assert.equal(saved.home.source, 'com.test.theme')
+    const activeSettings = JSON.parse(await readFile(join(directory, 'registry.json'), 'utf8'))
+    assert.equal(activeSettings.length, 1)
+    assert.ok(!('active' in activeSettings[0]))
+
+    await assert.rejects(
+      registry.registerPlugin({ ...validV2(), home: { source: 'com.other.plugin', id: 'home', variant: 'legacy' } }, 'com.test.theme'),
+      /home/
+    )
+    await assert.rejects(
+      registry.registerPlugin({ ...validV2(), schemaVersion: 3 }, 'com.test.theme'),
+      /schemaVersion/
+    )
+    await registry.registerPlugin({ ...validV2(), id: 'second', home: undefined }, 'com.test.theme')
+    for (let i = 2; i < 8; i++) await registry.registerPlugin(validV2('theme-' + i), 'com.test.theme')
+    await assert.rejects(registry.registerPlugin(validV2('excess'), 'com.test.theme'), /theme pack limit/)
+
+    await writeFile(join(directory, 'registry.json'), JSON.stringify([
+      saved,
+      { ...validV2('invalid'), variants: { light: saved.variants.light } }
+    ]))
+    const reloaded = new ThemePackRegistry()
+    await reloaded.load()
+    assert.equal(reloaded.get(saved.id).schemaVersion, 2)
+    assert.equal(reloaded.get('invalid'), null)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('V2 registration and reload preserve official mixed-case source ownership', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'enest-theme-official-source-'))
+  const { ThemePackRegistry } = load('./themePacks.ts', {
+    '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
+    '@main/logs/logService': { logWarn() {} }, '@shared/backgroundEffects': backgroundEffects,
+    '@shared/pluginContract': contract, '@shared/theme/appearance': appearance
+  })
+  const source = 'com.github.eNest.theme'
+  try {
+    const registry = new ThemePackRegistry()
+    const input = { ...validV2('official-theme'), source: 'com.forged.source', home: { source, id: 'home', variant: 'legacy' } }
+    const saved = await registry.registerPlugin(input, source)
+    assert.equal(saved.source, source)
+    assert.equal(saved.home.source, source)
+    await assert.rejects(registry.registerPlugin({ ...input, home: { ...input.home, source: source.toLowerCase() } }, source), /home/)
+    const reloaded = new ThemePackRegistry()
+    await reloaded.load()
+    assert.equal(reloaded.get(saved.id).source, source)
+    assert.equal(reloaded.get(saved.id).home.source, source)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test('background effects register with bound ownership, survive reload, and disappear with source GC', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'enest-theme-effects-'))
   const { ThemePackRegistry } = load('./themePacks.ts', {
     '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
-    '@main/logs/logService': { logWarn() {} }, '@shared/pluginContract': contract, '@shared/backgroundEffects': backgroundEffects
+    '@main/logs/logService': { logWarn() {} }, '@shared/pluginContract': contract, '@shared/backgroundEffects': backgroundEffects,
+    '@shared/theme/appearance': appearance
   })
   const source = 'com.test.effects'
   const pack = { id: 'effects', name: 'Effects', source: 'enest.builtin', mode: 'dark', tokens: {}, backgroundEffects: [
@@ -168,8 +331,9 @@ test('background effects register with bound ownership, survive reload, and disa
     const reloaded = new ThemePackRegistry()
     await reloaded.load()
     assert.deepEqual(reloaded.get(pack.id), saved)
-    await reloaded.registerPlugin({ id: 'other', name: 'Other', tokens: {}, backgroundEffects: [{ id: 'tunnel', name: 'Other tunnel', renderer: 'preset', preset: 'tunnel' }] }, 'com.other.plugin')
-    await assert.rejects(reloaded.registerPlugin(pack, 'com.other.plugin'), /already registered by/)
+    await reloaded.registerPlugin({ id: 'other', name: 'Other', tokens: {}, backgroundEffects: [{ id: 'tunnel', name: 'Other tunnel', renderer: 'preset', preset: 'tunnel' }] }, 'com.other.plugin'),
+    await reloaded.load()
+    await assert.rejects(reloaded.registerPlugin(pack, 'com.other.plugin'), /already registered by|belong/)
     assert.deepEqual(await reloaded.removeBySource(source), [pack.id])
     assert.equal(backgroundEffects.resolveBackgroundEffect(id, reloaded.list()).id, 'tunnel')
     assert.equal(reloaded.get('other').source, 'com.other.plugin')
@@ -184,7 +348,8 @@ test('persisted background definitions are revalidated and do not bypass owner o
   const directory = await mkdtemp(join(tmpdir(), 'enest-theme-effects-disk-'))
   const { ThemePackRegistry } = load('./themePacks.ts', {
     '@main/paths/pathsService': { getAppPaths: () => ({ themes: directory }) },
-    '@main/logs/logService': { logWarn() {} }, '@shared/pluginContract': contract, '@shared/backgroundEffects': backgroundEffects
+    '@main/logs/logService': { logWarn() {} }, '@shared/pluginContract': contract, '@shared/backgroundEffects': backgroundEffects,
+    '@shared/theme/appearance': appearance
   })
   const source = 'com.test.effects'
   const base = { id: 'safe', name: 'Safe', source, tokens: { '--accent': '#123456' }, backgroundEffects: [{ id: 'preset', name: 'Preset', renderer: 'preset', preset: 'fold' }] }

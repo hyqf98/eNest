@@ -48,12 +48,10 @@ test('host WebSocket: text/binary echo, ownership, limits and runtime disposal',
   } finally { await own.scope.dispose(); await other.scope.dispose(); await new Promise(r=>wss.close(r)) }
 })
 
-test('host WebSocket rejects raw schemes, credential URLs and unsupported proxies', async () => {
+test('host WebSocket rejects raw schemes and credential URLs', async () => {
   const own=scope()
   try {
     for(const url of ['file:///tmp/private','https://example.com','ws://user:secret@example.com']) await assert.rejects(api.websocketConnect(own.pluginId,{url}))
-    globalThis.__websocketProxy={type:'custom',url:'https://127.0.0.1:4443'}
-    await assert.rejects(api.websocketConnect(own.pluginId,{url:'wss://example.com'}),/unsupported/)
     assert.equal(own.scope.activityCount,0)
   } finally { globalThis.__websocketProxy={type:'none'}; await own.scope.dispose() }
 })

@@ -18,7 +18,7 @@ const adapters = {
   PluginHost: `import { state } from 'test-state'; export const pluginHost = { getPlacement: () => ({kind:'quick'}), openPlugin: async (...args) => { state.opened.push(args); return 't-'+args[0]; }, getQuickPlugin: () => null, dismissQuickPlugin: id => state.events.push(['dismiss',id]), pinToShell: id => state.events.push(['pin',id]) };`,
   quickInputService: `export const getQuickInputState=()=>null; export const handleQuickInput=()=>false;`,
   createQuickWindow: `export const getQuickWindow=()=>null; import { state } from 'test-state'; export const hideQuickWindow = () => state.hidden++; export const setQuickContentHeight = () => {}; export const toggleQuickWindow = () => {};`,
-  createShellWindow: `import { state } from 'test-state'; export const sendShellEvent = event => state.events.push(event); export const getMainWindow = () => ({ isDestroyed: () => false, isMinimized: () => false, show() {}, focus: () => state.focused++ });`,
+  createShellWindow: `import { state } from 'test-state'; export const sendShellEvent = event => state.events.push(event); export const getMainWindow = () => ({ isDestroyed: () => false, isMinimized: () => false, show: () => state.shown++, focus: () => state.focused++ });`,
   pluginLaunchHotkeys: `import {state} from 'test-state'; export const getPluginLaunchAliases = id => state.aliases?.[id] ?? []; export const getPluginLaunchAliasRevision = () => JSON.stringify(state.aliases ?? {}); export const resolveLaunchMode = id => state.launchModes?.[id];`,
   pluginLauncher: `import {state} from 'test-state';export async function launchPlugin({pluginId,mode,source,enter}){if(source!=='quick')throw Error('wrong launch source');const container=mode??state.launchModes[pluginId]??'quick';state.opened.push([pluginId,enter,{container}]);if(container==='shell'){state.hidden++;state.focused++}return {ok:true}}`,
   quickHotkey: `export const saveQuickHotkeys = value => value; export const getQuickHotkeyConfig = () => ({}); export const probeHotkey = () => ({});`,
@@ -51,7 +51,7 @@ const open = request => state.handlers.get(api.IpcChannels.QuickOpen)(event, req
 const fixturePlugin = (id, form = 'panel', extra = {}) => ({ id, form, name: id, main: 'index.html', version: '1', ...extra })
 
 test.beforeEach(() => {
-  Object.assign(state, { events: [], opened: [], manifests: [], apps: [], cache: null, recent: [], queryPreferences:[], scans: 0, hidden: 0, focused: 0, launchError: '', launched: [], aliases: {}, launchModes: {}, providers:[], providerQueries:[], providerFn:null,iconCalls:0,iconFn:null })
+  Object.assign(state, { events: [], opened: [], manifests: [], apps: [], cache: null, recent: [], queryPreferences:[], scans: 0, hidden: 0, shown: 0, focused: 0, launchError: '', launched: [], aliases: {}, launchModes: {}, providers:[], providerQueries:[], providerFn:null,iconCalls:0,iconFn:null })
 })
 
 test('首次查询等待扫描，英文应用别名可以找到简名应用', async () => {
@@ -131,6 +131,30 @@ test('重新扫描不把用户踢出快捷窗口或聚焦主窗', async () => {
   assert.equal(state.scans, 1)
   assert.equal(state.hidden, 0)
   assert.equal(state.focused, 0)
+})
+
+test('Quick Escape hides only Quick and plugin Escape returns home without opening main', async () => {
+  assert.equal((await state.handlers.get(api.IpcChannels.QuickHide)(event)).ok, true)
+  assert.equal(state.hidden, 1)
+  assert.equal(state.shown, 0)
+  assert.equal(state.focused, 0)
+  assert.deepEqual(state.events, [])
+
+  assert.equal((await open({ kind: 'plugin-escape', pluginId: 'clip' })).ok, true)
+  assert.equal(state.hidden, 1, 'plugin Escape returns home rather than dismissing Quick')
+  assert.equal(state.shown, 0)
+  assert.equal(state.focused, 0)
+  assert.deepEqual(state.events, [['dismiss', 'clip']])
+})
+
+test('explicit Quick settings and market actions still show and focus the desktop', async () => {
+  for (const [action, view] of [['open-settings', 'settings'], ['open-market', 'home']]) {
+    assert.equal((await open({ kind: 'action', action })).ok, true)
+    assert.deepEqual(state.events.at(-1), { type: 'quick-open-view', view })
+  }
+  assert.equal(state.hidden, 2)
+  assert.equal(state.shown, 2)
+  assert.equal(state.focused, 2)
 })
 
 

@@ -2,13 +2,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FocusEvent, KeyboardEvent, MouseEvent, PointerEvent } from 'react'
 import gsap from 'gsap'
-import type { PluginSummary } from '@shared/types/plugin'
+import type { PluginPresentation } from '@renderer/components/pluginPresentation'
 import { d, ease } from '@renderer/gsap/marketMotion'
 import { useReducedMotion } from '@renderer/hooks/useAnimationLevel'
 
 export const PRODUCT_DWELL_MS = 6500
 
-export function useProductCarousel(items: PluginSummary[], paused: boolean) {
+export function useProductCarousel(items: PluginPresentation[], paused: boolean) {
   const rootRef = useRef<HTMLElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const itemsRef = useRef(items)

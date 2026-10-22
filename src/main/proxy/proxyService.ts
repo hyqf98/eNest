@@ -7,14 +7,15 @@
  */
 import { Socket } from 'node:net'
 import { session } from 'electron'
+import { Agent, EnvHttpProxyAgent, ProxyAgent, setGlobalDispatcher } from 'undici'
 import { SHELL_PARTITION, pluginPartition } from '@shared/constants'
 import type { ProxyConfig, ProxyType } from '@shared/types/plugin'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { settingsStore } from '@main/settings/SettingsStore'
 
-/** 空配置 = 直连 */
-export const DEFAULT_PROXY: ProxyConfig = { type: 'none' }
+/** 缺省自动识别系统代理 */
+export const DEFAULT_PROXY: ProxyConfig = { type: 'system' }
 
 export type ProxyTestResult = {
   ok: boolean
@@ -22,63 +23,40 @@ export type ProxyTestResult = {
   error?: string
 }
 
-const PROXY_TYPES: ProxyType[] = ['none', 'http', 'socks5', 'custom']
+const PROXY_TYPES: ProxyType[] = ['system', 'none', 'http']
 
-/** 归一化任意入参为合法 ProxyConfig；非法回落直连 */
+/** 归一化任意入参为合法 ProxyConfig；非法回落自动识别 */
 export function normalizeProxy(raw: unknown): ProxyConfig {
   const r = (raw ?? {}) as Partial<ProxyConfig> & { type?: string }
-  const type = (PROXY_TYPES as string[]).includes(r.type ?? '') ? (r.type as ProxyType) : 'none'
-  if (type === 'none') return { type: 'none' }
+  const type = (PROXY_TYPES as string[]).includes(r.type ?? '') ? (r.type as ProxyType) : 'system'
+  if (type === 'system' || type === 'none') return { type }
   const host = typeof r.host === 'string' ? r.host.trim() : ''
   const port = Number(r.port)
-  const url = typeof r.url === 'string' ? r.url.trim() : ''
-  if (type === 'custom') {
-    return url ? { type, url } : { type: 'none' }
-  }
   if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
-    return { type: 'none' }
+    return { type: 'system' }
   }
   return { type, host, port }
 }
 
-/** 将配置序列化为 Chromium proxyRules 字符串；直连返回空串 */
+/** 将配置序列化为 session.setProxy 配置；system 表示自动识别 */
 export function buildProxyRules(config: ProxyConfig): string {
   const c = normalizeProxy(config)
-  if (c.type === 'none') return ''
-  if (c.type === 'http' || c.type === 'socks5') return buildProxyEnvUrl(c)
-  // custom：用户填完整 URL（http:// / https:// / socks5:// / socks://）
-  return c.url ?? ''
+  if (c.type === 'system') return 'system'
+  return c.type === 'none' ? '' : buildProxyEnvUrl(c)
 }
 
 /** Node/子进程代理变量只接受单个代理 URL，不能传 Chromium 的分号规则串。 */
 export function buildProxyEnvUrl(config: ProxyConfig): string {
   const c = normalizeProxy(config)
-  if (c.type === 'none') return ''
-  if (c.type === 'custom') return c.url ?? ''
+  if (c.type !== 'http') return ''
   const host = c.host!.includes(':') && !c.host!.startsWith('[') ? `[${c.host}]` : c.host
   return `${c.type}://${host}:${c.port}`
 }
 
-/** 从配置中解析可 TCP 探测的 host:port（custom 支持 scheme://[user:pass@]host:port） */
+/** 从配置中解析可 TCP 探测的 host:port；自动模式交给系统解析 */
 function resolveEndpoint(config: ProxyConfig): { host: string; port: number } | null {
   const c = normalizeProxy(config)
-  if (c.type === 'http' || c.type === 'socks5') {
-    return { host: c.host!, port: c.port! }
-  }
-  if (c.type === 'custom' && c.url) {
-    try {
-      const u = new URL(c.url)
-      const port = u.port ? Number(u.port) : u.protocol === 'https:' ? 443 : u.protocol.startsWith('socks') ? 1080 : 80
-      if (!u.hostname || !Number.isInteger(port)) return null
-      return { host: u.hostname, port }
-    } catch {
-      // 允许裸 host:port
-      const m = c.url.match(/^([^:/]+):(\d{1,5})$/)
-      if (m) return { host: m[1], port: Number(m[2]) }
-      return null
-    }
-  }
-  return null
+  return c.type === 'http' ? { host: c.host!, port: c.port! } : null
 }
 
 let current: ProxyConfig = DEFAULT_PROXY
@@ -118,6 +96,25 @@ function applyEnv(proxyUrl: string): void {
   process.env.NO_PROXY = process.env.NO_PROXY ?? 'localhost,127.0.0.1'
 }
 
+/**
+ * Node global fetch does not consume proxy environment variables by default.
+ * Keep a normal system/direct dispatcher for those modes and install an explicit
+ * undici proxy dispatcher for a configured HTTP endpoint.
+ */
+async function applyNodeDispatcher(config: ProxyConfig): Promise<void> {
+  const c = normalizeProxy(config)
+  if (c.type === 'http') {
+    const proxyUrl = buildProxyEnvUrl(c)
+    setGlobalDispatcher(new ProxyAgent({ uri: proxyUrl }))
+    return
+  }
+  if (c.type === 'system') {
+    setGlobalDispatcher(new EnvHttpProxyAgent())
+    return
+  }
+  setGlobalDispatcher(new Agent())
+}
+
 /** 将当前代理应用到指定 session（webContents / net） */
 export async function applyProxyToSession(
   ses: Electron.Session,
@@ -126,7 +123,9 @@ export async function applyProxyToSession(
   const rules = buildProxyRules(config)
   await ses.setProxy(
     rules
-      ? { proxyRules: rules, proxyBypassRules: '<local>;localhost;127.0.0.1' }
+      ? rules === 'system'
+        ? { mode: 'system' }
+        : { proxyRules: rules, proxyBypassRules: '<local>;localhost;127.0.0.1' }
       : { proxyRules: '', proxyBypassRules: '' }
   )
 }
@@ -139,7 +138,9 @@ export async function applyProxy(config: ProxyConfig): Promise<ProxyConfig> {
   const next = normalizeProxy(config)
   current = next
   const rules = buildProxyRules(next)
-  applyEnv(buildProxyEnvUrl(next))
+  // 自动模式保留宿主/系统代理环境；直连恢复继承值；指定代理只接受 HTTP。
+  applyEnv(next.type === 'http' ? buildProxyEnvUrl(next) : '')
+  await applyNodeDispatcher(next)
 
   const targets: Electron.Session[] = [session.defaultSession, session.fromPartition(SHELL_PARTITION)]
   // 已安装插件 partition（含尚未创建 session 的，fromPartition 会惰性创建）
@@ -152,19 +153,15 @@ export async function applyProxy(config: ProxyConfig): Promise<ProxyConfig> {
   }
 
   await Promise.all(targets.map((ses) => applyProxyToSession(ses, next)))
-  logInfo('proxy', rules ? `applied rules=${rules}` : 'cleared (direct)')
+  logInfo('proxy', next.type === 'system' ? 'applied mode=system' : rules ? `applied rules=${rules}` : 'cleared (direct)')
   return next
 }
 
-/** 启动时从 settings 读取并应用；无配置则保持直连 */
+/** 启动时从 settings 读取并应用；缺省自动识别系统代理 */
 export async function applyProxyFromSettings(): Promise<void> {
   try {
     const general = settingsStore.getAll().general as { proxy?: unknown }
     const config = normalizeProxy(general.proxy)
-    if (config.type === 'none') {
-      current = DEFAULT_PROXY
-      return
-    }
     await applyProxy(config)
   } catch (err) {
     logWarn('proxy', `apply from settings failed: ${(err as Error).message}`)
@@ -172,11 +169,14 @@ export async function applyProxyFromSettings(): Promise<void> {
 }
 
 /**
- * 连通性测试：对代理 host:port 做 TCP 握手（HTTP/SOCKS5/自定义均可）。
- * 未配置代理时返回 ok=true（直连视为可用）。
+ * 连通性测试：指定代理对 host:port 做 TCP 握手。
+ * 自动模式由系统代理决定，无法单独探测；直连视为可用。
  */
 export async function testProxyConnectivity(config?: ProxyConfig): Promise<ProxyTestResult> {
   const target = normalizeProxy(config ?? current)
+  if (target.type === 'system') {
+    return { ok: true, latencyMs: 0 }
+  }
   if (target.type === 'none') {
     return { ok: true, latencyMs: 0 }
   }
@@ -205,7 +205,7 @@ export async function testProxyConnectivity(config?: ProxyConfig): Promise<Proxy
 
 /** 插件 partition：由 PluginHost 在 session.fromPartition 后调用 */
 export async function applyProxyToPluginPartition(pluginId: string): Promise<void> {
-  if (current.type === 'none') return
+  if (current.type === 'system') return
   try {
     await applyProxyToSession(session.fromPartition(pluginPartition(pluginId)), current)
   } catch (err) {

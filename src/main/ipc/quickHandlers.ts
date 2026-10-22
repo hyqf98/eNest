@@ -37,6 +37,7 @@ import { pluginHost } from '@main/plugin/PluginHost'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
 import { logError, logInfo } from '@main/logs/logService'
+import { consumeQuickThemeGesture, getQuickThemeConfig } from '@main/theme/quickThemeProtocol'
 
 function focusMainWindow(): void {
   const win = getMainWindow()
@@ -185,6 +186,14 @@ export function registerQuickHandlers(): void {
 
   handleShellIpc(IpcChannels.QuickGetConfig, () => {
     return getQuickHotkeyConfig()
+  })
+  handleShellIpc(IpcChannels.QuickThemeGetConfig, (event) => {
+    if (event.sender.id !== getQuickWindow()?.webContents.id) throw new Error('Quick theme controller rejected')
+    return getQuickThemeConfig()
+  })
+  handleShellIpc(IpcChannels.QuickThemeAuthorize, (event, key: unknown) => {
+    if (event.sender.id !== getQuickWindow()?.webContents.id || typeof key !== 'string' || key.length > 128) return false
+    return consumeQuickThemeGesture(key)
   })
 
   handleShellIpc(IpcChannels.QuickProbeHotkey, (_e, payload: { acc?: string }) => {

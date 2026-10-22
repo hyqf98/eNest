@@ -1,0 +1,29 @@
+#home-root { width: 100%; height: 100%; }
+.default-workspace { position: relative; width: 100%; height: 100%; overflow: hidden; isolation: isolate; background: var(--bg); }
+:root.has-bg-media .default-workspace { background: transparent; }
+.default-workspace > .page { z-index: 1; }
+.default-workspace > .page[hidden] { display: none; }
+.default-workspace .page-home .home-scroll {
+  max-width: var(--appearance-content-width, 1520px);
+  padding-top: calc(28px * var(--appearance-density, 1));
+  padding-bottom: calc(76px * var(--appearance-density, 1));
+}
+.default-workspace .market-grid {
+  --catalog-max-columns: clamp(1, var(--appearance-columns, 3), 6);
+  --catalog-gap: clamp(0px, var(--appearance-gap, 16px), 32px);
+  --catalog-min-card: calc(228px * var(--appearance-font-scale, 1));
+  /* 扣掉 N - 1 个实际 gap 后计算列宽下限：配置是列数上限，容器或大字号不足时自动降列。 */
+  --catalog-column-floor: calc((100% - (var(--catalog-max-columns) - 1) * var(--catalog-gap)) / var(--catalog-max-columns));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, max(var(--catalog-min-card), var(--catalog-column-floor))), 1fr));
+  gap: var(--catalog-gap);
+}
+.default-workspace .market-category-list { gap: calc(16px + var(--appearance-gap, 16px)); }
+.default-workspace .card-body { padding: calc(18px * var(--appearance-density, 1)); gap: calc(12px * var(--appearance-density, 1)); }
+.default-workspace-notice { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.default-workspace-boot { display: grid; place-content: center; height: 100%; padding: 32px; text-align: center; color: var(--text); }
+.default-workspace-boot p { color: var(--text-2); }
+.md-link-text { overflow-wrap: anywhere; user-select: text; }
+@media (max-width: 660px) {
+  .default-workspace .page-home .home-scroll { padding-top: calc(22px * var(--appearance-density, 1)); padding-bottom: calc(90px * var(--appearance-density, 1)); }
+}
+@media (max-width: 520px) { .default-workspace-notice { flex-direction: column; align-items: flex-start; } }

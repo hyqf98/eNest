@@ -9,21 +9,21 @@ import type { DevPluginLoadOptions } from '@shared/types/plugin'
  * 依赖：shellApi、toastStore。
  */
 import { create } from 'zustand'
+import type { OrbRailProjection } from '@shared/types/ipc'
 import type { PluginSummary, PluginTab, ShellView, TabStyle } from '@shared/types/plugin'
 import { PLUGIN_CATEGORY_COLOR_DEFAULT } from '@shared/constants'
 import { shellApi } from '@renderer/services/shellApi'
 import { toastStore } from '@renderer/hooks/useToast'
 
+let nativeChromeSyncEnabled = false
+
 /** 将当前 Tab 状态推送到主进程，供左侧悬浮窗渲染 */
-function pushOrbState(state: {
-  view: ShellView
-  tabStyle: TabStyle
-  activeTabId: string | null
-  tabs: ShellTab[]
-}): void {
+function pushOrbState(state: OrbRailProjection, force = false): void {
+  if (!nativeChromeSyncEnabled && !force) return
   void shellApi.syncOrbState?.({
     view: state.view,
     tabStyle: state.tabStyle,
+    chromeVisible: nativeChromeSyncEnabled,
     activeTabId: state.activeTabId,
     tabs: state.tabs
   }).catch(() => undefined)
@@ -58,19 +58,22 @@ interface ShellState {
   pluginError: string | null
   /** Tab 呈现方式：classic 顶栏 / orb 左侧悬浮圆轨 */
   tabStyle: TabStyle
+  /** classic 顶栏是否自动隐藏（指针移入标题栏才展开） */
+  tabAutoHide: boolean
   devLogs: { level: 'info' | 'dim' | 'warn'; text: string }[]
 
   setView: (view: ShellView) => void
+  applyView: (view: ShellView) => void
   setQuery: (q: string) => void
   setCategory: (c: string) => void
   setSeg: (s: Seg) => void
   setSettingsTab: (t: string) => void
   setShortcutPluginFilter: (pluginId: string | null) => void
   setPluginError: (msg: string | null) => void
-  setTabStyle: (style: TabStyle) => void
-  hydrateTabStyle: () => Promise<void>
+  applyTabStyle: (style: TabStyle, tabAutoHide?: boolean) => void
+  setNativeChromeSyncEnabled: (enabled: boolean) => void
   /** 启动时恢复 Tab 与独立窗外壳，用户主动打开后才加载插件。 */
-  hydrateSessionTabs: () => Promise<void>
+  hydrateSessionTabs: (savedPluginIds?: string[]) => Promise<void>
   appendLog: (level: 'info' | 'dim' | 'warn', text: string) => void
 
   refreshPlugins: () => Promise<void>
@@ -113,19 +116,22 @@ export const useShellStore = create<ShellState>((set, get) => ({
   pluginReady: false,
   pluginError: null,
   tabStyle: 'classic',
+  tabAutoHide: false,
   devLogs: [
     { level: 'dim', text: '[enest] shell ready' },
     { level: 'info', text: '[host] renderer boot' },
   ],
 
   setView: (view) => {
-    if (view !== 'plugin') {
-      void shellApi.hidePlugins?.().catch(() => undefined)
-    }
+    // 设置由原生壳渲染层独占：隐藏 Workspace 表面与插件，不再导航 Workspace 设置路由。
+    if (view !== 'home') void shellApi.setHomeVisible?.(false).catch(() => undefined)
+    if (view !== 'plugin') void shellApi.hidePlugins?.().catch(() => undefined)
+    if (view === 'home') void shellApi.navigateWorkspace?.({ page: 'catalog' }).catch(() => undefined)
     set({ view })
-    const s = get()
-    pushOrbState(s)
+    pushOrbState(get())
   },
+  // Main already controls native visibility/navigation; replaying the request would loop.
+  applyView: (view) => { set({ view }); pushOrbState(get()) },
   setQuery: (query) => set({ query }),
   setCategory: (category) => set({ category }),
   setSeg: (seg) => set({ seg }),
@@ -133,43 +139,31 @@ export const useShellStore = create<ShellState>((set, get) => ({
   setShortcutPluginFilter: (shortcutPluginFilter) => set({ shortcutPluginFilter }),
   setPluginError: (msg) => set({ pluginError: msg }),
 
-  setTabStyle: (style) => {
-    set({ tabStyle: style })
+  applyTabStyle: (style, tabAutoHide) => {
+    set({ tabStyle: style, ...(tabAutoHide === undefined ? {} : { tabAutoHide }) })
     document.documentElement.dataset.tabStyle = style
     // overlay 模式：插件全宽 inset=0；悬浮窗由主进程显示/隐藏
     void shellApi.setPluginInset?.(0).catch(() => undefined)
-    void shellApi
-      .setSettings({ general: { tabStyle: style } })
-      .catch(() => undefined)
     pushOrbState(get())
   },
 
-  hydrateTabStyle: async () => {
-    try {
-      const settings = await shellApi.getSettings()
-      const raw = settings.general?.tabStyle
-      const style: TabStyle = raw === 'orb' ? 'orb' : 'classic'
-      set({ tabStyle: style })
-      document.documentElement.dataset.tabStyle = style
-      void shellApi.setPluginInset?.(0).catch(() => undefined)
-      pushOrbState(get())
-    } catch {
-      document.documentElement.dataset.tabStyle = 'classic'
-    }
+  // Hiding must reach main as well: native rail views sit above any DOM launch screen.
+  setNativeChromeSyncEnabled: (enabled) => {
+    nativeChromeSyncEnabled = enabled
+    pushOrbState(get(), true)
   },
 
   /**
    * 主进程按会话历史恢复逻辑 Tab 和独立窗外壳。包括上次激活的插件，
    * 全部等待用户主动打开才创建内容 WebContents，避免多插件启动风暴。
-   * 依赖 refreshPlugins 先完成（App 在 splash 后调用）。
+   * 复用启动时已读取的会话配置，与首页预热及 Splash 并行。
    */
-  hydrateSessionTabs: () => {
+  hydrateSessionTabs: (savedPluginIds) => {
     if (sessionRestore) return sessionRestore
     sessionRestore = (async () => {
       try {
-        const settings = await shellApi.getSettings()
+        const ids = savedPluginIds ?? (await shellApi.getSettings()).general?.sessionTabs?.map(tab => tab.pluginId).filter(Boolean) ?? []
         if (get().plugins.length === 0) await get().refreshPlugins()
-        const ids = (settings.general?.sessionTabs ?? []).map((tab) => tab.pluginId).filter(Boolean)
         // 主进程验证窗口归属；恢复仅创建必要的轻量标题栏，不加载插件。
         await shellApi.restoreTabs(ids)
       } catch (error) {
@@ -207,8 +201,7 @@ export const useShellStore = create<ShellState>((set, get) => ({
     const gone = get().tabs.find((tab) => tab.id === tabId)
     if (!gone || closingTabs.has(tabId)) return
     closingTabs.add(tabId)
-    // 点击即反馈；真正的顺序/接班项以紧随其后的宿主快照为准。
-    get().removeTabLocal(tabId)
+    // 由宿主先摘除并发布快照；IPC 拒绝时保留原 Tab，迟到的回包也不覆盖新实例。
     try {
       await shellApi.closePlugin(tabId)
       get().appendLog('info', `[host] close ${gone.pluginId}`)
@@ -230,9 +223,8 @@ export const useShellStore = create<ShellState>((set, get) => ({
   },
 
   goHome: () => {
-    void shellApi.hidePlugins?.().catch(() => undefined)
-    set({ view: 'home', pluginReady: false, pluginError: null })
-    pushOrbState(get())
+    set({ pluginReady: false, pluginError: null })
+    get().setView('home')
   },
 
   removeTabLocal: (tabId) => {
