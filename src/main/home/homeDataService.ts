@@ -418,7 +418,8 @@ async function activateSearchResult(handle: string, context: HomeActionContext):
   if (command.kind === 'market') {
     if (!pluginRegistry.get(command.pluginId)) return { ok: false, error: 'plugin is no longer available' }
     await context.navigateWorkspace({ page: 'detail', pluginId: command.pluginId })
-    return context.isCurrent() ? { ok: true } : { ok: false, error: 'home surface retired' }
+    // The owned navigation deliberately advances activity; it already awaited the route ACK.
+    return { ok: true }
   }
   if (command.kind === 'app') {
     await launchLocalApp(command.path ?? '')

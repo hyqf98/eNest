@@ -272,6 +272,24 @@ header.titlebar.titlebar-autohide:not(.is-revealed) :is(.tab-strip, .titlebar-dr
   -webkit-app-region: drag;
 }
 
+.titlebar-plugin-name {
+  position: absolute;
+  inset-inline: 88px;
+  top: 0;
+  height: var(--titlebar-h);
+  display: block;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  font-weight: 600;
+  line-height: var(--titlebar-h);
+  color: var(--text-2);
+  pointer-events: none;
+  -webkit-app-region: drag;
+}
+
 /* Safari 风格 Tab 条：空白可拖窗口；Tab 按钮本体 no-drag */
 .tab-strip {
   position: relative;
@@ -1941,7 +1959,7 @@ header.titlebar.titlebar-autohide:not(.is-revealed) :is(.tab-strip, .titlebar-dr
     padding-left: 24px;
   }
 
-  /* 设置 tabs：窄屏同样单行 + 「更多」收纳（见 SettingsTabs 组件） */
+  /* 设置分类默认单行；「更多」可原地展开换行，窄屏保持可访问。 */
   .settings-tabs {
     width: 100%;
   }

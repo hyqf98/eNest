@@ -164,7 +164,7 @@ const enUS: EnDict = {
       disabled: 'Monitoring is off. Memory sampling and alerts have stopped.',
       browserPreview: 'Browser previews cannot read native process memory. No simulated usage is shown; settings can still be saved.',
       readFailed: 'Could not read the memory snapshot: {error}',
-      noPlugins: 'No plugin memory records yet. Start a plugin to see its usage here.',
+      noPlugins: 'No plugins are running. Open a plugin to see its memory usage here.',
       waiting: 'Waiting for the first host sample. No measurable data yet.',
       plugin: 'Plugin / status',
       total: 'Plugin process total',

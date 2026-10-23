@@ -46,7 +46,7 @@ export function registerHomeIpc(manager: HomeSurfaceManager): void {
       navigateWorkspace: async route => {
         if (!isCurrent() || !manager.isContentsActive(wcId)) throw new HomeStateError('Home surface is not active')
         const target = normalizeWorkspaceRoute(route)
-        sendShellEvent({ type: 'set-view', view: 'home', workspaceRoute: target })
+        sendShellEvent({ type: 'set-view', view: 'home' })
         await manager.navigate(target)
       }
     }

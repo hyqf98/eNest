@@ -1,6 +1,6 @@
 /**
  * ShellLayout — 壳子主框架布局
- * 顶栏 TabStrip 始终属于宿主；orb 可附加左侧原生圆轨，所有样式共用原生设置 dock。
+ * classic 使用顶部标签与左下角头像入口；orb 使用首页、插件、设置合一的左侧圆轨。
  */
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { TitleBar } from '@renderer/layout/TitleBar'

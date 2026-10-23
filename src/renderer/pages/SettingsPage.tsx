@@ -92,7 +92,7 @@ function TopTabBarSection() {
   return (
     <Card
       title={en ? 'Tab bar' : '标签栏'}
-      hint={en ? 'Session tabs stay in the top bar across themes. The orb rail adds a shortcut; only your saved preference can auto-hide the top bar.' : '会话始终保留在顶部，切换主题不改变导航；圆轨提供附加入口，自动隐藏仅由你的全局偏好控制。'}
+      hint={en ? 'Choose top tabs or the floating orb rail. Your choice is global and stays unchanged when switching themes.' : '顶部标签与悬浮圆轨二选一；这是全局设置，切换主题不会改变，会话也不会丢失。'}
     >
       {!hydrated ? (
         <>
@@ -667,6 +667,7 @@ export function SettingsPage() {
           tabs={allTabs}
           active={settingsTab}
           moreLabel={t('settings.tabs.more')}
+          collapseLabel={locale === 'en-US' ? 'Collapse' : '收起'}
           onChange={setSettingsTab}
         />
 

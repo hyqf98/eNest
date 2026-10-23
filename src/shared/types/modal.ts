@@ -16,7 +16,7 @@ export interface NativeModalState {
   appearance: ResolvedAppearance
 }
 export interface NativeModalApi {
-  ready(): void
+  ready(painted?: { id: number; revision: number }): void
   onState(listener: (state: NativeModalState) => void): () => void
   respond(id: number, action: NativeModalAction): void
 }

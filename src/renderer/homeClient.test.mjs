@@ -108,7 +108,7 @@ test('subscriptions precede all reads and a late initial snapshot cannot replace
   assert.equal(context.state().runtimeGeneration, 3)
   assert.equal(context.appearances.at(-1).appearance.theme.id, 'studio-board')
   assert.equal(context.order.at(-1), 'ready')
-  assert.deepEqual([...context.ready[0].routes], ['catalog', 'installed', 'detail'])
+  assert.deepEqual([...context.ready[0].routes], ['catalog', 'detail'])
   context.dispose()
 })
 
@@ -267,7 +267,7 @@ test('superseded navigation and teardown never acknowledge or retain an obsolete
 test('wrong generations/stale revisions do not navigate or acknowledge; a descriptor failure NACKs', async () => {
   const context = fixture({ getDetail: async () => { throw Error('Unavailable') } })
   await context.controller.start()
-  for (const [generation, revision] of [[0, 1], [2, 1], [1, 0]]) context.command({ ...navigation('installed'), generation, revision })
+  for (const [generation, revision] of [[0, 1], [2, 1], [1, 0]]) context.command({ ...navigation('detail', 'notes'), generation, revision })
   await nextTurn()
   assert.equal(context.state().route.page, 'catalog')
   assert.equal(context.acks.length, 0)

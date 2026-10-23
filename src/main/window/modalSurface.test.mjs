@@ -90,9 +90,11 @@ function fixture() {
     id => state.timers.delete(id)
   )
   module.exports.registerModalSurfaceHandlers()
-  const ready = view => state.listeners.get(channels.ModalReady)({ sender: view.webContents })
+  const subscribed = view => state.listeners.get(channels.ModalReady)({ sender: view.webContents })
+  const painted = (view, value = view.webContents.messages.at(-1)?.value) => state.listeners.get(channels.ModalReady)({ sender: view.webContents }, { id: value?.id, revision: value?.appearance.revision })
+  const ready = view => { subscribed(view); painted(view) }
   const respond = (view, id, action) => state.listeners.get(channels.ModalRespond)({ sender: view.webContents }, id, action)
-  return { ...module.exports, state, win, ownerView, owner, View, Window, Contents, ContentsView, ready, respond, latest: () => state.views.at(-1) }
+  return { ...module.exports, state, win, ownerView, owner, View, Window, Contents, ContentsView, ready, subscribed, painted, respond, latest: () => state.views.at(-1) }
 }
 
 test('native modal rejects unattached owners and validates confirmation payloads before creating a view', async () => {
@@ -111,7 +113,7 @@ test('native modal stays hidden until its own ready handshake and accepts only i
   const api = fixture()
   const result = api.openNativeModal(api.owner, confirmation)
   const view = api.latest()
-  assert.deepEqual(view.options.webPreferences, { preload: '/preload/modalPreload.cjs', sandbox: true, contextIsolation: true, nodeIntegration: false, partition: 'persist:test-shell' })
+  assert.deepEqual(view.options.webPreferences, { backgroundColor: '#00000000', preload: '/preload/modalPreload.cjs', sandbox: true, contextIsolation: true, nodeIntegration: false, partition: 'persist:test-shell' })
   assert.equal(view.priority, 300)
   assert.equal(view.visible, false)
   assert.deepEqual(view.bounds, { x: 0, y: 0, width: 1024, height: 768 })
@@ -121,7 +123,16 @@ test('native modal stays hidden until its own ready handshake and accepts only i
   assert.equal(await api.openNativeModal(api.owner, confirmation), false)
   api.state.listeners.get(channels.ModalReady)({ sender: api.owner })
   assert.equal(view.visible, false)
-  api.ready(view)
+  api.subscribed(view)
+  assert.equal(view.visible, false, 'subscribing must not reveal an empty native layer')
+  assert.equal(api.state.timers.size, 1)
+  const initial = view.webContents.messages.at(-1).value
+  api.respond(view, initial.id, 'confirm')
+  assert.equal(view.webContents.isDestroyed(), false, 'actions require the painted modal')
+  api.painted(view, { ...initial, id: initial.id + 1 })
+  api.painted(view, { ...initial, appearance: { revision: initial.appearance.revision + 1 } })
+  assert.equal(view.visible, false)
+  api.painted(view)
   assert.equal(view.visible, true)
   assert.equal(api.state.timers.size, 0)
   assert.equal(view.webContents.focusCount, 1)

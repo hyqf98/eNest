@@ -19,18 +19,17 @@ export const PLUGIN_BAR_HEIGHT_MINIMAL = 28
 export const PLUGIN_BAR_HEIGHT_NONE = 0
 
 /**
- * orb 圆轨（主窗口内顶层 WebContentsView，非独立窗口）：
- * rail 视图收起为左缘透明窄条（仅把手可见），hover 展开拓宽；
- * dock 视图为左下角常驻设置钮。插件内容全宽渲染（inset 恒 0）。
- * 对齐基准：展开后轨道圆球视觉左缘 ≈ 8px（panel 4 + face 4）；dock 按钮与之对齐并留边距。
+ * 原生导航 chrome（主窗口内顶层 WebContentsView，非独立窗口）：
+ * orb 仅使用 rail，收起为左缘透明窄条（仅把手可见），hover 展开拓宽；设置位于轨道末尾。
+ * classic 仅使用固定尺寸 dock，左下角头像设置钮常驻，无折叠侧签。插件内容全宽渲染（inset 恒 0）。
  */
 export const ORB_RAIL_COLLAPSED_W = 14
 export const ORB_RAIL_EXPANDED_W = 84
-/** 视图略大于按钮，容纳 hover 放大与柔和阴影 */
+/** classic dock 固定命中区，贴左下并容纳按钮放大与柔和阴影 */
 export const ORB_DOCK_VIEW_W = 80
 export const ORB_DOCK_VIEW_H = 72
-/** 设置钮相对窗口左/下内边距（与展开轨道圆球左缘对齐） */
-export const ORB_DOCK_PAD_LEFT = 10
+/** classic 设置钮的 CSS 左/下内间距；原生视图本身不另加外边距 */
+export const ORB_DOCK_PAD_LEFT = 18
 export const ORB_DOCK_PAD_BOTTOM = 18
 
 /** 按 manifest.ui.chrome 计算插件条像素高度 */

@@ -48,7 +48,7 @@ home.onCommand(command=>{
   window.fixture.catalog=await home.getCatalog();
   document.querySelector('#status').textContent='Bridge ready';
   window.fixture.initialized=true;
-  if(${autoReady}){await home.ready({revision:window.fixture.appearance.appearance.revision,workspaceVersion:1,routes:['catalog','installed','detail','settings']});window.fixture.ready=true}
+  if(${autoReady}){await home.ready({revision:window.fixture.appearance.appearance.revision,workspaceVersion:1,routes:['catalog','detail','settings']});window.fixture.ready=true}
 })().catch(error=>{window.fixture.error=String(error)});
 `
 
@@ -271,10 +271,10 @@ test('dedicated native Home proves protocol readiness, role denials, paired reco
     assert.match(untrusted.error, /untrusted/)
     assert.deepEqual([(await snapshot()).forbiddenReads, (await snapshot()).forbiddenWrites], [0, 0])
     const revision = await home('window.fixture.appearance.appearance.revision')
-    await home(`window.enestHome.ready({revision:${revision + 1},workspaceVersion:1,routes:['catalog','installed','detail','settings']})`)
+    await home(`window.enestHome.ready({revision:${revision + 1},workspaceVersion:1,routes:['catalog','detail','settings']})`)
     await pause(100)
     assert.equal((await snapshot()).home.status, 'loading', 'wrong-revision ready cannot reveal Home')
-    await home(`window.enestHome.ready({revision:${revision},workspaceVersion:1,routes:['catalog','installed','detail','settings']})`)
+    await home(`window.enestHome.ready({revision:${revision},workspaceVersion:1,routes:['catalog','detail','settings']})`)
     await poll(snapshot, state => state.home.status === 'ready' && state.pending === 'done', 'matching native Home readiness commits')
     assert.equal((await snapshot()).surfaces.find(surface => surface.id === firstId).visible, true)
     evidence.checks.restrictedSchemeAndReady = true

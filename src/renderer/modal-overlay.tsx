@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import * as Dialog from '@radix-ui/react-dialog'
 import type { NativeModalAction, NativeModalApi, NativeModalState } from '@shared/types/modal'
@@ -15,6 +15,25 @@ import '@renderer/modal-overlay.css'
 
 declare global { interface Window { enestModal?: NativeModalApi } }
 const api = window.enestModal
+
+function ModalPaintReady({ id, revision }: { id: number; revision: number }) {
+  useLayoutEffect(() => {
+    let sent = false
+    let frame = 0
+    const acknowledge = () => {
+      if (sent) return
+      sent = true
+      clearTimeout(timer)
+      cancelAnimationFrame(frame)
+      api?.ready({ id, revision })
+    }
+    // Hidden native views may suspend RAF; the fallback runs only after Portal commit.
+    const timer = setTimeout(acknowledge, 60)
+    frame = requestAnimationFrame(() => { frame = requestAnimationFrame(acknowledge) })
+    return () => { sent = true; clearTimeout(timer); cancelAnimationFrame(frame) }
+  }, [id, revision])
+  return null
+}
 
 function NativeModal() {
   const [state, setState] = useState<NativeModalState | null>(null)
@@ -41,6 +60,7 @@ function NativeModal() {
         onOpenAutoFocus={event => { event.preventDefault(); cancel.current?.focus({ preventScroll: true }) }}
         onEscapeKeyDown={event => { event.preventDefault(); action('cancel') }}
         onInteractOutside={event => event.preventDefault()}>
+        <ModalPaintReady id={state.id} revision={state.appearance.revision} />
         {state.kind === 'confirm' ? <>
           <Dialog.Title>{state.options?.title}</Dialog.Title>
           <Dialog.Description>{state.options?.message}</Dialog.Description>

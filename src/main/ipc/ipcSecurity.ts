@@ -39,7 +39,7 @@ const homeChannels = new Set<string>([
   IpcChannels.HomeGetAppearance,
   IpcChannels.HomeGetConfig
 ])
-// Global settings dock receives only its public state and the host navigation action.
+// Classic settings dock can only read its state and request settings navigation.
 const dockChannels = new Set<string>([IpcChannels.ShellGetOrbState, IpcChannels.ShellSetView])
 const orbChannels = new Set<string>([
   ...windowChannels,

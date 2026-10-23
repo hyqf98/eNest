@@ -87,6 +87,16 @@ test('home surfaces use the home capability set and explicit revocation', () => 
  assert.throws(() => api.assertSurfaceSender(event, api.IpcChannels.HomeReady), /untrusted/)
 })
 
+test('settings dock can only read its state and request settings, not control the rail or plugin lifecycle', () => {
+ const {event} = surface('dock')
+ for (const channel of ['ShellGetOrbState', 'ShellSetView']) {
+  assert.doesNotThrow(() => api.assertSurfaceSender(event, api.IpcChannels[channel]))
+ }
+ for (const channel of ['ShellSetOrbRailExpanded', 'ShellGetSettings', 'ShellOpenPlugin', 'ShellClosePlugin', 'WindowClose']) {
+  assert.throws(() => api.assertSurfaceSender(event, api.IpcChannels[channel]), /capability/)
+ }
+})
+
 test('home channels are not inherited by unrelated restricted surfaces', () => {
  for (const role of ['quick', 'orb', 'notification', 'install', 'modal', 'detached']) {
   const {event} = surface(role)

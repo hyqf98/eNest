@@ -380,7 +380,7 @@ test('workspace navigation is awaited and search settings actions do not expose 
   assert.deepEqual(state.workspaceNavigations.at(-1), { page: 'detail', pluginId: 'notes' })
   resolveNavigation()
   assert.deepEqual(await pending, { ok: true })
-  for (const route of [{ page: 'installed' }, { page: 'detail', pluginId: 'notes' }]) {
+  for (const route of [{ page: 'catalog' }, { page: 'detail', pluginId: 'notes' }]) {
     assert.deepEqual(await api.runHomeAction({ type: 'navigate', route }, context()), { ok: true })
     assert.deepEqual(state.workspaceNavigations.at(-1), route)
   }

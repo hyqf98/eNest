@@ -146,12 +146,14 @@ async function collect(sampleEpoch: number): Promise<void> {
       memoryBytes, residentBytes, metric: sample?.memoryBytes != null ? sample.metric : memoryBytes !== null ? 'resident' : 'unavailable' })
   }
   const now = Date.now()
-  const ids = new Set([...pluginRegistry.list().filter(item => item.installed || item.dev).map(item => item.id), ...processes.flatMap(item => item.pluginIds)])
+  const runtimeOwners = [...pluginHost.getMemoryOwners(), ...homeSurfaceManager.getMemoryOwners()]
+  const ids = new Set([...runtimeOwners.map(owner => owner.pluginId), ...processes.flatMap(item => item.pluginIds)])
   const plugins: PluginMemoryEntry[] = [...ids].map(pluginId => {
     const owned = processes.filter(item => item.pluginIds.includes(pluginId))
     const exclusive = owned.filter(item => !item.shared), shared = owned.filter(item => item.shared)
     const memoryBytes = sumKnown(exclusive), sharedMemoryBytes = sumKnown(shared)
-    const status = pluginHost.isClosing(pluginId) ? 'closing' as const : owned.length ? 'running' as const : 'idle' as const
+    const status = pluginHost.isClosing(pluginId) ? 'closing' as const
+      : owned.length || runtimeOwners.some(owner => owner.pluginId === pluginId) ? 'running' as const : 'idle' as const
     const generation = runtimeGenerations.get(pluginId)
     const signature = generation === undefined
       ? owned.map(item => `${item.pid}:${byPid.get(item.pid)?.startedAt ?? metricByPid.get(item.pid)?.creationTime ?? 0}`).sort().join('|')

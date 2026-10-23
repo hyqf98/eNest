@@ -26,6 +26,7 @@ const adapters = {
     export class WebContentsView{
       constructor(options={}){this.webContents=new WC();this.webContents.session=options.webPreferences?.session;f.views.push(this);this.visible=true;this.bounds={}}
       setVisible(value){this.visible=value}
+      setBackgroundColor(value){this.backgroundColor=value}
       setBounds(bounds){this.bounds=bounds}
     }`,
   '@shared/types/ipc': `export const IpcChannels={HomeEvent:'home:event'};`,
@@ -168,7 +169,7 @@ async function bootWorkspace(api, manager, revision = 1) {
   const pending = manager.prepare(appearance(revision))
   await firstLoadDelay()
   const view = api.f.views.at(-1)
-  manager.handleReady(view.webContents.id, { revision, workspaceVersion: 1, routes: ['catalog', 'installed', 'detail'] })
+  manager.handleReady(view.webContents.id, { revision, workspaceVersion: 1, routes: ['catalog', 'detail'] })
   await Promise.resolve()
   acknowledge(manager, view)
   const transaction = await pending
@@ -211,7 +212,7 @@ test('preparing Home views use the same titlebar inset as the committed view', a
   manager.layout()
   assert.equal(current.bounds.y, 8)
   assert.equal(preparing.bounds.y, 8)
-  manager.handleReady(preparing.webContents.id, { revision: 2, workspaceVersion: 1, routes: ['catalog', 'installed', 'detail'] })
+  manager.handleReady(preparing.webContents.id, { revision: 2, workspaceVersion: 1, routes: ['catalog', 'detail'] })
   await Promise.resolve()
   acknowledge(manager, preparing)
   ;(await pending).rollback()
@@ -431,27 +432,34 @@ test('workspace initialization requires both declared routes and an owner-bound 
   manager.destroy()
 })
 
-test('route acknowledgement grants visibility and stale requests cannot change it', async () => {
+test('navigation preserves the painted page but grants action eligibility only after its current acknowledgement', async () => {
   const api = await fixture()
   const manager = new api.HomeSurfaceManager(100)
   const view = await bootWorkspace(api, manager)
   manager.setVisible(true)
+  const activity = manager.getContentsActivityRevision(view.webContents.id)
+  const visibilityEvents = view.webContents.sent.filter(item => item.payload?.command?.type === 'visibility').length
   const pending = manager.navigate({ page: 'detail', pluginId: 'notes' })
   const navigation = navigationFor(view)
-  assert.equal(view.visible, false)
+  assert.equal(view.visible, true, 'same-provider navigation must not expose an empty shell')
+  assert.equal(manager.isContentsActive(view.webContents.id), false)
+  assert.notEqual(manager.getContentsActivityRevision(view.webContents.id), activity)
   acknowledge(manager, view, { ...navigation, requestId: 'retired' })
-  assert.equal(view.visible, false)
+  assert.equal(view.visible, true)
+  assert.equal(manager.isContentsActive(view.webContents.id), false)
   acknowledge(manager, view)
   await pending
   assert.equal(view.visible, true)
+  assert.equal(manager.isContentsActive(view.webContents.id), true)
+  assert.equal(view.webContents.sent.filter(item => item.payload?.command?.type === 'visibility').length, visibilityEvents)
   const state = manager.getState()
   state.route.pluginId = 'mutated'
   assert.equal(manager.getState().route.pluginId, 'notes')
-  const installed = manager.navigate({ page: 'installed' })
+  const installed = manager.navigate({ page: 'detail', pluginId: 'notes' })
   acknowledge(manager, view)
   await installed
   assert.equal(view.visible, true)
-  assert.deepEqual(manager.getState().route, { page: 'installed' })
+  assert.deepEqual(manager.getState().route, { page: 'detail', pluginId: 'notes' })
   manager.destroy()
 })
 
@@ -499,12 +507,13 @@ test('new navigation replaces the old request and late acknowledgements cannot r
   manager.setVisible(true)
   const detail = manager.navigate({ page: 'detail', pluginId: 'notes' })
   const stale = navigationFor(view)
-  const installed = manager.navigate({ page: 'installed' })
+  const installed = manager.navigate({ page: 'detail', pluginId: 'notes' })
   acknowledge(manager, view, stale)
-  assert.equal(view.visible, false)
+  assert.equal(view.visible, true)
+  assert.equal(manager.isContentsActive(view.webContents.id), false)
   acknowledge(manager, view)
   await Promise.all([detail, installed])
-  assert.deepEqual(manager.getState().route, { page: 'installed' })
+  assert.deepEqual(manager.getState().route, { page: 'detail', pluginId: 'notes' })
   assert.equal(view.visible, true)
   manager.destroy()
 })
@@ -622,13 +631,13 @@ test('startup navigation joins the prewarm commit while concurrent show requests
   await firstLoadDelay()
   const view = api.f.views[0]
   let navigated = false
-  const navigation = manager.navigate({ page: 'installed' }).then(() => { navigated = true })
+  const navigation = manager.navigate({ page: 'detail', pluginId: 'notes' }).then(() => { navigated = true })
   api.setHomeSurfaceVisible(true)
   api.setHomeSurfaceVisible(true)
   assert.equal(api.prewarmHomeSurface(), prewarm)
-  manager.handleReady(view.webContents.id, { revision: 1, workspaceVersion: 1, routes: ['catalog', 'installed'] })
+  manager.handleReady(view.webContents.id, { revision: 1, workspaceVersion: 1, routes: ['catalog', 'detail'] })
   await Promise.resolve()
-  assert.deepEqual(navigationFor(view).route, { page: 'installed' })
+  assert.deepEqual(navigationFor(view).route, { page: 'detail', pluginId: 'notes' })
   assert.equal(view.visible, false)
   acknowledge(manager, view)
   await firstLoadDelay()
@@ -651,8 +660,8 @@ test('navigation during an appearance transaction does not wait for its caller-o
   const pending = manager.prepare(appearance())
   await firstLoadDelay()
   const view = api.f.views[0]
-  const navigation = manager.navigate({ page: 'installed' })
-  manager.handleReady(view.webContents.id, { revision: 1, workspaceVersion: 1, routes: ['catalog', 'installed'] })
+  const navigation = manager.navigate({ page: 'detail', pluginId: 'notes' })
+  manager.handleReady(view.webContents.id, { revision: 1, workspaceVersion: 1, routes: ['catalog', 'detail'] })
   await Promise.resolve()
   acknowledge(manager, view)
   await navigation
@@ -704,7 +713,7 @@ test('shell startup navigation waits for the paired fallback to commit instead o
   assert.equal(manager.hasCurrent, true)
   assert.equal(manager.getState().status, 'ready')
   assert.equal(fallback.visible, false)
-  assert.deepEqual(shell.events, [{ type: 'set-view', view: 'home', workspaceRoute: { page: 'catalog' } }])
+  assert.deepEqual(shell.events, [{ type: 'set-view', view: 'home' }])
   api.setHomeSurfaceVisible(true)
   assert.equal(fallback.visible, true)
   assert.equal(fallback.webContents.loads.length, 1)
@@ -746,7 +755,7 @@ test('recovery suspension during provider lookup invalidates the old navigation 
   releaseLookup()
   await firstLoadDelay()
   const view = api.f.views[0]
-  manager.handleReady(view.webContents.id, { revision: 1, workspaceVersion: 1, routes: ['catalog', 'installed'] })
+  manager.handleReady(view.webContents.id, { revision: 1, workspaceVersion: 1, routes: ['catalog', 'detail'] })
   await Promise.resolve()
   acknowledge(manager, view)
   await rejected
@@ -755,13 +764,13 @@ test('recovery suspension during provider lookup invalidates the old navigation 
   assert.deepEqual(api.f.recoveries, [])
   assert.deepEqual(shell.events, [], 'the cancelled navigation never projected a view switch')
 
-  const explicit = shell.navigate({ page: 'installed' })
+  const explicit = shell.navigate({ page: 'detail', pluginId: 'notes' })
   await firstLoadDelay()
   acknowledge(manager, view)
   await explicit
   assert.equal(manager.isRecoverySuspended, false, 'a new explicit navigation can leave an already-open recovery panel')
   assert.equal(manager.getState().status, 'ready')
-  assert.deepEqual(shell.events.at(-1), { type: 'set-view', view: 'home', workspaceRoute: { page: 'installed' } })
+  assert.deepEqual(shell.events.at(-1), { type: 'set-view', view: 'home' })
   api.destroyHomeSurface()
 })
 
@@ -771,19 +780,19 @@ test('concurrent shell navigations share prewarm but only the latest intent is d
   const manager = api.homeSurfaceManager
   const shell = workspaceShell(api)
   const superseded = assert.rejects(shell.navigate({ page: 'detail', pluginId: 'notes' }), /navigation was replaced/)
-  const latest = shell.navigate({ page: 'installed' })
+  const latest = shell.navigate({ page: 'detail', pluginId: 'notes' })
   await firstLoadDelay()
   const view = api.f.views[0]
-  manager.handleReady(view.webContents.id, { revision: 1, workspaceVersion: 1, routes: ['catalog', 'installed'] })
+  manager.handleReady(view.webContents.id, { revision: 1, workspaceVersion: 1, routes: ['catalog', 'detail'] })
   await Promise.resolve()
   acknowledge(manager, view)
   await firstLoadDelay()
   await superseded
-  assert.deepEqual(navigationFor(view).route, { page: 'installed' })
-  assert.deepEqual(shell.events, [{ type: 'set-view', view: 'home', workspaceRoute: { page: 'installed' } }])
+  assert.deepEqual(navigationFor(view).route, { page: 'detail', pluginId: 'notes' })
+  assert.deepEqual(shell.events, [{ type: 'set-view', view: 'home' }])
   acknowledge(manager, view)
   await latest
-  assert.deepEqual(manager.getState().route, { page: 'installed' })
+  assert.deepEqual(manager.getState().route, { page: 'detail', pluginId: 'notes' })
   assert.equal(api.f.views.length, 1)
   assert.equal(view.webContents.loads.length, 1)
   api.destroyHomeSurface()

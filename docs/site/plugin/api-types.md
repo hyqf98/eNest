@@ -3069,13 +3069,20 @@ export interface HomeSearchEntry {
 }
 
 export type WorkspaceRoute = {
-    page: 'catalog' | 'installed';
+    page: 'catalog';
 } | {
     page: 'detail';
     pluginId: string;
 };
 
-export type WorkspacePage = 'catalog' | 'installed' | 'detail';
+/**
+ * Host-owned workspace navigation targets.
+ *
+ * The catalog is one surface: its internal views (marketplace / installed, category
+ * filters, search scope) belong to the Home provider, not to the host route. Only real
+ * navigations the host must be able to replay after a crash or provider switch live here.
+ */
+export type WorkspacePage = 'catalog' | 'detail';
 
 /**
  * shared/types/quick — 快捷启动（Quick Launcher）跨进程类型

@@ -360,13 +360,10 @@ body {
   font-size: 12px;
 }
 
-/* 设置钮：与展开轨道圆球左缘对齐（panel 4 + face 4 ≈ 8），并距窗口边留呼吸空间 */
+/* Only classic navigation has a separate, always-visible account dock. */
 .orb-dock {
   --orb-dock-duration: 220ms;
-  --orb-dock-turn: 14deg;
-  --orb-dock-scale: 0.9;
   position: absolute;
-  /* 与 shared ORB_DOCK_PAD_* 保持一致的视觉内边距 */
   left: 10px;
   bottom: 18px;
   pointer-events: auto;
@@ -374,31 +371,32 @@ body {
 }
 
 .orb-dock .orb-face {
+  box-sizing: border-box;
   margin-left: 0;
   width: 40px;
   height: 40px;
   overflow: hidden;
 }
-
-/* The global action is a gear at rest, never an account avatar that needs hover. */
-.orb-dock-layer {
+.orb-account-portrait {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
+  overflow: hidden;
   border-radius: inherit;
   pointer-events: none;
-  transition: transform var(--orb-dock-duration) cubic-bezier(0.22, 1, 0.36, 1);
+  background: var(--surface-2, #eef0ed);
 }
-.orb-dock-icon { opacity: 1; transform: none; }
-.orb-settings:hover .orb-dock-icon,
-.orb-settings:focus-visible .orb-dock-icon { transform: rotate(var(--orb-dock-turn)); }
-.orb-settings.active { color: var(--accent, #bd542b); }
+.orb-account-image { position: absolute; inset: 0; display: block; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; opacity: 0; }
+.orb-account-image.is-loaded { opacity: 1; }
+.orb-account-image.is-loaded + .orb-account-fallback { visibility: hidden; }
+.orb-account-fallback { display: grid; place-items: center; font-size: 16px; font-weight: 650; color: var(--text-2, #5c6578); }
+.orb-dock .orb-settings.active { border-color: var(--accent, #bd542b); }
 .orb-dock-caption {
   position: absolute;
   left: 50%;
   bottom: -16px;
-  transform: translateX(-50%);
+  transform: translate(-50%, -2px);
   padding: 1px 5px;
   border-radius: 4px;
   color: var(--text-2, #5c6578);
@@ -407,15 +405,19 @@ body {
   line-height: 13px;
   white-space: nowrap;
   pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--orb-dock-duration) ease, transform var(--orb-dock-duration) ease;
+}
+.orb-dock .orb-settings:is(:hover, :focus-visible) + .orb-dock-caption {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
 }
 
 /* Low still communicates the switch, with a short fade and minimal movement. */
-:root[data-anim="low"] .orb-dock {
-  --orb-dock-duration: 160ms;
-  --orb-dock-turn: 4deg;
-  --orb-dock-scale: 0.97;
-}
-:root[data-anim="high"] .orb-dock { --orb-dock-duration: 280ms; --orb-dock-turn: 20deg; --orb-dock-scale: 0.88; }
+:root[data-anim="low"] .orb-dock { --orb-dock-duration: 160ms; }
+:root[data-anim="high"] .orb-dock { --orb-dock-duration: 280ms; }
 
 /* 设置钮不显示选中态外圈（与顶部 Tab 模式的设置入口保持一致） */
 .orb-dock .orb-face.active {
@@ -507,9 +509,6 @@ body {
   .orb-rail .orb-face:active,
   .orb-rail .orb-face:focus-visible,
   .orb-rail .orb-item.active .orb-face {
-    transform: none !important;
-  }
-  .orb-rail .orb-dock-layer {
     transform: none !important;
   }
 }

@@ -61,8 +61,8 @@
 .page-settings .settings-header { margin-bottom: 24px; }
 .page-settings .settings-header h1 { font-size: calc(24px * var(--appearance-font-scale, 1)); font-weight: 650; }
 .page-settings .settings-tabs { margin-bottom: 24px; gap: 4px; padding: 4px; }
-.page-settings .settings-tabs > button,
-.page-settings .settings-tabs .tabs-more > button { height: 32px; padding-inline: 16px; font-size: calc(13px * var(--appearance-font-scale, 1)); }
+.page-settings .settings-tabs :is(.settings-tab, .tabs-more-toggle) { height: 32px; min-height: 32px; min-width: 0; padding-inline: 16px; font-size: calc(13px * var(--appearance-font-scale, 1)); }
+.page-settings .settings-tabs .tabs-more-toggle { gap: 5px; }
 .page-settings .s-card { padding: 24px; margin-bottom: 20px; box-shadow: none; }
 .page-settings .s-card h2 { font-size: calc(16px * var(--appearance-font-scale, 1)); font-weight: 600; line-height: 1.5; margin: 0 0 20px; }
 .page-settings .s-card > .hint { margin-top: -12px; margin-bottom: 20px; }

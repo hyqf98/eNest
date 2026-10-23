@@ -1,7 +1,7 @@
 /**
  * orb-overlay — 左侧圆轨（主窗口内顶层 WebContentsView）
- * ?part=rail：Tab 轨窄条，mouseenter 展开 / mouseleave 延迟收起（真实 DOM 事件，无穿透转发）；
- * ?part=dock：左下角常驻设置钮。
+ * ?part=rail：首页、插件与末尾设置共用圆轨，mouseenter 展开 / mouseleave 延迟收起；
+ * ?part=dock：仅经典模式显示的左下角头像设置入口。
  * 动画档位 / 主题：URL query 首帧 + orb-state 载荷（主进程 settingsStore 为唯一事实来源）
  * 同步到 root[data-anim] / root[data-theme] + token 变量；CSS 动效与配色按档位、主题缩放。
  */
@@ -110,6 +110,9 @@ let dragActive = false
 let dropTarget: ReturnType<typeof bindPluginDropTarget> | null = null
 const dragDisposers: Array<() => void> = []
 let offOrbEvent: (() => void) | undefined
+let avatarVersion = 0
+let avatarKey: string | undefined
+let avatarLoader: HTMLImageElement | null = null
 let disposed = false
 
 function cancelClose(): void {
@@ -163,8 +166,11 @@ function setExpanded(v: boolean): void {
   dropTarget?.refresh()
 }
 
-/** The global settings entry stays recognisable without hover or account state. */
-const SETTINGS_ICON = lucideSvgMarkup(LUCIDE_PATHS.settings)
+const ACCOUNT_ICON = lucideSvgMarkup(LUCIDE_PATHS.user)
+const ACCOUNT_PORTRAIT = `<span class="orb-account-portrait" aria-hidden="true">
+  <img class="orb-account-image" data-account-image alt="" draggable="false" referrerpolicy="no-referrer" />
+  <span class="orb-account-fallback" data-account-fallback>${ACCOUNT_ICON}</span>
+</span>`
 
 function buildChrome(): void {
   root.innerHTML =
@@ -180,17 +186,54 @@ function buildChrome(): void {
   `
       : `
     <div class="orb-dock" id="orb-dock">
-      <button type="button" class="orb-face orb-settings" data-settings="1" title="设置" aria-label="设置">
-        <span class="orb-dock-layer orb-dock-icon" aria-hidden="true">${SETTINGS_ICON}</span>
+      <button type="button" class="orb-face orb-settings" data-settings="1" aria-label="账号与设置" aria-describedby="orb-settings-hint">
+        ${ACCOUNT_PORTRAIT}
       </button>
-      <span class="orb-dock-caption" aria-hidden="true">设置</span>
+      <span class="orb-dock-caption" id="orb-settings-hint" role="tooltip">设置</span>
     </div>
   `
 }
 
+function syncAccountAvatar(): void {
+  const profile = state.profile
+  const name = profile?.name?.trim() ?? ''
+  const source = typeof profile?.avatar === 'string' && /^data:image\/[a-z0-9.+-]+;base64,/i.test(profile.avatar)
+    ? profile.avatar : ''
+  root.querySelector('[data-settings]')?.setAttribute('aria-label', name ? `${name}，账号与设置` : '未登录，账号与设置')
+  const key = JSON.stringify([name, source])
+  if (key === avatarKey) return
+  avatarKey = key
+  const version = ++avatarVersion
+  if (avatarLoader) { avatarLoader.onload = null; avatarLoader.onerror = null; avatarLoader = null }
+  const images = Array.from(root.querySelectorAll<HTMLImageElement>('[data-account-image]'))
+  const fallback = () => {
+    if (disposed || version !== avatarVersion) return
+    for (const image of images) { image.classList.remove('is-loaded'); image.removeAttribute('src') }
+  }
+  for (const node of root.querySelectorAll<HTMLElement>('[data-account-fallback]')) {
+    if (name) node.textContent = Array.from(name)[0].toLocaleUpperCase()
+    else node.innerHTML = ACCOUNT_ICON
+  }
+  if (!source) { fallback(); return }
+  const loader = new Image()
+  avatarLoader = loader
+  loader.onload = () => {
+    if (disposed || version !== avatarVersion) return
+    avatarLoader = null
+    for (const image of images) {
+      image.src = source
+      void image.decode().then(() => {
+        if (!disposed && version === avatarVersion && image.getAttribute('src') === source) image.classList.add('is-loaded')
+      }).catch(fallback)
+    }
+  }
+  loader.onerror = () => { if (version === avatarVersion) avatarLoader = null; fallback() }
+  loader.src = source
+}
+
 interface OrbItemSpec {
   key: string
-  kind: 'home' | 'tab' | 'contrib' | 'separator'
+  kind: 'home' | 'tab' | 'contrib' | 'separator' | 'settings'
   title?: string
   color?: string
   glyph?: string
@@ -207,6 +250,7 @@ let previousDots = ''
 
 function syncPanel(): void {
   if (PART !== 'rail') {
+    syncAccountAvatar()
     const btn = root.querySelector('[data-settings]')
     if (btn) {
       const active = state.view === 'settings'
@@ -218,7 +262,7 @@ function syncPanel(): void {
   const panel = document.getElementById('orb-panel')
   const dots = document.getElementById('orb-dots')
   if (!panel || !dots) return
-  const homeActive = state.view === 'home' || state.view === 'settings'
+  const homeActive = state.view === 'home'
   const dotsKey = JSON.stringify([homeActive, state.tabs.slice(0, 3).map((tab) => tab.color)])
   if (dotsKey !== previousDots) {
     previousDots = dotsKey
@@ -241,6 +285,7 @@ function syncPanel(): void {
   for (const entry of contribs) items.push({ key: `contrib:${entry.pluginId}:${entry.id}`, kind: 'contrib',
     title: entry.title, color: entry.color, glyph: entry.glyph.charAt(0) || '·',
     pluginId: entry.pluginId, openCode: entry.openCode ?? '' })
+  items.push({ key: 'settings', kind: 'settings', title: '设置', active: state.view === 'settings' })
 
   const wanted = new Set(items.map((item) => item.key))
   for (const [key, node] of panelItems) {
@@ -260,6 +305,9 @@ function syncPanel(): void {
         if (item.kind === 'home') {
           button.dataset.home = '1'
           button.innerHTML = lucideSvgMarkup(LUCIDE_PATHS.house)
+        } else if (item.kind === 'settings') {
+          button.dataset.settings = '1'
+          button.innerHTML = ACCOUNT_PORTRAIT
         } else {
           const glyph = document.createElement('span')
           glyph.className = 'orb-glyph'
@@ -322,6 +370,7 @@ function syncPanel(): void {
     // 保留按钮身份、焦点、hover 与滚动位置，仅在排序变化时移动节点。
     if (panel.children[index] !== node) panel.insertBefore(node, panel.children[index] ?? null)
   })
+  syncAccountAvatar()
   applyExpanded()
   dropTarget?.refresh()
 }
@@ -357,6 +406,8 @@ function bindDrag(): void {
 function disposeDrag(): void {
   disposed = true
   cancelClose(); cancelNarrow()
+  avatarVersion++
+  if (avatarLoader) { avatarLoader.onload = null; avatarLoader.onerror = null; avatarLoader = null }
   for (const dispose of dragDisposers.splice(0)) dispose()
   offOrbEvent?.(); offOrbEvent = undefined
 }
@@ -396,6 +447,7 @@ function bindEvents(): void {
     }
     if (t.closest('[data-settings]')) {
       void shell?.setShellView?.('settings').catch(() => undefined)
+      if (PART === 'rail') setExpanded(false)
     }
   }
 
@@ -453,7 +505,7 @@ async function boot(): Promise<void> {
 
   let receivedState = false
   offOrbEvent = shell?.onOrbEvent?.((payload) => {
-    if (payload?.state) { receivedState = true; applyState(payload.state) }
+    if (payload.type === 'orb-state') { receivedState = true; applyState(payload.state) }
   })
   if (shell?.getOrbState) {
     try {

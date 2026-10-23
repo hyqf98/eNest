@@ -4,6 +4,8 @@ import gsap from 'gsap'
 import { TabStrip } from '@renderer/layout/TabStrip'
 import { shellApi } from '@renderer/services/shellApi'
 import { useAnimationLevel, useReducedMotion } from '@renderer/hooks/useAnimationLevel'
+import { useAppearanceStore } from '@renderer/hooks/useAppearance'
+import { useShellStore } from '@renderer/stores/shellStore'
 import { d, dy, ease } from '@renderer/gsap/marketMotion'
 import { createTitlebarHover } from './titlebarHover'
 
@@ -20,6 +22,10 @@ interface TitleBarProps {
 
 export function TitleBar({ autoHide = false, revealed = false, onReveal, onCollapse, onMotionStart, onMotionComplete }: TitleBarProps) {
   const headerRef = useRef<HTMLElement>(null)
+  const tabStyle = useAppearanceStore((state) => state.appearance.layout.tabStyle)
+  const activePluginTitle = useShellStore((state) => state.view === 'plugin'
+    ? state.tabs.find(tab => tab.id === state.activeTabId)?.title ?? ''
+    : '')
   const { level } = useAnimationLevel()
   const reducedMotion = useReducedMotion()
   const callbacks = useRef({ onReveal, onCollapse, onMotionStart, onMotionComplete })
@@ -131,8 +137,10 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
             </svg>
           </button>
         </div>
-        {/* Session navigation belongs to the host; orb is an additional entry, never a replacement. */}
-        <TabStrip />
+        {tabStyle === 'orb' ? <>
+          <div className="titlebar-spacer" aria-hidden="true" />
+          {activePluginTitle && <span className="titlebar-plugin-name" title={activePluginTitle}>{activePluginTitle}</span>}
+        </> : <TabStrip />}
       </header>
       {autoHide && (
         <div className="titlebar-hotzone" aria-label="显示窗口标题栏" role="button" tabIndex={revealed ? -1 : 0}

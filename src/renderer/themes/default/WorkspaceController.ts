@@ -50,10 +50,19 @@ function paintBarrier(custom?: () => Promise<void>): Promise<void> {
   return custom ? Promise.race([custom(), fallback()]) : fallback()
 }
 
+/** Catalog-internal view preference. Provider state, so it lives in provider storage, not the host route. */
+const BASE_PAGE_KEY = 'enest.home.default.basePage'
+function readBasePage(): 'catalog' | 'installed' {
+  try { return localStorage.getItem(BASE_PAGE_KEY) === 'installed' ? 'installed' : 'catalog' } catch { return 'catalog' }
+}
+function persistBasePage(page: 'catalog' | 'installed'): void {
+  try { localStorage.setItem(BASE_PAGE_KEY, page) } catch { /* preference is best-effort */ }
+}
+
 /** The default plugin only consumes the restricted Workspace bridge, never shell state. */
 export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, callbacks: Callbacks = {}) {
   let state: DefaultWorkspaceState = {
-    runtimeGeneration: 0, route: { page: 'catalog' }, basePage: 'catalog', query: '', category: '全部',
+    runtimeGeneration: 0, route: { page: 'catalog' }, basePage: readBasePage(), query: '', category: '全部',
     scope: 'all', searching: false, loading: true, refreshing: false, busy: new Set(), visible: false,
   }
   const listeners = new Set<() => void>()
@@ -170,6 +179,19 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     catch (error) { patch({ message: error instanceof Error ? error.message : message('无法打开页面。', 'Unable to open this page.') }) }
   }
 
+  /**
+   * Browse/installed are two views of the same catalog surface. Switching filters locally so the
+   * page (background, header, scroll) is never torn down or round-tripped through host navigation.
+   * The host route stays on `catalog`; this preference is provider state and survives reloads
+   * through the provider's own storage, never through the host route.
+   */
+  function setBasePage(page: 'catalog' | 'installed'): void {
+    if (disposed || state.basePage === page) return
+    queueSearch(state.query, page === 'installed' ? 'plugin' : 'all')
+    patch({ basePage: page, detail: null, detailReadme: undefined })
+    persistBasePage(page)
+  }
+
   async function manage(request: HomeAction, pluginId: string): Promise<void> {
     if (state.busy.has(pluginId)) return
     patch({ busy: new Set([...state.busy, pluginId]), message: undefined })
@@ -194,11 +216,8 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     detailSequence++
     cancelReadme()
     const route = command.route
-    if (route.page === 'catalog' || route.page === 'installed') {
-      queueSearch(state.query, route.page === 'installed' ? 'plugin' : 'all')
-    }
-    patch({ route, runtimeGeneration: command.generation, detail: null, detailReadme: undefined,
-      ...(route.page === 'catalog' || route.page === 'installed' ? { basePage: route.page } : {}) })
+    if (route.page === 'catalog') queueSearch(state.query, 'all')
+    patch({ route, runtimeGeneration: command.generation, detail: null, detailReadme: undefined })
     try {
       if (route.page === 'detail' && !await showDetail(route.pluginId)) throw new Error('Workspace detail unavailable')
       await afterPaint()
@@ -225,7 +244,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
       cancelReadme()
       queueSearch('', 'market')
       patch({ route: command.pluginId ? { page: 'detail', pluginId: command.pluginId } : { page: 'catalog' },
-        basePage: 'catalog', runtimeGeneration: command.generation, detail: null, detailReadme: undefined })
+        runtimeGeneration: command.generation, detail: null, detailReadme: undefined })
       if (command.pluginId) void showDetail(command.pluginId)
     } else if (command.type === 'refresh') void refreshCatalog(command.reason)
     else if (command.type === 'settingsChanged') {
@@ -256,7 +275,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     bootstrapping = false
     pendingCommands.splice(0).forEach(handleCommand)
     await afterPaint()
-    if (!disposed) await bridge.ready({ revision: state.appearance.appearance.revision, workspaceVersion: 1, routes: ['catalog', 'installed', 'detail'] })
+    if (!disposed) await bridge.ready({ revision: state.appearance.appearance.revision, workspaceVersion: 1, routes: ['catalog', 'detail'] })
   }
 
   function dispose() {
@@ -272,7 +291,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
   return {
     getState: () => state,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
-    start, dispose, showDetail, queueSearch, runSearch, refreshCatalog, action, navigate, manage,
+    start, dispose, showDetail, queueSearch, runSearch, refreshCatalog, action, navigate, manage, setBasePage,
     setCategory: (category: string) => patch({ category }),
     dismissMessage: () => patch({ message: undefined }),
     reportError: (error: unknown) => patch({ message: error instanceof Error ? error.message : message('操作失败，请重试。', 'Action failed. Please retry.') }),

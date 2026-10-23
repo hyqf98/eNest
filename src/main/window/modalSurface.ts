@@ -1,4 +1,4 @@
-import { app, BaseWindow, shell, WebContentsView, webContents, type WebContents, type View } from 'electron'
+import { app, BaseWindow, shell, WebContentsView, webContents, type WebContents, type View, type WebPreferences } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { SHELL_PARTITION } from '@shared/constants'
@@ -20,6 +20,7 @@ interface Modal {
   state: NativeModalState
   previous: WebContents | null
   ready: boolean
+  shown: boolean
   closed: boolean
   release(): void
   resumeChrome(): void
@@ -83,13 +84,17 @@ export function openNativeModal(owner: WebContents, request: NativeModalRequest)
   const win = BaseWindow.getAllWindows().find(item => !item.isDestroyed() && contains(item.contentView, owner))
   if (!win || modals.has(win.id)) return Promise.resolve(false)
   const confirmation = request.kind === 'confirm' ? options(request.options) : undefined
-  const view = new WebContentsView({ webPreferences: { preload: resolvePreload('modalPreload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, partition: SHELL_PARTITION } })
+  const preferences: WebPreferences & { backgroundColor?: string } = {
+    backgroundColor: '#00000000', preload: resolvePreload('modalPreload.cjs'),
+    sandbox: true, contextIsolation: true, nodeIntegration: false, partition: SHELL_PARTITION,
+  }
+  const view = new WebContentsView({ webPreferences: preferences })
   view.setBackgroundColor('#00000000')
   view.setVisible(false)
   return new Promise<boolean>(settle => {
     const focused = webContents.getFocusedWebContents()
     const modal: Modal = {
-      win, owner, view, ready: false, closed: false, settle,
+      win, owner, view, ready: false, shown: false, closed: false, settle,
       previous: focused && contains(win.contentView, focused) ? focused : owner,
       state: { id: ++sequence, kind: request.kind, options: confirmation, update: request.kind === 'update' ? getUpdateState() : undefined,
         dirtyItems: request.kind === 'update' ? pluginHost.getDirtySnapshot() : [], saving: false,
@@ -151,19 +156,25 @@ export function registerModalSurfaceHandlers(): void {
     if (!request || typeof request !== 'object' || !['confirm', 'update'].includes(request.kind)) throw new Error('Invalid modal request')
     return openNativeModal(event.sender, request)
   })
-  onShellIpc(IpcChannels.ModalReady, event => {
+  onShellIpc(IpcChannels.ModalReady, (event, painted?: { id?: unknown; revision?: unknown }) => {
     const modal = [...modals.values()].find(item => item.view.webContents === event.sender)
-    if (!modal || modal.ready) return
-    modal.ready = true
+    if (!modal || modal.closed || modal.shown) return
+    if (painted === undefined) {
+      if (modal.ready) return
+      modal.ready = true
+      publish(modal)
+      return
+    }
+    if (!modal.ready || painted?.id !== modal.state.id || painted.revision !== modal.state.appearance.revision) return
+    modal.shown = true
     clearTimeout(modal.timer)
-    publish(modal)
     modal.view.setVisible(true)
     modal.view.webContents.focus()
     raiseTransientViews(modal.win)
   })
   onShellIpc(IpcChannels.ModalRespond, (event, id: unknown, action: NativeModalAction) => {
     const modal = [...modals.values()].find(item => item.view.webContents === event.sender && item.state.id === id)
-    if (!modal || !['confirm', 'cancel', 'download', 'retry', 'install', 'release'].includes(action)) return
+    if (!modal?.shown || !['confirm', 'cancel', 'download', 'retry', 'install', 'release'].includes(action)) return
     void respond(modal, action).catch(error => {
       if (modal.closed) return
       modal.state.error = error instanceof Error ? error.message : '操作失败'

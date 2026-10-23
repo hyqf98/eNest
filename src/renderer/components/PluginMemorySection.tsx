@@ -258,6 +258,7 @@ export function PluginMemorySection() {
   const sampledAt = snapshot?.sampledAt
   const disabled = monitor?.enabled === false
   const controlsDisabled = settingsLoading || settingsSaving
+  const runningPlugins = snapshot?.plugins.filter(plugin => plugin.status !== 'idle') ?? []
   const pluginProcesses = snapshot?.processes.filter(process => process.pluginIds.length > 0) ?? []
   const sharedProcesses = pluginProcesses.filter(process => process.shared)
   const hostProcesses = snapshot?.processes.filter(process => process.pluginIds.length === 0) ?? []
@@ -346,9 +347,9 @@ export function PluginMemorySection() {
         ) : disabled ? <p className="plugin-memory-message" role="status">{t('settings.pluginMemory.disabled')}</p>
           : !snapshot ? <p className="plugin-memory-message" role="status">{t('common.loading')}</p>
             : snapshot.sampledAt === null ? <p className="plugin-memory-message" role="status">{t('settings.pluginMemory.waiting')}</p>
-              : snapshot.plugins.length === 0 ? <p className="plugin-memory-message" role="status">{t('settings.pluginMemory.noPlugins')}</p> : null}
+              : runningPlugins.length === 0 ? <p className="plugin-memory-message" role="status">{t('settings.pluginMemory.noPlugins')}</p> : null}
 
-        {snapshot && snapshot.plugins.length > 0 && (
+        {snapshot && runningPlugins.length > 0 && (
           <div className="plugin-memory-table-scroll" tabIndex={0} role="region" aria-label={t('settings.pluginMemory.title')}>
             <table className="plugin-memory-table">
               <thead>
@@ -361,7 +362,7 @@ export function PluginMemorySection() {
                 </tr>
               </thead>
               <tbody>
-                {snapshot.plugins.map(plugin => {
+                {runningPlugins.map(plugin => {
                   const isClosing = closingIds.has(plugin.pluginId) || plugin.status === 'closing'
                   const status = isClosing ? 'statusClosing' : plugin.status === 'running' ? 'statusRunning' : 'statusIdle'
                   const alert = plugin.alert === 'warning' ? 'alertWarning' : plugin.alert === 'critical' ? 'alertCritical' : plugin.alert === 'unavailable' ? 'alertUnavailable' : null

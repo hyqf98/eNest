@@ -3,7 +3,7 @@ import { IpcChannels } from '@shared/types/ipc'
 import type { NativeModalApi, NativeModalState } from '@shared/types/modal'
 
 const api: NativeModalApi = {
-  ready: () => ipcRenderer.send(IpcChannels.ModalReady),
+  ready: painted => ipcRenderer.send(IpcChannels.ModalReady, painted),
   respond: (id, action) => ipcRenderer.send(IpcChannels.ModalRespond, id, action),
   onState: listener => {
     const handle = (_event: Electron.IpcRendererEvent, state: NativeModalState): void => listener(state)

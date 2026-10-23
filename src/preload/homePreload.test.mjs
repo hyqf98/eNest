@@ -38,7 +38,7 @@ test('Home preload exposes only the restricted bridge and preserves envelope sub
   assert.deepEqual(commands, [command])
   await api.search({ query: 'notes', scope: 'installed', limit: 4 })
   assert.deepEqual(state.calls.at(-1), { channel: IpcChannels.HomeSearch, payload: { query: 'notes', scope: 'installed', limit: 4 } })
-  await api.ready({ revision: 3, workspaceVersion: 1, routes: ['catalog', 'installed', 'detail'] })
+  await api.ready({ revision: 3, workspaceVersion: 1, routes: ['catalog', 'detail'] })
   assert.equal(state.calls.at(-1).channel, IpcChannels.HomeReady)
   const navigation = { generation: 4, requestId: '4:1', ok: true }
   await api.ackNavigation(navigation)

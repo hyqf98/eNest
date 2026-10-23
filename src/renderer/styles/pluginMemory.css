@@ -9,13 +9,13 @@
 .plugin-memory-message { margin: 16px 0; color: var(--text-2); font-size: 12px; line-height: 1.7; }
 .plugin-memory-error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 12px 0; color: var(--danger); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
 .plugin-memory-error > span { flex: 1; min-width: min(100%, 180px); }
-.plugin-memory-table-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.plugin-memory-table-scroll { max-width: 100%; max-height: 360px; overflow: auto; scrollbar-gutter: stable; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .plugin-memory-table { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.5; text-align: left; }
 .plugin-memory-table thead { background: var(--surface-2); color: var(--text-2); }
 .plugin-memory-table th { font-weight: 500; }
 .plugin-memory-table th,
 .plugin-memory-table td { padding: 12px; vertical-align: middle; }
-.plugin-memory-table thead th { white-space: nowrap; font-size: 11px; }
+.plugin-memory-table thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); white-space: nowrap; font-size: 11px; }
 .plugin-memory-table tbody tr + tr { border-top: 1px solid var(--border); }
 .plugin-memory-table tbody th { min-width: 156px; }
 .plugin-memory-table td { white-space: nowrap; font-variant-numeric: tabular-nums; }

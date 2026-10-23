@@ -1,6 +1,6 @@
 # 主题工作区：目录、已安装与详情
 
-完整首页是独立的 `WebContentsView`，承载插件目录、已安装列表和详情的主题布局，不是普通业务 Tab，也不能迁入 Quick 或独立插件窗口。顶部插件会话 Tab、左下角设置按钮、窗口控制、设置页面与故障恢复始终由宿主拥有；主题不能替换或隐藏这些全局控件。仅内置默认主题与工作区随安装包提供；其它外观通过插件扩展；启动目录读取本地安装与已缓存条目，不等待联网市场请求。贡献名称仍为 `homePages`，不新增一套重复的视图管理器。
+完整首页是独立的 `WebContentsView`，承载插件目录、已安装列表和详情的主题布局，不是普通业务 Tab，也不能迁入 Quick 或独立插件窗口。插件会话导航、设置入口、窗口控制、设置页面与故障恢复始终由宿主拥有；主题不能替换或隐藏这些全局控件。经典模式使用顶部标签和左下角头像设置入口；圆轨模式依次显示首页、插件、末尾设置图标，不另显示左下角入口。两种导航互斥，切换不丢失会话。仅内置默认主题与工作区随安装包提供；其它外观通过插件扩展；启动目录读取本地安装与已缓存条目，不等待联网市场请求。贡献名称仍为 `homePages`，不新增一套重复的视图管理器。
 
 ## 声明、构建与运行时登记
 
@@ -60,17 +60,22 @@ if (!result.ok) console.error(result.error)
 
 ## 路由与确认协议
 
+宿主只持有真实导航目标，不持有页面内部视图：
+
 ```ts
+type WorkspacePage = 'catalog' | 'detail'
 type WorkspaceRoute =
-  | { page: 'catalog' | 'installed' }
+  | { page: 'catalog' }
   | { page: 'detail'; pluginId: string }
 
-await workspace.action({ type: 'navigate', route: { page: 'installed' } })
+await workspace.action({ type: 'navigate', route: { page: 'detail', pluginId: 'com.github.eNest.notes' } })
 ```
 
-页面内的目录和详情导航也必须调用该动作，不能只改本地 DOM，否则宿主无法在切换主题时恢复正确路由。`openMarket` 是目录路由的兼容入口；`openSettings` 请求宿主切到原生设置视图，不是 Workspace 路由。
+目录是一个表面。**「插件市场 / 已安装」切换、分类筛选、搜索范围、滚动位置都属于提供者自己的视图状态**，不得声明成宿主路由，也不得为此调用 `navigate`：这类切换只改内容区，宿主不需要也不应该为它重放路由或重新挂载页面。提供者自行持久化这类偏好（例如 `localStorage`），不要借用宿主路由来记忆。
 
-先注册 `onCommand`，再调用 `ready({ workspaceVersion: 1, routes: ['catalog', 'installed', 'detail'] })`。收到 `{ type: 'navigate', route, requestId, generation, revision }` 后：
+真正需要 `navigate` 的是会改变宿主可见状态、或需要跨崩溃与换主题恢复的目标：目录与详情。页面内的详情导航必须调用该动作，不能只改本地 DOM，否则宿主无法在切换主题或重建视图时恢复到正确位置。`openMarket` 是目录路由的兼容入口；`openSettings` 请求宿主切到原生设置视图，不是 Workspace 路由。
+
+先注册 `onCommand`，再调用 `ready({ workspaceVersion: 1, routes: ['catalog', 'detail'] })`。收到 `{ type: 'navigate', route, requestId, generation, revision }` 后：
 
 1. 按路由读取安全数据，并完成页面渲染。
 2. 仅确认本次命令的原始 `requestId/generation`，调用 `ackNavigation({ requestId, generation, ok: true })`。失败发送 `ok: false`；不能在加载前提前 ACK。
@@ -104,7 +109,7 @@ const offAppearance = home.onAppearance(accept)
 const offCommand = home.onCommand(async command => {
   if (command.type === 'navigate') {
     try {
-      await renderRoute(command.route) // 实现目录、已安装或详情，等待真实渲染完成。
+      await renderRoute(command.route) // 实现目录或详情，等待真实渲染完成。
       await home.ackNavigation({ requestId: command.requestId, generation: command.generation, ok: true })
     } catch {
       await home.ackNavigation({ requestId: command.requestId, generation: command.generation, ok: false })
@@ -120,13 +125,15 @@ const offCommand = home.onCommand(async command => {
 const initial = await home.getAppearance()
 accept(initial)
 await home.getCatalog()
-await home.ready({ revision, workspaceVersion: 1, routes: ['catalog', 'installed', 'detail'] })
+await home.ready({ revision, workspaceVersion: 1, routes: ['catalog', 'detail'] })
 addEventListener('pagehide', () => { offAppearance(); offCommand() }, { once: true })
 ```
 
 示例在隐藏时暂停媒体；页面自己的连续动画还应接入相同可见性信号。实际应用应同时按 `generation/revision` 丢弃过期消息，不能让晚到的初始读取覆盖更新的推送。`HomeEvent` 的宿主信封是 `{ appearance?: HomeAppearanceSnapshot, command?: HomeCommand }`，preload 已拆分为两个订阅；不要再手工订阅完整 IPC。
 
-同一提供者切换已声明布局、模式或参数时复用页面，不刷新连接、不清空搜索或草稿。不同提供者使用独立、非持久化会话；稳态只有当前首页，替换后销毁旧 frame，撤销协议处理器并清空会话数据。监听、媒体、字体与动画资源均需有取消/释放路径。
+同一提供者切换已声明布局、模式或参数时复用页面，不刷新连接、不清空搜索或草稿。当前已显示的工作区在目录与详情路由确认期间保持画面，不先隐藏整张原生视图；管理操作暂时拒绝，只有匹配当前 requestId/generation 的成功 ACK 才恢复操作资格，旧确认请求不能借导航结束重新生效。初次加载、不同提供者切换、主动隐藏和故障恢复仍须遵守原有可见性门禁。
+
+安装、更新和卸载确认由透明的宿主原生弹层覆盖当前页面；弹层先接收外观与内容，完成 DOM 提交和渲染确认后才显示，不以浅色空画布或整页浅色遮罩代替交接。不同提供者使用独立、非持久化会话；稳态只有当前首页，替换后销毁旧 frame，撤销协议处理器并清空会话数据。监听、媒体、字体与动画资源均需有取消/释放路径。
 
 安装命令中的 `pluginId` 可能缺省，`jobId/name` 仅供任务状态展示；`name` 不是插件 ID。不要据此覆盖另一插件的状态，安装完成后读取缓存目录核实结果。
 

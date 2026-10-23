@@ -4,6 +4,7 @@ import { getPluginTopInset } from '@main/window/createShellWindow'
 import { IpcChannels } from '@shared/types/ipc'
 import type { ResolvedAppearance } from '@shared/types/appearance'
 import { DEFAULT_THEME_IDENTITY } from '@shared/theme/defaultTheme/package'
+import { compositeThemeColor, parseThemeColor } from '@shared/theme/colors'
 import type { HomeSurfaceState } from '@shared/types/homeSurface'
 import type { HomeReadyPayload } from '@shared/types/home'
 import type { WorkspaceNavigationAck, WorkspacePage, WorkspaceRoute } from '@shared/types/workspace'
@@ -63,7 +64,7 @@ type ContentsListener = (contents: Electron.WebContents) => void
 const LOAD_TIMEOUT_MS = 8000
 // Dev 首次加载需等 Vite 按需变换整个首页模块图（load 与 ready 冷缓存下都常超 8s）；打包产物本地直读不受影响。
 const LOAD_TIMEOUT = process.env.ELECTRON_RENDERER_URL ? 60000 : LOAD_TIMEOUT_MS
-const WORKSPACE_PAGES = new Set<WorkspacePage>(['catalog', 'installed', 'detail'])
+const WORKSPACE_PAGES = new Set<WorkspacePage>(['catalog', 'detail'])
 
 function routeKey(route: WorkspaceRoute | null): string {
   return route ? JSON.stringify(route) : ''
@@ -162,6 +163,7 @@ export class HomeSurfaceManager {
         session: createHomeSession(page, generation)
       }
     })
+    this.setViewBackground(view, candidate)
     const homeSession = view.webContents.session
     const runtime: Runtime = {
       generation,
@@ -363,7 +365,9 @@ export class HomeSurfaceManager {
   }
 
   isContentsActive(wcId: number): boolean {
-    return this.current?.view.webContents.id === wcId && this.current.visible
+    const runtime = this.current
+    return Boolean(runtime && runtime.view.webContents.id === wcId && !runtime.retired && runtime.visible
+      && !runtime.navigation && routeKey(runtime.route) === routeKey(this.desiredRoute))
   }
 
   getContentsGeneration(wcId: number): number | null {
@@ -404,8 +408,10 @@ export class HomeSurfaceManager {
 
   async navigate(input: WorkspaceRoute): Promise<void> {
     const route = normalizeWorkspaceRoute(input)
+    const changedRoute = routeKey(this.desiredRoute) !== routeKey(route)
     this.desiredRoute = route
     this.recoverySuspended = false
+    if (changedRoute && this.current) this.current.activityRevision++
     const runtime = this.current ?? this.preparing
     if (!runtime) {
       try { await this.retry() }
@@ -473,7 +479,10 @@ export class HomeSurfaceManager {
       }, this.loadTimeout)
     }
     runtime.navigation = navigation
-    if (runtime === this.current) this.setRuntimeVisible(this.desiredVisible)
+    if (runtime === this.current) {
+      runtime.activityRevision++
+      this.setRuntimeVisible(this.desiredVisible)
+    }
     this.sendCommand(runtime, { type: 'navigate', route: { ...route }, requestId, generation: runtime.generation, revision: runtime.appearance.revision })
     return promise
   }
@@ -520,9 +529,16 @@ export class HomeSurfaceManager {
       : null
   }
 
+  private setViewBackground(view: WebContentsView, appearance: ResolvedAppearance): void {
+    const fallback = parseThemeColor(appearance.mode === 'dark' ? '#17191b' : '#f6f6f4')!
+    const color = compositeThemeColor(parseThemeColor(appearance.tokens['--bg'] ?? '') ?? fallback, fallback)
+    view.setBackgroundColor(`#${color.slice(0, 3).map(channel => Math.round(channel).toString(16).padStart(2, '0')).join('')}`)
+  }
+
   private sendAppearance(runtime: Runtime, appearance: ResolvedAppearance): void {
     const wc = runtime.view.webContents
     if (wc.isDestroyed()) return
+    this.setViewBackground(runtime.view, appearance)
     wc.send(IpcChannels.HomeEvent, {
       appearance: { ...getHomeAppearanceSnapshot(appearance), generation: runtime.generation }
     })
@@ -549,14 +565,22 @@ export class HomeSurfaceManager {
   }
 
   private setRuntimeVisible(visible: boolean): void {
-    if (!this.current) return
-    const nextVisible = visible && this.windowVisible && this.current.ready && !this.recoverySuspended && !this.current.navigation && routeKey(this.current.route) === routeKey(this.desiredRoute)
-    if (nextVisible !== this.current.visible) this.current.activityRevision++
-    this.current.visible = nextVisible
-    try { this.current.view.setVisible(this.current.visible) }
-    catch { /* retired concurrently */ }
-    this.sendCommand(this.current, { type: 'visibility', visible: this.current.visible, revision: this.current.appearance.revision })
-    if (this.current.visible) { raiseOrbRailViews(); raiseTransientViews() }
+    const current = this.current
+    if (!current) return
+    const acknowledged = !current.navigation && routeKey(current.route) === routeKey(this.desiredRoute)
+    // Keep the last acknowledged page painted during same-provider navigation.
+    // isContentsActive still denies actions until the new route is acknowledged.
+    const nextVisible = visible && this.windowVisible && current.ready && !current.retired && !this.recoverySuspended
+      && (acknowledged || current.visible)
+    const changed = nextVisible !== current.visible
+    if (changed) current.activityRevision++
+    current.visible = nextVisible
+    if (changed) {
+      try { current.view.setVisible(nextVisible) }
+      catch { /* retired concurrently */ }
+      this.sendCommand(current, { type: 'visibility', visible: nextVisible, revision: current.appearance.revision })
+    }
+    if (nextVisible) { raiseOrbRailViews(); raiseTransientViews() }
   }
 
   private retireRuntime(runtime: Runtime | null): void {

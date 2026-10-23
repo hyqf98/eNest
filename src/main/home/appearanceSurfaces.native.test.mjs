@@ -165,6 +165,22 @@ test('single default Workspace proves direct first-run startup, unified routes, 
       evidence.renders.push(state)
       return state
     }
+    // Marketplace/installed is provider state: the host route stays on catalog and only the
+    // list below changes. Wait for the segment to actually take effect in the document.
+    const segmentReady = async (segment, label) => {
+      await poll(() => call('getHomeState'), value => value.status === 'ready' && value.route?.page === 'catalog' && !value.recovery, `${label} keeps the host catalog route`)
+      const state = await poll(dom, value => value.route === 'catalog' && value.visible === 'true', `${label} actual Workspace document`)
+      const pressed = await poll(
+        () => evaluate('workspace', `document.querySelector('.home-toolbar .segmented button[aria-pressed="true"]')?.textContent ?? ''`),
+        value => value === segment,
+        `${label} segment takes effect without a host navigation`
+      )
+      assert.equal(pressed, segment)
+      assert.equal(await workspaceVisible(), true, `${label} is visible in the native view tree`)
+      assert.equal(state.overflow, false)
+      evidence.renders.push(state)
+      return state
+    }
     const noBusinessRuntime = async () => {
       const current = await inventory()
       assert.deepEqual(current.contents.filter(item => item.url.startsWith('enest://plugin/')), [], 'catalog/detail never start a plugin engine')
@@ -211,7 +227,7 @@ test('single default Workspace proves direct first-run startup, unified routes, 
     evidence.checks.originalReactHierarchy = originalHierarchy
 
     await click('workspace', '.home-toolbar .segmented button:nth-child(2)')
-    await routeReady('installed')
+    await segmentReady('已安装', 'installed segment')
     await capture('workspace', '03-installed.png')
     await evaluate('workspace', `(() => {
       const source=document.querySelector('.card[data-plugin-id="${pluginId}"]');
@@ -248,7 +264,7 @@ test('single default Workspace proves direct first-run startup, unified routes, 
       };requestAnimationFrame(record);return true;
     })()`)
     await click('workspace', '.detail-actions [data-detail-close]')
-    await routeReady('installed')
+    await segmentReady('已安装', 'detail close')
     const closing = await evaluate('workspace', 'window.workspaceDetailClosing.samples.filter(sample=>sample.phase==="closing")')
     assert.ok(closing.length >= 2, 'closing reuses the original interruptible geometry transition')
     assert.equal(await evaluate('workspace', `document.activeElement?.closest('.card')?.dataset.pluginId`), pluginId, 'closing restores source-card keyboard focus')

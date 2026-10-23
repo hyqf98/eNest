@@ -142,7 +142,7 @@ async function navigateWorkspace(input: WorkspaceRoute): Promise<void> {
   await prewarmHomeSurface()
   if (homeSurfaceManager.recoveryEpoch !== recoveryEpoch) throw new Error('Workspace navigation was cancelled by recovery')
   if (intent !== workspaceNavigationIntent) throw new Error('Workspace navigation was replaced')
-  sendShellEvent({ type: 'set-view', view: 'home', workspaceRoute: route })
+  sendShellEvent({ type: 'set-view', view: 'home' })
   await homeSurfaceManager.navigate(route)
 }
 
@@ -227,7 +227,7 @@ export function registerShellHandlers(): void {
     const tabStyle = appearanceService.getAppearance().layout.tabStyle === 'orb' ? 'orb' : 'classic'
     const { chromeVisible, ...projection } = state
     setOrbRailState({ ...projection, tabStyle })
-    // Only App opens this gate; classic still needs the native global settings dock.
+    // Only App opens this gate; orb uses the rail and classic uses the fixed settings dock.
     applyOrbRailVisibility(tabStyle, chromeVisible === true)
     return { ok: true }
   })

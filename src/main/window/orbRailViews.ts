@@ -2,19 +2,18 @@ import { raiseTransientViews } from '@main/window/transientViews'
 import { pathToFileURL } from 'node:url'
 import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
 /**
- * orbRailViews — 宿主全局设置钮 / 可选左侧圆轨（主窗口内顶层 WebContentsView）
+ * orbRailViews — orb 圆轨 / classic 常驻设置钮（互斥的主窗口顶层 WebContentsView）
  * 取代独立透明子窗方案：视图内是真实 DOM 鼠标事件，无穿透转发、无窗口焦点/层级问题。
- * - rail 视图：左缘窄条，收起 ORB_RAIL_COLLAPSED_W（仅把手），renderer hover 触发
- *   经 IPC 拓宽到 ORB_RAIL_EXPANDED_W（同进程 setBounds，约 1 帧）。
- * - dock 视图：左下角常驻设置钮，始终可点。两者无重叠，插件内容全宽渲染（inset 0）。
- *   设置钮经 CSS left/bottom 内边距与展开轨道圆球左缘对齐（≈8–10px）。
+ * - orb 仅显示 rail：首页 → 插件/贡献入口 → 设置，左缘窄条收起为 ORB_RAIL_COLLAPSED_W，
+ *   renderer hover 经 IPC 拓宽到 ORB_RAIL_EXPANDED_W（同进程 setBounds，约 1 帧）。
+ * - classic 仅显示 dock：固定 80×72 贴左下，头像设置钮常驻，18px 内间距由 CSS 提供。
+ *   插件内容始终全宽渲染（inset 0）。
  * - z 序：WebContentsView 无显式置顶 API，插件视图挂载后需调 raiseOrbRailViews()
  *   以 remove+re-add 置顶（electron#42061）。
  */
 import { app, nativeTheme, WebContentsView, type WebPreferences } from 'electron'
 import { join } from 'node:path'
 import {
-  ORB_DOCK_PAD_BOTTOM,
   ORB_DOCK_VIEW_H,
   ORB_DOCK_VIEW_W,
   ORB_RAIL_COLLAPSED_W,
@@ -86,7 +85,7 @@ function readTheme(): ResolvedThemeCss {
   }
 }
 
-/** Account metadata stays in the projection; the global settings icon never changes. */
+/** Use the host-cached avatar; the settings surface never fetches account images. */
 function readProfile(): OrbRailState['profile'] {
   try {
     const user = settingsStore.getAll().profile?.user
@@ -112,19 +111,18 @@ function applyRailBounds(): void {
   if (!railView) return
   const b = getShellBounds()
   const width = railExpanded ? ORB_RAIL_EXPANDED_W : ORB_RAIL_COLLAPSED_W
-  // 底部为 dock 预留：dock 视图高度 + 贴边安全区，避免 tab 列表压到设置钮
-  const dockReserve = ORB_DOCK_VIEW_H + ORB_DOCK_PAD_BOTTOM
-  const height = Math.max(120, b.height - TITLEBAR_HEIGHT - dockReserve)
+  // orb 的设置入口在 rail 末尾，不再为独立 dock 预留底部空间。
+  const height = Math.max(120, b.height - TITLEBAR_HEIGHT)
   railView.setBounds({ x: 0, y: TITLEBAR_HEIGHT, width, height })
 }
 
 function applyDockBounds(): void {
   if (!dockView) return
   const b = getShellBounds()
-  // 视图贴窗口左下，按钮在 CSS 内再加 left/bottom 内边距，与展开轨道对齐
+  // classic 原生命中区固定贴左下；按钮的 18px 内间距由 overlay CSS 提供。
   dockView.setBounds({
     x: 0,
-    y: Math.max(TITLEBAR_HEIGHT + 120, b.height - ORB_DOCK_VIEW_H),
+    y: Math.max(TITLEBAR_HEIGHT, b.height - ORB_DOCK_VIEW_H),
     width: ORB_DOCK_VIEW_W,
     height: ORB_DOCK_VIEW_H
   })
@@ -177,18 +175,18 @@ function makeView(part: 'rail' | 'dock'): WebContentsView {
 }
 
 export function createOrbRailViews(): void {
-  if (dockView && (lastState.tabStyle !== 'orb' || railView)) return
+  if (lastState.tabStyle === 'orb' ? railView : dockView) return
   const win = getMainWindow()
   if (!win || win.isDestroyed()) return
 
   // 首次创建即对齐主题与账号资料，供 did-finish-load 的首次状态推送携带
   lastState = { ...lastState, theme: readTheme(), profile: readProfile() }
 
+  // 只懒创建当前模式需要的视图；切换后保留的另一视图由可见性门禁隐藏。
   if (lastState.tabStyle === 'orb' && !railView) {
     railView = makeView('rail')
     win.contentView.addChildView(railView)
-  }
-  if (!dockView) {
+  } else if (lastState.tabStyle === 'classic' && !dockView) {
     dockView = makeView('dock')
     win.contentView.addChildView(dockView)
   }
@@ -196,7 +194,7 @@ export function createOrbRailViews(): void {
   applyDockBounds()
   hookNativeTheme()
   // 窗口 resize 由 index.ts 统一调 layoutOrbRailViews()
-  logInfo('orb', 'rail/dock views created')
+  logInfo('orb', `${lastState.tabStyle === 'orb' ? 'rail' : 'dock'} view created`)
 }
 
 /** system 模式下系统深浅翻转时，圆轨配色跟随（其它模式重算结果不变，广播会被去重） */
@@ -293,15 +291,19 @@ export function setOrbAnimationLevel(level: AnimationLevel): void {
 /** 主题变更（设置页 / 主题包 / 系统深浅翻转）：重解析并推给两个视图 */
 export function setOrbTheme(): void {
   const next = readTheme()
+  const tabStyle = next.appearance?.layout.tabStyle ?? lastState.tabStyle
   if (
+    lastState.tabStyle === tabStyle &&
     lastState.theme.mode === next.mode &&
     JSON.stringify(lastState.theme.tokens) === JSON.stringify(next.tokens) &&
     lastState.theme.appearance?.revision === next.appearance?.revision
   ) {
     return
   }
-  lastState = { ...lastState, theme: next, animationLevel: next.appearance?.animation.effective ?? lastState.animationLevel }
+  lastState = { ...lastState, tabStyle, theme: next, animationLevel: next.appearance?.animation.effective ?? lastState.animationLevel }
   broadcastState()
+  // 全局导航偏好变更不能越过 App 门禁或原生模态暂停。
+  syncChromeVisibility()
 }
 
 /** 账号资料变化（GitHub 登录 / 刷新 / 退出）：dock 头像即时更新 */
@@ -315,13 +317,17 @@ function syncChromeVisibility(): void {
   const visible = chromeVisible && chromeSuspensions.size === 0
   if (railView?.webContents.isDestroyed()) railView = null
   if (dockView?.webContents.isDestroyed()) dockView = null
-  if (visible) createOrbRailViews()
-  railView?.setVisible(visible && lastState.tabStyle === 'orb')
-  dockView?.setVisible(visible)
-  if (visible) raiseOrbRailViews()
+  // 先隐藏另一模式的视图，再创建或显示当前视图，避免切换时两者同时出现。
+  if (!visible || lastState.tabStyle !== 'orb') railView?.setVisible(false)
+  if (!visible || lastState.tabStyle !== 'classic') dockView?.setVisible(false)
+  if (!visible) return
+  createOrbRailViews()
+  const view = lastState.tabStyle === 'orb' ? railView : dockView
+  view?.setVisible(true)
+  raiseOrbRailViews()
 }
 
-/** Dock is global; only the optional rail depends on the user's tab style. */
+/** App 门禁控制原生 chrome；orb 仅 rail，classic 仅常驻设置 dock。 */
 export function applyOrbRailVisibility(tabStyle: 'classic' | 'orb', visible: boolean): void {
   chromeVisible = visible
   lastState = { ...lastState, tabStyle, contribEntries: readRailContribEntries() }

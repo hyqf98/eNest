@@ -305,8 +305,8 @@ export type ShellEventPayload =
   | { type: 'github-login-status'; phase: 'pending' | 'authorized' | 'error' | 'cancelled'; message?: string }
   /** 悬浮窗请求主壳回首页 */
   | { type: 'go-home' }
-  /** 悬浮窗请求主壳切换视图 */
-  | { type: 'set-view'; view: 'home' | 'settings' | 'plugin'; workspaceRoute?: import('./workspace').WorkspaceRoute; sectionId?: string }
+  /** 悬浮窗请求主壳切换视图。工作区路由由宿主 HomeSurfaceManager 自行投影，不随事件下发。 */
+  | { type: 'set-view'; view: 'home' | 'settings' | 'plugin'; sectionId?: string }
   /** 快捷键注册失败（至少部分占用） */
   | { type: 'quick-hotkey-failed'; failed: string[]; registered: string[] }
   | { type: 'quick-hotkey-used'; acc: string }
