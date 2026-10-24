@@ -1,0 +1,447 @@
+.tag {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: calc(10.5px * var(--appearance-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+}
+
+.plugin-icon-card {
+  width: var(--plugin-icon-card, 48px);
+  height: var(--plugin-icon-card, 48px);
+  border-radius: calc(var(--plugin-icon-card, 48px) * 0.28);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: clamp(calc(14px * var(--appearance-font-scale, 1)), calc(16px * var(--shell-scale, 1) * var(--appearance-font-scale, 1)), calc(18px * var(--appearance-font-scale, 1)));
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+/* 插件位图图标统一：object-fit cover + 失败回退 glyph（见 PluginIcon.tsx） */
+.plugin-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.plugin-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  user-select: none;
+}
+
+.plugin-icon-glyph {
+  color: #fff;
+  font-weight: 750;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  user-select: none;
+}
+
+.plugin-icon-tab {
+  border-radius: calc(var(--plugin-icon-tab, 20px) * 0.28);
+  font-size: calc(9px * var(--appearance-font-scale, 1));
+}
+
+/* ========== Buttons — Apple HIG / macOS Sonoma ==========
+   克制：主按钮 accent 软填充/极浅梯度 + 清晰字；次要表面+细边框；
+   极轻阴影；active 轻反馈；focus-visible 细 accent 环；
+   深色：浅 accent + 深字。不要塑料厚阴影/重渐变。 */
+.btn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px; /* 通用中等圆角；卡片内主按钮见 .card-actions */
+  font-size: calc(12.5px * var(--appearance-font-scale, 1));
+  font-weight: 550;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    filter 0.12s ease,
+    transform 0.08s ease;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+  filter: brightness(0.96);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* 主按钮：柔和强调色填充（极浅上亮梯度），字清晰；阴影几乎不可见 */
+.btn-primary {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 94%, #fff) 0%,
+    var(--accent) 100%
+  );
+  color: var(--accent-contrast);
+  border-color: color-mix(in srgb, var(--accent) 86%, transparent);
+  box-shadow:
+    inset 0 0.5px 0 color-mix(in srgb, #fff 26%, transparent),
+    0 0.5px 1px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.03);
+}
+
+.btn-primary:active:not(:disabled) {
+  filter: brightness(0.94);
+  transform: scale(0.97);
+}
+
+.btn-primary:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 0.5px 0 color-mix(in srgb, #fff 26%, transparent),
+    0 0 0 2.5px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* 深色：浅 accent + 深字，同样精致 */
+:root[data-theme="dark"] .btn-primary {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 86%, #fff) 0%,
+    var(--accent) 100%
+  );
+  color: var(--accent-contrast);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow:
+    inset 0 0.5px 0 color-mix(in srgb, #fff 40%, transparent),
+    0 0.5px 1px color-mix(in srgb, #000 22%, transparent);
+}
+
+:root[data-theme="dark"] .btn-primary:focus-visible {
+  box-shadow:
+    inset 0 0.5px 0 color-mix(in srgb, #fff 40%, transparent),
+    0 0 0 2.5px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+/* 次要：表面 + 细边框，hover 微亮 */
+.btn-ghost {
+  border: 1px solid var(--border-strong);
+  color: var(--text-2);
+  background: var(--surface);
+  box-shadow: 0 0.5px 1px rgba(24, 24, 27, 0.03);
+}
+
+:root[data-theme="dark"] .btn-ghost {
+  box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.18);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 94%, var(--accent) 6%);
+  border-color: color-mix(in srgb, var(--border-strong) 65%, var(--accent) 20%);
+}
+
+.btn-ghost:active:not(:disabled) {
+  transform: scale(0.97);
+  filter: none;
+  background: color-mix(in srgb, var(--surface) 88%, var(--accent) 8%);
+}
+
+.btn-ghost:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* soft semantic fills — 同一套克制语言 */
+.btn-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger-soft) 70%, var(--danger) 12%);
+  filter: none;
+}
+
+.btn-danger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--danger) 24%, transparent);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+  transform: none;
+  filter: none;
+}
+
+.btn-sm {
+  height: 26px;
+  padding: 0 10px;
+  font-size: calc(11.5px * var(--appearance-font-scale, 1));
+  border-radius: 7px;
+}
+
+/* ========== Bottom bar ========== */
+.bottom-bar {
+  position: absolute;
+  left: clamp(12px, 2vw, 18px);
+  bottom: clamp(12px, 2vw, 18px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 40;
+  max-width: calc(100% - 24px);
+  flex-wrap: wrap;
+}
+
+.float-btn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 22px;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  box-shadow: var(--shadow-soft);
+  transition: all 0.15s;
+}
+
+.float-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-float);
+}
+
+.float-btn.active {
+  color: var(--link);
+  border-color: color-mix(in srgb, var(--link) 40%, transparent);
+  background: color-mix(in srgb, var(--link) 8%, var(--surface));
+}
+
+.float-btn svg {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.float-tip {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-4px);
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s, transform 0.15s;
+  box-shadow: var(--shadow-float);
+  z-index: 20;
+}
+
+.float-btn:hover .float-tip {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+/* plugin-view：插件全宽（orb overlay 模式无左侧 inset） */
+.plugin-view {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+}
+
+.plugin-bar {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* minimal chrome：细条，仅显示名称（与 main 侧 PLUGIN_BAR_HEIGHT_MINIMAL=28 对齐） */
+.plugin-bar-minimal {
+  height: 28px;
+  padding: 0 12px;
+}
+
+.plugin-bar-minimal .name {
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  font-weight: 500;
+}
+
+.plugin-bar-minimal .live-dot {
+  width: 5px;
+  height: 5px;
+  box-shadow: 0 0 0 2px var(--ok-soft);
+}
+
+.plugin-bar .left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+/* 崩溃态插件条指示点：绿点转红 */
+.live-dot.crashed {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.plugin-bar .name {
+  font-weight: 600;
+  font-size: calc(13.5px * var(--appearance-font-scale, 1));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+}
+
+.plugin-body {
+  flex: 1;
+  overflow: auto;
+  padding: clamp(16px, 3vh, 32px) clamp(14px, 2.5vw, 28px);
+}
+.plugin-launch-body {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.plugin-launch-state {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  min-width: 190px;
+  padding: 22px 28px 20px;
+  border: 1px solid color-mix(in srgb, var(--text) 9%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--text) 10%, transparent), inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent);
+  backdrop-filter: blur(14px) saturate(1.14);
+  -webkit-backdrop-filter: blur(14px) saturate(1.14);
+  animation: plugin-launch-enter 0.28s ease-out;
+}
+.plugin-launch-state:before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: radial-gradient(180px 80px at 50% 0%, color-mix(in srgb, var(--accent) 17%, transparent), transparent 72%);
+  pointer-events: none;
+}
+.plugin-launch-mark {
+  display: grid;
+  grid-template-columns: repeat(3, 13px);
+  gap: 5px;
+  margin-bottom: 10px;
+}
+.plugin-launch-mark i {
+  height: 13px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 52%, var(--surface-2));
+  animation: plugin-launch-pulse 1.15s ease-in-out infinite;
+}
+.plugin-launch-mark i:nth-child(2) { animation-delay: .12s; background: color-mix(in srgb, var(--accent) 72%, var(--surface-2)); }
+.plugin-launch-mark i:nth-child(3) { animation-delay: .24s; background: var(--accent); }
+.plugin-launch-title {
+  max-width: 240px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: calc(14px * var(--appearance-font-scale, 1));
+  font-weight: 620;
+  letter-spacing: -0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plugin-launch-caption { color: var(--text-3); font-size: calc(11px * var(--appearance-font-scale, 1)); letter-spacing: .045em; }
+:root[data-anim='low'] .plugin-launch-state { animation-duration: .18s; }
+:root[data-anim='low'] .plugin-launch-mark i { animation-duration: 1.6s; }
+:root[data-anim='high'] .plugin-launch-state { animation-duration: .34s; }
+:root[data-anim='high'] .plugin-launch-mark i { animation-duration: .95s; }
+@keyframes plugin-launch-enter {
+  from { opacity: 0; transform: translateY(9px) scale(.975); }
+}
+@keyframes plugin-launch-pulse {
+  0%, 100% { transform: translateY(0); opacity: .62; }
+  50% { transform: translateY(-4px); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .plugin-launch-state,
+.plugin-launch-mark i { animation: none; }
+}
+
+.isolate-panel {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 28px;
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  border: 1px dashed var(--border-dashed);
+  box-shadow: var(--shadow-soft);
+}
+
+.isolate-panel h2 {
+  margin: 0 0 8px;
+  font-size: calc(20px * var(--appearance-font-scale, 1));
+  letter-spacing: -0.03em;
+}
+
+.isolate-panel > p {
+  margin: 0 0 20px;
+  color: var(--text-2);
+  line-height: 1.6;
+}

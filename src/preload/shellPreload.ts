@@ -4,6 +4,8 @@ import type {
   PluginShortcutMutationResult, PluginShortcutLaunchResult, ShortcutProbeResult
 } from '@shared/types/shortcuts'
 import type { AccountState, AccountLoginResult } from '@shared/types/account'
+import type { ShellSettingsData } from '@shared/types/shellSettings'
+export type { ShellSettingsData } from '@shared/types/shellSettings'
 /**
  * shellPreload — 壳子渲染层预加载脚本
  * 职责：通过 contextBridge 向壳子渲染层暴露 window.enestShell API，
@@ -55,6 +57,7 @@ import type {
 import type { AppearanceSnapshot, ThemeProfilePatch } from '@shared/types/appearance'
 import type { WorkspaceRoute } from '@shared/types/workspace'
 import type { PluginMemorySnapshot } from '@shared/types/pluginMemory'
+import type { PerformanceCaptureState, PerformanceCaptureExportResult } from '@shared/types/performanceCapture'
 import type { ProxyTestResult } from '@shared/types/ipc'
 import type {
   ApplicationScanResult,
@@ -68,16 +71,6 @@ import type {
 } from '@shared/types/quick'
 
 type Unsubscribe = () => void
-
-export interface ShellSettingsData {
-  theme?: ThemeTokens
-  general?: Record<string, unknown>
-  plugins?: Record<string, Record<string, unknown>>
-  /** 每插件快捷启动配置表（键 = pluginId）；读取用，写入走 setPluginLaunch */
-  pluginLaunch?: Record<string, PluginLaunchConfig>
-  pluginShortcuts?: PluginShortcutBinding[]
-  [key: string]: unknown
-}
 
 /** 解包 ok/data/error 结构，失败时抛出 Error */
 async function unwrapOk<T>(promise: Promise<{ ok: boolean; data?: T; error?: string }>): Promise<T> {
@@ -93,14 +86,24 @@ async function expectOk(promise: Promise<{ ok: boolean; error?: string }>): Prom
 }
 
 export interface EnestShellApi {
+  openExternal(url: string): Promise<void>
+  getThemeSettingsConfig(): Promise<import('@shared/types/themeSettings').ThemeSettingsConfig | null>
+  getThemeSettingsSnapshot(key: string): Promise<import('@shared/types/themeSettings').ThemeSettingsSnapshot>
+  setThemeSettingsActive(input: { key?: string; active: boolean; bounds?: { x: number; y: number; width: number; height: number } }): Promise<boolean>
+  dispatchThemeSettingsAction(key: string, action: import('@shared/types/themeSettings').ThemeSettingsAction): Promise<import('@shared/types/themeSettings').ThemeSettingsActionResult>
   getPlugins(): Promise<PluginSummary[]>
   getMarketStatus(refresh?: boolean): Promise<PluginMarketStatus>
   /** 只读性能采样：仅包含当前应用的进程与插件资源计数。 */
   getPluginDiagnostics(): Promise<unknown>
-  getPluginMemorySnapshot(): Promise<PluginMemorySnapshot>
+  getPluginMemorySnapshot(force?: boolean): Promise<PluginMemorySnapshot>
+  startPerformanceCapture(): Promise<PerformanceCaptureState>
+  getPerformanceCaptureState(): Promise<PerformanceCaptureState>
+  stopPerformanceCapture(): Promise<PerformanceCaptureState>
+  exportPerformanceCapture(): Promise<PerformanceCaptureExportResult>
   restoreTabs(ids: string[]): Promise<void>
   openPlugin(id: string, enter?: { code?: string; payload?: unknown }): Promise<void>
   closePlugin(tabId: string): Promise<void>
+  stopPluginResources(pluginId: string): Promise<void>
   activatePlugin(tabId: string): Promise<void>
   /** 隐藏全部插件原生视图（回首页/设置时） */
   hidePlugins(): Promise<void>
@@ -261,7 +264,7 @@ export interface EnestShellApi {
   // —— 快捷启动 Quick ——
   quickToggle(): Promise<void>
   quickHide(): void
-  quickSearch(query: string, limit?: number, kind?: QuickCommandKind, phase?: 'static' | 'enriched' | 'providers'): Promise<QuickSearchResult>
+  quickSearch(query: string, limit?: number, kind?: QuickCommandKind, phase?: import('@shared/types/quick').QuickSearchPhase, ids?: string[]): Promise<QuickSearchResult>
   quickOpen(req: QuickOpenRequest): Promise<QuickOpenResult>
   quickScanApps(force?: boolean): Promise<ApplicationScanResult>
   quickGetConfig(): Promise<QuickHotkeyConfig>
@@ -277,10 +280,19 @@ export interface EnestShellApi {
 }
 
 const api: EnestShellApi = {
+  openExternal: url => ipcRenderer.invoke(IpcChannels.ShellOpenExternal, url),
+  getThemeSettingsConfig: () => ipcRenderer.invoke(IpcChannels.ThemeSettingsConfig),
+  getThemeSettingsSnapshot: key => ipcRenderer.invoke(IpcChannels.ThemeSettingsSnapshot, key),
+  setThemeSettingsActive: input => ipcRenderer.invoke(IpcChannels.ThemeSettingsActive, input),
+  dispatchThemeSettingsAction: (key, action) => ipcRenderer.invoke(IpcChannels.ThemeSettingsAction, key, action),
   getPlugins: () => ipcRenderer.invoke(IpcChannels.ShellGetPlugins),
   getMarketStatus: (refresh = false) => ipcRenderer.invoke(IpcChannels.ShellGetMarketStatus, refresh),
   getPluginDiagnostics: () => ipcRenderer.invoke(IpcChannels.ShellGetPluginDiagnostics),
-  getPluginMemorySnapshot: () => ipcRenderer.invoke(IpcChannels.ShellGetPluginMemorySnapshot) as Promise<PluginMemorySnapshot>,
+  getPluginMemorySnapshot: (force = false) => ipcRenderer.invoke(IpcChannels.ShellGetPluginMemorySnapshot, force) as Promise<PluginMemorySnapshot>,
+  startPerformanceCapture: () => ipcRenderer.invoke(IpcChannels.ShellStartPerformanceCapture),
+  getPerformanceCaptureState: () => ipcRenderer.invoke(IpcChannels.ShellGetPerformanceCaptureState),
+  stopPerformanceCapture: () => ipcRenderer.invoke(IpcChannels.ShellStopPerformanceCapture),
+  exportPerformanceCapture: () => ipcRenderer.invoke(IpcChannels.ShellExportPerformanceCapture),
   restoreTabs: (ids) => ipcRenderer.invoke(IpcChannels.ShellRestoreTabs, ids).then(() => undefined),
 
   openPlugin: (id: string, enter?: { code?: string; payload?: unknown }) =>
@@ -288,6 +300,7 @@ const api: EnestShellApi = {
 
   closePlugin: (tabId: string) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellClosePlugin, tabId)),
+  stopPluginResources: pluginId => expectOk(ipcRenderer.invoke(IpcChannels.ShellStopPluginResources, pluginId)),
 
   activatePlugin: (tabId: string) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellActivatePlugin, tabId)),
@@ -567,8 +580,8 @@ const api: EnestShellApi = {
   quickHide: () => {
     ipcRenderer.invoke(IpcChannels.QuickHide).catch(() => undefined)
   },
-  quickSearch: (query: string, limit?: number, kind?: QuickCommandKind, phase?: 'static' | 'enriched' | 'providers') =>
-    ipcRenderer.invoke(IpcChannels.QuickSearch, { query, limit, kind, phase }) as Promise<QuickSearchResult>,
+  quickSearch: (query: string, limit?: number, kind?: QuickCommandKind, phase?: import('@shared/types/quick').QuickSearchPhase, ids?: string[]) =>
+    ipcRenderer.invoke(IpcChannels.QuickSearch, { query, limit, kind, phase, ids }) as Promise<QuickSearchResult>,
   quickOpen: (req: QuickOpenRequest) =>
     ipcRenderer.invoke(IpcChannels.QuickOpen, req) as Promise<QuickOpenResult>,
   quickScanApps: (force?: boolean) =>

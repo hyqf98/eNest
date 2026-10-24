@@ -10,6 +10,7 @@ const scopes = new Map<string, PluginRuntimeScope>()
 
 export class PluginRuntimeScope {
   private controller = new AbortController()
+  private drainController = new AbortController()
   private disposers = new Set<Disposer>()
   private activities = new Map<number, string>()
   private nextActivity = 0
@@ -22,6 +23,8 @@ export class PluginRuntimeScope {
   constructor(readonly owner: RuntimeOwner) {}
 
   get signal(): AbortSignal { return this.controller.signal }
+  /** Existing bounded streams may drain during beforeClose; no new resource may use this signal. */
+  get drainSignal(): AbortSignal { return this.drainController.signal }
   get isClosing(): boolean { return this.closing }
   get activityCount(): number { return this.activities.size }
   isCurrent(): boolean { return !this.disposed && scopes.get(this.owner.pluginId) === this }
@@ -62,6 +65,7 @@ export class PluginRuntimeScope {
   dispose(deadlineMs = Date.now() + 1500): Promise<void> {
     if (this.completion) return this.completion
     this.markClosing()
+    this.drainController.abort(new Error('plugin runtime disposal started'))
     const releases = [...this.disposers]
     this.disposers.clear()
     this.completion = (async () => {

@@ -2,14 +2,12 @@
  * ShellLayout — 壳子主框架布局
  * classic 使用顶部标签与左下角头像入口；orb 使用首页、插件、设置合一的左侧圆轨。
  */
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { TitleBar } from '@renderer/layout/TitleBar'
 import { BottomBar } from '@renderer/layout/BottomBar'
 import { AppBackground } from '@renderer/components/AppBackground'
-import { MarketPage } from '@renderer/pages/MarketPage'
 import { HomeRecovery } from '@renderer/components/HomeRecovery'
 import { isMockShell, shellApi } from '@renderer/services/shellApi'
-import { SettingsPage } from '@renderer/pages/SettingsPage'
 import { PluginHostChrome } from '@renderer/pages/PluginHostChrome'
 import { InstallDropHost } from '@renderer/components/InstallDropOverlay'
 import { InstallProgressPanel } from '@renderer/components/InstallProgressPanel'
@@ -19,6 +17,12 @@ import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { useShellEvents } from '@renderer/hooks/useShellEvents'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
+import { useI18n } from '@renderer/hooks/useI18n'
+
+const SettingsPage = lazy(() => import('@renderer/pages/SettingsPage').then(module => ({ default: module.SettingsPage })))
+const MarketPage = import.meta.env.DEV
+  ? lazy(() => import('@renderer/themes/default/workspace/preview/MarketPage').then(module => ({ default: module.MarketPage })))
+  : null
 
 /** 按窗口宽度写入 --shell-scale（0.85–1.1）；标题栏 36px 固定不缩放。 */
 function useShellScale(): void {
@@ -44,6 +48,7 @@ function useShellScale(): void {
 export function ShellLayout() {
   useShellEvents()
   useShellScale()
+  const { t } = useI18n()
   const view = useShellStore((s) => s.view)
   const tabStyle = useShellStore((s) => s.tabStyle)
   const appearanceTabStyle = useAppearanceStore((s) => s.appearance.layout.tabStyle)
@@ -134,9 +139,11 @@ export function ShellLayout() {
           onMotionComplete={onTitlebarMotionComplete}
         />
         <div className="stage">
-          {view === 'home' && (isMockShell ? <MarketPage /> : <HomeRecovery />)}
-          {/* 设置由原生壳渲染层独占；主题 Workspace 不再提供设置页 */}
-          {view === 'settings' && <SettingsPage />}
+          <Suspense fallback={<div className="page" role="status" aria-busy="true"><div className="empty">{t('common.loading')}</div></div>}>
+            {view === 'home' && (isMockShell && MarketPage ? <MarketPage /> : <HomeRecovery />)}
+            {/* 设置由原生壳渲染层独占；主题 Workspace 不再提供设置页 */}
+            {view === 'settings' && <SettingsPage />}
+          </Suspense>
           {view === 'plugin' && <PluginHostChrome />}
           <BottomBar />
         </div>

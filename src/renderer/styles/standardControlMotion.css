@@ -1,0 +1,22 @@
+/* medium：chip hover 轻微上浮（active 配色规则不动） */
+:root[data-anim="medium"] .chip {
+  transition: transform 0.18s ease, color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+:root[data-anim="medium"] .chip:hover {
+  transform: translateY(-1px);
+}
+
+/* medium：btn-primary 仅叠过渡时长（本体归 T3：无 translateY，hover 用 brightness） */
+:root[data-anim="medium"] .btn-primary:not(:disabled) {
+  transition: box-shadow 0.24s ease, filter 0.18s ease, transform 0.08s ease;
+}
+
+/* low：其它表面卡缩小反馈幅度。 */
+
+:root[data-anim="low"] .btn:active,
+:root[data-anim="low"] .chip:active,
+:root[data-anim="low"] .float-btn:active,
+:root[data-anim="low"] .color-swatch-btn:hover {
+  transform: scale(0.985);
+}

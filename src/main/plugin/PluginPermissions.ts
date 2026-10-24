@@ -21,21 +21,22 @@ export function assertPermission(manifest: PluginManifest, perm: PluginPermissio
 }
 
 /** Secondary capabilities (credentials, local I/O) are checked by the owning host service too. */
-export async function authorizePluginPermission(pluginId: string, permission: PluginPermission, summary: string): Promise<void> {
+export async function authorizePluginPermission(pluginId: string, permission: PluginPermission, summary: string, signal?: AbortSignal): Promise<void> {
   const scope = getRuntimeScope(pluginId)
   const [{ pluginRegistry }, { permissionService }] = await Promise.all([
     import('@main/plugin/PluginRegistry'), import('@main/plugin/PermissionService')
   ])
   const manifest = pluginRegistry.getManifest(pluginId)
-  if (!manifest || !scope?.isCurrent() || scope.isClosing) throw new Error('plugin runtime unavailable')
+  if (!manifest || !scope?.isCurrent() || scope.isClosing || signal?.aborted) throw new Error('plugin runtime unavailable')
   assertPermission(manifest, permission)
-  if (!(await permissionService.request(pluginId, permission, summary))) throw new Error(`permission denied: ${permission}`)
-  if (!scope.isCurrent() || scope.isClosing) throw new Error('plugin runtime is closing or stale')
+  if (!(await permissionService.request(pluginId, permission, summary, undefined, signal))) throw new Error(`permission denied: ${permission}`)
+  if (!scope.isCurrent() || scope.isClosing || signal?.aborted) throw new Error('plugin runtime is closing or stale')
 }
 
 const confirmationPending = new WeakSet<PluginRuntimeScope>()
 /** Destructive operations require a fresh host confirmation, never a renderer supplied boolean. */
-export async function confirmPluginOperation(pluginId: string, message: string, detail: string): Promise<void> {
+export async function confirmPluginOperation(pluginId: string, message: string, detail: string,
+  options: { title?: string; signal?: AbortSignal; requireVisible?: boolean } = {}): Promise<void> {
   const scope = getRuntimeScope(pluginId)
   if (!scope?.isCurrent() || scope.isClosing) throw new Error('plugin runtime unavailable')
   if (confirmationPending.has(scope)) throw new Error('another operation is awaiting native confirmation')
@@ -47,10 +48,13 @@ export async function confirmPluginOperation(pluginId: string, message: string, 
       import('electron'), import('@main/plugin/PluginHost'), import('@main/window/createQuickWindow')
     ])
     const win = pluginHost.getContainerWindow(pluginId)
-    if (!scope.isCurrent() || scope.isClosing || !win || win.isDestroyed()) throw new Error('plugin runtime unavailable')
+    if (!scope.isCurrent() || scope.isClosing || !win || win.isDestroyed()
+      || options.signal?.aborted || options.requireVisible && !pluginHost.isPluginVisible(pluginId)) throw new Error('plugin runtime unavailable')
     releaseWindow = pluginHost.acquireWindowInteraction(pluginId)
     releaseInteraction = acquireQuickInteraction()
-    const result = await dialog.showMessageBox(win, { type: 'warning', message, detail: `插件：${pluginId}\n${detail.slice(0, 1000)}`, buttons: ['取消', '确认操作'], defaultId: 0, cancelId: 0, signal: scope.signal })
-    if (result.response !== 1 || !scope.isCurrent() || scope.isClosing) throw new Error('operation cancelled')
+    const result = await dialog.showMessageBox(win, { type: 'warning', title: options.title, message, detail: `插件：${pluginId}\n${detail.slice(0, 1000)}`, buttons: ['取消', '确认操作'], defaultId: 0, cancelId: 0,
+      signal: options.signal ? AbortSignal.any([scope.signal, options.signal]) : scope.signal })
+    if (result.response !== 1 || !scope.isCurrent() || scope.isClosing || options.signal?.aborted
+      || options.requireVisible && !pluginHost.isPluginVisible(pluginId)) throw new Error('operation cancelled')
   } finally { releaseWindow(); releaseInteraction(); confirmationPending.delete(scope) }
 }

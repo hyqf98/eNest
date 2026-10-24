@@ -1,0 +1,42 @@
+/* 动画设置分段控件 */
+.anim-settings .field {
+  margin-top: 4px;
+}
+
+.anim-level-seg {
+  /* 三项内容自适应宽度，避免 min-width 撑出右侧空段 */
+  min-width: 0;
+}
+
+/* ========== Splash（并入「背景」卡片底部） ========== */
+.splash-bg-preview {
+  margin-top: 8px;
+}
+
+.splash-bg-preview code,
+.s-card code {
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  color: var(--text-2);
+  word-break: break-all;
+}
+
+/* 插件设置项：slider 行（type=slider）与取值展示 */
+.plugin-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+}
+
+.plugin-slider-row input[type='range'] {
+  flex: 1;
+  accent-color: var(--link, var(--accent));
+}
+
+.plugin-slider-value {
+  min-width: 34px;
+  text-align: right;
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}

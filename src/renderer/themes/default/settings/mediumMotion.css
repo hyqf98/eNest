@@ -1,0 +1,11 @@
+/* medium：设置/字体/开发者列表卡 hover 轻抬升（high 仍更强） */
+:root[data-anim="medium"] .s-card,
+:root[data-anim="medium"] .dev-plugin-item {
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.18s ease;
+}
+
+:root[data-anim="medium"] .s-card:hover,
+:root[data-anim="medium"] .dev-plugin-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}

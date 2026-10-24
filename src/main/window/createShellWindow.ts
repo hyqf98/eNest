@@ -20,6 +20,7 @@ import { APP_NAME, SHELL_PARTITION, TITLEBAR_HEIGHT, TITLEBAR_REVEAL_HEIGHT, PLU
 import { IpcChannels, type ShellEventPayload } from '@shared/types/ipc'
 import { readMainWindowState, trackMainWindowState } from '@main/window/mainWindowState'
 import { devShortcutAction, toggleDevTools } from '@main/dev/devShortcuts'
+import { registerThemeSettingsPolicy } from '@main/theme/themeSettingsSurface'
 
 let mainWindow: BaseWindow | null = null
 let shellView: WebContentsView | null = null
@@ -124,6 +125,7 @@ export function createShellWindow(): BaseWindow {
   win.contentView.addChildView(view)
   applyShellBounds(win, view)
   loadRenderer(view)
+  registerThemeSettingsPolicy(contents)
 
   // 壳 UI 持焦时的调试快捷键（与 dev 插件 view 内一致）：F12/⌘⌥I/Ctrl+Shift+I toggle 壳 DevTools；
   // ⌘/Ctrl+R 重载当前激活的 dev 插件（无 dev 插件时无操作，不刷新壳）。

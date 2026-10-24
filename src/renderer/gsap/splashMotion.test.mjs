@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import ts from 'typescript'
 
 const { gsap } = createRequire(import.meta.url)('gsap')
-const source = ts.transpileModule(readFileSync(new URL('./splashMotion.ts', import.meta.url), 'utf8'), {
+const source = ts.transpileModule(readFileSync(new URL('../themes/default/motion/splashMotion.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText
 
@@ -32,7 +32,7 @@ function fixture(t, { ready, level = 'medium', hidden = false } = {}) {
       return timeline
     } } },
     '@renderer/gsap/marketMotion': { d: value => value, dy: value => value, ease: value => value },
-    '@renderer/gsap/logoAssembly': { createLogoAssembly: () => ({
+    '@renderer/themes/default/motion/logoAssembly': { createLogoAssembly: () => ({
       render: (age, reduced) => rendered.push({ age, reduced }), dispose: () => disposed++,
     }) },
   }

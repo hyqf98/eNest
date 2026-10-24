@@ -1,0 +1,4 @@
+/* Quick and detached chrome consume the same paint as the main shell. Their
+   content remains above the existing effect; no extra canvas or blur pass. */
+:root.has-bg-atmosphere .quick-shell { background: var(--atmosphere-surface); }
+:root.has-bg-atmosphere .quick-root .ambient-particles.ambient-flow { opacity: 0.18; }

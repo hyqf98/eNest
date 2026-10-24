@@ -1,0 +1,28 @@
+@media (max-width: 720px) {
+
+  .field {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .field select,
+.field input[type="text"] {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .path-actions {
+    width: 100%;
+    max-width: 100%;
+    justify-content: flex-start;
+  }
+
+  .path-text {
+    flex-basis: 100%;
+  }
+
+  .s-card {
+    padding: 16px;
+  }
+}

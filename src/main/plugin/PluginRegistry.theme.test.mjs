@@ -11,7 +11,7 @@ function fixture() {
   const mocks = {
     electron: { app: {} },
     '@shared/types/plugin': {}, '@shared/constants': {}, '@main/paths/pathsService': {},
-    '@main/plugin/mockMarket': {}, '@main/plugin/PluginInstaller': {}, '@main/plugin/marketClient': {},
+    '@main/plugin/PluginInstaller': {}, '@main/plugin/marketClient': {},
     '@main/plugin/pluginEnabledStore': {}, '@main/plugin/PermissionService': { permissionService: { cancelFor() {} } },
     '@main/contrib/ContributionRegistry': { contributionRegistry: {
       listSlot: () => [...rows.values()],

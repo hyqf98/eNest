@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { ResolvedAppearance } from '@shared/types/appearance'
 import { PLUGIN_PERMISSIONS, type BackgroundConfig } from '@shared/types/plugin'
-import { matchesSearchTerms } from '@shared/search'
 import type {
   HomeAction,
   HomeAppearanceSnapshot,
@@ -20,15 +19,15 @@ import { enqueueInstallFromUrl } from '@main/plugin/installQueue'
 import { launchPlugin } from '@main/launcher/pluginLauncher'
 import { launchLocalApp } from '@main/launcher/appLauncher'
 import { scanApplications } from '@main/launcher/appScanner'
-import { searchQuickCommands } from '@main/launcher/commandIndex'
-import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
+import { searchQuickCommands, validateQuickOpenTarget } from '@main/launcher/commandIndex'
+import { refreshPluginBackgrounds, stopPluginBackground } from '@main/plugin/pluginBackgroundRuntime'
 import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
 import type { WebContents } from 'electron'
 import type { QuickCommand } from '@shared/types/quick'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { uninstallPlugin } from '@main/plugin/PluginUninstaller'
-import { stopFocusTimer } from '@main/timer/focusTimerService'
+import { cancelPluginDeadlineTasks } from '@main/timer/deadlineTaskService'
 import { applyPluginLaunchHotkeys, clearPluginLaunch, releasePluginLaunchHotkey } from '@main/hotkey/pluginLaunchHotkeys'
 import { publicAppearanceFonts, publicAppearanceMedia } from '@main/theme/appearanceResources'
 import { declaredPalettePaints } from '@shared/theme/appearance'
@@ -247,7 +246,7 @@ interface SearchFlight {
 
 const searchHandles = new Map<string, SearchFlight>()
 const SEARCH_HANDLE_TTL_MS = 120_000
-const SEARCH_HANDLE_LIMIT = 128
+const SEARCH_HANDLE_LIMIT = 8192
 
 function pruneSearchHandles(now = Date.now()): void {
   for (const [handle, flight] of searchHandles) {
@@ -290,7 +289,13 @@ function publicSearchItem(item: QuickCommand, handle: string): HomeSearchEntry {
     installed,
     enabled,
     disabled: item.kind === 'plugin' ? enabled === false : undefined,
-    tags: publicTags(summary?.tags)
+    tags: publicTags(summary?.tags),
+    aliases: item.aliases?.slice(0, 32).map(alias => publicText(alias, 256)).filter((alias): alias is string => !!alias),
+    action: item.action,
+    content: item.content,
+    lastUsedTs: item.lastUsedTs,
+    useCount: item.useCount,
+    preferred: item.preferred
   }
 }
 
@@ -305,22 +310,21 @@ export async function searchHome(
 ): Promise<HomeSearchResult> {
   if (!context.isCurrent()) return { items: [], revision: nextRevision() }
   if (!request || typeof request !== 'object') request = {}
-  const query = typeof request.query === 'string' ? request.query.slice(0, 256) : ''
-  const limit = typeof request.limit === 'number' && Number.isFinite(request.limit)
-    ? Math.max(1, Math.min(100, Math.floor(request.limit)))
-    : 20
+  const query = typeof request.query === 'string' ? request.query.slice(0, 4096) : ''
   const kind = request.scope === 'installed' ? 'plugin'
     : request.scope === 'app' || request.scope === 'plugin' || request.scope === 'action' ? request.scope : undefined
-  const commands = request.scope === 'market' ? [] : await searchQuickCommands(query, limit, [], kind, undefined, 'static')
+  const quick = settingsStore.getQuickLauncherSettings()
+  const commands = request.scope === 'market' ? [] : await searchQuickCommands(query, SEARCH_HANDLE_LIMIT, quick.recent ?? [], kind, undefined, 'catalog')
   if (!context.isCurrent()) return { items: [], revision: nextRevision() }
   const now = Date.now()
   pruneSearchHandles(now)
+  invalidateHomeSearchHandles(context.wcId)
   const items = commands.filter(command => {
     if (kind && command.kind !== kind) return false
     if (command.kind !== 'plugin') return true
     const summary = pluginRegistry.get(command.pluginId ?? '')
     return summary?.installed === true && summary.enabled !== false
-  }).slice(0, limit).map(command => {
+  }).slice(0, SEARCH_HANDLE_LIMIT).map(command => {
     const handle = makeSearchHandle()
     searchHandles.set(handle, {
       command,
@@ -332,12 +336,9 @@ export async function searchHome(
   })
   if (request.scope === 'market' || request.scope === 'all' || request.scope === undefined || request.scope === 'plugin' || request.scope === 'installed') {
     const installedOnly = request.scope === 'plugin' || request.scope === 'installed'
-    const representedPlugins = new Set(items.flatMap(item => item.kind === 'plugin' && item.pluginId ? [item.pluginId] : []))
-    // Catalog matches remain viewable even when their launch commands are disabled.
-    const market = catalogItems().filter(item => (!installedOnly || item.installed) && !representedPlugins.has(item.pluginId) && matchesSearchTerms(
-      [item.name, item.pluginId, item.description, item.category, item.author, ...(item.tags ?? [])].filter(Boolean).join(' '), query
-    ))
-    for (const item of market.slice(0, Math.max(0, limit - items.length))) {
+    // Matching and ranking belong to the selected workspace renderer, not the native directory.
+    const market = catalogItems().filter(item => !installedOnly || item.installed)
+    for (const item of market.slice(0, Math.max(0, SEARCH_HANDLE_LIMIT - items.length))) {
       const handle = makeSearchHandle()
       searchHandles.set(handle, {
         command: { kind: 'market', pluginId: item.pluginId },
@@ -345,7 +346,8 @@ export async function searchHome(
         generation: context.generation,
         expiresAt: now + SEARCH_HANDLE_TTL_MS
       })
-      items.push({ ...item, handle, kind: 'market', title: item.name, subtitle: item.description })
+      items.push({ ...item, handle, kind: 'market', title: item.name, subtitle: item.description,
+        aliases: [item.name, item.pluginId, item.description, item.category, item.author, ...(item.tags ?? [])].filter((value): value is string => typeof value === 'string') })
     }
   }
   pruneSearchHandles()
@@ -388,7 +390,7 @@ async function installPlugin(id: string, context: HomeActionContext): Promise<{ 
     if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
     sendShellEvent({ type: 'install-result', jobId: `sample-${id}`, name: installed.name, ok: true })
     sendShellEvent({ type: 'plugins-changed' })
-    void revalidateClipboardPolling()
+    void refreshPluginBackgrounds()
     return { ok: true }
   } catch (sampleError) {
     logInfo('home', `sample miss ${id}: ${(sampleError as Error).message}`)
@@ -405,7 +407,7 @@ async function installPlugin(id: string, context: HomeActionContext): Promise<{ 
   return { ok: true }
 }
 
-async function activateSearchResult(handle: string, context: HomeActionContext): Promise<{ ok: boolean; error?: string }> {
+async function activateSearchResult(handle: string, context: HomeActionContext, query?: string): Promise<{ ok: boolean; error?: string }> {
   if (typeof handle !== 'string' || handle.length > 512) return { ok: false, error: 'invalid search handle' }
   const flight = searchHandles.get(handle)
   if (!flight || flight.wcId !== context.wcId || flight.generation !== context.generation || flight.expiresAt <= Date.now()) {
@@ -422,6 +424,8 @@ async function activateSearchResult(handle: string, context: HomeActionContext):
     return { ok: true }
   }
   if (command.kind === 'app') {
+    if (!await validateQuickOpenTarget({ kind: 'app', path: command.path ?? '' })) return { ok: false, error: 'application is unavailable' }
+    if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
     await launchLocalApp(command.path ?? '')
     return context.isCurrent() ? { ok: true } : { ok: false, error: 'home surface retired' }
   }
@@ -431,7 +435,7 @@ async function activateSearchResult(handle: string, context: HomeActionContext):
     const result = await launchPlugin({ pluginId: command.pluginId ?? '', source: 'quick', enter: {
       ...(command.code ? { code: command.code } : {}),
       ...(command.type ? { type: command.type } : {}),
-      ...(command.payload !== undefined ? { payload: command.payload } : {})
+      ...(command.content && typeof query === 'string' && query.length <= 4096 ? { type: command.content.type, payload: query } : command.payload !== undefined ? { payload: command.payload } : {})
     }, mode: 'shell' })
     if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
     if (result.ok) context.setHomeVisible(false)
@@ -465,7 +469,7 @@ export async function runHomeAction(action: HomeAction, context: HomeActionConte
       await context.navigateWorkspace(action.route)
       return { ok: true }
     }
-    if (action.type === 'activateSearchResult') return await activateSearchResult(action.handle, context)
+    if (action.type === 'activateSearchResult') return await activateSearchResult(action.handle, context, action.query)
     if (action.type === 'openPlugin') {
       if (!pluginId) return { ok: false, error: 'plugin id required' }
       const summary = pluginRegistry.get(pluginId)
@@ -503,13 +507,14 @@ export async function runHomeAction(action: HomeAction, context: HomeActionConte
       if (action.type === 'uninstallPlugin') {
         const result = await uninstallPlugin(pluginId)
         if (result.ok) await clearPluginLaunch(pluginId)
-        void revalidateClipboardPolling()
+        void refreshPluginBackgrounds()
         return publicHostResult(result)
       }
       const release = !action.enabled ? pluginHost.blockPlugin(pluginId) : () => {}
       try {
         if (!action.enabled) {
-          await stopFocusTimer(pluginId)
+          stopPluginBackground(pluginId, 'plugin disabled')
+          await cancelPluginDeadlineTasks(pluginId)
           if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
           await pluginHost.closePlugin(pluginId)
         }
@@ -518,7 +523,7 @@ export async function runHomeAction(action: HomeAction, context: HomeActionConte
       } finally { release() }
       if (action.enabled) applyPluginLaunchHotkeys()
       else releasePluginLaunchHotkey(pluginId)
-      void revalidateClipboardPolling()
+      void refreshPluginBackgrounds()
       sendShellEvent({ type: 'plugins-changed' })
       return { ok: true }
     }

@@ -11,9 +11,9 @@ import { shellApi } from '@renderer/services/shellApi'
 import '@renderer/styles/tokens.css'
 import '@renderer/styles/base.css'
 import '@renderer/styles/app.css'
-import '@renderer/styles/detail.css'
-import '@renderer/styles/splash.css'
-import '@renderer/styles/market.css'
+import '@renderer/themes/default/workspace/detail.css'
+import '@renderer/themes/default/splash.css'
+import '@renderer/themes/default/workspace/market.css'
 import '@renderer/styles/appearance.css'
 
 const container = document.getElementById('root')

@@ -1,0 +1,11 @@
+/* 系统减少动态与应用的低档分开处理。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+*::before,
+*::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

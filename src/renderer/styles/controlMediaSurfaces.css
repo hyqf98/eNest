@@ -1,0 +1,35 @@
+/* 分类 / 背景类型 chip：仅未激活时加表面底色，激活态交回 .chip.active */
+:root.has-bg-media .chip:not(.active) {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--text-2);
+}
+
+:root.has-bg-media .chip:not(.active):hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  border-color: var(--border-strong);
+}
+
+:root.has-bg-media .segmented {
+  background: color-mix(in srgb, var(--surface-2) 90%, transparent);
+}
+
+:root.has-bg-media .segmented button:not(.active) {
+  color: var(--text-2);
+}
+
+/* has-bg-media 不再覆盖 .chip.active（AGENTS.md / T3）：激活态交回基础 .chip.active，
+   用同一套 Apple 软 accent + 高对比字，氛围背景下依旧可读。 */
+
+:root.has-bg-media .empty strong,
+:root.has-bg-media .empty span {
+  color: var(--text);
+}
+
+:root.has-bg-media .empty span {
+  color: var(--text-2);
+}
+
+/* Atmosphere is visible on the surfaces themselves, including pages that have
+   opaque cards. Accent/selected controls retain their original theme styling. */
+:root.has-bg-media.has-bg-atmosphere .titlebar { --titlebar-paint: var(--atmosphere-chrome); }

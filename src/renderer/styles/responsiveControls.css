@@ -1,0 +1,13 @@
+@media (max-width: 720px) {
+
+  .titlebar {
+    grid-template-columns: 64px 1fr;
+    padding: 0 8px 0 10px;
+  }
+
+  .segmented button {
+    height: 30px;
+    padding: 0 12px;
+    font-size: calc(12px * var(--appearance-font-scale, 1));
+  }
+}

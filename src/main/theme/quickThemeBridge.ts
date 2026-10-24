@@ -6,7 +6,9 @@ export const QUICK_THEME_BRIDGE_FILE = '__bridge.js'
  * source window, key, generation and every action; this is not an IPC authority.
  * The generation lives only in the document fragment, never in a resource path.
  */
-export const QUICK_THEME_BRIDGE_SOURCE = String.raw`(() => {
+function bridgeSource(kind: 'quick' | 'settings'): string {
+  const label = kind === 'quick' ? 'Quick' : 'Settings'
+  return String.raw`(() => {
   'use strict';
   const parentWindow = window.parent;
   const key = location.pathname.split('/')[1];
@@ -31,7 +33,7 @@ export const QUICK_THEME_BRIDGE_SOURCE = String.raw`(() => {
       if (request.sent) continue;
       request.sent = true;
       try { send({ type: 'action', id, action: request.action }); }
-      catch { request.finish({ ok: false, error: 'Invalid Quick action' }); }
+      catch { request.finish({ ok: false, error: 'Invalid ${label} action' }); }
     }
   };
   const notify = (listeners, value) => {
@@ -44,7 +46,7 @@ export const QUICK_THEME_BRIDGE_SOURCE = String.raw`(() => {
     closed = true;
     window.removeEventListener('message', attach);
     if (port) { port.onmessage = null; port.onmessageerror = null; port.close(); }
-    for (const request of [...pending.values()]) request.finish({ ok: false, error: 'Quick surface closed' });
+    for (const request of [...pending.values()]) request.finish({ ok: false, error: '${label} surface closed' });
     for (const waiter of [...stateWaiters]) waiter.fail();
     stateListeners.clear(); focusListeners.clear(); lastState = null;
   };
@@ -66,7 +68,7 @@ export const QUICK_THEME_BRIDGE_SOURCE = String.raw`(() => {
   };
   const attach = event => {
     const message = event.data;
-    if (closed || port || event.source !== parentWindow || !message || message.type !== 'enest-quick:port' ||
+    if (closed || port || event.source !== parentWindow || !message || message.type !== 'enest-${kind}:port' ||
         message.key !== key || message.generation !== generation || event.ports.length !== 1) return;
     port = event.ports[0];
     window.removeEventListener('message', attach);
@@ -84,13 +86,13 @@ export const QUICK_THEME_BRIDGE_SOURCE = String.raw`(() => {
   const api = Object.freeze({
     ready() { if (!closed) { readyRequested = true; flush(); } },
     getState() {
-      if (closed) return Promise.reject(new Error('Quick surface closed'));
+      if (closed) return Promise.reject(new Error('${label} surface closed'));
       if (lastState) return Promise.resolve(copy(lastState));
       if (stateWaiters.size >= 64) return Promise.reject(new Error('Too many state requests'));
       return new Promise((resolve, reject) => {
         const waiter = {
           finish() { clearTimeout(timer); stateWaiters.delete(waiter); resolve(copy(lastState)); },
-          fail() { clearTimeout(timer); stateWaiters.delete(waiter); reject(new Error('Quick state unavailable')); }
+          fail() { clearTimeout(timer); stateWaiters.delete(waiter); reject(new Error('${label} state unavailable')); }
         };
         const timer = setTimeout(() => waiter.fail(), 10000);
         stateWaiters.add(waiter);
@@ -99,23 +101,28 @@ export const QUICK_THEME_BRIDGE_SOURCE = String.raw`(() => {
     onState(listener) { return subscribe(stateListeners, listener); },
     onFocus(listener) { return subscribe(focusListeners, listener); },
     action(action) {
-      if (closed || pending.size >= 64) return Promise.resolve({ ok: false, error: 'Quick action unavailable' });
+      if (closed || pending.size >= 64) return Promise.resolve({ ok: false, error: '${label} action unavailable' });
       let value;
-      try { value = copy(action); } catch { return Promise.resolve({ ok: false, error: 'Invalid Quick action' }); }
+      try { value = copy(action); } catch { return Promise.resolve({ ok: false, error: 'Invalid ${label} action' }); }
       return new Promise(resolve => {
         const id = String(++sequence);
         const request = {
           action: value, sent: false,
           finish(result) { clearTimeout(timer); pending.delete(id); resolve(result); }
         };
-        const timer = setTimeout(() => request.finish({ ok: false, error: 'Quick action timed out' }), 10000);
+        // Native settings confirmations settle in the host, not on a competing client deadline.
+        const timer = ${kind === 'settings' ? 'null' : `setTimeout(() => request.finish({ ok: false, error: 'Quick action timed out' }), 10000)`};
         pending.set(id, request);
         flush();
       });
     }
   });
-  Object.defineProperty(window, 'enestQuick', { value: api, writable: false, configurable: false });
+  Object.defineProperty(window, 'enest${label}', { value: api, writable: false, configurable: false });
   window.addEventListener('message', attach);
   window.addEventListener('pagehide', close, { once: true });
-  parentWindow.postMessage({ type: 'enest-quick:connect', key, generation }, '*');
+  parentWindow.postMessage({ type: 'enest-${kind}:connect', key, generation }, '*');
 })();`
+}
+
+export const QUICK_THEME_BRIDGE_SOURCE = bridgeSource('quick')
+export const SETTINGS_THEME_BRIDGE_SOURCE = bridgeSource('settings')

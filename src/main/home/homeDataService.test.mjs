@@ -23,7 +23,8 @@ const adapters = {
     };`,
   '@main/plugin/PluginHost': `import {state} from 'fixture'; export const pluginHost={blockPlugin:id=>{state.blocks.push(id);return()=>state.releases.push(id)},closePlugin:async id=>{state.closed.push(id)}};`,
   '@main/plugin/PluginUninstaller': `import {state} from 'fixture'; export const uninstallPlugin=async id=>{state.uninstalls.push(id);return state.uninstallResult??{ok:true}};`,
-  '@main/timer/focusTimerService': `import {state} from 'fixture'; export const stopFocusTimer=async id=>{state.stops.push(id)};`,
+  '@main/timer/deadlineTaskService': `import {state} from 'fixture'; export const cancelPluginDeadlineTasks=async id=>{state.cancelledTasks.push(id)};`,
+  '@main/plugin/pluginBackgroundRuntime': `export const refreshPluginBackgrounds=()=>{};export const stopPluginBackground=()=>{};`,
   '@main/hotkey/pluginLaunchHotkeys': `import {state} from 'fixture'; export const applyPluginLaunchHotkeys=()=>state.hotkeys.push('apply');export const releasePluginLaunchHotkey=id=>state.hotkeys.push(id);export const clearPluginLaunch=async id=>state.clearedLaunch.push(id);`,
   '@main/settings/SettingsStore': `export const settingsStore={getAll:()=>({general:{locale:'zh-CN'}})};`,
   '@main/theme/appearanceResources': `import {state} from 'fixture'; export const publicAppearanceFonts=()=>state.fonts??[]; export const publicAppearanceMedia=media=>media;`,
@@ -33,7 +34,6 @@ const adapters = {
   '@main/launcher/appLauncher': `import {state} from 'fixture'; export const launchLocalApp=async path=>{state.appLaunches.push(path);if(state.appLaunchError)throw state.appLaunchError};`,
   '@main/launcher/appScanner': `import {state} from 'fixture'; export const scanApplications=async force=>{state.appScans.push(force);return state.scanResult??{complete:true,errors:[]}};`,
   '@main/launcher/commandIndex': `import {state} from 'fixture'; export const searchQuickCommands=async(query,limit,recent,kind)=>{state.searches.push({query,limit,kind});if(state.searchWait)await state.searchWait;return state.commands};`,
-  '@main/clipboard/clipboardHistory': `import {state} from 'fixture'; export const revalidateClipboardPolling=()=>{state.clipboardChecks++};`,
   '@main/window/createShellWindow': `import {state} from 'fixture'; export const getMainWindow=()=>state.window; export const sendShellEvent=payload=>{state.shellEvents.push(payload)};`,
   '@main/logs/logService': `import {state} from 'fixture';export const logInfo=()=>{}; export const logWarn=(...args)=>state.logs.push(args);`
 }
@@ -41,9 +41,9 @@ const adapters = {
 async function load(initial = {}) {
   for (const key of Object.keys(state)) delete state[key]
   Object.assign(state, {
-    queue: [], launches: [], appLaunches: [], appScans: [], searches: [], shellEvents: [], clipboardChecks: 0,
+    queue: [], launches: [], appLaunches: [], appScans: [], searches: [], shellEvents: [],
     commands: [], searchHandles: {}, visibility: [], workspaceNavigations: [], launchOk: true,
-    confirmations: [], blocks: [], releases: [], closed: [], uninstalls: [], stops: [], hotkeys: [], clearedLaunch: [], logs: [],
+    confirmations: [], blocks: [], releases: [], closed: [], uninstalls: [], cancelledTasks: [], hotkeys: [], clearedLaunch: [], logs: [],
     registry: { get: () => null, list: () => [], getRemoteMarket: () => [], getAssetManifest: () => null }, window: null
   }, initial)
   state.registry.list ??= () => []
@@ -486,7 +486,7 @@ test('management requires native confirmation and refuses retired Home actions a
   assert.equal((await api.runHomeAction({ type: 'setPluginEnabled', pluginId: 'notes', enabled: false }, context())).ok, true)
   assert.deepEqual(state.enabledChanges, [['notes', false]])
   assert.deepEqual(state.closed, ['notes'])
-  assert.deepEqual(state.stops, ['notes'])
+  assert.deepEqual(state.cancelledTasks, ['notes'])
   assert.deepEqual(state.blocks, state.releases)
   assert.equal((await api.runHomeAction({ type: 'updatePlugin', pluginId: 'notes' }, context())).ok, true)
   assert.deepEqual(state.queue[0].meta.identity, { id: 'notes', version: '2.0.0' })

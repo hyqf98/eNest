@@ -1,0 +1,74 @@
+/* 数据目录路径 + 打开按钮 */
+.path-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(420px, 100%);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.path-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(11.5px * var(--appearance-font-scale, 1));
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.path-actions .btn {
+  flex-shrink: 0;
+}
+
+/* 代理：类型 + 主机/端口 或 自定义 URL + 测试 */
+.proxy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: min(480px, 100%);
+}
+
+.proxy-row select {
+  min-width: 110px;
+}
+
+.proxy-row input[type="text"] {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: calc(12.5px * var(--appearance-font-scale, 1));
+}
+
+.proxy-row .proxy-host {
+  width: 140px;
+  min-width: 100px;
+}
+
+.proxy-row .proxy-port {
+  width: 72px;
+  min-width: 64px;
+}
+
+.proxy-row .proxy-url {
+  flex: 1;
+  min-width: 180px;
+  max-width: 260px;
+}
+
+.proxy-row .btn {
+  flex-shrink: 0;
+}

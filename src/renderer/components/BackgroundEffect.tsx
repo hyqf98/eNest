@@ -5,5 +5,5 @@ import { DefaultBackgroundEffect } from '@renderer/themes/default/DefaultBackgro
 /** Trusted shell adapter; the default theme renderer itself has no shell API. */
 export function BackgroundEffect(props: { effect: ResolvedBackgroundEffect; className?: string; launch?: boolean; paused?: boolean }) {
   const appearance = useAppearanceStore(state => state.appearance)
-  return <DefaultBackgroundEffect {...props} level={appearance.animation.effective} background={appearance.background.media} />
+  return <DefaultBackgroundEffect {...props} level={appearance.animation.effective} continuous={appearance.animation.continuous} background={appearance.background.media} />
 }

@@ -3,7 +3,7 @@ import { IS_MAC, IS_WINDOWS } from '@shared/platform'
 import type { PluginSummary } from '@shared/types/plugin'
 import type { PluginShortcutInput, PluginShortcutMutationResult, PluginShortcutsSnapshot, ShortcutProbeResult } from '@shared/types/shortcuts'
 import type { QuickHotkeyApplyResult, QuickHotkeyConfig, QuickHotkeyPatch } from '@shared/types/quick'
-import type { ShellSettingsData } from './mockData'
+import type { ShellSettingsData } from '@shared/types/shellSettings'
 
 /** Browser preview persists the same contract; it cannot verify OS registrations. */
 export function createShortcutMock({ read, write, plugins, publish: emit }: {

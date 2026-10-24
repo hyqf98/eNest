@@ -19,6 +19,7 @@ import { collectPluginFeatureIssues } from '@shared/pluginCommands'
 import { isPluginAssetPath, isPluginBackendPath, normalizePluginDevUrl, PLUGIN_ENTRY, PLUGIN_ICON, PLUGIN_README, PLUGIN_SCREENSHOTS } from '@shared/pluginContract'
 import { resolvePluginFile } from './pluginPaths'
 import { resolveBackendFile } from './pluginBackendPath'
+import { validatePluginDistribution } from './pluginDistribution'
 import { logInfo, logWarn } from '@main/logs/logService'
 import Ajv2020 from 'ajv/dist/2020.js'
 import manifestSchema from '@shared/pluginManifest.schema.json'
@@ -274,6 +275,7 @@ export async function installFromDirectory(dir: string, options: { source?: bool
     if (!await resolvePluginFile(dir, path, source)) throw new Error(`插件资源缺失或越界: ${path}`)
   }
   if (!source && manifest.backend) resolveBackendFile(dir, manifest.backend.entry)
+  if (!source) await validatePluginDistribution(dir)
   if (!source && !options.metadataOnly) await validatePublishedFiles(dir, manifest)
   return manifest
 }
@@ -412,11 +414,10 @@ async function findPluginRoot(dir: string): Promise<string> {
 }
 
 async function validatePublishedFiles(root: string, manifest: PluginManifest): Promise<void> {
-  const id = manifest.id
-  const htmlEntries = new Set(['index.html', ...(manifest.contributes?.homePages ?? []).map(home => home.entry),
+  const htmlEntries = new Set(['index.html', ...(manifest.background ? [manifest.background.entry] : []), ...(manifest.contributes?.homePages ?? []).map(home => home.entry),
     ...(manifest.contributes?.themePacks ?? []).flatMap(pack => {
-      const quick = (pack as import('@shared/types/appearance').ThemePackV2).quick
-      return quick ? [quick.entry] : []
+      const { quick, chrome, settingsPage } = pack as import('@shared/types/appearance').ThemePackV2
+      return [...(quick ? [quick.entry] : []), ...(settingsPage ? [settingsPage.entry] : []), ...(['classic', 'rail', 'dock'] as const).flatMap(part => chrome?.[part] ? [chrome[part]!.entry] : [])]
     })])
   for (const entry of htmlEntries) {
     if (!isPluginAssetPath(entry) || !/\.html$/.test(entry) || /(?:^|\/)(?:backend|runtime|node_modules|src|tests?)(?:\/|$)/.test(entry)) throw new Error('非法主题页面入口')
@@ -432,10 +433,10 @@ async function validatePublishedFiles(root: string, manifest: PluginManifest): P
       const declaredHtml = htmlEntries.has(rel) || (info.isDirectory() && [...htmlEntries].some(entry => entry.startsWith(`${rel}/`)))
       if (!declaredHtml && !rel.startsWith('assets/') && rel !== 'assets' && rel !== 'plugin.json'
         && !(manifest.backend && (rel === 'backend' || rel.startsWith('backend/')))
-        && !(id === 'com.github.eNest.dsh' && (rel === 'runtime' || rel.startsWith('runtime/')))) {
+        && !(manifest.backend && (rel === 'runtime' || rel.startsWith('runtime/')))) {
         throw new Error(`非标准发布内容: ${rel}`)
       }
-      const runtime = id === 'com.github.eNest.dsh' && (rel === 'runtime' || rel.startsWith('runtime/'))
+      const runtime = !!manifest.backend && (rel === 'runtime' || rel.startsWith('runtime/'))
       const backend = !!manifest.backend && (rel === 'backend' || rel.startsWith('backend/'))
       if (!runtime && (!(backend ? isPluginBackendPath(rel) : isPluginAssetPath(rel)) || (!backend && /(?:^|\/)(?:node_modules|tests?|src)(?:\/|$)/.test(rel)) || /\.(?:map|tsx?|vue)$/i.test(rel))) {
         throw new Error(`发布包包含源码或私有文件: ${rel}`)

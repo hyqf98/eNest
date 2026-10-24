@@ -4,9 +4,9 @@ import { handleShellIpc } from '@main/ipc/ipcSecurity'
 import { isPluginPageUrl } from '@main/plugin/pluginSessionPolicy'
 import { PLUGIN_PERMISSIONS } from '@shared/types/plugin'
 import { isBuiltinCapability } from '@shared/pluginPermissionPolicy'
-import { callPluginBackend } from '@main/plugin/pluginBackendRpc'
+import { callPluginBackend, stopPluginBackend } from '@main/plugin/pluginBackendRpc'
 import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
-import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
+import { callPluginBackground, refreshPluginBackgrounds, requiredBackgroundPermissions, stopPluginBackground } from '@main/plugin/pluginBackgroundRuntime'
 /**
  * pluginHandlers — 插件 IPC 调用分发器
  * 职责：接收插件 preload 发起的 `plugin:call`，校验发送者身份与权限，按 method 分发到具体实现；
@@ -16,7 +16,7 @@ import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
  * PluginSettingsBridge、themePacks、pluginStorage（storage.local 落 enest.db）、
  * quickHotkey（Quick 热键冲突预检，经 pluginRuntimeHotkeys 间接使用）。
  */
-import { ClipboardItem, clipboard, ipcMain, nativeImage, Notification, shell, net as electronNet } from 'electron'
+import { clipboard, ipcMain, nativeImage, Notification, shell, net as electronNet } from 'electron'
 import { APP_NAME, EXTERNAL_URL_PROTOCOLS } from '@shared/constants'
 import type {
   PermissionGrantSetPayload,
@@ -43,15 +43,11 @@ import {
   removePluginStorageValue,
   setPluginStorageValue
 } from '@main/db/pluginStorage'
-import { assertPermission, confirmPluginOperation } from '@main/plugin/PluginPermissions'
+import { assertPermission } from '@main/plugin/PluginPermissions'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { acquireQuickInteraction, hideQuickWindow } from '@main/window/createQuickWindow'
 import { pickLocalFiles, readLocalFile, localFilesFromDrop, listLocalFiles, revealLocalFile, prepareLocalDrag, startLocalDrag, endLocalDrag } from '@main/plugin/localFiles'
 import type { LocalFilePickOptions, PluginInputContext } from '@shared/types/local-files'
-import { sshWorkbench, sshWorkbenchPermission } from '@main/ssh/sshWorkbench'
-import type { SshWorkbenchRequest } from '@shared/types/ssh-workbench'
-import { dbWorkbenchCall, dbWorkbenchPermission } from '@main/database/workbench'
-import type { DbWorkbenchRequest } from '@shared/types/db-workbench'
 import {
   socketClose,
   socketConnect,
@@ -60,20 +56,8 @@ import {
   socketServeWs,
   type SocketConnectInput
 } from '@main/net/socketBridge'
-import {
-  lanShareStart,
-  lanShareStatus,
-  lanShareStop,
-  lanShareList
-} from '@main/net/lanShareService'
-import { renameLocalFile, renameLocalFiles, resolveLocalFileHandle, pickLocalSaveFile } from '@main/plugin/localFiles'
-import { agentApps, agentRead, agentWrite, agentBackups, agentRestore, agentSessionsList, agentSessionsRead, agentListAssets, agentWriteAssets, agentDeleteAssets } from '@main/config/agentConfigService'
-import type { AgentAssetInput } from '@main/config/agentConfigService'
+import { renameLocalFile, renameLocalFiles, pickLocalSaveFile } from '@main/plugin/localFiles'
 import { sysProcesses, sysPorts, sysKill } from '@main/sys/sysInspectService'
-import { mwWorkbenchCall, mwWorkbenchPermission } from '@main/middleware/workbench'
-import type { MwWorkbenchRequest } from '@shared/types/mw-workbench'
-import { dshWorkbenchCall, dshWorkbenchPermission } from '@main/dsh/workbench'
-import type { DshWorkbenchRequest } from '@shared/types/dsh-workbench'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { randomUUID } from 'node:crypto'
@@ -102,84 +86,30 @@ import {
   getShellWebContents,
   sendShellEvent
 } from '@main/window/createShellWindow'
-import {
-  cancelRecording,
-  captureScreen,
-  selectRegion,
-  startRecording,
-  stopRecording
-} from '@main/screen/screenService'
-import { closeAllPins, closePin, listPins, openPin } from '@main/pin/pinService'
-import {
-  clearHistory,
-  getHistoryEntry,
-  listHistory,
-  noteExternalImage,
-  writeHistoryAwareText,
-  removeHistoryEntry,
-  togglePinHistoryEntry
-} from '@main/clipboard/clipboardHistory'
+import { captureScreen, listCaptureDisplays } from '@main/screen/screenService'
+import { openAuxiliaryWindow, sendAuxiliaryMessage, closeAuxiliaryWindow, listAuxiliaryWindows, revokeAuxiliaryCapture, revokeAuxiliaryTopmost } from '@main/window/pluginAuxiliaryWindows'
+import { openFileStream, writeFileStream, finishFileStream, abortFileStream } from '@main/plugin/pluginFileStreams'
+import { writeClipboardText, writeClipboardImage, writeClipboardFiles } from '@main/clipboard/clipboardNativeEvents'
+import type { AuxiliaryOpen } from '@shared/types/auxiliary'
+import type { FileStreamOpen } from '@shared/types/file-stream'
 import { vaultSet, vaultHas, vaultRemove } from '@main/vault/secretVault'
-import {
-  sshConnect,
-  sshWrite,
-  sshResize,
-  sshDisconnect,
-  sshListSessions,
-  sshExec,
-  sshMetricsStart,
-  sshMetricsStop,
-  sshMetricsLatest,
-  sshCompletionSuggest,
-  sshSftpList,
-  sshSftpDownload,
-  sshSftpUpload,
-  sshSftpMkdir,
-  sshSftpRename,
-  sshSftpDelete,
-  sshSftpChmod,
-  sshPickLocalFile
-} from '@main/ssh/sshSessionManager'
-import {
-  dbTest,
-  dbOpen,
-  dbClose,
-  dbListSessions,
-  dbPickSqliteFile,
-  dbPickImportFile,
-  dbExecute,
-  dbExplain,
-  dbCancel,
-  dbApplyChanges,
-  dbSchemaTree,
-  dbSchemaDescribe,
-  dbSchemaDdl,
-  dbCompletion,
-  dbDialectsList,
-  dbImportPreview,
-  dbImportRun
-} from '@main/database/dbSessionManager'
-import type {
-  DbApplyChangesInput,
-  DbCompletionInput,
-  DbConnectionConfig,
-  DbExecuteInput,
-  DbImportPreviewInput,
-  DbImportRunInput,
-  DbSchemaTreeInput,
-  SshConnectInput,
-  SshExecInput,
-  SftpDownloadInput,
-  SftpListInput,
-  SftpUploadInput
-} from '@shared/types/ssh-db'
 
 /** method → 所需权限映射；null 表示无需权限（settings.get/set 由 Bridge 管控 key 白名单） */
 const runtimeLeases = new Map<string, { release: () => void; unregister: () => void; pluginId: string }>()
-const CLOSE_SAFE = /^(storage\.|screen\.record\.(stop|cancel)$|pin\.close|runtime\.release$|ssh\.(disconnect|unwatch)|db\.(disconnect|cancel)|net\.socket\.close$|lan\.share\.stop$)/
+const CLOSE_SAFE = /^(storage\.|files\.stream\.(write|finish|abort)$|auxiliary\.(send|close)$|runtime\.release$|backend\.stop$|net\.socket\.close$)/
 
 const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'backend.call': 'backend.node',
+  'backend.stop': null,
+  'background.call': null,
+  'auxiliary.open': null,
+  'auxiliary.send': null,
+  'auxiliary.close': null,
+  'auxiliary.list': null,
+  'files.stream.open': null,
+  'files.stream.write': null,
+  'files.stream.finish': null,
+  'files.stream.abort': null,
   ...PLUGIN_TOOL_PERMISSIONS,
   'runtime.acquire': null,
   'runtime.release': null,
@@ -223,20 +153,9 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'clipboard.writeText': 'clipboard.write',
   'clipboard.readImage': 'clipboard.readImage',
   'clipboard.writeImage': 'clipboard.writeImage',
-  'clipboard.history.list': 'clipboard.history',
-  'clipboard.history.get': 'clipboard.history',
-  'clipboard.history.remove': 'clipboard.history',
-  'clipboard.history.clear': 'clipboard.history',
-  'clipboard.history.togglePin': 'clipboard.history',
+  'clipboard.writeFiles': 'clipboard.write',
   'screen.capture': 'screen.capture',
-  'screen.selectRegion': 'screen.capture',
-  'screen.record.start': 'screen.record',
-  'screen.record.stop': 'screen.record',
-  'screen.record.cancel': 'screen.record',
-  'pin.open': 'pin.create',
-  'pin.close': 'pin.create',
-  'pin.closeAll': 'pin.create',
-  'pin.list': 'pin.create',
+  'screen.displays': null,
   'net.fetch': 'net.fetch',
   'shell.openExternal': 'shell.openExternal',
   notify: 'notify',
@@ -254,51 +173,11 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'contribute.respondQuickQuery': 'contribute',
   // 语言读取：所有插件可用（无敏感面）
   'i18n.getLocale': null,
-  // —— vault / ssh / db（Spec ssh-db-plugins 权限表）——
+  // Plugin-private credentials; protocol adapters live in plugin backends.
   'vault.set': 'vault.write',
   'vault.has': 'vault.write',
   'vault.remove': 'vault.write',
-  'ssh.connect': 'ssh.session',
-  'ssh.write': 'ssh.session',
-  'ssh.resize': 'ssh.session',
-  'ssh.disconnect': 'ssh.session',
-  'ssh.listSessions': 'ssh.session',
-  'ssh.exec': 'ssh.exec',
-  'ssh.metrics.start': 'ssh.exec',
-  'ssh.metrics.stop': 'ssh.exec',
-  'ssh.metrics.latest': 'ssh.exec',
-  'ssh.completion.suggest': 'ssh.exec',
-  'ssh.sftp.list': 'ssh.sftp',
-  'ssh.sftp.download': 'ssh.sftp',
-  'ssh.sftp.upload': 'ssh.sftp',
-  'ssh.sftp.mkdir': 'ssh.sftp',
-  'ssh.sftp.rename': 'ssh.sftp',
-  'ssh.sftp.delete': 'ssh.sftp',
-  'ssh.sftp.chmod': 'ssh.sftp',
-  'ssh.pickLocalFile': 'fs.read',
-  'db.test': 'db.connect',
-  'db.open': 'db.connect',
-  'db.close': 'db.connect',
-  'db.listSessions': 'db.connect',
-  'db.pickSqliteFile': 'db.connect',
-  'db.execute': 'db.query',
-  'db.explain': 'db.query',
-  'db.cancel': 'db.query',
-  'db.applyChanges': 'db.query',
-  'db.importPreview': 'db.query',
-  'db.importRun': 'db.query',
-  'db.schema.tree': 'db.schema',
-  'db.schema.describe': 'db.schema',
-  'db.schema.ddl': 'db.schema',
-  'db.completion.suggest': 'db.schema',
-  // Static driver metadata exposes no connection, credentials or user data.
-  'db.dialects.list': null,
-  'db.pickImportFile': 'fs.read',
-  // mw.workbench 权限按 action 动态判 mw.connect/mw.query/mw.admin（见下方 required 解析）
-  'mw.workbench': 'mw.admin',
-  // dsh.workbench 权限按 action 动态判 dsh.connect/dsh.chat/dsh.admin（见下方 required 解析）
-  'dsh.workbench': 'dsh.admin',
-  // —— net.socket / config.agent / sys.inspect（波 0 宿主能力扩展）——
+  // Generic network transport and native system inspection.
   'net.websocket.connect': 'net.socket',
   'net.websocket.send': 'net.socket',
   'net.websocket.close': 'net.socket',
@@ -307,24 +186,8 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'net.socket.close': 'net.socket',
   'net.socket.list': 'net.socket',
   'net.socket.serveWs': 'net.socket',
-  // —— lan.share / fs.rename（局域网传件 + 句柄白名单改名）——
-  'lan.share.start': 'lan.share',
-  'lan.share.status': 'lan.share',
-  'lan.share.list': 'lan.share',
-  'lan.share.stop': 'lan.share',
   'fs.rename': 'fs.rename',
   'fs.renameBatch': 'fs.rename',
-  // Application availability only; reading actual configurations stays gated.
-  'agent.apps': null,
-  'agent.read': 'config.agent.read',
-  'agent.write': 'config.agent.write',
-  'agent.backups': 'config.agent.read',
-  'agent.restore': 'config.agent.write',
-  'agent.sessions.list': 'config.agent.read',
-  'agent.sessions.read': 'config.agent.read',
-  'agent.listAssets': 'config.agent.read',
-  'agent.writeAssets': 'config.agent.write',
-  'agent.deleteAssets': 'config.agent.write',
   'sys.processes': 'sys.inspect',
   'sys.ports': 'sys.inspect',
   'sys.kill': 'sys.control',
@@ -447,18 +310,6 @@ function argNum(args: unknown[], objKey: string, pos: number, fallback: number):
   return v == null || v === '' ? fallback : Number(v)
 }
 
-/** 该插件已注册的 settings item key 集合（运行时 register 与 manifest 声明统一入 contributions 表） */
-function registeredSettingKeys(pluginId: string): Set<string> {
-  const keys = new Set<string>()
-  for (const section of pluginSettingsBridge.listAll()) {
-    if (section.pluginId !== pluginId) continue
-    for (const item of section.items ?? []) {
-      if (item?.key) keys.add(item.key)
-    }
-  }
-  return keys
-}
-
 /** 按 method 分发到具体实现，权限已在调用前校验 */
 async function dispatch(
   pluginId: string,
@@ -467,30 +318,40 @@ async function dispatch(
   manifest: PluginManifest
 ): Promise<unknown> {
   if (method in PLUGIN_TOOL_PERMISSIONS) {
-    if (method === 'clipboard.history.copy' || method === 'clipboard.history.paste') {
+    if (method === 'deadlineTasks.start' && Array.isArray(asObj(args).steps)
+      && (asObj(args).steps as Array<{ notification?: unknown }>).some(step => step?.notification)) {
       const scope = getRuntimeScope(pluginId)
-      const permissions: PluginPermission[] = ['clipboard.history']
-      const entry = await getHistoryEntry(String(args[0] ?? ''))
-      if (!entry) throw new Error('该记录已删除')
-      permissions.push(entry.type === 'image' ? 'clipboard.writeImage' : 'clipboard.write')
-      for (const permission of permissions) {
-        assertPermission(manifest, permission)
-        if (!(await ensureRuntimeGrant(pluginId, permission, '复制剪贴板历史内容'))) throw new Error(`permission denied: ${permission}`)
-      }
-      if (!scope?.isCurrent() || scope.isClosing) throw new Error('plugin runtime is closing or stale')
-    }
-    if (method === 'focusTimer.start' && asObj(args).notify !== false) {
-      const scope = getRuntimeScope(pluginId)
-      const allowed = manifest.permissions?.includes('notify') && await ensureRuntimeGrant(pluginId, 'notify', '专注计时到期提醒')
+      const allowed = manifest.permissions?.includes('notify') && await ensureRuntimeGrant(pluginId, 'notify', '后台任务到期提醒')
       // The optional grant may settle after close (or after a replacement opened).
       // Persistent host tasks must only be created by the original live owner.
       if (!scope?.isCurrent() || scope.isClosing || scope.signal.aborted) throw new Error('plugin runtime is closing')
-      args = [{ ...asObj(args), notify: Boolean(allowed) }]
+      if (!allowed) args = [{ ...asObj(args), steps: (asObj(args).steps as Array<Record<string, unknown>>).map(step => {
+        const { notification: _notification, ...rest } = step
+        return rest
+      }) }]
     }
     return dispatchPluginTool(pluginId, method, args)
   }
   switch (method) {
-    case 'backend.call': return callPluginBackend(pluginId, args[0], args[1])
+    case 'background.call': {
+      const scope = getRuntimeScope(pluginId)
+      for (const permission of requiredBackgroundPermissions(pluginId)) {
+        assertPermission(manifest, permission)
+        if (!(await ensureRuntimeGrant(pluginId, permission, '调用插件后台能力'))) throw new Error(`permission denied: ${permission}`)
+        if (!scope?.isCurrent() || scope.isClosing) throw new Error('plugin runtime is closing or stale')
+      }
+      return callPluginBackground(pluginId, args[0], args[1], args[2])
+    }
+    case 'auxiliary.open': return openAuxiliaryWindow(pluginId, args[0] as AuxiliaryOpen)
+    case 'auxiliary.send': return sendAuxiliaryMessage(pluginId, String(args[0] ?? ''), args[1], args[2] as { visible?: boolean } | undefined)
+    case 'auxiliary.close': return closeAuxiliaryWindow(pluginId, String(args[0] ?? ''))
+    case 'auxiliary.list': return listAuxiliaryWindows(pluginId)
+    case 'files.stream.open': return openFileStream(pluginId, args[0] as FileStreamOpen)
+    case 'files.stream.write': return writeFileStream(pluginId, String(args[0] ?? ''), args[1] as number, args[2] as ArrayBuffer)
+    case 'files.stream.finish': return finishFileStream(pluginId, String(args[0] ?? ''))
+    case 'files.stream.abort': return abortFileStream(pluginId, String(args[0] ?? ''))
+    case 'backend.call': return callPluginBackend(pluginId, args[0], args[1], args[2])
+    case 'backend.stop': return stopPluginBackend(pluginId)
     case 'runtime.acquire': {
       const scope = getRuntimeScope(pluginId)
       if (!scope || scope.isClosing) throw new Error('plugin runtime unavailable')
@@ -532,10 +393,6 @@ async function dispatch(
     case 'localFiles.prepareDrag': return prepareLocalDrag(pluginId, asObj(args).handleIds as string[])
     case 'localFiles.startDrag': return startLocalDrag(pluginId, String(args[0] ?? ''))
     case 'localFiles.endDrag': return endLocalDrag(pluginId)
-    case 'ssh.workbench': return sshWorkbench(pluginId, args[0] as SshWorkbenchRequest)
-    case 'db.workbench': return dbWorkbenchCall(pluginId, args[0] as DbWorkbenchRequest)
-    case 'mw.workbench': return mwWorkbenchCall(pluginId, args[0] as MwWorkbenchRequest)
-    case 'dsh.workbench': return dshWorkbenchCall(pluginId, args[0] as DshWorkbenchRequest)
     case 'ui.setTitle': {
       return pluginHost.setTitle(pluginId, args[0])
     }
@@ -617,12 +474,14 @@ async function dispatch(
       const value = args[1]
       // key 白名单：必须在该插件注册的 settings item keys 内（运行时 register +
       // manifest contributes.settings 统一入 contributions 表），防止任意键写库
-      if (!registeredSettingKeys(pluginId).has(key)) {
+      if (!pluginSettingsBridge.isWritableKey(pluginId, key)) {
         throw new Error(`unknown settings key: ${key}`)
       }
       pluginSettingsBridge.set(pluginId, key, value)
       await settingsStore.setPluginSetting(pluginId, key, value)
+      refreshPluginBackgrounds()
       pluginHost.sendEvent(pluginId, { type: 'settings-change', key, value })
+      sendShellEvent({ type: 'plugin-settings-changed', pluginId })
       return true
     }
     case 'localFiles.pickSave': return pickLocalSaveFile(pluginId, asObj(args))
@@ -669,7 +528,7 @@ async function dispatch(
       const txt = String(args[0] ?? '')
       const options = args[1] as { excludeFromHistory?: unknown } | undefined
       if (options !== undefined && (!options || typeof options !== 'object' || Array.isArray(options) || (options.excludeFromHistory !== undefined && typeof options.excludeFromHistory !== 'boolean'))) throw new Error('invalid clipboard write options')
-      await writeHistoryAwareText(txt, { excludeFromHistory: options?.excludeFromHistory === true }, getRuntimeScope(pluginId)?.signal)
+      await writeClipboardText(txt, { excludeFromHistory: options?.excludeFromHistory === true }, getRuntimeScope(pluginId)?.signal)
       return true
     }
     case 'clipboard.readImage': {
@@ -687,73 +546,15 @@ async function dispatch(
       return null
     }
     case 'clipboard.writeImage': {
-      const dataUrl = String(args[0] ?? '')
-      if (!/^data:image\//i.test(dataUrl)) throw new Error('invalid image dataUrl')
-      const img = nativeImage.createFromDataURL(dataUrl)
-      if (img.isEmpty()) throw new Error('invalid image data')
-      // Electron 44：writeImage 移除，经 write([ClipboardItem])（Blob）写图
-      const blob = new Blob([new Uint8Array(img.toPNG())], { type: 'image/png' })
-      await clipboard.write([new ClipboardItem({ 'image/png': blob })])
-      noteExternalImage(img)
+      await writeClipboardImage(String(args[0] ?? ''), getRuntimeScope(pluginId)?.signal)
       return true
     }
-    case 'clipboard.history.list': {
-      const opts = (args[0] ?? {}) as { limit?: number }
-      return listHistory(opts?.limit ?? 100)
-    }
-    case 'clipboard.history.get': {
-      return getHistoryEntry(String(args[0] ?? ''))
-    }
-    case 'clipboard.history.remove': {
-      return removeHistoryEntry(String(args[0] ?? ''))
-    }
-    case 'clipboard.history.clear': {
-      return clearHistory()
-    }
-    case 'clipboard.history.togglePin': {
-      return togglePinHistoryEntry(String(args[0] ?? ''))
-    }
+    case 'clipboard.writeFiles': await writeClipboardFiles(args[0] as string[], getRuntimeScope(pluginId)?.signal); return true
     case 'screen.capture': {
       const opts = (args[0] ?? {}) as { displayId?: number; bounds?: ScreenBounds }
-      return captureScreen(opts)
+      return captureScreen(pluginId, opts)
     }
-    case 'screen.selectRegion': {
-      return selectRegion(pluginId)
-    }
-    case 'screen.record.start': {
-      const opts = (args[0] ?? {}) as {
-        bounds?: ScreenBounds
-        withAudio?: boolean
-        displayId?: number
-      }
-      return startRecording(pluginId, opts)
-    }
-    case 'screen.record.stop': {
-      return stopRecording(pluginId, String(args[0] ?? ''))
-    }
-    case 'screen.record.cancel': {
-      return cancelRecording(pluginId, String(args[0] ?? ''))
-    }
-    case 'pin.open': {
-      const payload = (args[0] ?? {}) as {
-        dataUrl?: string
-        path?: string
-        x?: number
-        y?: number
-        width?: number
-        title?: string
-      }
-      return openPin({ ...payload, pluginId })
-    }
-    case 'pin.close': {
-      return closePin(String(args[0] ?? ''), pluginId)
-    }
-    case 'pin.closeAll': {
-      return closeAllPins(pluginId)
-    }
-    case 'pin.list': {
-      return listPins(pluginId)
-    }
+    case 'screen.displays': return listCaptureDisplays(pluginId)
     case 'net.socket.connect': {
       const o = asObj(args)
       const input = (o.host != null ? o : args[0]) as SocketConnectInput
@@ -780,39 +581,6 @@ async function dispatch(
     case 'net.socket.serveWs': {
       return socketServeWs(pluginId, argStr(args, 'socketId', 0))
     }
-    case 'lan.share.start': {
-      const o = asObj(args)
-      // files 支持两种形态：{handleId}（localFiles 句柄，宿主侧解析真实路径）
-      // 与 {path}（已有绝对路径，如 db 导出）；句柄解析失败给友好错误
-      const rawFiles = Array.isArray(o.files) ? (o.files as Array<{ handleId?: string; path?: string; name?: string }>) : []
-      if (!rawFiles.length) throw new Error('files required (handleId or path)')
-      const files = await Promise.all(rawFiles.map(async (item) => {
-        if (item?.handleId != null && item.handleId !== '') {
-          let path: string
-          try {
-            path = await resolveLocalFileHandle(pluginId, String(item.handleId))
-          } catch {
-            throw new Error('文件句柄已失效（文件可能已被移动或删除），请重新选择')
-          }
-          return { path, name: item.name != null ? String(item.name) : undefined }
-        }
-        throw new Error('each shared file requires a selected handleId; raw paths are not supported')
-      }))
-      return lanShareStart(pluginId, { files, minutes: o.minutes != null ? Number(o.minutes) : undefined })
-    }
-    case 'lan.share.status': {
-      const status = lanShareStatus(pluginId, argStr(args, 'shareId', 0))
-      if (!status) throw new Error('share not found')
-      return status
-    }
-    case 'lan.share.list': {
-      return lanShareList(pluginId)
-    }
-    case 'lan.share.stop': {
-      const stopped = lanShareStop(pluginId, argStr(args, 'shareId', 0))
-      if (!stopped) throw new Error('share not found')
-      return true
-    }
     case 'fs.rename': {
       const o = asObj(args)
       return renameLocalFile(
@@ -830,74 +598,6 @@ async function dispatch(
           newName: String(item?.newName ?? '')
         })),
         confirmed: o.confirmed === true
-      })
-    }
-    case 'agent.apps': {
-      return agentApps()
-    }
-    case 'agent.read': {
-      return agentRead(pluginId, argStr(args, 'app', 0))
-    }
-    case 'agent.write': {
-      const o = asObj(args)
-      // config.agent.write consent is checked before dispatch; ordinary writes
-      // keep whitelist/snapshot validation without a second permission dialog.
-      return agentWrite(pluginId, {
-        app: o.app != null ? String(o.app) : String(args[0] ?? ''),
-        changes: (o.changes ?? args[1]) as Record<string, unknown>,
-        confirmed: true
-      })
-    }
-    case 'agent.backups': {
-      return agentBackups(pluginId, argStr(args, 'app', 0))
-    }
-    case 'agent.restore': {
-      const o = asObj(args)
-      await confirmPluginOperation(pluginId, '恢复 AI CLI 配置备份？', `应用：${String(o.app ?? args[0] ?? '')}\n备份：${String(o.id ?? args[1] ?? '')}`)
-      return agentRestore(pluginId, {
-        app: o.app != null ? String(o.app) : String(args[0] ?? ''),
-        id: o.id != null ? String(o.id) : String(args[1] ?? '')
-      })
-    }
-    case 'agent.sessions.list': {
-      return agentSessionsList(pluginId, argStr(args, 'app', 0))
-    }
-    case 'agent.sessions.read': {
-      const o = asObj(args)
-      return agentSessionsRead(pluginId, {
-        app: o.app != null ? String(o.app) : String(args[0] ?? ''),
-        file: o.file != null ? String(o.file) : String(args[1] ?? ''),
-        maxBytes: o.maxBytes != null ? Number(o.maxBytes) : undefined
-      })
-    }
-    case 'agent.listAssets': {
-      const o = asObj(args)
-      return agentListAssets(pluginId, {
-        app: o.app != null ? String(o.app) : String(args[0] ?? ''),
-        path: o.path != null ? String(o.path) : ''
-      })
-    }
-    case 'agent.writeAssets': {
-      const o = asObj(args)
-      const assets = (Array.isArray(o.assets) ? o.assets : []).map(a => ({
-        path: String((a as { path?: unknown })?.path ?? ''),
-        contentText: typeof (a as { contentText?: unknown })?.contentText === 'string' ? (a as { contentText: string }).contentText : undefined,
-        contentBase64: typeof (a as { contentBase64?: unknown })?.contentBase64 === 'string' ? (a as { contentBase64: string }).contentBase64 : undefined
-      })) as AgentAssetInput[]
-      return agentWriteAssets(pluginId, {
-        app: o.app != null ? String(o.app) : String(args[0] ?? ''),
-        assets,
-        confirmed: true
-      })
-    }
-    case 'agent.deleteAssets': {
-      const o = asObj(args)
-      const paths = (Array.isArray(o.paths) ? o.paths : []).map(p => String(p ?? ''))
-      await confirmPluginOperation(pluginId, '删除 AI CLI 应用资产文件？', `应用：${String(o.app ?? args[0] ?? '')}\n目标：\n${paths.join('\n')}\n\n删除后不可恢复。`)
-      return agentDeleteAssets(pluginId, {
-        app: o.app != null ? String(o.app) : String(args[0] ?? ''),
-        paths,
-        confirmed: true
       })
     }
     case 'sys.processes': {
@@ -1079,9 +779,6 @@ async function dispatch(
         release()
       }
     }
-    case 'db.pickImportFile': {
-      return dbPickImportFile(pluginId)
-    }
     case 'notify': {
       const payload = (args[0] ?? {}) as { title?: string; body?: string }
       new Notification({
@@ -1157,216 +854,6 @@ async function dispatch(
     case 'vault.remove': {
       return vaultRemove(pluginId, String(args[0] ?? ''))
     }
-    // —— ssh ——
-    case 'ssh.connect': {
-      const o = asObj(args)
-      const input = (o.host != null ? o : args[0]) as SshConnectInput & {
-        password?: string
-      }
-      return sshConnect(pluginId, input)
-    }
-    case 'ssh.write': {
-      return sshWrite(pluginId, argStr(args, 'sessionId', 0), argStr(args, 'data', 1))
-    }
-    case 'ssh.resize': {
-      return sshResize(
-        pluginId,
-        argStr(args, 'sessionId', 0),
-        argNum(args, 'cols', 1, 80),
-        argNum(args, 'rows', 2, 24)
-      )
-    }
-    case 'ssh.disconnect': {
-      return sshDisconnect(pluginId, argStr(args, 'sessionId', 0))
-    }
-    case 'ssh.listSessions': {
-      return sshListSessions(pluginId)
-    }
-    case 'ssh.exec': {
-      const o = asObj(args)
-      if (o.sessionId != null || o.host != null) {
-        const input = o as unknown as SshExecInput & { command?: string; cmd?: string }
-        if (!input.command && typeof input.cmd === 'string') input.command = input.cmd
-        return sshExec(pluginId, input)
-      }
-      // 位置参数：sessionId, command, opts?
-      return sshExec(pluginId, {
-        sessionId: String(args[0] ?? ''),
-        command: String(args[1] ?? '')
-      } as SshExecInput)
-    }
-    case 'ssh.metrics.start': {
-      const o = asObj(args)
-      const sessionId = o.sessionId != null ? String(o.sessionId) : String(args[0] ?? '')
-      const intervalMs =
-        o.intervalMs != null
-          ? Number(o.intervalMs)
-          : (args[1] as number | undefined)
-      return sshMetricsStart(pluginId, sessionId, intervalMs)
-    }
-    case 'ssh.metrics.stop': {
-      return sshMetricsStop(pluginId, argStr(args, 'sessionId', 0))
-    }
-    case 'ssh.metrics.latest': {
-      return sshMetricsLatest(pluginId, argStr(args, 'sessionId', 0))
-    }
-    case 'ssh.completion.suggest': {
-      const o = asObj(args)
-      const sessionId = o.sessionId != null ? String(o.sessionId) : String(args[0] ?? '')
-      const line =
-        o.line != null
-          ? String(o.line)
-          : o.prefix != null
-            ? String(o.prefix)
-            : String(args[1] ?? '')
-      return sshCompletionSuggest(pluginId, {
-        sessionId,
-        line,
-        cursor: o.cursor != null ? Number(o.cursor) : undefined,
-        cwd: typeof o.cwd === 'string' ? o.cwd : undefined,
-        history: Array.isArray(o.history) ? (o.history as string[]) : undefined,
-        snippets: Array.isArray(o.snippets)
-          ? (o.snippets as Array<{ title: string; command: string }>)
-          : undefined
-      })
-    }
-    case 'ssh.sftp.list': {
-      const o = asObj(args)
-      const input =
-        o.sessionId != null
-          ? (o as unknown as SftpListInput)
-          : ({ sessionId: String(args[0] ?? ''), path: String(args[1] ?? '/') } as SftpListInput)
-      return sshSftpList(pluginId, input)
-    }
-    case 'ssh.sftp.download': {
-      const o = asObj(args)
-      const input =
-        o.sessionId != null
-          ? (o as unknown as SftpDownloadInput)
-          : ({
-              sessionId: String(args[0] ?? ''),
-              remotePath: String(args[1] ?? ''),
-              localDirectoryHandleId: String(args[2] ?? '')
-            } as SftpDownloadInput)
-      return sshSftpDownload(pluginId, input)
-    }
-    case 'ssh.sftp.upload': {
-      const o = asObj(args)
-      const input =
-        o.sessionId != null
-          ? (o as unknown as SftpUploadInput)
-          : ({
-              sessionId: String(args[0] ?? ''),
-              localHandleId: String(args[1] ?? ''),
-              remotePath: String(args[2] ?? '')
-            } as SftpUploadInput)
-      return sshSftpUpload(pluginId, input)
-    }
-    case 'ssh.sftp.mkdir': {
-      // 兼容对象形 { sessionId, path } 与位置参数 (sessionId, path)
-      const o = asObj(args)
-      return sshSftpMkdir(
-        pluginId,
-        o.sessionId != null ? String(o.sessionId) : String(args[0] ?? ''),
-        o.path != null ? String(o.path) : String(args[1] ?? '')
-      )
-    }
-    case 'ssh.sftp.rename': {
-      // 兼容对象形 { sessionId, path, newPath } 与位置参数 (sessionId, path, newPath)
-      const o = asObj(args)
-      return sshSftpRename(
-        pluginId,
-        o.sessionId != null ? String(o.sessionId) : String(args[0] ?? ''),
-        o.path != null ? String(o.path) : String(args[1] ?? ''),
-        o.newPath != null ? String(o.newPath) : String(args[2] ?? '')
-      )
-    }
-    case 'ssh.sftp.delete': {
-      // 兼容对象形 { sessionId, path, recursive } 与位置参数 (sessionId, path, recursive)
-      const o = asObj(args)
-      return sshSftpDelete(
-        pluginId,
-        o.sessionId != null ? String(o.sessionId) : String(args[0] ?? ''),
-        o.path != null ? String(o.path) : String(args[1] ?? ''),
-        o.recursive != null ? Boolean(o.recursive) : Boolean(args[2])
-      )
-    }
-    case 'ssh.sftp.chmod': {
-      // 兼容对象形 { sessionId, path, mode } 与位置参数 (sessionId, path, mode)
-      const o = asObj(args)
-      return sshSftpChmod(
-        pluginId,
-        o.sessionId != null ? String(o.sessionId) : String(args[0] ?? ''),
-        o.path != null ? String(o.path) : String(args[1] ?? ''),
-        (o.mode != null ? o.mode : args[2]) as number | string
-      )
-    }
-    case 'ssh.pickLocalFile': {
-      return sshPickLocalFile(pluginId, args[0] as LocalFilePickOptions | undefined)
-    }
-    // —— db ——
-    case 'db.test': {
-      return dbTest(pluginId, (args[0] ?? {}) as DbConnectionConfig)
-    }
-    case 'db.open': {
-      const o = asObj(args)
-      return dbOpen(pluginId, (o.host != null || o.driver != null || o.config ? o : args[0]) as never)
-    }
-    case 'db.close': {
-      return dbClose(pluginId, String(args[0] ?? ''))
-    }
-    case 'db.listSessions': {
-      return dbListSessions(pluginId)
-    }
-    case 'db.pickSqliteFile': {
-      return dbPickSqliteFile(pluginId, asObj(args))
-    }
-    case 'db.execute': {
-      return dbExecute(pluginId, (args[0] ?? {}) as DbExecuteInput)
-    }
-    case 'db.explain': {
-      return dbExplain(pluginId, (args[0] ?? {}) as { sessionKey: string; sql: string })
-    }
-    case 'db.cancel': {
-      const o = asObj(args)
-      const sid = o.sessionKey != null ? String(o.sessionKey) : String(args[0] ?? '')
-      return dbCancel(pluginId, { sessionKey: sid, executionId: typeof o.executionId === 'string' ? o.executionId : undefined })
-    }
-    case 'db.applyChanges': {
-      return dbApplyChanges(pluginId, (args[0] ?? {}) as DbApplyChangesInput)
-    }
-    case 'db.importPreview': {
-      return dbImportPreview(pluginId, (args[0] ?? {}) as DbImportPreviewInput)
-    }
-    case 'db.importRun': {
-      return dbImportRun(pluginId, (args[0] ?? {}) as DbImportRunInput)
-    }
-    case 'db.schema.tree': {
-      const o = asObj(args)
-      return dbSchemaTree(pluginId, (o.sessionKey != null ? o : args[0]) as never)
-    }
-    case 'db.schema.describe': {
-      return dbSchemaDescribe(pluginId, (args[0] ?? {}) as {
-        sessionKey: string
-        database?: string
-        schema?: string
-        table: string
-      })
-    }
-    case 'db.schema.ddl': {
-      return dbSchemaDdl(pluginId, (args[0] ?? {}) as {
-        sessionKey: string
-        database?: string
-        schema?: string
-        table: string
-      })
-    }
-    case 'db.completion.suggest': {
-      return dbCompletion(pluginId, (args[0] ?? {}) as DbCompletionInput)
-    }
-    case 'db.dialects.list': {
-      return dbDialectsList(pluginId)
-    }
     default:
       throw new Error(`unknown method: ${method}`)
   }
@@ -1422,19 +909,9 @@ export function registerPluginHandlers(): void {
         const allowed = () => scope?.owner.wcId === senderId && scope.isCurrent() && (!scope.isClosing || CLOSE_SAFE.test(method))
         if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
         // 权限为 null 表示该方法无需 manifest 声明（settings 由 Bridge 管控）
-        const required = method === 'db.pickSqliteFile'
-          ? (asObj(args).readOnly === true && asObj(args).createIfMissing !== true ? 'fs.read' : 'fs.write')
-          : (method === 'localFiles.pick' || method === 'ssh.pickLocalFile') && asObj(args).access === 'write'
-          ? 'fs.write'
-          : method === 'ssh.workbench'
-          ? sshWorkbenchPermission(String(asObj(args).action ?? ''))
-          : method === 'db.workbench'
-            ? dbWorkbenchPermission(String(asObj(args).action ?? ''))
-            : method === 'mw.workbench'
-              ? mwWorkbenchPermission(String(asObj(args).action ?? ''))
-              : method === 'dsh.workbench'
-                ? dshWorkbenchPermission(String(asObj(args).action ?? ''))
-                : METHOD_PERMISSION[method]
+        const required = method === 'localFiles.pick' && asObj(args).access === 'write' ? 'fs.write'
+          : method === 'auxiliary.open' && asObj(args).capture ? 'screen.record'
+          : method === 'auxiliary.open' && asObj(args).alwaysOnTop === true ? 'pin.create' : METHOD_PERMISSION[method]
         if (required === undefined) {
           return { ok: false, error: `unknown method: ${method}` }
         }
@@ -1457,11 +934,6 @@ export function registerPluginHandlers(): void {
               return { ok: false, error: 'os permission denied: screen' }
             }
           }
-        }
-        // Legacy APIs delegate to the caller's own Node backend. Existing grants never imply full Node consent.
-        if (/^(db|mw|ssh)\./.test(method) && !['db.pickSqliteFile', 'ssh.pickLocalFile'].includes(method)) {
-          assertPermission(manifest, 'backend.node')
-          if (!(await ensureRuntimeGrant(hostPluginId, 'backend.node', '运行插件本机后端'))) return { ok: false, error: 'permission denied: backend.node' }
         }
         if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
         const startedAt = Date.now()
@@ -1558,7 +1030,12 @@ export function registerPluginHandlers(): void {
         payload.permission,
         normalizeGrant(payload.grant)
       )
-      revalidateClipboardPolling()
+      if (normalizeGrant(payload.grant) !== 'allow') {
+        stopPluginBackground(id, 'permission revoked')
+        if (payload.permission === 'screen.record') revokeAuxiliaryCapture(id)
+        if (payload.permission === 'pin.create') revokeAuxiliaryTopmost(id)
+      }
+      refreshPluginBackgrounds()
       if (normalizeGrant(payload.grant) !== 'allow') {
         permissionService.cancelFor(id)
         getRuntimeScope(id)?.markClosing()

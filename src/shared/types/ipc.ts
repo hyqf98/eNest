@@ -17,21 +17,26 @@ import type {
 } from './plugin'
 import type { ResolvedAppearance } from './appearance'
 import type { QuickPluginModeInfo } from './quick'
-import type { SshPluginEvent } from './ssh-db'
-import type { MwMessage } from './mw-workbench'
-import type { DshWorkbenchEvent } from './dsh-workbench'
 import type { QuickInputState, QuickInputAction } from './plugin-tools'
-import type { FocusTimerSnapshot } from './focus-timer'
 import type { ShellNotice } from './notice'
 import type { PluginShortcutsSnapshot } from './shortcuts'
 import type { NotificationOptions } from './notification'
 import type { ShellSettingsSection } from './shell'
+import type { AuxiliaryEvent } from './auxiliary'
 
 /**
  * IPC 通道常量 — 主进程 / preload / 渲染进程共用。
  * 约定：全部为 request-response（invoke），事件推送走 `shell:event`。
  */
 export const IpcChannels = {
+  PluginBackgroundHost: 'plugin-background:host',
+  PluginBackgroundReady: 'plugin-background:ready',
+  PluginBackgroundRequest: 'plugin-background:request',
+  PluginBackgroundResponse: 'plugin-background:response',
+  AuxiliaryContext: 'auxiliary:context',
+  AuxiliaryMessage: 'auxiliary:message',
+  AuxiliaryPost: 'auxiliary:post',
+  AuxiliaryClose: 'auxiliary:close',
   PluginWindowState: 'window:plugin-state',
   PluginWindowCommand: 'window:plugin-command',
   PluginWindowEvent: 'window:plugin-event',
@@ -46,6 +51,7 @@ export const IpcChannels = {
   ShellGetMarketStatus: 'shell:get-market-status',
   ShellOpenPlugin: 'shell:open-plugin',
   ShellClosePlugin: 'shell:close-plugin',
+  ShellStopPluginResources: 'shell:stop-plugin-resources',
   ShellActivatePlugin: 'shell:activate-plugin',
   /** 隐藏全部插件 WebContentsView（回首页/设置时调用，避免遮挡壳子 UI） */
   ShellHidePlugins: 'shell:hide-plugins',
@@ -56,6 +62,18 @@ export const IpcChannels = {
   /** 壳子 → 主进程：同步圆轨悬浮窗所需 Tab 状态 */
   ShellGetPluginDiagnostics: 'shell:get-plugin-diagnostics',
   ShellGetPluginMemorySnapshot: 'shell:get-plugin-memory-snapshot',
+  ShellStartPerformanceCapture: 'shell:start-performance-capture',
+  ShellGetPerformanceCaptureState: 'shell:get-performance-capture-state',
+  ShellStopPerformanceCapture: 'shell:stop-performance-capture',
+  ShellExportPerformanceCapture: 'shell:export-performance-capture',
+  ThemeChromeSnapshot: 'theme-chrome:snapshot',
+  ThemeChromeChanged: 'theme-chrome:changed',
+  ThemeChromeAction: 'theme-chrome:action',
+  ThemeChromeReady: 'theme-chrome:ready',
+  ThemeSettingsConfig: 'theme-settings:config',
+  ThemeSettingsSnapshot: 'theme-settings:snapshot',
+  ThemeSettingsActive: 'theme-settings:active',
+  ThemeSettingsAction: 'theme-settings:action',
   ShellRestoreTabs: 'shell:restore-tabs',
   ShellSyncOrbState: 'shell:sync-orb-state',
   /** 悬浮窗 → 主进程：读取圆轨状态 */
@@ -97,6 +115,7 @@ export const IpcChannels = {
   ShellReloadPlugin: 'shell:reload-plugin',
   ShellOpenDevTools: 'shell:open-devtools',
   ShellGetSettings: 'shell:get-settings',
+  ShellOpenExternal: 'shell:open-external',
   ShellSetSettings: 'shell:set-settings',
   /** 壳子设置页：拉取插件已注册的设置 section 列表 */
   ShellGetSettingsSections: 'shell:get-settings-sections',
@@ -216,20 +235,6 @@ export const IpcChannels = {
   PluginCall: 'plugin:call',
   PluginEvent: 'plugin:event',
 
-  /** 插件 pin 小窗 preload → 主进程：关闭 pin 窗口 */
-  PluginPinClose: 'plugin:pin-close',
-
-  /** 录屏 region 选区 overlay preload → 主进程：确认 / 取消选区 */
-  PluginRegionConfirm: 'plugin:region-confirm',
-  PluginRegionCancel: 'plugin:region-cancel',
-
-  /** 录音插件 preload → 主进程：录音生命周期与 PCM 分片 */
-  PluginRecorderStarted: 'plugin:recorder-started',
-  PluginRecorderFailed: 'plugin:recorder-failed',
-  PluginRecorderAudioUnavailable: 'plugin:recorder-audio-unavailable',
-  PluginRecorderChunk: 'plugin:recorder-chunk',
-  PluginRecorderStopped: 'plugin:recorder-stopped',
-
   /** 壳子 → 主进程：读取 plugin:call 调用跟踪环形缓冲（DevConsole） */
   ShellGetPluginTrace: 'shell:get-plugin-trace',
 
@@ -267,6 +272,8 @@ export type ToastKind = 'info' | 'success' | 'warn' | 'error'
 
 /** shell:event 负载类型 */
 export type ShellEventPayload =
+  | { type: 'titlebar-native-hover'; inside: boolean }
+  | { type: 'theme-chrome-status'; surface: 'classic'; ready: boolean }
   | { type: 'preview-splash' }
   | { type: 'home-status'; state: import('./homeSurface').HomeSurfaceState }
   | { type: 'quick-input'; state: QuickInputState | null }
@@ -281,6 +288,7 @@ export type ShellEventPayload =
   | { type: 'theme-changed'; mode: 'light' | 'dark' | 'system' }
   /** 独立窗口按变更键重读设置，不携带插件私有设置或重复触发持久化。 */
   | { type: 'settings-changed'; generalKeys: string[] }
+  | { type: 'plugin-settings-changed'; pluginId: string }
   | { type: 'locale-changed'; locale: 'zh-CN' | 'en-US' }
   | { type: 'theme-packs-changed' }
   | { type: 'appearance-changed'; revision: number; appearance: ResolvedAppearance }
@@ -371,6 +379,8 @@ export interface OrbRailState {
     glyph: string
     icon?: string | null
     badge?: string
+    lazy?: boolean
+    crashed?: boolean
   }>
   /**
    * rail-entries 插槽贡献（插件贡献点，声明式）：orb 模式左侧轨道底部入口。
@@ -455,102 +465,43 @@ export interface UpdateStatePayload {
 
 /** 主进程 → 插件 WebContents（IpcChannels.PluginEvent）负载 */
 export type PluginEventPayload =
+  | AuxiliaryEvent
+  | { type: 'deadline-task-change'; taskId: string }
   | { type: 'backend.event'; event: string; data: unknown }
+  | { type: 'background.event'; event: string; data: unknown }
   | { type: 'quick-input-change'; value: string }
   | { type: 'quick-input-action'; action: QuickInputAction }
   | { type: 'settings-change'; key: string; value: unknown }
-  | { type: 'clipboard-history-change' }
-  | { type: 'focus-timer-change'; snapshot: FocusTimerSnapshot }
   | {
       type: 'theme-change'
       mode: 'light' | 'dark'
       tokens: Record<string, string>
     }
   | { type: 'appearance-change'; appearance: ResolvedAppearance }
-  /** 插件注册的全局热键被按下（enest.hotkey.register 的回调触发） */
   | {
       type: 'hotkey'
       accelerator: string
     }
-  /** 壳子界面语言变更（settings.general.locale 变化时广播） */
   | {
       type: 'locale-change'
       locale: 'zh-CN' | 'en-US'
     }
-  /**
-   * 插件启动方式变更（quick ↔ shell 容器迁移，不重载页面）：
-   * 插件经 enest.onModeChange 监听，据此切换小窗/桌面两套入口样式；
-   * enest.getLaunchMode() 同步返回当前值。
-   */
   | {
       type: 'mode-change'
       mode: PluginLaunchMode
     }
-  /**
-   * Quick 搜索查询（主进程 → 注册了 quick provider 的插件）：
-   * 插件经 enest.contribute.onQuickQuery 监听，计算结果后用
-   * enest.contribute.respondQuickQuery(reqId, items) 回传（500ms 超时丢弃）。
-   */
   | {
       type: 'quick-query'
       reqId: string
       query: string
     }
-  /** SSH 会话数据/退出/错误/指标（com.github.eNest.ssh） */
-  | SshPluginEvent
-  /** 中间件控制台实时事件：tail 监听消息 / 连接与监听错误 */
-  | MwPluginEvent
-  /**
-   * SFTP 传输进度（ssh.sftp.download / ssh.sftp.upload 过程推送）：
-   * 主进程按 200ms / 64KB 双阈值节流；终态 done=true，失败附 error。
-   * path 为远端路径；total 为 0 表示未知（预取大小失败时）。
-   */
-  | {
-      type: 'ssh.transfer'
-      sessionId: string
-      direction: 'upload' | 'download'
-      path: string
-      transferred: number
-      total: number
-      done?: boolean
-      error?: string
-    }
-  /** DSH 驾驶舱事件（dsh.*）：web 进程就绪/端口重设、sdk JSON-RPC 通知、热更新进度（com.github.eNest.dsh） */
-  | { type: 'dsh.event'; event: DshWorkbenchEvent }
-  /**
-   * net.socket 出站 TCP 连接数据（net.socket.connect 的 socketId 对应流）：
-   * chunk 为 base64；插件经 enest.onNetData / enest.on('net.data') 订阅。
-   */
   | { type: 'net.data'; socketId: string; chunk: string }
-  /** net.socket 连接关闭；reason 为对端关闭 / 本端关闭 / 错误信息 */
   | { type: 'net.close'; socketId: string; reason: string }
   | { type: 'net.websocket.message'; socketId: string; data: string; binary: boolean }
   | { type: 'net.websocket.close'; socketId: string; code: number; reason: string }
-  /**
-   * net.fetch 流式响应分片（大响应 > 2MB 部分与 SSE stream 模式）：
-   * chunk 为 base64（utf8 安全回传）；done=true 终态；error 附失败原因。
-   */
   | { type: 'net.chunk'; reqId: string; chunk: string; done?: boolean; error?: string }
-  /**
-   * 局域网传件下载请求（lan.share.start 的 shareId 对应服务）：
-   * 每个命中白名单且取件码校验通过的下载请求推送一次，插件据此做传输日志。
-   */
-  | { type: 'lan.request'; shareId: string; file: string; ip: string; ts: number }
-  /** 分享关停（到期 / stop / 插件关闭）；reason 见 lanShareService */
-  | { type: 'lan.stopped'; shareId: string; reason: string }
-  /**
-   * 壳统一通知（关键节点标准信封）：enest.onNotice / enest.on('shell-notice')。
-   * topic 见 ShellNoticeDataMap（update.* / save.requested / app.before-quit / appearance.changed）。
-   */
   | { type: 'shell-notice'; notice: ShellNotice }
 
-/** mw.* 事件负载别名（mwSessionManager → 插件 WebContents） */
-export type MwPluginEvent =
-  | { type: 'mw.data'; sessionKey: string; tailId: string; message: MwMessage }
-  | { type: 'mw.error'; sessionKey?: string; tailId?: string; error: string }
-
-/** dsh.* 事件负载别名（dshRuntimeService → 插件 WebContents） */
-export type DshPluginEvent = { type: 'dsh.event'; event: DshWorkbenchEvent }
 
 /** 安装队列任务对外视图（active / waiting 列表项） */
 export interface InstallJobInfo {

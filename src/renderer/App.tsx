@@ -1,9 +1,8 @@
 /** The bundled appearance loads directly; native Home readiness gates the launch animation handoff. */
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { ShellLayout } from '@renderer/layout/ShellLayout'
 import { NotificationHost } from '@renderer/components/NotificationHost'
 import { Splash } from '@renderer/components/Splash'
-import { QuickLauncherApp } from '@renderer/components/QuickLauncherApp'
 import { AppBackground } from '@renderer/components/AppBackground'
 import { Button } from '@renderer/components/ui/Button'
 import { useI18n } from '@renderer/hooks/useI18n'
@@ -12,6 +11,8 @@ import { useAppearanceSync } from '@renderer/hooks/useAppearanceSync'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { initMotion } from '@renderer/gsap/marketMotion'
 import { shellApi } from '@renderer/services/shellApi'
+
+const QuickLauncherApp = lazy(() => import('@renderer/components/QuickLauncherApp').then(module => ({ default: module.QuickLauncherApp })))
 
 function isQuickSurface(): boolean {
   if (typeof window === 'undefined') return false
@@ -24,7 +25,7 @@ function shouldSkipSplash(): boolean {
 
 export default function App() {
   useAppearanceSync()
-  const hydrateI18n = useI18n().hydrate
+  const { hydrate: hydrateI18n, t } = useI18n()
   const hydrateAppearance = useAppearanceStore((state) => state.hydrate)
   const hydrated = useAppearanceStore((state) => state.hydrated)
   const hydrateSessionTabs = useShellStore((s) => s.hydrateSessionTabs)
@@ -41,6 +42,18 @@ export default function App() {
   const quick = isQuickSurface()
   const view = useShellStore((s) => s.view)
   const workspaceReady = startupStatus === 'ready' && workspacePrepared && splashDone
+
+  useEffect(() => {
+    const openLink = (event: MouseEvent): void => {
+      if (!event.isTrusted || event.defaultPrevented || event.button !== 0 || !(event.target instanceof Element)) return
+      const anchor = event.target.closest<HTMLAnchorElement>('a[target="_blank"]')
+      if (!anchor) return
+      event.preventDefault()
+      void shellApi.openExternal(anchor.href).catch(error => console.warn('[enest] external link rejected', error instanceof Error ? error.message : 'invalid URL'))
+    }
+    document.addEventListener('click', openLink)
+    return () => document.removeEventListener('click', openLink)
+  }, [])
 
   useEffect(() => {
     if (quick) return
@@ -119,7 +132,7 @@ export default function App() {
     return () => { cancelled = true }
   }, [quick, startupStatus, hydrateSessionTabs])
 
-  if (quick) return <QuickLauncherApp />
+  if (quick) return <Suspense fallback={<div role="status">{t('common.loading')}</div>}><QuickLauncherApp /></Suspense>
 
   return (
     <>

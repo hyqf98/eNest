@@ -33,7 +33,7 @@ test('built application loads actual preloads and retires every plugin after imm
       await writeFile(join(fixture, 'assets/market/icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#257"/></svg>')
       await writeFile(join(fixture, 'assets/market/README.md'), '# Isolated smoke fixture')
       await writeFile(join(fixture, 'assets/market/screenshots/preview.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'))
-      await writeFile(join(fixture, 'plugin.json'), JSON.stringify({ id, name: id, description: 'Isolated native lifecycle smoke fixture', version: '1.0.0', main: 'index.html', icon: 'assets/market/icon.svg', market: {readme: 'assets/market/README.md', screenshots: ['assets/market/screenshots/preview.png']}, permissions: ['storage.local', 'timer.background', 'notify'] }))
+      await writeFile(join(fixture, 'plugin.json'), JSON.stringify({ id, name: id, description: 'Isolated native lifecycle smoke fixture', version: '1.0.0', main: 'index.html', icon: 'assets/market/icon.svg', market: {readme: 'assets/market/README.md', screenshots: ['assets/market/screenshots/preview.png']}, permissions: ['storage.local'] }))
       await writeFile(join(fixture, 'index.html'), '<!doctype html><html><head><meta charset="utf-8"><title>Lifecycle smoke</title></head><body><p>Plugin lifecycle smoke</p><script src="assets/fixture.js"></script></body></html>')
       await writeFile(join(fixture, 'assets/fixture.js'), `
         window.__smokeReady = false;
@@ -41,7 +41,7 @@ test('built application loads actual preloads and retires every plugin after imm
         window.enest.storage.session.set('counter', 1).then(() => { window.__smokeReady = true; }).catch(e => { window.__smokeError = e.message; });
       `)
     }
-    await writeFile(join(dataRoot, 'settings.json'), JSON.stringify({ theme: { mode: 'light', overrides: {} }, general: { quickLauncher: { enabled: false }, closeBehavior: 'quit', tabStyle: 'classic', sessionTabs: [] }, plugins: Object.fromEntries(ids.map(id => [id, { permissionGrants: { 'storage.local': 'allow', 'timer.background': 'allow' } }])) }))
+    await writeFile(join(dataRoot, 'settings.json'), JSON.stringify({ theme: { mode: 'light', overrides: {} }, general: { quickLauncher: { enabled: false }, closeBehavior: 'quit', tabStyle: 'classic', sessionTabs: [] }, plugins: Object.fromEntries(ids.map(id => [id, { permissionGrants: { 'storage.local': 'allow' } }])) }))
     const env = { ...process.env, ENEST_TEST_DATA_ROOT: dataRoot, ENEST_TEST_USER_DATA: userData }
     delete env.ELECTRON_RUN_AS_NODE
     delete env.ELECTRON_RENDERER_URL
@@ -65,7 +65,7 @@ test('built application loads actual preloads and retires every plugin after imm
     // actual standalone CJS artifacts, including inside a packaged app.asar.
     const auxiliary = await app.evaluate(async ({ app, BrowserWindow }) => {
       const result = []
-      for (const [name, bridge, method] of [['recorderPreload', 'recorderBridge', 'chunk'], ['regionOverlayPreload', 'regionOverlay', 'confirm'], ['pinPreload', 'pinCtl', 'close']]) {
+      for (const [name, bridge, method] of [['auxiliaryPreload', 'enestAux', 'close']]) {
         const probe = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, preload: app.getAppPath() + '/out/preload/' + name + '.cjs' } })
         try {
           await probe.loadURL('data:text/html;charset=utf-8,<title>Isolated preload probe</title>')
@@ -115,34 +115,6 @@ test('built application loads actual preloads and retires every plugin after imm
       assert.equal(destroyed.length, ids.length)
       measurements.push({ cycle, openMs, closeAckMs: ackMs, cleanupObservedMs: Date.now() - closedAt, destroyed, instances: after.host.entries.length, nativeRemaining, activities: after.resources.length, sessionBytes: after.session.residentBytes })
     }
-    // A secondary optional permission may settle after close. It must not start
-    // a persistent task for the closed generation or a subsequently reopened one.
-    const timerId = ids[0]
-    await app.evaluate(({ dialog }) => {
-      globalThis.__smokeOriginalDialog = dialog.showMessageBox
-      globalThis.__smokeNativePrompt = false
-      dialog.showMessageBox = () => new Promise(resolve => {
-        globalThis.__smokeNativePrompt = true
-        globalThis.__smokeResolvePrompt = resolve
-      })
-    })
-    await inShell(`window.enestShell.openPlugin(${JSON.stringify(timerId)})`)
-    const inPlugin = code => app.evaluate(({ webContents }, { id, code }) => {
-      const wc = webContents.getAllWebContents().find(wc => wc.getURL().includes(id))
-      if (!wc) throw new Error('Fixture web contents missing')
-      return wc.executeJavaScript(code)
-    }, { id: timerId, code })
-    await poll(() => inPlugin('window.__smokeReady'), Boolean)
-    await inPlugin("void window.enest.focusTimer.start({ notify: true }).catch(() => {})")
-    await poll(() => app.evaluate(() => globalThis.__smokeNativePrompt), Boolean)
-    await inShell(`window.enestShell.closePlugin(${JSON.stringify(timerId)})`)
-    await poll(() => inShell('window.enestShell.getPluginDiagnostics()'), value => value.host.closing === 0 && value.resources.length === 0)
-    await inShell(`window.enestShell.openPlugin(${JSON.stringify(timerId)})`)
-    await poll(() => inPlugin('window.__smokeReady'), Boolean)
-    await app.evaluate(({ dialog }) => { globalThis.__smokeResolvePrompt({response: 1, checkboxChecked: false}); dialog.showMessageBox = globalThis.__smokeOriginalDialog })
-    assert.equal((await inPlugin('window.enest.focusTimer.get()')).state.status, 'idle')
-    await inShell(`window.enestShell.closePlugin(${JSON.stringify(timerId)})`)
-    await poll(() => inShell('window.enestShell.getPluginDiagnostics()'), value => value.host.closing === 0 && value.resources.length === 0)
     assert.doesNotMatch(stderr + stdout, /Unable to load preload|uncaughtException|unhandledRejection|Error invoking remote method/)
     console.log('Built app lifecycle evidence:', JSON.stringify({ platform: process.platform, packaged: Boolean(packagedExecutable), shellSandbox, auxiliary, measurements }))
   } catch (error) {

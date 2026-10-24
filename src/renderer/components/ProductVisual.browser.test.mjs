@@ -16,7 +16,7 @@ test('real product screenshots use accessible dots, keep decoded frames during l
   const icon = await readFile(join(directory, 'public', manifest.icon))
   const bundled = await build({ stdin: { contents: `
     import React from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';
-    import {ProductVisual} from '@renderer/components/ProductVisual';
+    import {ProductVisual} from '@renderer/themes/default/workspace/ProductVisual';
     const root=createRoot(document.getElementById('root'));window.outerEvents={click:0,pointer:0,key:0};window.previewEvents=[];
     window.screenshotEvents=[];
     window.renderVisual=(plugin,active=true,screenshot)=>flushSync(()=>root.render(<div className="fixture" onClick={()=>window.outerEvents.click++} onPointerDown={()=>window.outerEvents.pointer++} onKeyDown={()=>window.outerEvents.key++}><ProductVisual plugin={plugin} active={active} screenshot={screenshot} onScreenshotChange={url=>window.screenshotEvents.push(url)} onPreviewChange={open=>window.previewEvents.push(open)}/></div>));

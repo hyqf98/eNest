@@ -27,7 +27,7 @@ const mark = splash.match(/<svg className="splash-mark"[\s\S]*?<\/svg>/)[0]
   .replaceAll('strokeLinejoin=', 'stroke-linejoin=')
   .replace(/pathLength=\{1\}/g, 'pathLength="1"')
 const fixture = `<div class="splash"><div class="splash-stage">${mark}<div class="splash-word">${[...'eNest'].map(c => `<span class="splash-word-char">${c}</span>`).join('')}</div><div class="splash-sub">可组合的桌面工作台</div></div></div>`
-const sources = ['./motionTokens.ts', './marketMotion.ts', './logoAssembly.ts', './splashMotion.ts'].map(browserSource).join('\n')
+const sources = ['./motionTokens.ts', './marketMotion.ts', '../themes/default/motion/logoAssembly.ts', '../themes/default/motion/splashMotion.ts'].map(browserSource).join('\n')
 
 test('five logo assemblies preserve the original mark and cleanly replay in real Chrome', {
   skip: chrome ? false : 'Set ENEST_CHROME_EXECUTABLE for real SVG/GSAP checks', timeout: 60_000,
@@ -35,7 +35,7 @@ test('five logo assemblies preserve the original mark and cleanly replay in real
   const browser = await chromium.launch({ executablePath: chrome, headless: true })
   try {
     const page = await browser.newPage({ viewport: { width: 720, height: 540 } })
-    const styles = readFileSync(new URL('../styles/splash.css', import.meta.url), 'utf8')
+    const styles = readFileSync(new URL('../themes/default/splash.css', import.meta.url), 'utf8')
     await page.setContent(`<style>body{margin:0;background:#122420} ${styles}</style>${fixture}`)
     await page.addScriptTag({ path: require.resolve('gsap/dist/gsap.js') })
     await page.addScriptTag({ content: `${sources}\nwindow.createLogoAssembly=createLogoAssembly;window.playSplash=playSplash;window.applyLevelToDefaults=applyLevelToDefaults;` })

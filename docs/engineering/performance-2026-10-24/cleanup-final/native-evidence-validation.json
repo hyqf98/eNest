@@ -1,0 +1,774 @@
+{
+  "schemaVersion": 1,
+  "status": "valid",
+  "validatedAt": "2026-10-24T07:23:20.932Z",
+  "validationScope": "Independent read-only arithmetic, identity/ownership consistency, recorded lifecycle and log/provenance reconciliation. Not a test-suite run or an independent OS process measurement.",
+  "inputs": [
+    {
+      "path": "docs/engineering/performance-2026-10-24/round-023/native-real-app-performance-cleanup-css-final-44.9.3.json",
+      "bytes": 284131,
+      "sha256": "37c2a861ee74a52657d2a44e9d6401fbfab8cabbefacc381e4b6ad35614b151a"
+    },
+    {
+      "path": "docs/engineering/performance-2026-10-24/round-023/native-real-app-performance-cleanup-css-final-44.9.3.txt",
+      "bytes": 17947,
+      "sha256": "80f2fcc796f446d75e466b628f7026092750a7b2aff5e1df835a74c21461ec8d"
+    }
+  ],
+  "label": "cleanup-css-final-44.9.3",
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "osRelease": "27.0.0",
+    "appVersion": "0.2.3",
+    "electron": "44.9.3",
+    "expectedElectron": "44.9.3",
+    "chromium": "152.0.7977.167",
+    "node": "24.22.0",
+    "logicalCpus": 8,
+    "totalSystemMemoryBytes": 17179869184
+  },
+  "summary": {
+    "stages": 6,
+    "samples": 24,
+    "processRows": 196,
+    "uniquePidIdentities": 15,
+    "arithmeticAndConsistencyComparisons": 2740,
+    "mismatches": 0,
+    "elapsedMeasurementMs": 55980.653833000004,
+    "allMetrics": "footprint",
+    "fallbackProcessRows": 0,
+    "unavailableProcessRows": 0,
+    "memoryCacheAgeMs": {
+      "min": 0,
+      "max": 893
+    },
+    "reportedChecks": 14,
+    "reportedUniqueCheckNames": 13,
+    "allReportedChecksPassed": true,
+    "consoleStageSummaries": 6,
+    "consoleInstallRecords": 32
+  },
+  "stageSummary": [
+    {
+      "name": "installed-32-idle",
+      "samples": 4,
+      "settleMs": 1100,
+      "sampleSpanMs": 6039,
+      "startedAt": 1792826109811,
+      "completedAt": 1792826116971,
+      "physFootprintMeanBytes": 414167632,
+      "physFootprintMeanMiB": 394.9810333251953,
+      "cpuOneCoreMeanPercent": 1.2978500738728433,
+      "cpuValidIntervals": 3,
+      "cpuFirstSampleAvailable": false,
+      "uniquePidCounts": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "pidsStableWithinStage": true,
+      "logicalTabs": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "live": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "hibernated": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "finalFootprintMiB": 388.1490020751953
+    },
+    {
+      "name": "six-logical-tabs",
+      "samples": 4,
+      "settleMs": 1100,
+      "sampleSpanMs": 6043,
+      "startedAt": 1792826118174,
+      "completedAt": 1792826125332,
+      "physFootprintMeanBytes": 644457128,
+      "physFootprintMeanMiB": 614.6022109985352,
+      "cpuOneCoreMeanPercent": 5.463622965884727,
+      "cpuValidIntervals": 3,
+      "cpuFirstSampleAvailable": false,
+      "uniquePidCounts": [
+        12,
+        12,
+        12,
+        12
+      ],
+      "pidsStableWithinStage": true,
+      "logicalTabs": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "live": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "hibernated": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "finalFootprintMiB": 588.7818984985352
+    },
+    {
+      "name": "eight-logical-tabs-production-limit-six",
+      "samples": 4,
+      "settleMs": 1100,
+      "sampleSpanMs": 6051,
+      "startedAt": 1792826125670,
+      "completedAt": 1792826132835,
+      "physFootprintMeanBytes": 646423232,
+      "physFootprintMeanMiB": 616.4772338867188,
+      "cpuOneCoreMeanPercent": 18.353550708010598,
+      "cpuValidIntervals": 3,
+      "cpuFirstSampleAvailable": false,
+      "uniquePidCounts": [
+        12,
+        12,
+        12,
+        12
+      ],
+      "pidsStableWithinStage": true,
+      "logicalTabs": [
+        8,
+        8,
+        8,
+        8
+      ],
+      "live": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "hibernated": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "finalFootprintMiB": 576.3444213867188
+    },
+    {
+      "name": "after-closing-eight",
+      "samples": 4,
+      "settleMs": 1100,
+      "sampleSpanMs": 6038,
+      "startedAt": 1792826132948,
+      "completedAt": 1792826140105,
+      "physFootprintMeanBytes": 448750214,
+      "physFootprintMeanMiB": 427.9615535736084,
+      "cpuOneCoreMeanPercent": 1.6562513465908488,
+      "cpuValidIntervals": 3,
+      "cpuFirstSampleAvailable": false,
+      "uniquePidCounts": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "pidsStableWithinStage": true,
+      "logicalTabs": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "live": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "hibernated": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "finalFootprintMiB": 380.4615478515625
+    },
+    {
+      "name": "repeat-single-open",
+      "samples": 4,
+      "settleMs": 1100,
+      "sampleSpanMs": 6036,
+      "startedAt": 1792826140358,
+      "completedAt": 1792826147511,
+      "physFootprintMeanBytes": 461862950,
+      "physFootprintMeanMiB": 440.466833114624,
+      "cpuOneCoreMeanPercent": 7.006822604771325,
+      "cpuValidIntervals": 3,
+      "cpuFirstSampleAvailable": false,
+      "uniquePidCounts": [
+        7,
+        7,
+        7,
+        7
+      ],
+      "pidsStableWithinStage": true,
+      "logicalTabs": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "live": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "hibernated": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "finalFootprintMiB": 423.1035461425781
+    },
+    {
+      "name": "repeat-single-closed",
+      "samples": 4,
+      "settleMs": 1100,
+      "sampleSpanMs": 6035,
+      "startedAt": 1792826147531,
+      "completedAt": 1792826154685,
+      "physFootprintMeanBytes": 449389238,
+      "physFootprintMeanMiB": 428.5709743499756,
+      "cpuOneCoreMeanPercent": 1.0149529411919862,
+      "cpuValidIntervals": 3,
+      "cpuFirstSampleAvailable": false,
+      "uniquePidCounts": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "pidsStableWithinStage": true,
+      "logicalTabs": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "live": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "hibernated": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "finalFootprintMiB": 383.8365936279297
+    }
+  ],
+  "pidOwnership": [
+    {
+      "pid": 2758,
+      "startedAt": 1792826098065,
+      "cpuCreatedAt": 1792826098065.232,
+      "pluginIds": [],
+      "samples": 24
+    },
+    {
+      "pid": 2759,
+      "startedAt": 1792826098769,
+      "cpuCreatedAt": 1792826098769.834,
+      "pluginIds": [],
+      "samples": 24
+    },
+    {
+      "pid": 2760,
+      "startedAt": 1792826098790,
+      "cpuCreatedAt": 1792826098790.477,
+      "pluginIds": [],
+      "samples": 24
+    },
+    {
+      "pid": 2768,
+      "startedAt": 1792826099420,
+      "cpuCreatedAt": 1792826099420.136,
+      "pluginIds": [],
+      "samples": 24
+    },
+    {
+      "pid": 2770,
+      "startedAt": 1792826099450,
+      "cpuCreatedAt": 1792826099450.385,
+      "pluginIds": [],
+      "samples": 24
+    },
+    {
+      "pid": 2772,
+      "startedAt": 1792826101923,
+      "cpuCreatedAt": 1792826101923.585,
+      "pluginIds": [],
+      "samples": 24
+    },
+    {
+      "pid": 2811,
+      "startedAt": 1792826116998,
+      "cpuCreatedAt": 1792826116998.287,
+      "pluginIds": [
+        "com.github.eNest.calculator"
+      ],
+      "samples": 4
+    },
+    {
+      "pid": 2812,
+      "startedAt": 1792826117335,
+      "cpuCreatedAt": 1792826117335.306,
+      "pluginIds": [
+        "com.github.eNest.cron"
+      ],
+      "samples": 4
+    },
+    {
+      "pid": 2813,
+      "startedAt": 1792826117505,
+      "cpuCreatedAt": 1792826117505.649,
+      "pluginIds": [
+        "com.github.eNest.regex"
+      ],
+      "samples": 8
+    },
+    {
+      "pid": 2814,
+      "startedAt": 1792826117674,
+      "cpuCreatedAt": 1792826117674.868,
+      "pluginIds": [
+        "com.github.eNest.password-kit"
+      ],
+      "samples": 8
+    },
+    {
+      "pid": 2816,
+      "startedAt": 1792826117839,
+      "cpuCreatedAt": 1792826117839.769,
+      "pluginIds": [
+        "com.github.eNest.timestamp"
+      ],
+      "samples": 8
+    },
+    {
+      "pid": 2817,
+      "startedAt": 1792826118010,
+      "cpuCreatedAt": 1792826118010.306,
+      "pluginIds": [
+        "com.github.eNest.todos"
+      ],
+      "samples": 8
+    },
+    {
+      "pid": 2828,
+      "startedAt": 1792826125340,
+      "cpuCreatedAt": 1792826125340.59,
+      "pluginIds": [
+        "com.github.eNest.sketchbook"
+      ],
+      "samples": 4
+    },
+    {
+      "pid": 2829,
+      "startedAt": 1792826125508,
+      "cpuCreatedAt": 1792826125508.348,
+      "pluginIds": [
+        "com.github.eNest.sticky-notes"
+      ],
+      "samples": 4
+    },
+    {
+      "pid": 2846,
+      "startedAt": 1792826140113,
+      "cpuCreatedAt": 1792826140113.678,
+      "pluginIds": [
+        "com.github.eNest.calculator"
+      ],
+      "samples": 4
+    }
+  ],
+  "lifecycle": {
+    "originalHostPids": [
+      2758,
+      2759,
+      2760,
+      2768,
+      2770,
+      2772
+    ],
+    "measuredNativeViews": [
+      {
+        "pluginId": "com.github.eNest.calculator",
+        "generation": 1,
+        "wcId": 4,
+        "destroyedAt": 1792826125372
+      },
+      {
+        "pluginId": "com.github.eNest.cron",
+        "generation": 2,
+        "wcId": 5,
+        "destroyedAt": 1792826125518
+      },
+      {
+        "pluginId": "com.github.eNest.regex",
+        "generation": 3,
+        "wcId": 6,
+        "destroyedAt": 1792826132938
+      },
+      {
+        "pluginId": "com.github.eNest.password-kit",
+        "generation": 4,
+        "wcId": 7,
+        "destroyedAt": 1792826132920
+      },
+      {
+        "pluginId": "com.github.eNest.timestamp",
+        "generation": 5,
+        "wcId": 8,
+        "destroyedAt": 1792826132902
+      },
+      {
+        "pluginId": "com.github.eNest.todos",
+        "generation": 6,
+        "wcId": 9,
+        "destroyedAt": 1792826132888
+      },
+      {
+        "pluginId": "com.github.eNest.sketchbook",
+        "generation": 7,
+        "wcId": 10,
+        "destroyedAt": 1792826132871
+      },
+      {
+        "pluginId": "com.github.eNest.sticky-notes",
+        "generation": 8,
+        "wcId": 11,
+        "destroyedAt": 1792826132844
+      },
+      {
+        "pluginId": "com.github.eNest.calculator",
+        "generation": 9,
+        "wcId": 12,
+        "destroyedAt": 1792826147529
+      }
+    ],
+    "allMeasuredViewsDestroyedBeforeUiHold": true,
+    "reportedCloseOperations": 9,
+    "afterClose": {
+      "host": {
+        "opening": 0,
+        "closing": 0,
+        "retiring": 0,
+        "logicalTabs": 0,
+        "live": 0,
+        "hibernated": 0,
+        "coldShellTabs": 0,
+        "lazyDetached": 0,
+        "restoringDetached": 0,
+        "tabPresentations": 0
+      },
+      "entries": 0,
+      "resources": 0,
+      "utilities": 0,
+      "backgrounds": 0,
+      "auxiliary": {
+        "windows": 0,
+        "captureWindows": 0,
+        "reservedSlots": 0,
+        "payloadReservationBytes": 0
+      },
+      "streams": {
+        "streams": 0,
+        "pendingWrites": 0,
+        "queuedBytes": 0
+      },
+      "session": {
+        "bytes": 0,
+        "residentBytes": 0,
+        "plugins": 0
+      },
+      "storage": {
+        "cacheBytes": 0,
+        "dirtyBytes": 0,
+        "dirtyKeys": 0,
+        "plugins": 0
+      }
+    },
+    "repeatClosed": {
+      "host": {
+        "opening": 0,
+        "closing": 0,
+        "retiring": 0,
+        "logicalTabs": 0,
+        "live": 0,
+        "hibernated": 0,
+        "coldShellTabs": 0,
+        "lazyDetached": 0,
+        "restoringDetached": 0,
+        "tabPresentations": 0
+      },
+      "entries": 0,
+      "resources": 0,
+      "utilities": 0,
+      "backgrounds": 0,
+      "auxiliary": {
+        "windows": 0,
+        "captureWindows": 0,
+        "reservedSlots": 0,
+        "payloadReservationBytes": 0
+      },
+      "streams": {
+        "streams": 0,
+        "pendingWrites": 0,
+        "queuedBytes": 0
+      },
+      "session": {
+        "bytes": 0,
+        "residentBytes": 0,
+        "plugins": 0
+      },
+      "storage": {
+        "cacheBytes": 0,
+        "dirtyBytes": 0,
+        "dirtyKeys": 0,
+        "plugins": 0
+      }
+    },
+    "shutdown": {
+      "host": {
+        "opening": 0,
+        "closing": 0,
+        "retiring": 0,
+        "logicalTabs": 0,
+        "live": 0,
+        "hibernated": 0,
+        "coldShellTabs": 0,
+        "lazyDetached": 0,
+        "restoringDetached": 0,
+        "tabPresentations": 0
+      },
+      "entries": 0,
+      "resources": 0,
+      "utilities": 0,
+      "backgrounds": 0,
+      "auxiliary": {
+        "windows": 0,
+        "captureWindows": 0,
+        "reservedSlots": 0,
+        "payloadReservationBytes": 0
+      },
+      "streams": {
+        "streams": 0,
+        "pendingWrites": 0,
+        "queuedBytes": 0
+      },
+      "session": {
+        "bytes": 0,
+        "residentBytes": 0,
+        "plugins": 0
+      },
+      "storage": {
+        "cacheBytes": 0,
+        "dirtyBytes": 0,
+        "dirtyKeys": 0,
+        "plugins": 0
+      }
+    },
+    "remainingHostWebContentsAtWillQuit": [
+      {
+        "id": 15,
+        "type": "window"
+      },
+      {
+        "id": 1,
+        "type": "window"
+      }
+    ],
+    "shutdownCompleted": true,
+    "launch": {
+      "exitCode": 0,
+      "exitSignal": null,
+      "timedOut": false,
+      "interrupted": false,
+      "spawnError": null
+    },
+    "temporaryProfileRemovedReported": true
+  },
+  "retainedCaches": {
+    "baselineAssetBytes": 613852,
+    "afterMeasuredCloseAssetBytes": 613852,
+    "shutdownAfterGuiAssetBytes": 668778,
+    "shutdownMinusBaselineBytes": 54926,
+    "assetsBoundBytes": 33554432
+  },
+  "guiHold": {
+    "startedAt": 1792826154686,
+    "requestedMs": 180000,
+    "measured": false,
+    "completedAt": 1792826334689
+  },
+  "logReconciliation": {
+    "stageSummaryFieldsMatch": true,
+    "perSampleNumericConsoleSummaries": 0,
+    "note": "The native harness log has six stage summaries (sample count/live count/final PID count), not 24 per-sample numeric CPU or memory summaries. Per-process arithmetic is reconciled from raw JSON.",
+    "stderrEvents": {
+      "offlineRegistryRequests": {
+        "count": 3,
+        "lines": [
+          "2026-10-24 15:14:59.194 [WARN] [registry] market https://github.com/hyqf98/eNest_plugin/releases/latest/download/registry-darwin-arm64.json → Native performance probe is intentionally offline (proxy=none)",
+          "2026-10-24 15:14:59.195 [WARN] [registry] market https://github.com/hyqf98/eNest_plugin/releases/latest/download/registry.json → Native performance probe is intentionally offline (proxy=none)",
+          "2026-10-24 15:14:59.196 [WARN] [registry] market https://raw.githubusercontent.com/hyqf98/eNest_plugin/main/registry.json → Native performance probe is intentionally offline (proxy=none)"
+        ]
+      },
+      "offlineRegistryFallback": {
+        "count": 1,
+        "lines": [
+          "2026-10-24 15:14:59.196 [WARN] [registry] remote market empty or unreachable, keep verified catalog and installed plugins"
+        ]
+      },
+      "sandboxWarning": {
+        "count": 1,
+        "lines": [
+          "sandbox_extension_issue_file failed for <repository>/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/Resources: 1 (Operation not permitted)"
+        ]
+      },
+      "gpuMailboxError": {
+        "count": 1,
+        "lines": [
+          "[2759:1024/151810.028247:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox."
+        ]
+      },
+      "quitIpcRejection": {
+        "count": 1,
+        "lines": [
+          "Error occurred in handler for 'home:get-config': Error: IPC denied: untrusted surface or frame"
+        ]
+      },
+      "stackContinuations": {
+        "count": 4,
+        "lines": [
+          "    at assertSurfaceSender (file:///private<temporary-profile>/main.mjs:409:11)",
+          "    at file:///private<temporary-profile>/main.mjs:31650:7",
+          "    at Session.<anonymous> (node:electron/js2c/browser_init:1:119048)",
+          "    at Session.emit (node:events:514:28)"
+        ]
+      }
+    },
+    "unclassifiedStderr": [],
+    "capturedNativeFailures": []
+  },
+  "provenance": {
+    "currentBuildArtifacts": [
+      {
+        "path": "out/main/pluginInstallWorker.js",
+        "bytes": 1759,
+        "sha256": "6a5afe09696c433139ac742677c95d538b2783408cb855052163cf8cc1ec15db",
+        "matchesReported": true
+      },
+      {
+        "path": "out/renderer/index.html",
+        "bytes": 3047,
+        "sha256": "d1f9e820e132284a0c354294843e0ae9e3e924119131f08f20e4db86818bd054",
+        "matchesReported": true
+      },
+      {
+        "path": "out/renderer/home.html",
+        "bytes": 2144,
+        "sha256": "2163560d915a96c0e3f598a044189a022d32cd3aae5a9ac477f663b77594e871",
+        "matchesReported": true
+      },
+      {
+        "path": "out/preload/shellPreload.cjs",
+        "bytes": 16836,
+        "sha256": "7b0ca2e087f812ab3e554c92a528871901254c7c36dbbfc7cd4f0a8100e55702",
+        "matchesReported": true
+      },
+      {
+        "path": "out/preload/pluginPreload.cjs",
+        "bytes": 19074,
+        "sha256": "97ac362e3bf955dcd21e52b486268da3dc155d688904c20284e3989655d93e82",
+        "matchesReported": true
+      },
+      {
+        "path": "out/preload/backgroundPreload.cjs",
+        "bytes": 1856,
+        "sha256": "0a02a0b4e1e71c97aa2bb1fc02b68613d2f395f0633a3ed3c7c90f542a142a1b",
+        "matchesReported": true
+      },
+      {
+        "path": "out/preload/auxiliaryPreload.cjs",
+        "bytes": 525,
+        "sha256": "4d3f3a5f7c0deac71fe8f98a11f6c673650874d40a4d53809d1a9c66d8c78be5",
+        "matchesReported": true
+      },
+      {
+        "path": "out/preload/homePreload.cjs",
+        "bytes": 1274,
+        "sha256": "d84388c973a677a639a370b0228872788395067acfcc6bf6446a856f2d0fbc49",
+        "matchesReported": true
+      },
+      {
+        "path": "out/preload/modalPreload.cjs",
+        "bytes": 401,
+        "sha256": "5d381aab65708797149e6c9f27cfeca775d06571f16d53f66e0b19de20899d91",
+        "matchesReported": true
+      },
+      {
+        "path": "out/preload/themeChromePreload.cjs",
+        "bytes": 651,
+        "sha256": "79284175bad9f0f48a1a8437e41974309272a1af11c37c6695f99e91251ff077",
+        "matchesReported": true
+      },
+      {
+        "path": "native/bin/process-memory-helper",
+        "bytes": 50488,
+        "sha256": "d7cd7aaa0ff7b66f707dee92fe37db48026865e0a1e86af902ace48aca900123",
+        "matchesReported": true
+      }
+    ],
+    "currentSourceHashesMatch": true,
+    "temporaryBundledMainSha256Reported": "c84d24a2231b52e38bb7d1e66040fa0bbc8b64bea34e44cce6b66c5233825bb3",
+    "temporaryBundledMainIndependentlyRehashed": false
+  },
+  "warnings": [
+    "Chromium GPU mailbox error appeared during the unmeasured GUI hold; no renderer-exit/native failure was captured. Do not report an error-free stderr run.",
+    "One home:get-config IPC rejection appeared during shutdown. It was denied, not a successful unauthorised call; it remains a recorded shutdown warning.",
+    "GUI interaction changed bounded asset retention after measured stages; final shutdown asset cache is not identical to baseline."
+  ],
+  "limitations": [
+    "Short one-run observation: four memory samples and three valid CPU intervals per stage, about six seconds of sample span, after 1100 ms settle. Not a long-run leak, FPS, external workload or statistically controlled optimisation result.",
+    "Eight logical tabs use six live renderers and two hibernated tabs; they are not eight resident plugin processes.",
+    "Memory is the sum of unique app-owned PID phys_footprint records; shared GPU/host memory is not precise exclusive per-plugin RAM. The native sample cache is not a synchronous OS read at every instant.",
+    "CPU uses same-PID, same-Electron-creationTime and same OS-start identity cumulative deltas, single-core 100 percent. Stage-first CPU values are unavailable. Exited-process interval CPU cannot be recovered from the current process list.",
+    "Reported owner IDs and generation consistency were reconciled; this does not independently prove each PID attribution outside the host-provided diagnostic rows.",
+    "The runner reports temporary profile removal. Sanitized evidence does not retain a usable original temporary path, so this validation does not independently recheck directory deletion or prove that all OS child PIDs exited.",
+    "Two host WebContents remain in the will-quit snapshot; measured plugin WebContents were independently matched to their recorded destroyed timestamps, but not every host OS child is separately verified gone.",
+    "Real source main + current renderer/preloads/installer are used; final ZIP runtime and Windows/Linux runtime are not verified here. GUI hold lies outside the performance stages.",
+    "This run is not a new real Settings performance-export/UI reconciliation; do not relabel prior settings-export evidence as belonging to this build.",
+    "Temporary native harness bundle was deleted. Its recorded bundle hash is retained but cannot be independently rehashed from the evidence set."
+  ],
+  "errors": []
+}

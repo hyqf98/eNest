@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-24T06:58:22.789Z",
+  "stage": "native-input-preflight-only",
+  "target": "linux-x64",
+  "packageGenerated": false,
+  "builderInvoked": false,
+  "helper": {
+    "format": "macho",
+    "architectures": [
+      "arm64",
+      "x64"
+    ]
+  },
+  "present": [
+    "clipboard-helper",
+    "clipboard-helper.ps1",
+    "process-memory-helper",
+    "process-memory-helper.ps1"
+  ],
+  "missing": [
+    "lib",
+    "licenses",
+    "linux-dependencies.json",
+    "THIRD-PARTY-NOTICES.txt"
+  ],
+  "error": "Unexpected linux native payload: clipboard-helper, clipboard-helper.ps1, process-memory-helper, process-memory-helper.ps1",
+  "requiredBaseline": "Linux x64 ELF helper with verified non-glibc dependency closure, license inventory and glibc <=2.35",
+  "limitations": [
+    "No Linux native runtime verification or Linux artifact generated on this macOS host.",
+    "Existing Docker can support an isolated Ubuntu 22.04 amd64 build, but installing its native build dependencies requires explicit user confirmation. No macOS tool, remote server or existing business service is changed.",
+    "A source-compatible verified Linux ELF and dependency closure are required before Linux packaging; current Mach-O inputs are intentionally rejected."
+  ],
+  "environmentReview": {
+    "checkedAt": "2026-10-24T07:09:06.130Z",
+    "method": "Read-only local tool/cache and Docker daemon inventory by cleanup_legacy_sources",
+    "docker": {
+      "available": true,
+      "daemonVersion": "29.8.2",
+      "daemonPlatform": "linux",
+      "daemonArch": "aarch64",
+      "existingBuilderAdvertisesAmd64": true
+    },
+    "readyCompliantX64BuilderImage": false,
+    "verifiedLinuxPayloadAvailable": false,
+    "existingDebianCache": "Only arm64 Bookworm images identified; glibc 2.36 does not satisfy release baseline",
+    "noNewContainerStarted": true,
+    "noToolOrDependencyInstalled": true
+  }
+}

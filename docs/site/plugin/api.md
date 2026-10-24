@@ -1,6 +1,6 @@
 # enest API 完整参考
 
-eNest 在每个插件页注入 **`window.enest`**，同时暴露别名 **`window.zapi`**（两者是同一个对象）。
+eNest 在普通插件主页面注入 **`window.enest`**，同时暴露别名 **`window.zapi`**（两者是同一个对象）。沙箱后台、辅助页和隔离主题页只获得各自的专用桥，不获得此完整 API。
 
 > **`zapi` 为 `@deprecated` 历史别名**：保留兼容，计划 v2 移除。新代码统一使用 `enest.*`；本地调试需要双名兜底时写 `window.enest`（壳子环境必有）。
 
@@ -52,7 +52,11 @@ resolve({ ok: true, data })
 
 ## 方法索引
 
-从 0.2.0 起，`db.*`、`mw.*`、`ssh.*` 的协议业务由调用方自己的插件后端实现；除 `db.pickSqliteFile`、`ssh.pickLocalFile` 两个宿主文件选择器外，这些 API 在表中所列权限之外还要求 `backend.node`。旧授权不包含完整 Node 信任；缺少后端的旧包需要更新。它们保留专用门面的会话/取消语义，不与 `backend.call` 的通用进程混用，见[迁移与兼容边界](backend.md)。
+插件自绘设置、`page` 入口与 Quick / 桌面原生容器的职责划分见[自绘设置与窗口边界](settings-and-windows.md)。普通插件不获得全量壳设置或原生窗口管理 API。
+
+从 0.2.2 起，AI 配置、局域网分享、数据库、中间件和 SSH 使用插件自己的适配器及 `enest.backend.call`；壳不再暴露 `agent`、`net.share`、`db`、`mw`、`ssh` 专用 API。番茄钟周期/统计位于插件，通用后台计划用 `deadlineTasks`。升级旧插件包后再使用新壳，见[本机后端与迁移](backend.md)。
+
+从 0.2.3 起，剪贴板历史属于 clipboard 插件的沙箱后台；选区、录制和贴图属于插件仓的 `@enest/native-surfaces`。原生 `window.enest` 不再提供 `clipboard.history.*`、`screen.selectRegion`、`screen.record.*` 或 `pin.*`。宿主保留剪贴板原生读写/观察、`screen.capture/displays`、通用 `background`、`auxiliary` 与私有 `files.stream`；兼容权限名仍然有效，但不是同名业务 API。
 
 | 命名空间 | 方法 | 权限 | 说明 |
 |---------|------|------|------|
@@ -75,54 +79,38 @@ resolve({ ok: true, data })
 | `hotkey` | `onHotkey(cb)` | 无 | 订阅热键触发 |
 | `i18n` | `getLocale()` | 无 | 读壳子语言 |
 | `i18n` | `onLocaleChange(cb)` | 无 | 订阅语言变更 |
-| 基础能力 | `registerQuickProvider(meta)` | 基础能力 | 注册 Quick 搜索 provider |
-| 基础能力 | `unregisterQuickProvider(id)` | 基础能力 | 注销 provider |
-| 基础能力 | `onQuickQuery(cb)` | 无 | 订阅 Quick 搜索查询（门禁在 `registerQuickProvider`，纯订阅不校验） |
-| 基础能力 | `respondQuickQuery(reqId, items)` | 基础能力 | 回传查询结果 |
+| `contribute` | `registerQuickProvider(meta)` | `contribute` | 注册会接收全局搜索文本的动态 Quick provider |
+| `contribute` | `unregisterQuickProvider(id)` | `contribute` | 注销 provider |
+| `contribute` | `onQuickQuery(cb)` | 无 | 订阅 Quick 搜索查询（门禁在 `registerQuickProvider`，纯订阅不校验） |
+| `contribute` | `respondQuickQuery(reqId, items)` | `contribute` | 回传当前 provider 的查询结果 |
 | `settings` | `register(section)` | 基础能力 | 注册设置分组 |
 | `settings` | `get(key)` | 无 | 读插件设置 |
 | `settings` | `set(key, value)` | 无 | 写插件设置 |
 | `storage` | `get/set/remove/clear` | 基础能力 | 持久化 KV |
 | `storage.session` | `get/set/remove/clear` | 基础能力 | 会话态 KV |
+| `storage.blobs` | `put/get/remove` | 基础能力 | 本插件私有图片附件 |
+| `background` | `call(method, args?, { timeoutMs? }?)` | 按声明事件校验 | 调用本插件沙箱后台的私有方法，不是 Node 后端 |
+| `auxiliary` | `open/send/close/list` | 普通窗口为基础能力；捕获/置顶另验权限 | 包内辅助页；辅助页只有 `enestAux` |
+| `files.stream` | `open/write/finish/abort` | 基础能力 | 当前实例的有界私有输出流，不接受目标路径 |
+| `clipboard` | `capabilities()` / `requestPermission()` | 无 / `clipboard.paste` | 查询平台能力 / 请求平台支持的回贴授权 |
 | `clipboard` | `readText()` | `clipboard.read` | 读纯文本 |
-| `clipboard` | `writeText(text)` | `clipboard.write` | 写纯文本 |
+| `clipboard` | `writeText(text, options?)` / `writeFiles(paths)` | `clipboard.write` | 写纯文本 / 文件引用 |
 | `clipboard` | `readImage()` | `clipboard.readImage` | 读图片 dataURL |
 | `clipboard` | `writeImage(dataUrl)` | `clipboard.writeImage` | 写图片 |
-| `clipboard.history` | `list/get/remove/clear/togglePin` | `clipboard.history` | 剪贴板历史 |
+| `clipboard` | `paste()` | `clipboard.paste` | 将已复制内容回贴到宿主捕获的原应用 |
+| `clipboard` | `inspectFiles(paths)` / `revealFile(path)` | 基础能力，仍校验目标 | 只检查已授权文件；定位前由原生选择确认签发能力 |
 | `screen` | `capture({ displayId?, bounds? })` | `screen.capture` | 截图 |
-| `screen` | `selectRegion()` | `screen.capture` | 全屏区域选择 |
-| `screen.record` | `start/stop/cancel` | `screen.record` | 矩形录屏 |
-| `pin` | `open/close/list/closeAll` | `pin.create` | 贴图窗口 |
+| `screen` | `displays()` | 基础能力 | 显示器几何、缩放与主屏标记，不读取屏幕内容 |
 | `net` | `fetch({ url, method?, headers?, body?, timeoutMs?, stream? })` | `net.fetch` | 受控 HTTP(S) / 流式 / SSE |
 | `net.socket` | `connect/send/close/list` / `serveWs(socketId)` | `net.socket` | 出站 TCP + 本地 ws 桥 |
 | `net` | `onNetData(cb)` / `onNetClose(cb)` / `onChunk(cb)` | 无（纯订阅） | `net.data` / `net.close` / `net.chunk` 事件 |
-| `agent` | `apps()` | 无 | 支持的应用及安装、活跃状态，不返回配置内容 |
-| `agent` | `read(app)` / `write({ app, changes, confirmed })` / `backups(app)` / `restore({ app, id })` / `listAssets` / `writeAssets` / `deleteAssets` | `config.agent.read` / `config.agent.write` | AI CLI 配置白名单读写（自动快照）+ 资产文件通道（如 codex pets/） |
 | `sys` | `processes()` / `ports()` / `kill(pid, opts)` | `sys.inspect` / `sys.control` | 本机进程 / 端口 / 结束确认 |
 | `shell` | `openExternal(url)` | `shell.openExternal` | 系统浏览器打开 |
 | `shell` | `saveFile(payload)` / `saveTextFile(payload)` | 基础能力 | 用户经原生对话框选定保存位置后写入 |
-| `focusTimer` | `start/get/pause/resume/skip/stop/updateRecord` | 基础能力 | 本插件后台计时与记录；计时通知仍受 `notify` 声明与拒绝设置控制 |
+| `deadlineTasks` | `start/get/pause/resume/skip/cancel/onChange` | 基础能力 | 插件自定义持久化步骤计划；不含业务周期/统计；通知单独校验 `notify` |
 | `vault` | `set(key, secret)` | 基础能力 | 存密钥，返回引用 |
 | `vault` | `has(keyOrRef)` | 基础能力 | 判断密钥是否存在 |
 | `vault` | `remove(keyOrRef)` | 基础能力 | 删除密钥 |
-| `ssh` | `connect(input)` / `disconnect(id)` / `listSessions()` | `ssh.session` | 连接管理 |
-| `ssh` | `write(id, data)` / `resize(id, cols, rows)` | `ssh.session` | 交互终端 |
-| `ssh` | `exec(input)` | `ssh.exec` | 执行命令取结果 |
-| `ssh` | `metrics.start/stop/latest` | `ssh.exec` | 服务器指标采样 |
-| `ssh` | `completion.suggest(input)` | `ssh.exec` | 命令补全 |
-| `ssh` | `sftp.list/download/upload/mkdir/rename/delete/chmod` | `ssh.sftp` | 文件传输与目录 / 权限操作；本地目标限用户选定的文件句柄 |
-| `ssh` | `onSshTransfer(cb)` | 无 | 订阅 SFTP 传输进度（`ssh.transfer`） |
-| `ssh` | `pickLocalFile(opts?)` | 基础能力 | 用户经原生选择器选择本地文件/目录 |
-| `db` | `test(config)` / `open(input)` / `close(key)` / `listSessions()` | `db.connect` | 连接管理 |
-| `db` | `execute(input)` / `explain(input)` / `cancel(key)` | `db.query` | 查询执行 |
-| `db` | `applyChanges(input)` | `db.query` | 表格化编辑回写 |
-| `db` | `importPreview(input)` / `importRun(input)` | `db.query` | CSV 导入 |
-| `db` | `schema.tree/describe/ddl` | `db.schema` | 库表结构 |
-| `db` | `completion(input)` | `db.schema` | SQL 补全 |
-| `db` | `dialects.list()` | `backend.node` | 本插件后端提供的方言资料 |
-| `db` | `workbench({ action: 'drivers.list' })` | `backend.node` | 本插件后端提供的驱动描述；其它 action 另按对应数据库权限校验 |
-| `db` | `pickSqliteFile()` / `pickImportFile()` | 基础能力 | 用户经原生选择器选择数据库文件 |
-| `mw` | `workbench(request)` | 按 action：`mw.connect` / `mw.query` / `mw.admin` | 中间件控制台统一入口（kafka / rabbitmq / mqtt / rocketmq）：连接、浏览、变更与实时监听；tail 消息经 `enest.on('mw.data')` 推送，错误经 `enest.on('mw.error')` |
 | — | `notify({ title?, body? })` | `notify` | 系统通知 |
 | — | `on(event, cb)` / `off(event, cb)` | 无 | 通用事件 |
 | — | `onEnter / onOut / onBeforeClose / onDestroy` | 无 | 生命周期 |
@@ -246,10 +234,12 @@ await enest.ui.setHeight(420)
 - 与 `quickInput.escape()` 分工：escape 是退出插件回全局搜索列表；dismissQuick 是收起整个小窗。
 
 ```js
-// 回车选中历史记录后自动收起（回贴由 clipboard.history.paste 内部完成收起）
-const result = await enest.clipboard.history.paste(id)
-if (!result.pasted && copiedAnyway) await enest.ui.dismissQuick()
+// 纯复制完成后收起；复制仍需 clipboard.write 授权。
+await enest.clipboard.writeText(resultText)
+await enest.ui.dismissQuick()
 ```
+
+没有 `enest.quick.hide()`。回贴使用 `enest.clipboard.paste()`：先由插件复制内容，宿主再验证原应用并按回贴流程隐藏 Quick；失败时可能恢复 Quick，插件应展示返回的 `reason`，不要无条件再次隐藏。
 
 ---
 
@@ -565,14 +555,14 @@ await enest.settings.register({
 
 ### `settings.get(key)`
 
-读取插件设置值。优先从设置桥读取，否则回落到壳子已持久化的插件设置。**只能读取注册过的设置项**（`settings.register` 或 `contributes.settings` 声明的 key）；宿主保留键（如 `permissionGrants`）不能注册、读取或写入。
+读取调用插件自己的设置值。已持久化值优先，无保存值时读取设置桥或声明的默认值。为兼容旧配置，合法的旧私有持久化键仍可读；未保存、未声明的键返回 `undefined`。宿主保留键（如 `permissionGrants`）不能注册、读取或写入；本接口不接受其它插件 ID。
 
 | | |
 |--|--|
 | **权限** | 无（由 Bridge / SettingsStore 管控） |
 | **参数** | `key: string` |
 | **返回** | `Promise<unknown>` — 未设置时为 `undefined` |
-| **错误** | `unknown settings key: <key>`（读取未注册的 key） |
+| **错误** | `reserved plugin settings key`（试图读取宿主保留键） |
 
 ```js
 const name = await enest.settings.get('name')
@@ -582,7 +572,7 @@ const name = await enest.settings.get('name')
 
 ### `settings.set(key, value)`
 
-写入插件设置，同时更新内存桥与持久化存储。**只能写注册过的设置项**。
+写入插件设置，同时更新内存桥与持久化存储。**只能写本插件注册过的非 page 设置项**，成功后经 `settings.onChange` 通知；`page` 仅是打开本插件页面的动作入口。
 
 | | |
 |--|--|
@@ -668,11 +658,11 @@ const text = await enest.clipboard.readText()
 
 ```js
 await enest.clipboard.writeText('已复制的内容')
-// 密码等敏感内容：宿主在写入前阻止并作废交错的历史采集，不把此次内容加入 eNest 历史。
+// 保留兼容参数；宿主自己的文本、图片和文件写入都不会回送原生变化观察器。
 await enest.clipboard.writeText(secret, { excludeFromHistory: true })
 ```
 
-`excludeFromHistory` 仅控制 eNest 的历史采集，不删除已有历史，也不能控制其他应用的剪贴板记录。宿主不延迟清空系统剪贴板，避免覆盖用户随后复制的新内容。
+`excludeFromHistory` 仍接受布尔值，但当前宿主已统一排除自己的写入，不因省略或传 `false` 而将内容送入后台。此机制不删除插件已有历史，也不能控制其它应用记录或插件自行持久化收到的数据。宿主不延迟清空系统剪贴板，避免覆盖用户随后复制的新内容。
 
 ### `clipboard.readImage()`
 
@@ -704,31 +694,60 @@ const { dataUrl } = await enest.screen.capture()
 await enest.clipboard.writeImage(dataUrl)
 ```
 
-### `clipboard.history.*` — 剪贴板历史
+### 文件、回贴与平台能力
 
-主机侧剪贴板历史（list 不含完整二进制；`get` 返回完整字段）。
+| 方法 | 返回 / 边界 |
+|---|---|
+| `clipboard.capabilities()` | `Promise<{ files, sourceApp, paste, permissionRequired, reason? }>`；布尔字段反映当前平台能力，不授予权限 |
+| `clipboard.requestPermission()` | 同上；需 `clipboard.paste`，只请求平台明确支持的系统授权，不授予持续观察权限 |
+| `clipboard.writeFiles(paths)` | `Promise<boolean>`；需 `clipboard.write`，只写文件引用，不复制原件或授予文件内容读取能力 |
+| `clipboard.paste()` | `Promise<{ pasted: boolean; reason?: string }>`；需 `clipboard.paste`，回贴当前已复制内容，不接收历史 ID、目标进程或键盘脚本 |
+| `clipboard.inspectFiles(paths)` | `Promise<Array<{path,exists:boolean\|null,directory?}>>`；未获当前实例文件能力的路径不探测，`exists` 为 `null` |
+| `clipboard.revealFile(path)` | `Promise<boolean>`；宿主先展示原生目标确认，确认并获得文件能力后才定位；取消不授予能力 |
 
-| 方法 | 参数 | 返回 | 说明 |
-|------|------|------|------|
-| `list(opts?)` | `{ limit?: number }`（缺省 100） | `Promise<ClipboardHistoryEntry[]>` | 历史列表（轻量字段） |
-| `get(id)` | `id: string` | `Promise<(ClipboardHistoryEntry & { dataUrl? }) \| null>` | 单条详情，图片含 dataUrl |
-| `remove(id)` | `id: string` | `Promise<boolean>` | 删除一条 |
-| `clear()` | — | `Promise<boolean>` | 清空历史 |
-| `togglePin(id)` | `id: string` | `Promise<ClipboardHistoryEntry>` | 置顶/取消置顶 |
+回贴目标由宿主在 Quick 呼出前捕获，失效、系统拒绝或平台不能恢复原窗口时返回 `pasted:false`。复制成功不等于回贴成功；失败时保留已复制内容并提示手动粘贴。来源不能可靠确认时不提供 `sourceApp`；Wayland 不承诺原窗口恢复。
 
-统一需 `clipboard.history` 权限。`ClipboardHistoryEntry` 字段：`id / type: 'text' | 'image' / preview / text? / hasImage? / width? / height? / ts / pinned / bytes?`。历史变化经 `clipboard-history-changed` 事件推送 `{ entryId, entryType }`。
+### 剪贴板历史属于插件，不是宿主命名空间
+
+clipboard 1.4.0 的历史模型、去重、置顶、保留、迁移解释与搜索位于插件自己的沙箱后台。它的前台通过 `enest.background.call('history.query', [options])` 等私有 RPC 访问；`history.*` 是该插件自行注册的方法，不是所有插件共有的宿主接口，也不允许跨插件调用。插件的 `createClipboardApi(host)` 只创建本地 facade，不修改或扩充冻结的 `window.enest`。
 
 ```js
-const list = await enest.clipboard.history.list({ limit: 20 })
-const entry = await enest.clipboard.history.get(list[0].id)
-if (entry?.hasImage) showImage(entry.dataUrl)
+// 仅 clipboard 插件自己的前台：方法名由其 background/history.mjs 实现。
+const page = await enest.background.call('history.query', [{ query: '草稿', limit: 20 }])
 ```
+
+`clipboard.history` 保留为敏感权限名，约束原生 `clipboard.changed` 观察及相关后台访问，不重新提供历史 CRUD。持续观察和 Quick 后台搜索要求持久 `allow`；本次运行授权只能支持当前前台实例调用其后台，不能开启持续采集。声明、设置绑定、停用与撤权见下节及[权限说明](permissions.md)。
 
 ---
 
-## screen — 屏幕截图与录屏
+## background — 插件私有沙箱后台
 
-?> **macOS 屏幕录制权限（TCC）**：`screen.*` 在 macOS 受系统「屏幕录制」门禁（`getMediaAccessStatus('screen')`）。首次调用会弹系统授权框；被拒后需到 系统设置 → 隐私与安全性 → 屏幕录制 中开启并 **重启 eNest**。系统层面已拒绝时调用直接报 `os permission denied: screen`（见 [错误码](errors.md)）。Linux Wayland 下截屏经系统 portal（壳子已启用 WebRTCPipeWireCapturer）；Windows 无额外系统门。
+manifest 的 `background` 声明包内生产 HTML、原生事件、可选的布尔设置绑定和 Quick 搜索能力。例如剪贴板插件使用以下声明，同时在 `contributes.settings` 注册 `monitoring` 开关，并声明 `clipboard.history` 权限：
+
+```json
+{
+  "background": {
+    "entry": "assets/background.html",
+    "events": ["clipboard.changed"],
+    "eventSettings": { "clipboard.changed": "monitoring" },
+    "quickSearch": true
+  }
+}
+```
+
+后台只有 `window.enestBackground`，没有普通插件 `enest`、Node、任意网络或路径访问。外部脚本调用 `register({onEvent?,call,search?})` 注册一次；`onEvent(event,data)` 接收已授权的原生快照，`call(method,args)` 执行本插件方法，`search(query,limit)` 返回本插件搜索结果。`clipboard.changed` 的数据是带 `revision/capturedAt/type` 的文本、图片或文件引用快照，不是历史记录；宿主只有一个共享的有界原生观察器，不执行历史策略。
+
+`enestBackground.host.private` 提供 `readDocument/writeDocument/getBlob/putBlob/removeBlob`，文档原子替换且数据只属于当前插件。`host.settings.get()` 只读本插件设置；`host.emit(event,data)` 只发到本插件存活前台的 `background.event`。`host.legacy` 仅提供宿主预定的一次性旧数据迁移源，不接受任意文件路径。业务必须等持久化完成再返回，串行化并发修改由插件实现。
+
+前台 `background.call(method,args?,{timeoutMs?}?)` 返回后台结果；默认超时30秒，可设250毫秒至24小时，仍受消息、并发与队列限制，不是无限期保活授权。后台可空闲回收并从私有文档重建。无授权、禁用、撤权或手动停止后不由设置刷新/Quick 查询偷偷唤醒；性能面板停止后，显式前台调用、禁用再启用或构建更新可以重新启用。关闭前台不等于关闭已获持久观察授权的事件订阅。
+
+源码预览的后台也必须有匹配 manifest 的 `dist/assets/background.html` 及构建后的脚本；缺失时明确失败，不以 Node、宽松网络或直接执行源码兜底。它与需完整本机信任的 `backend.node` 是不同机制。
+
+---
+
+## screen — 原生截图与显示器
+
+宿主 `screen` 只有 `capture` 与 `displays`。截图及辅助页显示捕获在 macOS 受系统「屏幕录制」TCC 控制；被拒后需到系统隐私设置开启并按系统要求重启 eNest。宿主 `allow` 不绕过系统门禁，拒绝报 `os permission denied: screen`。Linux Wayland 依赖系统 portal，实际平台行为需分别验证。
 
 ### `screen.capture(opts?)`
 
@@ -738,75 +757,58 @@ if (entry?.hasImage) showImage(entry.dataUrl)
 |--|--|
 | **权限** | `screen.capture` |
 | **参数** | `opts?: { displayId?: number; bounds?: ScreenBounds }` — 缺省主屏全屏；`bounds` 为设备像素（相对该 display），越界部分自动裁交 |
-| **返回** | `Promise<{ dataUrl: string; width: number; height: number }>` — PNG dataURL 与裁剪后尺寸 |
-| **错误** | `permission denied: screen.capture`；`screen capture failed: no display source` |
+| **返回** | `Promise<{ dataUrl: string; width: number; height: number; displayId?: number }>` — PNG dataURL、裁剪后尺寸与当前显示器 ID |
+| **错误** | `permission denied: screen.capture`、`os permission denied: screen`、`Requested display capture unavailable` 等 |
 
 ```js
 const shot = await enest.screen.capture({ displayId, bounds: { x, y, width, height } })
 ```
 
-### `screen.selectRegion()`
+### `screen.displays()`
 
-拉起全屏区域选择遮罩，用户框选一个矩形（设备像素，相对 capture 的 display）。
-
-| | |
-|--|--|
-| **权限** | `screen.capture`（与截图共用） |
-| **返回** | `Promise<ScreenBounds \| null>` — 用户取消时 `null` |
-
-```js
-const bounds = await enest.screen.selectRegion()
-if (bounds) await enest.screen.capture({ bounds })
-```
-
-### `screen.record.start(opts?)` / `stop(sessionId)` / `cancel(sessionId)`
-
-矩形录屏（webm，写入壳子数据根 `recordings/` 目录）。
-
-| 方法 | 参数 | 返回 |
-|------|------|------|
-| `start` | `opts?: { bounds?: ScreenBounds; withAudio?: boolean; displayId?: number }` | `Promise<{ sessionId: string }>` |
-| `stop` | `sessionId: string` | `Promise<{ path: string; size: number; durationMs: number }>` — 产物绝对路径 / 字节 / 时长 |
-| `cancel` | `sessionId: string` | `Promise<boolean>` — 丢弃录制 |
-
-统一需 `screen.record` 权限。同一时刻只允许一个录制会话（`recording already in progress`）；`stop` 返回未知的 sessionId 报 `recording session not found: <id>`。
-
-```js
-const { sessionId } = await enest.screen.record.start({ withAudio: true })
-// …
-const done = await enest.screen.record.stop(sessionId)
-console.log(done.path, done.size, done.durationMs)
-```
+基础能力，无需敏感权限；返回 `Promise<Array<{id,bounds,workArea,scaleFactor,primary}>>`。显示器几何是 Electron 的桌面逻辑坐标（DIP），截图 `bounds` 是相对目标截图的设备像素，不要直接混用。显示器移除后旧 ID 可能失效，应重新读取。
 
 ---
 
-## pin — 屏幕贴图
+## auxiliary / files.stream — 通用原生容器与私有输出
 
-置顶展示截图 / 图片的无边框小窗（可拖动、滚轮缩放、Esc 关闭）。
+普通插件用 `auxiliary.open({entry,data?,...})` 打开本插件 `assets/` 内的 HTML，返回 `{windowId}`；`send(windowId,data,{visible?}?)` 传消息或请求显示/隐藏，`close(windowId)` 关闭，`list()` 返回当前实例的 `{windowId,entry}[]`。几何、显示器和样式选项见自动生成的 `AuxiliaryOpen`。辅助页只有 `enestAux.getContext/onMessage/post/close`，`getContext()` 仅可消费一次；它不能调用主页面的剪贴板、设置、文件或完整 `enest`。前台通过 `auxiliary.message` / `auxiliary.closed` 接收带 `windowId` 的事件。
 
-### `pin.open(payload)`
+普通辅助窗口是基础 UI 能力；非捕获窗口的 `alwaysOnTop:true` 仍需兼容权限 `pin.create`，不是宿主贴图 API。`capture:{displayId?,withAudio?}` 需 `screen.record` 与系统许可，且主插件可见；只允许当前辅助页主 frame 在真实原生点击后请求一次指定显示器的 `getDisplayMedia`。不允许页面自报捕获 ID、合成激活、摄像头或麦克风权限；音频选项是平台支持时的系统 loopback，不保证每个平台可用。每插件最多8个辅助窗口、全局24个；窗口、代次、消息、Session 与活动租约由宿主有界管理。
 
-| | |
-|--|--|
-| **权限** | `pin.create` |
-| **参数** | `payload: { dataUrl?: string; path?: string; x?: number; y?: number; width?: number; title?: string }` — **当前仅接受 `dataUrl`**（`data:image/(png|jpeg|jpg|gif|webp);base64,` 格式；`path` 通道关闭，防任意本地文件读取）；`x/y/width` 为初始位置与宽度（缺省居中、360px，受工作区限制） |
-| **返回** | `Promise<{ pinId: string }>` |
-| **错误** | `pin.open requires image dataUrl` |
+`files.stream` 是基础私有输出能力，不是任意文件系统接口：
+
+| 方法 | 返回 / 边界 |
+|---|---|
+| `open({extension})` | `Promise<{streamId}>`；扩展名为1–12位小写字母/数字，不接受路径 |
+| `write(streamId,sequence,bytes)` | `Promise<void>`；`bytes` 为非空 `ArrayBuffer`，序号从0递增，等待 ACK 后继续写 |
+| `finish(streamId)` | `Promise<{id,path,size}>`；同步、关闭并提交私有文件后才成功 |
+| `abort(streamId)` | `Promise<boolean>`；丢弃未完成输出 |
+
+每插件最多2流、全局16流；每块512KiB、每流最多16个待写/8MiB排队、单文件1GiB、每插件私有输出4GiB。`path` 是宿主生成的结果，不是下一次任意路径读写授权。撤权/强制销毁会回收窗口、捕获轨和未完成输出；正常关闭只在有界收尾期内尝试保存，超时/磁盘失败不能显示保存成功。卸载清理该插件私有输出，不改写已保存的业务历史。
+
+---
+
+## 插件侧选区、录制与贴图
+
+官方插件共享包 `@enest/native-surfaces` 实现选区、图像缩放、贴图交互、MediaRecorder 与录制状态。它组合上述原生能力，创建独立 facade；不是 SDK 新命名空间，不改写 `window.enest`。插件需将此包及页面资产随自身构建，Vite 配置加入 `nativeSurfacesAssets()`（导入自 `@enest/native-surfaces/vite`），生成分发路径 `assets/vendor/native-surfaces/`。
 
 ```js
-const { dataUrl } = await enest.screen.capture()
-const { pinId } = await enest.pin.open({ dataUrl, width: 420, title: '参考图' })
+import { createNativeSurfaces } from '@enest/native-surfaces'
+
+const surfaces = createNativeSurfaces(window.enest)
+const bounds = await surfaces.screen.selectRegion()
+if (bounds) {
+  const { dataUrl } = await surfaces.screen.capture({ bounds })
+  await surfaces.pin.open({ dataUrl, width: 420, title: '参考图' })
+}
 ```
 
-### `pin.close(pinId)` / `pin.closeAll()` / `pin.list()`
+此包的 `surfaces.screen.selectRegion()` 返回带 `displayId` 的设备像素矩形或 `null`；选区截图需 `screen.capture`，当前置顶选区页还需 `pin.create`。`surfaces.pin.open/close/list/closeAll` 管理本插件贴图，仅接收图片 dataURL，不提供任意路径读取。
 
-| 方法 | 返回 | 说明 |
-|------|------|------|
-| `close(pinId)` | `Promise<boolean>` | 关闭单张（只能关自己创建的贴图；不存在或非本插件贴图返回 `false`） |
-| `closeAll()` | `Promise<number>` | 关闭本插件全部贴图，返回数量 |
-| `list()` | `Promise<Array<{ pinId: string }>>` | 列出本插件存活的贴图 |
+`surfaces.screen.record.start({bounds?,displayId?,withAudio?})` 等待用户在辅助页真实点击开始后返回 `{sessionId}`；`stop(sessionId)` 返回 `{path,size,durationMs}`，`cancel(sessionId)` 丢弃未完成录制。每个 facade 同时只保留一个录制会话，状态与裁剪/编码策略属于插件；输出通过有序 `files.stream` 提交，不再写宿主的业务专用 `recordings/` 服务。
 
-统一需 `pin.create` 权限。
+第三方也可用 `auxiliary` 实现自己的交互，不必复制官方业务包。辅助页/后台、主页面和 Node 后端的能力不同，不能交换桥对象来绕过授权，见[窗口边界](settings-and-windows.md)。
 
 ---
 
@@ -853,8 +855,8 @@ await enest.net.fetch({ url: 'https://api.example.com/stream', stream: true })
 
 ## net.socket — 出站 TCP 连接与本地 WebSocket 桥
 
-供远程桌面（noVNC / RDP）、TCP 调试类插件使用。仅 outgoing 连接（不提供监听）；与
-`enest.ssh.workbench({ action: 'tunnel.open' })` 打开的本地隧道口衔接：先建隧道，再
+供 noVNC、TCP 调试类插件使用。仅 outgoing 连接（不提供任意监听）；与
+插件自己的 SSH 后端打开的本地隧道口衔接：先建隧道，再
 `socket.connect({ host: '127.0.0.1', port: <隧道本地口> })`。
 
 | 方法 | 说明 |
@@ -877,54 +879,14 @@ await enest.net.fetch({ url: 'https://api.example.com/stream', stream: true })
 | `net.close` | `{ socketId, reason }` | 连接关闭（对端关闭 / 本端关闭 / 错误） |
 
 **serveWs 模式**：桥服务只绑 `127.0.0.1` 随机端口，`token` 一次性（首个命中连接消费，
-后续连接即使 token 对也被拒绝；扩展协商拒绝）。桥建立后该 socket 的双向流直通 ws 二进制
-帧（不再经 IPC 分片），插件页内 vendored 的 noVNC / ironrdp-wasm 直接：
+后续连接即使 token 对也被拒绝；忽略客户端扩展 offer，不协商压缩并拒绝带 RSV 的帧）。桥建立后该 socket 的双向流直通 ws 二进制
+帧（不再经 IPC 分片），不识别 RDCleanPath、X.224 或其他应用协议。RDP 协商由远程桌面插件私有后端提供；这里以插件页内 noVNC 等字节流客户端为例：
 
 ```js
 const { socketId } = await enest.net.socket.connect({ host: '127.0.0.1', port: 5901 })
 const { url } = await enest.net.socket.serveWs(socketId)
 const ws = new WebSocket(url)  // ws.binaryType = 'arraybuffer'，双向二进制流
 ws.binaryType = 'arraybuffer'
-```
-
----
-
-## agent — AI CLI 配置白名单读写
-
-白名单覆盖 10 个应用（路径硬编码在宿主内，禁止任意路径）：
-`claude-code`（~/.claude/settings.json）、`claude-desktop`、`codex`（~/.codex/config.toml +
-auth.json）、`gemini-cli`（~/.gemini/settings.json）、`grok-build`（~/.grok/config.toml）、
-`opencode`、`openclaw`、`hermes`（config.yaml）、`pi`、`minimax-code`。
-
-| 方法 | 说明 |
-|------|------|
-| `agent.apps()` | 无需权限声明或授权；可用应用、配置位置及探测到的安装状态（`installed` 主配置存在）与活跃状态（如 codex auth 有登录材料），不返回配置内容 |
-| `agent.read(app)` | 配置原文 + 解析结果（JSON 解析为对象；TOML/YAML 回传原文） |
-| `agent.write({ app, changes, confirmed })` | 最小侵入写入：只替换给定**顶层键**（JSON 键序保留、TOML 注释与未触及行保留）；取得 `config.agent.write` 授权后执行；**写前自动快照** |
-| `agent.backups(app)` | 快照列表（时间倒序） |
-| `agent.restore({ app, id })` | 宿主原生确认应用与备份目标后，从快照恢复（恢复前对当前状态再做一次安全快照） |
-| `agent.listAssets({ app, path })` | 资产通道：列白名单应用数据目录（目前 codex 开放 `pets/`）清单 `[{name,isDir,size,modifiedAt}]`；`path` 空串列根，非空首段必须命中白名单子目录 |
-| `agent.writeAssets({ app, assets, confirmed })` | 资产通道：写资产文件（`{path, contentText?|contentBase64?}`，单文件 ≤8MiB、单次 ≤20 个 / ≤32MiB）；取得 `config.agent.write` 授权后执行；**覆盖已存在文件前自动快照** |
-| `agent.deleteAssets({ app, paths, confirmed })` | 资产通道：删除资产文件 / 目录（递归）；宿主原生确认展示完整目标后执行，不可恢复 |
-
-**权限**：除 `apps()` 外，读取使用 `config.agent.read`，写入使用 `config.agent.write`。快照位于 `~/.eNest/agent-config-backups/<app>/<timestamp>`，
-每应用保留最近 20 份。`changes` 的 `$file` 特殊键指定目标文件（如 codex 的
-`{ $file: 'auth.json', OPENAI_API_KEY: 'sk-...' }` 写 auth.json 而非 config.toml）。
-
-敏感能力由宿主按插件集中授权，可选择本次运行允许或授权并记住（见[授权与撤权](permissions.md#授权与撤权)）。`write` / `writeAssets` 获得授权后不再追加操作确认；`restore` / `deleteAssets` 仍需确认具体目标。兼容参数 `confirmed` 不能代替宿主授权。
-
-**资产通道边界**：只进入应用声明的一级子目录（codex 仅 `pets/`）；相对路径拒绝绝对路径、
-`..` 逃逸、反斜杠、编码分隔符与隐藏段；命中配置文件（如 `~/.codex/config.toml`）一律拒绝——
-配置修改只能走 `agent.write` 的最小侵入合并。典型用法（安装 Codex 桌面宠物包）：
-
-```js
-await enest.agent.writeAssets({
-  app: 'codex',
-  assets: [
-    { path: 'pets/bedro/pet.json', contentText: manifestJson },
-    { path: 'pets/bedro/spritesheet.webp', contentBase64: base64 }
-  ]
-})
 ```
 
 ---
@@ -966,7 +928,7 @@ await enest.shell.openExternal('https://github.com')
 
 | | |
 |--|--|
-| **权限** | `shell.openExternal`（与打开链接共用同一权限） |
+| **权限** | 基础文件能力，无需声明 `fs.write` 或 `shell.openExternal`；仍需用户经原生保存框选定目标 |
 | **参数** | `payload: { defaultName?: string; filename?: string; content: string }` |
 | **返回** | `Promise<{ ok: boolean; path: string } \| null>` — 用户取消时返回 `null` |
 
@@ -975,7 +937,7 @@ const saved = await enest.shell.saveTextFile({
   defaultName: 'report.md',
   content: markdownText
 })
-if (saved) enest.ui.toast({ message: `已保存到 ${saved.path}` })
+if (saved?.ok) enest.ui.toast({ message: `已保存到 ${saved.path}` })
 ```
 
 ---
@@ -1003,197 +965,9 @@ if (saved) enest.ui.toast({ message: `已保存到 ${saved.path}` })
 ```js
 const { secretRef } = await enest.vault.set('prod-db', password)
 // 之后连接时只传引用，不再持有明文
-await enest.db.open({ config: { driver: 'mysql', host, username, secretRef } })
+// secretRef can be passed to the plugin's own backend; never return plaintext to the page.
+await enest.backend.call('connect', [{ host, username, secretRef }])
 ```
-
----
-
-## ssh — 远程服务器
-
-交互式终端、命令执行、指标采集与文件传输。密钥认证支持 `secretRef`（来自 vault）或一次性明文。
-
-### `ssh.connect(input)`
-
-| | |
-|--|--|
-| **权限** | `ssh.session`（agent 另需 `ssh.agent`；私钥文件须由用户选择并提供只读句柄，无额外文件权限框） |
-| **参数** | `input: SshConnectInput`（见下） |
-| **返回** | `Promise<SshSessionInfo>`（含 `sessionId`） |
-
-`SshConnectInput` 主要字段：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `host` | `string` | 必填 |
-| `username` | `string` | 必填 |
-| `port` | `number?` | 缺省 22 |
-| `authType` | `'password' \| 'key' \| 'agent'?` | 认证方式 |
-| `secretRef` | `string?` | vault 引用（推荐） |
-| `password` | `string?` | 一次性口令（不落盘） |
-| `privateKeyHandleId` | `string?` | 宿主选择器返回的只读私钥句柄；不接受路径 |
-| `jump` | `SshJumpConfig?` | 跳板机（字段同上，`host`/`username` 必填） |
-| `cols` / `rows` / `term` | | 终端初始尺寸与类型 |
-| `timeoutMs` / `keepAliveSec` | | 连接超时与保活 |
-
-### `ssh.write(sessionId, data)` / `ssh.resize(sessionId, cols, rows)`
-
-向交互终端写入输入（含 `\r` 回车）或同步终端尺寸。返回 `Promise<boolean>`。终端输出经 `ssh.data` 事件推送（见事件总线）。
-
-### `ssh.exec(input)`
-
-一次性执行命令并等待结果，适合脚本化操作（不需要交互终端）。
-
-| | |
-|--|--|
-| **参数** | `input: { sessionId?, command? \| cmd?, timeoutMs?, host?, username?, ... }` — 已有会话传 `sessionId`，否则可用连接字段直接执行（自动建连） |
-| **返回** | `Promise<{ stdout: string; stderr: string; exitCode: number \| null; durationMs: number }>` |
-
-```js
-const r = await enest.ssh.exec({ sessionId, command: 'df -h' })
-console.log(r.exitCode, r.stdout)
-```
-
-### `ssh.metrics.start(sessionId, intervalMs?)` / `stop` / `latest`
-
-采样 CPU / 内存 / 磁盘 / 网卡 / 进程 Top。`start` 返回 `{ ok, intervalMs }`；采样数据经 `ssh.metrics` 事件推送，`latest()` 随时取最近一份。
-
-### `ssh.completion.suggest(input)`
-
-给自建终端 UI 做命令补全。入参 `{ sessionId, line, cursor?, history?, snippets? }`，返回 `{ items: Array<{ label, kind, insertText, dangerous? }>, danger? }`（`dangerous` 非空时建议在 UI 上标红确认）。
-
-### `ssh.sftp.list / download / upload / mkdir / rename / delete / chmod`
-
-统一需 `ssh.sftp` 权限；参数均支持对象形 `{ sessionId, ... }` 或位置参数（已连接时也可直接传连接字段自动建连）。
-
-| 方法 | 参数 | 返回 |
-|------|------|------|
-| `list` | `{ sessionId?, path? }` | `Promise<SftpEntry[]>` — `name/type/size/mtime` |
-| `download` | `{ sessionId?, remotePath?, localDirectoryHandleId? }` | `Promise<SftpTransferResult>` |
-| `upload` | `{ sessionId?, localHandleId?, remotePath? }` | `Promise<SftpTransferResult>` |
-| `mkdir` | `(sessionId, path)` | `Promise<boolean>` — 新建远程目录 |
-| `rename` | `(sessionId, path, newPath)` | `Promise<boolean>` — 重命名 / 移动 |
-| `delete` | `(sessionId, path, recursive?)` | `Promise<boolean>` — 删除文件 / 目录（目录递归需 `recursive: true`） |
-| `chmod` | `(sessionId, path, mode)` | `Promise<boolean>` — `mode` 为八进制数字或字符串（如 `0o755` / `'755'`） |
-
-```js
-await enest.ssh.sftp.mkdir(sessionId, '/srv/app/logs')
-await enest.ssh.sftp.chmod(sessionId, '/srv/app/logs', '755')
-await enest.ssh.sftp.rename(sessionId, '/srv/app/old.conf', '/srv/app/new.conf')
-await enest.ssh.sftp.delete(sessionId, '/srv/app/tmp', true)
-```
-
-### `ssh.onSshTransfer(cb)`
-
-订阅 SFTP 传输进度（`download` / `upload` 过程推送）；等价 `enest.on('ssh.transfer', cb)`。
-
-| | |
-|--|--|
-| **参数** | `cb: (event: SshTransferEvent) => void` |
-| **返回** | `() => void` — 取消订阅 |
-
-`SshTransferEvent`：`{ sessionId, direction: 'upload' \| 'download', path, transferred, total, done?, error? }`。`total` 为 0 表示未知（预取大小失败）；进度按时间 / 字节双阈值节流推送，终态（成功 `done: true` / 失败 `done: true, error`）不受节流约束。
-
-```js
-const off = enest.ssh.onSshTransfer(({ direction, path, transferred, total, done, error }) => {
-  const pct = total ? Math.round((transferred / total) * 100) : '?'
-  console.log(`${direction} ${path}: ${pct}%${done ? (error ? ` 失败: ${error}` : ' 完成') : ''}`)
-})
-```
-
-### `ssh.disconnect(sessionId)` / `ssh.listSessions()`
-
-断开会话 / 列出当前会话。插件关闭或休眠时壳子会自动回收它的全部 SSH 会话，无需手动处理。
-
-### `ssh.pickLocalFile(opts?)`
-
-弹出系统文件选择框。
-
-| | |
-|--|--|
-| **参数** | `opts?: LocalFilePickOptions` — `kind`、`multiple`、`access`，与 localFiles.pick 相同 |
-| **返回** | `Promise<LocalFileHandle \| null>` — 用户取消时 `null` |
-
----
-
-## db — 数据库
-
-支持 MySQL / SQLite / InfluxDB / Timescale / TDengine。凭据与 vault 集成，插件关闭时自动回收连接。
-
-### `db.test(config)` / `db.open(input)` / `db.close(sessionKey)`
-
-| | |
-|--|--|
-| `test` | 参数 `DbConnectionConfig`，返回 `{ ok, message, version?, latencyMs? }`，只验连不建会话 |
-| `open` | 参数 `{ config, sessionKey? }` 或直接 `config`，返回 `DbSessionInfo`（后续调用都用 `sessionKey`） |
-| `close` | 参数 `sessionKey`，返回 `Promise<boolean>` |
-
-`DbConnectionConfig` 常用字段：
-
-| 字段 | 说明 |
-|------|------|
-| `driver` | 必填：`mysql` / `sqlite` / `influxdb` / `timescale` / `tdengine` |
-| `host` / `port` / `database` / `username` | 连接信息 |
-| `secretRef` / `ephemeralSecret` | vault 引用（推荐）或一次性口令 |
-| `fileHandleId` / `createIfMissing` | SQLite / DuckDB 的用户授权文件；内存库用 `database: ":memory:"` |
-| `org` / `bucket` | InfluxDB v2 |
-| `readOnly` | 只读连接（推荐查询类插件开启） |
-
-### `db.execute(input)`
-
-| | |
-|--|--|
-| **参数** | `input: { sessionKey, sql, params?, maxRows?, timeoutMs?, confirmed? }` |
-| **返回** | `Promise<QueryResult>` — `{ columns, rows, rowCount, durationMs, truncated? ... }` |
-
-- `params` 支持 `?` 位置占位与 `:name` 命名占位，请始终用参数化查询拼接用户输入。
-- 生产 / 受保护连接执行写操作时需用户确认；宿主对危险目标另行原生确认，插件传 `confirmed: true` 不授予权限。
-- `truncated: true` 表示命中 `maxRows` 上限被截断。
-
-```js
-const info = await enest.db.open({
-  config: { driver: 'mysql', host, username, secretRef, database: 'app' }
-})
-const { rows, columns } = await enest.db.execute({
-  sessionKey: info.sessionKey,
-  sql: 'SELECT id, name FROM users WHERE status = ? LIMIT 50',
-  params: ['active']
-})
-```
-
-### `db.explain(input)` / `db.cancel(sessionKey)`
-
-`explain` 取执行计划（`{ sessionKey, sql }` → `QueryResult`）；`cancel` 中断该会话上正在执行的查询。
-
-### `db.applyChanges(input)`
-
-把表格化编辑（用户在结果网格里改的值）合成为 SQL 批量回写。
-
-| | |
-|--|--|
-| **参数** | `input: { sessionKey, changes: RowChange[], mode?: 'stop-on-error' \| 'continue', confirmed? }` |
-| **返回** | `Promise<BatchResult>` — 每条变更一个 `{ index, ok, affected?, error? }` |
-
-`RowChange` 三种形态：`update`（`table + key + set`）、`insert`（`table + values`）、`delete`（`table + key`）。
-
-### `db.importPreview(input)` / `db.importRun(input)`
-
-CSV 导入两步流：先 `importPreview` 看列映射与 SQL 预览（`{ columns, sampleRows, mappedColumns, sqlPreview }`），确认后 `importRun` 执行（`{ ok, inserted, failed, errors? }`）。数据源传 `csvText`，或先 `pickImportFile()` 选文件后传 `fileHandleId: handle.id`。`conflict` 策略支持 `insert / upsert / skip`。
-
-### `db.schema.tree / describe / ddl`
-
-| 方法 | 参数 | 返回 |
-|------|------|------|
-| `tree` | `{ sessionKey, database?, schema?, table?, filter? }` | `SchemaObject[]` — 库/表/列树 |
-| `describe` | `{ sessionKey, table, database?, schema? }` | `TableDetail` — 列、主键、索引 |
-| `ddl` | 同上 | `Promise<string>` — 建表语句 |
-
-### `db.completion(input)` / `db.dialects.list()`
-
-`completion` 给 SQL 编辑器做补全：入参 `{ sessionKey, sql, cursor? }`，返回 `{ replace: { from, to }, items }`，直接对接编辑器替换区间，需 `db.schema` 授权。**`db.completion.suggest(input)` 为规范全名**，`db.completion(input)` 是可直接调用的兼容别名（同一方法，二选一即可）。`dialects.list()` 从本插件后端返回各驱动方言信息（关键字、函数、代码片段），需要 `backend.node`，不读取数据库内容。
-
-### `db.pickSqliteFile()` / `db.pickImportFile()`
-
-系统文件选择框：前者限定 SQLite 库文件，后者限定 CSV 等导入文件。返回文件句柄或 null，只能使用句柄 id，不接受路径。
 
 ---
 
@@ -1247,12 +1021,11 @@ enest.off('enter', onEnter)
 | `hotkey` | 插件注册的全局热键被按下 | `{ accelerator }` |
 | `locale-change` | 壳子界面语言变更 | `{ locale }` |
 | `quick-query` | Quick 搜索查询（已注册 provider 的插件） | `{ reqId, query }` |
-| `ssh.data` | SSH 终端有新输出 | `{ sessionId, data }` |
-| `ssh.exit` | SSH 交互终端退出 | `{ sessionId, code?, signal? }` |
-| `ssh.error` | SSH 会话错误 / 断开 | `{ sessionId?, message }` |
-| `ssh.metrics` | 指标采样推送（`metrics.start` 后） | `{ sessionId?, profileId?, sample }` |
-| `ssh.transfer` | SFTP 传输进度（`sftp.download/upload` 过程） | `{ sessionId, direction, path, transferred, total, done?, error? }` |
-| `clipboard-history-changed` | 剪贴板历史新增 / 变更 | `{ entryId, entryType }` |
+| `backend.event` | 本插件后端命名事件 | `{ event, data }` |
+| `deadline-task-change` | 本插件计划状态提交 | `{ taskId }` |
+| `background.event` | 本插件沙箱后台主动发布；具体事件名由插件定义 | `{ event, data }` |
+| `auxiliary.message` | 本插件当前辅助页发送消息 | `{ windowId, data }` |
+| `auxiliary.closed` | 本插件辅助页关闭 | `{ windowId }` |
 | `shell-notice` | 壳统一通知（任何关键节点；见下方「壳通知」） | `ShellNotice` 信封 |
 | `save-requested` | 壳请求立即保存（更新重启 / 退出前；建议用 `onSaveRequested`） | `{ reason, deadlineMs, operationId }` |
 
@@ -1529,9 +1302,11 @@ if (!api) {
 
 `localFiles.pick({ kind?, multiple?, access? })` 返回 `LocalFileHandle[]`；`localFiles.pickSave({ defaultName? })` 返回句柄或 `null`。文件选择、读取已选文件和导出均是基础能力，无需声明 `fs.read` / `fs.write` 或追加通用授权框，仍由原生选择器请用户选定目标。句柄包含 `id/name/kind/size/displayPath`，只在签发插件的当前实例中有效。具体能力与持久化策略见 [权限](permissions.md)。
 
+`pickSave` 的文件名和扩展名由调用插件决定；省略或传入空 `defaultName` 时使用原生对话框默认行为，宿主不预设数据库等业务文件类型。非空建议名最多 255 字符、不含 NUL，宿主只取 basename，不允许借建议名指定初始目录。
+
 `localFiles.read({ handleId, encoding: 'text' | 'dataUrl', maxBytes? })` 直接读取用户已选定并授予句柄的文件，返回 UTF-8 文本字符串或带 MIME 的 data URL 字符串。文本默认 2 MiB、data URL 默认 16 MiB，调用方可设置 `maxBytes`，最大 32 MiB；每插件最多两次并发读取。只接受普通文件，不跟随符号链接；关闭、重载或撤权后原句柄失效。官方插件的文本导入、图片预览通过此接口读取，不持久化系统路径或句柄。
 
-`db.pickSqliteFile({ createIfMissing?, readOnly? })` 返回 `LocalFileHandle | null`。默认选择可写句柄；显式 `readOnly:true` 且不创建文件时只授予读取用途。`db.pickImportFile()` 返回只读文件句柄或 `null`。两者均无需额外文件权限框，取消选择不会授予句柄。数据库连接与查询继续使用各自权限，不要保存句柄跨重启复用。
+数据库插件自己的文件选择适配器组合通用 `files.pick/save`（后端控制）或 `localFiles.pick/pickSave`（页面），不再存在宿主 `db.pickSqliteFile` / `db.pickImportFile`。句柄用途与代次规则不变，不要保存句柄跨重启复用。
 
 `net.websocket` 使用 `net.socket` 权限并走宿主代理：
 

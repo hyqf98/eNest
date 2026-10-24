@@ -22,8 +22,8 @@ const sharedAlias = {
 const DEV_RENDERER_PORT = 27319
 
 /** Sandboxed windows only support a self-contained CommonJS preload. */
-function sandboxedPreloads(): Plugin {
-  const entries = ['shellPreload', 'pluginPreload', 'recorderPreload', 'regionOverlayPreload', 'pinPreload', 'detachedPluginPreload', 'installPreload', 'notificationPreload', 'homePreload', 'modalPreload']
+function sandboxedPreloads(production: boolean): Plugin {
+  const entries = ['shellPreload', 'pluginPreload', 'backgroundPreload', 'auxiliaryPreload', 'detachedPluginPreload', 'installPreload', 'notificationPreload', 'homePreload', 'modalPreload', 'themeChromePreload']
   return {
     name: 'enest:sandboxed-preloads',
     async generateBundle(_options, bundle) {
@@ -42,7 +42,7 @@ function sandboxedPreloads(): Plugin {
           }],
           build: {
             write: false,
-            minify: false,
+            minify: production ? 'esbuild' : false,
             target: 'node22',
             lib: { entry: r(`src/preload/${name}.ts`), formats: ['cjs'], fileName: () => `${name}.cjs` },
             rollupOptions: { external: ['electron'], output: { inlineDynamicImports: true } }
@@ -95,6 +95,7 @@ export default defineConfig(({ mode }) => {
       alias: sharedAlias
     },
     build: {
+      minify: mode === 'production' ? 'esbuild' : false,
       rollupOptions: {
         input: {
           index: r('src/main/index.ts'),
@@ -104,7 +105,7 @@ export default defineConfig(({ mode }) => {
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin(), sandboxedPreloads()],
+    plugins: [externalizeDepsPlugin(), sandboxedPreloads(mode === 'production')],
     resolve: {
       alias: sharedAlias
     },
@@ -130,6 +131,8 @@ export default defineConfig(({ mode }) => {
       host: '127.0.0.1'
     },
     build: {
+      // electron-vite 2 defaults renderer minification to false, even in a release build.
+      minify: mode === 'production' ? 'esbuild' : false,
       rollupOptions: {
         input: {
           index: r('src/renderer/index.html'),

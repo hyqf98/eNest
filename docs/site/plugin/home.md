@@ -1,6 +1,6 @@
 # 主题工作区：目录、已安装与详情
 
-完整首页是独立的 `WebContentsView`，承载插件目录、已安装列表和详情的主题布局，不是普通业务 Tab，也不能迁入 Quick 或独立插件窗口。插件会话导航、设置入口、窗口控制、设置页面与故障恢复始终由宿主拥有；主题不能替换或隐藏这些全局控件。经典模式使用顶部标签和左下角头像设置入口；圆轨模式依次显示首页、插件、末尾设置图标，不另显示左下角入口。两种导航互斥，切换不丢失会话。仅内置默认主题与工作区随安装包提供；其它外观通过插件扩展；启动目录读取本地安装与已缓存条目，不等待联网市场请求。贡献名称仍为 `homePages`，不新增一套重复的视图管理器。
+完整首页是独立的 `WebContentsView`，承载插件目录、已安装列表和详情的主题布局，不是普通业务 Tab，也不能迁入 Quick 或独立插件窗口。插件会话、设置入口、窗口控制与故障恢复的管理权始终属于宿主；主题可通过独立的 [chrome](chrome.md) 与 [settingsPage](settings-and-windows.md) 标准替换允许的导航和设置呈现，但不能隐藏可信安全/恢复入口或取得完整宿主权限。默认经典模式使用顶部标签和左下角头像设置入口；默认圆轨模式依次显示首页、插件、末尾设置图标，不另显示左下角入口。两种导航互斥，切换不丢失会话。仅内置默认主题与工作区随安装包提供；其它外观通过插件扩展；启动目录读取本地安装与已缓存条目，不等待联网市场请求。贡献名称仍为 `homePages`，不新增一套重复的视图管理器。
 
 ## 声明、构建与运行时登记
 
@@ -51,12 +51,12 @@ if (!result.ok) console.error(result.error)
 | `getConfig()` | 语言、目录排序及缓存状态；不包含完整设置 |
 | `getCatalog()` | 立即读取本地与缓存市场目录，不发起网络请求 |
 | `getDetail(pluginId)` | 公开详情、权限名称、包大小及受限 README/截图引用 |
-| `search({ query, scope, limit })` | 返回名称、公开图标及短期受控句柄，不返回应用路径或命令 payload |
+| `search({ query, scope, limit })` | 返回安全目录项、公开图标、匹配声明及短期受控句柄；不执行默认主题的匹配/排序，不返回应用路径或命令 payload，提供者自行处理检索策略 |
 | `refresh({ reason })` | `boot` 仅缓存读取；显式 `manual` 才等待宿主市场刷新 |
 | `action(request)` | 请求受控启动、安装、更新、启停、卸载、设置及刷新 |
 | `onCommand(cb)` | 订阅 navigate、settingsChanged、可见性、刷新及安装命令 |
 
-`action` 支持 `navigate`、`activateSearchResult`、`openPlugin`、`openMarket`、`openSettings`、`refreshApps`、`installPlugin`、`updatePlugin`、`setPluginEnabled`、`uninstallPlugin`、`refreshCatalog`、`setHomeVisible`。启动搜索结果只提交 `handle`；句柄一次性使用、两分钟到期，绑定当前首页所有者与代次，销毁后全部撤销。`openPlugin` 仅打开当前已安装且启用的插件，不能通过启动接口绕过安装确认。
+`action` 支持 `navigate`、`activateSearchResult`、`openPlugin`、`openMarket`、`openSettings`、`refreshApps`、`installPlugin`、`updatePlugin`、`setPluginEnabled`、`uninstallPlugin`、`refreshCatalog`、`setHomeVisible`。启动搜索结果提交 `handle`，内容匹配结果可附带最多 4096 字符的 `query`，不能提供磁盘路径或任意启动 payload；句柄一次性使用、两分钟到期，绑定当前首页所有者与代次，销毁后全部撤销。`openPlugin` 仅打开当前已安装且启用的插件，不能通过启动接口绕过安装确认。
 
 ## 路由与确认协议
 
@@ -82,11 +82,11 @@ await workspace.action({ type: 'navigate', route: { page: 'detail', pluginId: 'c
 3. 页面不支持该路由时不得虚假声明能力。旧 Home 没有完整 workspace 握手时不能冒充完整工作区。
 4. 超时、拒绝或崩溃时宿主隐藏原生层，显示可信恢复入口；过期 ACK 不会复活旧页面。
 
-切换提供者时，候选页必须准备好当前路由才提交。主题参数和深浅模式变化不重建同一页面。主题工作区只控制内容区域，没有设置页；设置入口统一走 `openSettings` 动作由宿主切换原生设置视图。
+切换提供者时，候选页必须准备好当前路由才提交。主题参数和深浅模式变化不重建同一页面。Workspace 只控制内容区域，不包含设置路由；设置入口统一走 `openSettings` 动作，由宿主切换独立设置表面。
 
 ## 设置归属
 
-设置只有一个原生壳视图：通用、账号、外观（主题 Tab 按主题 pack schema 动态渲染全部外观字段）、快捷键、开发者与各插件设置都在其中。Workspace 桥没有 `getSettings` / `updateSetting` / `runSettingsAction`；主题字段提交走外观通道（`updateThemeProfile` / `appearance-changed`）。进入设置用 `action({ type: 'openSettings' })` 请求宿主切换视图。
+设置由宿主 `SettingsSurfaceController` 统一管理：当前主题可声明隔离 `settingsPage`，仅经 `enestSettings` 读取白名单描述符和提交受限动作；未声明或故障时使用源码内置默认主题设置。账号、权限、开发者、路径/媒体选择及系统安全入口仍由可信界面负责。Workspace 桥没有 `getSettings` / `updateSetting` / `runSettingsAction`；它不能借用独立设置表面的权限。主题字段提交以宿主持久化的外观 revision 为准。进入设置用 `action({ type: 'openSettings' })` 请求宿主切换视图，具体边界见[设置与窗口](settings-and-windows.md)。
 
 管理动作由宿主原生弹层确认并调用已有安装、卸载与启停服务，页面传入 `confirmed` 等额外字段不能替代确认。确认等待期间首页隐藏、被替换或销毁时，旧请求不能再开始新的宿主操作。
 

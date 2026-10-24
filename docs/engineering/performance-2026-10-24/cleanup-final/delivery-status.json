@@ -1,0 +1,279 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-24T07:28:24.158Z",
+  "productionChangesFrozenBeforeFinalBuild": true,
+  "newFocusedTests": {
+    "files": 3,
+    "passed": 17,
+    "failed": 0,
+    "historicalSuitesExecuted": false
+  },
+  "typecheckExitCode": 0,
+  "buildExitCode": 0,
+  "publicTypesChecked": 161,
+  "developerGuidesChecked": 21,
+  "bothRepositoriesDiffCheckPassed": true,
+  "reportLocalLinkErrors": [],
+  "nativeValidationStatus": "valid",
+  "nativeValidationErrors": [],
+  "ownedProfileRemoved": true,
+  "remainingKnownPids": [],
+  "diagnosticZips": [
+    {
+      "target": "darwin-arm64",
+      "bytes": 121592807,
+      "runtimeValidated": false
+    },
+    {
+      "target": "darwin-x64",
+      "bytes": 125417633,
+      "runtimeValidated": false
+    },
+    {
+      "target": "win32-x64",
+      "bytes": 144038344,
+      "runtimeValidated": false
+    }
+  ],
+  "linuxPackageGenerated": false,
+  "linuxDependencyInstallationAuthorization": "pending",
+  "commitOrPushPerformed": false,
+  "verificationEvidence": {
+    "foldedAt": "2026-10-24T07:40:00.276Z",
+    "scope": "Summary of the already completed serial verification recorded before evidence cleanup. No tests or builds rerun by this cleanup.",
+    "focusedTests": {
+      "fixturePaths": [
+        "src/main/plugin/localSaveBoundary.cleanup-20261024.test.mjs",
+        "src/renderer/themes/default/themeOwnership20261024-cleanup.test.mjs",
+        "tools/packaging/shell-cleanup-20261024.test.mjs"
+      ],
+      "invocation": "node --test --test-concurrency=1 src/main/plugin/localSaveBoundary.cleanup-20261024.test.mjs src/renderer/themes/default/themeOwnership20261024-cleanup.test.mjs tools/packaging/shell-cleanup-20261024.test.mjs",
+      "tests": 17,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0,
+      "durationMs": 1744.131167,
+      "executionScope": "Exactly these three new focused fixture files, serial concurrency 1; historical suites were not run. Counts are not accumulated across repeats.",
+      "testNames": [
+        "an omitted or empty filename leaves the native save dialog extension-neutral",
+        "only the calling plugin supplies a suggested basename, not an initial directory",
+        "native selection still grants one writable file only to the current owner",
+        "invalid filename hints are rejected before acquiring UI leases or opening dialogs",
+        "cancelling a picker releases leases and does not accept a late native selection",
+        "the live shared IPC contract contains no retired pin, region or recorder channels",
+        "default-theme presentation and launch implementations have one physical owner",
+        "relocated real TypeScript modules compile and resolve their local contract imports",
+        "restricted Workspace presentation does not import the trusted preview adapter",
+        "generic motion budgets remain shared while Workspace and Tab choreography belong to the theme",
+        "CSS fragments retain cascade order and separate shared foundations from default-theme presentation",
+        "production renderer references do not target the retired implementation paths",
+        "dependency filtering removes only the known json-schema-traverse spec subtree",
+        "archive entry guard rejects the discarded dependency fixture on every path style",
+        "bundle guard rejects all eight retired plugin IPC names without banning current generic channels",
+        "archive guard reads actual packed JavaScript and refuses stale preload protocol bytes",
+        "unused direct development dependencies are absent from the project and synchronized lock root"
+      ],
+      "originalTap": {
+        "originalPath": "docs/engineering/performance-2026-10-24/cleanup-final/final-cleanup-fixtures.tap",
+        "bytes": 4151,
+        "sha256": "cf3275caea14364eb525a78f8f9c4e32aa3eb62412caa780543fd9a2c1bc8124",
+        "retainedAsSeparateFile": false
+      }
+    },
+    "typecheck": {
+      "invocation": "npm run typecheck",
+      "exitCode": 0,
+      "exitCodeSource": "Previously recorded completed-run delivery snapshot",
+      "originalLog": {
+        "originalPath": "docs/engineering/performance-2026-10-24/cleanup-final/host-typecheck.log",
+        "bytes": 100,
+        "sha256": "81b285cc57815a658a4623c5dba4aef3890bf66a540da841c2b821af611c9cb3",
+        "retainedAsSeparateFile": false
+      }
+    },
+    "build": {
+      "invocation": "npm run build",
+      "exitCode": 0,
+      "exitCodeSource": "Previously recorded completed-run delivery snapshot",
+      "originalLog": {
+        "originalPath": "docs/engineering/performance-2026-10-24/cleanup-final/host-build.log",
+        "bytes": 22056,
+        "sha256": "d2acf53f4c8c1afe9a38ec259c1e0c8edc59f8be623ac87cb047cf93137030dd",
+        "retainedAsSeparateFile": false
+      },
+      "warnings": [
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/logs/logService.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/plugin/PermissionService.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/theme/appearanceService.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/plugin/PluginRegistry.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/db/pluginStorage.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/window/createQuickWindow.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/plugin/localFiles.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/plugin/PluginPermissions.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/plugin/PluginHost.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/plugin/pluginBackgroundRuntime.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/vault/secretVault.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/dev/DevConsole.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/home/HomeSurfaceManager.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/ipc/pluginHandlers.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        },
+        {
+          "kind": "mixed-static-dynamic-import",
+          "module": "src/main/ipc/shellHandlers.ts",
+          "effect": "The dynamic import does not split this already statically imported module into another chunk."
+        }
+      ],
+      "warningCount": 15,
+      "limitation": "These mixed imports were not claimed as lazy-loaded; physical source/CSS relocation alone is not measured RAM savings."
+    },
+    "contractsAndDocs": {
+      "publicTypesGenerated": 161,
+      "publicTypesChecked": 161,
+      "developerGuidesSynced": 21,
+      "developerGuidesChecked": 21,
+      "exitCode": 0,
+      "exitCodeSource": "Completed command result previously recorded by the coordinator; original log contains generated/checked counts.",
+      "outputLines": [
+        "Generated 161 public types",
+        "Checked 161 public types",
+        "Synced 21 developer guides",
+        "Checked 21 developer guides"
+      ],
+      "originalLog": {
+        "originalPath": "docs/engineering/performance-2026-10-24/cleanup-final/contracts-docs.log",
+        "bytes": 107,
+        "sha256": "0a0279f076706cf830d8ed336c3a3b92cb2d2f4625889e440187401904f0e21c",
+        "retainedAsSeparateFile": false
+      }
+    }
+  },
+  "followUpRequest": {
+    "userAuthorizedCommitAndPush": true,
+    "scope": "User subsequently requested committing/pushing code and removing unnecessary records. Git execution is handled by the coordinator, not this documentation cleanup.",
+    "historicalCommitFlag": "commitOrPushPerformed above is the immutable meaning of the checkedAt verification snapshot, not a claim about the later delivery state."
+  },
+  "postBuildDevelopmentDependencyDeclaration": {
+    "dependency": "js-yaml",
+    "version": "4.3.2",
+    "kind": "Direct development declaration restored using the already present dependency and offline lock synchronization.",
+    "source": "Coordinator supplied current declaration/lock facts after the diagnostic packages had been built.",
+    "directRuntimeDependencyCount": 5,
+    "directDevelopmentDependencyCount": 30,
+    "lockPackageCount": 471,
+    "dependencyInstallationPerformed": false,
+    "networkInstallationPerformed": false,
+    "packagedRuntimeBoundary": "Existing ASAR already contains js-yaml transitively; development declarations are stripped from packaged package.json. This does not rebuild or change the recorded diagnostic ZIP/ASAR bytes or original build fingerprints."
+  },
+  "recordCleanup": {
+    "performedAt": "2026-10-24T07:40:00.295Z",
+    "originalEvidenceFiles": 133,
+    "originalWhitelistFilesRetained": 16,
+    "copiedManifestFiles": 3,
+    "retainedEvidenceFiles": 19,
+    "deletedEvidenceFiles": 117,
+    "deletedEvidenceBytes": 4760117,
+    "deletedHistoricalReportFiles": 5,
+    "deletedHistoricalReportBytes": 361448,
+    "deletedFilesTotal": 122,
+    "deletedBytesTotal": 5121565,
+    "nativeLogsRenamedWithoutByteChanges": [
+      {
+        "originalPath": "docs/engineering/performance-2026-10-24/round-023/native-real-app-performance-cleanup-css-final-44.9.3.log",
+        "retainedPath": "docs/engineering/performance-2026-10-24/round-023/native-real-app-performance-cleanup-css-final-44.9.3.txt",
+        "bytes": 17947,
+        "sha256": "80f2fcc796f446d75e466b628f7026092750a7b2aff5e1df835a74c21461ec8d"
+      },
+      {
+        "originalPath": "docs/engineering/performance-2026-10-24/round-023/native-real-app-performance-final-patch-44.9.3.log",
+        "retainedPath": "docs/engineering/performance-2026-10-24/round-023/native-real-app-performance-final-patch-44.9.3.txt",
+        "bytes": 25573,
+        "sha256": "2716286f48e955c3d691b4129eaad01f6c6a31a95454ebbd5523ea9b47dd2a20"
+      }
+    ],
+    "originalRawAndHashReferencedContentPreserved": true,
+    "evidenceCleanupAgentRanTestsBuildsAppsOrGit": false,
+    "screenshotOrVideoFilesInEvidenceScope": 0,
+    "localLatestDiagnosticPackagesRetained": true,
+    "remainingEvidenceFileCount": 19,
+    "documentationLinkAudit": {
+      "scope": "Canonical final report Markdown links, retained native-validation inputs, copied current manifest paths, and baseline source path.",
+      "canonicalReportMissingLinks": [],
+      "retainedInputHashMismatches": [],
+      "copiedManifestMismatches": [],
+      "unrelatedOlderEngineeringMissingLinks": 28,
+      "limitation": "Older historical reports contain references outside this retained evidence set; these were reported to the coordinator for the final broader link audit."
+    }
+  },
+  "postCleanupVerification": {
+    "source": "Coordinator supplied completed command results; no rerun by the evidence-cleanup agent.",
+    "typecheck": {
+      "invocation": "npm run typecheck",
+      "exitCode": 0,
+      "scope": "After the offline js-yaml development-declaration repair; original diagnostic build identity is unchanged.",
+      "separateLogRetained": false
+    },
+    "developerGuides": {
+      "synced": 21,
+      "checked": 21,
+      "exitCode": 0,
+      "scope": "Current documentation sync/check after consolidating the host security rationale in settings-and-windows.md."
+    }
+  }
+}

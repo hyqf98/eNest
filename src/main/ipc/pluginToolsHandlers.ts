@@ -4,23 +4,21 @@ import { bindQuickInputHost, clearQuickInput, configureQuickInput, escapeQuickIn
 import { getPluginBlob, putPluginBlob, removePluginBlob, savePluginFile } from '@main/plugin/pluginFiles'
 import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
 import { hideQuickWindow, showQuickWindow, getQuickShowRevision } from '@main/window/createQuickWindow'
-import { nativeCapabilities, requestNativePermission, type PasteOwner } from '@main/clipboard/nativeClipboard'
-import { queryHistory, copyHistoryEntry, pasteHistoryEntry, revealHistoryFile, onClipboardHistoryChange } from '@main/clipboard/clipboardHistory'
-import { startFocusTimer, getFocusTimer, pauseFocusTimer, resumeFocusTimer, skipFocusTimer, stopFocusTimer, updateFocusTimerRecord } from '@main/timer/focusTimerService'
+import { nativeCapabilities, requestNativePermission, pasteToOriginal, type PasteOwner } from '@main/clipboard/nativeClipboard'
+import { inspectGrantedFilePaths, localFilesFromDrop, revealLocalFile } from '@main/plugin/localFiles'
+import { startDeadlineTask, getDeadlineTask, pauseDeadlineTask, resumeDeadlineTask, skipDeadlineTask, cancelDeadlineTask } from '@main/timer/deadlineTaskService'
 import type { PluginPermission } from '@shared/types/plugin'
-import type { QuickInputConfig, ClipboardQuery } from '@shared/types/plugin-tools'
-import type { FocusTimerOptions, FocusTimerRecordPatch } from '@shared/types/focus-timer'
+import type { QuickInputConfig } from '@shared/types/plugin-tools'
+import type { DeadlineTaskStart } from '@shared/types/deadline-task'
 
 export const PLUGIN_TOOL_PERMISSIONS: Record<string, PluginPermission | null> = {
   'quickInput.configure': null, 'quickInput.release': null, 'quickInput.escape': null, 'ui.openSettings': null,
   'storage.blobs.put': 'storage.local', 'storage.blobs.get': 'storage.local', 'storage.blobs.remove': 'storage.local',
   'shell.saveFile': 'fs.write', 'shell.saveTextFile': 'fs.write',
   'clipboard.capabilities': null, 'clipboard.requestPermission': 'clipboard.paste',
-  'clipboard.history.query': 'clipboard.history', 'clipboard.history.copy': 'clipboard.history',
-  'clipboard.history.paste': 'clipboard.paste', 'clipboard.history.reveal': 'clipboard.history',
-  'focusTimer.start': 'timer.background', 'focusTimer.get': null, 'focusTimer.pause': 'timer.background',
-  'focusTimer.resume': 'timer.background', 'focusTimer.skip': 'timer.background', 'focusTimer.stop': 'timer.background',
-  'focusTimer.updateRecord': 'timer.background'
+  'clipboard.paste': 'clipboard.paste', 'clipboard.inspectFiles': null, 'clipboard.revealFile': null,
+  'deadlineTasks.start': 'timer.background', 'deadlineTasks.get': null, 'deadlineTasks.pause': 'timer.background',
+  'deadlineTasks.resume': 'timer.background', 'deadlineTasks.skip': 'timer.background', 'deadlineTasks.cancel': 'timer.background'
 }
 let bound = false
 export function bindPluginTools(): void {
@@ -35,7 +33,6 @@ export function bindPluginTools(): void {
     send: (id, event) => pluginHost.sendEvent(id, event),
     dismiss: id => pluginHost.dismissQuickPlugin(id)
   })
-  onClipboardHistoryChange(() => pluginHost.broadcastEvent({ type: 'clipboard-history-change' }))
 }
 function pasteOwner(pluginId: string): PasteOwner {
   const scope = getRuntimeScope(pluginId), container = pluginHost.getPlacement(pluginId).kind
@@ -73,17 +70,20 @@ export async function dispatchPluginTool(pluginId: string, method: string, args:
     case 'shell.saveFile': case 'shell.saveTextFile': return savePluginFile(pluginId, first)
     case 'clipboard.capabilities': return nativeCapabilities()
     case 'clipboard.requestPermission': return requestNativePermission()
-    case 'clipboard.history.query': return queryHistory(first as ClipboardQuery)
-    case 'clipboard.history.copy': return copyHistoryEntry(String(args[0] ?? ''), args[1] as { paths?: boolean; plainText?: boolean }, getRuntimeScope(pluginId)?.signal)
-    case 'clipboard.history.paste': return pasteHistoryEntry(String(args[0] ?? ''), getRuntimeScope(pluginId)?.signal, pasteOwner(pluginId))
-    case 'clipboard.history.reveal': return revealHistoryFile(String(args[0] ?? ''), Number(args[1]) || 0)
-    case 'focusTimer.get': return getFocusTimer(pluginId)
-    case 'focusTimer.start': return startFocusTimer(pluginId, first as Partial<FocusTimerOptions>)
-    case 'focusTimer.pause': return pauseFocusTimer(pluginId)
-    case 'focusTimer.resume': return resumeFocusTimer(pluginId)
-    case 'focusTimer.skip': return skipFocusTimer(pluginId)
-    case 'focusTimer.stop': return stopFocusTimer(pluginId)
-    case 'focusTimer.updateRecord': return updateFocusTimerRecord(pluginId, String(args[0] ?? ''), args[1] as FocusTimerRecordPatch)
+    case 'clipboard.paste': return pasteToOriginal(getRuntimeScope(pluginId)?.signal, pasteOwner(pluginId))
+    case 'clipboard.inspectFiles': return inspectGrantedFilePaths(pluginId, first)
+    case 'clipboard.revealFile': {
+      const scope = getRuntimeScope(pluginId)
+      const handles = await localFilesFromDrop(pluginId, [String(args[0] ?? '')])
+      if (!scope?.isCurrent() || scope.isClosing) throw new Error('plugin runtime is closing or stale')
+      return handles[0] ? revealLocalFile(pluginId, handles[0].id) : false
+    }
+    case 'deadlineTasks.get': return getDeadlineTask(pluginId, String(args[0] ?? ''))
+    case 'deadlineTasks.start': return startDeadlineTask(pluginId, first as DeadlineTaskStart)
+    case 'deadlineTasks.pause': return pauseDeadlineTask(pluginId, String(args[0] ?? ''))
+    case 'deadlineTasks.resume': return resumeDeadlineTask(pluginId, String(args[0] ?? ''))
+    case 'deadlineTasks.skip': return skipDeadlineTask(pluginId, String(args[0] ?? ''))
+    case 'deadlineTasks.cancel': return cancelDeadlineTask(pluginId, String(args[0] ?? ''))
     default: throw new Error('Unknown plugin tool method')
   }
 }

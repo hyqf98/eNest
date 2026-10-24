@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { BackgroundConfig } from '@shared/types/plugin'
 import type { HomeResolvedAppearance } from '@shared/types/home'
 import { BUILTIN_BACKGROUND_EFFECTS } from '@shared/backgroundEffects'
@@ -51,13 +51,20 @@ export function DefaultThemeBackground({ appearance, paused = false, launch = fa
   className?: string
 }) {
   const reducedMotion = useReducedMotion()
+  const [documentVisible, setDocumentVisible] = useState(!document.hidden)
+  useEffect(() => {
+    const sync = () => setDocumentVisible(!document.hidden)
+    document.addEventListener('visibilitychange', sync)
+    return () => document.removeEventListener('visibilitychange', sync)
+  }, [])
+  if (paused || !documentVisible) return null
   const effect = BUILTIN_BACKGROUND_EFFECTS.find(item => item.id === appearance.background.effect)
   const media = appearance.background.media
   if (effect) return <DefaultBackgroundEffect effect={{ ...effect, ...(effect.renderer === 'preset' ? { speed: appearance.background.speed } : {}) }}
-    level={appearance.animation.effective} background={media} paused={paused} launch={launch} className={className} />
+    level={appearance.animation.effective} continuous={appearance.animation.continuous} background={media} launch={launch} className={className} />
   if (!media?.value || media.type === 'none') return null
   return <div className={className} aria-hidden>
     {media.type === 'color' ? <div className="app-bg-fill" style={backgroundAtmosphereStyle(media) ?? undefined} />
-      : <Media media={media} paused={paused || reducedMotion || !appearance.animation.continuous} />}
+      : <Media media={media} paused={reducedMotion || appearance.animation.effective === 'low' || !appearance.animation.continuous} />}
   </div>
 }

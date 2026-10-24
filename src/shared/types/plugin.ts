@@ -27,27 +27,18 @@ export type PluginPermission =
   | 'hotkey'
   | 'contribute'
   | 'vault.write'
-  | 'ssh.session'
-  | 'ssh.exec'
-  | 'ssh.sftp'
   | 'db.connect'
   | 'db.query'
   | 'db.schema'
   | 'mw.connect'
   | 'mw.query'
   | 'mw.admin'
-  | 'dsh.connect'
-  | 'dsh.chat'
-  | 'dsh.admin'
   | 'net.socket'
-  | 'lan.share'
   | 'fs.rename'
   | 'fs.read'
   | 'fs.write'
   | 'sys.control'
   | 'ssh.agent'
-  | 'config.agent.read'
-  | 'config.agent.write'
   | 'sys.inspect'
   | 'theme'
 
@@ -82,27 +73,18 @@ export const PLUGIN_PERMISSIONS: readonly PluginPermission[] = [
   'hotkey',
   'contribute',
   'vault.write',
-  'ssh.session',
-  'ssh.exec',
-  'ssh.sftp',
   'db.connect',
   'db.query',
   'db.schema',
   'mw.connect',
   'mw.query',
   'mw.admin',
-  'dsh.connect',
-  'dsh.chat',
-  'dsh.admin',
   'net.socket',
-  'lan.share',
   'fs.rename',
   'fs.read',
   'fs.write',
   'sys.control',
   'ssh.agent',
-  'config.agent.read',
-  'config.agent.write',
   'sys.inspect',
   'theme'
 ]
@@ -131,23 +113,15 @@ export interface ScreenCaptureResult {
   dataUrl: string
   width: number
   height: number
+  displayId?: number
 }
 
-/** 剪贴板历史条目（list 不含完整二进制；get 返回完整字段） */
-export interface ClipboardHistoryEntry {
-  id: string
-  type: 'text' | 'image' | 'files'
-  files?: import('./plugin-tools').ClipboardFile[]
-  sourceApp?: import('./plugin-tools').ClipboardSourceApp
-  /** 文本截断或图片尺寸摘要，用于列表展示 */
-  preview: string
-  text?: string
-  hasImage?: boolean
-  width?: number
-  height?: number
-  ts: number
-  pinned: boolean
-  bytes?: number
+export interface CaptureDisplay {
+  id: number
+  bounds: ScreenBounds
+  workArea: ScreenBounds
+  scaleFactor: number
+  primary: boolean
 }
 
 /** 声明式内容处理指令；字符串指令继续保持兼容。 */
@@ -254,6 +228,8 @@ export interface QuickProviderContribution {
 /** 设置 section 贡献项：manifest、主进程设置桥和动态渲染共用。 */
 export interface SettingsSectionContributionItem {
   key: string
+  /** Explicit public presentation opt-in. Text, credentials and undeclared fields remain private. */
+  shareWithThemes?: boolean
   /**
    * 控件类型（10 种）：text / string / switch / boolean / bool / select /
    * number / slider / color / page。
@@ -369,6 +345,8 @@ export interface PluginManifest {
   main: 'index.html'
   /** Optional plugin-owned Node utility entry. Requires explicit backend.node consent. */
   backend?: { entry: string }
+  /** Sandboxed, event-driven plugin page; no Node or shell API is exposed. */
+  background?: import('./pluginBackground').PluginBackgroundManifest
   engines?: { enest?: string }
   /**
    * 网络能力声明（可选）：

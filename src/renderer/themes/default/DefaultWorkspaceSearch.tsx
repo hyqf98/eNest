@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import type { HomeSearchEntry, HomeSearchScope } from '@shared/types/home'
 import { useI18n } from '@renderer/hooks/useI18n'
-import { SearchBox } from '@renderer/components/SearchBox'
+import { SearchBox } from '@renderer/themes/default/workspace/SearchBox'
 import { PluginIcon } from '@renderer/components/PluginIcon'
 import type { DefaultWorkspaceController, DefaultWorkspaceState } from './WorkspaceController'
-import '@renderer/styles/homeSearch.css'
+import '@renderer/themes/default/workspace/homeSearch.css'
 
 const SCOPES: { id: HomeSearchScope; zh: string; en: string }[] = [
   { id: 'all', zh: '全部', en: 'All' }, { id: 'app', zh: '本机应用', en: 'Applications' },
@@ -54,7 +54,7 @@ export function DefaultWorkspaceSearch({ state, controller, onDetailOrigin }: {
     setOpening(item.handle)
     setOpenError('')
     if (item.kind === 'market') onDetailOrigin(origin ?? resultsRef.current?.querySelector<HTMLElement>(`[data-home-result-index="${selectedIndex}"]`) ?? null)
-    try { await controller.action({ type: 'activateSearchResult', handle: item.handle }) }
+    try { await controller.action({ type: 'activateSearchResult', handle: item.handle, query: state.query }) }
     catch (error) {
       // Handles are one-use even on failure: retries obtain a fresh host result.
       setOpenError(error instanceof Error ? error.message : english ? 'Unable to open this result.' : '暂时无法打开。')

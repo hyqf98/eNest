@@ -31,7 +31,7 @@ import {
   probeHotkey
 } from '@main/hotkey/quickHotkey'
 import { scanApplications } from '@main/launcher/appScanner'
-import { searchQuickCommands, QUICK_RECENT_MAX } from '@main/launcher/commandIndex'
+import { searchQuickCommands, validateQuickOpenTarget, QUICK_RECENT_MAX } from '@main/launcher/commandIndex'
 import { launchLocalApp } from '@main/launcher/appLauncher'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { settingsStore } from '@main/settings/SettingsStore'
@@ -72,6 +72,7 @@ async function touchRecent(req: QuickOpenRequest): Promise<void> {
 
 async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
   try {
+    if (!await validateQuickOpenTarget(req)) return { ok: false, error: 'Quick target is unavailable' }
     if (req.kind === 'app') {
       await launchLocalApp(req.path)
       hideQuickWindow()
@@ -170,7 +171,8 @@ export function registerQuickHandlers(): void {
       quick.recent ?? [],
       payload?.kind === 'app' || payload?.kind === 'plugin' || payload?.kind === 'action' ? payload.kind : undefined,
       quick.queryPreferences?.find(entry => entry.query === normalizeSearchText(query))?.id,
-      payload?.phase === 'static' || payload?.phase === 'enriched' || payload?.phase === 'providers' ? payload.phase : undefined
+      payload?.phase === 'catalog' || payload?.phase === 'static' || payload?.phase === 'enriched' || payload?.phase === 'providers' ? payload.phase : undefined,
+      payload?.ids
     )
     const result: QuickSearchResult = { items }
     return result

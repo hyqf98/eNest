@@ -122,7 +122,7 @@ export function isCurrentQuickThemeEntryUrl(url: string, key?: string): boolean 
   return !!grant && !!parsed && parsed.key === grant.key && (!key || key === grant.key) && parsed.path === grant.entry
 }
 
-function publicAppearance(appearance: ResolvedAppearance): QuickThemeAppearance {
+export function publicAppearance(appearance: ResolvedAppearance): QuickThemeAppearance {
   const font = (value: string | undefined): string => typeof value === 'string' && FONT_STACK.test(value) ? value : ''
   const bounded = (value: number, fallback: number, minimum: number, maximum: number): number =>
     Number.isFinite(value) ? Math.min(maximum, Math.max(minimum, value)) : fallback

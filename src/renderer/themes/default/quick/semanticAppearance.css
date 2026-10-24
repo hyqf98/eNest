@@ -1,0 +1,2 @@
+/* Quick retains one uninterrupted field/result material rather than a Home grid. */
+:root[data-surface='quick'][data-appearance-theme][data-appearance-legacy='false'] .quick-shell { background-color:var(--bg); }

@@ -1,0 +1,21 @@
+/* Toast 渲染已迁至 NotificationHost（.notify-*），旧 .toasts/.toast* 已删除 */
+
+.empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 56px 20px;
+  color: var(--text-2);
+}
+.empty strong {
+  display: block;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+/* ========== Responsive ========== */
+/* —— ≥1440：宽屏仍收在内容列，两侧留白更足（设置页更宽避免大片空白） —— */
+@media (min-width: 1440px) {
+  :root {
+    --page-pad: clamp(48px, 5vw, 80px);
+  }
+}

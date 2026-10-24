@@ -6,6 +6,8 @@ import ts from 'typescript'
 
 const sourceExtensions = /\.[cm]?[jt]sx?$/
 const noticeName = /^(?:licen[cs]e|copying|copyright|notice|third[-_ ]party)(?:$|[._ -])/i
+// Main is not scanned: opt-in native harness imports are not shipped runtime dependencies.
+const bundledMainPackages = ['undici']
 
 async function packageDirectory(name, fromDirectory) {
   const require = createRequire(join(fromDirectory, 'package.json'))
@@ -49,7 +51,10 @@ export async function rendererPackages(sourceDir) {
 }
 
 export async function collectBundledLicenses({ projectDir = process.cwd(), sourceDir = join(projectDir, 'src/renderer'), outputDir = join(projectDir, 'out/licenses/bundled-ui') } = {}) {
-  const seeds = await rendererPackages(sourceDir), visited = new Set(), packages = []
+  const rendererRoots = await rendererPackages(sourceDir)
+  const project = JSON.parse(await readFile(join(projectDir, 'package.json'), 'utf8'))
+  const mainRoots = bundledMainPackages.filter(name => Object.hasOwn(project.devDependencies || {}, name))
+  const seeds = [...new Set([...rendererRoots, ...mainRoots])].sort(), visited = new Set(), packages = []
   const visitPackage = async (name, fromDirectory) => {
     const dir = await realpath(await packageDirectory(name, fromDirectory))
     if (visited.has(dir)) return
@@ -76,12 +81,12 @@ export async function collectBundledLicenses({ projectDir = process.cwd(), sourc
     for (const file of files) await copyFile(join(dir, file), join(target, file))
     await writeFile(join(target, 'package-notice.json'), JSON.stringify(metadata, null, 2) + '\n')
   }
-  const manifest = { source: 'Renderer runtime imports and their transitive dependencies; license notices retained after bundling', roots: seeds, packages: packages.map(({ dir, ...metadata }) => metadata) }
+  const manifest = { source: 'Renderer runtime imports and explicitly bundled main runtime packages declared in devDependencies, including their transitive dependencies; license notices retained after bundling', roots: seeds, rendererRoots, mainRoots, packages: packages.map(({ dir, ...metadata }) => metadata) }
   await writeFile(join(outputDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
   return manifest
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const result = await collectBundledLicenses()
-  console.log(`Retained bundled UI license notices for ${result.packages.length} packages`)
+  console.log(`Retained bundled renderer/main license notices for ${result.packages.length} packages`)
 }

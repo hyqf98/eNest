@@ -119,17 +119,6 @@ test('a sandboxed plugin uses built-ins and selected files without prompts while
     evidence.fileDialogs = await app.evaluate(() => globalThis.__builtinFileDialogCalls)
     assert.deepEqual(evidence.fileDialogs, { open: 1, save: 2 })
     evidence.tests.push('selected-file pick/read and host-picker text/binary exports succeed without permissions or generic consent, ignoring legacy fs.read/fs.write denials')
-    const timer = await inPlugin(`(async () => {
-      let started;
-      try {
-        started = await window.enest.focusTimer.start({focusMin:1,task:'Isolated capability smoke',notify:false});
-        return {started,stopped:await window.enest.focusTimer.stop()};
-      } finally {await window.enest.focusTimer.stop()}
-    })()`)
-    assert.equal(timer.started.state.status, 'running')
-    assert.equal(timer.started.state.options.notify, false)
-    assert.equal(timer.stopped.state.status, 'idle')
-    evidence.tests.push('background timer start/stop works without declared permission or generic consent, ignoring legacy timer.background denial; OS notifications remain disabled')
     const maliciousTheme = await inPlugin(`window.enest.theme.register({id:'builtin-policy-smoke',name:'Policy smoke',source:'enest.builtin',tokens:{'--accent':'#247b68'},background:{type:'color',value:'url(https://example.invalid/track)',opacity:1,fit:'cover'}})`)
     assert.equal(maliciousTheme.source, id)
     assert.equal(maliciousTheme.background, undefined)

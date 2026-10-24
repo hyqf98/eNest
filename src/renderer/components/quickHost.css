@@ -1,0 +1,11 @@
+:root[data-surface='quick'],
+:root[data-surface='quick'] body,
+:root[data-surface='quick'] #root,
+:root[data-theme][data-surface='quick'],
+:root[data-theme][data-surface='quick'] body { background: transparent; border-radius: 0; overflow: hidden; }
+:root[data-surface='quick'] #root { height: 100%; }
+.quick-host { position: relative; width: 100%; height: 100%; }
+.quick-default-provider { height: 100%; }
+.quick-host .quick-default-provider[hidden] { display: none; }
+.quick-host-native-bar { position: absolute; z-index: 5; inset: 0 0 auto; height: var(--quick-bar-h); pointer-events: none; }
+.quick-host-native-bar.plugin-drop-ready::after { content: '松手收回小窗口'; position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); color: var(--accent); background: var(--surface); padding: 1px 8px; border-radius: 4px; font-size: 10px; line-height: 14px; }

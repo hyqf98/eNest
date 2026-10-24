@@ -5,14 +5,13 @@
  * 关键依赖：electron-updater、sendShellEvent、app.getVersion。
  */
 import { app } from 'electron'
-// electron-updater 为 CJS，ESM 下需默认导入再解构，避免 Named export not found
-import electronUpdater from 'electron-updater'
 import type { UpdateInfo, ProgressInfo } from 'electron-updater'
 import { logError, logInfo, logWarn } from '@main/logs/logService'
 import { sendShellEvent } from '@main/window/createShellWindow'
 import { broadcastNotice } from '@main/plugin/shellNotices'
 
-const { autoUpdater } = electronUpdater
+let updater: typeof import('electron-updater')['autoUpdater'] | undefined
+let loading: Promise<void> | undefined
 
 export type UpdateStatus =
   | 'idle'
@@ -75,74 +74,85 @@ export function initUpdateService(): void {
     logInfo('update', 'skip init — not packaged')
     return
   }
+}
 
-  // 手动检查 + 确认后下载；退出时自动安装已下载的更新
-  autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
-  autoUpdater.allowPrerelease = false
-  autoUpdater.logger = {
-    info: (m) => logInfo('update', String(m)),
-    warn: (m) => logWarn('update', String(m)),
-    error: (m) => logError('update', String(m)),
-    debug: (m) => logInfo('update', String(m))
-  }
+/** Checking for updates, not opening the shell, loads the updater and its parser dependencies. */
+async function ensureUpdater(): Promise<typeof import('electron-updater')['autoUpdater']> {
+  if (!loading) loading = (async () => {
+    const { default: electronUpdater } = await import('electron-updater')
+    const { autoUpdater } = electronUpdater
 
-  autoUpdater.on('checking-for-update', () => {
-    setState({ status: 'checking', error: undefined })
-  })
+    // 手动检查 + 确认后下载；退出时自动安装已下载的更新
+    autoUpdater.autoDownload = false
+    autoUpdater.autoInstallOnAppQuit = true
+    autoUpdater.allowPrerelease = false
+    autoUpdater.logger = {
+      info: (m) => logInfo('update', String(m)),
+      warn: (m) => logWarn('update', String(m)),
+      error: (m) => logError('update', String(m)),
+      debug: (m) => logInfo('update', String(m))
+    }
 
-  autoUpdater.on('update-available', (info: UpdateInfo) => {
-    logInfo('update', `available ${info.version}`)
-    setState({
-      status: 'available',
-      latestVersion: info.version,
-      releaseName: releaseName(info),
-      releaseNotes: formatNotes(info),
-      downloaded: false,
-      progress: 0,
-      error: undefined
+    autoUpdater.on('checking-for-update', () => {
+      setState({ status: 'checking', error: undefined })
     })
-    broadcastNotice('update.available', { currentVersion: app.getVersion(), latestVersion: info.version })
-  })
 
-  autoUpdater.on('update-not-available', (info: UpdateInfo) => {
-    logInfo('update', `up to date (${info.version})`)
-    setState({
-      status: 'not-available',
-      latestVersion: info.version,
-      downloaded: false,
-      error: undefined
+    autoUpdater.on('update-available', (info: UpdateInfo) => {
+      logInfo('update', `available ${info.version}`)
+      setState({
+        status: 'available',
+        latestVersion: info.version,
+        releaseName: releaseName(info),
+        releaseNotes: formatNotes(info),
+        downloaded: false,
+        progress: 0,
+        error: undefined
+      })
+      broadcastNotice('update.available', { currentVersion: app.getVersion(), latestVersion: info.version })
     })
-  })
 
-  autoUpdater.on('download-progress', (p: ProgressInfo) => {
-    setState({
-      status: 'downloading',
-      progress: Math.round(p.percent)
+    autoUpdater.on('update-not-available', (info: UpdateInfo) => {
+      logInfo('update', `up to date (${info.version})`)
+      setState({
+        status: 'not-available',
+        latestVersion: info.version,
+        downloaded: false,
+        error: undefined
+      })
     })
-  })
 
-  autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
-    logInfo('update', `downloaded ${info.version}`)
-    setState({
-      status: 'downloaded',
-      latestVersion: info.version,
-      releaseName: releaseName(info),
-      releaseNotes: formatNotes(info),
-      progress: 100,
-      downloaded: true,
-      error: undefined
+    autoUpdater.on('download-progress', (p: ProgressInfo) => {
+      setState({
+        status: 'downloading',
+        progress: Math.round(p.percent)
+      })
     })
-    broadcastNotice('update.downloaded', { version: info.version })
-  })
 
-  autoUpdater.on('error', (err: Error) => {
-    logError('update', err.stack || err.message)
-    setState({ status: 'error', error: err.message })
-    broadcastNotice('update.error', { message: err.message })
-  })
+    autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
+      logInfo('update', `downloaded ${info.version}`)
+      setState({
+        status: 'downloaded',
+        latestVersion: info.version,
+        releaseName: releaseName(info),
+        releaseNotes: formatNotes(info),
+        progress: 100,
+        downloaded: true,
+        error: undefined
+      })
+      broadcastNotice('update.downloaded', { version: info.version })
+    })
 
-  logInfo('update', `updater ready version=${app.getVersion()}`)
+    autoUpdater.on('error', (err: Error) => {
+      logError('update', err.stack || err.message)
+      setState({ status: 'error', error: err.message })
+      broadcastNotice('update.error', { message: err.message })
+    })
+
+    logInfo('update', `updater ready version=${app.getVersion()}`)
+    updater = autoUpdater
+  })().catch(error => { loading = undefined; throw error })
+  await loading
+  return updater!
 }
 
 /** 主动检查更新；返回当前状态快照 */
@@ -159,6 +169,7 @@ export async function checkForUpdates(): Promise<UpdateState> {
 
   try {
     setState({ status: 'checking', error: undefined })
+    const autoUpdater = await ensureUpdater()
     const result = await autoUpdater.checkForUpdates()
     if (!result?.updateInfo) {
       setState({ status: 'not-available' })
@@ -180,6 +191,7 @@ export async function downloadUpdate(): Promise<UpdateState> {
 
   try {
     setState({ status: 'downloading', progress: 0, error: undefined })
+    const autoUpdater = await ensureUpdater()
     await autoUpdater.downloadUpdate()
   } catch (err) {
     const message = (err as Error).message || String(err)
@@ -190,7 +202,7 @@ export async function downloadUpdate(): Promise<UpdateState> {
 
 /** 安装已下载的更新并重启；未下载完成时返回错误状态 */
 export function quitAndInstallUpdate(): UpdateState {
-  if (state.status !== 'downloaded' && !state.downloaded) {
+  if (!updater || (state.status !== 'downloaded' && !state.downloaded)) {
     setState({ status: 'error', error: 'update not downloaded yet' })
     return { ...state }
   }
@@ -199,7 +211,7 @@ export function quitAndInstallUpdate(): UpdateState {
   broadcastNotice('update.installing', { version: state.latestVersion ?? '' })
   // isSilent=false → 用户可见安装流程；isForceRunAfter=true → 安装后自动启动
   setImmediate(() => {
-    autoUpdater.quitAndInstall(false, true)
+    updater!.quitAndInstall(false, true)
   })
   return { ...state }
 }

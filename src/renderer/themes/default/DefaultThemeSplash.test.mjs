@@ -36,7 +36,7 @@ function fixture(t, { reduced = false, atmosphere = false, playable = false, eff
       },
     },
     'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
-    '@renderer/gsap/splashMotion': { playSplash(_handles, onDone, _level, _style, ready) {
+    '@renderer/themes/default/motion/splashMotion': { playSplash(_handles, onDone, _level, _style, ready) {
       const state = { onDone, ready, updates: [], disposed: false }
       playback.push(state)
       return Object.assign(() => { state.disposed = true }, { setReady(value) { state.ready = value; state.updates.push(value) } })

@@ -1,7 +1,9 @@
-import { access, copyFile, mkdir, readdir } from 'node:fs/promises'
+import { access, copyFile, mkdir, readdir, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
-import { listPackage } from '@electron/asar'
+import { dirname, join, relative } from 'node:path'
+import { extractFile, listPackage } from '@electron/asar'
+import { Arch } from 'builder-util'
+import { verifyPackagedNative } from './native-release.mjs'
 
 // Plugin protocols and their drivers belong to plugin-owned runtime bundles.
 const pluginPackages = new Set([
@@ -10,16 +12,38 @@ const pluginPackages = new Set([
   'mqtt', 'mssql', 'mysql2', 'neo4j-driver', 'oracledb', 'pg', 'pg-query-stream',
   'redis', 'ssh2', 'undici'
 ])
+const retiredPluginIpc = [
+  'plugin:pin-close', 'plugin:region-confirm', 'plugin:region-cancel',
+  'plugin:recorder-started', 'plugin:recorder-failed', 'plugin:recorder-audio-unavailable',
+  'plugin:recorder-chunk', 'plugin:recorder-stopped'
+]
 
 export function verifyShellArchiveEntries(entries) {
   const paths = entries.map(path => path.replaceAll('\\', '/').replace(/^\//, ''))
   for (const path of paths) {
     if (path.endsWith('.map')) throw new Error(`Source map leaked into release: ${path}`)
+    if (/^out\/renderer\/assets\/(?:mockShellApi|MarketPage)-[^/]+\.js$/.test(path)) throw new Error(`Development preview chunk leaked into release: ${path}`)
+    if (/(?:^|\/)node_modules\/json-schema-traverse\/spec(?:\/|$)/.test(path)) throw new Error(`Dependency test fixture leaked into release: ${path}`)
     for (const match of path.matchAll(/(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)/g)) {
       if (pluginPackages.has(match[1]) || match[1].startsWith('@duckdb/')) throw new Error(`Plugin driver leaked into shell: ${match[1]}`)
     }
   }
   if (!paths.includes('out/licenses/bundled-ui/manifest.json')) throw new Error('Missing bundled UI license manifest; run npm run build before packaging')
+}
+
+export function verifyShellBundleSource(path, source) {
+  for (const channel of retiredPluginIpc) {
+    if (source.includes(channel)) throw new Error(`Retired plugin IPC leaked into shell bundle ${path}: ${channel}`)
+  }
+}
+
+export function verifyShellArchive(archive) {
+  const entries = listPackage(archive)
+  verifyShellArchiveEntries(entries)
+  for (const entry of entries) {
+    const path = entry.replaceAll('\\', '/').replace(/^\//, '')
+    if (/^out\/.*\.(?:[cm]?js|html)$/.test(path)) verifyShellBundleSource(path, extractFile(archive, path).toString('utf8'))
+  }
 }
 
 async function verifyLocales(directory, extension, expected) {
@@ -65,8 +89,20 @@ async function preserveMacElectronLicenses(appOutDir, resourcesDir) {
 
 export default async function afterPack(context) {
   const resourcesDir = context.packager.getResourcesDir(context.appOutDir)
-  verifyShellArchiveEntries(listPackage(join(resourcesDir, 'app.asar')))
+  verifyShellArchive(join(resourcesDir, 'app.asar'))
   if (context.electronPlatformName === 'darwin') await preserveMacElectronLicenses(context.appOutDir, resourcesDir)
   await verifyElectronResources({ platform: context.electronPlatformName, appOutDir: context.appOutDir, resourcesDir })
+  const platform = context.electronPlatformName, product = context.packager.appInfo.productFilename
+  const executable = platform === 'darwin' ? join(dirname(resourcesDir), 'MacOS', product)
+    : join(context.appOutDir, platform === 'win32' ? `${product}.exe` : context.packager.executableName)
+  const runtimeBinaries = platform === 'darwin'
+    ? [join(dirname(resourcesDir), 'Frameworks/Electron Framework.framework/Versions/A/Electron Framework'), join(dirname(resourcesDir), 'Frameworks/Electron Framework.framework/Versions/A/Libraries/libffmpeg.dylib')]
+    : [join(context.appOutDir, platform === 'win32' ? 'ffmpeg.dll' : 'libffmpeg.so')]
+  const arch = Arch[context.arch]
+  await verifyPackagedNative({ platform, arch, appOutDir: context.appOutDir, resourcesDir, executable, runtimeBinaries })
+  // Keep the locator outside the signed app; final hashes are sampled again after packaging/signing.
+  const local = path => relative(context.outDir, path).replaceAll('\\', '/')
+  await writeFile(join(context.outDir, `.native-payload-${platform}-${arch}.json`), JSON.stringify({ schemaVersion: 1, platform, arch,
+    appOutDir: local(context.appOutDir), resourcesDir: local(resourcesDir), executable: local(executable), runtimeBinaries: runtimeBinaries.map(local) }, null, 2) + '\n')
   console.log(`Verified ${context.electronPlatformName} shell payload, language packs, native runtime resources, and bundled license notices`)
 }

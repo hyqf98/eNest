@@ -2,14 +2,14 @@
  * secretVault — 插件密钥保险库
  * 职责：接受插件 vault.set(key, secret)，用 Electron safeStorage 加密后落
  *      ~/.eNest/data/secrets/{pluginId}/，返回不透明 secretRef。
- *      宿主内部（ssh/db）按 secretRef 解密；插件永远拿不到明文 get。
+ *      获授权的插件 Node 后端可通过 secret.resolve 解密自己的引用；页面无明文 get。
  * 设计：
  *  - secretRef 格式：`sv:{pluginId}:{base64url(key)}`（可逆解析出插件与逻辑键）
  *  - 磁盘：`{root}/data/secrets/{pluginId}/{base64url(key)}.bin`，内容为 safeStorage.encryptString 密文
  *  - safeStorage 不可用或 Linux 使用弱后端时拒绝读写；旧 XOR 数据保留并要求重新输入。
  *  - 新 key ≤128 UTF-8 字节，secret ≤64 KiB，每插件 ≤256 条 / 8 MiB 密文；旧超额数据仅允许不增量更新。
  * 被 pluginHandlers（vault.*）、PluginUninstaller（vaultClearPlugin）与
- * sshSessionManager / dbSessionManager 内部调用。
+ * 通用 pluginBackendCapabilities（secret.resolve）调用。
  * 关键依赖：electron safeStorage、pathsService（data 目录）。
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -207,7 +207,7 @@ function resolveKey(pluginId: string, keyOrRef: string): ParsedSecretRef | null 
 }
 
 /**
- * 内部解密：宿主 ssh/db 在 connect 时调用。
+ * 内部解密：经授权的插件后端通过通用 secret.resolve 能力调用。
  * pluginId 用于限定插件只能解自己的密钥。
  */
 export function resolveSecret(pluginId: string, secretRef: string): string | null {

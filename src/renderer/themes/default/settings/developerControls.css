@@ -1,0 +1,77 @@
+/* 开发者：一键加载 */
+.dev-load-hero {
+  padding: 8px 0 4px;
+}
+.dev-load-primary {
+  min-width: 160px;
+  height: 38px;
+  font-weight: 600;
+}
+.dev-load-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+.dev-load-row .dev-load-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: calc(13px * var(--appearance-font-scale, 1));
+}
+.dev-plugin-item {
+  cursor: default;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.dev-plugin-item.running {
+  border-color: color-mix(in srgb, var(--ok) 40%, var(--border));
+}
+.dev-plugin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-left: auto;
+}
+/* dev/prod 模式切换的紧凑分段控件 */
+.dev-mode-seg {
+  padding: 3px;
+  gap: 2px;
+}
+.dev-mode-seg button {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+}
+/* 解析出的启动/构建命令标签（如 pnpm run dev） */
+.dev-command-tag {
+  font-size: calc(11px * var(--appearance-font-scale, 1));
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--surface-2) 80%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+.dev-run-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  vertical-align: middle;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.tag.live {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}

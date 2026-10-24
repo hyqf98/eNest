@@ -1,0 +1,20 @@
+.background-effect {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  isolation: isolate;
+  background: radial-gradient(ellipse at 75% 20%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 65%), var(--bg);
+}
+.background-effect > canvas,
+.background-effect > video { position: absolute; inset: 0; z-index: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
+.background-atmosphere,
+.background-atmosphere-wash { position: absolute; inset: 0; pointer-events: none; }
+.background-atmosphere-wash { z-index: 1; }
+.background-atmosphere { z-index: 2; }
+/* Soft-light loses low-saturation colors on dark material. Color preserves its
+   luminance relief, while the small normal wash also carries pale/neutral colors. */
+.background-atmosphere--blend { mix-blend-mode: color; }
+.background-effect--fallback > canvas,
+.background-effect--fallback > video { visibility: hidden; }
+.background-effect.app-bg { position: fixed; }

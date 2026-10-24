@@ -1,0 +1,13 @@
+/* —— ≤400：极限窄屏 —— */
+@media (max-width: 400px) {
+  .settings-shell,
+.dev-shell {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .tab-orb .settings-shell,
+.tab-orb .dev-shell {
+    padding-left: 22px;
+  }
+}

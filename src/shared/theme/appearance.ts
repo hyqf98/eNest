@@ -706,7 +706,7 @@ export function validateThemePackV2(input: unknown, source: string): ThemePackV2
   if (source === 'enest.builtin') fail('reserved theme source')
   const bag = exactObject(input, 'pack', new Set([
     'id', 'name', 'source', 'mode', 'tokens', 'background', 'backgroundEffects', 'schemaVersion',
-    'version', 'description', 'variants', 'settings', 'palettes', 'home', 'quick',
+    'version', 'description', 'variants', 'settings', 'palettes', 'home', 'quick', 'chrome', 'settingsPage',
   ]))
   const id = text(bag.id, 'pack.id', 128, SAFE_ID)
   const name = text(bag.name, 'pack.name', 96)
@@ -744,6 +744,28 @@ export function validateThemePackV2(input: unknown, source: string): ThemePackV2
     if (!/^(?:(?!(?:backend|runtime|node_modules|src|tests?)\/)[A-Za-z0-9_@-]+\/)*[A-Za-z0-9_-]+\.html$/.test(entry)) fail('pack.quick.entry must be a package-relative HTML asset')
     quick = { version: 1, entry }
   }
+  let chrome: ThemePackV2['chrome']
+  if (bag.chrome !== undefined) {
+    const chromeBag = exactObject(bag.chrome, 'pack.chrome', new Set(['version', 'classic', 'rail', 'dock']))
+    if (chromeBag.version !== 1) fail('pack.chrome.version must be 1')
+    chrome = { version: 1 }
+    for (const part of ['classic', 'rail', 'dock'] as const) {
+      if (chromeBag[part] === undefined) continue
+      const descriptor = exactObject(chromeBag[part], `pack.chrome.${part}`, new Set(['entry']))
+      const entry = text(descriptor.entry, `pack.chrome.${part}.entry`, 240)
+      if (!/^(?:(?!(?:backend|runtime|node_modules|src|tests?)\/)[A-Za-z0-9_@-]+\/)*[A-Za-z0-9_-]+\.html$/.test(entry)) fail('pack.chrome entry must be a package-relative HTML asset')
+      chrome[part] = { entry }
+    }
+    if (!chrome.classic && !chrome.rail && !chrome.dock) fail('pack.chrome needs a renderer')
+  }
+  let settingsPage: ThemePackV2['settingsPage']
+  if (bag.settingsPage !== undefined) {
+    const page = exactObject(bag.settingsPage, 'pack.settingsPage', new Set(['version', 'entry']))
+    if (page.version !== 1) fail('pack.settingsPage.version must be 1')
+    const entry = text(page.entry, 'pack.settingsPage.entry', 240)
+    if (!/^(?:(?!(?:backend|runtime|node_modules|src|tests?)\/)[A-Za-z0-9_@-]+\/)*[A-Za-z0-9_-]+\.html$/.test(entry)) fail('pack.settingsPage.entry must be a package-relative HTML asset')
+    settingsPage = { version: 1, entry }
+  }
   const pack: ThemePackV2 = {
     id,
     name,
@@ -764,6 +786,8 @@ export function validateThemePackV2(input: unknown, source: string): ThemePackV2
     ...(palettes === undefined ? {} : { palettes }),
     ...(home ? { home } : {}),
     ...(quick ? { quick } : {}),
+    ...(chrome ? { chrome } : {}),
+    ...(settingsPage ? { settingsPage } : {}),
   }
   return plainClone(pack)
 }
@@ -1349,6 +1373,8 @@ export function resolveAppearance(input: {
     animation: { requested: requestedAnimation, effective: requestedAnimation, continuous: requestedAnimation !== 'low' },
     home: pack.home ? plainClone(pack.home) : plainClone(THEME_HOME_LEGACY),
     ...(pack.quick ? { quick: plainClone(pack.quick) } : {}),
+    ...(pack.chrome ? { chrome: plainClone(pack.chrome) } : {}),
+    ...(pack.settingsPage ? { settingsPage: plainClone(pack.settingsPage) } : {}),
     diagnostics,
   }
   constrainAppearance(result, Boolean(input.reducedMotion), Boolean(input.performanceLimited))

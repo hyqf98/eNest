@@ -5,9 +5,10 @@ import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isDeepStrictEqual } from 'node:util'
 import yaml from 'js-yaml'
+import { verifyReleaseManifest } from './release-manifest.mjs'
 
 export const releaseJobs = ['enest-mac-x64', 'enest-mac-arm64', 'enest-win-x64', 'enest-linux-x64']
-const allowedAsset = /\.(?:dmg|zip|exe|AppImage|deb|blockmap)$|^latest(?:-[a-z0-9-]+)?\.yml$/
+const allowedAsset = /\.(?:dmg|zip|exe|AppImage|deb|blockmap)$|^latest(?:-[a-z0-9-]+)?\.yml$|^release-manifest-(?:darwin|win32|linux)-(?:x64|arm64)\.json$/
 
 export async function fileSha512(file) {
   const hash = createHash('sha512')
@@ -54,17 +55,23 @@ export function mergeMacMetadata(sources) {
   }
 }
 
-export async function assembleRelease(inputDirectory, outputDirectory) {
+export async function assembleRelease(inputDirectory, outputDirectory, { requireManifests = false } = {}) {
   const input = resolve(inputDirectory), output = resolve(outputDirectory)
   if (input === output || output.startsWith(`${input}/`)) throw new Error('Release output must be outside the artifact input directory')
-  const assets = new Map(), metadata = []
+  const assets = new Map(), metadata = [], manifests = []
   for (const job of releaseJobs) {
     const dir = join(input, job)
     const entries = await readdir(dir, { withFileTypes: true })
     for (const entry of entries) {
       if (!entry.isFile() || !allowedAsset.test(entry.name)) throw new Error(`Unexpected release artifact: ${job}/${entry.name}`)
       const source = join(dir, entry.name)
-      if (entry.name.endsWith('.yml')) {
+      if (entry.name.startsWith('release-manifest-')) {
+        const platform = job.includes('-mac-') ? 'darwin' : job.includes('-win-') ? 'win32' : 'linux', arch = job.endsWith('-arm64') ? 'arm64' : 'x64'
+        if (entry.name !== `release-manifest-${platform}-${arch}.json`) throw new Error(`Unexpected platform manifest: ${job}/${entry.name}`)
+        const manifest = JSON.parse(await readFile(source, 'utf8'))
+        const names = await verifyReleaseManifest(manifest, dir, { platform, arch })
+        manifests.push({ job, name: entry.name, source, manifest, names })
+      } else if (entry.name.endsWith('.yml')) {
         metadata.push({ job, name: entry.name, info: yaml.load(await readFile(source, 'utf8'), { schema: yaml.JSON_SCHEMA }) })
       } else {
         if (assets.has(entry.name)) throw new Error(`Release asset name collision: ${entry.name}`)
@@ -72,6 +79,7 @@ export async function assembleRelease(inputDirectory, outputDirectory) {
       }
     }
   }
+  if (requireManifests && manifests.length !== releaseJobs.length) throw new Error('Every release job must provide a verified native/asset manifest')
   const expectedMetadata = new Map([
     ['enest-mac-x64', 'latest-mac.yml'], ['enest-mac-arm64', 'latest-mac.yml'],
     ['enest-win-x64', 'latest.yml'], ['enest-linux-x64', 'latest-linux.yml']
@@ -101,10 +109,16 @@ export async function assembleRelease(inputDirectory, outputDirectory) {
       if (![...assets].some(([name, asset]) => asset.job === job && name.endsWith(ext))) throw new Error(`${job} is missing ${ext}`)
     }
   }
+  for (const report of manifests) {
+    if (report.manifest.version !== version) throw new Error('Manifest and update metadata versions disagree')
+    const names = [...assets].filter(([, asset]) => asset.job === report.job).map(([name]) => name)
+    if (names.length !== report.names.size || names.some(name => !report.names.has(name))) throw new Error(`Unrecorded release asset: ${report.job}`)
+  }
   const mac = mergeMacMetadata(metadata.filter(item => item.name === 'latest-mac.yml').map(item => ({ arch: item.job.endsWith('arm64') ? 'arm64' : 'x64', info: item.info })))
   await mkdir(output, { recursive: true })
   if ((await readdir(output)).length) throw new Error('Release output directory must be empty')
   for (const [name, { source }] of assets) await copyFile(source, join(output, name))
+  for (const report of manifests) await copyFile(report.source, join(output, report.name))
   for (const item of metadata.filter(item => item.name !== 'latest-mac.yml')) {
     await writeFile(join(output, item.name), yaml.dump(item.info, { lineWidth: -1, noRefs: true }))
   }
@@ -115,5 +129,5 @@ export async function assembleRelease(inputDirectory, outputDirectory) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [input, output] = process.argv.slice(2)
   if (!input || !output) throw new Error('Usage: node assemble-release.mjs <downloaded-artifacts> <release-output>')
-  console.log(JSON.stringify(await assembleRelease(input, output), null, 2))
+  console.log(JSON.stringify(await assembleRelease(input, output, { requireManifests: true }), null, 2))
 }

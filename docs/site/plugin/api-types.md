@@ -176,15 +176,16 @@ export interface EnestPluginApi {
         onChange(cb: (value: string) => void): Unsubscribe;
         onAction(cb: (action: QuickInputAction) => void): Unsubscribe;
     };
-    focusTimer: {
-        start(options: Partial<FocusTimerOptions>): Promise<FocusTimerSnapshot>;
-        get(): Promise<FocusTimerSnapshot>;
-        pause(): Promise<FocusTimerSnapshot>;
-        resume(): Promise<FocusTimerSnapshot>;
-        skip(): Promise<FocusTimerSnapshot>;
-        stop(): Promise<FocusTimerSnapshot>;
-        updateRecord(recordId: string, patch: FocusTimerRecordPatch): Promise<FocusTimerSnapshot>;
-        onChange(cb: (snapshot: FocusTimerSnapshot) => void): Unsubscribe;
+    deadlineTasks: {
+        start(input: DeadlineTaskStart): Promise<DeadlineTaskSnapshot>;
+        get(id: string): Promise<DeadlineTaskSnapshot>;
+        pause(id: string): Promise<DeadlineTaskSnapshot>;
+        resume(id: string): Promise<DeadlineTaskSnapshot>;
+        skip(id: string): Promise<DeadlineTaskSnapshot>;
+        cancel(id: string): Promise<DeadlineTaskSnapshot>;
+        onChange(cb: (event: {
+            taskId: string;
+        }) => void): Unsubscribe;
     };
     storage: {
         blobs: {
@@ -210,11 +211,20 @@ export interface EnestPluginApi {
             clear(): Promise<boolean>;
         };
     };
+    background: {
+        call<T = unknown>(method: string, args?: unknown[], options?: {
+            timeoutMs?: number;
+        }): Promise<T>;
+    };
+    auxiliary: AuxiliaryApi;
+    files: {
+        stream: FileStreamsApi;
+    };
     clipboard: {
         capabilities(): Promise<ClipboardCapabilities>;
         requestPermission(): Promise<ClipboardCapabilities>;
         readText(): Promise<string>;
-        /** excludeFromHistory protects this write from eNest's own history collector. */
+        /** Host writes never feed back into the native change observer. */
         writeText(text: string, options?: {
             excludeFromHistory?: boolean;
         }): Promise<boolean>;
@@ -224,71 +234,22 @@ export interface EnestPluginApi {
             height: number;
         } | null>;
         writeImage(dataUrl: string): Promise<boolean>;
-        history: {
-            query(options?: ClipboardQuery): Promise<{
-                items: ClipboardHistoryEntry[];
-                total: number;
-                nextCursor: number | null;
-            }>;
-            copy(id: string, options?: {
-                plainText?: boolean;
-                paths?: boolean;
-            }): Promise<boolean>;
-            paste(id: string): Promise<{
-                pasted: boolean;
-                reason?: string;
-            }>;
-            reveal(id: string, fileIndex?: number): Promise<boolean>;
-            onChange(cb: () => void): Unsubscribe;
-            list(opts?: {
-                limit?: number;
-            }): Promise<ClipboardHistoryEntry[]>;
-            get(id: string): Promise<(ClipboardHistoryEntry & {
-                dataUrl?: string;
-            }) | null>;
-            remove(id: string): Promise<boolean>;
-            clear(): Promise<boolean>;
-            togglePin(id: string): Promise<ClipboardHistoryEntry>;
-        };
+        writeFiles(paths: string[]): Promise<boolean>;
+        paste(): Promise<{
+            pasted: boolean;
+            reason?: string;
+        }>;
+        /** Unknown paths are not inspected; only previously user-granted targets have existence data. */
+        inspectFiles(paths: string[]): Promise<ClipboardFileInspection[]>;
+        /** Opens a native target-confirmation dialog before revealing the selected path. */
+        revealFile(path: string): Promise<boolean>;
     };
     screen: {
         capture(opts?: {
             displayId?: number;
             bounds?: ScreenBounds;
         }): Promise<ScreenCaptureResult>;
-        selectRegion(): Promise<ScreenBounds | null>;
-        record: {
-            start(opts?: {
-                bounds?: ScreenBounds;
-                withAudio?: boolean;
-                displayId?: number;
-            }): Promise<{
-                sessionId: string;
-            }>;
-            stop(sessionId: string): Promise<{
-                path: string;
-                size: number;
-                durationMs: number;
-            }>;
-            cancel(sessionId: string): Promise<boolean>;
-        };
-    };
-    pin: {
-        open(payload: {
-            dataUrl?: string;
-            path?: string;
-            x?: number;
-            y?: number;
-            width?: number;
-            title?: string;
-        }): Promise<{
-            pinId: string;
-        }>;
-        close(pinId: string): Promise<boolean>;
-        closeAll(): Promise<number>;
-        list(): Promise<Array<{
-            pinId: string;
-        }>>;
+        displays(): Promise<CaptureDisplay[]>;
     };
     net: {
         /**
@@ -331,7 +292,7 @@ export interface EnestPluginApi {
         socket: {
             /**
              * 建立出站 TCP / TLS 连接（仅 outgoing）。host 可为 127.0.0.1 衔接
-             * ssh.workbench tunnel.open 打开的本地隧道口。需 net.socket 权限。
+             * 插件私有后端打开的本地隧道口。需 net.socket 权限。
              */
             connect(input: {
                 sessionId?: string;
@@ -361,31 +322,6 @@ export interface EnestPluginApi {
         onNetClose(cb: (event: NetCloseEvent) => void): Unsubscribe;
         /** 订阅 fetch 流式分片 / SSE data 行；等价 enest.on('net.chunk') */
         onChunk(cb: (event: NetChunkEvent) => void): Unsubscribe;
-        /**
-         * 局域网传件（lan.share 权限）：起限时 http 下载服务（0.0.0.0 随机端口，
-         * 局域网可见——手机扫码即下），6 位数字取件码门禁、文件白名单、
-         * 只读 GET（Range 支持）、并发连接上限、到期自动关停。
-         */
-        share: {
-            /** 起分享：files 仅支持经用户选择的句柄 {handleId}；minutes 1–120（缺省 10） */
-            start(input: {
-                files: Array<{
-                    handleId: string;
-                    name?: string;
-                }>;
-                minutes?: number;
-            }): Promise<LanShareStatus>;
-            /** 查单个分享状态 */
-            status(shareId: string): Promise<LanShareStatus>;
-            /** 本插件全部分享 */
-            list(): Promise<LanShareStatus[]>;
-            /** 手动停止 */
-            stop(shareId: string): Promise<boolean>;
-            /** 订阅下载请求日志（文件/ip/时间）；等价 enest.on('lan.request') */
-            onRequest(cb: (event: LanRequestEvent) => void): Unsubscribe;
-            /** 订阅分享关停（到期 / stop / 插件关闭）；等价 enest.on('lan.stopped') */
-            onStopped(cb: (event: LanStoppedEvent) => void): Unsubscribe;
-        };
     };
     /**
      * 本地文件改名（fs.rename 权限）：仅对 localFiles 句柄白名单内文件做
@@ -419,47 +355,6 @@ export interface EnestPluginApi {
             succeeded: number;
             failed: number;
         }>;
-    };
-    /**
-     * AI CLI 配置白名单读写（config.agent 权限）：
-     * 10 个应用的 adapter（路径白名单硬编码）；写前自动快照（保留 20 份）。
-     */
-    agent: {
-        /** 可用应用 + 探测到的安装状态 */
-        apps(): Promise<AgentAppInfo[]>;
-        /** 读配置原文与解析结果（不修改） */
-        read(app: string): Promise<AgentConfigSnapshot>;
-        /**
-         * 最小侵入写入：只替换给定顶层键（TOML/JSON 分别处理，保留注释与其余内容）；
-         * 写前自动快照。changes[filePath?] 按 app 主配置文件定位。
-         */
-        write(input: AgentWriteInput): Promise<AgentWriteResult>;
-        /** 某应用的快照列表（时间倒序） */
-        backups(app: string): Promise<AgentBackupInfo[]>;
-        /** 从快照恢复 */
-        restore(input: {
-            app: string;
-            id: string;
-        }): Promise<boolean>;
-        /** 会话日志只读：白名单目录下 jsonl 文件清单（大小+mtime，mtime 倒序） */
-        sessions: {
-            list(app: string): Promise<AgentSessionsListResult[]>;
-            /** 逐行读会话文件（默认上限 512KB/文件；尾半行丢弃） */
-            read(input: {
-                app: string;
-                file: string;
-                maxBytes?: number;
-            }): Promise<AgentSessionsReadResult>;
-        };
-        /** 资产通道：列白名单应用数据目录（如 codex 的 pets/；path 空串列根） */
-        listAssets(input: {
-            app: string;
-            path?: string;
-        }): Promise<AgentListAssetsResult>;
-        /** 资产通道：写资产文件（宿主权限校验后落盘，覆盖前自动快照） */
-        writeAssets(input: AgentWriteAssetsInput): Promise<AgentWriteAssetsResult>;
-        /** 资产通道：删除资产文件 / 目录（宿主原生确认后执行，不可恢复） */
-        deleteAssets(input: AgentDeleteAssetsInput): Promise<AgentDeleteAssetsResult>;
     };
     /** 本机进程与端口查看（sys.inspect，1s 缓存）/ 终止（sys.control） */
     sys: {
@@ -499,7 +394,7 @@ export interface EnestPluginApi {
         has(keyOrRef: string): Promise<boolean>;
         remove(keyOrRef: string): Promise<boolean>;
     };
-    /** SSH 运行时：session / exec / metrics / completion / sftp */
+    /** User-selected local file handles, isolated to the calling plugin. */
     localFiles: {
         /** Read a chosen file; UTF-8 text or a base64 data URL. Hard limit 32 MiB, two simultaneous reads. */
         read(input: {
@@ -508,6 +403,7 @@ export interface EnestPluginApi {
             maxBytes?: number;
         }): Promise<string>;
         pick(options?: LocalFilePickOptions): Promise<LocalFileHandle[]>;
+        /** The plugin may suggest a filename; omitted/empty uses the native dialog default. */
         pickSave(options?: {
             defaultName?: string;
         }): Promise<LocalFileHandle | null>;
@@ -528,117 +424,6 @@ export interface EnestPluginApi {
         startDrag(exportId: string): Promise<boolean>;
         endDrag(): Promise<boolean>;
     };
-    ssh: {
-        workbench(request: SshWorkbenchRequest): Promise<unknown>;
-        connect(input: SshConnectInput): Promise<SshSessionInfo>;
-        write(sessionId: string, data: string): Promise<boolean>;
-        resize(sessionId: string, cols: number, rows: number): Promise<boolean>;
-        disconnect(sessionId: string): Promise<boolean>;
-        listSessions(): Promise<SshSessionInfo[]>;
-        exec(input: SshExecInput): Promise<SshExecResult>;
-        metrics: {
-            /** 支持位置参数 (sessionId, intervalMs?) 或对象形 { sessionId, intervalMs? } */
-            start(sessionIdOrOpts: string | {
-                sessionId: string;
-                intervalMs?: number;
-            }, intervalMs?: number): Promise<{
-                ok: boolean;
-                intervalMs: number;
-            }>;
-            stop(sessionId: string | {
-                sessionId: string;
-            }): Promise<boolean>;
-            latest(sessionId: string | {
-                sessionId: string;
-            }): Promise<SshMetricsSample | null>;
-        };
-        completion: {
-            suggest(input: {
-                sessionId: string;
-                line: string;
-                cursor?: number;
-                cwd?: string;
-                history?: string[];
-                snippets?: Array<{
-                    title: string;
-                    command: string;
-                }>;
-            }): Promise<SshCompletionResult>;
-        };
-        sftp: {
-            list(input: SftpListInput): Promise<SftpEntry[]>;
-            download(input: SftpDownloadInput): Promise<SftpTransferResult>;
-            upload(input: SftpUploadInput): Promise<SftpTransferResult>;
-            mkdir(sessionId: string, path: string): Promise<boolean>;
-            rename(sessionId: string, path: string, newPath: string): Promise<boolean>;
-            delete(sessionId: string, path: string, recursive?: boolean): Promise<boolean>;
-            chmod(sessionId: string, path: string, mode: number | string): Promise<boolean>;
-        };
-        /** 订阅 SFTP 传输进度（download/upload 过程推送）；等价 enest.on('ssh.transfer') */
-        onSshTransfer(cb: (event: SshTransferEvent) => void): Unsubscribe;
-        pickLocalFile(opts?: LocalFilePickOptions): Promise<LocalFileHandle | null>;
-    };
-    /** 数据库运行时：驱动会话 / 查询 / 补全 / schema / applyChanges / 导入 */
-    db: {
-        workbench(request: DbWorkbenchRequest): Promise<unknown>;
-        test(config: DbConnectionConfig): Promise<DbTestResult>;
-        open(input: {
-            config: DbConnectionConfig;
-            sessionKey?: string;
-        } | DbConnectionConfig): Promise<DbSessionInfo>;
-        close(sessionKey: string): Promise<boolean>;
-        listSessions(): Promise<DbSessionInfo[]>;
-        pickSqliteFile(options?: {
-            createIfMissing?: boolean;
-            readOnly?: boolean;
-        }): Promise<LocalFileHandle | null>;
-        pickImportFile(): Promise<LocalFileHandle | null>;
-        execute(input: DbExecuteInput): Promise<QueryResult>;
-        explain(input: {
-            sessionKey: string;
-            sql: string;
-        }): Promise<QueryResult>;
-        cancel(sessionKey: string | {
-            sessionKey?: string;
-            executionId?: string;
-        }): Promise<boolean>;
-        applyChanges(input: DbApplyChangesInput): Promise<BatchResult>;
-        importPreview(input: DbImportPreviewInput): Promise<DbImportPreviewResult>;
-        importRun(input: DbImportRunInput): Promise<DbImportRunResult>;
-        schema: {
-            tree(input: DbSchemaTreeInput & {
-                node?: unknown;
-            }): Promise<SchemaObject[]>;
-            describe(input: {
-                sessionKey: string;
-                database?: string;
-                schema?: string;
-                table: string;
-            }): Promise<TableDetail>;
-            ddl(input: {
-                sessionKey: string;
-                database?: string;
-                schema?: string;
-                table: string;
-            }): Promise<string>;
-        };
-        completion: ((input: DbCompletionInput) => Promise<CompletionResponse>) & {
-            suggest(input: DbCompletionInput): Promise<CompletionResponse>;
-        };
-        dialects: {
-            list(): Promise<DbDialectInfo[]>;
-        };
-    };
-    /** 中间件控制台运行时：连接 / 浏览 / 变更（kafka / rabbitmq / mqtt / rocketmq） */
-    mw: {
-        workbench(request: MwWorkbenchRequest): Promise<unknown>;
-    };
-    /** DSH 驾驶舱运行时：runtime 探测 / web+sdk 进程 / profile / 备份 / 热更新 */
-    dsh: {
-        workbench(request: DshWorkbenchRequest): Promise<unknown>;
-        /** dsh:* 事件（web-ready/web-port/sdk-notify/runtime-progress…）；等价 on('dsh.event') */
-        onDshEvent(cb: (event: DshWorkbenchEvent) => void): Unsubscribe;
-    };
     on(event: string, cb: Listener): void;
     off(event: string, cb: Listener): void;
     // —— 生命周期（对标 uTools onPluginEnter / onPluginOut）——
@@ -654,7 +439,10 @@ export interface EnestPluginApi {
     };
     /** Calls the plugin-owned Node backend after explicit backend.node consent. */
     backend: {
-        call<T = unknown>(method: string, args?: unknown[]): Promise<T>;
+        call<T = unknown>(method: string, args?: unknown[], options?: {
+            timeoutMs?: number;
+        }): Promise<T>;
+        stop(): Promise<void>;
     };
     onBeforeClose(cb: (event: PluginBeforeCloseEvent) => void | Promise<unknown>): Unsubscribe;
     /** 关闭已开始（best-effort），通常已在 beforeClose 完成清理 */
@@ -706,6 +494,35 @@ export interface EnestQuickApi {
         selectAll: boolean;
     }) => void): () => void;
     action(action: QuickThemeAction): Promise<QuickThemeActionResult>;
+}
+
+export interface ThemeChromeApi {
+    getSnapshot(): Promise<ThemeChromeSnapshot>;
+    onSnapshot(listener: (snapshot: ThemeChromeSnapshot) => void): () => void;
+    dispatch(action: ThemeChromeAction): Promise<void>;
+    /** Call only after the first usable frame; the host retains its fallback until this ACK. */
+    ready(): Promise<void>;
+}
+
+/** Isolated theme settings pages never receive shellApi, raw settings, grants, tokens or account data. */
+export interface EnestSettingsApi {
+    ready(): void;
+    getState(): Promise<ThemeSettingsSnapshot>;
+    onState(listener: (snapshot: ThemeSettingsSnapshot) => void): () => void;
+    action(action: ThemeSettingsAction): Promise<ThemeSettingsActionResult>;
+}
+
+export interface PluginBackgroundBridge {
+    host: PluginBackgroundHost;
+    /** One registration per document; operation ACK is sent only after the handler settles. */
+    register(handlers: PluginBackgroundHandlers): void;
+}
+
+export interface AuxiliaryPageApi {
+    getContext(): Promise<AuxiliaryContext>;
+    onMessage(callback: (data: unknown) => void): () => void;
+    post(data: unknown): Promise<void>;
+    close(): Promise<void>;
 }
 
 export type Listener = (data: unknown) => void;
@@ -767,18 +584,6 @@ export type PluginQuickProviderMeta = {
     id: string;
     explain?: string;
     schemaVersion?: string;
-};
-
-/** SFTP 传输进度事件（enest.ssh.onSshTransfer / enest.on('ssh.transfer')） */
-export type SshTransferEvent = {
-    sessionId: string;
-    direction: 'upload' | 'download';
-    path: string;
-    transferred: number;
-    /** 0 表示未知（预取大小失败） */
-    total: number;
-    done?: boolean;
-    error?: string;
 };
 
 /** hotkey.register 结果：ok=false 时 error 携带冲突/失败原因 */
@@ -848,144 +653,6 @@ export type NetFetchResult = {
     reqId?: string;
 };
 
-/** lan.share 状态（start/status/list 返回；files 不含宿主侧路径） */
-export type LanShareStatus = {
-    shareId: string;
-    port: number;
-    /** 6 位数字取件码 */
-    code: string;
-    files: Array<{
-        id: string;
-        name: string;
-        size: number;
-    }>;
-    /** 本机内网 IPv4 列表（内网段优先），供展示与生成二维码 */
-    ips: string[];
-    startedAt: number;
-    expiresAt: number;
-    stopped?: boolean;
-    stopReason?: string;
-    activeConnections: number;
-    downloads: number;
-};
-
-/** lan.request 下载请求日志事件（enest.net.share.onRequest） */
-export type LanRequestEvent = {
-    shareId: string;
-    file: string;
-    ip: string;
-    ts: number;
-};
-
-/** lan.stopped 分享关停事件（enest.net.share.onStopped） */
-export type LanStoppedEvent = {
-    shareId: string;
-    reason: string;
-};
-
-/** agent.apps 条目 */
-export type AgentAppInfo = {
-    app: string;
-    name: string;
-    configPaths: string[];
-    installed: boolean;
-    active: boolean;
-};
-
-/** agent.read 返回 */
-export type AgentConfigSnapshot = {
-    app: string;
-    files: Array<{
-        path: string;
-        content: string;
-        parsed: unknown;
-        exists: boolean;
-    }>;
-    active: boolean;
-    readAt: number;
-};
-
-/** agent.write 载荷：changes 为「文件内顶层键 → 新值」映射（最小侵入合并） */
-export type AgentWriteInput = {
-    app: string;
-    changes: Record<string, unknown>;
-    confirmed?: boolean;
-};
-
-/** agent.write 返回 */
-export type AgentWriteResult = {
-    ok: boolean;
-    app: string;
-    written: string[];
-    backupId: string;
-};
-
-/** agent.backups 条目 */
-export type AgentBackupInfo = {
-    id: string;
-    app: string;
-    createdAt: number;
-    files: string[];
-};
-
-/** agent.sessions.list 返回（每个会话根目录一条） */
-export type AgentSessionsListResult = {
-    app: string;
-    root: string;
-    files: AgentSessionFile[];
-    truncated: boolean;
-};
-
-/** agent.sessions.read 返回 */
-export type AgentSessionsReadResult = {
-    app: string;
-    file: string;
-    path: string;
-    bytes: number;
-    readBytes: number;
-    truncated: boolean;
-    lines: AgentSessionLine[];
-};
-
-/** agent.listAssets 返回 */
-export type AgentListAssetsResult = {
-    app: string;
-    root: string;
-    path: string;
-    entries: AgentAssetEntry[];
-    truncated: boolean;
-};
-
-/** agent.writeAssets 载荷（宿主权限校验后落盘） */
-export type AgentWriteAssetsInput = {
-    app: string;
-    assets: AgentAssetInput[];
-    confirmed?: boolean;
-};
-
-/** agent.writeAssets 返回 */
-export type AgentWriteAssetsResult = {
-    ok: boolean;
-    app: string;
-    written: string[];
-    /** 覆盖了已存在文件时的快照 id（未覆盖为 null） */
-    backupId: string | null;
-};
-
-/** agent.deleteAssets 载荷 */
-export type AgentDeleteAssetsInput = {
-    app: string;
-    paths: string[];
-    confirmed?: boolean;
-};
-
-/** agent.deleteAssets 返回 */
-export type AgentDeleteAssetsResult = {
-    ok: boolean;
-    app: string;
-    deleted: string[];
-};
-
 /** sys.processes 条目 */
 export type SysProcessInfo = {
     pid: number;
@@ -1024,6 +691,10 @@ export interface ThemePackV2 extends ThemePack {
     home?: ThemeHomeReference;
     /** Isolated Quick presentation. Omission keeps the host's built-in launcher. */
     quick?: ThemeQuickReference;
+    /** Optional sandboxed navigation renderers. The host retains geometry and lifecycle. */
+    chrome?: ThemeChromeReference;
+    /** Optional isolated settings presentation; protected actions stay native. */
+    settingsPage?: ThemeSettingsReference;
 }
 
 export interface ResolvedAppearance {
@@ -1050,6 +721,8 @@ export interface ResolvedAppearance {
     };
     home: ThemeHomeReference;
     quick?: ThemeQuickReference;
+    chrome?: ThemeChromeReference;
+    settingsPage?: ThemeSettingsReference;
     diagnostics: AppearanceDiagnostic[];
     /** Host-owned public font handles; no local paths or custom-font metadata. */
     resources?: {
@@ -1060,292 +733,43 @@ export interface ResolvedAppearance {
     };
 }
 
-export type DbWorkbenchRequest = {
-    action: 'drivers.list';
-    input?: Record<string, never>;
-} | {
-    action: 'browse';
-    input: {
-        sessionKey: string;
-        table: TableRef;
-        maxRows?: number;
-        surface?: 'quick' | 'shell';
-    };
-} | {
-    action: 'redis.scan';
-    input: {
-        sessionKey: string;
-        cursor?: string;
-        match?: string;
-        count?: number;
-    };
-} | {
-    action: 'table.page';
-    input: DbTablePage & {
-        sessionKey: string;
-        surface?: 'quick' | 'shell';
-    };
-} | {
-    action: 'table.design.preview';
-    input: {
-        sessionKey: string;
-        design: DbTableDesign;
-    };
-} | {
-    action: 'table.design.apply';
-    input: {
-        sessionKey: string;
-        design: DbTableDesign;
-        confirmed?: boolean;
-    };
-} | {
-    action: 'execute';
-    input: DbWorkbenchExecuteInput;
-} | {
-    action: 'cancel';
-    input: {
-        sessionKey: string;
-        executionId?: string;
-    };
-} | {
-    action: 'transaction';
-    input: {
-        sessionKey: string;
-        operation: 'begin' | 'commit' | 'rollback';
-    };
-} | {
-    action: 'inspect';
-    input: {
-        sessionKey: string;
-        kind: DbInspectionKind;
-    };
-} | {
-    action: 'compare';
-    input: DbCompareInput;
-} | {
-    action: 'test';
-    input: DbConnectionConfig;
-};
-
-// —— 事件（dsh:event 推送）——
-export type DshWorkbenchEvent = {
-    type: 'web-ready';
-    port: number;
-    readyUrl?: string;
-} | {
-    type: 'web-port';
-    port: number;
-    readyUrl?: string;
-    retries: number;
-} | {
-    type: 'web-exit';
-    code: number | null;
-    lastError?: string;
-} | {
-    type: 'web-stderr';
-    tail: string;
-} | {
-    type: 'sdk-exit';
-    code: number | null;
-    lastError?: string;
-} | {
-    type: 'sdk-notify';
-    method: string;
-    params: Record<string, unknown>;
-} | {
-    type: 'runtime-progress';
-    phase: string;
-    detail?: string;
-    percent?: number;
-};
-
-// —— workbench action 契约（权限映射见 main/dsh/workbench.ts）——
-export type DshWorkbenchRequest =
-// dsh.connect（只读）
-{
-    action: 'runtime.detect';
-    input?: Record<string, never>;
-} | {
-    action: 'runtime.status';
-    input?: Record<string, never>;
-} | {
-    action: 'sessions.list';
-    input?: {
-        limit?: number;
-    };
-} | {
-    action: 'sessions.read';
-    input: {
-        sessionId: string;
-        maxEvents?: number;
-    };
-} | {
-    action: 'settings.get';
-    input?: Record<string, never>;
-} | {
-    action: 'profiles.list';
-    input?: Record<string, never>;
-} | {
-    action: 'backup.list';
-    input?: Record<string, never>;
-} | {
-    action: 'runtime.versions.list';
-    input?: Record<string, never>;
-} | {
-    action: 'runtime.versions.available';
-    input?: {
-        limit?: number;
-    };
-} | {
-    action: 'rpc.call';
-    input: {
-        method: 'session/wait' | 'session/working-directory/get';
-        params: Record<string, unknown>;
-    };
-} | {
-    action: 'logs.tail';
-    input: {
-        kind: 'web' | 'sdk';
-        lines?: number;
-    };
-}
-// dsh.chat（会话写）
- | {
-    action: 'sdk.start';
-    input?: DshSdkStartInput;
-} | {
-    action: 'sdk.stop';
-    input?: Record<string, never>;
-} | {
-    action: 'rpc.write';
-    input: {
-        method: 'session/prompt' | 'session/working-directory/set';
-        params: Record<string, unknown>;
-    };
-}
-// dsh.admin（进程/profile/备份/热更新）
- | {
-    action: 'web.start';
-    input?: {
-        profile?: string;
-        port?: number;
-    };
-} | {
-    action: 'web.stop';
-    input?: Record<string, never>;
-} | {
-    action: 'web.restart';
-    input?: {
-        profile?: string;
-        port?: number;
-    };
-} | {
-    action: 'sdk.restart';
-    input?: DshSdkStartInput;
-} | {
-    action: 'settings.update';
-    input: Partial<DshWorkbenchSettings>;
-}
-/** 显式编辑读取包含 profile 密钥，不能降为 connect。 */
- | {
-    action: 'profiles.read';
-    input: {
-        name: string;
-    };
-} | {
-    action: 'profiles.create';
-    input: {
-        name: string;
-        template: DshProfileTemplate;
-    };
-} | {
-    action: 'profiles.update';
-    input: DshProfileUpdateInput;
-} | {
-    action: 'profiles.sync';
-    input: {
-        source: string;
-        target: string;
-        scope?: 'environment' | 'configuration';
-    };
-} | {
-    action: 'environment.reset';
-    input: DshEnvironmentResetInput;
-} | {
-    action: 'profiles.delete';
-    input: {
-        name: string;
-        backupFirst?: boolean;
-    };
-} | {
-    action: 'profiles.backup';
-    input: {
-        name: string;
-    };
-} | {
-    action: 'profiles.restore';
-    input: {
-        backupId: string;
-    };
-} | {
-    action: 'backup.create';
-    input?: {
-        label?: string;
-    };
-} | {
-    action: 'backup.restore';
-    input: {
-        backupId: string;
-    };
-} | {
-    action: 'backup.delete';
-    input: {
-        backupId: string;
-    };
-} | {
-    action: 'runtime.download';
-    input: {
-        version: string;
-    };
-} | {
-    action: 'runtime.activate';
-    input: {
-        version: string;
-        source?: 'data' | 'bundled' | 'system';
-    };
-} | {
-    action: 'runtime.remove';
-    input: {
-        version: string;
-    };
-} | {
-    action: 'upgrade.oneClick';
-    input: {
-        version: string;
-    };
-};
-
-/** Persistent main-process focus timer. Durations are milliseconds in snapshots. */
-export interface FocusTimerOptions {
-    focusMin: number;
-    breakMin: number;
-    longBreakMin: number;
-    longBreakEvery: number;
-    autoStart: boolean;
-    task: string;
-    notify: boolean;
+export interface AuxiliaryApi {
+    open(options: AuxiliaryOpen): Promise<{
+        windowId: string;
+    }>;
+    send(windowId: string, data: unknown, options?: {
+        visible?: boolean;
+    }): Promise<void>;
+    close(windowId: string): Promise<boolean>;
+    list(): Promise<Array<{
+        windowId: string;
+        entry: string;
+    }>>;
 }
 
-export interface FocusTimerSnapshot {
-    state: FocusTimerState;
-    records: FocusTimerRecord[];
+/** A bounded cursor also permits a plugin to import its own paused legacy state. */
+export interface DeadlineTaskStart extends DeadlineTaskPlan {
+    paused?: boolean;
+    cursor?: {
+        stepIndex: number;
+        iteration: number;
+        remainingMs: number;
+        startedAt?: number | null;
+    };
 }
 
-export interface FocusTimerRecordPatch {
-    task?: string;
-    durationMs?: number;
-    counted?: boolean;
-    deleted?: boolean;
+export interface DeadlineTaskSnapshot {
+    task: DeadlineTaskState | null;
+    receipts: DeadlineTaskReceipt[];
+}
+
+export interface FileStreamsApi {
+    open(options: FileStreamOpen): Promise<{
+        streamId: string;
+    }>;
+    write(streamId: string, sequence: number, bytes: ArrayBuffer): Promise<void>;
+    finish(streamId: string): Promise<FileStreamResult>;
+    abort(streamId: string): Promise<boolean>;
 }
 
 /** Runtime registration confirms an exact manifest declaration; source is host-bound. */
@@ -1378,232 +802,6 @@ export interface LocalFilePickOptions {
 }
 
 export type PluginInputContext = 'workbench' | 'terminal' | 'editor' | 'overlay';
-
-// —— workbench action 契约（权限映射见 main/middleware/workbench.ts）——
-export type MwWorkbenchRequest =
-// mw.connect
-{
-    action: 'kinds.list';
-    input?: Record<string, never>;
-} | {
-    action: 'test';
-    input: {
-        config: MwConnectionConfig;
-    };
-} | {
-    action: 'session.open';
-    input: {
-        sessionKey: string;
-        config: MwConnectionConfig;
-    };
-} | {
-    action: 'session.close';
-    input: {
-        sessionKey: string;
-    };
-} | {
-    action: 'session.list';
-    input?: Record<string, never>;
-}
-// mw.query
- | {
-    action: 'overview';
-    input: {
-        sessionKey: string;
-    };
-} | {
-    action: 'topics.list';
-    input: {
-        sessionKey: string;
-        search?: string;
-        includeInternal?: boolean;
-    };
-} | {
-    action: 'topic.describe';
-    input: {
-        sessionKey: string;
-        topic: string;
-    };
-} | {
-    action: 'exchanges.list';
-    input: {
-        sessionKey: string;
-        search?: string;
-    };
-} | {
-    action: 'bindings.list';
-    input: {
-        sessionKey: string;
-        source?: string;
-        destination?: string;
-    };
-} | {
-    action: 'groups.list';
-    input: {
-        sessionKey: string;
-        search?: string;
-    };
-} | {
-    action: 'group.describe';
-    input: {
-        sessionKey: string;
-        groupId: string;
-    };
-} | {
-    action: 'clients.list';
-    input: {
-        sessionKey: string;
-        search?: string;
-    };
-} | {
-    action: 'messages.query';
-    input: MwMessageQueryInput & {
-        sessionKey: string;
-    };
-} | {
-    action: 'messages.get';
-    input: {
-        sessionKey: string;
-        topic: string;
-        messageId?: string;
-        partition?: number;
-        offset?: number;
-    };
-} | {
-    action: 'tail.start';
-    input: {
-        sessionKey: string;
-        tailId: string;
-        topic: string;
-        filter?: string;
-    };
-} | {
-    action: 'tail.stop';
-    input: {
-        sessionKey: string;
-        tailId: string;
-    };
-} | {
-    action: 'configs.describe';
-    input: {
-        sessionKey: string;
-        topic: string;
-    };
-} | {
-    action: 'trace.message';
-    input: {
-        sessionKey: string;
-        key: string;
-    };
-} | {
-    action: 'retained.list';
-    input: {
-        sessionKey: string;
-        search?: string;
-    };
-}
-// mw.admin（连接级 readOnly 时宿主直接拒绝）
- | {
-    action: 'topic.create';
-    input: {
-        sessionKey: string;
-        topic: MwTopicCreateInput;
-    };
-} | {
-    action: 'topic.update';
-    input: {
-        sessionKey: string;
-        name: string;
-        attrs: Partial<MwTopicCreateInput>;
-    };
-} | {
-    action: 'topic.delete';
-    input: {
-        sessionKey: string;
-        name: string;
-    };
-} | {
-    action: 'topic.purge';
-    input: {
-        sessionKey: string;
-        name: string;
-    };
-} | {
-    action: 'partitions.grow';
-    input: {
-        sessionKey: string;
-        topic: string;
-        count: number;
-    };
-} | {
-    action: 'exchange.create';
-    input: {
-        sessionKey: string;
-        exchange: {
-            name: string;
-            type: string;
-            durable?: boolean;
-            autoDelete?: boolean;
-            arguments?: Record<string, unknown>;
-        };
-    };
-} | {
-    action: 'exchange.delete';
-    input: {
-        sessionKey: string;
-        name: string;
-    };
-} | {
-    action: 'binding.create';
-    input: {
-        sessionKey: string;
-        binding: MwBindingCreateInput;
-    };
-} | {
-    action: 'binding.delete';
-    input: {
-        sessionKey: string;
-        source: string;
-        destination: string;
-        propertiesKey: string;
-    };
-} | {
-    action: 'group.resetOffsets';
-    input: {
-        sessionKey: string;
-    } & MwGroupResetInput;
-} | {
-    action: 'client.kick';
-    input: {
-        sessionKey: string;
-        clientId: string;
-    };
-} | {
-    action: 'messages.send';
-    input: MwMessageSendInput & {
-        sessionKey: string;
-    };
-} | {
-    action: 'messages.resend';
-    input: {
-        sessionKey: string;
-        message: MwMessage;
-        targetTopic?: string;
-    };
-} | {
-    action: 'configs.alter';
-    input: {
-        sessionKey: string;
-        topic: string;
-        configs: Record<string, string>;
-    };
-} | {
-    action: 'retained.delete';
-    input: {
-        sessionKey: string;
-        topic: string;
-    };
-};
 
 /**
  * v1 已注册 topic → data 类型映射。
@@ -1709,12 +907,10 @@ export interface ClipboardCapabilities {
     reason?: string;
 }
 
-export interface ClipboardQuery {
-    query?: string;
-    type?: 'text' | 'image' | 'files';
-    pinned?: boolean;
-    cursor?: number;
-    limit?: number;
+export interface ClipboardFileInspection {
+    path: string;
+    exists: boolean | null;
+    directory?: boolean;
 }
 
 /** 壳子支持的界面语言（settings.general.locale / enest.i18n） */
@@ -1733,23 +929,15 @@ export interface ScreenCaptureResult {
     dataUrl: string;
     width: number;
     height: number;
+    displayId?: number;
 }
 
-/** 剪贴板历史条目（list 不含完整二进制；get 返回完整字段） */
-export interface ClipboardHistoryEntry {
-    id: string;
-    type: 'text' | 'image' | 'files';
-    files?: ClipboardFile[];
-    sourceApp?: ClipboardSourceApp;
-    /** 文本截断或图片尺寸摘要，用于列表展示 */
-    preview: string;
-    text?: string;
-    hasImage?: boolean;
-    width?: number;
-    height?: number;
-    ts: number;
-    pinned: boolean;
-    bytes?: number;
+export interface CaptureDisplay {
+    id: number;
+    bounds: ScreenBounds;
+    workArea: ScreenBounds;
+    scaleFactor: number;
+    primary: boolean;
 }
 
 /**
@@ -1781,408 +969,9 @@ export type ThemePackRegistrationInput = Omit<ThemePack, 'source' | 'mode' | 'ba
     background?: ThemePackV2['background'];
 } | ThemePackV2Input;
 
-/** SSH / Database 插件宿主 API 共享类型（Spec docs/compose/spec/ssh-db-plugins.md） */
-// —— Vault ——
+/** An opaque reference, resolvable only in the same plugin's trusted backend. */
 export interface VaultSetResult {
     secretRef: string;
-}
-
-/** ssh.connect 入参：密钥走 secretRef / ephemeralSecret / password（一次性） */
-export interface SshConnectInput {
-    profileId?: string;
-    host: string;
-    port?: number;
-    username: string;
-    authType?: SshAuthType;
-    secretRef?: string;
-    ephemeralSecret?: string;
-    /** 插件 UI 一次性口令别名，等价 ephemeralSecret */
-    password?: string;
-    privateKeyHandleId?: string;
-    jump?: SshJumpConfig | null;
-    /** Explicit proxy; omitted means direct TCP, independent of shell HTTP proxy. */
-    proxy?: SshProxyConfig;
-    /** Ordered jump chain, from the local-facing bastion to the target. Max 8. */
-    jumps?: SshJumpConfig[];
-    keepAliveSec?: number;
-    timeoutMs?: number;
-    cols?: number;
-    rows?: number;
-    term?: string;
-    env?: string;
-}
-
-export interface SshSessionInfo {
-    sessionId: string;
-    profileId?: string;
-    host: string;
-    port?: number;
-    username?: string;
-    status?: string;
-    connectedAt?: number;
-    fingerprint?: string;
-    serverIdent?: string;
-    cols?: number;
-    rows?: number;
-}
-
-export interface SshExecInput extends Partial<SshConnectInput> {
-    sessionId?: string;
-    command?: string;
-    cmd?: string;
-    timeoutMs?: number;
-}
-
-export interface SshExecResult {
-    stdout: string;
-    stderr: string;
-    exitCode: number | null;
-    durationMs: number;
-}
-
-export interface SshMetricsSample {
-    ts: number;
-    cpuPercent?: number;
-    memUsed?: number;
-    memTotal?: number;
-    memPercent?: number;
-    load1?: number;
-    disks?: Array<{
-        mount: string;
-        usedPercent: number;
-        used?: number;
-        total?: number;
-    }>;
-    net?: Array<{
-        iface: string;
-        rxKbps: number;
-        txKbps: number;
-    }>;
-    uptimeSec?: number;
-    topProcesses?: Array<{
-        pid: number;
-        cpuPercent?: number;
-        memPercent?: number;
-        command: string;
-    }>;
-    error?: string;
-}
-
-export interface SshCompletionResult {
-    items: SshCompletionItem[];
-    danger?: string | null;
-    word?: string;
-}
-
-export interface SftpListInput {
-    sessionId?: string;
-    path?: string;
-    host?: string;
-    port?: number;
-    username?: string;
-    authType?: SshAuthType;
-    secretRef?: string;
-    ephemeralSecret?: string;
-    privateKeyHandleId?: string;
-}
-
-export interface SftpEntry {
-    name: string;
-    type: 'file' | 'dir' | 'other';
-    size: number;
-    mtime: number;
-}
-
-export interface SftpDownloadInput extends SftpListInput {
-    remotePath?: string;
-    localDirectoryHandleId: string;
-}
-
-export interface SftpUploadInput extends SftpListInput {
-    localHandleId: string;
-    remotePath?: string;
-}
-
-export interface SftpTransferResult {
-    ok: boolean;
-    path?: string;
-    remotePath?: string;
-    localPath?: string;
-    size?: number;
-    bytes?: number;
-    message?: string;
-    error?: string;
-}
-
-export interface DbConnectionConfig {
-    driver: DbDriverId;
-    host?: string;
-    port?: number;
-    database?: string;
-    username?: string;
-    secretRef?: string;
-    ephemeralSecret?: string;
-    connectionId?: string;
-    env?: string;
-    readOnly?: boolean;
-    /** sqlite / 用户文件库（不是壳子 enest.db） */
-    fileHandleId?: string;
-    createIfMissing?: boolean;
-    /** influxdb */
-    org?: string;
-    bucket?: string;
-    /** 通用选项 */
-    options?: {
-        readOnly?: boolean;
-        requireConfirm?: boolean;
-        charset?: string;
-        ssl?: boolean;
-        schema?: string;
-        env?: string;
-        createIfMissing?: boolean;
-        file?: string;
-        org?: string;
-        bucket?: string;
-        [key: string]: unknown;
-    };
-}
-
-export interface DbTestResult {
-    ok: boolean;
-    message: string;
-    version?: string;
-    latencyMs?: number;
-}
-
-export interface DbSessionInfo {
-    sessionKey: string;
-    driver: DbDriverId;
-    host?: string;
-    database?: string;
-    filePath?: string;
-    readOnly?: boolean;
-    openedAt: number;
-    connectionId?: string;
-    transactionActive?: boolean;
-}
-
-export interface DbExecuteInput {
-    executionId?: string;
-    surface?: 'quick' | 'shell';
-    sessionKey: string;
-    sql: string;
-    maxRows?: number;
-    timeoutMs?: number;
-    /** prod / 保护连接写操作确认（Spec DB-B5） */
-    confirmed?: boolean;
-    params?: unknown[] | Record<string, unknown>;
-}
-
-export interface BatchResult {
-    ok: boolean;
-    results: BatchResultItem[];
-    durationMs: number;
-}
-
-export interface DbApplyChangesInput {
-    sessionKey: string;
-    changes: RowChange[];
-    mode?: 'stop-on-error' | 'continue';
-    confirmed?: boolean;
-}
-
-export interface QueryResult {
-    editable?: boolean;
-    transactionActive?: boolean;
-    executionId?: string;
-    results?: QueryResult[];
-    format?: 'table' | 'document' | 'key-value';
-    columns: QueryResultColumn[];
-    rows: unknown[][];
-    rowCount: number;
-    affectedRows?: number;
-    durationMs: number;
-    truncated?: boolean;
-    messages?: string[];
-    warnings?: string[];
-    rowIdentity?: {
-        keyColumns: string[];
-        keys: unknown[][];
-    };
-    sql?: string;
-    error?: string;
-}
-
-export interface DbSchemaTreeInput {
-    sessionKey: string;
-    parent?: string;
-    database?: string;
-    schema?: string;
-    table?: string;
-    filter?: string;
-    node?: {
-        type?: string;
-        database?: string;
-        schema?: string;
-        table?: string;
-    };
-}
-
-export interface SchemaObject {
-    name: string;
-    type: 'database' | 'schema' | 'table' | 'view' | 'measurement' | 'supertable' | 'collection' | 'key' | 'column' | 'other';
-    database?: string;
-    schema?: string;
-    comment?: string;
-    children?: SchemaObject[];
-    column?: DbColumnMeta;
-}
-
-export interface TableDetail {
-    metadata?: Record<string, unknown>;
-    name?: string;
-    table?: string;
-    schema?: string;
-    database?: string;
-    columns: DbColumnMeta[];
-    primaryKey?: string[];
-    indexes?: Array<{
-        name: string;
-        columns: string[];
-        unique?: boolean;
-    }>;
-    foreignKeys?: Array<{
-        name: string;
-        columns: string[];
-        referencedTable: string;
-        referencedSchema?: string;
-        referencedColumns: string[];
-    }>;
-    comment?: string;
-    ddl?: string;
-}
-
-export interface CompletionResponse {
-    replace: {
-        from: number;
-        to: number;
-    };
-    items: CompletionItem[];
-    isIncomplete?: boolean;
-}
-
-export interface DbCompletionInput {
-    sessionKey: string;
-    sql: string;
-    cursor?: number;
-    database?: string;
-    schema?: string;
-    usageBoost?: Record<string, number>;
-}
-
-export interface DbDialectInfo {
-    id: DbDriverId | string;
-    label: string;
-    dialect: DbDialect;
-    defaultPort?: number;
-    keywords?: string[];
-    keywordsSample?: string[];
-    functions?: Array<{
-        name: string;
-        signature?: string;
-        doc?: string;
-        kind?: string;
-    }>;
-    snippets?: Array<{
-        prefix?: string;
-        body?: string;
-        detail?: string;
-        name?: string;
-        label?: string;
-        sql?: string;
-        text?: string;
-    }>;
-    [key: string]: unknown;
-}
-
-export interface DbImportPreviewInput {
-    sessionKey: string;
-    table: TableRef;
-    csvText?: string;
-    /** Host-selected file capability, valid only in the current runtime. */
-    fileHandleId?: string;
-    options?: {
-        delimiter?: string;
-        hasHeader?: boolean;
-        columns?: string[];
-        sampleRows?: number;
-    };
-}
-
-export interface DbImportPreviewResult {
-    columns: string[];
-    sampleRows: string[][];
-    totalRowsEstimate: number;
-    mappedColumns: Array<{
-        source: string;
-        target: string;
-    }>;
-    sqlPreview: string[];
-}
-
-export interface DbImportRunInput {
-    sessionKey: string;
-    table: TableRef;
-    csvText?: string;
-    /** Host-selected file capability, valid only in the current runtime. */
-    fileHandleId?: string;
-    options?: {
-        delimiter?: string;
-        hasHeader?: boolean;
-        columns?: string[];
-        conflict?: 'insert' | 'upsert' | 'skip';
-        sampleRows?: number;
-    };
-    /** prod / 保护连接写入确认 */
-    confirmed?: boolean;
-}
-
-export interface DbImportRunResult {
-    ok: boolean;
-    inserted: number;
-    failed: number;
-    errors?: string[];
-    durationMs: number;
-}
-
-export interface SshWorkbenchRequest {
-    action: string;
-    sessionId?: string;
-    sourceSessionId?: string;
-    path?: string;
-    paths?: string[];
-    destination?: string;
-    content?: string;
-    expectedMtime?: number;
-    pid?: number;
-    startTime?: string;
-    signal?: 'TERM' | 'KILL';
-    name?: string;
-    operation?: string;
-    confirmed?: boolean;
-    entries?: Array<{
-        path: string;
-        name: string;
-    }>;
-    id?: string;
-    localPort?: number;
-    remoteHost?: string;
-    remotePort?: number;
-    direction?: 'local' | 'remote';
-    overwrite?: boolean;
-    localHandleId?: string;
-    expectedHash?: string;
-    answers?: string[];
 }
 
 export interface HomeAppearanceSnapshot {
@@ -2245,6 +1034,7 @@ export type HomeAction = {
 } | {
     type: 'activateSearchResult';
     handle: string;
+    query?: string;
 } | {
     type: 'openPlugin';
     pluginId: string;
@@ -2332,8 +1122,13 @@ export interface QuickThemeSnapshot {
     searching: boolean;
     loading: boolean;
     busy: boolean;
+    composing: boolean;
     error: string | null;
     items: QuickThemeItem[];
+    catalog: QuickThemeCatalogItem[];
+    catalogRevision: number;
+    queryRevision: number;
+    shown: number;
     selectedId: string | null;
     expanded: boolean;
     hiddenCount: number;
@@ -2342,6 +1137,7 @@ export interface QuickThemeSnapshot {
         title: string;
         loading: boolean;
         placeholder: string;
+        acceptsInput: boolean;
     } | null;
     appearance: QuickThemeAppearance;
     bounds: {
@@ -2360,6 +1156,24 @@ export type QuickThemeAction = {
 } | {
     type: 'select';
     id: string;
+}
+/** A provider selects and orders only current catalog handles; it cannot supply launch data. */
+ | {
+    type: 'results';
+    catalogRevision: number;
+    queryRevision: number;
+    items: Array<{
+        id: string;
+        title?: string;
+        group?: string;
+    }>;
+    selectedId?: string | null;
+    hiddenCount?: number;
+    emptyMarket?: boolean;
+    expanded?: boolean;
+} | {
+    type: 'composition';
+    active: boolean;
 } | {
     type: 'open';
     id: string;
@@ -2368,7 +1182,7 @@ export type QuickThemeAction = {
     type: 'expand';
     expanded: boolean;
 } | {
-    type: 'open-market' | 'hide' | 'plugin-back' | 'plugin-pin' | 'plugin-focus';
+    type: 'open-market' | 'open-settings' | 'refresh-apps' | 'retry' | 'hide' | 'plugin-back' | 'plugin-pin' | 'plugin-focus' | 'plugin-detach';
 } | {
     type: 'layout';
     columns: number;
@@ -2387,6 +1201,153 @@ export interface QuickThemeActionResult {
     error?: string;
 }
 
+export interface ThemeChromeSnapshot {
+    version: 1;
+    surface: ThemeChromePart;
+    tabStyle: TabStyle;
+    view: ShellView;
+    activeTabId: string | null;
+    animationLevel: AnimationLevel;
+    theme: {
+        mode: 'light' | 'dark';
+        tokens: Record<string, string>;
+        /** Trusted builtin adapter only; custom chrome receives the token allowlist. */
+        appearance?: ResolvedAppearance;
+    };
+    /** Trusted builtin adapter only; custom chrome never receives account data. */
+    profile?: {
+        name: string | null;
+        avatar: string | null;
+    } | null;
+    tabs: Array<{
+        id: string;
+        pluginId: string;
+        title: string;
+        color: string;
+        glyph: string;
+        badge?: string;
+        icon?: string | null;
+        lazy?: boolean;
+        crashed?: boolean;
+    }>;
+    contribEntries: Array<{
+        id: string;
+        pluginId: string;
+        title: string;
+        glyph: string;
+        color: string;
+    }>;
+}
+
+export type ThemeChromeAction = {
+    type: 'home' | 'settings';
+} | {
+    type: 'activate';
+    tabId: string;
+} | {
+    type: 'close';
+    tabId: string;
+} | {
+    type: 'detach';
+    tabId: string;
+} | {
+    type: 'reorder';
+    tabId: string;
+    index: number;
+} | {
+    type: 'contribution';
+    id: string;
+} | {
+    type: 'expand';
+    expanded: boolean;
+};
+
+export interface ThemeSettingsSnapshot {
+    version: 1;
+    revision: number;
+    locale: 'zh-CN' | 'en-US';
+    appearance: QuickThemeAppearance;
+    groups: Array<{
+        id: string;
+        title: string;
+        fields: ThemeSettingsFieldDescriptor[];
+    }>;
+    nativeSections: Array<{
+        id: NativeSettingsSection;
+        title: string;
+    }>;
+}
+
+export type ThemeSettingsAction = {
+    type: 'set';
+    fieldId: string;
+    value: ThemeSettingsValue;
+} | {
+    type: 'native';
+    section: NativeSettingsSection;
+};
+
+export interface ThemeSettingsActionResult {
+    ok: boolean;
+    error?: string;
+    nativeSection?: NativeSettingsSection;
+}
+
+export interface PluginBackgroundHost {
+    private: {
+        readDocument(key: string): Promise<unknown | null>;
+        /** Atomic replacement; a successful result means durable storage, not a queued write. */
+        writeDocument(key: string, value: unknown): Promise<void>;
+        getBlob(id: string): Promise<{
+            dataUrl: string;
+            bytes: number;
+        } | null>;
+        /** Optional stable ID makes interrupted imports retryable without duplicating blobs. */
+        putBlob(input: {
+            id?: string;
+            dataUrl: string;
+        }): Promise<PluginBackgroundBlob>;
+        removeBlob(id: string): Promise<boolean>;
+    };
+    settings: {
+        get(): Promise<Record<string, unknown>>;
+    };
+    /** Event is delivered only to the same plugin's live UI. It does not wake another background. */
+    emit(event: string, data?: unknown): Promise<void>;
+    legacy: {
+        /** Sources are fixed host migration entries, never paths supplied by a plugin. */
+        read(source: string): Promise<PluginBackgroundLegacyDocument | null>;
+        getBlob(source: string, token: string, name: string): Promise<{
+            dataUrl: string;
+            bytes: number;
+        } | null>;
+        /** Writes a one-way marker after the plugin has durably committed its private document. */
+        commit(source: string, token: string): Promise<void>;
+    };
+}
+
+export interface PluginBackgroundHandlers {
+    onEvent?(event: string, data: unknown): void | Promise<void>;
+    call(method: string, args: unknown[]): unknown | Promise<unknown>;
+    search?(query: string, limit: number): PluginBackgroundSearchItem[] | Promise<PluginBackgroundSearchItem[]>;
+}
+
+export interface AuxiliaryContext {
+    windowId: string;
+    data: unknown;
+    display: {
+        id: number;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        scaleFactor: number;
+    };
+    capture?: {
+        withAudio: boolean;
+    };
+}
+
 // —— 插件生命周期（对标 uTools onPluginEnter / onPluginOut）——
 /** openPlugin 可选进入载荷：code 对应 feature 指令，payload 为任意透传数据 */
 export interface PluginEnterPayload {
@@ -2397,38 +1358,6 @@ export interface PluginEnterPayload {
 
 /** 关闭原因：用户关 Tab / 卸载插件 / 应用退出 */
 export type PluginCloseReason = 'tab-close' | 'uninstall' | 'app-quit';
-
-/** agent.sessions.list 条目文件 */
-export type AgentSessionFile = {
-    file: string;
-    path: string;
-    bytes: number;
-    modifiedAt: number;
-    project?: string;
-};
-
-/** agent.sessions.read 单行（json 解析失败为 null） */
-export type AgentSessionLine = {
-    n: number;
-    json: unknown;
-    raw: string;
-    truncated: boolean;
-};
-
-/** agent.listAssets 条目 */
-export type AgentAssetEntry = {
-    name: string;
-    isDir: boolean;
-    size: number;
-    modifiedAt: number;
-};
-
-/** agent.writeAssets 单文件载荷（contentText / contentBase64 二选一） */
-export type AgentAssetInput = {
-    path: string;
-    contentText?: string;
-    contentBase64?: string;
-};
 
 export type AppearanceColorMode = 'light' | 'dark';
 
@@ -2471,6 +1400,25 @@ export interface ThemeVariant {
 
 /** Package-relative entry owned by the declaring theme. The host owns native geometry. */
 export interface ThemeQuickReference {
+    version: 1;
+    entry: string;
+}
+
+/** Entries are assets in the declaring, installed theme package, never remote URLs. */
+export interface ThemeChromeReference {
+    version: 1;
+    classic?: {
+        entry: string;
+    };
+    rail?: {
+        entry: string;
+    };
+    dock?: {
+        entry: string;
+    };
+}
+
+export interface ThemeSettingsReference {
     version: 1;
     entry: string;
 }
@@ -2559,142 +1507,76 @@ export type ThemeMode = 'light' | 'dark' | 'system';
 /** 动画效果强度：low 几乎无动画 / medium 默认 / high 加强动效 */
 export type AnimationLevel = 'low' | 'medium' | 'high';
 
-export interface DbTablePage {
-    table: TableRef;
-    offset?: number;
-    limit?: number;
-    columns?: string[];
-    filters?: DbTableFilter[];
-    order?: Array<{
-        column: string;
-        direction: 'asc' | 'desc';
-    }>;
-}
-
-export type DbTableDesign = {
-    operation: 'create-table';
-    table: TableRef;
-    columns: DbDesignColumn[];
-    primaryKey?: string[];
-    foreignKeys?: DbDesignForeignKey[];
-} | {
-    operation: 'add-column';
-    table: TableRef;
-    column: DbDesignColumn;
-} | {
-    operation: 'rename-column';
-    table: TableRef;
-    column: string;
-    newName: string;
-} | {
-    operation: 'drop-column';
-    table: TableRef;
-    column: string;
-} | {
-    operation: 'create-index';
-    table: TableRef;
-    name: string;
-    columns: string[];
-    unique?: boolean;
-} | {
-    operation: 'drop-index';
-    table: TableRef;
-    name: string;
-};
-
-export interface DbWorkbenchExecuteInput extends DbExecuteInput {
-    executionId?: string;
-    /** Quick rejects writes and limits returned rows to 200. */
-    surface?: 'quick' | 'shell';
-}
-
-export type DbInspectionKind = 'client' | 'sessions' | 'resources' | 'locks' | 'queries' | 'jobs';
-
-export interface DbCompareInput {
-    left: {
-        sessionKey: string;
-        sql: string;
+/** Auxiliary pages are untrusted plugin assets, not additional plugin API surfaces. */
+export interface AuxiliaryOpen {
+    entry: string;
+    data?: unknown;
+    title?: string;
+    bounds?: {
+        x?: number;
+        y?: number;
+        width?: number;
+        height?: number;
     };
-    right: {
-        sessionKey: string;
-        sql: string;
+    placement?: 'window' | 'display';
+    displayId?: number;
+    visible?: boolean;
+    transparent?: boolean;
+    resizable?: boolean;
+    movable?: boolean;
+    alwaysOnTop?: boolean;
+    capture?: {
+        displayId?: number;
+        withAudio?: boolean;
     };
-    keyColumns: string[];
-    /** Key names refer to left columns. Explicit mappings define the compared projection. */
-    columnMappings?: Array<{
-        left: string;
-        right: string;
-        rule?: DbCompareValueRule;
-    }>;
-    defaultRule?: DbCompareValueRule;
-    maxRows?: number;
 }
 
-export interface TableRef {
-    database?: string;
-    schema?: string;
-    table: string;
+export interface DeadlineTaskPlan {
+    id: string;
+    steps: DeadlineTaskStep[];
+    repeat?: boolean;
+    autoAdvance?: boolean;
+    data?: DeadlineTaskData;
 }
 
-// —— SDK JSON-RPC（stdio 换行协议；方法集见 @deepseek-ai/dsh-sdk-protocol）——
-export interface DshSdkStartInput {
-    /** 未指定时使用持久化设置选定的 SDK profile。 */
-    profile?: string;
-    /** 记录在 SDK 会话头的工作目录；未指定时使用隔离 DSH_HOME。 */
-    cwd?: string;
-    /** 模型路由（provider + model；需先在完全体 Settings→Models 配置凭据） */
-    provider?: string;
-    model?: string;
-    reasoningEffort?: string;
-    maxTokens?: number;
-}
-
-// —— profile 管理 ——
-export type DshProfileTemplate = 'web' | 'headless' | 'sdk' | 'sdk-minimal' | 'acp';
-
-/** 宿主拥有的启动选择，不是 DSH 全局环境变量或原生 profile 字段。 */
-export interface DshWorkbenchSettings {
-    webProfile: string;
-    sdkProfile: string;
-    webPortPolicy: 'auto' | 'fixed';
-    /** 固定策略下使用；自动策略仍保留上次配置值。 */
-    webPort: number;
-}
-
-export interface DshProfileUpdateInput {
-    name: string;
-    bundles: string[];
-    patch: string;
-    environment: Record<string, string>;
-}
-
-export interface DshEnvironmentResetInput {
-    /** 默认 config 保留所有会话/存储；home 明确清空隔离 home（含会话）。 */
-    scope: 'config' | 'home';
-    backup: true;
-    /** 必须与 scope 精确匹配，不接受布尔式确认。 */
-    confirmation: 'RESET CONFIG' | 'RESET HOME';
-}
-
-export interface FocusTimerState {
-    status: 'idle' | 'running' | 'paused';
-    phase: FocusTimerPhase;
+export interface DeadlineTaskState {
+    id: string;
+    runId: string;
+    plan: DeadlineTaskPlan;
+    status: 'idle' | 'running' | 'paused' | 'completed';
+    stepIndex: number;
+    iteration: number;
     remainingMs: number;
     deadline: number | null;
     startedAt: number | null;
-    cycle: number;
-    options: FocusTimerOptions;
+    updatedAt: number;
 }
 
-export interface FocusTimerRecord {
+/** Execution receipts are immutable; their business meaning/edit history belongs to the plugin. */
+export interface DeadlineTaskReceipt {
     id: string;
-    phase: FocusTimerPhase;
-    task: string;
+    taskId: string;
+    runId: string;
+    stepId: string;
+    stepIndex: number;
+    iteration: number;
     startedAt: number;
     endedAt: number;
-    durationMs: number;
-    outcome: 'completed' | 'skipped' | 'stopped';
-    counted: boolean;
+    elapsedMs: number;
+    outcome: 'completed' | 'skipped' | 'cancelled';
+    data?: DeadlineTaskData;
+    stepData?: DeadlineTaskData;
+}
+
+/** Ordered, owner-private temporary output. No arbitrary filesystem paths are accepted. */
+export interface FileStreamOpen {
+    extension: string;
+}
+
+export interface FileStreamResult {
+    id: string;
+    path: string;
+    size: number;
 }
 
 export interface HomePageContribution {
@@ -2704,116 +1586,6 @@ export interface HomePageContribution {
     /** Package-relative HTML entry. No remote URLs or traversal. */
     entry: string;
     variants: string[];
-}
-
-export interface MwConnectionConfig {
-    kind: MwKind;
-    name?: string;
-    env?: 'dev' | 'test' | 'staging' | 'prod';
-    /** 连接级只读：宿主侧拦截全部变更类 action */
-    readOnly?: boolean;
-    note?: string;
-    /** 凭据：vault 引用（主进程解析为 ephemeralSecret 后传入 UtilityProcess） */
-    secretRef?: string;
-    ephemeralSecret?: string;
-    // —— kafka ——
-    bootstrapServers?: string;
-    saslMechanism?: 'none' | 'plain' | 'scram-sha-256' | 'scram-sha-512' | 'oauthbearer';
-    tls?: boolean;
-    tlsRejectUnauthorized?: boolean;
-    // —— rabbitmq ——
-    managementUrl?: string;
-    vhost?: string;
-    username?: string;
-    // —— mqtt ——
-    brokerUrl?: string;
-    clientId?: string;
-    emqx?: MwEmqxMgmt;
-    // —— rocketmq ——
-    dashboardUrl?: string;
-    /** 透传扩展（如 kafka clientId、mqtt keepalive 等） */
-    options?: Record<string, unknown>;
-}
-
-/** 统一消息信封：四类中间件的浏览/重发/监听共用 */
-export interface MwMessage {
-    messageId?: string;
-    topic: string;
-    /** kafka 分区；rocketmq 队列号；rmq/mqtt 无 */
-    partition?: number;
-    offset?: number;
-    timestamp: number;
-    key?: string;
-    payload: string;
-    payloadEncoding?: 'utf8' | 'base64';
-    payloadType?: 'json' | 'text' | 'binary';
-    headers?: Record<string, string>;
-    properties?: Record<string, string>;
-    redelivered?: boolean;
-    payloadBytes?: number;
-    /** 各家特有字段（rocketmq 重试次数/出生地、rmq routing_key、mqtt retain/qos…） */
-    extras?: Record<string, string | number | boolean>;
-}
-
-// —— 各 action 的输入类型 ——
-export interface MwTopicCreateInput {
-    name: string;
-    partitions?: number;
-    replicationFactor?: number;
-    configs?: Record<string, string>;
-    durable?: boolean;
-    autoDelete?: boolean;
-    /** rmq exchange type（direct/topic/fanout/headers）或 rocketmq 类型（NORMAL/FIFO/DELAY/TRANSACTION） */
-    type?: string;
-    /** rocketmq 队列数 */
-    queueNum?: number;
-    arguments?: Record<string, unknown>;
-}
-
-export interface MwMessageQueryInput {
-    topic: string;
-    partition?: number;
-    from: 'earliest' | 'latest' | 'offset' | 'timestamp' | 'key' | 'id';
-    key?: string;
-    messageId?: string;
-    offset?: number;
-    timestamp?: number;
-    max?: number;
-    keyContains?: string;
-    /** quick 模式强制上限 200 */
-    surface?: 'quick' | 'shell';
-}
-
-export interface MwMessageSendInput {
-    topic: string;
-    payload: string;
-    payloadEncoding?: 'utf8' | 'base64';
-    key?: string;
-    partition?: number;
-    headers?: Record<string, string>;
-    /** rmq 发布走交换机时 topic 填 exchange，此字段为 routing key */
-    routingKey?: string;
-    properties?: Record<string, string>;
-    qos?: 0 | 1 | 2;
-    retain?: boolean;
-}
-
-export interface MwGroupResetInput {
-    groupId: string;
-    topic: string;
-    partition?: number;
-    to: 'earliest' | 'latest' | 'timestamp' | 'offset';
-    timestamp?: number;
-    offset?: number;
-}
-
-export interface MwBindingCreateInput {
-    source: string;
-    destination: string;
-    /** destinationType 仅 rmq 生效 */
-    destinationType?: 'queue' | 'exchange';
-    routingKey?: string;
-    arguments?: Record<string, unknown>;
 }
 
 /**
@@ -2843,19 +1615,6 @@ export interface NotificationOptions {
     level?: NotificationLevel;
     /** 0 keeps the card until dismissed; otherwise 1500–60000 ms. */
     duration?: number;
-}
-
-export interface ClipboardSourceApp {
-    name: string;
-    id?: string;
-    evidence: 'owner';
-}
-
-export interface ClipboardFile {
-    name: string;
-    path: string;
-    exists?: boolean;
-    directory?: boolean;
 }
 
 export interface BackgroundConfig {
@@ -2891,103 +1650,6 @@ export interface ThemePackV2Input extends Omit<ThemePackV2, 'source' | 'mode'> {
     source?: string;
     mode?: ThemeMode;
 }
-
-// —— SSH ——
-export type SshAuthType = 'password' | 'key' | 'agent' | 'keyboard-interactive';
-
-/** Per-connection TCP transport. Only the first SSH hop uses this proxy. */
-export interface SshProxyConfig {
-    type: 'http-connect' | 'socks5';
-    host: string;
-    port: number;
-    username?: string;
-    /** Proxy password is kept in the requesting plugin's vault. */
-    secretRef?: string;
-    /** One-off test credential, never saved with the profile. */
-    ephemeralSecret?: string;
-}
-
-export interface SshJumpConfig {
-    host: string;
-    port?: number;
-    username: string;
-    authType?: SshAuthType;
-    privateKeyHandleId?: string;
-    secretRef?: string;
-    ephemeralSecret?: string;
-}
-
-export interface SshCompletionItem {
-    label: string;
-    kind: SshCompletionKind;
-    detail?: string;
-    insertText: string;
-    sortText: string;
-    /** 危险命令说明；true/字符串均可能 */
-    dangerous?: boolean | string | null;
-}
-
-// —— Database ——
-export type DbDriverId = 'mysql' | 'mariadb' | 'postgres' | 'sqlite' | 'influxdb' | 'influxdb1' | 'influxdb3' | 'timescale' | 'tdengine' | 'mongodb' | 'redis' | 'clickhouse' | 'mssql' | 'duckdb' | 'oracle' | 'cassandra' | 'scylladb' | 'neo4j' | 'elasticsearch' | 'opensearch' | 'tidb' | 'oceanbase' | 'cockroachdb' | 'yugabytedb' | 'questdb' | 'doris' | 'starrocks';
-
-export interface BatchResultItem {
-    index: number;
-    ok: boolean;
-    affected?: number;
-    error?: string;
-    sql?: string;
-}
-
-export type RowChange = {
-    type: 'update';
-    table: TableRef;
-    key: Record<string, unknown>;
-    set: Record<string, unknown>;
-    original?: Record<string, unknown>;
-} | {
-    type: 'insert';
-    table: TableRef;
-    values: Record<string, unknown>;
-} | {
-    type: 'delete';
-    table: TableRef;
-    key: Record<string, unknown>;
-};
-
-export interface QueryResultColumn {
-    name: string;
-    dataType?: string;
-    nullable?: boolean;
-    primaryKey?: boolean;
-}
-
-export interface DbColumnMeta {
-    name: string;
-    type?: string;
-    dataType?: string;
-    nullable?: boolean;
-    default?: unknown;
-    defaultValue?: unknown;
-    key?: string;
-    primaryKey?: boolean;
-    comment?: string;
-    pk?: boolean;
-}
-
-export interface CompletionItem {
-    label: string;
-    kind: CompletionItemKind;
-    detail?: string;
-    doc?: string;
-    insertText: string;
-    sortText: string;
-    filterText?: string;
-    owner?: string;
-    /** 前缀/子序列匹配的区间（label 内 0-based，字符下标数组），供前端高亮 */
-    matchRanges?: number[];
-}
-
-export type DbDialect = 'mysql' | 'sqlite' | 'postgres' | 'influxql' | 'tdengine' | string;
 
 /**
  * The home renderer gets rendering values only. Theme/profile bags, custom-font
@@ -3051,7 +1713,7 @@ export interface HomeCatalogItem {
 }
 
 /** 宿主能力标识；基础能力直接可用，敏感能力需在 manifest 声明并取得用户授权。 */
-export type PluginPermission = 'backend.node' | 'clipboard.read' | 'clipboard.write' | 'clipboard.readImage' | 'clipboard.writeImage' | 'clipboard.history' | 'clipboard.paste' | 'timer.background' | 'screen.capture' | 'screen.record' | 'pin.create' | 'net.fetch' | 'shell.openExternal' | 'storage.local' | 'notify' | 'ui.setTitle' | 'ui.setIcon' | 'ui.setBadge' | 'ui.resize' | 'ui.toast' | 'settings.register' | 'settings.page' | 'hotkey' | 'contribute' | 'vault.write' | 'ssh.session' | 'ssh.exec' | 'ssh.sftp' | 'db.connect' | 'db.query' | 'db.schema' | 'mw.connect' | 'mw.query' | 'mw.admin' | 'dsh.connect' | 'dsh.chat' | 'dsh.admin' | 'net.socket' | 'lan.share' | 'fs.rename' | 'fs.read' | 'fs.write' | 'sys.control' | 'ssh.agent' | 'config.agent.read' | 'config.agent.write' | 'sys.inspect' | 'theme';
+export type PluginPermission = 'backend.node' | 'clipboard.read' | 'clipboard.write' | 'clipboard.readImage' | 'clipboard.writeImage' | 'clipboard.history' | 'clipboard.paste' | 'timer.background' | 'screen.capture' | 'screen.record' | 'pin.create' | 'net.fetch' | 'shell.openExternal' | 'storage.local' | 'notify' | 'ui.setTitle' | 'ui.setIcon' | 'ui.setBadge' | 'ui.resize' | 'ui.toast' | 'settings.register' | 'settings.page' | 'hotkey' | 'contribute' | 'vault.write' | 'db.connect' | 'db.query' | 'db.schema' | 'mw.connect' | 'mw.query' | 'mw.admin' | 'net.socket' | 'fs.rename' | 'fs.read' | 'fs.write' | 'sys.control' | 'ssh.agent' | 'sys.inspect' | 'theme';
 
 export interface HomeSearchEntry {
     handle: string;
@@ -3066,6 +1728,12 @@ export interface HomeSearchEntry {
     enabled?: boolean;
     disabled?: boolean;
     tags?: string[];
+    aliases?: string[];
+    action?: QuickActionId;
+    content?: QuickContentMatch;
+    lastUsedTs?: number;
+    useCount?: number;
+    preferred?: boolean;
 }
 
 export type WorkspaceRoute = {
@@ -3112,6 +1780,66 @@ export interface QuickThemeItem {
     title: string;
     subtitle: string;
     group: string;
+    /** Host-published image bytes only, never filesystem or plugin package paths. */
+    icon?: string;
+    action?: QuickActionId;
+}
+
+/** A native directory descriptor. IDs are session capabilities, not launch targets. */
+export interface QuickThemeCatalogItem extends Omit<QuickThemeItem, 'group'> {
+    aliases: string[];
+    content?: QuickContentMatch;
+    provider?: boolean;
+    lastUsedTs?: number;
+    useCount?: number;
+    preferred?: boolean;
+}
+
+export type ShellView = 'home' | 'settings' | 'plugin';
+
+/** Tab 呈现方式：classic 顶栏条 / orb 左侧悬浮圆形轨道 */
+export type TabStyle = 'classic' | 'orb';
+
+export type ThemeChromePart = 'classic' | 'rail' | 'dock';
+
+export interface ThemeSettingsFieldDescriptor {
+    /** Session capability; it never encodes a setting key or filesystem target. */
+    id: string;
+    label: string;
+    type: 'switch' | 'select' | 'number' | 'color';
+    value: ThemeSettingsValue;
+    options?: Array<{
+        label: string;
+        value: ThemeSettingsValue;
+    }>;
+    min?: number;
+    max?: number;
+    step?: number;
+    /** Editing another plugin's preferences always requires a native confirmation. */
+    confirmation?: boolean;
+}
+
+export type NativeSettingsSection = 'general' | 'theme' | 'dev' | `p:${string}`;
+
+export type ThemeSettingsValue = string | number | boolean | null;
+
+export interface PluginBackgroundBlob {
+    id: string;
+    bytes: number;
+}
+
+export interface PluginBackgroundLegacyDocument {
+    /** Opaque source identity. Commit must reject a changed source. */
+    token: string;
+    document: string;
+}
+
+export interface PluginBackgroundSearchItem {
+    id: string;
+    title: string;
+    subtitle?: string;
+    code?: string;
+    payload?: unknown;
 }
 
 export interface ThemeSettingsField {
@@ -3135,60 +1863,22 @@ export interface ThemeSettingsField {
 
 export type ThemeColorToken = '--bg' | '--surface' | '--surface-2' | '--surface-3' | '--text' | '--text-2' | '--text-3' | '--accent' | '--ok' | '--danger' | '--border' | '--border-strong' | '--link';
 
-/** Tab 呈现方式：classic 顶栏条 / orb 左侧悬浮圆形轨道 */
-export type TabStyle = 'classic' | 'orb';
-
 export type ThemeBackgroundKind = 'none' | 'gradient' | 'color' | 'image' | 'video';
 
 export type ThemeBackgroundPalette = 'theme' | 'dawn' | 'mint' | 'linen' | 'peach' | 'ocean' | 'forest' | 'ink';
 
-export interface DbTableFilter {
-    column: string;
-    operator: 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'in' | 'is-null' | 'not-null';
-    value?: DbScalar | DbScalar[];
-}
+export type DeadlineTaskData = null | boolean | number | string | DeadlineTaskData[] | {
+    [key: string]: DeadlineTaskData;
+};
 
-export interface DbDesignColumn {
-    name: string;
-    type: 'integer' | 'bigint' | 'decimal' | 'float' | 'varchar' | 'text' | 'boolean' | 'date' | 'timestamp' | 'json' | 'uuid' | 'binary';
-    length?: number;
-    precision?: number;
-    scale?: number;
-    nullable?: boolean;
-    autoIncrement?: boolean;
-    default?: {
-        kind: 'literal';
-        value: DbScalar;
-    } | {
-        kind: 'expression';
-        value: 'CURRENT_TIMESTAMP' | 'CURRENT_DATE' | 'CURRENT_TIME';
+export interface DeadlineTaskStep {
+    id: string;
+    durationMs: number;
+    data?: DeadlineTaskData;
+    notification?: {
+        title: string;
+        body: string;
     };
-}
-
-export interface DbDesignForeignKey {
-    name?: string;
-    columns: string[];
-    references: TableRef;
-    referencedColumns: string[];
-    onDelete?: 'NO ACTION' | 'RESTRICT' | 'CASCADE' | 'SET NULL';
-}
-
-export type DbCompareValueRule = 'strict' | 'text' | 'numeric' | 'json';
-
-export type FocusTimerPhase = 'focus' | 'break' | 'longBreak';
-
-/** 中间件控制台（mw.*）工作台类型：连接配置、能力描述符、统一消息模型与 workbench action 契约。
- * 与 db-workbench.ts 同构：action 判别联合 + 每插件 UtilityProcess 内执行。 */
-export type MwKind = 'kafka' | 'rabbitmq' | 'mqtt' | 'rocketmq';
-
-/** EMQX 管理面适配（mqtt 连接的可选增强） */
-export interface MwEmqxMgmt {
-    enabled: boolean;
-    /** auto = 先探 v5(18083 /api/v5) 再探 v4(8081 /api/v4) */
-    version: 'auto' | 'v4' | 'v5';
-    apiUrl?: string;
-    apiKey?: string;
-    apiSecretRef?: string;
 }
 
 export type NotificationLevel = 'info' | 'success' | 'warn' | 'error';
@@ -3212,9 +1902,16 @@ export interface BackgroundEffectBase {
     logoStyle?: BackgroundEffectPreset;
 }
 
-export type SshCompletionKind = 'cmd' | 'flag' | 'path' | 'history' | 'snippet';
+export type QuickActionId = 'open-market' | 'open-settings' | 'refresh-apps';
 
-export type CompletionItemKind = 'keyword' | 'table' | 'view' | 'column' | 'function' | 'database' | 'schema' | 'snippet' | 'alias' | 'measurement';
+/** Validated declaration, not an evaluated match. The selected theme owns matching. */
+export interface QuickContentMatch {
+    type: 'regex' | 'over';
+    source?: string;
+    flags?: string;
+    minLength: number;
+    maxLength?: number;
+}
 
 export type ThemeSettingValue = string | number | boolean | BackgroundConfig | null;
 
@@ -3259,8 +1956,6 @@ export interface ThemeSettingOption {
     preview?: ThemeSettingOptionPreview;
 }
 
-export type DbScalar = string | number | boolean | null;
-
 export type ThemeLayoutKey = 'density' | 'gap' | 'sidebarWidth' | 'contentWidth' | 'columns' | 'tabStyle' | ThemeTabStripKey;
 
 export type ThemeBackgroundKey = 'texture' | 'intensity' | 'speed' | 'direction' | 'effect' | 'media' | 'warmth' | 'grain' | 'scale' | 'wash' | 'kind' | 'palette' | 'color' | 'opacity' | 'fit';
@@ -3288,6 +1983,6 @@ export type ThemeSettingOptionPreview = {
 /** Options a theme can expose for the classic top tab strip. */
 export type ThemeTabStripKey = 'tabOpacity' | 'tabAutoHide';
 
-declare global { interface Window { enest: EnestPluginApi; /** @deprecated Use enest. */ zapi: EnestPluginApi; /** Dedicated workspace surfaces only. */ enestWorkspace?: EnestWorkspaceApi; /** Compatibility alias for enestWorkspace. */ enestHome?: EnestHomeApi; /** Isolated Quick theme pages only. */ enestQuick?: EnestQuickApi } }
+declare global { interface Window { enest: EnestPluginApi; /** @deprecated Use enest. */ zapi: EnestPluginApi; /** Dedicated workspace surfaces only. */ enestWorkspace?: EnestWorkspaceApi; /** Compatibility alias for enestWorkspace. */ enestHome?: EnestHomeApi; /** Isolated Quick theme pages only. */ enestQuick?: EnestQuickApi; /** Isolated theme chrome renderers only. */ enestChrome?: ThemeChromeApi; /** Isolated settings pages only. */ enestSettings?: EnestSettingsApi; /** Sandboxed background pages only. */ enestBackground?: PluginBackgroundBridge; /** Auxiliary pages only. */ enestAux?: AuxiliaryPageApi } }
 export {}
 ```

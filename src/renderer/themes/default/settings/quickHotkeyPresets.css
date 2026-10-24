@@ -1,0 +1,98 @@
+/* —— Quick 呼出键：固定预设与已保存的自定义组合 —— */
+.quick-hotkey-block {
+  padding: 14px 0 4px;
+  border-top: 1px solid var(--border);
+}
+.quick-hotkey-head {
+  margin-bottom: 12px;
+}
+.quick-hotkey-head .label {
+  font-weight: 550;
+  margin-bottom: 2px;
+}
+.quick-hotkey-head .desc {
+  margin: 0;
+  color: var(--text-3);
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+}
+/* 预设 A、预设 B 与自定义组合键始终横向排列。 */
+.hotkey-cards {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+}
+
+.hotkey-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 88px;
+  max-height: 120px;
+  padding: 12px 14px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: linear-gradient(160deg, var(--surface-2), var(--surface));
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s;
+}
+.hotkey-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  transform: translateY(-1px);
+}
+.hotkey-card.active {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background:
+    linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--accent) 10%, var(--surface-2)),
+      var(--surface)
+    );
+  box-shadow:
+    0 0 0 1.5px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 8px 20px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.hotkey-card-badge {
+  font-size: calc(10px * var(--appearance-font-scale, 1));
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--accent);
+}
+
+.hotkey-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hotkey-card-slot {
+  font-size: calc(11px * var(--appearance-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  text-transform: uppercase;
+}
+.hotkey-card-acc {
+  font-size: clamp(calc(13px * var(--appearance-font-scale, 1)), calc(1.4vw * var(--appearance-font-scale, 1)), calc(16px * var(--appearance-font-scale, 1)));
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hotkey-card-foot {
+  font-size: calc(11px * var(--appearance-font-scale, 1));
+  color: var(--text-3);
+}

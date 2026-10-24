@@ -1,0 +1,49 @@
+.plugin-memory-section { min-width: 0; }
+.performance-capture { margin: 16px 0 22px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.performance-capture-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.performance-capture-heading h3 { margin: 0; color: var(--text); font-size: 13px; font-weight: 600; }
+.performance-capture .desc { margin: 10px 0 12px; line-height: 1.7; }
+.performance-capture-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.performance-capture-status { margin: 12px 0 0; color: var(--text-2); font-size: 11px; line-height: 1.7; font-variant-numeric: tabular-nums; }
+.performance-capture-status code { display: block; overflow-wrap: anywhere; color: var(--text-2); font-size: 10px; }
+.plugin-memory-threshold { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
+.plugin-memory-threshold input { width: 104px; text-align: right; font-variant-numeric: tabular-nums; }
+.plugin-memory-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 20px; margin-top: 20px; border-top: 1px solid var(--border); }
+.plugin-memory-summary { display: flex; flex-wrap: wrap; gap: 16px 32px; margin: 16px 0; }
+.plugin-memory-summary > div { min-width: 0; }
+.plugin-memory-summary dt { color: var(--text-2); font-size: 12px; line-height: 1.5; }
+.plugin-memory-summary dd { margin: 4px 0 0; color: var(--text); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.plugin-memory-message { margin: 16px 0; color: var(--text-2); font-size: 12px; line-height: 1.7; }
+.plugin-memory-error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 12px 0; color: var(--danger); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.plugin-memory-error > span { flex: 1; min-width: min(100%, 180px); }
+.plugin-memory-table-scroll { max-width: 100%; max-height: 360px; overflow: auto; scrollbar-gutter: stable; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.plugin-memory-table { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.5; text-align: left; }
+.plugin-memory-table thead { background: var(--surface-2); color: var(--text-2); }
+.plugin-memory-table th { font-weight: 500; }
+.plugin-memory-table th,
+.plugin-memory-table td { padding: 12px; vertical-align: middle; }
+.plugin-memory-table thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); white-space: nowrap; font-size: 11px; }
+.plugin-memory-table tbody tr + tr { border-top: 1px solid var(--border); }
+.plugin-memory-table tbody th { min-width: 156px; }
+.plugin-memory-table td { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.plugin-memory-table td:not(.plugin-memory-action) { color: var(--text); }
+.plugin-memory-name { display: block; color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.plugin-memory-badges { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 5px; }
+.plugin-memory-status { color: var(--text-2); font-size: 11px; }
+.plugin-memory-badge { display: inline-block; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); font-size: 10px; line-height: 1.6; }
+.plugin-memory-badge[data-alert='warning'] { background: var(--accent-soft); color: var(--accent); }
+.plugin-memory-badge[data-alert='critical'] { background: var(--danger-soft); color: var(--danger); }
+.plugin-memory-meta { display: flex; flex-wrap: wrap; gap: 2px 8px; margin-top: 5px; color: var(--text-2); font-size: 11px; overflow-wrap: anywhere; }
+.plugin-memory-partial { display: block; margin-top: 4px; color: var(--text-2); font-size: 11px; font-weight: 400; }
+.plugin-memory-action { text-align: right; }
+.plugin-memory-action > span { display: inline-flex; }
+.plugin-memory-process-details { display: grid; gap: 4px; max-width: 360px; font-variant-numeric: tabular-nums; }
+.plugin-memory-note { margin: 14px 0 0; color: var(--text-2); font-size: 11px; line-height: 1.7; }
+.plugin-memory-section [tabindex='0']:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.plugin-memory-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@media (max-width: 580px) {
+  .plugin-memory-summary { gap: 12px 24px; }
+  .plugin-memory-summary dd { font-size: 14px; }
+  .plugin-memory-table th,
+  .plugin-memory-table td { padding: 10px; }
+}

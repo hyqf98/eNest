@@ -1,0 +1,6 @@
+:root.has-bg-media.has-bg-atmosphere .s-card :is(input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='file']):not([type='color']):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset']):not([type='image']), textarea, .ui-select-trigger) {
+  background: var(--atmosphere-field);
+}
+:root.has-bg-media.has-bg-atmosphere .s-card .hint,
+:root.has-bg-media.has-bg-atmosphere .field .desc,
+:root.has-bg-media.has-bg-atmosphere .settings-header p { color: var(--atmosphere-muted); }

@@ -1,0 +1,11 @@
+/* These are derived paints, never replacements for a theme's semantic tokens.
+   The opaque theme base bounds text contrast even with an arbitrary custom color. */
+:root.has-bg-atmosphere {
+  --atmosphere-surface-veil: color-mix(in srgb, var(--surface) calc(100% - var(--atmosphere-strength, 0) * 18%), transparent);
+  --atmosphere-field-veil: color-mix(in srgb, var(--surface-2) calc(100% - var(--atmosphere-strength, 0) * 10%), transparent);
+  --atmosphere-chrome-veil: color-mix(in srgb, var(--bg) calc(100% - var(--atmosphere-strength, 0) * 22%), transparent);
+  --atmosphere-surface: linear-gradient(var(--atmosphere-surface-veil), var(--atmosphere-surface-veil)), var(--atmosphere-paint), var(--surface);
+  --atmosphere-field: linear-gradient(var(--atmosphere-field-veil), var(--atmosphere-field-veil)), var(--atmosphere-paint), var(--surface-2);
+  --atmosphere-chrome: linear-gradient(var(--atmosphere-chrome-veil), var(--atmosphere-chrome-veil)), var(--atmosphere-paint), var(--bg);
+  --atmosphere-muted: color-mix(in srgb, var(--text) 55%, var(--text-2));
+}

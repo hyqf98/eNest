@@ -1,0 +1,18 @@
+/* ========== Frame ========== */
+.app {
+  position: relative;
+  height: 100%;
+  display: grid;
+  grid-template-rows: 1fr;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* 背景媒体激活时，内容壳透明以露出底层；内容区加毛玻璃/浅色遮罩保证可读 */
+:root.has-bg-media .app {
+  background: transparent;
+}
+
+:root.has-bg-media .titlebar {
+  --titlebar-paint: color-mix(in srgb, var(--bg) 78%, transparent);
+}

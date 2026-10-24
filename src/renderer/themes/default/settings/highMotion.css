@@ -1,0 +1,10 @@
+/* high：设置卡片 / 字体卡 / 渐变卡 hover 抬升 */
+:root[data-anim="high"] .s-card,
+:root[data-anim="high"] .dev-plugin-item {
+  transition: transform 0.28s cubic-bezier(0.22, 1.2, 0.36, 1), box-shadow 0.28s, border-color 0.22s;
+}
+
+:root[data-anim="high"] .dev-plugin-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+}

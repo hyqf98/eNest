@@ -8,7 +8,6 @@ import {
   readFile,
   rm,
   readdir,
-  stat,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -461,25 +460,6 @@ test(
       await close(notes)
       await close(todo)
 
-      const timer = 'com.github.eNest.pomodoro'
-      await open(timer, 'quick')
-      const started = await evaluate(
-        timer,
-        'window.enest.focusTimer.start({focusMin: 1, breakMin: 1, task: "Native persistence check", notify: false, autoStart: false})',
-      )
-      assert.equal(started.state.status, 'running')
-      const deadline = started.state.deadline
-      await close(timer)
-      await open(timer, 'shell')
-      const reopened = await evaluate(timer, 'window.enest.focusTimer.get()')
-      assert.equal(reopened.state.status, 'running')
-      assert.equal(reopened.state.deadline, deadline)
-      assert.equal(reopened.state.options.task, 'Native persistence check')
-      await evaluate(timer, 'window.enest.focusTimer.stop()')
-      await close(timer)
-      evidence.backgroundTimer =
-        'running after view close/reopen; same deadline'
-
       const screenId = 'com.github.eNest.screen-assistant'
       const screenPermission = await app.evaluate(({ systemPreferences }) =>
         process.platform === 'darwin'
@@ -529,98 +509,9 @@ test(
         assert.equal(shot.width, 160)
         assert.equal(shot.height, 100)
         assert.match(shot.dataUrl, /^data:image\/png;base64,/)
-        const recording = await evaluate(
-          screenId,
-          `window.enest.screen.record.start(${JSON.stringify({ ...bounds, withAudio: false })})`,
-        )
-        assert.ok(recording.sessionId)
-        await new Promise((resolve) => setTimeout(resolve, 1500))
-        const saved = await evaluate(
-          screenId,
-          `window.enest.screen.record.stop(${JSON.stringify(recording.sessionId)})`,
-        )
-        assert.ok(saved.path.startsWith(join(dataRoot, 'recordings')))
-        assert.ok(saved.size > 0 && saved.durationMs > 0)
-        assert.equal((await stat(saved.path)).size, saved.size)
-        assert.equal(
-          (await readFile(saved.path)).subarray(0, 4).toString('hex'),
-          '1a45dfa3',
-          'Native recording contains the WebM/EBML header',
-        )
-        await evaluate(
-          screenId,
-          'window.__nativeRegion = "pending"; void window.enest.screen.selectRegion().then(value => { window.__nativeRegion = value; }); true',
-        )
-        await poll(
-          () =>
-            app.evaluate(async ({ webContents }) => {
-              const region = webContents
-                .getAllWebContents()
-                .find(
-                  (wc) =>
-                    wc.getURL().startsWith('data:') &&
-                    wc.getURL().includes('regionOverlay'),
-                )
-              return region?.executeJavaScript(
-                'typeof window.regionOverlay?.cancel',
-              )
-            }),
-          (value) => value === 'function',
-          'Sandboxed region preload',
-        )
-        await app.evaluate(({ webContents }) => {
-          const region = webContents
-            .getAllWebContents()
-            .find(
-              (wc) =>
-                wc.getURL().startsWith('data:') &&
-                wc.getURL().includes('regionOverlay'),
-            )
-          return region.executeJavaScript(
-            'setTimeout(() => window.regionOverlay.cancel(), 0); true',
-          )
-        })
-        await poll(
-          () => evaluate(screenId, 'window.__nativeRegion'),
-          (value) => value === null,
-          'Native region cancellation',
-        )
-        const pin = await evaluate(
-          screenId,
-          `window.enest.pin.open(${JSON.stringify({ dataUrl: shot.dataUrl, title: 'Native pin smoke', width: 160 })})`,
-        )
-        assert.ok(pin.pinId)
-        await poll(
-          () =>
-            app.evaluate(async ({ webContents }) => {
-              const pinned = webContents
-                .getAllWebContents()
-                .find((wc) => wc.getTitle() === 'Native pin smoke')
-              return pinned?.executeJavaScript('typeof window.pinCtl?.close')
-            }),
-          (value) => value === 'function',
-          'Sandboxed pin preload',
-        )
-        await app.evaluate(({ webContents }) => {
-          const pinned = webContents
-            .getAllWebContents()
-            .find((wc) => wc.getTitle() === 'Native pin smoke')
-          return pinned.executeJavaScript(
-            'setTimeout(() => window.pinCtl.close(), 0); true',
-          )
-        })
-        await poll(
-          () => evaluate(screenId, 'window.enest.pin.list()'),
-          (value) => value.length === 0,
-          'Native pin close',
-        )
         evidence.screen = {
           permission: screenPermission,
           screenshot: `${shot.width}x${shot.height}`,
-          recordingBytes: saved.size,
-          durationMs: saved.durationMs,
-          regionCancel: true,
-          pinClose: true,
         }
         await close(screenId)
       } else {

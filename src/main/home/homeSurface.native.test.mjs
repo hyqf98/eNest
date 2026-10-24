@@ -137,8 +137,8 @@ async function buildFixture(directory) {
     '@main/launcher/appLauncher': `import {state} from 'fixture';export const launchLocalApp=async path=>{state.appLaunches.push(path)};`,
     '@main/launcher/appScanner': `export const scanApplications=async()=>({complete:true,errors:[]});`,
     '@main/launcher/commandIndex': `export const searchQuickCommands=async()=>[{kind:'app',id:'fixture-app',title:'Fixture app',subtitle:'/private/fixture.app',path:'/private/fixture.app'}];`,
-    '@main/clipboard/clipboardHistory': `export const revalidateClipboardPolling=async()=>{};`,
-    '@main/timer/focusTimerService': `export const stopFocusTimer=async()=>{};`,
+    '@main/timer/deadlineTaskService': `export const cancelPluginDeadlineTasks=async()=>{};`,
+    '@main/plugin/pluginBackgroundRuntime': `export const refreshPluginBackgrounds=()=>{};export const stopPluginBackground=()=>{};`,
     '@main/hotkey/pluginLaunchHotkeys': `export const applyPluginLaunchHotkeys=()=>{};export const releasePluginLaunchHotkey=()=>{};export const clearPluginLaunch=async()=>{};`,
     '@main/update/updateService': `export const getUpdateState=()=>({status:'idle'});export const downloadUpdate=async()=>{};export const checkForUpdates=async()=>{};export const quitAndInstallUpdate=async()=>({status:'idle'});`
   }

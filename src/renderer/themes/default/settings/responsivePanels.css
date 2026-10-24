@@ -1,0 +1,44 @@
+@media (min-width: 1440px) {
+
+  .settings-shell,
+.dev-shell {
+    max-width: min(920px, 100%);
+  }
+}
+
+/* —— ≤960：设置与开发者区域收窄 —— */
+@media (max-width: 960px) {
+
+  .theme-row {
+    flex-wrap: wrap;
+  }
+
+
+  .tab-orb .settings-shell,
+.tab-orb .dev-shell {
+    padding-left: max(clamp(14px, 2.2vw, 20px), 28px);
+  }
+
+}
+
+/* —— ≤720：设置 tabs 横向滚动、字段纵向 —— */
+@media (max-width: 720px) {
+
+
+  .settings-shell,
+.dev-shell {
+    padding-left: 14px;
+    padding-right: 14px;
+    padding-bottom: 100px;
+  }
+
+  .tab-orb .settings-shell,
+.tab-orb .dev-shell {
+    padding-left: 24px;
+  }
+
+  /* 设置分类默认单行；「更多」可原地展开换行，窄屏保持可访问。 */
+  .settings-tabs {
+    width: 100%;
+  }
+}

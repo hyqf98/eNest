@@ -14,6 +14,12 @@ function MediaLayer({ config, paused }: { config: BackgroundConfig; paused: bool
   const videoRef = useRef<HTMLVideoElement>(null)
   useEffect(() => {
     const video = videoRef.current
+    if (!video || !playable || config.type !== 'video') return
+    video.src = src
+    return () => { video.pause(); video.removeAttribute('src'); video.load() }
+  }, [src, playable, config.type])
+  useEffect(() => {
+    const video = videoRef.current
     if (!video) return
     const syncPlayback = () => {
       if (paused || document.hidden) video.pause()
@@ -43,7 +49,6 @@ function MediaLayer({ config, paused }: { config: BackgroundConfig; paused: bool
       <video
         ref={videoRef}
         className="app-bg-media"
-        src={src}
         style={{ objectFit: config.fit, opacity: config.opacity }}
         muted
         loop
@@ -73,15 +78,16 @@ export function AppBackground({ paused: externallyPaused = false }: { paused?: b
     const tab = state.tabs.find(item => item.id === state.activeTabId)
     return !!tab && state.plugins.find(plugin => plugin.id === tab.pluginId)?.ui?.background !== 'transparent'
   })
-  useFpsGuard(!covered && !externallyPaused)
+  useFpsGuard(!covered && !externallyPaused && appearance.animation.continuous)
   const [visible, setVisible] = useState(!document.hidden)
   useEffect(() => {
     const sync = () => setVisible(!document.hidden)
     document.addEventListener('visibilitychange', sync)
     return () => document.removeEventListener('visibilitychange', sync)
   }, [])
-  const paused = externallyPaused || covered || !visible || reducedMotion || !appearance.animation.continuous
+  const paused = externallyPaused || covered || !visible || reducedMotion || appearance.animation.effective === 'low' || !appearance.animation.continuous
   const media = appearance.background.media
+  if (externallyPaused || covered || !visible) return null
   if (appearance.background.kind !== undefined || BUILTIN_BACKGROUND_EFFECTS.some(effect => effect.id === appearance.background.effect)) {
     return <DefaultThemeBackground appearance={appearance} paused={externallyPaused || covered || !visible} />
   }

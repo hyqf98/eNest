@@ -116,9 +116,9 @@ export class HomeSurfaceManager {
 
   constructor(private readonly loadTimeout = LOAD_TIMEOUT) {}
 
-  getMemoryOwners(): Array<{ pluginId: string; wcId: number }> {
+  getMemoryOwners(): Array<{ pluginId: string; generation: number; wcId: number }> {
     return [this.current, this.preparing].flatMap(runtime => runtime && runtime.reference.source !== BUILT_IN_HOME_SOURCE
-      && !runtime.view.webContents.isDestroyed() ? [{ pluginId: runtime.reference.source, wcId: runtime.view.webContents.id }] : [])
+      && !runtime.view.webContents.isDestroyed() ? [{ pluginId: runtime.reference.source, generation: runtime.generation, wcId: runtime.view.webContents.id }] : [])
   }
 
   async prepare(candidate: ResolvedAppearance): Promise<HomeTransaction> {

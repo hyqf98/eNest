@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "version": "0.2.3",
+  "platform": "darwin",
+  "arch": "x64",
+  "generatedAt": "2026-10-24T07:21:20.534Z",
+  "builtOn": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "node": "v22.22.1"
+  },
+  "runtimeValidated": false,
+  "payload": {
+    "schemaVersion": 1,
+    "platform": "darwin",
+    "arch": "x64",
+    "verification": "static-payload-only",
+    "binaries": [
+      {
+        "path": "eNest.app/Contents/MacOS/eNest",
+        "bytes": 13076,
+        "sha256": "04256496fc22f80a68270387d8fc41a51494d2c71046768d6e78b630deca428d",
+        "format": "macho",
+        "architectures": [
+          "x64"
+        ]
+      },
+      {
+        "path": "eNest.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework",
+        "bytes": 218669076,
+        "sha256": "f2708e9951a540e5927b0acb23f3b8a0704d5ee7464e2834ffe9089cae1eb288",
+        "format": "macho",
+        "architectures": [
+          "x64"
+        ]
+      },
+      {
+        "path": "eNest.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libffmpeg.dylib",
+        "bytes": 2555716,
+        "sha256": "ae4cf99f168f7c1fcbb8e340517ee593dda17894b8427fbf9dfe85abb54b0f85",
+        "format": "macho",
+        "architectures": [
+          "x64"
+        ]
+      }
+    ],
+    "native": {
+      "platform": "darwin",
+      "arch": "x64",
+      "files": [
+        {
+          "path": "clipboard-helper",
+          "bytes": 89200,
+          "sha256": "6bf551bc2be68b55cc006ea665697efd79d2bdb3733c99a410db22d355731f02",
+          "format": "macho",
+          "architectures": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "path": "process-memory-helper",
+          "bytes": 50488,
+          "sha256": "d7cd7aaa0ff7b66f707dee92fe37db48026865e0a1e86af902ace48aca900123",
+          "format": "macho",
+          "architectures": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    }
+  },
+  "assets": [
+    {
+      "name": "eNest-0.2.3-mac-x64.zip",
+      "bytes": 125417633,
+      "sha256": "a9c3700a151a33ece4fa7cb11f02e48dd231a718e6c999a1f66bee26ef873f2b"
+    },
+    {
+      "name": "eNest-0.2.3-mac-x64.zip.blockmap",
+      "bytes": 133293,
+      "sha256": "9d9465df89f72dea3b18d1d30719439dfc6a97427a2d025d96ad42f12ee32584"
+    }
+  ]
+}

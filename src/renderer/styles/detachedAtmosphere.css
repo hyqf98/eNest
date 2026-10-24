@@ -1,0 +1,2 @@
+:root.has-bg-atmosphere .detached-titlebar,
+:root.has-bg-atmosphere .detached-quick-bar { background: var(--atmosphere-surface); }

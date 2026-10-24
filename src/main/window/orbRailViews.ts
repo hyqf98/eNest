@@ -26,17 +26,26 @@ import type { AnimationLevel } from '@shared/types/plugin'
 import {
   getMainWindow,
   getShellBounds,
+  getPluginTopInset,
   resolvePreload,
+  sendShellEvent,
   setPluginLeftInset
 } from '@main/window/createShellWindow'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { resolveThemeTokens, type ResolvedThemeCss } from '@main/theme/resolveThemeCss'
 import { listRailEntries } from '@main/contrib/ContributionRegistry'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
-import { logInfo, logWarn } from '@main/logs/logService'
+import { logWarn } from '@main/logs/logService'
+import { selectThemeChrome, ThemeChromeSurface } from '@main/theme/themeChromeSurface'
+import type { ThemeChromePart } from '@shared/types/themeChrome'
 
 let railView: WebContentsView | null = null
 let dockView: WebContentsView | null = null
+let classicView: WebContentsView | null = null
+const customSurfaces = new Map<WebContentsView, ThemeChromeSurface>()
+const pendingFallbacks = new Map<WebContentsView, WebContentsView>()
+const failedSelections = new Map<ThemeChromePart, string>()
+let unwatchPlugins: (() => void) | null = null
 let railExpanded = false
 let dragExpansionCount = 0
 let themeHooked = false
@@ -102,9 +111,72 @@ function sendStateTo(wc: { isDestroyed(): boolean; send(channel: string, payload
 }
 
 function broadcastState(): void {
-  for (const view of [railView, dockView]) {
-    if (view) sendStateTo(view.webContents)
+  for (const view of [railView, dockView, classicView, ...pendingFallbacks.values()]) {
+    if (!view) continue
+    const custom = customSurfaces.get(view)
+    if (custom) custom.publish()
+    else sendStateTo(view.webContents)
   }
+  sendShellEvent({ type: 'theme-chrome-status', surface: 'classic', ready: !!classicView && customSurfaces.get(classicView)?.isReady() === true })
+}
+
+function disposeChromeView(view: WebContentsView | null): void {
+  if (!view) return
+  const fallback = pendingFallbacks.get(view)
+  pendingFallbacks.delete(view)
+  if (fallback) disposeChromeView(fallback)
+  const win = getMainWindow()
+  if (win && !win.isDestroyed() && win.contentView.children.includes(view)) win.contentView.removeChildView(view)
+  const custom = customSurfaces.get(view)
+  if (custom) { customSurfaces.delete(view); custom.dispose() }
+  else if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false })
+}
+
+function availableSelection(part: ThemeChromePart) {
+  const selected = selectThemeChrome(part)
+  if (selected?.signature === failedSelections.get(part)) return null
+  return selected
+}
+
+function reconcileChromeViews(): void {
+  for (const [part, view] of [['rail', railView], ['dock', dockView], ['classic', classicView]] as const) {
+    if (!view) continue
+    const activeMode = part === 'rail' ? lastState.tabStyle === 'orb' : lastState.tabStyle === 'classic'
+    const selection = availableSelection(part)
+    if (!activeMode || view.webContents.isDestroyed() || (customSurfaces.get(view)?.signature ?? null) !== (selection?.signature ?? null)) {
+      // Keep an already rendered builtin when a pending custom document fails.
+      const fallback = activeMode && !selection ? pendingFallbacks.get(view) ?? null : null
+      if (fallback) pendingFallbacks.delete(view)
+      disposeChromeView(view)
+      if (part === 'rail') railView = fallback
+      else if (part === 'dock') dockView = fallback
+      else classicView = null
+    }
+  }
+}
+
+function makeCustomView(part: ThemeChromePart): WebContentsView | null {
+  const selected = availableSelection(part)
+  if (!selected) return null
+  const surface = new ThemeChromeSurface(part, selected, {
+    state: () => lastState,
+    active: () => chromeVisible && chromeSuspensions.size === 0 && (part === 'rail' ? lastState.tabStyle === 'orb' : lastState.tabStyle === 'classic'),
+    expand: setOrbRailExpandedView,
+    changed: () => syncChromeVisibility(),
+    failed: signature => {
+      failedSelections.set(part, signature)
+      queueMicrotask(() => syncChromeVisibility())
+    }
+  })
+  customSurfaces.set(surface.view, surface)
+  return surface.view
+}
+
+function applyClassicBounds(): void {
+  if (!classicView) return
+  const bounds = getShellBounds()
+  // Traffic controls and a narrow native move region always remain host-owned.
+  classicView.setBounds({ x: 96, y: 0, width: Math.max(1, bounds.width - 120), height: TITLEBAR_HEIGHT })
 }
 
 function applyRailBounds(): void {
@@ -114,6 +186,7 @@ function applyRailBounds(): void {
   // orb 的设置入口在 rail 末尾，不再为独立 dock 预留底部空间。
   const height = Math.max(120, b.height - TITLEBAR_HEIGHT)
   railView.setBounds({ x: 0, y: TITLEBAR_HEIGHT, width, height })
+  pendingFallbacks.get(railView)?.setBounds(railView.getBounds())
 }
 
 function applyDockBounds(): void {
@@ -126,6 +199,7 @@ function applyDockBounds(): void {
     width: ORB_DOCK_VIEW_W,
     height: ORB_DOCK_VIEW_H
   })
+  pendingFallbacks.get(dockView)?.setBounds(dockView.getBounds())
 }
 
 /** URL query 携带 part / 动画档位 / 主题模式：首帧即正确，无 medium 或浅色闪变 */
@@ -148,6 +222,17 @@ function loadPart(view: WebContentsView, part: 'rail' | 'dock'): void {
 }
 
 function makeView(part: 'rail' | 'dock'): WebContentsView {
+  const custom = makeCustomView(part)
+  if (custom) {
+    const fallback = makeBuiltinView(part)
+    pendingFallbacks.set(custom, fallback)
+    getMainWindow()?.contentView.addChildView(fallback)
+    return custom
+  }
+  return makeBuiltinView(part)
+}
+
+function makeBuiltinView(part: 'rail' | 'dock'): WebContentsView {
   // WebContentsView 默认不透明（electron#44914）：透明底需要 RGBA 全零 backgroundColor。
   // WebPreferences 类型未收该键，但运行时支持（官方迁移指南），故用交叉类型显式传入
   const prefs: WebPreferences & { backgroundColor?: string } = {
@@ -175,9 +260,9 @@ function makeView(part: 'rail' | 'dock'): WebContentsView {
 }
 
 export function createOrbRailViews(): void {
-  if (lastState.tabStyle === 'orb' ? railView : dockView) return
   const win = getMainWindow()
   if (!win || win.isDestroyed()) return
+  reconcileChromeViews()
 
   // 首次创建即对齐主题与账号资料，供 did-finish-load 的首次状态推送携带
   lastState = { ...lastState, theme: readTheme(), profile: readProfile() }
@@ -190,11 +275,16 @@ export function createOrbRailViews(): void {
     dockView = makeView('dock')
     win.contentView.addChildView(dockView)
   }
+  if (lastState.tabStyle === 'classic' && !classicView) {
+    classicView = makeCustomView('classic')
+    if (classicView) win.contentView.addChildView(classicView)
+  }
   applyRailBounds()
   applyDockBounds()
+  applyClassicBounds()
   hookNativeTheme()
+  unwatchPlugins ??= pluginRegistry.onInstalledChanged(() => syncChromeVisibility())
   // 窗口 resize 由 index.ts 统一调 layoutOrbRailViews()
-  logInfo('orb', `${lastState.tabStyle === 'orb' ? 'rail' : 'dock'} view created`)
 }
 
 /** system 模式下系统深浅翻转时，圆轨配色跟随（其它模式重算结果不变，广播会被去重） */
@@ -209,7 +299,7 @@ export function raiseOrbRailViews(): void {
   const win = getMainWindow()
   if (!win || win.isDestroyed()) return
   const cv = win.contentView
-  for (const view of [railView, dockView]) {
+  for (const view of [...pendingFallbacks.values(), railView, dockView, classicView]) {
     if (!view || !view.getVisible() || view.webContents.isDestroyed() || !cv.children.includes(view)) continue
     cv.removeChildView(view)
     cv.addChildView(view)
@@ -228,6 +318,8 @@ export function setOrbRailExpandedView(expanded: boolean): void {
 export function layoutOrbRailViews(): void {
   applyRailBounds()
   applyDockBounds()
+  applyClassicBounds()
+  if (classicView) classicView.setVisible(chromeVisible && chromeSuspensions.size === 0 && lastState.tabStyle === 'classic' && getPluginTopInset() === 0 && customSurfaces.get(classicView)?.isReady() === true)
   raiseOrbRailViews()
 }
 
@@ -314,16 +406,28 @@ export function setOrbProfile(profile: OrbRailState['profile']): void {
 }
 
 function syncChromeVisibility(): void {
+  reconcileChromeViews()
   const visible = chromeVisible && chromeSuspensions.size === 0
   if (railView?.webContents.isDestroyed()) railView = null
   if (dockView?.webContents.isDestroyed()) dockView = null
   // 先隐藏另一模式的视图，再创建或显示当前视图，避免切换时两者同时出现。
   if (!visible || lastState.tabStyle !== 'orb') railView?.setVisible(false)
   if (!visible || lastState.tabStyle !== 'classic') dockView?.setVisible(false)
+  if (!visible || lastState.tabStyle !== 'classic') classicView?.setVisible(false)
+  for (const fallback of pendingFallbacks.values()) fallback.setVisible(false)
+  sendShellEvent({ type: 'theme-chrome-status', surface: 'classic', ready: !!classicView && customSurfaces.get(classicView)?.isReady() === true })
   if (!visible) return
   createOrbRailViews()
   const view = lastState.tabStyle === 'orb' ? railView : dockView
-  view?.setVisible(true)
+  if (view) view.setVisible(!customSurfaces.has(view) || customSurfaces.get(view)!.isReady())
+  if (view) {
+    const fallback = pendingFallbacks.get(view)
+    if (fallback && customSurfaces.get(view)?.isReady()) {
+      pendingFallbacks.delete(view)
+      disposeChromeView(fallback)
+    } else fallback?.setVisible(true)
+  }
+  if (classicView) classicView.setVisible(getPluginTopInset() === 0 && customSurfaces.get(classicView)?.isReady() === true)
   raiseOrbRailViews()
 }
 
@@ -346,17 +450,13 @@ export function suspendOrbRailViews(): () => void {
 }
 
 export function destroyOrbRailViews(): void {
-  const win = getMainWindow()
-  if (win && !win.isDestroyed()) {
-    for (const view of [railView, dockView]) {
-      if (view) win.contentView.removeChildView(view)
-    }
-  }
-  for (const view of [railView, dockView]) {
-    if (view && !view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false })
-  }
+  for (const view of [railView, dockView, classicView]) disposeChromeView(view)
   railView = null
   dockView = null
+  classicView = null
+  failedSelections.clear()
+  unwatchPlugins?.()
+  unwatchPlugins = null
   railExpanded = false
   dragExpansionCount = 0
   chromeVisible = false
@@ -369,7 +469,8 @@ export function destroyOrbRailViews(): void {
 export function getOrbDragSurface(wcId: number) {
   const window = getMainWindow()
   if (!window || window.isDestroyed() || !chromeVisible || chromeSuspensions.size || lastState.tabStyle !== 'orb') return null
-  const view = railView?.getVisible() && railView.webContents.id === wcId ? railView : null
+  const native = railView ? pendingFallbacks.get(railView) ?? railView : null
+  const view = native?.getVisible() && native.webContents.id === wcId && !customSurfaces.has(native) ? native : null
   return view ? { window, view } : null
 }
 export function acquireOrbDragExpansion(): () => void {

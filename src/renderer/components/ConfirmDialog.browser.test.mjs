@@ -11,11 +11,11 @@ test('shared confirmation protects real plugin actions, cancels safely and traps
       import React, {useState} from 'react'; import {createRoot} from 'react-dom/client';
       import {ConfirmDialog} from '@renderer/components/ConfirmDialog';
       import {confirmAction} from '@renderer/services/confirmAction';
-      import {PluginCard} from '@renderer/components/PluginCard';
-      import {PluginDetailModal} from '@renderer/components/PluginDetailModal';
+      import {PluginCard} from '@renderer/themes/default/workspace/preview/PluginCard';
+      import {PluginDetailModal} from '@renderer/themes/default/workspace/preview/PluginDetailModal';
       import {DevConsoleSection} from '@renderer/components/DevConsoleSection';
       import {useShellStore} from '@renderer/stores/shellStore';
-      import '@renderer/styles/detail.css';
+      import '@renderer/themes/default/workspace/detail.css';
       const plugin={id:'com.example.memo', name:'备忘录', description:'随手记录想法与待办事项',version:'1.2.0',latestVersion:'1.3.0',installed:true,enabled:true,category:'效率',permissions:[],dev:true,glyph:'M'};
       window.confirmAction=confirmAction;window.calls=[];window.detailCloseCount=0;window.nativeConfirms=0;
       window.confirm=()=>{window.nativeConfirms++;return false};
@@ -39,7 +39,7 @@ test('shared confirmation protects real plugin actions, cancels safely and traps
   const errors=[];page.on('pageerror',error=>errors.push(error.message))
   const evidenceDir='docs/engineering/settings-ui-validation-2026-10-15'
   try {
-    const css = await Promise.all(['tokens','app','market','settings'].map(name=>readFile(`src/renderer/styles/${name}.css`,'utf8')))
+    const css = await Promise.all(['src/renderer/styles/tokens.css','src/renderer/styles/app.css','src/renderer/themes/default/workspace/market.css','src/renderer/styles/settings.css'].map(path=>readFile(path,'utf8')))
     await page.setContent(`<html lang="zh-CN" data-theme="light" data-anim="low"><style>${css.join('\n')}\n${output.outputFiles.find(file=>file.path.endsWith('.css')).text}</style><body><div id="root"></div></body></html>`)
     await page.addScriptTag({content:output.outputFiles.find(file=>file.path.endsWith('.js')).text})
     const confirm = page.locator('.confirm-overlay')

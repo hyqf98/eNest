@@ -165,6 +165,10 @@ export interface ThemePackV2 extends ThemePack {
   home?: ThemeHomeReference
   /** Isolated Quick presentation. Omission keeps the host's built-in launcher. */
   quick?: import('./quickTheme').ThemeQuickReference
+  /** Optional sandboxed navigation renderers. The host retains geometry and lifecycle. */
+  chrome?: import('./themeChrome').ThemeChromeReference
+  /** Optional isolated settings presentation; protected actions stay native. */
+  settingsPage?: import('./themeSettings').ThemeSettingsReference
 }
 
 export interface ThemeProfile {
@@ -218,6 +222,8 @@ export interface ResolvedAppearance {
   animation: { requested: AnimationLevel; effective: AnimationLevel; continuous: boolean }
   home: ThemeHomeReference
   quick?: import('./quickTheme').ThemeQuickReference
+  chrome?: import('./themeChrome').ThemeChromeReference
+  settingsPage?: import('./themeSettings').ThemeSettingsReference
   diagnostics: AppearanceDiagnostic[]
   /** Host-owned public font handles; no local paths or custom-font metadata. */
   resources?: { fonts: Array<{ family: string; url: string }> }

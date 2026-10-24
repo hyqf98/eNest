@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-24T07:14:46.463Z",
+  "sourceBoundaryAudit": "docs/engineering/performance-2026-10-24/cleanup-final/source-boundary-audit.json",
+  "uniqueModules": 180,
+  "hashMismatches": [],
+  "bundleGuardPassed": true,
+  "previewChunkPaths": [],
+  "artifacts": [
+    {
+      "path": "out/main/index.js",
+      "bytes": 1089129,
+      "sha256": "4b4754f14d22be812ef9cefde6ddb07a45f119ca7b81e2b72f295947ac6c92c6"
+    },
+    {
+      "path": "out/preload/pluginPreload.cjs",
+      "bytes": 19074,
+      "sha256": "97ac362e3bf955dcd21e52b486268da3dc155d688904c20284e3989655d93e82"
+    },
+    {
+      "path": "out/renderer/index.html",
+      "bytes": 3047,
+      "sha256": "d1f9e820e132284a0c354294843e0ae9e3e924119131f08f20e4db86818bd054"
+    },
+    {
+      "path": "out/renderer/home.html",
+      "bytes": 2144,
+      "sha256": "2163560d915a96c0e3f598a044189a022d32cd3aae5a9ac477f663b77594e871"
+    }
+  ]
+}

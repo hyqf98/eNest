@@ -4,7 +4,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import type { ClipboardCapabilities, ClipboardSourceApp } from '@shared/types/plugin-tools'
+import type { ClipboardCapabilities } from '@shared/types/plugin-tools'
+import type { ClipboardNativeSnapshot } from '@shared/types/pluginBackground'
 import { parseFileUris, formatFileUris } from '@main/clipboard/clipboardFormats'
 
 let helper: ChildProcessWithoutNullStreams | null = null, sequence = 0, failedUntil = 0
@@ -13,6 +14,9 @@ let target: { token: string; name: string; capturedAt: number } | null = null
 let captureRevision = 0
 let permissionRequest: Promise<ClipboardCapabilities> | null = null
 export function isNativeClipboardBusy(): boolean { return permissionRequest !== null }
+export function getNativeClipboardProcessId(): number | undefined {
+  return helper?.exitCode === null && helper.signalCode === null ? helper.pid : undefined
+}
 type RestoreQuick = () => void | Promise<void>
 export interface PasteOwner { isCurrent(): boolean; beforePaste(): void | RestoreQuick }
 let beforePaste: (() => void | RestoreQuick) | undefined
@@ -101,7 +105,7 @@ export async function pasteToOriginal(signal?: AbortSignal, owner?: PasteOwner):
   if (!signal?.aborted && (!owner || owner.isCurrent()) && !result.pasted && restore) await Promise.resolve(restore()).catch(() => {})
   return result
 }
-export async function nativeClipboardSource(): Promise<ClipboardSourceApp | null> {
+export async function nativeClipboardSource(): Promise<NonNullable<ClipboardNativeSnapshot['sourceApp']> | null> {
   if (permissionRequest) return null
   try { return await request('source') } catch { return null }
 }

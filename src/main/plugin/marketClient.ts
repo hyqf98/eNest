@@ -14,6 +14,7 @@ import { logInfo, logWarn } from '@main/logs/logService'
 import { getActiveProxy } from '@main/proxy/proxyService'
 import { MARKET_REPO_OWNER, MARKET_REPO_NAME, type CatalogResource } from './catalogResources'
 import { fetchMarketResource } from './marketResources'
+import { marketRegistryNames } from './pluginDistribution'
 
 export { MARKET_REPO_OWNER, MARKET_REPO_NAME } from './catalogResources'
 export type { MarketPluginSummary } from '@main/plugin/marketMetadata'
@@ -22,7 +23,7 @@ export type { MarketPluginSummary } from '@main/plugin/marketMetadata'
 const RELEASE_BASE = `https://github.com/${MARKET_REPO_OWNER}/${MARKET_REPO_NAME}/releases/latest/download/`
 
 const REGISTRY_URLS = [
-  `${RELEASE_BASE}registry.json`,
+  ...marketRegistryNames().map(name => `${RELEASE_BASE}${name}`),
   `https://raw.githubusercontent.com/${MARKET_REPO_OWNER}/${MARKET_REPO_NAME}/main/registry.json`
 ]
 

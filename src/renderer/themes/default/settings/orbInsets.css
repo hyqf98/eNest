@@ -1,0 +1,5 @@
+/* orb 轨道：给左侧把手/圆球留出安全边距，避免正文被永久遮挡 */
+.tab-orb .settings-shell,
+.tab-orb .dev-shell {
+  padding-left: max(var(--page-pad), 28px);
+}

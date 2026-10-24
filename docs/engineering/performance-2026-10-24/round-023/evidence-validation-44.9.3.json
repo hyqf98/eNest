@@ -1,0 +1,1398 @@
+{
+  "schema": "enest.evidence-validation.v1",
+  "generatedAt": "2026-10-24T05:27:16.800Z",
+  "scope": "Read-only arithmetic, identity, ownership and log reconciliation of recorded evidence. No application, build, npm or tests executed.",
+  "inputs": [
+    {
+      "path": "native-real-app-performance-final-patch-44.9.3.json",
+      "bytes": 284062,
+      "sha256": "395be72760d56018d1fcf0d274c0b606697d64cf65ab501edbb62e216db97a53"
+    },
+    {
+      "path": "native-real-app-performance-final-patch-44.9.3.txt",
+      "bytes": 25573,
+      "sha256": "2716286f48e955c3d691b4129eaad01f6c6a31a95454ebbd5523ea9b47dd2a20"
+    },
+    {
+      "path": "settings-native-ui-44.9.3.json",
+      "bytes": 114155,
+      "sha256": "652390c5259ca9254cd0dde5138629f9cd5fee3e5dfad2e6de3b83ba00955631"
+    }
+  ],
+  "units": {
+    "memory": "MiB = bytes / 1048576; per-process macOS phys_footprint, not RSS or exclusive system RAM.",
+    "cpu": "Percent of one logical core. Null baseline values are excluded from means, never treated as zero.",
+    "stageMeans": "Memory arithmetic mean uses all four snapshots, including the initial transient. CPU arithmetic mean uses the three valid adjacent intervals in that stage."
+  },
+  "reconciliation": {
+    "consistent": true,
+    "checks": {
+      "native_sequence": {
+        "checks": 7,
+        "failures": 0
+      },
+      "installed": {
+        "checks": 2,
+        "failures": 0
+      },
+      "native_pid_memory": {
+        "checks": 508,
+        "failures": 0
+      },
+      "native_ownership": {
+        "checks": 244,
+        "failures": 0
+      },
+      "native_cpu": {
+        "checks": 684,
+        "failures": 0
+      },
+      "native_log": {
+        "checks": 12,
+        "failures": 0
+      },
+      "close_boundary": {
+        "checks": 97,
+        "failures": 0
+      },
+      "settings_sequence": {
+        "checks": 7,
+        "failures": 0
+      },
+      "settings_pid_memory": {
+        "checks": 147,
+        "failures": 0
+      },
+      "settings_cpu": {
+        "checks": 418,
+        "failures": 0
+      },
+      "settings_ownership": {
+        "checks": 355,
+        "failures": 0
+      },
+      "settings_log": {
+        "checks": 23,
+        "failures": 0
+      }
+    },
+    "failures": []
+  },
+  "installed": {
+    "count": 32,
+    "uniqueIds": 32,
+    "versionsMatchInstallLog": true
+  },
+  "native": {
+    "declaredPassed": true,
+    "sampleCount": 24,
+    "processRows": 196,
+    "allObservedMetrics": [
+      "footprint"
+    ],
+    "stages": [
+      {
+        "name": "installed-32-idle",
+        "sampleCount": 4,
+        "sampleWindowMs": 6054.960707999999,
+        "settleMs": 1100,
+        "physFootprintMiB": {
+          "count": 4,
+          "mean": 389.2036666870117,
+          "min": 383.6646041870117,
+          "max": 403.4771041870117
+        },
+        "lastFootprintMiB": 383.6802291870117,
+        "postInitialFootprintMiBMean": 384.4458541870117,
+        "hostFootprintMiBMean": 389.2036666870117,
+        "pluginOwnedFootprintMiBMean": 0,
+        "cpuOneCorePercent": {
+          "count": 3,
+          "mean": 1.103674741147932,
+          "min": 0.9117209035432459,
+          "max": 1.4347349886079412
+        },
+        "cpuTimeWeightedOneCorePercent": 1.1035744610483227,
+        "cpuByIdentity": [
+          {
+            "identity": "Browser:74586",
+            "meanOneCorePercent": 0.8327173502297711
+          },
+          {
+            "identity": "Utility:74590",
+            "meanOneCorePercent": 0.1364937150865948
+          },
+          {
+            "identity": "GPU:74589",
+            "meanOneCorePercent": 0.08370770781206695
+          },
+          {
+            "identity": "Tab:74602",
+            "meanOneCorePercent": 0.050755968019498915
+          },
+          {
+            "identity": "Tab:74593",
+            "meanOneCorePercent": 0
+          },
+          {
+            "identity": "Tab:74595",
+            "meanOneCorePercent": 0
+          }
+        ],
+        "uniquePids": [
+          6
+        ],
+        "hostStates": [
+          {
+            "opening": 0,
+            "closing": 0,
+            "retiring": 0,
+            "logicalTabs": 0,
+            "live": 0,
+            "hibernated": 0,
+            "coldShellTabs": 0,
+            "lazyDetached": 0,
+            "restoringDetached": 0,
+            "tabPresentations": 0
+          }
+        ],
+        "resources": [
+          0
+        ],
+        "backgroundCounts": [
+          0
+        ],
+        "utilityCounts": [
+          0
+        ],
+        "auxiliaryWindows": [
+          0
+        ],
+        "fileStreams": [
+          0
+        ],
+        "memorySampleAgeMs": {
+          "count": 4,
+          "mean": 0.25,
+          "min": 0,
+          "max": 1
+        },
+        "collectionMs": {
+          "count": 4,
+          "mean": 15.419822999999724,
+          "min": 13.985749999999825,
+          "max": 16.878334000000905
+        }
+      },
+      {
+        "name": "six-logical-tabs",
+        "sampleCount": 4,
+        "sampleWindowMs": 6034.992166,
+        "settleMs": 1100,
+        "physFootprintMiB": {
+          "count": 4,
+          "mean": 639.0047607421875,
+          "min": 605.4696044921875,
+          "max": 715.5789794921875
+        },
+        "lastFootprintMiB": 605.4696044921875,
+        "postInitialFootprintMiBMean": 613.4800211588541,
+        "hostFootprintMiBMean": 442.0748062133789,
+        "pluginOwnedFootprintMiBMean": 196.9299545288086,
+        "cpuOneCorePercent": {
+          "count": 3,
+          "mean": 4.87009719477884,
+          "min": 4.660003493389919,
+          "max": 5.093956906408437
+        },
+        "cpuTimeWeightedOneCorePercent": 4.869981466683491,
+        "cpuByIdentity": [
+          {
+            "identity": "com.github.eNest.todos",
+            "meanOneCorePercent": 2.6302728398899338
+          },
+          {
+            "identity": "GPU:74589",
+            "meanOneCorePercent": 1.3895615095393754
+          },
+          {
+            "identity": "Browser:74586",
+            "meanOneCorePercent": 0.614899907776838
+          },
+          {
+            "identity": "com.github.eNest.password-kit",
+            "meanOneCorePercent": 0.07335619553633509
+          },
+          {
+            "identity": "com.github.eNest.timestamp",
+            "meanOneCorePercent": 0.06039669328633618
+          },
+          {
+            "identity": "com.github.eNest.cron",
+            "meanOneCorePercent": 0.04828892066080359
+          },
+          {
+            "identity": "Tab:74593",
+            "meanOneCorePercent": 0.023044729064798323
+          },
+          {
+            "identity": "Tab:74602",
+            "meanOneCorePercent": 0.013817574941098176
+          },
+          {
+            "identity": "com.github.eNest.regex",
+            "meanOneCorePercent": 0.00789786170683578
+          },
+          {
+            "identity": "com.github.eNest.calculator",
+            "meanOneCorePercent": 0.007728660577195248
+          },
+          {
+            "identity": "Tab:74595",
+            "meanOneCorePercent": 0.0008323017992907462
+          },
+          {
+            "identity": "Utility:74590",
+            "meanOneCorePercent": 0
+          }
+        ],
+        "uniquePids": [
+          12
+        ],
+        "hostStates": [
+          {
+            "opening": 0,
+            "closing": 0,
+            "retiring": 0,
+            "logicalTabs": 6,
+            "live": 6,
+            "hibernated": 0,
+            "coldShellTabs": 0,
+            "lazyDetached": 0,
+            "restoringDetached": 0,
+            "tabPresentations": 6
+          }
+        ],
+        "resources": [
+          60
+        ],
+        "backgroundCounts": [
+          0
+        ],
+        "utilityCounts": [
+          0
+        ],
+        "auxiliaryWindows": [
+          0
+        ],
+        "fileStreams": [
+          0
+        ],
+        "memorySampleAgeMs": {
+          "count": 4,
+          "mean": 129,
+          "min": 1,
+          "max": 513
+        },
+        "collectionMs": {
+          "count": 4,
+          "mean": 11.576687500000844,
+          "min": 1.5379590000011376,
+          "max": 17.595250000002125
+        }
+      },
+      {
+        "name": "eight-logical-tabs-production-limit-six",
+        "sampleCount": 4,
+        "sampleWindowMs": 6039.147458000003,
+        "settleMs": 1100,
+        "physFootprintMiB": {
+          "count": 4,
+          "mean": 621.2704086303711,
+          "min": 592.5477523803711,
+          "max": 678.5165023803711
+        },
+        "lastFootprintMiB": 592.5477523803711,
+        "postInitialFootprintMiBMean": 602.1883773803711,
+        "hostFootprintMiBMean": 427.0982494354248,
+        "pluginOwnedFootprintMiBMean": 194.1721591949463,
+        "cpuOneCorePercent": {
+          "count": 3,
+          "mean": 15.827369113166709,
+          "min": 11.882826994181734,
+          "max": 23.112647579627843
+        },
+        "cpuTimeWeightedOneCorePercent": 15.825826520164435,
+        "cpuByIdentity": [
+          {
+            "identity": "GPU:74589",
+            "meanOneCorePercent": 5.463990628128006
+          },
+          {
+            "identity": "com.github.eNest.sticky-notes",
+            "meanOneCorePercent": 5.066278134725253
+          },
+          {
+            "identity": "Browser:74586",
+            "meanOneCorePercent": 2.0383532890502467
+          },
+          {
+            "identity": "Tab:74595",
+            "meanOneCorePercent": 1.4967051814104428
+          },
+          {
+            "identity": "Tab:74593",
+            "meanOneCorePercent": 1.1268491719069713
+          },
+          {
+            "identity": "Tab:74602",
+            "meanOneCorePercent": 0.40502483853540244
+          },
+          {
+            "identity": "com.github.eNest.timestamp",
+            "meanOneCorePercent": 0.09613315393661413
+          },
+          {
+            "identity": "com.github.eNest.password-kit",
+            "meanOneCorePercent": 0.0795043139310402
+          },
+          {
+            "identity": "com.github.eNest.todos",
+            "meanOneCorePercent": 0.026758665589395783
+          },
+          {
+            "identity": "com.github.eNest.regex",
+            "meanOneCorePercent": 0.01938571836958931
+          },
+          {
+            "identity": "com.github.eNest.sketchbook",
+            "meanOneCorePercent": 0.007938654852139739
+          },
+          {
+            "identity": "Utility:74590",
+            "meanOneCorePercent": 0.00044736273160589303
+          }
+        ],
+        "uniquePids": [
+          12
+        ],
+        "hostStates": [
+          {
+            "opening": 0,
+            "closing": 0,
+            "retiring": 0,
+            "logicalTabs": 8,
+            "live": 6,
+            "hibernated": 2,
+            "coldShellTabs": 0,
+            "lazyDetached": 0,
+            "restoringDetached": 0,
+            "tabPresentations": 7
+          }
+        ],
+        "resources": [
+          60
+        ],
+        "backgroundCounts": [
+          0
+        ],
+        "utilityCounts": [
+          0
+        ],
+        "auxiliaryWindows": [
+          0
+        ],
+        "fileStreams": [
+          0
+        ],
+        "memorySampleAgeMs": {
+          "count": 4,
+          "mean": 18.25,
+          "min": 1,
+          "max": 70
+        },
+        "collectionMs": {
+          "count": 4,
+          "mean": 9.685593750003136,
+          "min": 1.0675830000036513,
+          "max": 18.189084000005096
+        }
+      },
+      {
+        "name": "after-closing-eight",
+        "sampleCount": 4,
+        "sampleWindowMs": 6030.469166999996,
+        "settleMs": 1100,
+        "physFootprintMiB": {
+          "count": 4,
+          "mean": 438.387357711792,
+          "min": 385.6490707397461,
+          "max": 536.5240936279297
+        },
+        "lastFootprintMiB": 385.6490707397461,
+        "postInitialFootprintMiBMean": 405.6751124064128,
+        "hostFootprintMiBMean": 438.387357711792,
+        "pluginOwnedFootprintMiBMean": 0,
+        "cpuOneCorePercent": {
+          "count": 3,
+          "mean": 0.9273547772819996,
+          "min": 0.6351399388243426,
+          "max": 1.1886133065732616
+        },
+        "cpuTimeWeightedOneCorePercent": 0.9275895200012788,
+        "cpuByIdentity": [
+          {
+            "identity": "Browser:74586",
+            "meanOneCorePercent": 0.5981439253399494
+          },
+          {
+            "identity": "GPU:74589",
+            "meanOneCorePercent": 0.22038674655996393
+          },
+          {
+            "identity": "Tab:74602",
+            "meanOneCorePercent": 0.07013864218536929
+          },
+          {
+            "identity": "Tab:74595",
+            "meanOneCorePercent": 0.026005079895355564
+          },
+          {
+            "identity": "Tab:74593",
+            "meanOneCorePercent": 0.01268038330136134
+          },
+          {
+            "identity": "Utility:74590",
+            "meanOneCorePercent": 0
+          }
+        ],
+        "uniquePids": [
+          6
+        ],
+        "hostStates": [
+          {
+            "opening": 0,
+            "closing": 0,
+            "retiring": 0,
+            "logicalTabs": 0,
+            "live": 0,
+            "hibernated": 0,
+            "coldShellTabs": 0,
+            "lazyDetached": 0,
+            "restoringDetached": 0,
+            "tabPresentations": 0
+          }
+        ],
+        "resources": [
+          0
+        ],
+        "backgroundCounts": [
+          0
+        ],
+        "utilityCounts": [
+          0
+        ],
+        "auxiliaryWindows": [
+          0
+        ],
+        "fileStreams": [
+          0
+        ],
+        "memorySampleAgeMs": {
+          "count": 4,
+          "mean": 80.75,
+          "min": 0,
+          "max": 321
+        },
+        "collectionMs": {
+          "count": 4,
+          "mean": 9.433666499999163,
+          "min": 0.7483749999955762,
+          "max": 15.166665999997349
+        }
+      },
+      {
+        "name": "repeat-single-open",
+        "sampleCount": 4,
+        "sampleWindowMs": 6036.386749999998,
+        "settleMs": 1100,
+        "physFootprintMiB": {
+          "count": 4,
+          "mean": 442.0137023925781,
+          "min": 425.3847961425781,
+          "max": 477.0097961425781
+        },
+        "lastFootprintMiB": 425.3847961425781,
+        "postInitialFootprintMiBMean": 430.3483378092448,
+        "hostFootprintMiBMean": 407.3912582397461,
+        "pluginOwnedFootprintMiBMean": 34.62244415283203,
+        "cpuOneCorePercent": {
+          "count": 3,
+          "mean": 6.452774041380468,
+          "min": 5.9796817547997225,
+          "max": 7.266798195850463
+        },
+        "cpuTimeWeightedOneCorePercent": 6.451243370050794,
+        "cpuByIdentity": [
+          {
+            "identity": "com.github.eNest.calculator",
+            "meanOneCorePercent": 3.336906416438323
+          },
+          {
+            "identity": "GPU:74589",
+            "meanOneCorePercent": 2.2018451228592357
+          },
+          {
+            "identity": "Browser:74586",
+            "meanOneCorePercent": 0.5560843051026386
+          },
+          {
+            "identity": "Tab:74593",
+            "meanOneCorePercent": 0.28334370895707944
+          },
+          {
+            "identity": "Tab:74602",
+            "meanOneCorePercent": 0.06871461398521247
+          },
+          {
+            "identity": "Tab:74595",
+            "meanOneCorePercent": 0.005879874037977371
+          },
+          {
+            "identity": "Utility:74590",
+            "meanOneCorePercent": 0
+          }
+        ],
+        "uniquePids": [
+          7
+        ],
+        "hostStates": [
+          {
+            "opening": 0,
+            "closing": 0,
+            "retiring": 0,
+            "logicalTabs": 1,
+            "live": 1,
+            "hibernated": 0,
+            "coldShellTabs": 0,
+            "lazyDetached": 0,
+            "restoringDetached": 0,
+            "tabPresentations": 1
+          }
+        ],
+        "resources": [
+          10
+        ],
+        "backgroundCounts": [
+          0
+        ],
+        "utilityCounts": [
+          0
+        ],
+        "auxiliaryWindows": [
+          0
+        ],
+        "fileStreams": [
+          0
+        ],
+        "memorySampleAgeMs": {
+          "count": 4,
+          "mean": 170.5,
+          "min": 0,
+          "max": 681
+        },
+        "collectionMs": {
+          "count": 4,
+          "mean": 9.186823000001823,
+          "min": 1.010667000002286,
+          "max": 18.221083000004
+        }
+      },
+      {
+        "name": "repeat-single-closed",
+        "sampleCount": 4,
+        "sampleWindowMs": 6064.602124999998,
+        "settleMs": 1100,
+        "physFootprintMiB": {
+          "count": 4,
+          "mean": 428.750638961792,
+          "min": 389.3678207397461,
+          "max": 514.7897186279297
+        },
+        "lastFootprintMiB": 389.3678207397461,
+        "postInitialFootprintMiBMean": 400.0709457397461,
+        "hostFootprintMiBMean": 428.750638961792,
+        "pluginOwnedFootprintMiBMean": 0,
+        "cpuOneCorePercent": {
+          "count": 3,
+          "mean": 0.8142729673430328,
+          "min": 0.701134260940678,
+          "max": 0.9597615378454285
+        },
+        "cpuTimeWeightedOneCorePercent": 0.8145299391755264,
+        "cpuByIdentity": [
+          {
+            "identity": "Browser:74586",
+            "meanOneCorePercent": 0.5776243905645372
+          },
+          {
+            "identity": "GPU:74589",
+            "meanOneCorePercent": 0.14871581562977082
+          },
+          {
+            "identity": "Tab:74595",
+            "meanOneCorePercent": 0.048617438057439975
+          },
+          {
+            "identity": "Tab:74602",
+            "meanOneCorePercent": 0.02435310439705082
+          },
+          {
+            "identity": "Tab:74593",
+            "meanOneCorePercent": 0.014962218694234086
+          },
+          {
+            "identity": "Utility:74590",
+            "meanOneCorePercent": 0
+          }
+        ],
+        "uniquePids": [
+          6
+        ],
+        "hostStates": [
+          {
+            "opening": 0,
+            "closing": 0,
+            "retiring": 0,
+            "logicalTabs": 0,
+            "live": 0,
+            "hibernated": 0,
+            "coldShellTabs": 0,
+            "lazyDetached": 0,
+            "restoringDetached": 0,
+            "tabPresentations": 0
+          }
+        ],
+        "resources": [
+          0
+        ],
+        "backgroundCounts": [
+          0
+        ],
+        "utilityCounts": [
+          0
+        ],
+        "auxiliaryWindows": [
+          0
+        ],
+        "fileStreams": [
+          0
+        ],
+        "memorySampleAgeMs": {
+          "count": 4,
+          "mean": 205.75,
+          "min": 0,
+          "max": 823
+        },
+        "collectionMs": {
+          "count": 4,
+          "mean": 13.550989249999475,
+          "min": 0.8721659999937401,
+          "max": 25.233666000000085
+        }
+      }
+    ],
+    "systemFreeMemoryMiB": {
+      "count": 24,
+      "mean": 79.41536458333333,
+      "min": 61.734375,
+      "max": 106.6875
+    },
+    "close": {
+      "openedPluginWebContents": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ],
+      "allOpenedPluginWebContentsHaveDestroyedTimestamp": true,
+      "afterCloseAssetsBytes": 344675,
+      "baselineAssetsBytes": 344675,
+      "shutdownResources": 0,
+      "shutdownWindows": 0,
+      "shutdownHostWebContentsSnapshot": [
+        {
+          "id": 3,
+          "type": "window"
+        },
+        {
+          "id": 2,
+          "type": "window"
+        },
+        {
+          "id": 1,
+          "type": "window"
+        }
+      ],
+      "launch": {
+        "exitCode": 0,
+        "exitSignal": null,
+        "timedOut": false,
+        "interrupted": false,
+        "spawnError": null
+      },
+      "temporaryProfileRemoved": true
+    }
+  },
+  "settings": {
+    "captureId": "6124204b-f784-4e63-b1cf-cb02799c9523",
+    "state": {
+      "status": "stopped",
+      "captureId": "6124204b-f784-4e63-b1cf-cb02799c9523",
+      "startedAt": 1792819099317,
+      "stoppedAt": 1792819200392,
+      "deadlineAt": 1792819699317,
+      "sampleCount": 21,
+      "retainedBytes": 69261,
+      "failedSamples": 0,
+      "stopReason": "manual",
+      "limits": {
+        "intervalMs": 5000,
+        "durationMs": 600000,
+        "maxSamples": 121,
+        "maxBytes": 4194304
+      }
+    },
+    "sampleWindowMs": 100323.410334,
+    "recordingDurationMs": 101075,
+    "physFootprintMiB": {
+      "count": 21,
+      "mean": 461.2488043648856,
+      "min": 395.69603729248047,
+      "max": 557.3068084716797
+    },
+    "cpuOneCorePercent": {
+      "count": 20,
+      "mean": 10.155954094563269,
+      "min": 0.4971264444321775,
+      "max": 28.33626696508905
+    },
+    "cpuTimeWeightedKnownOneCorePercent": 10.155963564315723,
+    "allCurrentProcessesMeasuredCpuIntervals": 18,
+    "partialCpuSequences": [
+      {
+        "sequence": 1,
+        "unavailableProcesses": 6
+      },
+      {
+        "sequence": 4,
+        "unavailableProcesses": 1
+      },
+      {
+        "sequence": 11,
+        "unavailableProcesses": 1
+      }
+    ],
+    "exitedCpuSequences": [
+      {
+        "sequence": 13,
+        "exitedProcesses": 1
+      }
+    ],
+    "processRows": 146,
+    "allObservedMetrics": [
+      "footprint"
+    ],
+    "memorySampleAgeMs": {
+      "count": 21,
+      "mean": 83.47619047619048,
+      "min": 0,
+      "max": 876
+    },
+    "intervalMs": {
+      "count": 20,
+      "mean": 5016.1705167,
+      "min": 5003.371291999996,
+      "max": 5021.474999999977
+    },
+    "devToolsValues": [
+      0
+    ],
+    "samples": [
+      {
+        "sequence": 1,
+        "physFootprintBytes": 414917368,
+        "physFootprintMiB": 395.69603729248047,
+        "uniquePids": 6,
+        "cpuOneCorePercent": null,
+        "cpuUnavailableProcesses": 6,
+        "newPids": [
+          74586,
+          74589,
+          74590,
+          74593,
+          74595,
+          74602
+        ],
+        "exitedPids": [],
+        "logicalTabs": 0,
+        "pluginHostLive": 0,
+        "pluginOwnedPids": [],
+        "memorySampleAgeMs": 1
+      },
+      {
+        "sequence": 2,
+        "physFootprintBytes": 425321184,
+        "physFootprintMiB": 405.6178894042969,
+        "uniquePids": 6,
+        "cpuOneCorePercent": 4.391022100803923,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 0,
+        "pluginHostLive": 0,
+        "pluginOwnedPids": [],
+        "memorySampleAgeMs": 1
+      },
+      {
+        "sequence": 3,
+        "physFootprintBytes": 453206752,
+        "physFootprintMiB": 432.2116394042969,
+        "uniquePids": 6,
+        "cpuOneCorePercent": 9.936420900243375,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 0,
+        "pluginHostLive": 0,
+        "pluginOwnedPids": [],
+        "memorySampleAgeMs": 0
+      },
+      {
+        "sequence": 4,
+        "physFootprintBytes": 584378544,
+        "physFootprintMiB": 557.3068084716797,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 16.02211218424583,
+        "cpuUnavailableProcesses": 1,
+        "newPids": [
+          74858
+        ],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 0
+      },
+      {
+        "sequence": 5,
+        "physFootprintBytes": 471460016,
+        "physFootprintMiB": 449.6193084716797,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 20.270332993329898,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 0
+      },
+      {
+        "sequence": 6,
+        "physFootprintBytes": 466692272,
+        "physFootprintMiB": 445.0724334716797,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 19.119584721503966,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 1
+      },
+      {
+        "sequence": 7,
+        "physFootprintBytes": 508995760,
+        "physFootprintMiB": 485.4161834716797,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 22.57059423294278,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 1
+      },
+      {
+        "sequence": 8,
+        "physFootprintBytes": 567208160,
+        "physFootprintMiB": 540.9318542480469,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 28.33626696508905,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 0
+      },
+      {
+        "sequence": 9,
+        "physFootprintBytes": 466872520,
+        "physFootprintMiB": 445.2443313598633,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 0.9750415060085857,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 1
+      },
+      {
+        "sequence": 10,
+        "physFootprintBytes": 483699008,
+        "physFootprintMiB": 461.29132080078125,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 8.746203175823126,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 0
+      },
+      {
+        "sequence": 11,
+        "physFootprintBytes": 576171768,
+        "physFootprintMiB": 549.4802169799805,
+        "uniquePids": 8,
+        "cpuOneCorePercent": 17.78628932291769,
+        "cpuUnavailableProcesses": 1,
+        "newPids": [
+          74893
+        ],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          },
+          {
+            "pid": 74893,
+            "startedAt": 1792819147572,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 2
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 0
+      },
+      {
+        "sequence": 12,
+        "physFootprintBytes": 507817696,
+        "physFootprintMiB": 484.2926940917969,
+        "uniquePids": 8,
+        "cpuOneCorePercent": 27.87162867578445,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          },
+          {
+            "pid": 74893,
+            "startedAt": 1792819147572,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 2
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 1
+      },
+      {
+        "sequence": 13,
+        "physFootprintBytes": 471935344,
+        "physFootprintMiB": 450.07261657714844,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 6.775598803140545,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [
+          74893
+        ],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 0
+      },
+      {
+        "sequence": 14,
+        "physFootprintBytes": 459925872,
+        "physFootprintMiB": 438.61949157714844,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 5.547526231079625,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 1
+      },
+      {
+        "sequence": 15,
+        "physFootprintBytes": 457484656,
+        "physFootprintMiB": 436.29136657714844,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 0.5941562316270627,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 0
+      },
+      {
+        "sequence": 16,
+        "physFootprintBytes": 457402736,
+        "physFootprintMiB": 436.21324157714844,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 0.5504766633296753,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 0
+      },
+      {
+        "sequence": 17,
+        "physFootprintBytes": 457402736,
+        "physFootprintMiB": 436.21324157714844,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 0.503569843192731,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 1
+      },
+      {
+        "sequence": 18,
+        "physFootprintBytes": 457402736,
+        "physFootprintMiB": 436.21324157714844,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 0.5222103936422451,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 1
+      },
+      {
+        "sequence": 19,
+        "physFootprintBytes": 457419120,
+        "physFootprintMiB": 436.22886657714844,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 0.4971264444321775,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 0
+      },
+      {
+        "sequence": 20,
+        "physFootprintBytes": 528886128,
+        "physFootprintMiB": 504.38511657714844,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 10.468202724321943,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 876
+      },
+      {
+        "sequence": 21,
+        "physFootprintBytes": 482142576,
+        "physFootprintMiB": 459.80699157714844,
+        "uniquePids": 7,
+        "cpuOneCorePercent": 1.634717777806699,
+        "cpuUnavailableProcesses": 0,
+        "newPids": [],
+        "exitedPids": [],
+        "logicalTabs": 1,
+        "pluginHostLive": 1,
+        "pluginOwnedPids": [
+          {
+            "pid": 74858,
+            "startedAt": 1792819113083,
+            "owners": [
+              {
+                "pluginId": "com.github.eNest.sketchbook",
+                "generation": 10
+              }
+            ]
+          }
+        ],
+        "memorySampleAgeMs": 868
+      }
+    ]
+  },
+  "limitations": [
+    "The native run installed 32 plugins but opened only eight distinct plugin tabs, with an unchanged six-resident limit; it is not a 32-live-renderer test.",
+    "Each native stage contains four memory snapshots over about six seconds after a 1.1-second settle; it is not a long-duration leak or stable-memory result.",
+    "Settings recording is a later interactive session, not the same six native stages; its summary is not an idle baseline.",
+    "Settings samples 4 and 11 contain new processes whose first CPU interval is explicitly unavailable. Sample 13 excludes CPU of a process that exited before the sample; exitedProcesses records it.",
+    "Settings samples 11 and 12 contain two different PIDs owned by Sketchbook with generations 10 and 2, while PluginHost.live is one. The process sums include both once; host.live does not count every plugin-owned surface.",
+    "No shared-PID/multiple-owner case, native plugin backend, sensitive background capability, capture window or file stream was exercised in these recorded runs.",
+    "The shutdown snapshot still lists three host WebContents before final exit; the evidence records zero plugin resources/windows and exit code 0, not per-child OS exit verification.",
+    "No isolated Electron-version A/B or stable memory-reduction claim is made."
+  ],
+  "logWarnings": [
+    {
+      "line": 8,
+      "text": "[stderr] 2026-10-24 13:16:10.655 [WARN] [registry] market https://github.com/hyqf98/eNest_plugin/releases/latest/download/registry-darwin-arm64.json → Native performance probe is intentionally offline (proxy=none)"
+    },
+    {
+      "line": 10,
+      "text": "[stderr] 2026-10-24 13:16:10.656 [WARN] [registry] market https://github.com/hyqf98/eNest_plugin/releases/latest/download/registry.json → Native performance probe is intentionally offline (proxy=none)"
+    },
+    {
+      "line": 12,
+      "text": "[stderr] 2026-10-24 13:16:10.657 [WARN] [registry] market https://raw.githubusercontent.com/hyqf98/eNest_plugin/main/registry.json → Native performance probe is intentionally offline (proxy=none)"
+    },
+    {
+      "line": 13,
+      "text": "[stderr] 2026-10-24 13:16:10.657 [WARN] [registry] remote market empty or unreachable, keep verified catalog and installed plugins"
+    },
+    {
+      "line": 113,
+      "text": "[stderr] sandbox_extension_issue_file failed for <repository>/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/Resources: 1 (Operation not permitted)"
+    },
+    {
+      "line": 119,
+      "text": "[stderr] [74589:1024/131646.164255:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox."
+    },
+    {
+      "line": 168,
+      "text": "[stderr] Error occurred in handler for 'home:get-config': Error: IPC denied: untrusted surface or frame"
+    },
+    {
+      "line": 173,
+      "text": "[stderr] Error occurred in handler for 'shell:sync-orb-state': Error: Main shell required"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # Bundled clipboard helpers
 
-`npm run native:build` builds the helper for the current build platform. `npm run dev` and `npm run build` invoke it automatically. `electron-builder.yml` copies `native/bin` into `Resources/native`; end users do not install or execute shell tools themselves. Build tools are development/CI dependencies only.
+`npm run native:build` builds the helper for the current build platform. `npm run dev` and `npm run build` invoke it automatically. `electron-builder.yml` copies only the target platform's files from `native/bin` into the app's `native` resources directory; the after-pack hook rejects missing/wrong binary architectures. A macOS helper cannot stand in for the Linux ELF bundle. End users do not install helper tools themselves. Build tools are development/CI dependencies only.
 
 The host owns a long-lived subprocess using newline-delimited JSON. Commands are a fixed whitelist (`capabilities`, `requestPermission`, `target`, `source`, `readFiles`, `writeFiles`, `paste`); clipboard contents never become executable code. Every request has a deadline. Timeout kills the helper so an expired paste cannot run later. App exit closes it. While a portal permission request is pending, background polls pause instead of timing out and terminating the authorization flow.
 

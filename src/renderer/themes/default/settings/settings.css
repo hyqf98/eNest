@@ -1,0 +1,182 @@
+/* Settings-only layout and control scale. Plugin canvases and market cards are unaffected. */
+.page-settings {
+  --settings-control-h: 36px;
+  --settings-control-width: 280px;
+  --settings-glass-fill: color-mix(in srgb, var(--surface) 54%, transparent);
+  --settings-glass-edge: color-mix(in srgb, var(--surface) 78%, var(--border));
+  --settings-glass-highlight: color-mix(in srgb, var(--surface) 88%, transparent);
+  --settings-glass-shadow: color-mix(in srgb, var(--text) 8%, transparent);
+  --settings-glass-blur: 20px;
+  --settings-glass-saturation: 1.18;
+  --settings-glass-fallback: var(--surface);
+  background: transparent;
+}
+:root[data-theme='dark'] .page-settings {
+  --settings-glass-fill: color-mix(in srgb, var(--surface) 64%, transparent);
+  --settings-glass-edge: color-mix(in srgb, var(--border-strong) 70%, transparent);
+  --settings-glass-highlight: color-mix(in srgb, var(--text) 8%, transparent);
+  --settings-glass-shadow: #00000024;
+}
+.page-settings .settings-shell { max-width: 960px; padding-top: 32px; }
+.page-settings { scroll-padding-top: 12px; }
+.page-settings :is(.s-card, .account-card) {
+  isolation: isolate;
+  border-color: var(--settings-glass-edge);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* 模糊仅放在圆角材质层，卡片内控件和弹层不成为滤镜后代。 */
+.page-settings :is(.s-card, .account-card)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--settings-glass-fallback);
+  box-shadow: inset 0 1px 0 var(--settings-glass-highlight), 0 6px 24px var(--settings-glass-shadow);
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .page-settings :is(.s-card, .account-card)::before {
+    background: var(--settings-glass-fill);
+    backdrop-filter: blur(var(--settings-glass-blur)) saturate(var(--settings-glass-saturation));
+    -webkit-backdrop-filter: blur(var(--settings-glass-blur)) saturate(var(--settings-glass-saturation));
+  }
+}
+:root[data-anim='low'] .page-settings {
+  --settings-glass-blur: 4px;
+  --settings-glass-saturation: 1;
+  --settings-glass-fill: color-mix(in srgb, var(--surface) 82%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-settings { --settings-glass-blur: 4px; --settings-glass-saturation: 1; }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .page-settings { --settings-glass-fill: var(--surface); --settings-glass-blur: 0px; --settings-glass-saturation: 1; }
+  .page-settings :is(.s-card, .account-card)::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+/* 设置卡片不随 hover 位移，避免原生选择器和磨砂采样跟着跳动。 */
+:root[data-anim] .page-settings .s-card:hover { transform: none; }
+.page-settings .settings-header { margin-bottom: 24px; }
+.page-settings .settings-header h1 { font-size: calc(24px * var(--appearance-font-scale, 1)); font-weight: 650; }
+.page-settings .settings-tabs { margin-bottom: 24px; gap: 4px; padding: 4px; }
+.page-settings .settings-tabs :is(.settings-tab, .tabs-more-toggle) { height: 32px; min-height: 32px; min-width: 0; padding-inline: 16px; font-size: calc(13px * var(--appearance-font-scale, 1)); }
+.page-settings .settings-tabs .tabs-more-toggle { gap: 5px; }
+.page-settings .s-card { padding: 24px; margin-bottom: 20px; box-shadow: none; }
+.page-settings .s-card h2 { font-size: calc(16px * var(--appearance-font-scale, 1)); font-weight: 600; line-height: 1.5; margin: 0 0 20px; }
+.page-settings .s-card > .hint { margin-top: -12px; margin-bottom: 20px; }
+.page-settings :is(.hint, .desc) { color: var(--text-2); font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.6; }
+.page-settings .field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, var(--settings-control-width)); align-items: center; gap: 24px; min-height: 68px; padding: 16px 0; }
+.page-settings .field:first-of-type { padding-top: 0; }
+.page-settings .field:last-child { padding-bottom: 0; }
+.page-settings .field > div:first-child { min-width: 0; }
+.page-settings .field > :nth-child(2) { justify-self: end; max-width: 100%; }
+.page-settings .field .label { color: var(--text); font-size: calc(13px * var(--appearance-font-scale, 1)); font-weight: 550; line-height: 1.5; }
+.page-settings .field .desc { margin: 4px 0 0; font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.6; }
+.page-settings .field :is(.ui-select, .plugin-setting-input, .plugin-slider-row, .font-size-slider-row) { width: 100%; min-width: 0 !important; max-width: 100%; }
+.page-settings .field > .ui-select .ui-select-trigger { width: 100%; }
+.page-settings .btn,
+.page-settings :is(.account-provider, .account-secondary, .account-pending-actions button, .account-pending-actions a, .account-error button) { box-sizing: border-box; min-height: var(--settings-control-h); height: var(--settings-control-h); padding: 0 14px; border-radius: 9px; font-size: calc(13px * var(--appearance-font-scale, 1)); line-height: 1; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.page-settings .btn { min-width: 72px; }
+.page-settings .btn-sm { font-size: calc(13px * var(--appearance-font-scale, 1)); }
+/* Text actions keep a visible surface at rest. Selection chips, segmented choices and icon controls retain their own states. */
+.page-settings :is(.btn-ghost, .account-secondary, .account-pending-actions button, .account-pending-actions a, .account-error button),
+.page-settings .plugin-settings-card .field > .btn:not(.btn-primary):not(.btn-danger) { border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-2); box-shadow: none; text-decoration: none; }
+.page-settings :is(.btn-ghost, .account-secondary, .account-pending-actions button, .account-pending-actions a, .account-error button):hover:not(:disabled),
+.page-settings .plugin-settings-card .field > .btn:not(.btn-primary):not(.btn-danger):hover:not(:disabled) { background: var(--surface-3); color: var(--text); border-color: color-mix(in srgb, var(--border-strong) 70%, var(--accent) 30%); }
+.page-settings :is(.btn-ghost, .account-secondary, .account-pending-actions button, .account-pending-actions a, .account-error button):active:not(:disabled) { background: var(--surface-3); border-color: var(--accent); }
+.page-settings :is(.account-secondary, .account-pending-actions button, .account-pending-actions a, .account-error button):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.page-settings .account-error button { margin-left: 8px; }
+.page-settings :is(.btn, .chip, .ui-select-trigger, .color-swatch-btn, .switch, .font-slot-chip):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.page-settings :is(button, input):disabled { cursor: not-allowed; opacity: .5; }
+.page-settings .switch { width: 40px; height: 24px; min-width: 40px; padding: 0; }
+.page-settings .segmented { box-sizing: border-box; height: var(--settings-control-h); padding: 3px; margin: 0; gap: 3px; }
+.page-settings .segmented button { box-sizing: border-box; height: 28px; min-height: 28px; padding: 0 12px; font-size: calc(13px * var(--appearance-font-scale, 1)); display: inline-flex; align-items: center; justify-content: center; }
+.page-settings :is(.chip, .font-slot-chip) { box-sizing: border-box; min-height: var(--settings-control-h); height: var(--settings-control-h); padding: 0 12px; border-radius: 9px; font-size: calc(13px * var(--appearance-font-scale, 1)); }
+.page-settings .ui-select-trigger,
+.page-settings input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='file']) { box-sizing: border-box; height: var(--settings-control-h); min-height: var(--settings-control-h); min-width: 0; max-width: 100%; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 9px; background: var(--surface-2); color: var(--text); font: inherit; font-size: calc(13px * var(--appearance-font-scale, 1)); line-height: 1.5; position: static; }
+.page-settings input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='file']):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); }
+.page-settings input[type='number'] { appearance: textfield; font-variant-numeric: tabular-nums; }
+.page-settings input::-webkit-inner-spin-button,
+.page-settings input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.page-settings input[type='range'] { appearance: none; width: var(--settings-control-width); min-width: 0; max-width: 100%; height: 4px; margin: 12px 0; padding: 0; border: 0; border-radius: 4px; background: var(--surface-3); cursor: pointer; }
+.page-settings input[type='range']::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border-strong); }
+.page-settings input[type='range']:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+.page-settings input[type='checkbox'] { appearance: none; display: grid; place-items: center; width: 16px; height: 16px; padding: 0; margin: 0; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface); }
+.page-settings input[type='checkbox']:checked { background: var(--accent); border-color: var(--accent); }
+.page-settings input[type='checkbox']:checked::after { content: ''; width: 7px; height: 4px; border: solid var(--surface); border-width: 0 0 2px 2px; transform: rotate(-45deg) translateY(-1px); }
+.page-settings input[type='checkbox']:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.page-settings .path-actions { width: 100%; max-width: 100%; gap: 8px; }
+.page-settings .path-text { box-sizing: border-box; display: block; height: var(--settings-control-h); line-height: 34px; padding: 0 10px; font-size: calc(12px * var(--appearance-font-scale, 1)); }
+.page-settings .proxy-row { width: 100%; max-width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 88px; gap: 8px; }
+.page-settings .proxy-row .ui-select { width: 100%; min-width: 0 !important; }
+.page-settings .proxy-row .ui-select-trigger { width: 100%; min-width: 0; }
+.page-settings .proxy-row .btn { grid-column: 2; grid-row: 1; width: 100%; min-width: 0; padding-inline: 8px; }
+.page-settings .proxy-row :is(.proxy-host, .proxy-port, .proxy-url) { width: 100%; min-width: 0; max-width: 100%; }
+.page-settings .proxy-row .proxy-url { grid-column: 1 / -1; }
+.page-settings .theme-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
+.page-settings .theme-card { width: auto; min-width: 0; padding: 16px; border-radius: 12px; }
+.page-settings .theme-card strong { font-size: calc(13px * var(--appearance-font-scale, 1)); font-weight: 550; }
+.page-settings .theme-card span { font-size: calc(12px * var(--appearance-font-scale, 1)); color: var(--text-2); }
+.page-settings .bg-section-label { margin-bottom: 12px; font-size: calc(13px * var(--appearance-font-scale, 1)); font-weight: 550; }
+.page-settings .bg-merge-divider { margin: 24px 0; }
+.page-settings .bg-type-row { gap: 8px; }
+.page-settings .bg-effects-heading { align-items: flex-start; gap: 16px; }
+.page-settings .bg-effects-actions { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; }
+.page-settings .bg-effects-actions > :is(.btn, .bg-effect-off) { flex: 0 0 auto; }
+.page-settings .bg-effect-off:not(.active) { border-color: var(--border-strong); background: var(--surface-2); color: var(--text-2); }
+.page-settings .bg-effect-off:not(.active):hover { background: var(--surface-3); color: var(--text); }
+.page-settings .token-grid { gap: 12px; }
+.page-settings .token-box { min-width: 0; padding: 12px; }
+.page-settings .token-label { font-size: calc(13px * var(--appearance-font-scale, 1)); }
+.page-settings .color-swatch-btn { box-sizing: border-box; width: 36px; height: 36px; padding: 4px; border-radius: 9px; }
+.page-settings .token-right { gap: 8px; }
+.page-settings .token-hex { font-size: calc(12px * var(--appearance-font-scale, 1)); }
+.page-settings .font-slot-row { gap: 8px; margin-bottom: 20px; }
+.page-settings .font-size-slider-row { gap: 8px; }
+.page-settings .font-size-end { font-size: calc(12px * var(--appearance-font-scale, 1)); font-variant-numeric: tabular-nums; }
+.page-settings .font-file-input { display: none; }
+.page-settings .font-custom-item { align-items: center; gap: 12px; }
+.page-settings .plugin-settings-card .plugin-settings-section { margin-top: 24px; }
+.page-settings .plugin-settings-card .plugin-settings-section > .label { color: var(--text-2); font-size: calc(12px * var(--appearance-font-scale, 1)); margin-bottom: 8px; }
+.page-settings .shortcut-settings { gap: 20px; }
+.page-settings .shortcut-settings .s-card { margin: 0; }
+.page-settings .shortcut-section-head .hint { margin-top: -12px; margin-bottom: 20px; }
+.page-settings .shortcut-plugin-actions { gap: 8px; }
+.page-settings .shortcut-editor-fields { gap: 16px; }
+.page-settings .shortcut-recorder-input input { padding-right: 36px; }
+.page-settings .shortcut-plugin-group { padding: 16px; border-radius: 12px; }
+.page-settings .shortcut-probe { color: var(--text-2); }
+.page-settings .dev-load-hero { margin-bottom: 16px; }
+.page-settings .dev-load-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.page-settings .dev-load-row .dev-load-input { width: 100%; }
+.page-settings .dev-plugin-item { gap: 12px; }
+.page-settings .dev-plugin-actions { gap: 8px; flex-wrap: wrap; }
+.page-settings .dev-card-head { align-items: center; margin-bottom: 16px; }
+.page-settings .account-page { padding: 8px 0 24px; }
+.page-settings .account-card { padding: 32px; box-shadow: none; border-radius: var(--radius-lg); }
+.page-settings .account-brand { margin-bottom: 24px; }
+.page-settings .account-card h2 { font-size: calc(24px * var(--appearance-font-scale, 1)); line-height: 1.3; }
+.page-settings .account-providers { margin-top: 24px; }
+.page-settings .account-provider { width: 100%; }
+.page-settings .account-footer { margin-top: 24px; padding-top: 16px; }
+.page-settings .account-local-note { margin: 16px 0 0; }
+@media (max-width: 760px) {
+  .page-settings .settings-shell { padding: 24px 16px 80px; }
+  .page-settings .s-card { padding: 20px; }
+  .page-settings .field { grid-template-columns: minmax(0, 1fr) minmax(0, 240px); gap: 16px; }
+  .page-settings .dev-plugin-item { flex-wrap: wrap; }
+  .page-settings .dev-plugin-actions { width: 100%; justify-content: flex-end; }
+}
+@media (max-width: 580px) {
+  .page-settings .field { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .page-settings .field > :nth-child(2) { justify-self: start; }
+  .page-settings .field:has(> .switch) { grid-template-columns: minmax(0, 1fr) auto; }
+  .page-settings .field :is(.ui-select, .plugin-setting-input, .plugin-slider-row, .font-size-slider-row),
+  .page-settings .field > input[type='range'] { width: 100%; }
+  .page-settings .path-text { flex-basis: auto; }
+  .page-settings .bg-effects-heading { flex-wrap: wrap; }
+  .page-settings .theme-card { padding: 12px; }
+  .page-settings .account-card { padding: 24px; }
+}

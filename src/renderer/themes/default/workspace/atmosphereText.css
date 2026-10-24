@@ -1,0 +1,2 @@
+:root.has-bg-media.has-bg-atmosphere .card-description,
+:root.has-bg-media.has-bg-atmosphere .card-author { color: var(--atmosphere-muted); }

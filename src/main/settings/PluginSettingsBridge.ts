@@ -36,6 +36,7 @@ export class PluginSettingsBridge {
       items: items.map((item) => ({
         key: item?.key ?? '',
         type: item?.type ?? 'text',
+        shareWithThemes: item.shareWithThemes === true,
         label: item?.label ?? item?.key ?? '',
         entry: item?.entry,
         default: item?.default,
@@ -93,6 +94,12 @@ export class PluginSettingsBridge {
       if (item) return item.default
     }
     return undefined
+  }
+
+  /** A page contribution is an action, never a persisted preference value. */
+  isWritableKey(pluginId: string, key: string): boolean {
+    return isPluginSettingKey(key) && this.listAll().some(section => section.pluginId === pluginId
+      && section.items.some(item => item.key === key && item.type !== 'page'))
   }
 
   set(pluginId: string, key: string, value: unknown): void {

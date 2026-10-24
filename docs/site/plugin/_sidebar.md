@@ -10,11 +10,13 @@
 * **能力**
   * [enest API](api.md)
   * [插件本机后端](backend.md)
+  * [自绘设置与窗口边界](settings-and-windows.md)
   * [TypeScript 类型](api-types.md)
   * [生命周期](lifecycle.md)
   * [UI 集成标准](ui-standard.md)
   * [双模式工具接口](dual-mode-tools.md)
   * [主题与综合插件](themes.md)
+  * [主题 Chrome](chrome.md)
   * [主题工作区与设置](home.md)
   * [宿主开发](host-development.md)
 
@@ -23,3 +25,5 @@
   * [示例插件](examples.md)
   * [错误码](errors.md)
   * [FAQ](faq.md)
+
+- [后台步骤计划](deadline-tasks.md)

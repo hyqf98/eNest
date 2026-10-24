@@ -1,0 +1,4 @@
+/* 普通表面保留底色；设置卡片的独立毛玻璃由 settings.css 管理。 */
+:root.has-bg-media .s-card:not(.page-settings .s-card) {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}

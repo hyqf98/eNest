@@ -1,0 +1,4 @@
+:root.has-bg-media.has-bg-atmosphere .segmented,
+:root.has-bg-media.has-bg-atmosphere .chip:not(.active) {
+  background: var(--atmosphere-field);
+}

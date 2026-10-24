@@ -11,6 +11,17 @@ export type QuickActionId =
   | 'open-settings'
   | 'refresh-apps'
 
+/** Validated declaration, not an evaluated match. The selected theme owns matching. */
+export interface QuickContentMatch {
+  type: 'regex' | 'over'
+  source?: string
+  flags?: string
+  minLength: number
+  maxLength?: number
+}
+
+export type QuickSearchPhase = 'catalog' | 'static' | 'enriched' | 'providers'
+
 /** 命令面板可执行项 */
 export interface QuickCommand {
   kind: QuickCommandKind
@@ -42,6 +53,9 @@ export interface QuickCommand {
   type?: 'text' | 'regex' | 'over'
   /** 内容匹配或动态 provider 的进入载荷。 */
   payload?: unknown
+  content?: QuickContentMatch
+  /** Opaque preference metadata; the theme decides whether/how to use it. */
+  preferred?: boolean
 }
 
 export interface QuickSearchRequest {
@@ -49,8 +63,10 @@ export interface QuickSearchRequest {
   limit?: number
   /** 缺省搜索全部类型；先过滤再排序/截断。 */
   kind?: QuickCommandKind
-  /** 静态索引先返回，运行时 provider 随后补齐。 */
-  phase?: 'static' | 'enriched' | 'providers'
+  /** Directory, native icon enrichment and plugin search are independent host capabilities. */
+  phase?: QuickSearchPhase
+  /** Native icon lookup only; unknown IDs cannot select a filesystem target. */
+  ids?: string[]
 }
 
 export interface QuickSearchResult {

@@ -1,0 +1,230 @@
+/* 插件宿主占位层仍用轻毛玻璃 */
+:root.has-bg-media .plugin-view {
+  background: color-mix(in srgb, var(--bg) 28%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border-radius: var(--radius-xl);
+}
+
+.app-chrome {
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: var(--shell-titlebar-height, var(--titlebar-h)) minmax(0, 1fr);
+  background: transparent;
+}
+
+/* 鼠标交接区不参与变换，标题栏动画不会制造虚假的 pointerleave。 */
+.app-chrome > .titlebar-region {
+  grid-area: 1 / 1;
+  position: relative;
+  height: var(--shell-titlebar-height, var(--titlebar-h));
+  min-height: 0;
+  z-index: 50;
+}
+.app-chrome > .stage { grid-area: 2 / 1; }
+/* 设置内容止于标题栏下沿，页内弹层也限制在标题栏下面。 */
+.app[data-shell-view='settings'] .app-chrome > .stage { z-index: 0; }
+.titlebar-region > .titlebar { position: absolute; top: 0; left: 0; right: 0; }
+
+/* 背景层：固定、不可点击、在内容之下 */
+.app-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* 纯色/渐变铺满层（必须占满，否则切换不生效） */
+.app-bg-fill {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.app-bg-media {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.app-bg-placeholder {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 12px,
+      color-mix(in srgb, var(--text-3) 8%, transparent) 12px,
+      color-mix(in srgb, var(--text-3) 8%, transparent) 24px
+    );
+  color: var(--text-3);
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  letter-spacing: 0.02em;
+}
+
+/* ========== Titlebar（macOS 紧凑风） ========== */
+/* 红绿灯窗口控制符号描边：浅色档深色描边，深色档浅色描边 */
+:root {
+  --titlebar-icon-stroke: rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="dark"] {
+  --titlebar-icon-stroke: rgba(255, 255, 255, 0.5);
+}
+
+.titlebar {
+  --titlebar-paint: color-mix(in srgb, var(--bg) 72%, transparent);
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr) auto;
+  align-items: center;
+  height: var(--titlebar-h);
+  padding: 0 12px 0 14px;
+  background: transparent;
+  -webkit-app-region: drag;
+  z-index: 50;
+  user-select: none;
+}
+
+/* 只淡化材质层，文字、图标和窗口按钮保持清晰。氛围背景同样经过这一层。 */
+.titlebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: var(--titlebar-paint);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  opacity: var(--appearance-tab-opacity, 1);
+}
+
+/* 必须限定到 header，不能用可能命中 app 根节点的通用状态类。 */
+header.titlebar.titlebar-autohide:not(.is-revealed) {
+  pointer-events: none;
+}
+
+/* Chromium 的窗口拖拽区域独立于 pointer-events，收起时也必须撤销。 */
+header.titlebar.titlebar-autohide:not(.is-revealed),
+header.titlebar.titlebar-autohide:not(.is-revealed) :is(.tab-strip, .titlebar-drag-fill, .titlebar-spacer) {
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-hotzone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--titlebar-reveal-height, 8px);
+  z-index: 51;
+  -webkit-app-region: no-drag;
+}
+
+/* 热区始终挂载；展开后由固定父区域接管 hover，不截获按钮或拖拽。 */
+.titlebar-region > .titlebar.is-revealed + .titlebar-hotzone { pointer-events: none; }
+
+.titlebar-default-tabs { height: 100%; min-width: 0; }
+.titlebar-default-tabs.is-replaced { visibility: hidden; pointer-events: none; }
+
+/* Keep the native WCV rectangle out of window dragging even while fallback tabs are hidden.
+   Match applyClassicBounds; this sibling must not inherit the animated header's transform. */
+.titlebar-custom-chrome-hit-region {
+  position: absolute;
+  top: 0;
+  left: 96px;
+  right: 24px;
+  height: var(--titlebar-h);
+  z-index: 51;
+  background: transparent;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+/* 红绿灯：真实窗口控制 */
+.traffic {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
+.traffic-btn {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  transition: filter 0.12s;
+}
+
+.traffic-btn:hover {
+  filter: brightness(0.92);
+}
+
+.traffic-btn:active {
+  filter: brightness(0.82);
+}
+
+.traffic-btn svg {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.traffic:hover .traffic-btn svg,
+.traffic-btn:focus-visible svg {
+  opacity: 1;
+}
+
+.traffic-btn.r { background: #ff5f57; }
+.traffic-btn.y { background: #febc2e; }
+.traffic-btn.g { background: #28c840; }
+
+.titlebar-spacer {
+  height: 100%;
+  min-width: 0;
+  -webkit-app-region: drag;
+}
+
+.titlebar-plugin-name {
+  position: absolute;
+  inset-inline: 88px;
+  top: 0;
+  height: var(--titlebar-h);
+  display: block;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  font-weight: 600;
+  line-height: var(--titlebar-h);
+  color: var(--text-2);
+  pointer-events: none;
+  -webkit-app-region: drag;
+}
+
+/* ========== Stage ========== */
+.stage {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.page {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+}

@@ -1,0 +1,191 @@
+/* ========== Dev Console Section（设置 → 开发者） ========== */
+.dev-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.dev-card-head h2 {
+  margin: 0 0 3px;
+}
+
+.dev-head-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dev-card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.dev-load-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.dev-load-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  outline: none;
+}
+
+.dev-load-input:focus {
+  border-color: var(--link);
+}
+
+.dev-plugin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dev-plugin-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.dev-plugin-ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: white;
+  font-size: calc(11px * var(--appearance-font-scale, 1));
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.dev-plugin-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.dev-plugin-name {
+  font-size: calc(13px * var(--appearance-font-scale, 1));
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dev-plugin-path {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: calc(10.5px * var(--appearance-font-scale, 1));
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dev-log {
+  height: 220px;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-3) 50%, var(--bg));
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: calc(11px * var(--appearance-font-scale, 1));
+  line-height: 1.65;
+  color: var(--text-2);
+  /* 全局禁用选择的例外：日志需要可选中复制 */
+  user-select: text;
+  cursor: text;
+}
+
+.dev-log-line.dim { color: var(--text-3); }
+.dev-log-line.warn { color: #d97706; }
+
+:root[data-theme="dark"] .dev-log {
+  background: #0b0d12;
+  color: #8be9b8;
+}
+:root[data-theme="dark"] .dev-log-line.dim { color: #5a6478; }
+:root[data-theme="dark"] .dev-log-line.warn { color: #f0b429; }
+
+/* DevConsole 调用跟踪面板：紧凑表格 + 滚动容器（与 dev-log 同视觉量级） */
+.dev-trace {
+  height: 240px;
+  overflow: auto;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-3) 50%, var(--bg));
+}
+
+.dev-trace-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: calc(11px * var(--appearance-font-scale, 1));
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.dev-trace-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  font-weight: 600;
+  font-size: calc(10px * var(--appearance-font-scale, 1));
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--surface-3) 92%, var(--bg));
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.dev-trace-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dev-trace-table td.num { text-align: right; }
+
+.dev-trace-table td code {
+  font-family: var(--mono);
+  color: var(--text-1);
+}
+
+.dev-trace-table td.err-text {
+  color: #e11d48;
+}
+
+:root[data-theme="dark"] .dev-trace {
+  background: #0b0d12;
+}
+
+:root[data-theme="dark"] .dev-trace-table th {
+  background: #10131a;
+}
+
+:root[data-theme="dark"] .dev-trace-table td.err-text {
+  color: #ff6b81;
+}

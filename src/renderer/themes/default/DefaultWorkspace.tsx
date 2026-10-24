@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import gsap from 'gsap'
 import type { HomeCatalogItem, HomeDetail } from '@shared/types/home'
-import type { PluginPresentation } from '@renderer/components/pluginPresentation'
+import type { PluginPresentation } from '@renderer/themes/default/workspace/pluginPresentation'
 import { useI18n } from '@renderer/hooks/useI18n'
-import { CategoryChips } from '@renderer/components/CategoryChips'
-import { SegmentTabs } from '@renderer/components/SegmentTabs'
-import { FeaturedCarousel } from '@renderer/components/FeaturedCarousel'
-import { MarketCategoryView } from '@renderer/components/MarketCategoryView'
-import { PluginCardView } from '@renderer/components/PluginCardView'
-import { PluginDetailView } from '@renderer/components/PluginDetailView'
-import { usePluginDetailMotion } from '@renderer/components/usePluginDetailMotion'
+import { CategoryChips } from '@renderer/themes/default/workspace/CategoryChips'
+import { SegmentTabs } from '@renderer/themes/default/workspace/SegmentTabs'
+import { FeaturedCarousel } from '@renderer/themes/default/workspace/FeaturedCarousel'
+import { MarketCategoryView } from '@renderer/themes/default/workspace/MarketCategoryView'
+import { PluginCardView } from '@renderer/themes/default/workspace/PluginCardView'
+import { PluginDetailView } from '@renderer/themes/default/workspace/PluginDetailView'
+import { usePluginDetailMotion } from '@renderer/themes/default/workspace/usePluginDetailMotion'
 import { RotateCwIcon } from '@renderer/components/icons'
-import { animateCards, playHeroIn } from '@renderer/gsap/marketMotion'
+import { animateCards, playHeroIn } from '@renderer/themes/default/motion/workspaceMotion'
 import { DefaultThemeBackground } from './DefaultThemeBackground'
 import { DefaultWorkspaceSearch } from './DefaultWorkspaceSearch'
 import type { DefaultWorkspaceController, DefaultWorkspaceState } from './WorkspaceController'
@@ -151,7 +151,8 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
         <DefaultWorkspaceSearch state={state} controller={controller} onDetailOrigin={origin => { originRef.current = origin }} />
         {state.message && <div className="market-source-notice default-workspace-notice" role="status"><span>{state.message}</span><button type="button" className="btn btn-ghost btn-sm" onClick={controller.dismissMessage}>{english ? 'Dismiss' : '关闭提示'}</button></div>}
         {!searching && <>
-          {showFeatured && carouselItems.length > 0 && <section className="market-featured" aria-label={english ? 'Recommended by the plugin repository' : '插件仓库推荐'}><div className="market-featured-heading"><h2>{english ? 'Featured plugins' : '精选推荐'}</h2><span>{english ? 'From the plugin repository' : '来自插件仓库'}</span></div><FeaturedCarousel items={carouselItems} onOpen={handleOpen} onDetail={handleDetail} paused={detailOpen || !state.visible} /></section>}
+          {showFeatured && carouselItems.length > 0 && <section className="market-featured" aria-label={english ? 'Recommended by the plugin repository' : '插件仓库推荐'}><div className="market-featured-heading"><h2>{english ? 'Featured plugins' : '精选推荐'}</h2><span>{english ? 'From the plugin repository' : '来自插件仓库'}</span></div><FeaturedCarousel items={carouselItems} onOpen={handleOpen} onDetail={handleDetail}
+            paused={detailOpen || !state.visible} continuous={state.appearance.appearance.animation.continuous} mediaVisible={state.visible} /></section>}
           <div className="home-toolbar"><SegmentTabs value={seg} onChange={value => controller.setBasePage(value === 'installed' ? 'installed' : 'catalog')} /><CategoryChips categories={categoryKeys.map(label)} value={label(state.category)} onChange={value => controller.setCategory(categoryKeys.find(key => label(key) === value) ?? '全部')} /></div>
           <section className="market-catalog" aria-label={seg === 'installed' ? t('market.installedPlugins') : t('market.browse')}>
             <div className="sr-only" aria-live="polite">{t('market.pluginsCount', { n: list.length })}</div>

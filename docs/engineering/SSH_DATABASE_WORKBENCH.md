@@ -1,5 +1,7 @@
 # SSH 与数据库双入口工作台
 
+> 历史记录（2026-10-13），不是 0.2.3 的宿主实现或现行复现指南。文中壳内 SSH/数据库服务与对应测试入口已随插件化迁移退役，旧 `tsx` 命令也不再是壳工具链要求。当前后端位于 `eNest_plugin/packages/ssh-backend/`、`eNest_plugin/plugins/database/backend/`，以 [当前架构](ARCHITECTURE.md)、[后端协议](../site/plugin/backend.md)和[迁移收尾记录](PLUGIN_MIGRATION_CLEANUP_2026-10-24.md)为准。保留本文只用于追溯原始场景与当时的验收范围，不能将历史通过记录当成当前验收。
+
 更新：2026-10-13。本文记录本轮实现、接口边界和验证范围；历史方案见 `docs/compose/spec/ssh-db-plugins.md`。未提交、推送或发布。
 
 ## 入口、布局和状态

@@ -27,26 +27,22 @@ const adapters = {
     'sendShellEvent',
   ]),
   '@main/window/createQuickWindow': `import {state} from 'test-state';export const getQuickShowRevision=()=>state.revision;export const hideQuickWindow=()=>{state.revision++;state.current=null};export async function showQuickWindow(guard){const revision=++state.revision;if(state.show)await state.show();if(revision!==state.revision||!guard())return false;state.shown++;return true;}`,
-  '@main/clipboard/nativeClipboard': noopExports([
+  '@main/clipboard/nativeClipboard': `import {state} from 'test-state';export const pasteToOriginal=(signal,owner)=>state.paste={signal,owner};` + noopExports([
     'nativeCapabilities',
     'requestNativePermission',
   ]),
-  '@main/clipboard/clipboardHistory':
-    `import {state} from 'test-state';export const pasteHistoryEntry=(id,signal,owner)=>state.paste={id,signal,owner};` +
-    noopExports([
-      'queryHistory',
-      'copyHistoryEntry',
-      'revealHistoryFile',
-      'onClipboardHistoryChange',
-    ]),
-  '@main/timer/focusTimerService': noopExports([
-    'startFocusTimer',
-    'getFocusTimer',
-    'pauseFocusTimer',
-    'resumeFocusTimer',
-    'skipFocusTimer',
-    'stopFocusTimer',
-    'updateFocusTimerRecord',
+  '@main/plugin/localFiles': noopExports([
+    'inspectGrantedFilePaths',
+    'localFilesFromDrop',
+    'revealLocalFile',
+  ]),
+  '@main/timer/deadlineTaskService': noopExports([
+    'startDeadlineTask',
+    'getDeadlineTask',
+    'pauseDeadlineTask',
+    'resumeDeadlineTask',
+    'skipDeadlineTask',
+    'cancelDeadlineTask',
   ]),
 }
 const output = await build({
@@ -100,7 +96,7 @@ test.afterEach(async () => {
   await api.getRuntimeScope('plugin')?.dispose()
 })
 const owner = async () => {
-  await api.dispatchPluginTool('plugin', 'clipboard.history.paste', ['entry'])
+  await api.dispatchPluginTool('plugin', 'clipboard.paste', [])
   return api.state.paste.owner
 }
 const gate = () => {

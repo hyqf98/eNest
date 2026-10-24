@@ -7,6 +7,9 @@ import { getPluginOwnedProcesses } from '@main/plugin/pluginOwnedProcesses'
 import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { sampleProcessMemory } from '@main/plugin/pluginProcessMemory'
 import { getMainWindow } from '@main/window/createShellWindow'
+import { getNativeClipboardProcessId } from '@main/clipboard/nativeClipboard'
+import { getBackgroundMemoryOwners } from '@main/plugin/pluginBackgroundRuntime'
+import { getAuxiliaryMemoryOwners } from '@main/window/pluginAuxiliaryWindows'
 import { showNotification } from '@main/window/notificationOverlay'
 import { logWarn } from '@main/logs/logService'
 import { normalizePluginMemoryMonitor, type PluginMemoryEntry, type PluginMemoryProcess, type PluginMemorySnapshot, type PluginProcessKind } from '@shared/types/pluginMemory'
@@ -35,6 +38,10 @@ function sumKnown(processes: PluginMemoryProcess[]): number | null {
   return processes.some(item => item.memoryBytes === null) ? null : processes.reduce((sum, item) => sum + item.memoryBytes!, 0)
 }
 
+function rendererOwners() {
+  return [...pluginHost.getMemoryOwners(), ...homeSurfaceManager.getMemoryOwners(), ...getBackgroundMemoryOwners(), ...getAuxiliaryMemoryOwners()]
+}
+
 function rootsForSample(): Map<number, Ownership[]> {
   const roots = new Map<number, Ownership[]>()
   const add = (pid: number, owner: Ownership) => {
@@ -43,7 +50,7 @@ function rootsForSample(): Map<number, Ownership[]> {
     if (!owners.some(item => item.pluginId === owner.pluginId && item.kind === owner.kind)) owners.push(owner)
     roots.set(pid, owners)
   }
-  for (const owner of [...pluginHost.getMemoryOwners(), ...homeSurfaceManager.getMemoryOwners()]) {
+  for (const owner of rendererOwners()) {
     const wc = webContents.fromId(owner.wcId)
     if (!wc || wc.isDestroyed()) continue
     try {
@@ -78,17 +85,20 @@ function alert(entry: PluginMemoryEntry, record: History, now: number): void {
   } catch { /* A later sample retries when the shell notification surface is available. */ }
 }
 
-async function collect(sampleEpoch: number): Promise<void> {
+async function collect(sampleEpoch: number, diagnostic = false): Promise<void> {
   let settings = preferences()
-  if (!settings.enabled) { history.clear(); trackedDescendants.clear(); snapshot = { ...emptySnapshot(), settings }; return }
+  if (!settings.enabled && !diagnostic) { history.clear(); trackedDescendants.clear(); snapshot = { ...emptySnapshot(), settings }; return }
   const roots = rootsForSample()
   const runtimeGenerations = new Map([...roots.values()].flat().map(owner => [owner.pluginId, getRuntimeScope(owner.pluginId)?.owner.generation]))
   const metrics = app.getAppMetrics()
-  const samples = await sampleProcessMemory([...new Set([...roots.keys(), ...trackedDescendants.keys(), ...metrics.map(item => item.pid)])])
+  const clipboardPid = getNativeClipboardProcessId()
+  const hostNativePids = new Set(clipboardPid ? [clipboardPid] : [])
+  const samples = await sampleProcessMemory([...new Set([...roots.keys(), ...trackedDescendants.keys(), ...metrics.map(item => item.pid), ...hostNativePids])])
   if (!active || sampleEpoch !== epoch) return
   settings = preferences()
-  if (!settings.enabled) { history.clear(); trackedDescendants.clear(); snapshot = { ...emptySnapshot(), settings }; return }
+  if (!settings.enabled && !diagnostic) { history.clear(); trackedDescendants.clear(); snapshot = { ...emptySnapshot(), settings }; return }
   const currentRoots = rootsForSample()
+  if (getNativeClipboardProcessId() !== clipboardPid) hostNativePids.clear()
   // Do not reattribute a late sample to a plugin instance that closed while the OS was sampling.
   for (const [pid, owners] of roots) roots.set(pid, owners.filter(owner => currentRoots.get(pid)?.some(current => current.pluginId === owner.pluginId && current.identity === owner.identity)))
   const byPid = new Map(samples.map(item => [item.pid, item]))
@@ -123,7 +133,7 @@ async function collect(sampleEpoch: number): Promise<void> {
     return []
   }
   const hostSharedPids = new Set<number>()
-  const pluginContents = new Set([...pluginHost.getMemoryOwners(), ...homeSurfaceManager.getMemoryOwners()].map(owner => owner.wcId))
+  const pluginContents = new Set(rendererOwners().map(owner => owner.wcId))
   for (const wc of webContents.getAllWebContents()) {
     if (pluginContents.has(wc.id) || wc.isDestroyed()) continue
     try { for (const frame of wc.mainFrame.framesInSubtree) hostSharedPids.add(frame.osProcessId) } catch { /* detached frame */ }
@@ -133,7 +143,7 @@ async function collect(sampleEpoch: number): Promise<void> {
     if (stalePids.has(pid)) continue
     const owners = ownershipFor(pid)
     const metric = metricByPid.get(pid)
-    if (!owners.length && !metric) continue
+    if (!owners.length && !metric && !hostNativePids.has(pid)) continue
     const sample = byPid.get(pid)
     if (owners.length && sample?.startedAt && !currentRoots.has(pid)) trackedDescendants.set(pid, { startedAt: sample.startedAt, owners })
     const fallback = metric?.memory.workingSetSize
@@ -142,11 +152,11 @@ async function collect(sampleEpoch: number): Promise<void> {
     const memoryBytes = sample?.memoryBytes ?? residentFallback
     const residentBytes = sample?.residentBytes ?? residentFallback
     const pluginIds = [...new Set(owners.map(item => item.pluginId))].sort()
-    processes.push({ pid, kind: owners[0]?.kind ?? 'host', pluginIds, shared: pluginIds.length > 1 || (pluginIds.length > 0 && hostSharedPids.has(pid)),
+    processes.push({ pid, startedAt: sample?.startedAt || metric?.creationTime || null, kind: owners[0]?.kind ?? 'host', pluginIds, shared: pluginIds.length > 1 || (pluginIds.length > 0 && hostSharedPids.has(pid)),
       memoryBytes, residentBytes, metric: sample?.memoryBytes != null ? sample.metric : memoryBytes !== null ? 'resident' : 'unavailable' })
   }
   const now = Date.now()
-  const runtimeOwners = [...pluginHost.getMemoryOwners(), ...homeSurfaceManager.getMemoryOwners()]
+  const runtimeOwners = rendererOwners()
   const ids = new Set([...runtimeOwners.map(owner => owner.pluginId), ...processes.flatMap(item => item.pluginIds)])
   const plugins: PluginMemoryEntry[] = [...ids].map(pluginId => {
     const owned = processes.filter(item => item.pluginIds.includes(pluginId))
@@ -173,7 +183,7 @@ async function collect(sampleEpoch: number): Promise<void> {
       canClose: !homeSurfaceManager.getMemoryOwners().some(owner => owner.pluginId === pluginId), memoryBytes, sharedMemoryBytes,
       peakMemoryBytes: record.peak, processCount: owned.length, unmeasuredProcessCount: owned.filter(item => item.memoryBytes === null).length,
       alert: alertLevel, processes: owned }
-    if (settings.alertsEnabled) alert(entry, record, now)
+    if (settings.enabled && settings.alertsEnabled) alert(entry, record, now)
     history.set(pluginId, record)
     return entry
   }).sort((left, right) => (right.memoryBytes ?? 0) + (right.sharedMemoryBytes ?? 0) - (left.memoryBytes ?? 0) - (left.sharedMemoryBytes ?? 0) || left.name.localeCompare(right.name))
@@ -183,10 +193,10 @@ async function collect(sampleEpoch: number): Promise<void> {
     unavailableProcessCount: processes.filter(item => item.memoryBytes === null).length, plugins, processes }
 }
 
-async function sample(): Promise<void> {
+async function sample(diagnostic = false): Promise<void> {
   if (flight) return flight
   const sampleEpoch = epoch
-  flight = collect(sampleEpoch).catch(error => {
+  flight = collect(sampleEpoch, diagnostic).catch(error => {
     if (!active || sampleEpoch !== epoch) return
     snapshot = { ...snapshot, settings: preferences(), error: String(error).slice(0, 300) }
     if (Date.now() - lastErrorAt > 60_000) { lastErrorAt = Date.now(); logWarn('plugin-memory', `sampling failed: ${String(error)}`) }
@@ -217,4 +227,13 @@ export async function getPluginMemorySnapshot(force = false): Promise<PluginMemo
   const settings = preferences()
   if (active && (force || !snapshot.sampledAt || Date.now() - snapshot.sampledAt >= INTERVAL_MS || settings.enabled !== snapshot.settings.enabled)) await sample()
   return structuredClone({ ...snapshot, settings })
+}
+
+/** Explicit bounded recording may sample even with alerts disabled, without changing preferences. */
+export async function getPluginMemoryDiagnosticSnapshot(): Promise<PluginMemorySnapshot> {
+  if (!active) throw new Error('plugin memory sampler is not running')
+  if (flight) await flight
+  // Share a just-completed monitor/UI sample instead of running a second OS helper back-to-back.
+  if (!snapshot.sampledAt || snapshot.error || Date.now() - snapshot.sampledAt > 1000) await sample(true)
+  return structuredClone(snapshot)
 }

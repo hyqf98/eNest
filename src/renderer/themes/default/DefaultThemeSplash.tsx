@@ -1,6 +1,6 @@
 /** The default theme owns the original launch background and logo choreography. */
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
-import { playSplash, type SplashHandles, type SplashPlayback } from '@renderer/gsap/splashMotion'
+import { playSplash, type SplashHandles, type SplashPlayback } from '@renderer/themes/default/motion/splashMotion'
 import type { HomeResolvedAppearance } from '@shared/types/home'
 import { useReducedMotion } from '@renderer/hooks/useReducedMotion'
 import { BUILTIN_BACKGROUND_EFFECTS } from '@shared/backgroundEffects'

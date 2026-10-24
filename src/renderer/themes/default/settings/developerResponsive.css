@@ -1,0 +1,12 @@
+/* Developer controls wrap with the available panel; paths never widen the window. */
+.dev-source-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr)); gap:.75rem; margin-block:1rem; }
+.dev-source-options label { display:flex; flex-direction:column; gap:.4rem; min-width:0; color:var(--text-2); font-size:.85rem; }
+.dev-source-options input,
+.dev-source-options select { width:100%; min-width:0; border:1px solid var(--border); border-radius:.5rem; padding:.6rem; color:var(--text); background:var(--surface); font:inherit; }
+.dev-url-field { grid-column:1/-1; }
+.dev-plugin-meta,
+.dev-load-input { min-width:0; }
+.dev-plugin-path { overflow-wrap:anywhere; white-space:normal; }
+.dev-plugin-actions { flex-wrap:wrap; }
+.dev-load-row { flex-wrap:wrap; }
+@media (max-width: 62rem) { .dev-plugin-item { flex-wrap:wrap; } .dev-plugin-actions { flex-basis:100%; justify-content:flex-start; } }

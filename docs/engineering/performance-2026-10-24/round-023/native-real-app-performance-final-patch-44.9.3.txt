@@ -1,0 +1,177 @@
+[runner] label=final-patch-44.9.3 expectedElectron=44.9.3 plugins=32 samples=4 intervalMs=2000 offline=true
+[stdout] 2026-10-24 13:16:10.459 [INFO] [main] ready
+[stdout] 2026-10-24 13:16:10.461 [INFO] [main] migrate ok
+[stdout] 2026-10-24 13:16:10.563 [INFO] [proxy] cleared (direct)
+[stdout] 2026-10-24 13:16:10.563 [INFO] [main] proxy ok
+[stdout] 2026-10-24 13:16:10.563 [INFO] [main] kv backend=sqlite
+[stdout] 2026-10-24 13:16:10.566 [INFO] [main] theme packs ok
+[stderr] 2026-10-24 13:16:10.655 [WARN] [registry] market https://github.com/hyqf98/eNest_plugin/releases/latest/download/registry-darwin-arm64.json → Native performance probe is intentionally offline (proxy=none)
+[stdout] 2026-10-24 13:16:10.656 [INFO] [main] registry ok
+[stderr] 2026-10-24 13:16:10.656 [WARN] [registry] market https://github.com/hyqf98/eNest_plugin/releases/latest/download/registry.json → Native performance probe is intentionally offline (proxy=none)
+[stdout] 2026-10-24 13:16:10.656 [INFO] [main] dev plugins restored
+[stderr] 2026-10-24 13:16:10.657 [WARN] [registry] market https://raw.githubusercontent.com/hyqf98/eNest_plugin/main/registry.json → Native performance probe is intentionally offline (proxy=none)
+[stderr] 2026-10-24 13:16:10.657 [WARN] [registry] remote market empty or unreachable, keep verified catalog and installed plugins
+[stdout] 2026-10-24 13:16:10.658 [INFO] [main] protocol ok
+[stdout] 2026-10-24 13:16:10.900 [INFO] [main] window ok
+[stdout] 2026-10-24 13:16:10.901 [INFO] [quick] ipc handlers registered
+[stdout] 2026-10-24 13:16:10.902 [INFO] [main] ipc ok
+[stdout] 2026-10-24 13:16:10.907 [INFO] [main] quick launcher ok
+[stdout] 2026-10-24 13:16:10.907 [INFO] [main] plugin backgrounds ready (lazy)
+[stdout] 2026-10-24 13:16:10.907 [INFO] [update] skip init — not packaged
+[stdout] 2026-10-24 13:16:10.907 [INFO] [main] update service ok
+[stdout] 2026-10-24 13:16:11.329 [INFO] [quick] apps scanned: 97 complete=true
+[stdout] 2026-10-24 13:16:13.280 [INFO] [contrib] manifest contributes registered: com.github.eNest.anything → settings
+[stdout] 2026-10-24 13:16:13.281 [INFO] [install] installed com.github.eNest.anything@1.1.1 → <temporary-profile>/data-root/plugins/com.github.eNest.anything/1.1.1
+[stdout] 2026-10-24 13:16:13.320 [INFO] [install] installed com.github.eNest.batch-rename@1.2.0 → <temporary-profile>/data-root/plugins/com.github.eNest.batch-rename/1.2.0
+[stdout] 2026-10-24 13:16:13.359 [INFO] [contrib] manifest contributes registered: com.github.eNest.calculator → settings
+2026-10-24 13:16:13.360 [INFO] [install] installed com.github.eNest.calculator@1.4.1 → <temporary-profile>/data-root/plugins/com.github.eNest.calculator/1.4.1
+[stdout] 2026-10-24 13:16:13.402 [INFO] [contrib] manifest contributes registered: com.github.eNest.ccswitch → settings, home-cards
+2026-10-24 13:16:13.402 [INFO] [install] installed com.github.eNest.ccswitch@1.3.0 → <temporary-profile>/data-root/plugins/com.github.eNest.ccswitch/1.3.0
+[stdout] 2026-10-24 13:16:13.475 [INFO] [contrib] manifest contributes registered: com.github.eNest.clipboard → settings
+2026-10-24 13:16:13.476 [INFO] [install] installed com.github.eNest.clipboard@1.4.0 → <temporary-profile>/data-root/plugins/com.github.eNest.clipboard/1.4.0
+[stdout] 2026-10-24 13:16:13.535 [INFO] [contrib] manifest contributes registered: com.github.eNest.codec → settings
+2026-10-24 13:16:13.535 [INFO] [install] installed com.github.eNest.codec@1.3.1 → <temporary-profile>/data-root/plugins/com.github.eNest.codec/1.3.1
+[stdout] 2026-10-24 13:16:13.743 [INFO] [install] installed com.github.eNest.codex-pets@1.2.0 → <temporary-profile>/data-root/plugins/com.github.eNest.codex-pets/1.2.0
+[stdout] 2026-10-24 13:16:13.804 [INFO] [contrib] manifest contributes registered: com.github.eNest.color-picker → settings
+2026-10-24 13:16:13.804 [INFO] [install] installed com.github.eNest.color-picker@1.4.0 → <temporary-profile>/data-root/plugins/com.github.eNest.color-picker/1.4.0
+[stdout] 2026-10-24 13:16:13.863 [INFO] [install] installed com.github.eNest.cron@1.2.0 → <temporary-profile>/data-root/plugins/com.github.eNest.cron/1.2.0
+[stdout] 2026-10-24 13:16:19.334 [INFO] [contrib] manifest contributes registered: com.github.eNest.database → settings
+2026-10-24 13:16:19.335 [INFO] [install] installed com.github.eNest.database@1.4.1 → <temporary-profile>/data-root/plugins/com.github.eNest.database/1.4.1
+[stdout] 2026-10-24 13:16:19.397 [INFO] [install] installed com.github.eNest.diff@1.1.0 → <temporary-profile>/data-root/plugins/com.github.eNest.diff/1.1.0
+[stdout] 2026-10-24 13:16:19.589 [INFO] [contrib] manifest contributes registered: com.github.eNest.dsh → settings
+2026-10-24 13:16:19.589 [INFO] [install] installed com.github.eNest.dsh@0.3.1 → <temporary-profile>/data-root/plugins/com.github.eNest.dsh/0.3.1
+[stdout] 2026-10-24 13:16:19.629 [INFO] [install] installed com.github.eNest.hash@1.3.0 → <temporary-profile>/data-root/plugins/com.github.eNest.hash/1.3.0
+[stdout] 2026-10-24 13:16:19.674 [INFO] [contrib] manifest contributes registered: com.github.eNest.image-tools → settings
+2026-10-24 13:16:19.674 [INFO] [install] installed com.github.eNest.image-tools@1.2.0 → <temporary-profile>/data-root/plugins/com.github.eNest.image-tools/1.2.0
+[stdout] 2026-10-24 13:16:19.713 [INFO] [contrib] manifest contributes registered: com.github.eNest.json-tools → settings
+2026-10-24 13:16:19.713 [INFO] [install] installed com.github.eNest.json-tools@1.4.1 → <temporary-profile>/data-root/plugins/com.github.eNest.json-tools/1.4.1
+[stdout] 2026-10-24 13:16:19.757 [INFO] [install] installed com.github.eNest.lan-share@1.2.0 → <temporary-profile>/data-root/plugins/com.github.eNest.lan-share/1.2.0
+[stdout] 2026-10-24 13:16:19.954 [INFO] [contrib] manifest contributes registered: com.github.eNest.markdown → settings, home-cards
+2026-10-24 13:16:19.954 [INFO] [install] installed com.github.eNest.markdown@2.0.1 → <temporary-profile>/data-root/plugins/com.github.eNest.markdown/2.0.1
+[stdout] 2026-10-24 13:16:20.722 [INFO] [contrib] manifest contributes registered: com.github.eNest.middleware → settings
+2026-10-24 13:16:20.723 [INFO] [install] installed com.github.eNest.middleware@0.4.1 → <temporary-profile>/data-root/plugins/com.github.eNest.middleware/0.4.1
+[stdout] 2026-10-24 13:16:20.764 [INFO] [install] installed com.github.eNest.net-kit@1.1.0 → <temporary-profile>/data-root/plugins/com.github.eNest.net-kit/1.1.0
+[stdout] 2026-10-24 13:16:20.805 [INFO] [contrib] manifest contributes registered: com.github.eNest.password-kit → settings
+[stdout] 2026-10-24 13:16:20.806 [INFO] [install] installed com.github.eNest.password-kit@1.3.1 → <temporary-profile>/data-root/plugins/com.github.eNest.password-kit/1.3.1
+[stdout] 2026-10-24 13:16:20.847 [INFO] [contrib] manifest contributes registered: com.github.eNest.pomodoro → settings
+2026-10-24 13:16:20.847 [INFO] [install] installed com.github.eNest.pomodoro@1.4.1 → <temporary-profile>/data-root/plugins/com.github.eNest.pomodoro/1.4.1
+[stdout] 2026-10-24 13:16:20.888 [INFO] [install] installed com.github.eNest.regex@1.1.0 → <temporary-profile>/data-root/plugins/com.github.eNest.regex/1.1.0
+[stdout] 2026-10-24 13:16:21.051 [INFO] [contrib] manifest contributes registered: com.github.eNest.remote-desktop → settings
+2026-10-24 13:16:21.051 [INFO] [install] installed com.github.eNest.remote-desktop@1.3.2 → <temporary-profile>/data-root/plugins/com.github.eNest.remote-desktop/1.3.2
+[stdout] 2026-10-24 13:16:21.100 [INFO] [contrib] manifest contributes registered: com.github.eNest.screen-assistant → settings
+[stdout] 2026-10-24 13:16:21.100 [INFO] [install] installed com.github.eNest.screen-assistant@1.5.0 → <temporary-profile>/data-root/plugins/com.github.eNest.screen-assistant/1.5.0
+[stdout] 2026-10-24 13:16:21.160 [INFO] [contrib] manifest contributes registered: com.github.eNest.sketchbook → theme-packs, home-pages
+[stdout] 2026-10-24 13:16:21.161 [INFO] [install] installed com.github.eNest.sketchbook@1.0.2 → <temporary-profile>/data-root/plugins/com.github.eNest.sketchbook/1.0.2
+[stdout] 2026-10-24 13:16:21.168 [INFO] [registry] theme packs registered from manifest: com.github.eNest.sketchbook (1)
+[stdout] 2026-10-24 13:16:21.373 [INFO] [contrib] manifest contributes registered: com.github.eNest.ssh → settings
+2026-10-24 13:16:21.374 [INFO] [install] installed com.github.eNest.ssh@1.4.1 → <temporary-profile>/data-root/plugins/com.github.eNest.ssh/1.4.1
+[stdout] 2026-10-24 13:16:21.419 [INFO] [contrib] manifest contributes registered: com.github.eNest.sticky-notes → settings, home-cards
+2026-10-24 13:16:21.420 [INFO] [install] installed com.github.eNest.sticky-notes@1.3.1 → <temporary-profile>/data-root/plugins/com.github.eNest.sticky-notes/1.3.1
+[stdout] 2026-10-24 13:16:21.519 [INFO] [contrib] manifest contributes registered: com.github.eNest.sysguard → settings
+2026-10-24 13:16:21.519 [INFO] [install] installed com.github.eNest.sysguard@1.2.1 → <temporary-profile>/data-root/plugins/com.github.eNest.sysguard/1.2.1
+[stdout] 2026-10-24 13:16:21.574 [INFO] [contrib] manifest contributes registered: com.github.eNest.timestamp → settings
+2026-10-24 13:16:21.574 [INFO] [install] installed com.github.eNest.timestamp@1.3.1 → <temporary-profile>/data-root/plugins/com.github.eNest.timestamp/1.3.1
+[stdout] 2026-10-24 13:16:21.622 [INFO] [contrib] manifest contributes registered: com.github.eNest.todos → settings, home-cards
+[stdout] 2026-10-24 13:16:21.623 [INFO] [install] installed com.github.eNest.todos@1.3.1 → <temporary-profile>/data-root/plugins/com.github.eNest.todos/1.3.1
+[stdout] 2026-10-24 13:16:21.665 [INFO] [contrib] manifest contributes registered: com.github.eNest.translate → settings
+2026-10-24 13:16:21.665 [INFO] [install] installed com.github.eNest.translate@1.4.1 → <temporary-profile>/data-root/plugins/com.github.eNest.translate/1.4.1
+[stdout] 2026-10-24 13:16:21.709 [INFO] [contrib] manifest contributes registered: com.github.eNest.unit-convert → settings, home-cards
+2026-10-24 13:16:21.710 [INFO] [install] installed com.github.eNest.unit-convert@1.2.1 → <temporary-profile>/data-root/plugins/com.github.eNest.unit-convert/1.2.1
+[stdout] [real-app-performance] stage=installed-32-idle samples=4 live=0 uniquePIDs=6
+[stdout] 2026-10-24 13:16:29.909 [INFO] [lifecycle] com.github.eNest.calculator: installed → opening (open)
+[stdout] 2026-10-24 13:16:30.267 [INFO] [lifecycle] com.github.eNest.calculator: opening → ready (load-ok)
+[stdout] 2026-10-24 13:16:30.269 [INFO] [lifecycle] com.github.eNest.calculator: ready → active (activate)
+[stdout] 2026-10-24 13:16:30.333 [INFO] [lifecycle] com.github.eNest.cron: installed → opening (open)
+[stdout] 2026-10-24 13:16:30.335 [INFO] [lifecycle] com.github.eNest.calculator: active → background (deactivate)
+[stdout] 2026-10-24 13:16:30.503 [INFO] [lifecycle] com.github.eNest.cron: opening → ready (load-ok)
+[stdout] 2026-10-24 13:16:30.504 [INFO] [lifecycle] com.github.eNest.cron: ready → active (activate)
+[stdout] 2026-10-24 13:16:30.581 [INFO] [lifecycle] com.github.eNest.regex: installed → opening (open)
+[stdout] 2026-10-24 13:16:30.583 [INFO] [lifecycle] com.github.eNest.cron: active → background (deactivate)
+[stdout] 2026-10-24 13:16:30.734 [INFO] [lifecycle] com.github.eNest.regex: opening → ready (load-ok)
+[stdout] 2026-10-24 13:16:30.734 [INFO] [lifecycle] com.github.eNest.regex: ready → active (activate)
+[stdout] 2026-10-24 13:16:30.750 [INFO] [lifecycle] com.github.eNest.password-kit: installed → opening (open)
+[stdout] 2026-10-24 13:16:30.752 [INFO] [lifecycle] com.github.eNest.regex: active → background (deactivate)
+[stdout] 2026-10-24 13:16:30.908 [INFO] [lifecycle] com.github.eNest.password-kit: opening → ready (load-ok)
+[stdout] 2026-10-24 13:16:30.908 [INFO] [lifecycle] com.github.eNest.password-kit: ready → active (activate)
+[stdout] 2026-10-24 13:16:30.919 [INFO] [lifecycle] com.github.eNest.timestamp: installed → opening (open)
+[stdout] 2026-10-24 13:16:30.921 [INFO] [lifecycle] com.github.eNest.password-kit: active → background (deactivate)
+[stdout] 2026-10-24 13:16:31.095 [INFO] [lifecycle] com.github.eNest.timestamp: opening → ready (load-ok)
+[stdout] 2026-10-24 13:16:31.096 [INFO] [lifecycle] com.github.eNest.timestamp: ready → active (activate)
+[stdout] 2026-10-24 13:16:31.167 [INFO] [lifecycle] com.github.eNest.todos: installed → opening (open)
+[stdout] 2026-10-24 13:16:31.170 [INFO] [lifecycle] com.github.eNest.timestamp: active → background (deactivate)
+[stdout] 2026-10-24 13:16:31.362 [INFO] [lifecycle] com.github.eNest.todos: opening → ready (load-ok)
+[stdout] 2026-10-24 13:16:31.363 [INFO] [lifecycle] com.github.eNest.todos: ready → active (activate)
+[stdout] [real-app-performance] stage=six-logical-tabs samples=4 live=6 uniquePIDs=12
+[stdout] 2026-10-24 13:16:38.570 [INFO] [lifecycle] com.github.eNest.sketchbook: installed → opening (open)
+[stdout] 2026-10-24 13:16:38.572 [INFO] [lifecycle] com.github.eNest.todos: active → background (deactivate)
+[stdout] 2026-10-24 13:16:38.605 [INFO] [lifecycle] com.github.eNest.calculator: background → hibernated (hibernate)
+[stdout] 2026-10-24 13:16:38.712 [INFO] [lifecycle] com.github.eNest.sketchbook: opening → ready (load-ok)
+[stdout] 2026-10-24 13:16:38.713 [INFO] [lifecycle] com.github.eNest.sketchbook: ready → active (activate)
+[stdout] 2026-10-24 13:16:38.738 [INFO] [lifecycle] com.github.eNest.sticky-notes: installed → opening (open)
+[stdout] 2026-10-24 13:16:38.740 [INFO] [lifecycle] com.github.eNest.sketchbook: active → background (deactivate)
+[stdout] 2026-10-24 13:16:38.752 [INFO] [lifecycle] com.github.eNest.cron: background → hibernated (hibernate)
+[stderr] sandbox_extension_issue_file failed for <repository>/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/Resources: 1 (Operation not permitted)
+[stdout] 2026-10-24 13:16:38.957 [INFO] [lifecycle] com.github.eNest.sticky-notes: opening → ready (load-ok)
+[stdout] 2026-10-24 13:16:38.957 [INFO] [lifecycle] com.github.eNest.sticky-notes: ready → active (activate)
+[stdout] [real-app-performance] stage=eight-logical-tabs-production-limit-six samples=4 live=6 uniquePIDs=12
+[stdout] 2026-10-24 13:16:46.143 [INFO] [lifecycle] com.github.eNest.sticky-notes: active → background (deactivate)
+[stdout] 2026-10-24 13:16:46.145 [INFO] [lifecycle] com.github.eNest.sticky-notes: background → closing (close: tab-close)
+[stderr] [74589:1024/131646.164255:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc:254] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox.
+[stdout] 2026-10-24 13:16:46.179 [INFO] [lifecycle] com.github.eNest.sketchbook: background → closing (close: tab-close)
+[stdout] 2026-10-24 13:16:46.203 [INFO] [lifecycle] com.github.eNest.todos: background → closing (close: tab-close)
+[stdout] 2026-10-24 13:16:46.216 [INFO] [lifecycle] com.github.eNest.timestamp: background → closing (close: tab-close)
+[stdout] 2026-10-24 13:16:46.231 [INFO] [lifecycle] com.github.eNest.password-kit: background → closing (close: tab-close)
+[stdout] 2026-10-24 13:16:46.248 [INFO] [lifecycle] com.github.eNest.regex: background → closing (close: tab-close)
+[stdout] 2026-10-24 13:16:46.267 [INFO] [lifecycle] com.github.eNest.cron: hibernated → closed (close: tab-close)
+[stdout] 2026-10-24 13:16:46.269 [INFO] [lifecycle] com.github.eNest.calculator: hibernated → closed (close: tab-close)
+[stdout] [real-app-performance] stage=after-closing-eight samples=4 live=0 uniquePIDs=6
+[stdout] 2026-10-24 13:16:53.422 [INFO] [lifecycle] com.github.eNest.calculator: installed → opening (open)
+[stdout] 2026-10-24 13:16:53.633 [INFO] [lifecycle] com.github.eNest.calculator: opening → ready (load-ok)
+[stdout] 2026-10-24 13:16:53.633 [INFO] [lifecycle] com.github.eNest.calculator: ready → active (activate)
+[stdout] [real-app-performance] stage=repeat-single-open samples=4 live=1 uniquePIDs=7
+[stdout] 2026-10-24 13:17:00.816 [INFO] [lifecycle] com.github.eNest.calculator: active → background (deactivate)
+[stdout] 2026-10-24 13:17:00.821 [INFO] [lifecycle] com.github.eNest.calculator: background → closing (close: tab-close)
+[stdout] [real-app-performance] stage=repeat-single-closed samples=4 live=0 uniquePIDs=6
+[stdout] [real-app-performance] native-ui-observation-start holdMs=300000 measured=false
+[stdout] 2026-10-24 13:18:19.318 [INFO] [performance-capture] start capture=6124204b-f784-4e63-b1cf-cb02799c9523 intervalMs=5000 durationMs=600000
+[stdout] 2026-10-24 13:18:19.336 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=1 processes=6 measuredMiB=395.7 cpuOneCorePercent=unavailable cpuUnmeasured=6 logicalTabs=0 live=0 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=16.1
+[stdout] 2026-10-24 13:18:24.353 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=2 processes=6 measuredMiB=405.6 cpuOneCorePercent=4.39 cpuUnmeasured=0 logicalTabs=0 live=0 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=15.7
+[stdout] 2026-10-24 13:18:29.372 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=3 processes=6 measuredMiB=432.2 cpuOneCorePercent=9.94 cpuUnmeasured=0 logicalTabs=0 live=0 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=17.0
+[stdout] 2026-10-24 13:18:33.076 [INFO] [lifecycle] com.github.eNest.sketchbook: installed → opening (open)
+[stdout] 2026-10-24 13:18:33.321 [INFO] [lifecycle] com.github.eNest.sketchbook: opening → ready (load-ok)
+[stdout] 2026-10-24 13:18:33.321 [INFO] [lifecycle] com.github.eNest.sketchbook: ready → active (activate)
+[stdout] 2026-10-24 13:18:34.382 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=4 processes=7 measuredMiB=557.3 cpuOneCorePercent=16.02 cpuUnmeasured=1 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=9.1
+[stdout] 2026-10-24 13:18:39.399 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=5 processes=7 measuredMiB=449.6 cpuOneCorePercent=20.27 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=16.3
+[stdout] 2026-10-24 13:18:44.418 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=6 processes=7 measuredMiB=445.1 cpuOneCorePercent=19.12 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=16.9
+[stdout] 2026-10-24 13:18:49.428 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=7 processes=7 measuredMiB=485.4 cpuOneCorePercent=22.57 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=9.6
+[stdout] 2026-10-24 13:18:53.907 [INFO] [lifecycle] com.github.eNest.sketchbook: active → background (deactivate)
+[stdout] 2026-10-24 13:18:54.442 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=8 processes=7 measuredMiB=540.9 cpuOneCorePercent=28.34 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=12.1
+[stdout] 2026-10-24 13:18:59.461 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=9 processes=7 measuredMiB=445.2 cpuOneCorePercent=0.98 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=16.5
+[stdout] 2026-10-24 13:19:04.478 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=10 processes=7 measuredMiB=461.3 cpuOneCorePercent=8.75 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=15.4
+[stdout] 2026-10-24 13:19:09.497 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=11 processes=8 measuredMiB=549.5 cpuOneCorePercent=17.79 cpuUnmeasured=1 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=10.2
+[stdout] 2026-10-24 13:19:14.517 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=12 processes=8 measuredMiB=484.3 cpuOneCorePercent=27.87 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=17.7
+[stdout] 2026-10-24 13:19:19.538 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=13 processes=7 measuredMiB=450.1 cpuOneCorePercent=6.78 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=20.4
+[stdout] 2026-10-24 13:19:24.558 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=14 processes=7 measuredMiB=438.6 cpuOneCorePercent=5.55 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=17.6
+[stdout] 2026-10-24 13:19:29.576 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=15 processes=7 measuredMiB=436.3 cpuOneCorePercent=0.59 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=16.5
+[stdout] 2026-10-24 13:19:34.594 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=16 processes=7 measuredMiB=436.2 cpuOneCorePercent=0.55 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=15.0
+[stdout] 2026-10-24 13:19:39.611 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=17 processes=7 measuredMiB=436.2 cpuOneCorePercent=0.50 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=15.9
+[stdout] 2026-10-24 13:19:44.622 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=18 processes=7 measuredMiB=436.2 cpuOneCorePercent=0.52 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=9.5
+[stdout] 2026-10-24 13:19:49.639 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=19 processes=7 measuredMiB=436.2 cpuOneCorePercent=0.50 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=17.0
+[stdout] 2026-10-24 13:19:54.655 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=20 processes=7 measuredMiB=504.4 cpuOneCorePercent=10.47 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=1.2
+[stdout] 2026-10-24 13:19:59.658 [INFO] [performance-capture] sample capture=6124204b-f784-4e63-b1cf-cb02799c9523 sequence=21 processes=7 measuredMiB=459.8 cpuOneCorePercent=1.63 cpuUnmeasured=0 logicalTabs=1 live=1 hibernated=0 coldShellTabs=0 lazyDetached=0 backgrounds=0 auxiliaryWindows=0 fileStreams=0 devTools=0 collectionMs=1.4
+[stdout] 2026-10-24 13:20:00.392 [INFO] [performance-capture] stop capture=6124204b-f784-4e63-b1cf-cb02799c9523 reason=manual samples=21 bytes=69261
+[stdout] 2026-10-24 13:20:27.741 [INFO] [performance-capture] export capture=6124204b-f784-4e63-b1cf-cb02799c9523 samples=21
+[stdout] 2026-10-24 13:21:53.931 [INFO] [lifecycle] com.github.eNest.sketchbook: background → hibernated (hibernate)
+[stdout] 2026-10-24 13:22:08.029 [INFO] [main] shutdown begin (before-quit)
+[stdout] 2026-10-24 13:22:08.036 [INFO] [lifecycle] com.github.eNest.sketchbook: hibernated → closed (close: app-quit)
+[stdout] 2026-10-24 13:22:08.044 [INFO] [main] close → allow (shutting down)
+[stderr] Error occurred in handler for 'home:get-config': Error: IPC denied: untrusted surface or frame
+    at assertSurfaceSender (file:///private<temporary-profile>/main.mjs:420:11)
+    at file:///private<temporary-profile>/main.mjs:31651:7
+    at Session.<anonymous> (node:electron/js2c/browser_init:1:119048)
+    at Session.emit (node:events:514:28)
+[stderr] Error occurred in handler for 'shell:sync-orb-state': Error: Main shell required
+    at file:///private<temporary-profile>/main.mjs:20794:55
+    at file:///private<temporary-profile>/main.mjs:437:12
+    at Session.<anonymous> (node:electron/js2c/browser_init:1:119048)
+    at Session.emit (node:events:514:28)

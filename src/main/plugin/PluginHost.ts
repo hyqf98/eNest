@@ -115,7 +115,6 @@ import {
   saveSessionSnapshot,
   getSessionRevision
 } from '@main/plugin/PluginSessionStore'
-import { closeAllPins } from '@main/pin/pinService'
 import {
   INITIAL_LIFECYCLE_STATE,
   nextState,
@@ -132,11 +131,7 @@ import {
 } from '@main/plugin/pluginProtocol'
 import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { releasePluginHotkeys } from '@main/hotkey/pluginRuntimeHotkeys'
-import { releaseSshSessions } from '@main/ssh/sshSessionManager'
-import { releaseDbSessions } from '@main/database/dbSessionManager'
 import { releaseSockets } from '@main/net/socketBridge'
-import { releaseLanShares } from '@main/net/lanShareService'
-import { releaseDshRuntime } from '@main/dsh/dshRuntimeService'
 import { hasPluginActivity, onPluginActivityIdle, releasePluginActivities } from '@main/plugin/activityRegistry'
 import { quickInputAction } from '@main/plugin/quickInputPolicy'
 import { devShortcutAction, toggleDevTools } from '@main/dev/devShortcuts'
@@ -151,7 +146,6 @@ import type { DetachedPluginState, PluginPlacement } from '@shared/types/plugin-
 import { settingsStore } from '@main/settings/SettingsStore'
 import { resumeDevServer, stopDevServer, stopDevServerAndWait } from '@main/dev/devServerManager'
 import { stopPluginProcesses } from '@main/plugin/pluginOwnedProcesses'
-import { stopFocusTimer } from '@main/timer/focusTimerService'
 import { PluginWindowSession } from '@main/plugin/pluginWindowSession'
 import {
   bindDetachedWindowHost, createDetachedWindow, destroyDetachedWindow,
@@ -511,6 +505,13 @@ export class PluginHost {
       closing: this.closing.size,
       hibernated: this.hibernated.size,
       logicalTabs: this.logicalTabs.size,
+      // Restored shell placeholders are not hibernated runtimes or lazy detached windows.
+      coldShellTabs: [...this.logicalTabs.keys()].filter(pluginId =>
+        this.getPlacement(pluginId).kind === 'shell' && this.getState(pluginId) === 'installed'
+        && !this.entries.has(pluginId) && !this.hibernated.has(pluginId) && !this.opening.has(pluginId)
+        && !this.closing.has(pluginId) && !this.finalClosing.has(pluginId) && !this.retiringViews.has(pluginId)
+        && !this.reloading.has(pluginId) && !this.transfers.has(pluginId)
+      ).length,
       lazyDetached: this.lazyDetached.size,
       restoringDetached: this.restoringDetached.size,
       tabPresentations: this.tabPresentation.size,
@@ -523,10 +524,10 @@ export class PluginHost {
     }
   }
 
-  getMemoryOwners(): Array<{ pluginId: string; wcId: number; closing: boolean }> {
+  getMemoryOwners(): Array<{ pluginId: string; generation: number; wcId: number; closing: boolean }> {
     const entries = new Set([...this.entries.values(), ...this.closingEntries.values(), ...this.retiringViews.values()])
     return [...entries].map(entry => ({
-      pluginId: entry.pluginId, wcId: entry.scope.owner.wcId, closing: entry.scope.isClosing
+      pluginId: entry.pluginId, generation: entry.generation, wcId: entry.scope.owner.wcId, closing: entry.scope.isClosing
     }))
   }
 
@@ -552,6 +553,11 @@ export class PluginHost {
   /** 插件是否有存活 entry（View 仍在）；hibernated/crash 后为 false */
   isOpened(pluginId: string): boolean {
     return this.entries.has(pluginId)
+  }
+
+  isPluginVisible(pluginId: string): boolean {
+    const win = this.getContainerWindow(pluginId)
+    return this.entries.has(pluginId) && this.isPresented(pluginId) && !!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()
   }
 
   /** quick 容器当前挂载的 mini 插件 id（无 = 列表态）；quickHandlers 交互用 */
@@ -698,6 +704,8 @@ export class PluginHost {
       else this.barriers.delete(pluginId)
     }
   }
+
+  isBlockedForOpen(pluginId: string): boolean { return (this.barriers.get(pluginId) ?? 0) > 0 }
 
   async restoreTabs(ids: string[]): Promise<void> {
     const pending: Promise<void>[] = []
@@ -1061,13 +1069,8 @@ export class PluginHost {
     scope.addDisposer(() => { contributionRegistry.releaseQuickProviders(pluginId) })
     scope.addDisposer(() => releasePluginActivities(pluginId))
     scope.addDisposer(() => { this.inputContexts.delete(pluginId) })
-    scope.addDisposer(() => { closeAllPins(pluginId) })
-    scope.addDisposer(() => releaseSshSessions(pluginId, generation))
-    scope.addDisposer(() => releaseDbSessions(pluginId, generation))
     scope.addDisposer(() => stopPluginProcesses(pluginId, generation))
     scope.addDisposer(() => releaseSockets(pluginId, generation))
-    scope.addDisposer(() => releaseLanShares(pluginId, generation))
-    scope.addDisposer(() => releaseDshRuntime(pluginId, generation))
     scope.addDisposer(() => releaseLocalFiles(pluginId))
     scope.addDisposer(() => { if (!releasePluginStorage(pluginId)) throw new Error('pending local storage writes retained for retry') })
     const entry: PluginEntry = {
@@ -1193,8 +1196,7 @@ export class PluginHost {
     const stopping = Promise.allSettled([
       // undefined generation means all owners; a missing ordinary instance must not release Workspace resources.
       ...(!instanceOnly ? [stopPluginProcesses(pluginId)] : entry ? [stopPluginProcesses(pluginId, entry.generation)] : []),
-      ...(!instanceOnly ? [stopDevServerAndWait(pluginId)] : []),
-      ...(!preserveSession && reason !== 'app-quit' ? [stopFocusTimer(pluginId)] : [])
+      ...(!instanceOnly ? [stopDevServerAndWait(pluginId)] : [])
     ])
     const ids = [...this.logicalTabs.keys()]
     const index = ids.indexOf(pluginId)
@@ -2391,6 +2393,8 @@ setPluginInstallLifecycleHooks({
   async beforeReplace(id) {
     const release = pluginHost.blockPlugin(id)
     try {
+      const { stopPluginBackground } = await import('@main/plugin/pluginBackgroundRuntime')
+      stopPluginBackground(id, 'plugin package replacement')
       if (pluginRegistry.get(id)?.rootPath || pluginHost.isOpened(id)) await pluginHost.closePlugin(id, 'uninstall')
       return release
     }

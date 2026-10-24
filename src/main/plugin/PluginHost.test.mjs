@@ -4,7 +4,7 @@ import { build } from 'esbuild'
 import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const adapters = {
-  'fixture': `export const f = { views: [], events: [], messages: [], gate: null, host: null, ack: true, snapshot: true, saves: 0, releases: 0, memoryReleases:0, localReleases:0, clears:0, codeClears:0, codeCacheGate:null, codeCacheFail:false, releaseGate:null, closeStalled:false, firstInstall:false, installHooks:null, children: new Set(), quickChildren: new Set(), quickWindowChildren: new Set(), quickFocus:0, quickReveals:0, quickRevealFinishes:0, quickSizeRequests:[], quickWindowBounds:{x:0,y:0,width:720,height:545}, shellBounds:{x:0,y:36,width:1180,height:764}, manifestWindows:{}, detached:new Map(), detachedSeq:0, detachedEvents:[], detachedStates:[], detachedGate:null, detachedFailAttach:false, quickPrepareGate:null, quickPrepared:0, quickPresented:0, persisted:[], savedGeneral:{sessionTabs:[],sessionActivePluginId:""}, detachedCreates:[], detachedCreating:0, detachedMaxCreating:0, detachedCreateGates:new Map() };`,
+  'fixture': `export const f = { views: [], events: [], messages: [], gate: null, host: null, ack: true, snapshot: true, saves: 0, memoryReleases:0, localReleases:0, clears:0, codeClears:0, codeCacheGate:null, codeCacheFail:false, closeStalled:false, firstInstall:false, installHooks:null, children: new Set(), quickChildren: new Set(), quickWindowChildren: new Set(), quickFocus:0, quickReveals:0, quickRevealFinishes:0, quickSizeRequests:[], quickWindowBounds:{x:0,y:0,width:720,height:545}, shellBounds:{x:0,y:36,width:1180,height:764}, manifestWindows:{}, detached:new Map(), detachedSeq:0, detachedEvents:[], detachedStates:[], detachedGate:null, detachedFailAttach:false, quickPrepareGate:null, quickPrepared:0, quickPresented:0, persisted:[], savedGeneral:{sessionTabs:[],sessionActivePluginId:""}, detachedCreates:[], detachedCreating:0, detachedMaxCreating:0, detachedCreateGates:new Map() };`,
   electron: `import {EventEmitter} from 'node:events'; import {f} from 'fixture';
     let seq=0;
     class WC extends EventEmitter {
@@ -70,11 +70,8 @@ const adapters = {
   '@main/plugin/PermissionService': `export const permissionService={cancelFor(){}};`,
   '@main/proxy/proxyService': `import {f} from 'fixture'; export const applyProxyToPluginPartition=async()=>{if(f.proxyGate)await f.proxyGate}; export const getActiveProxy=()=>({type:'none'});`,
   '@main/db/pluginStorage': `export const releasePluginStorage=()=>true;`,
-  '@main/pin/pinService': `export const closeAllPins=()=>{};`,
   '@main/contrib/ContributionRegistry': `export const contributionRegistry={releaseQuickProviders(){}};`,
   '@main/hotkey/pluginRuntimeHotkeys': `export const releasePluginHotkeys=()=>{};`,
-  '@main/ssh/sshSessionManager': `import {f} from 'fixture'; export const releaseSshSessions=async()=>{f.releases++;if(f.releaseGate)await f.releaseGate};`,
-  '@main/database/dbSessionManager': `export const releaseDbSessions=async()=>{};`,
   '@main/theme/resolveThemeCss': `export const resolveThemeTokens=()=>({}); export const themeTokensToInjectScript=()=>'';`,
   '@main/theme/appearanceService': `import {f} from 'fixture'; export const appearanceService={getAppearance:preferred=>{f.appearancePreferred=preferred;return f.appearance??{revision:1}}};`,
   '@main/plugin/externalLinks': `export const routeExternal=async()=>{}; export const isInternalNavigation=()=>true;`
@@ -479,7 +476,7 @@ test('close during suspension cancels its checkpoint and kill-on-hide failures s
 
 test('unconfirmed native destruction waits resource cleanup and blocks orphan-producing reopen',async()=>{
   const c=await fixture();await loaded(c,'one');const old=c.host.getWebContents('one');c.f.closeStalled=true
-  let release;c.f.releaseGate=new Promise(r=>release=r)
+  let release;const cleanup=new Promise(r=>release=r);c.getRuntimeScope('one').addDisposer(()=>cleanup)
   let completed=false;const close=c.host.closePlugin('one');const rejected=assert.rejects(close,/destruction not confirmed/).then(()=>{completed=true})
   await new Promise(r=>setTimeout(r,350));assert.equal(completed,false);assert.equal(c.host.getDiagnostics().retiring,1)
   release();await rejected;assert.equal(c.getRuntimeScope('one'),undefined)
@@ -488,7 +485,7 @@ test('unconfirmed native destruction waits resource cleanup and blocks orphan-pr
   assert.equal(c.host.containers.has('one'),false)
   assert.equal(c.host.pendingEnter.has('one'),false)
   old.destroyed=true;old.emit('destroyed');assert.equal(c.host.getDiagnostics().retiring,0)
-  c.f.closeStalled=false;c.f.releaseGate=null;await loaded(c,'one');await c.host.destroyAll()
+  c.f.closeStalled=false;await loaded(c,'one');await c.host.destroyAll()
 })
 
 test('container migration preserves runtime and does not replay consumed enter payload',async()=>{
@@ -513,11 +510,11 @@ test('host-owned work protects background runtimes and release reapplies the ali
 })
 
 test('LRU does not subtract a retired suspension from the resident count twice',async()=>{
-  const c=await fixture();let release;c.f.releaseGate=new Promise(r=>release=r)
-  for(let i=0;i<8;i++)await loaded(c,'lru'+i)
+  const c=await fixture();let release;const cleanup=new Promise(r=>release=r)
+  for(let i=0;i<8;i++){await loaded(c,'lru'+i);c.getRuntimeScope('lru'+i).addDisposer(()=>cleanup)}
   await tick();assert.ok(c.host.getDiagnostics().entries.length<=6)
   assert.equal(c.host.getDiagnostics().hibernated,2)
-  release();c.f.releaseGate=null;await c.host.destroyAll()
+  release();await c.host.destroyAll()
 })
 
 test('switching ready tabs schedules idle hibernation without reaching the LRU limit', async t => {

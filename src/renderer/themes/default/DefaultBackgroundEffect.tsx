@@ -13,16 +13,17 @@ interface Props {
   className?: string
   launch?: boolean
   paused?: boolean
+  continuous?: boolean
 }
 
 /** Each effect owns a fresh canvas, including React StrictMode's setup/cleanup cycle. */
-export function DefaultBackgroundEffect({ effect, level, background, className = '', launch = false, paused = false }: Props) {
+export function DefaultBackgroundEffect({ effect, level, background, className = '', launch = false, paused = false, continuous = true }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const reducedMotion = useReducedMotion()
   const atmosphere = backgroundAtmosphereStyle(background)
   const [failed, setFailed] = useState(false)
-  const staticVideo = paused || reducedMotion || level === 'low'
+  const staticVideo = paused || reducedMotion || level === 'low' || !continuous
   const preset = effect.renderer === 'preset' ? effect.preset : undefined
   const speed = effect.renderer === 'preset' ? effect.speed : undefined
   const [color0, color1, color2] = effect.renderer === 'preset' ? effect.colors ?? [] : []
@@ -38,13 +39,13 @@ export function DefaultBackgroundEffect({ effect, level, background, className =
     canvas.setAttribute('aria-hidden', 'true')
     container.appendChild(canvas)
     const stop = startBackgroundEffect(canvas, {
-      preset, level, launch, reducedMotion,
+      preset, level, launch, reducedMotion, continuous,
       colors: color0 && color1 && color2 ? [color0, color1, color2] : undefined,
       speed, onError: () => setFailed(true),
     })
     return () => { stop(); canvas.remove() }
   // Registry/theme refreshes recreate descriptors; only rendering inputs own GPU lifetime.
-  }, [preset, color0, color1, color2, speed, level, launch, reducedMotion, paused])
+  }, [preset, color0, color1, color2, speed, level, launch, reducedMotion, paused, continuous])
 
   useEffect(() => {
     const video = videoRef.current

@@ -21,6 +21,7 @@ files:
   - package.json
   # node-gyp's local Python symlinks are build tools, not runtime dependencies.
   - '!**/node_modules/**/build/node_gyp_bins{,/**/*}'
+  - '!**/node_modules/json-schema-traverse/spec{,/**/*}'
   - '!**/*.map'
 
 asar: true
@@ -31,8 +32,6 @@ extraResources:
   - from: assets/icons
     to: icons
     filter: [enest-icon-256.png, dock-runtime.png]
-  - from: native/bin
-    to: native
 
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
@@ -42,6 +41,10 @@ mac:
   category: public.app-category.productivity
   # electron-builder 使用 build 下的 icon.icns / icon.png
   icon: build/icon.icns
+  extraResources:
+    - from: native/bin
+      to: native
+      filter: [clipboard-helper, process-memory-helper]
   hardenedRuntime: false
   gatekeeperAssess: false
   target:
@@ -53,12 +56,27 @@ mac:
 win:
   # NSIS 需要 .ico；统一用 build/icon.ico
   icon: build/icon.ico
+  extraResources:
+    - from: native/bin
+      to: native
+      filter: [clipboard-helper.ps1, process-memory-helper.ps1]
   target:
     - target: nsis
+      arch: [x64]
+    - target: zip
       arch: [x64]
 
 linux:
   icon: build/icon.png
+  extraResources:
+    - from: native/bin
+      to: native
+      filter:
+        - clipboard-helper
+        - lib/**/*
+        - licenses/**/*
+        - linux-dependencies.json
+        - THIRD-PARTY-NOTICES.txt
   syncDesktopName: true
   category: Utility
   synopsis: Plugin-based desktop shell

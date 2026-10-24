@@ -1,0 +1,7 @@
+.background-effect.splash-field { opacity: 1; }
+.splash--effect { --splash-bg: var(--bg); --splash-text: var(--text); --splash-accent: var(--accent); }
+.splash--effect .splash-stage::before {
+  content: ''; position: absolute; inset: -64px -90px; z-index: -1;
+  background: radial-gradient(ellipse, color-mix(in srgb, var(--bg) 78%, transparent), transparent 72%);
+  pointer-events: none;
+}

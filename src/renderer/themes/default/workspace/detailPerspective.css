@@ -1,0 +1,8 @@
+/* high：详情弹层容器给 3D 透视（GSAP 负责弹簧入场） */
+:root[data-anim="high"] .detail-overlay {
+  perspective: 1000px;
+}
+
+:root[data-anim="high"] .detail-modal {
+  transform-style: preserve-3d;
+}

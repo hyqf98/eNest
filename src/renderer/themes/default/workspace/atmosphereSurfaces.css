@@ -1,0 +1,2 @@
+:root.has-bg-media.has-bg-atmosphere .page-home .card:not(.is-disabled),
+:root.has-bg-media.has-bg-atmosphere .market-source-notice { background: var(--atmosphere-surface); }

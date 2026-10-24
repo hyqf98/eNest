@@ -81,6 +81,12 @@ export interface HomeSearchEntry {
   enabled?: boolean
   disabled?: boolean
   tags?: string[]
+  aliases?: string[]
+  action?: import('./quick').QuickActionId
+  content?: import('./quick').QuickContentMatch
+  lastUsedTs?: number
+  useCount?: number
+  preferred?: boolean
 }
 
 export interface HomeDetail {
@@ -138,7 +144,7 @@ export interface HomeRuntimeConfig {
 
 export type HomeAction =
   | { type: 'navigate'; route: WorkspaceRoute }
-  | { type: 'activateSearchResult'; handle: string }
+  | { type: 'activateSearchResult'; handle: string; query?: string }
   | { type: 'openPlugin'; pluginId: string }
   | { type: 'openMarket'; pluginId?: string }
   | { type: 'openSettings' }

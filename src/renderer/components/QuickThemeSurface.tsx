@@ -65,6 +65,33 @@ function readAction(value: unknown): QuickThemeAction | null {
     case 'select':
       return hasOnlyKeys(value, ['type', 'id']) && isString(value.id, ITEM_ID_LIMIT)
         ? { type: 'select', id: value.id } : null
+    case 'composition':
+      return hasOnlyKeys(value, ['type', 'active']) && typeof value.active === 'boolean'
+        ? { type: 'composition', active: value.active } : null
+    case 'results': {
+      if (!hasOnlyKeys(value, ['type', 'catalogRevision', 'queryRevision', 'items', 'selectedId', 'hiddenCount', 'emptyMarket', 'expanded'])
+        || !Number.isSafeInteger(value.catalogRevision) || !Number.isSafeInteger(value.queryRevision)
+        || !Array.isArray(value.items) || value.items.length > 100) return null
+      const items: Array<{ id: string; title?: string; group?: string }> = []
+      const seen = new Set<string>()
+      for (const item of value.items) {
+        if (!isRecord(item) || !hasOnlyKeys(item, ['id', 'title', 'group']) || !isString(item.id, ITEM_ID_LIMIT)
+          || seen.has(item.id) || (item.title !== undefined && !isString(item.title, 256))
+          || (item.group !== undefined && !isString(item.group, 64, true))) return null
+        seen.add(item.id)
+        items.push({ id: item.id, ...(typeof item.title === 'string' ? { title: item.title } : {}),
+          ...(typeof item.group === 'string' ? { group: item.group } : {}) })
+      }
+      if (value.selectedId !== undefined && value.selectedId !== null && (!isString(value.selectedId, ITEM_ID_LIMIT) || !seen.has(value.selectedId))) return null
+      if (value.hiddenCount !== undefined && (!Number.isSafeInteger(value.hiddenCount) || Number(value.hiddenCount) < 0 || Number(value.hiddenCount) > 8_192)) return null
+      if (value.emptyMarket !== undefined && typeof value.emptyMarket !== 'boolean') return null
+      if (value.expanded !== undefined && typeof value.expanded !== 'boolean') return null
+      return { type: 'results', catalogRevision: Number(value.catalogRevision), queryRevision: Number(value.queryRevision), items,
+        ...(value.selectedId !== undefined ? { selectedId: value.selectedId as string | null } : {}),
+        ...(value.hiddenCount !== undefined ? { hiddenCount: Number(value.hiddenCount) } : {}),
+        ...(typeof value.emptyMarket === 'boolean' ? { emptyMarket: value.emptyMarket } : {}),
+        ...(typeof value.expanded === 'boolean' ? { expanded: value.expanded } : {}) }
+    }
     case 'open':
       if (!hasOnlyKeys(value, ['type', 'id', 'container']) || !isString(value.id, ITEM_ID_LIMIT)) return null
       if (value.container === undefined) return { type: 'open', id: value.id }
@@ -74,10 +101,14 @@ function readAction(value: unknown): QuickThemeAction | null {
       return hasOnlyKeys(value, ['type', 'expanded']) && typeof value.expanded === 'boolean'
         ? { type: 'expand', expanded: value.expanded } : null
     case 'open-market':
+    case 'open-settings':
+    case 'refresh-apps':
+    case 'retry':
     case 'hide':
     case 'plugin-back':
     case 'plugin-pin':
     case 'plugin-focus':
+    case 'plugin-detach':
       return hasOnlyKeys(value, ['type']) ? { type: value.type } : null
     case 'layout':
       return hasOnlyKeys(value, ['type', 'columns', 'height'])

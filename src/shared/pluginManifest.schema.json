@@ -86,27 +86,18 @@
           "hotkey",
           "contribute",
           "vault.write",
-          "ssh.session",
-          "ssh.exec",
-          "ssh.sftp",
           "db.connect",
           "db.query",
           "db.schema",
           "mw.connect",
           "mw.query",
           "mw.admin",
-          "dsh.connect",
-          "dsh.chat",
-          "dsh.admin",
           "net.socket",
-          "lan.share",
           "fs.rename",
           "fs.read",
           "fs.write",
           "sys.control",
           "ssh.agent",
-          "config.agent.read",
-          "config.agent.write",
           "sys.inspect",
           "theme"
         ]
@@ -415,6 +406,10 @@
                       "type": "string",
                       "minLength": 1
                     },
+                    "shareWithThemes": {
+                      "type": "boolean",
+                      "description": "显式公开此偏好给隔离主题设置页；仅支持布尔、枚举、数字和颜色，不公开文本、凭据、文件路径或独立页面。写入需原生确认。"
+                    },
                     "entry": {
                       "type": "object",
                       "description": "page 入口，缺省 code=settings；始终打开贡献该设置项的插件",
@@ -580,6 +575,47 @@
           "maxLength": 240
         }
       }
+    },
+    "background": {
+      "type": "object",
+      "required": [
+        "entry"
+      ],
+      "properties": {
+        "entry": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^assets/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.html$"
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "clipboard.changed"
+            ]
+          }
+        },
+        "eventSettings": {
+          "type": "object",
+          "maxProperties": 4,
+          "propertyNames": {
+            "enum": [
+              "clipboard.changed"
+            ]
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$"
+          }
+        },
+        "quickSearch": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,
@@ -717,6 +753,12 @@
         },
         "quick": {
           "$ref": "#/$defs/themeQuick"
+        },
+        "settingsPage": {
+          "$ref": "#/$defs/themeQuick"
+        },
+        "chrome": {
+          "$ref": "#/$defs/themeChrome"
         }
       }
     },
@@ -2149,6 +2191,77 @@
           }
         }
       ]
+    },
+    "themeChrome": {
+      "type": "object",
+      "required": [
+        "version"
+      ],
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "classic"
+          ]
+        },
+        {
+          "required": [
+            "rail"
+          ]
+        },
+        {
+          "required": [
+            "dock"
+          ]
+        }
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "classic": {
+          "type": "object",
+          "required": [
+            "entry"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "entry": {
+              "type": "string",
+              "maxLength": 240,
+              "pattern": "^(?:(?!(?:backend|runtime|node_modules|src|tests?)/)[A-Za-z0-9_@-]+/)*[A-Za-z0-9_-]+\\.html$"
+            }
+          }
+        },
+        "rail": {
+          "type": "object",
+          "required": [
+            "entry"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "entry": {
+              "type": "string",
+              "maxLength": 240,
+              "pattern": "^(?:(?!(?:backend|runtime|node_modules|src|tests?)/)[A-Za-z0-9_@-]+/)*[A-Za-z0-9_-]+\\.html$"
+            }
+          }
+        },
+        "dock": {
+          "type": "object",
+          "required": [
+            "entry"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "entry": {
+              "type": "string",
+              "maxLength": 240,
+              "pattern": "^(?:(?!(?:backend|runtime|node_modules|src|tests?)/)[A-Za-z0-9_@-]+/)*[A-Za-z0-9_-]+\\.html$"
+            }
+          }
+        }
+      }
     }
   },
   "allOf": [

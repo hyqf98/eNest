@@ -10,7 +10,7 @@ import { disposeNativeClipboard } from '@main/clipboard/nativeClipboard'
  * 关键依赖：hardwareAcceleration、pathsService、migrate、sqliteService、themePacks、
  * PluginRegistry、PluginHost、SettingsStore、createShellWindow。
  */
-import { app, BaseWindow, globalShortcut, Notification, protocol } from 'electron'
+import { app, BaseWindow, globalShortcut, Notification } from 'electron'
 import { APP_NAME } from '@shared/constants'
 if (process.env.ENEST_TEST_USER_DATA) app.setPath('userData', process.env.ENEST_TEST_USER_DATA)
 // macOS Dock 的名称来自开发 bundle 的 Info.plist；Electron API/菜单另行统一。
@@ -51,7 +51,6 @@ import { registerQuickHandlers } from '@main/ipc/quickHandlers'
 import { registerPluginWindowHandlers } from '@main/ipc/pluginWindowHandlers'
 import { cancelPluginWindowDrag } from '@main/window/pluginWindowDrag'
 import { destroyAllDetachedWindows } from '@main/window/detachedPluginWindows'
-import { disposeQuickPatternMatching } from '@main/launcher/quickPatternMatching'
 import { initQuickHotkeys, disposeQuickHotkeys } from '@main/hotkey/quickHotkey'
 import {
   initPluginLaunchHotkeys,
@@ -59,13 +58,11 @@ import {
 } from '@main/hotkey/pluginLaunchHotkeys'
 import { scanApplications } from '@main/launcher/appScanner'
 import { initUpdateService } from '@main/update/updateService'
-import {
-  revalidateClipboardPolling,
-  stopClipboardHistory
-} from '@main/clipboard/clipboardHistory'
+import { startPluginBackgrounds, disposePluginBackgrounds } from '@main/plugin/pluginBackgroundRuntime'
+import { stopClipboardChanges } from '@main/clipboard/clipboardNativeEvents'
 import { disposePluginInstallWorkers } from '@main/plugin/pluginInstallTasks'
-import { disposeScreenService, finishRecordingsForShutdown } from '@main/screen/screenService'
-import { disposePinService } from '@main/pin/pinService'
+import { registerAuxiliaryHandlers, disposeAuxiliaryWindows } from '@main/window/pluginAuxiliaryWindows'
+import { disposeFileStreams } from '@main/plugin/pluginFileStreams'
 import {
   destroyHomeSurface,
   homeSurfaceManager,
@@ -73,13 +70,11 @@ import {
   prewarmHomeSurface
 } from '@main/home/HomeSurfaceManager'
 import { registerHomeIpc } from '@main/home/homeIpc'
-import { initFocusTimers, shutdownFocusTimers, shutdownFocusTimersSync, stopFocusTimer } from '@main/timer/focusTimerService'
+import { initDeadlineTasks, shutdownDeadlineTasks, shutdownDeadlineTasksSync } from '@main/timer/deadlineTaskService'
+import { permissionService } from '@main/plugin/PermissionService'
+import { registerThemeSettingsHandlers } from '@main/theme/themeSettingsSurface'
 
 registerSchemesAsPrivileged()
-protocol.registerSchemesAsPrivileged([{
-  scheme: 'enest-home',
-  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
-}])
 
 // 硬件加速必须在 app ready 之前根据 settings.json 决策
 applyHardwareAccelerationBeforeReady()
@@ -142,7 +137,7 @@ function handleFatalSignal(sig: NodeJS.Signals | string): void {
     /* ignore */
   }
   try {
-    shutdownFocusTimersSync()
+    shutdownDeadlineTasksSync()
     pluginHost.prepareSessionShutdown()
     flushAll()
     settingsStore.flushNow()
@@ -240,21 +235,18 @@ void app.whenReady().then(async () => {
     await restoreDevPlugins()
     logInfo('main', 'dev plugins restored')
     try {
-      await initFocusTimers((event) => {
+      await initDeadlineTasks((event) => {
         if (event.type === 'change') {
-          if (!pluginRegistry.isEnabled(event.pluginId) && event.snapshot.state.status !== 'idle') {
-            void stopFocusTimer(event.pluginId).catch(error => logWarn('timer', String(error)))
-            return
-          }
-          pluginHost.sendEvent(event.pluginId, { type: 'focus-timer-change', snapshot: event.snapshot })
+          pluginHost.sendEvent(event.pluginId, { type: 'deadline-task-change', taskId: event.taskId })
         } else {
           const manifest = pluginRegistry.getManifest(event.pluginId)
-          if (!pluginRegistry.isEnabled(event.pluginId) || !manifest?.permissions?.includes('notify') || settingsStore.getPermissionGrant(event.pluginId, 'notify') === 'deny') return
+          if (!pluginRegistry.isEnabled(event.pluginId) || !manifest?.permissions?.includes('notify')
+            || settingsStore.getPermissionGrant(event.pluginId, 'notify') !== 'allow' && !permissionService.isGranted(event.pluginId, 'notify')) return
           new Notification({ title: event.title, body: event.body })
             .on('failed', (_event, reason) => logWarn('timer', `notification failed: ${reason}`))
             .show()
         }
-      })
+      }, id => pluginRegistry.isEnabled(id))
     } catch (error) { logWarn('timer', `initialization failed: ${String(error)}`) }
     initPluginProtocol()
     logInfo('main', 'protocol ok')
@@ -327,6 +319,8 @@ void app.whenReady().then(async () => {
     registerPluginHandlers()
     registerQuickHandlers()
     registerPluginWindowHandlers()
+    registerAuxiliaryHandlers()
+    registerThemeSettingsHandlers()
     registerHomeIpc(homeSurfaceManager)
     logInfo('main', 'ipc ok')
     startPluginMemoryMonitor()
@@ -340,8 +334,8 @@ void app.whenReady().then(async () => {
     void scanApplications(false)
     logInfo('main', 'quick launcher ok')
 
-    revalidateClipboardPolling()
-    logInfo('main', 'clipboard history ok')
+    startPluginBackgrounds()
+    logInfo('main', 'plugin backgrounds ready (lazy)')
 
     initUpdateService()
     logInfo('main', 'update service ok')
@@ -381,10 +375,10 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   pluginHost.prepareSessionShutdown()
   cancelPluginWindowDrag()
-  // Ordinary runtime cleanup takes 1.5s; recording finalization owns a separate 10s limit.
+  // Plugins receive the same bounded lifecycle grace; no business-specific shutdown services run in main.
   const forceTimer = setTimeout(() => {
     logWarn('main', 'before-quit cleanup timeout → force exit')
-    try { shutdownFocusTimersSync() } catch { /* forced exit: best effort */ }
+    try { shutdownDeadlineTasksSync() } catch { /* forced exit: best effort */ }
     releaseAllGlobalShortcutsSync()
     app.exit(0)
   }, 12_000)
@@ -394,19 +388,21 @@ app.on('before-quit', (event) => {
   // 每插件启动热键显式簿记释放（releaseAllGlobalShortcutsSync 兜底仍生效）
   releaseAllPluginLaunchHotkeys()
   releaseAllGlobalShortcutsSync()
-  stopClipboardHistory()
+  disposePluginBackgrounds()
+  stopClipboardChanges()
   disposeNativeClipboard()
-  disposePinService()
   // 壳统一通知：应用即将退出（插件随后收到 beforeClose(app-quit)）
   broadcastNotice('app.before-quit', { reason: 'quit' })
   destroyHomeSurface()
   // 先 destroyAll 再销毁 Quick 小窗：Quick 内嵌插件的 webContents 仍存活，
   // 能真正收到 beforeClose 并 flush；若先毁小窗，向已销毁目标只能空等 ack
-  void Promise.allSettled([pluginHost.destroyAll(), disposePluginInstallWorkers(), disposeQuickPatternMatching(), shutdownFocusTimers().catch(error => logWarn('timer', `shutdown save failed: ${String(error)}`))])
-    .then(() => finishRecordingsForShutdown())
+  void Promise.allSettled([pluginHost.destroyAll(), disposePluginInstallWorkers(), shutdownDeadlineTasks().catch(error => logWarn('timer', `shutdown save failed: ${String(error)}`))])
     .catch((error) => logWarn('main', `shutdown cleanup failed: ${String(error)}`))
     .then(() => {
-      disposeScreenService()
+      disposeAuxiliaryWindows()
+      return disposeFileStreams()
+    })
+    .then(() => {
       destroyQuickWindow()
       destroyAllDetachedWindows()
     })

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-24T07:26:27.028Z",
+  "label": "cleanup-css-final-44.9.3",
+  "ownedTemporaryProfile": "<exact-profile-created-by-this-run>",
+  "profileExists": false,
+  "profileRemovedIndependentlyVerified": true,
+  "knownPidCount": 16,
+  "knownPids": [
+    2758,
+    2759,
+    2760,
+    2768,
+    2770,
+    2772,
+    2811,
+    2812,
+    2813,
+    2814,
+    2816,
+    2817,
+    2828,
+    2829,
+    2846,
+    2934
+  ],
+  "stillPresentKnownPids": [],
+  "scope": "Exact owned profile existence and previously observed performance/UI PIDs only; no deletion, broad process kill, or proof covering unobserved OS children.",
+  "productionSourceFrozen": true,
+  "finalNativeExitCode": 0
+}

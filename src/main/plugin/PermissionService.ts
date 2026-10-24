@@ -19,7 +19,18 @@ interface Request {
   resolve: (allowed: boolean) => void
   cleanup: () => void
   controller: AbortController
+  sourceSignal?: AbortSignal
   settled: boolean
+}
+
+function waitForConsent<T>(pending: Promise<T>, signal: AbortSignal): Promise<T | null> {
+  return new Promise((resolve, reject) => {
+    const abort = (): void => { signal.removeEventListener('abort', abort); resolve(null) }
+    signal.addEventListener('abort', abort, { once: true })
+    if (signal.aborted) abort()
+    void pending.then(value => { signal.removeEventListener('abort', abort); resolve(value) },
+      error => { signal.removeEventListener('abort', abort); reject(error) })
+  })
 }
 
 export class PermissionService {
@@ -42,27 +53,28 @@ export class PermissionService {
   }
 
   /** Callers verify the manifest and sender before asking the host to arbitrate consent. */
-  request(pluginId: string, permission: PluginPermission, _summary: string, osHint?: 'system-pending' | 'denied'): Promise<boolean> {
+  request(pluginId: string, permission: PluginPermission, _summary: string, osHint?: 'system-pending' | 'denied', signal?: AbortSignal): Promise<boolean> {
+    if (signal?.aborted) return Promise.resolve(false)
     if (isBuiltinCapability(permission)) return Promise.resolve(true)
     const scope = getRuntimeScope(pluginId)
     if (!PLUGIN_PERMISSIONS.includes(permission) || !scope?.isCurrent() || scope.isClosing) return Promise.resolve(false)
     const decision = this.decision(scope, permission)
     if (decision !== undefined) return Promise.resolve(decision)
-    const pending = [this.active, ...this.queue].find(item => item && !item.settled && item.scope === scope && item.permission === permission)
+    const pending = [this.active, ...this.queue].find(item => item && !item.settled && item.scope === scope && item.permission === permission && item.sourceSignal === signal)
     if (pending) return pending.promise
     if (this.queue.length >= 64 || this.queue.filter(item => item.pluginId === pluginId).length >= 8) return Promise.resolve(false)
 
     let resolve!: Request['resolve']
     const promise = new Promise<boolean>(done => { resolve = done })
     const releaseActivity = scope.acquireActivity('plugin permission request')
-    const request: Request = { pluginId, permission, osHint, scope, promise, resolve, cleanup: () => {}, controller: new AbortController(), settled: false }
+    const request: Request = { pluginId, permission, osHint, scope, promise, resolve, cleanup: () => {}, controller: new AbortController(), sourceSignal: signal, settled: false }
     const abort = (): void => {
-      this.settle(request, false)
-      request.controller.abort()
-      this.queue = this.queue.filter(item => item !== request)
+      this.cancelRequest(request)
     }
-    request.cleanup = () => { scope.signal.removeEventListener('abort', abort); releaseActivity() }
+    request.cleanup = () => { scope.signal.removeEventListener('abort', abort); signal?.removeEventListener('abort', abort); releaseActivity() }
     scope.signal.addEventListener('abort', abort, { once: true })
+    signal?.addEventListener('abort', abort, { once: true })
+    if (scope.signal.aborted || signal?.aborted || !scope.isCurrent() || scope.isClosing) { abort(); return promise }
     this.queue.push(request)
     void this.presentNext()
     return promise
@@ -75,10 +87,10 @@ export class PermissionService {
     request.resolve(allowed)
   }
 
-  private cancelPending(scope: PluginRuntimeScope): void {
-    for (const request of this.queue.filter(item => item.scope === scope)) this.settle(request, false)
-    this.queue = this.queue.filter(item => item.scope !== scope)
-    if (this.active?.scope === scope) { this.settle(this.active, false); this.active.controller.abort() }
+  private cancelRequest(request: Request): void {
+    this.settle(request, false)
+    request.controller.abort()
+    this.queue = this.queue.filter(item => item !== request)
   }
 
   private async presentNext(): Promise<void> {
@@ -111,7 +123,7 @@ export class PermissionService {
       const releaseWindow = pluginHost.acquireWindowInteraction(request.pluginId)
       const releaseQuick = acquireQuickInteraction()
       releaseInteraction = () => { releaseWindow(); releaseQuick() }
-      timer = setTimeout(() => { this.cancelPending(request.scope) }, 60_000)
+      timer = setTimeout(() => { this.cancelRequest(request) }, 60_000)
       timer.unref?.()
       const detail = [
         `插件 ID：${request.pluginId}`,
@@ -125,14 +137,14 @@ export class PermissionService {
         ...(request.osHint || permissions.some(permission => permission === 'screen.capture' || permission === 'screen.record')
           ? ['屏幕等系统权限仍需在操作系统中授权。'] : [])
       ].join('\n')
-      const response = await dialog.showMessageBox(win, {
+      const response = await waitForConsent(dialog.showMessageBox(win, {
         type: 'question', title: 'eNest 插件授权',
         message: `允许「${manifest.name || request.pluginId}」使用以下能力？`,
         detail,
         buttons: ['暂不允许', '本次运行允许', '授权并记住'], defaultId: 0, cancelId: 0, noLink: true,
         signal: request.controller.signal
-      })
-      if (request.settled || request.controller.signal.aborted || !request.scope.isCurrent() || request.scope.isClosing) return
+      }), request.controller.signal)
+      if (!response || request.settled || request.controller.signal.aborted || !request.scope.isCurrent() || request.scope.isClosing) return
       if (response.response !== 0 && response.response !== 1 && response.response !== 2) { this.settle(request, false); return }
       if (response.response === 2) {
         for (const permission of permissions) {
@@ -140,15 +152,15 @@ export class PermissionService {
           // A decision changed through Settings while the dialog was open takes precedence.
           if (this.decision(request.scope, permission) === undefined) await settingsStore.setPermissionGrant(request.pluginId, permission, 'allow')
         }
-        const { revalidateClipboardPolling } = await import('@main/clipboard/clipboardHistory')
-        revalidateClipboardPolling()
+        const { refreshPluginBackgrounds } = await import('@main/plugin/pluginBackgroundRuntime')
+        refreshPluginBackgrounds()
       } else {
         const decisions = this.runtimeDecisions.get(request.scope) ?? new Map<PluginPermission, boolean>()
         for (const permission of permissions) if (this.decision(request.scope, permission) === undefined) decisions.set(permission, response.response === 1)
         this.runtimeDecisions.set(request.scope, decisions)
       }
       this.settle(request, this.decision(request.scope, request.permission) === true)
-    } catch (error) { logWarn('permission', String(error)); this.cancelPending(request.scope) }
+    } catch (error) { logWarn('permission', String(error)); this.cancelRequest(request) }
     finally {
       this.settle(request, false)
       releaseInteraction()

@@ -1,0 +1,64 @@
+/* ========== 按钮发光（glow）分档 ==========
+   追加规则：不修改 .chip.active / .segmented button.active 基础样式；
+   光晕仅 hover/focus 出现；low 档 --glow-strength:0 自然失效。
+   Apple 基线下光晕应更收敛，避免塑料发光。 */
+
+/* 主 CTA：极轻外沿光 */
+:root[data-anim="high"] .btn-primary:not(:disabled) {
+  transition: box-shadow 0.26s ease, transform 0.22s cubic-bezier(0.22, 1.3, 0.36, 1), filter 0.2s;
+}
+
+:root[data-anim="high"] .btn-primary:not(:disabled):hover,
+:root[data-anim="high"] .btn-primary:not(:disabled):focus-visible {
+  transform: translateZ(0);
+  box-shadow:
+    inset 0 0.5px 0 color-mix(in srgb, #fff 26%, transparent),
+    0 0 0 2.5px color-mix(in srgb, var(--glow-color) calc(var(--glow-strength) * 28%), transparent),
+    0 2px calc(10px * var(--glow-strength, 0.7) + 2px)
+      color-mix(in srgb, var(--glow-color) calc(var(--glow-strength) * 22%), transparent);
+}
+
+/* ghost / danger 按钮 + 底部悬浮钮：聚焦型轻光晕（贴边 + 小外扩） */
+:root[data-anim="high"] .btn-ghost,
+:root[data-anim="high"] .btn-danger,
+:root[data-anim="high"] .float-btn {
+  transition: box-shadow 0.24s ease, transform 0.22s cubic-bezier(0.22, 1.3, 0.36, 1);
+}
+
+:root[data-anim="high"] .btn-ghost:hover,
+:root[data-anim="high"] .btn-ghost:focus-visible,
+:root[data-anim="high"] .btn-danger:hover:not(:disabled),
+:root[data-anim="high"] .btn-danger:focus-visible:not(:disabled),
+:root[data-anim="high"] .float-btn:hover,
+:root[data-anim="high"] .float-btn:focus-visible {
+  transform: translateZ(0);
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--glow-color) calc(var(--glow-strength) * 22%), transparent);
+}
+
+/* 选中态 chip / 分段：叠加极轻光环（不改基础配色） */
+:root[data-anim="high"] .chip.active {
+  box-shadow:
+    inset 0 0.5px 0 color-mix(in srgb, #fff 24%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--glow-color) calc(var(--glow-strength) * 24%), transparent);
+}
+
+:root[data-anim="high"] .segmented button.active {
+  box-shadow:
+    0 0.5px 1px rgba(15, 23, 42, 0.04),
+    inset 0 0 0 0.5px color-mix(in srgb, var(--border) 70%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--glow-color) calc(var(--glow-strength) * 18%), transparent);
+}
+
+/* 危险操作：danger 光晕 */
+:root[data-anim="high"] .btn-danger:hover:not(:disabled),
+:root[data-anim="high"] .btn-danger:focus-visible:not(:disabled) {
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--danger) calc(var(--glow-strength) * 24%), transparent);
+}
+
+/* medium：主 CTA hover 极轻外沿 */
+:root[data-anim="medium"] .btn-primary:not(:disabled):hover,
+:root[data-anim="medium"] .btn-primary:not(:disabled):focus-visible {
+  box-shadow:
+    inset 0 0.5px 0 color-mix(in srgb, #fff 26%, transparent),
+    0 0 0 2.5px color-mix(in srgb, var(--glow-color) calc(var(--glow-strength) * 26%), transparent);
+}

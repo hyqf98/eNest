@@ -1,5 +1,5 @@
 /** 原生子视图在标题栏下面，展开状态与内容起点由 ShellLayout 同步。 */
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { TabStrip } from '@renderer/layout/TabStrip'
 import { shellApi } from '@renderer/services/shellApi'
@@ -22,6 +22,8 @@ interface TitleBarProps {
 
 export function TitleBar({ autoHide = false, revealed = false, onReveal, onCollapse, onMotionStart, onMotionComplete }: TitleBarProps) {
   const headerRef = useRef<HTMLElement>(null)
+  const defaultTabsRef = useRef<HTMLDivElement>(null)
+  const [customClassicReady, setCustomClassicReady] = useState(false)
   const tabStyle = useAppearanceStore((state) => state.appearance.layout.tabStyle)
   const activePluginTitle = useShellStore((state) => state.view === 'plugin'
     ? state.tabs.find(tab => tab.id === state.activeTabId)?.title ?? ''
@@ -82,6 +84,18 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
   }, [interaction])
 
   useEffect(() => { if (!autoHide) interaction.reset() }, [autoHide, interaction])
+  useEffect(() => shellApi.onEvent(event => {
+    if (!autoHide || event.type !== 'titlebar-native-hover') return
+    if (event.inside) interaction.enter()
+    else interaction.leave()
+  }), [autoHide, interaction])
+  useEffect(() => shellApi.onEvent(event => {
+    if (event.type === 'theme-chrome-status' && event.surface === 'classic') setCustomClassicReady(event.ready)
+  }), [])
+  useLayoutEffect(() => {
+    // Keep the fallback mounted for instant recovery, but never leave hidden focus targets.
+    defaultTabsRef.current?.toggleAttribute('inert', customClassicReady)
+  }, [customClassicReady, tabStyle])
 
   const className = [
     'titlebar',
@@ -140,12 +154,18 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
         {tabStyle === 'orb' ? <>
           <div className="titlebar-spacer" aria-hidden="true" />
           {activePluginTitle && <span className="titlebar-plugin-name" title={activePluginTitle}>{activePluginTitle}</span>}
-        </> : <TabStrip />}
+        </> : <div ref={defaultTabsRef} className={`titlebar-default-tabs${customClassicReady ? ' is-replaced' : ''}`}
+          aria-hidden={customClassicReady || undefined}>
+          <TabStrip />
+        </div>}
       </header>
       {autoHide && (
         <div className="titlebar-hotzone" aria-label="显示窗口标题栏" role="button" tabIndex={revealed ? -1 : 0}
           onClick={focusTitlebar} onFocus={focusTitlebar}
           onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); focusTitlebar() } }} />
+      )}
+      {customClassicReady && tabStyle === 'classic' && (
+        <div className="titlebar-custom-chrome-hit-region" aria-hidden="true" />
       )}
     </div>
   )

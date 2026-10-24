@@ -1,0 +1,10 @@
+@media (max-width: 400px) {
+
+  .theme-row {
+    gap: 8px;
+  }
+
+  .path-actions .btn {
+    flex: 1 1 auto;
+  }
+}

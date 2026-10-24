@@ -8,8 +8,8 @@ import { createDefaultWorkspaceController } from '@renderer/themes/default/Works
 import '@renderer/styles/tokens.css'
 import '@renderer/styles/base.css'
 import '@renderer/styles/app.css'
-import '@renderer/styles/detail.css'
-import '@renderer/styles/market.css'
+import '@renderer/themes/default/workspace/detail.css'
+import '@renderer/themes/default/workspace/market.css'
 import '@renderer/styles/appearance.css'
 
 const container = document.getElementById('home-root')

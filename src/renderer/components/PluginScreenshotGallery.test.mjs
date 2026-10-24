@@ -16,7 +16,7 @@ const result = await build({
     import React from 'react';
     import { createRoot } from 'react-dom/client';
     import { flushSync } from 'react-dom';
-    import { PluginScreenshotGallery } from '@renderer/components/PluginScreenshotGallery';
+    import { PluginScreenshotGallery } from '@renderer/themes/default/workspace/PluginScreenshotGallery';
     const root = createRoot(document.getElementById('app'));
     window.renderGallery = (screenshots, name = 'Fixture') => flushSync(() => root.render(<PluginScreenshotGallery name={name} screenshots={screenshots} />));
     window.parentEscapes = 0;
@@ -60,7 +60,7 @@ test('detail gallery navigates real images and preview, isolates Escape, and han
     await page.setContent(`<html data-theme="light" data-anim="medium"><head><style>
       :root { --surface: #fff; --surface-2: #f0f0ee; --surface-3: #e4e4e1; --text: #222; --text-2: #555; --text-3: #666; --border: #ddd; --border-strong: #bbb; --link: #2464ba; --bg: #eee; --radius-lg: 12px; }
       * { box-sizing: border-box; } body { margin: 0; padding: 24px; } #app { max-width: 800px; margin: auto; }
-      ${readFileSync('src/renderer/styles/detail.css', 'utf8')}
+      ${readFileSync('src/renderer/themes/default/workspace/detail.css', 'utf8')}
     </style></head><body><div id="app"></div></body></html>`)
     await page.addScriptTag({ content: result.outputFiles[0].text })
     await page.evaluate(pictures => window.renderGallery(pictures), pictures)

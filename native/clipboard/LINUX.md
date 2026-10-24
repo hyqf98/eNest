@@ -35,9 +35,9 @@ portal 参考协议：
 
 Debian/Ubuntu **构建机**依赖：`build-essential pkg-config patchelf libglib2.0-dev libjson-glib-dev libx11-dev libxtst-dev`。运行 `node native/clipboard/build.mjs`，会编译 helper，并将 `ldd` 解析出的全部非 glibc 直接/间接共享库放进 `native/bin/lib`。helper 的 RUNPATH 为 `$ORIGIN/lib`，每个共享库的 RUNPATH 为 `$ORIGIN`，所以间接依赖也不依赖系统的 json-glib、GLib 或 XTest 安装。不会调用用户的 xclip、xdotool、wl-copy 等 CLI。
 
-打包器已有 `native/bin → Resources/native` 的递归 extraResources 规则，因而会一起携带库、`linux-dependencies.json`（架构、构建 glibc、文件 SHA-256、Debian 源包版本）和可取得的 upstream 许可证说明。构建时缺失库、解析失败或打包后仍从系统解析非 glibc 库会直接失败；临时构建目录在完成或失败后删除。GIO 的扩展目录在 bundle 内隔离为空目录，避免加载另一发行版的插件模块。
+打包器通过 Linux 专属 extraResources 过滤规则把 `clipboard-helper`、`lib/`、`licenses/`、`linux-dependencies.json` 和许可证说明复制到 `resources/native`，不会混入 macOS helper 或 Windows PowerShell 脚本。清单记录架构、构建 glibc、文件 SHA-256 与 Debian 源包版本。打包后再次核验 ELF/CPU 架构、依赖摘要及 glibc 2.35 构建基线；本机只有 Mach-O 时必须失败，不能冒充 Linux 发行包。构建时缺失库、解析失败或打包后仍从系统解析非 glibc 库会直接失败；临时构建目录在完成或失败后删除。GIO 的扩展目录在 bundle 内隔离为空目录，避免加载另一发行版的插件模块。
 
-glibc 与 ELF loader 必须配套，**不随应用覆盖**。发布应在最低支持的 glibc 基线上，按 x64 / arm64 各自构建；`ENEST_NATIVE_ARCH` 或 `npm_config_arch` 与 builder 架构不符会拒绝构建。下面的可复现隔离构建使用 Debian 12（glibc 2.36）；它不承诺支持更旧 glibc 或 musl/Alpine。需要更旧发行版时应替换为经过相同验证的较旧 glibc builder。macOS 生成的 helper 不能直接用于 Linux 发行包。
+glibc 与 ELF loader 必须配套，**不随应用覆盖**。发布应在最低支持的 glibc 基线上，按 x64 / arm64 各自构建；`ENEST_NATIVE_ARCH` 或 `npm_config_arch` 与 builder 架构不符会拒绝构建。下面的可复现隔离构建使用 Debian 12（glibc 2.36），仅用于 helper 的历史隔离验证，**不能作为当前要求 glibc <=2.35 的发行输入**；正式发布使用 Ubuntu 22.04 等满足基线并经过相同闭包验证的构建环境。这些结果不承诺 musl/Alpine 支持。macOS 生成的 helper 不能直接用于 Linux 发行包。
 
 在仓库根目录运行下面的多阶段容器验证：构建阶段安装开发依赖，验证阶段对 bundle 运行 Xvfb / portal 测试，最终 runtime 阶段直接复制 bundle 到干净 Debian 基础镜像，**不运行 apt 安装任何库或 CLI**。
 

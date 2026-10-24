@@ -27,6 +27,8 @@ export type PluginProcessKind = 'renderer' | 'backend' | 'development' | 'runtim
 
 export interface PluginMemoryProcess {
   pid: number
+  /** Unix milliseconds; null when unavailable. Used to distinguish a reused PID. */
+  startedAt?: number | null
   kind: PluginProcessKind | 'host'
   pluginIds: string[]
   shared: boolean

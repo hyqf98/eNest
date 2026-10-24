@@ -5,11 +5,15 @@ import { lstat, open, realpath, readdir, rename, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { app, dialog, nativeImage, shell } from 'electron'
 import type { LocalFileHandle, LocalFilePickOptions } from '@shared/types/local-files'
+import type { ClipboardFileInspection } from '@shared/types/plugin-tools'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { acquireQuickInteraction } from '@main/window/createQuickWindow'
 import { acquirePluginActivity } from '@main/plugin/activityRegistry'
 
 interface Grant { path: string; root: string; writable: boolean; temporary: boolean; pendingCreate?: boolean }
+/** Internal native-backend lifetime guard; never accepted from renderer options. */
+export interface LocalFileOperationControl { signal?: AbortSignal; assertCurrent?: () => void }
+export type LocalFilePickerControl = LocalFileOperationControl
 const grants = new Map<string, Map<string, Grant>>()
 const exportsByPlugin = new Map<string, Map<string, { paths: string[]; icon: Electron.NativeImage; expiresAt: number }>>()
 const activeDrags = new Map<string, () => void>()
@@ -30,14 +34,38 @@ function inside(root: string, target: string): boolean {
   return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`))
 }
 
+function pickerGuard(pluginId: string, control: LocalFilePickerControl): () => void {
+  const assertOwner = guardOwner(pluginId)
+  return () => {
+    assertOwner()
+    if (control.signal?.aborted) throw new Error('file picker cancelled')
+    control.assertCurrent?.()
+  }
+}
+
+function waitForPicker<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return pending
+  // Open/save dialogs have no cross-platform programmatic cancellation API.
+  // Detach the operation immediately; a late native response must not mint a grant.
+  return new Promise((resolve, reject) => {
+    const abort = () => { signal.removeEventListener('abort', abort); reject(new Error('file picker cancelled')) }
+    signal.addEventListener('abort', abort, { once: true })
+    if (signal.aborted) abort()
+    void pending.then(value => { signal.removeEventListener('abort', abort); resolve(value) },
+      error => { signal.removeEventListener('abort', abort); reject(error) })
+  })
+}
+
 export async function grantLocalFile(
-  pluginId: string, path: string, options: { writable?: boolean; temporary?: boolean } = {}
+  pluginId: string, path: string, options: { writable?: boolean; temporary?: boolean } = {}, assertCurrent?: () => void
 ): Promise<LocalFileHandle> {
   const assertOwner = guardOwner(pluginId)
+  assertCurrent?.()
   if (!path || !isAbsolute(path)) throw new Error('an absolute selected path is required')
   const canonical = await realpath(path)
   const info = await stat(canonical)
   assertOwner()
+  assertCurrent?.()
   if (!info.isFile() && !info.isDirectory()) throw new Error('unsupported file type')
   const id = randomUUID()
   const bag = grants.get(pluginId) ?? new Map<string, Grant>()
@@ -109,8 +137,9 @@ export async function readLocalFile(pluginId: string, input: { handleId: string;
   }
 }
 
-export async function pickLocalFiles(pluginId: string, options: LocalFilePickOptions = {}): Promise<LocalFileHandle[]> {
-  const assertOwner = guardOwner(pluginId)
+export async function pickLocalFiles(pluginId: string, options: LocalFilePickOptions = {}, control: LocalFilePickerControl = {}): Promise<LocalFileHandle[]> {
+  const assertOwner = pickerGuard(pluginId, control)
+  assertOwner()
   const kind = options.kind ?? 'file'
   if (options.access !== undefined && !['read', 'write'].includes(options.access)) throw new Error('invalid file access')
   if (!['file', 'directory', 'any'].includes(kind)) throw new Error('invalid selection kind')
@@ -132,18 +161,44 @@ export async function pickLocalFiles(pluginId: string, options: LocalFilePickOpt
     releaseActivity()
   }
   pickers.add(release)
+  const created: string[] = []
+  const rollback = (): void => { for (const id of created) grants.get(pluginId)?.delete(id) }
+  const abort = (): void => { rollback(); release() }
+  control.signal?.addEventListener('abort', abort, { once: true })
   try {
+    assertOwner()
     const parent = pluginHost.getContainerWindow(pluginId)
-    const result = parent ? await dialog.showOpenDialog(parent, { properties, title: options.access === 'write' ? '选择允许插件修改的文件或目录' : '选择允许插件读取的文件或目录' }) : await dialog.showOpenDialog({ properties, title: options.access === 'write' ? '选择允许插件修改的文件或目录' : '选择允许插件读取的文件或目录' })
+    const nativeResult = parent ? dialog.showOpenDialog(parent, { properties, title: options.access === 'write' ? '选择允许插件修改的文件或目录' : '选择允许插件读取的文件或目录' }) : dialog.showOpenDialog({ properties, title: options.access === 'write' ? '选择允许插件修改的文件或目录' : '选择允许插件读取的文件或目录' })
+    const result = await waitForPicker(nativeResult, control.signal)
     assertOwner()
     if (result.canceled) return []
-    return await Promise.all(result.filePaths.map((path) => grantLocalFile(pluginId, path, { writable: options.access === 'write' })))
-  } finally { release() }
+    const results = await Promise.allSettled(result.filePaths.map(async path => {
+      const handle = await grantLocalFile(pluginId, path, { writable: options.access === 'write' }, assertOwner)
+      created.push(handle.id)
+      try { assertOwner(); return handle }
+      catch (error) { grants.get(pluginId)?.delete(handle.id); throw error }
+    }))
+    assertOwner()
+    const failure = results.find(result => result.status === 'rejected')
+    if (failure?.status === 'rejected') throw failure.reason
+    return results.map(result => (result as PromiseFulfilledResult<LocalFileHandle>).value)
+  } catch (error) {
+    rollback()
+    throw error
+  } finally { control.signal?.removeEventListener('abort', abort); release() }
 }
 
 /** A save picker grants exactly one new or existing destination, never its siblings. */
-export async function pickLocalSaveFile(pluginId: string, options: { defaultName?: string } = {}): Promise<LocalFileHandle | null> {
-  const assertOwner = guardOwner(pluginId), parent = pluginHost.getContainerWindow(pluginId)
+export async function pickLocalSaveFile(pluginId: string, options: { defaultName?: string } = {}, control: LocalFilePickerControl = {}): Promise<LocalFileHandle | null> {
+  if (options.defaultName !== undefined && (typeof options.defaultName !== 'string' || options.defaultName.length > 255 || options.defaultName.includes('\0'))) {
+    throw new Error('invalid default file name')
+  }
+  const suggestedName = options.defaultName ? basename(options.defaultName) : undefined
+  if (suggestedName !== undefined && (!suggestedName || suggestedName === '.' || suggestedName === '..')) {
+    throw new Error('invalid default file name')
+  }
+  const assertOwner = pickerGuard(pluginId, control), parent = pluginHost.getContainerWindow(pluginId)
+  assertOwner()
   const releaseWindow = pluginHost.acquireWindowInteraction(pluginId)
   const releaseActivity = acquirePluginActivity(pluginId, `picker:${randomUUID()}`, '选择文件保存位置')
   const releaseFocus = acquireQuickInteraction()
@@ -157,9 +212,15 @@ export async function pickLocalSaveFile(pluginId: string, options: { defaultName
     releaseWindow(); releaseFocus(); releaseActivity()
   }
   pickers.add(release)
+  control.signal?.addEventListener('abort', release, { once: true })
   try {
-    const input = { title: '选择允许插件写入的文件', defaultPath: basename(options.defaultName || 'database.sqlite') }
-    const answer = parent ? await dialog.showSaveDialog(parent, input) : await dialog.showSaveDialog(input)
+    assertOwner()
+    const input = {
+      title: '选择允许插件写入的文件',
+      ...(suggestedName ? { defaultPath: suggestedName } : {})
+    }
+    const nativeResult = parent ? dialog.showSaveDialog(parent, input) : dialog.showSaveDialog(input)
+    const answer = await waitForPicker(nativeResult, control.signal)
     assertOwner()
     if (answer.canceled || !answer.filePath) return null
     const path = resolve(await realpath(dirname(answer.filePath)), basename(answer.filePath))
@@ -171,7 +232,7 @@ export async function pickLocalSaveFile(pluginId: string, options: { defaultName
     bag.set(id, { path, root: path, writable: true, temporary: false, pendingCreate: !info })
     grants.set(pluginId, bag)
     return { id, name: basename(path), kind: 'file', size: info?.size ?? 0, displayPath: path }
-  } finally { release() }
+  } finally { control.signal?.removeEventListener('abort', release); release() }
 }
 
 /** Resolve a child target without following an existing symlink out of a chosen directory. */
@@ -241,6 +302,29 @@ export async function revealLocalFile(pluginId: string, handleId: string): Promi
   return true
 }
 
+/** Guessed paths must not become a filesystem-existence oracle. */
+export async function inspectGrantedFilePaths(pluginId: string, paths: string[]): Promise<ClipboardFileInspection[]> {
+  if (!Array.isArray(paths) || paths.length > 10000 || paths.some(path => typeof path !== 'string' || path.length > 32768 || path.includes('\0'))) throw new Error('invalid file paths')
+  const assertOwner = guardOwner(pluginId)
+  const known = new Map([...grants.get(pluginId)?.entries() ?? []].map(([id, grant]) => [grant.path, id]))
+  const results: ClipboardFileInspection[] = []
+  for (const path of paths) {
+    assertOwner()
+    const id = known.get(path)
+    if (!id) { results.push({ path, exists: null }); continue }
+    try {
+      const target = await resolveLocalFileHandle(pluginId, id)
+      const info = await stat(target)
+      assertOwner()
+      results.push({ path, exists: true, directory: info.isDirectory() })
+    } catch (error) {
+      assertOwner()
+      results.push({ path, exists: (error as NodeJS.ErrnoException).code === 'ENOENT' ? false : null })
+    }
+  }
+  return results
+}
+
 // —— fs.rename / fs.renameBatch（fs.rename 权限；仅同目录改名，句柄白名单内）——
 
 /** 合法新文件名：1–255 字符；禁路径分隔符 / 盘符冒号 / 控制字符 / 点开头与纯点 */
@@ -272,7 +356,7 @@ export interface RenameBatchItemResult extends RenameResult {
 /**
  * 同目录改名：newName 仅是文件名（不含路径），重命名结果仍落在句柄原目录内。
  * 目标已存在时拒绝（node rename 在 POSIX 会静默覆盖，必须先 existsSync 探测）。
- * 改名成功后句柄自身指向新路径，后续 reveal / lan.share 继续可用。
+ * 改名成功后句柄自身指向新路径，后续 reveal / 文件读取继续可用。
  */
 export async function renameLocalFile(pluginId: string, handleId: string, newName: string): Promise<RenameResult> {
   const assertOwner = guardOwner(pluginId)
@@ -347,20 +431,28 @@ export async function renameLocalFiles(
   return { results, succeeded, failed }
 }
 
-export async function createLocalExport(pluginId: string, paths: string[]): Promise<{ exportId: string }> {
+export async function createLocalExport(pluginId: string, paths: string[], control: LocalFileOperationControl = {}): Promise<{ exportId: string }> {
   const assertOwner = guardOwner(pluginId)
+  const assertCurrent = (): void => {
+    assertOwner()
+    if (control.signal?.aborted) throw new Error('file export cancelled')
+    control.assertCurrent?.()
+  }
+  assertCurrent()
   if (!paths.length || paths.length > 1000) throw new Error('select between 1 and 1000 files to drag')
   const canonical = await Promise.all(paths.map(async (path) => {
     const value = await realpath(path)
     await stat(value)
     return value
   }))
+  assertCurrent()
+  let icon = await app.getFileIcon(canonical[0], { size: 'small' }).catch(() => nativeImage.createEmpty())
+  assertCurrent()
+  // Commit against the current bag only after all awaits, so parallel exports cannot replace it.
   const bag = exportsByPlugin.get(pluginId) ?? new Map()
   for (const [id, record] of bag) if (record.expiresAt < Date.now()) bag.delete(id)
   if (bag.size >= 128) throw new Error('local file export limit reached; reopen the plugin')
   const exportId = randomUUID()
-  let icon = await app.getFileIcon(canonical[0], { size: 'small' }).catch(() => nativeImage.createEmpty())
-  assertOwner()
   if (icon.isEmpty()) icon = nativeImage.createFromBuffer(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==', 'base64'))
   bag.set(exportId, { paths: canonical, icon, expiresAt: Date.now() + 24 * 60 * 60 * 1000 })
   exportsByPlugin.set(pluginId, bag)

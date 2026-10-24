@@ -1,0 +1,20 @@
+/* ========== Animation intensity (data-anim) ========== */
+/* 低档保留轻量反馈；不能全局改写轮播计时、加载动画或组件的分档时长。 */
+:root[data-anim="low"] .btn,
+:root[data-anim="low"] .chip,
+:root[data-anim="low"] .float-btn,
+:root[data-anim="low"] .color-swatch-btn {
+  transition-duration: 0.16s;
+}
+
+/* medium：底部悬浮钮 hover 轻抬升 */
+:root[data-anim="medium"] .float-btn {
+  transition: transform 0.2s cubic-bezier(0.22, 1.2, 0.36, 1), box-shadow 0.2s ease, border-color 0.18s,
+    color 0.18s, background 0.18s;
+}
+
+:root[data-anim="medium"] .float-btn:hover,
+:root[data-anim="medium"] .float-btn:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-float);
+}

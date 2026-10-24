@@ -11,11 +11,12 @@ import { registerShortcutHandlers } from '@main/ipc/shortcutHandlers'
  */
 import { getPluginDiagnostics } from '@main/plugin/pluginDiagnostics'
 import { getPluginMemorySnapshot, refreshPluginMemoryAfterClose } from '@main/plugin/pluginMemoryMonitor'
+import { startPerformanceCapture, getPerformanceCaptureState, stopPerformanceCapture, exportPerformanceCapture } from '@main/plugin/pluginPerformanceCapture'
 import { showNotification } from '@main/window/notificationOverlay'
 import { copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
-import { dialog, Notification } from 'electron'
+import { dialog, Notification, shell, type IpcMainInvokeEvent } from 'electron'
 import { IpcChannels, type OrbRailSyncRequest } from '@shared/types/ipc'
 import type { ResolvedAppearance, ThemeProfilePatch } from '@shared/types/appearance'
 import { APP_NAME, FONTS_DIR, toPluginId, toTabId } from '@shared/constants'
@@ -44,8 +45,9 @@ import {
   getInstallQueueState
 } from '@main/plugin/installQueue'
 import { uninstallPlugin } from '@main/plugin/PluginUninstaller'
-import { stopFocusTimer } from '@main/timer/focusTimerService'
-import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
+import { cancelPluginDeadlineTasks } from '@main/timer/deadlineTaskService'
+import { refreshPluginBackgrounds, stopPluginBackground } from '@main/plugin/pluginBackgroundRuntime'
+import { stopPluginBackend } from '@main/plugin/pluginBackendRpc'
 import { broadcastPluginLocale, getPluginCallTrace } from '@main/ipc/pluginHandlers'
 import {
   setPluginLaunch,
@@ -83,6 +85,7 @@ import {
 import {
   applyOrbRailVisibility,
   getOrbRailState,
+  layoutOrbRailViews,
   setOrbAnimationLevel,
   setOrbRailExpandedView,
   setOrbRailState,
@@ -133,7 +136,7 @@ async function readPluginReadme(pluginId: string): Promise<string> {
 
 let workspaceNavigationIntent = 0
 
-async function navigateWorkspace(input: WorkspaceRoute): Promise<void> {
+export async function navigateWorkspace(input: WorkspaceRoute): Promise<void> {
   const route = normalizeWorkspaceRoute(input)
   const intent = ++workspaceNavigationIntent
   const recoveryEpoch = homeSurfaceManager.recoveryEpoch
@@ -146,11 +149,34 @@ async function navigateWorkspace(input: WorkspaceRoute): Promise<void> {
   await homeSurfaceManager.navigate(route)
 }
 
+/** One host-owned transition, shared by shell controls and constrained theme actions. */
+export function openShellSettings(): void {
+  workspaceNavigationIntent++
+  setHomeSurfaceVisible(false)
+  pluginHost.hideAllViews()
+  sendShellEvent({ type: 'set-view', view: 'settings' })
+}
+
+function captureForShell<T>(event: IpcMainInvokeEvent, action: () => T): T {
+  if (getTrustedSurfaceRole(event.sender.id) !== 'shell') throw new Error('Performance capture requires the native shell settings surface')
+  return action()
+}
+
 /** 注册壳子渲染层所有 IPC 通道处理器 */
 export function registerShellHandlers(): void {
+  handleShellIpc(IpcChannels.ShellOpenExternal, async (_event, value: unknown) => {
+    if (typeof value !== 'string' || value.length > 8192) throw new Error('Invalid external URL')
+    const url = new URL(value)
+    if (!['https:', 'http:', 'mailto:'].includes(url.protocol) || url.username || url.password) throw new Error('Unsupported external URL')
+    await shell.openExternal(url.href)
+  })
   registerShortcutHandlers()
   handleShellIpc(IpcChannels.ShellGetPluginDiagnostics, () => getPluginDiagnostics())
-  handleShellIpc(IpcChannels.ShellGetPluginMemorySnapshot, () => getPluginMemorySnapshot())
+  handleShellIpc(IpcChannels.ShellGetPluginMemorySnapshot, (_event, force?: boolean) => getPluginMemorySnapshot(force === true))
+  handleShellIpc(IpcChannels.ShellStartPerformanceCapture, event => captureForShell(event, startPerformanceCapture))
+  handleShellIpc(IpcChannels.ShellGetPerformanceCaptureState, event => captureForShell(event, getPerformanceCaptureState))
+  handleShellIpc(IpcChannels.ShellStopPerformanceCapture, event => captureForShell(event, stopPerformanceCapture))
+  handleShellIpc(IpcChannels.ShellExportPerformanceCapture, event => captureForShell(event, exportPerformanceCapture))
   handleShellIpc(IpcChannels.ShellRestoreTabs, (_e, ids: string[]) => pluginHost.restoreTabs(Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : []))
   handleShellIpc(IpcChannels.ShellGetPlugins, () => pluginRegistry.list())
   handleShellIpc(IpcChannels.ShellGetMarketStatus, (_event, refresh?: boolean) => pluginRegistry.getMarketStatus(refresh === true))
@@ -195,6 +221,19 @@ export function registerShellHandlers(): void {
     }
   })
 
+  handleShellIpc(IpcChannels.ShellStopPluginResources, async (_e, pluginId: string) => {
+    if (typeof pluginId !== 'string' || !pluginId || pluginId.length > 256) throw new Error('Invalid plugin identifier')
+    if (homeSurfaceManager.getMemoryOwners().some(owner => owner.pluginId === pluginId)) throw new Error('Switch themes before releasing this workspace plugin')
+    const release = pluginHost.blockPlugin(pluginId)
+    try {
+      stopPluginBackground(pluginId, 'user stopped plugin resources')
+      await pluginHost.closePlugin(pluginId)
+      await stopPluginBackend(pluginId)
+      await refreshPluginMemoryAfterClose()
+      return { ok: true }
+    } finally { release() }
+  })
+
   handleShellIpc(IpcChannels.ShellActivatePlugin, (_e, tabId: string) => {
     pluginHost.activatePlugin(tabId)
     return { ok: true }
@@ -217,6 +256,7 @@ export function registerShellHandlers(): void {
     if (typeof top !== 'number' || !Number.isFinite(top)) throw new Error('Invalid titlebar inset')
     const layout = appearanceService.getAppearance().layout
     setPluginTopInset(layout.tabStyle !== 'orb' && layout.tabAutoHide === true ? top : 0)
+    layoutOrbRailViews()
     pluginHost.layoutAll()
     homeSurfaceManager.layout()
     return { ok: true }
@@ -242,10 +282,7 @@ export function registerShellHandlers(): void {
   handleShellIpc(IpcChannels.ShellSetView, async (event, view: string) => {
     if (getTrustedSurfaceRole(event.sender.id) === 'dock' && view !== 'settings') throw new Error('Settings dock action required')
     if (view === 'settings') {
-      workspaceNavigationIntent++
-      setHomeSurfaceVisible(false)
-      pluginHost.hideAllViews()
-      sendShellEvent({ type: 'set-view', view: 'settings' })
+      openShellSettings()
     } else if (view === 'plugin') sendShellEvent({ type: 'set-view', view })
     else await navigateWorkspace({ page: 'catalog' })
     return { ok: true }
@@ -271,8 +308,8 @@ export function registerShellHandlers(): void {
       const result = await uninstallPlugin(id)
       // A failed uninstall must retain the user's bindings and preferences.
       if (result.ok) await clearPluginLaunch(id)
-      // 卸载可能移除最后一个 clipboard.history 持有者，重算轮询
-      revalidateClipboardPolling()
+      // Refresh declarative background subscriptions after installed state changes.
+      refreshPluginBackgrounds()
       return result.ok ? { ok: true } : { ok: false, error: result.error }
     } catch (err) {
       logWarn('ipc', `shell:uninstall-plugin failed: ${(err as Error).message}`)
@@ -295,13 +332,14 @@ export function registerShellHandlers(): void {
         let summary
         try {
           if (enabled === false) {
-            await stopFocusTimer(id)
+            stopPluginBackground(id, 'plugin disabled')
+            await cancelPluginDeadlineTasks(id)
             await pluginHost.closePlugin(id)
           }
           summary = await pluginRegistry.setPluginEnabled(id, enabled !== false)
         } finally { release() }
-        // 启停可能增减 clipboard.history 持有者，重算轮询
-        revalidateClipboardPolling()
+        // Update generic background subscriptions after enable/disable.
+        refreshPluginBackgrounds()
         // 快捷启动热键随启停释放/重注册（apply 内部跳过禁用插件）
         if (enabled === false) releasePluginLaunchHotkey(id)
         else applyPluginLaunchHotkeys()
@@ -364,8 +402,8 @@ export function registerShellHandlers(): void {
               ok: true
             })
             sendShellEvent({ type: 'plugins-changed' })
-            // 新装插件可能持有 clipboard.history，重算轮询
-            revalidateClipboardPolling()
+            // Update generic background declarations after installation.
+            refreshPluginBackgrounds()
             return { ok: true, data: { ok: true, mode: 'sample', name: summary.name } }
           } catch (sampleErr) {
             logInfo(
@@ -487,8 +525,8 @@ export function registerShellHandlers(): void {
         await pluginHost.closePlugin(toTabId(summary.id), 'tab-close')
       }
       sendShellEvent({ type: 'plugins-changed' })
-      // dev 插件可能持有 clipboard.history，重算轮询
-      revalidateClipboardPolling()
+      // Refresh declarative backgrounds for development plugins.
+      refreshPluginBackgrounds()
       return { ok: true, data: summary }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -508,7 +546,7 @@ export function registerShellHandlers(): void {
       pluginHost.setKillOnHide(pluginId, false)
       pluginRegistry.removeDevPlugin(pluginId)
       await pluginRegistry.scan()
-      revalidateClipboardPolling()
+      refreshPluginBackgrounds()
       sendShellEvent({ type: 'plugins-changed' })
       return { ok: true }
     } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) } }
@@ -535,7 +573,7 @@ export function registerShellHandlers(): void {
       if (mode !== 'dev' && mode !== 'prod') return { ok: false, error: 'Invalid development mode' }
       await setDevPluginMode(pluginId, mode)
       sendShellEvent({ type: 'plugins-changed' })
-      revalidateClipboardPolling()
+      refreshPluginBackgrounds()
       return { ok: true }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -622,9 +660,12 @@ export function registerShellHandlers(): void {
       const id = String(pluginId ?? '')
       const k = String(key ?? '')
       if (!id || !k) return { ok: false, error: 'pluginId and key required' }
+      if (!pluginSettingsBridge.isWritableKey(id, k)) return { ok: false, error: 'Unknown or read-only plugin settings key' }
       pluginSettingsBridge.set(id, k, value)
       await settingsStore.setPluginSetting(id, k, value)
+      refreshPluginBackgrounds()
       pluginHost.sendEvent(id, { type: 'settings-change', key: k, value })
+      sendShellEvent({ type: 'plugin-settings-changed', pluginId: id })
       return { ok: true }
     }
   )

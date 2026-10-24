@@ -22,7 +22,7 @@ await enest.quickInput.configure({ placeholder: '搜索内容…', value: draft 
 
 `contributes.settings` 提供静态声明与默认值；`settings.get(key)` 优先读已保存值，无值才返回声明默认值（false 和 0 不会被误判为空）。`settings.set(key,value)` 只能写声明过的键；`settings.onChange(({key,value})=>{})` 同步壳设置变更。`ui.openSettings()` 隐藏原生插件层并定位当前插件设置。复杂管理入口使用 `type: 'page'` 和 `entry: {code,payload?}`。
 
-持久偏好放设置，业务数据和必要草稿放 storage.local，当前操作参数可以只在页面中维护。JSON 正文与生成的密码默认不落盘。插件内反馈应显示在自己的文档中，因为原生 WebContentsView 会盖住壳 renderer 的浮层。
+持久偏好放设置，业务数据和必要草稿放 `storage.get/set`，当前操作参数可以只在页面中维护。`storage.local` 是兼容能力名，不是 API 命名空间。JSON 正文与生成的密码默认不落盘。插件内反馈应显示在自己的文档中，因为原生 WebContentsView 会盖住壳 renderer 的浮层。
 
 主题同步包括 CSS token、`data-theme`、`data-anim`、字体栈和字号比例。用户自定义字体经当前插件同源的 `__enest_fonts/<filename>` 白名单地址流式加载。插件遵守 `prefers-reduced-motion`；低动画档不要播放大幅位移动画。
 
@@ -30,17 +30,28 @@ await enest.quickInput.configure({ placeholder: '搜索内容…', value: draft 
 
 ## 剪贴板
 
-- `clipboard.history.list` 保持旧的文本/图片返回行为；`query({query,type,pinned,cursor,limit})` 支持文件记录和分页，返回 `{items,total,nextCursor}`。
-- `clipboard.history.onChange(cb)` 在历史保存成功后通知刷新。`get(id)` 按需读取原图。
-- `copy(id,{paths?:true})` 复制记录或文件路径；`paste(id)` 先复制，再尝试回贴；`reveal(id,index)` 定位文件原件。失效文件会返回明确错误。
-- `clipboard.capabilities()` 分别说明文件、来源、回贴与授权能力；`requestPermission()` 只请求平台明确支持的授权。来源不能可靠确认时省略 `sourceApp`，界面应显示未知来源。
-- `clipboard.paste` 为独立权限；复制同时需要历史权限及相应的 `clipboard.write` / `clipboard.writeImage`。文件只保存引用，不复制到插件数据目录。
+eNest 0.2.3 的原生 `window.enest` **没有 `clipboard.history.*`**。clipboard 1.4.0 的历史、去重、置顶、保留策略、迁移解释和搜索属于插件的 `background/history.mjs`；前台通过通用 `background.call` 访问自己的后台。其 `createClipboardApi(host)` 创建本地 facade，保留该插件 UI 的 `query/list/get/copy/paste/reveal/onChange` 调用形式，但不修改宿主 API，也不把历史服务开放给其它插件。
 
-回贴的目标仅由主进程在 Quick 呼出前捕获。插件只提交历史 ID，不能提交窗口 ID、进程 ID 或键盘脚本。目标失效、权限拒绝或平台不能恢复原窗口时返回 `{pasted:false,reason}`；此时内容已复制，提示手动粘贴。Wayland 通用 portal 没有原窗口身份和恢复能力，因此始终采用复制后手动粘贴。
+- 该插件的私有 `history.query` 返回 `{items,total,nextCursor}`；`history.get` 按需读取图片，变更通过 `background.event` 中的 `history.changed` 通知。宿主不再发送 `clipboard-history-changed`。
+- 后台用 `enestBackground.host.private` 的文档/blob 保存数据，接收 `clipboard.changed` 原生快照；文件记录保存引用，不复制原件。历史查询、排序和修剪不是宿主工作。
+- 原生 `clipboard.readText/readImage/writeText/writeImage/writeFiles` 保留；写入各自校验剪贴板权限，宿主自己的写入不回送原生观察器。`clipboard.capabilities()` 返回平台能力；`requestPermission()` 另需 `clipboard.paste`，只请求平台支持的系统授权，不开启持续观察。
+- `clipboard.history` 仍是敏感权限名，但不是 CRUD。只有持久 `allow`、插件启用且声明的事件开关为真时才订阅原生变化；临时授权只供当前前台调用后台，不能开启持续采集或 Quick 后台搜索。撤权、禁用或手动停止后台会释放订阅；停用期间的内容不会补采。
+
+回贴分为插件复制与原生 `enest.clipboard.paste()` 两步；后者无需参数，不接收历史 ID、窗口 ID、进程 ID 或键盘脚本。目标只由宿主在 Quick 呼出前捕获。复制失败不要继续回贴；复制成功后，目标失效或平台不能恢复原窗口时返回 `{pasted:false,reason}`，提示手动粘贴。Wayland 不承诺原窗口恢复。
+
+纯复制完成后收起使用 `ui.dismissQuick()`，没有 `quick.hide()`。回贴流程由宿主验证目标并隐藏 Quick，失败时可恢复；不要收到失败结果后无条件隐藏错误提示。
+
+## 截图、录制与贴图
+
+宿主只提供 `screen.capture/displays`。选区几何、贴图缩放/交互、MediaRecorder 和录制会话由插件仓 `@enest/native-surfaces` 实现。插件调用 `createNativeSurfaces(window.enest)` 得到本地 facade，才有 `surfaces.screen.selectRegion/record` 与 `surfaces.pin`；这些不是原生 `enest.screen` / `enest.pin` 方法。
+
+插件 Vite 配置用 `nativeSurfacesAssets()`（`@enest/native-surfaces/vite`）将辅助页随自身分发到 `assets/vendor/native-surfaces/`。宿主的 `auxiliary` 管理有界原生容器，辅助页只持有 `enestAux`；主页面通过 `files.stream` 顺序写入自己的私有输出，不接受任意保存路径。非捕获置顶页使用兼容权限名 `pin.create`；捕获页使用 `screen.record`、系统许可和真实原生点击启动一次指定显示器的捕获。选区截图本身仍需 `screen.capture`，当前置顶选区页也需 `pin.create`。
+
+录制必须等待文件流 ACK，停止后提交成功才展示保存完成；取消、撤权或强制销毁会终止捕获并丢弃未完成输出。正常关闭只在有界收尾期内尝试排空，不能把超时或磁盘失败报告为成功。具体签名、配额与能力边界见 [API 参考](api.md) 和[设置与窗口边界](settings-and-windows.md)。
 
 ## 后台番茄钟
 
-`timer.background` 权限开放 `focusTimer.start/get/pause/resume/skip/stop/updateRecord/onChange`。它是专注阶段的限定服务，不接受任意定时脚本。状态与完成记录由主进程保存，关闭标签不取消，停用/卸载会取消，卸载清理记录。通知另需 `notify` 权限。
+`timer.background` 是基础能力，提供 `deadlineTasks.start/get/pause/resume/skip/cancel/onChange`。宿主只保存有界步骤计划和不可变执行回执，不理解专注/休息，不接受任意脚本。关闭标签不取消、退出暂停、禁用取消、卸载清理；周期/统计/历史编辑属于插件。通知另需 `notify`，见[后台步骤计划](deadline-tasks.md)。
 
 自然到期只结算一次，跳过不计完成；系统睡眠跨过截止时间只结算当前阶段，下一阶段暂停。退出应用保存剩余进度，重启恢复暂停；退出期间不承诺通知。
 
@@ -48,19 +59,19 @@ await enest.quickInput.configure({ placeholder: '搜索内容…', value: draft 
 
 `storage.blobs.put({dataUrl})/get(id)/remove(id)` 使用插件专属附件目录，支持 PNG/JPEG/WebP 原图（单个 32 MB、每插件 200 MB）。ID 不能跨插件读取；卸载清理附件。每个插件最多两个待保存附件，关闭实例取消在途写入并清理残留。
 
-`shell.saveTextFile({defaultName,content})` 和 `shell.saveFile({defaultName,dataUrl})` 使用系统保存对话框，权限为 `fs.write`；取消返回 null，成功返回 `{ok:true,path}`。关闭插件后对话框即使晚返回，也不会继续写文件。界面仅在 `result?.ok` 时显示保存成功。
+`shell.saveTextFile({defaultName,content})` 和 `shell.saveFile({defaultName,dataUrl})` 使用系统保存对话框，是无需额外声明 `fs.write` 的基础能力，仍需用户选定目标；取消返回 null，成功返回 `{ok:true,path}`。关闭插件后对话框即使晚返回，也不会继续写文件。界面仅在 `result?.ok` 时显示保存成功。
 
 ## 出站 TCP 与本地桥（net.socket）
 
-远程桌面（noVNC / RDP）与 TCP 调试类插件的底层通道，需声明 `net.socket` 权限。典型路径是先经 `ssh.workbench({action:'tunnel.open'})` 把远端端口转发到本地，再 `net.socket.connect({host:'127.0.0.1', port})` 衔接隧道口。
+远程桌面（noVNC / RDP）与 TCP 调试类插件的底层通道，需声明 `net.socket` 权限。典型路径是先经本插件私有 SSH adapter 的 `workbench({action:'tunnel.open'})` 把远端端口转发到本地，再 `net.socket.connect({host:'127.0.0.1', port})` 衔接隧道口。
 
 - 每插件并发 socket 上限 8；连接超时缺省 10s；发送方向 1MB/s 令牌桶限速（突发 2MB）。
 - 数据经 `net.data`（base64，64KB/20ms 节流合并）与 `net.close` 事件推送；`enest.net.onNetData / onNetClose` 订阅。
 - 高吞吐场景（VNC / RDP 逐帧流）用 `net.socket.serveWs(socketId)` 换取直连：桥只绑 `127.0.0.1` 随机端口，token 一次性，页面内 `new WebSocket(url)` 后双向二进制直通，绕开逐帧 IPC。
 - 插件关闭、休眠或崩溃时宿主经 runtime scope 统一释放全部 socket 与 ws 桥，不泄漏端口。
 
-## AI CLI 配置与系统巡检（config.agent.read/write / sys.inspect/control）
+## 插件业务与系统巡检
 
-`agent.*` 是白名单硬编码的 AI CLI 配置读写（10 个应用：claude-code / claude-desktop / codex / gemini-cli / grok-build / opencode / openclaw / hermes / pi / minimax-code）。写采用最小侵入合并——只替换传入的顶层键，注释与其余内容保留；写前自动快照到 `~/.eNest/agent-config-backups/<app>/`（保留 20 份），`agent.restore` 可回滚。读取与写入使用独立权限；修改由宿主原生对话框确认具体目标。
+AI CLI 十个应用的适配、白名单、最小侵入合并、快照、资产 staging 和会话读取位于插件仓 `@enest/agent-config-backend`，由 CCSwitch 和 Codex Pets 自己打包。0.2.2 已移除宿主 `agent.*`，插件通过通用 `backend.call` 与 `dialog.confirm` 执行；首次使用需要明确的完整 Node 信任，不继承旧 config.agent 权限。
 
 `sys.processes()` / `sys.ports()` 提供 1s 采样缓存的进程与监听端口视图；`sys.kill` 使用 sys.control 并由宿主确认 PID，插件的 confirmed 参数不构成授权，宿主拒绝结束自身与 PID 1。详见 [enest API](api.md)。

@@ -74,6 +74,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
   let refreshSequence = 0
   let searchTimer: ReturnType<typeof setTimeout> | undefined
   let readmeController: AbortController | undefined
+  let searchController: AbortController | undefined
   const pendingCommands: HomeCommand[] = []
   let offAppearance: (() => void) | undefined
   let offCommand: (() => void) | undefined
@@ -139,18 +140,31 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     const scope = state.scope
     if (!query.trim() || disposed) return
     const generation = state.runtimeGeneration
+    searchController?.abort()
+    const controller = new AbortController()
+    searchController = controller
+    const current = () => !disposed && sequence === searchSequence && generation === state.runtimeGeneration && !controller.signal.aborted
     patch({ searching: true, searchError: undefined })
     try {
-      const results = await bridge.search({ query: query.trim(), scope, limit: 60 })
-      if (disposed || sequence !== searchSequence || generation !== state.runtimeGeneration) return
-      patch({ results, searching: false })
+      // Keep the default dictionary and worker matcher off Workspace's cold path.
+      const [results, { rankDefaultWorkspaceSearch }, { matchDefaultQuickContent }] = await Promise.all([
+        bridge.search({ query: query.trim(), scope, limit: 60 }),
+        import('./quick/workspaceSearchPolicy'),
+        import('./quick/patternMatching'),
+      ])
+      if (!current()) return
+      patch({ results: { ...results, items: rankDefaultWorkspaceSearch(results.items, query, scope) }, searching: false })
+      const content = await matchDefaultQuickContent(results.items.map(item => ({ id: item.handle, content: item.content })), query, controller.signal)
+      if (!current()) return
+      patch({ results: { ...results, items: rankDefaultWorkspaceSearch(results.items, query, scope, content) }, searching: false })
     } catch {
-      if (!disposed && sequence === searchSequence) patch({ searching: false, searchError: message('搜索失败，请重试。', 'Search failed. Please retry.') })
+      if (current()) patch({ searching: false, searchError: message('搜索失败，请重试。', 'Search failed. Please retry.') })
     }
   }
 
   function queueSearch(query: string, scope = state.scope, composing = false) {
     searchSequence++
+    searchController?.abort()
     clearTimeout(searchTimer)
     patch({ query, scope, results: undefined, searching: Boolean(query.trim()) && !composing, searchError: undefined })
     if (query.trim() && !composing) searchTimer = setTimeout(() => void runSearch(query), 80)
@@ -283,6 +297,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     disposed = true
     navigationSequence++; searchSequence++; detailSequence++; refreshSequence++
     clearTimeout(searchTimer)
+    searchController?.abort()
     cancelReadme()
     pendingCommands.length = 0
     offAppearance?.(); offCommand?.(); listeners.clear()

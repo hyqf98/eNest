@@ -39,6 +39,8 @@ const pack: ThemePackV2 = {
   id: 'default', name: 'eNest 默认主题', source: DEFAULT_THEME_IDENTITY.source, mode: 'system', version: 3,
   description: '原始 eNest 布局、中性灰表面与铜橙强调色，完整保留背景、字体和启动外观设置。',
   schemaVersion: 2, tokens: {},
+  quick: { version: 1, entry: 'index.html' },
+  settingsPage: { version: 1, entry: 'index.html' },
   variants: {
     light: { tokens: defaultTokens('light'), fonts: { ...fonts }, components: { ...components }, background: { ...background }, layout: { ...layout }, notifications: { ...notifications }, splash: { ...splash }, animation: 'medium' },
     dark: { tokens: defaultTokens('dark'), fonts: { ...fonts }, components: { ...components }, background: { ...background }, layout: { ...layout }, notifications: { ...notifications }, splash: { ...splash }, animation: 'medium' },
@@ -120,6 +122,9 @@ const pack: ThemePackV2 = {
     ],
   },
   home: { source: DEFAULT_THEME_IDENTITY.source, id: 'home', variant: 'default' },
+  // The classic entry is embedded in the shell document to avoid an extra renderer.
+  // Both implementations consume ThemeChromeApi; only native geometry stays in main.
+  chrome: { version: 1, classic: { entry: 'index.html' }, rail: { entry: 'orb-overlay.html' }, dock: { entry: 'orb-overlay.html' } },
 }
 
 function deepFreeze<T>(value: T): T {

@@ -1,0 +1,118 @@
+/* Tab 样式选择器：图标 + 文案 */
+.tab-style-seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-style-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.tab-style-icon i {
+  display: block;
+  background: var(--text-3);
+  transition: background 0.15s;
+}
+
+.tab-style-seg button.active .tab-style-icon i {
+  background: var(--text);
+}
+
+.classic-icon i {
+  width: 14px;
+  height: 8px;
+  border-radius: 3px;
+}
+
+.classic-icon i:last-child {
+  width: 10px;
+  opacity: 0.55;
+}
+
+.orb-icon {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.orb-icon i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.orb-icon i:nth-child(2) {
+  opacity: 0.7;
+}
+
+.orb-icon i:nth-child(3) {
+  opacity: 0.4;
+}
+
+/* 消息通知位置选择器：图标 + 文案（同一卡片图形，区别在 16×12 视口内的落位） */
+.notify-pos-seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notify-pos-icon {
+  position: relative;
+  width: 16px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.notify-pos-icon i {
+  position: absolute;
+  border-radius: 2px;
+  background: var(--text-3);
+  transition: background 0.15s;
+}
+
+.notify-pos-seg button.active .notify-pos-icon i {
+  background: var(--text);
+}
+
+/* 中间弹框：卡片（标题条 + 正文条）居中于视口 */
+.center-icon i:first-child {
+  left: 3px;
+  top: 2px;
+  width: 10px;
+  height: 3.5px;
+}
+
+.center-icon i:last-child {
+  left: 5px;
+  top: 7px;
+  width: 6px;
+  height: 2.5px;
+  opacity: 0.6;
+}
+
+/* 右下角：卡片贴住右下角向上堆叠，左上淡色块暗示窗口范围 */
+.corner-icon i:first-child {
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 3.5px;
+  opacity: 0.35;
+}
+
+.corner-icon i:nth-child(2) {
+  right: 0;
+  bottom: 4px;
+  width: 9px;
+  height: 3.5px;
+}
+
+.corner-icon i:last-child {
+  right: 0;
+  bottom: 0.5px;
+  width: 6px;
+  height: 2.5px;
+  opacity: 0.6;
+}

@@ -9,6 +9,7 @@ export interface BackgroundEffectOptions {
   level: AnimationLevel
   launch?: boolean
   reducedMotion?: boolean
+  continuous?: boolean
   /** Optional declarative palette: shadow, body and highlight. No plugin code is executed. */
   colors?: readonly string[]
   speed?: number
@@ -35,9 +36,10 @@ export function startBackgroundEffect(
 ): () => void {
   const quality = QUALITY[options.level]
   const animate = quality.fps > 0 && !options.reducedMotion
+    && (options.launch || (options.level !== 'low' && options.continuous !== false))
   const requestedSpeed = Number.isFinite(options.speed) ? Math.max(0.2, Math.min(2.5, options.speed!)) : 1
-  // 低档的降速只约束稳态背景；开屏入场是短暂的表演时刻，压到 0.35 会让揭示看起来"没有动效"。
-  const speed = requestedSpeed * (options.level === 'low' && !options.launch ? 0.35 : 1)
+  // Steady low is static; the finite launch reveal keeps the requested speed.
+  const speed = requestedSpeed
   // 低档开屏生命周期约 1.1s（splashMotion），揭示必须在这个窗口内走完；其它场景保持 2.1s 从容展开。
   const revealDuration = options.launch && options.level === 'low' ? 0.88 : 2.1
   const root = document.documentElement

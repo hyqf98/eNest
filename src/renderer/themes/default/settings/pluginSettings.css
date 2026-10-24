@@ -1,0 +1,116 @@
+/* Shared presentation for every plugin's settings.register fields. */
+.plugin-settings-card .plugin-settings-section {
+  margin-top: 22px;
+}
+
+.plugin-settings-card .plugin-settings-section > .label {
+  margin: 0 0 6px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.plugin-settings-card .field {
+  gap: 24px;
+  min-height: 60px;
+  padding: 12px 0;
+}
+
+.plugin-settings-card .field:first-of-type {
+  padding-top: 10px;
+}
+
+.plugin-settings-card .field .label {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.plugin-settings-card .field .plugin-setting-input,
+.plugin-settings-card .plugin-setting-select {
+  width: 240px;
+  min-width: 0;
+  max-width: 52%;
+}
+
+.plugin-settings-card .field .plugin-setting-input,
+.plugin-settings-card .plugin-setting-select .ui-select-trigger {
+  box-sizing: border-box;
+  height: var(--settings-control-h, 36px);
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.plugin-settings-card .plugin-setting-select .ui-select-trigger {
+  width: 100%;
+  min-width: 0;
+}
+
+.plugin-settings-card .field .plugin-setting-input {
+  position: static;
+  font-variant-numeric: tabular-nums;
+}
+
+.plugin-settings-card .field .plugin-setting-input:hover,
+.plugin-settings-card .plugin-setting-select .ui-select-trigger:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.plugin-settings-card .field .plugin-setting-input:focus-visible,
+.plugin-settings-card button:focus-visible,
+.plugin-settings-card input[type='range']:focus-visible,
+.plugin-settings-card input[type='color']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.plugin-settings-card .field .plugin-setting-input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.plugin-settings-card .field .plugin-setting-input::-webkit-inner-spin-button,
+.plugin-settings-card .field .plugin-setting-input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.plugin-settings-card .plugin-slider-row {
+  width: 240px;
+  max-width: 52%;
+}
+
+.plugin-settings-card .plugin-slider-value {
+  min-width: 38px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+:root[data-anim='low'] .plugin-settings-card .field .plugin-setting-input,
+:root[data-anim='low'] .plugin-settings-card .ui-select-trigger {
+  transition: none;
+}
+
+@media (max-width: 680px) {
+  .plugin-settings-card .field {
+    gap: 12px;
+  }
+
+  .plugin-settings-card .field .plugin-setting-input,
+  .plugin-settings-card .plugin-setting-select,
+  .plugin-settings-card .plugin-slider-row {
+    width: 100%;
+    max-width: none;
+  }
+}

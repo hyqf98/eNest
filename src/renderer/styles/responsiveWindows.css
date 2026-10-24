@@ -1,0 +1,42 @@
+@media (max-width: 720px) {
+
+
+  .plugin-bar {
+    padding: 0 12px;
+  }
+
+  .isolate-panel {
+    padding: 18px;
+  }
+
+  /* 底部栏：防溢出，按钮略缩 */
+  .bottom-bar {
+    left: 12px;
+    bottom: 12px;
+    gap: 6px;
+  }
+
+  .float-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .empty {
+    padding: 40px 12px;
+  }
+}
+
+/* —— ≤520：标题栏与安装面板收窄 —— */
+@media (max-width: 520px) {
+
+  .titlebar {
+    grid-template-columns: 64px 1fr 88px;
+  }
+
+
+  .install-panel {
+    right: 10px;
+    left: 10px;
+    width: auto;
+  }
+}

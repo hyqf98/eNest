@@ -1,0 +1,128 @@
+/* Shared Markdown presentation for plugin README and host update notes. */
+/* ========== Markdown (GitHub-like) ========== */
+.markdown-body {
+  color: var(--text-2);
+  font-size: calc(13.5px * var(--appearance-font-scale, 1));
+  line-height: 1.7;
+  user-select: text;
+}
+
+.markdown-body .md-h {
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 1.2em 0 0.5em;
+  line-height: 1.3;
+}
+
+.markdown-body .md-h:first-child {
+  margin-top: 0;
+}
+
+.markdown-body .md-h1 {
+  font-size: calc(22px * var(--appearance-font-scale, 1));
+}
+
+.markdown-body .md-h2 {
+  font-size: calc(17px * var(--appearance-font-scale, 1));
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown-body .md-h3 {
+  font-size: calc(14.5px * var(--appearance-font-scale, 1));
+}
+
+.markdown-body .md-p {
+  margin: 0 0 0.85em;
+}
+
+.markdown-body .md-ul,
+.markdown-body .md-ol {
+  margin: 0 0 0.85em;
+  padding-left: 1.4em;
+}
+
+.markdown-body .md-ul {
+  list-style: disc;
+}
+
+.markdown-body .md-ol {
+  list-style: decimal;
+}
+
+.markdown-body li {
+  margin: 0.25em 0;
+}
+
+.markdown-body li::marker {
+  color: var(--text-3);
+}
+
+.markdown-body a {
+  color: var(--link);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--link) 35%, transparent);
+}
+
+.markdown-body a:hover {
+  border-bottom-color: var(--link);
+}
+
+.markdown-body .md-code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  padding: 0.15em 0.4em;
+  border-radius: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.markdown-body .md-pre {
+  margin: 0 0 0.9em;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #0b0d12;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.markdown-body .md-pre code {
+  font-family: var(--mono);
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  line-height: 1.65;
+  color: #8be9b8;
+  white-space: pre;
+}
+
+.markdown-body .md-hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.4em 0;
+}
+
+.markdown-body strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.markdown-body em {
+  font-style: italic;
+}
+
+@media (max-width: 640px) {
+  .markdown-body {
+    font-size: calc(13px * var(--appearance-font-scale, 1));
+  }
+
+  .markdown-body .md-h1 {
+    font-size: calc(19px * var(--appearance-font-scale, 1));
+  }
+
+  .markdown-body .md-h2 {
+    font-size: calc(15.5px * var(--appearance-font-scale, 1));
+  }
+}
+
+.md-link-text { overflow-wrap: anywhere; user-select: text; }

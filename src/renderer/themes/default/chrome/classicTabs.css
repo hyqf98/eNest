@@ -1,0 +1,186 @@
+/* Safari 风格 Tab 条：空白可拖窗口；Tab 按钮本体 no-drag */
+.tab-strip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  min-width: 0;
+  overflow: visible;
+  -webkit-app-region: drag;
+  padding: 0 4px;
+}
+
+.tab-strip-scroll {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-app-region: no-drag;
+  touch-action: none;
+}
+
+.tab-strip-scroll::-webkit-scrollbar { display: none; }
+
+/* Tab 条右侧空白：始终可拖窗口 */
+.titlebar-drag-fill {
+  flex: 1 1 auto;
+  min-width: 8px;
+  align-self: stretch;
+  -webkit-app-region: drag;
+}
+
+.home-tab,
+.tab {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  max-width: 180px;
+  padding: 0 10px;
+  border-radius: 7px;
+  color: var(--text-2);
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  /* Keep the outline inside the tab so the horizontal scroller cannot crop it. */
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition: background 0.14s, color 0.14s, box-shadow 0.14s;
+  flex: 0 0 auto;
+}
+
+.home-tab span,
+.tab > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-tab:hover,
+.tab:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.home-tab.active,
+.tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border-strong), 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.tab .ico,
+.tab .plugin-icon-tab {
+  /* 对齐 PLUGIN_ICON_DISPLAY_TAB=20（区间 20–24） */
+  width: var(--plugin-icon-tab, 20px);
+  height: var(--plugin-icon-tab, 20px);
+  border-radius: calc(var(--plugin-icon-tab, 20px) * 0.28);
+  display: grid;
+  place-items: center;
+  font-size: calc(9px * var(--appearance-font-scale, 1));
+  font-weight: 800;
+  color: white;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.tab .close {
+  width: 16px;
+  height: 16px;
+  margin-right: -3px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  color: var(--text-3);
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+
+.tab-badge {
+  flex: 0 0 auto;
+  max-width: 4.5em;
+  padding: 0.08em 0.4em;
+  border-radius: 0.65em;
+  background: var(--danger);
+  color: white;
+  font-size: 0.7em;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab:hover .close,
+.tab.active .close { opacity: 1; }
+.tab .close:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* 休眠占位保持静态，避免回收 renderer 后仍由壳持续绘制。 */
+.tab.lazy {
+  opacity: 0.62;
+}
+
+.tab.lazy .lazy-hint {
+  font-size: calc(10px * var(--appearance-font-scale, 1));
+  color: var(--text-3);
+  border: 1px dashed color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 16px;
+  flex-shrink: 0;
+}
+
+/* 崩溃 Tab：红色小点 + 重试图标 */
+.tab.crashed {
+  color: var(--danger);
+}
+
+.tab.crashed:hover,
+.tab.crashed.active {
+  color: var(--danger);
+  background: var(--danger-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
+.tab .crash-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+  flex-shrink: 0;
+}
+
+.tab .retry {
+  display: grid;
+  place-items: center;
+  color: var(--danger);
+  flex-shrink: 0;
+}
+
+.tab:hover .retry { opacity: 1; }
+
+@media (max-width: 520px) {
+  .tab {
+    padding: 0 8px;
+    font-size: calc(12px * var(--appearance-font-scale, 1));
+  }
+}
+
+:root[data-anim="high"] .tab,
+:root[data-anim="high"] .home-tab {
+  transition: transform 0.22s cubic-bezier(0.22, 1.3, 0.36, 1), background 0.18s, color 0.18s,
+    box-shadow 0.22s, border-color 0.18s;
+}
+
+:root[data-anim="high"] .tab:active,
+:root[data-anim="high"] .home-tab:active {
+  transform: scale(0.95);
+}

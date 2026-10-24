@@ -1,6 +1,6 @@
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
 import { DefaultThemeSplash } from '@renderer/themes/default/DefaultThemeSplash'
-import { PaperSplash } from './PaperSplash'
+import { PaperSplash } from '@renderer/themes/default/PaperSplash'
 
 /** Themes select host-rendered launch presets without taking over startup readiness. */
 export function Splash(props: { onDone: () => void; preview?: boolean; ready?: boolean }) {

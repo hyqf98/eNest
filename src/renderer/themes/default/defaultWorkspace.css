@@ -22,7 +22,6 @@
 .default-workspace-notice { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .default-workspace-boot { display: grid; place-content: center; height: 100%; padding: 32px; text-align: center; color: var(--text); }
 .default-workspace-boot p { color: var(--text-2); }
-.md-link-text { overflow-wrap: anywhere; user-select: text; }
 @media (max-width: 660px) {
   .default-workspace .page-home .home-scroll { padding-top: calc(22px * var(--appearance-density, 1)); padding-bottom: calc(90px * var(--appearance-density, 1)); }
 }

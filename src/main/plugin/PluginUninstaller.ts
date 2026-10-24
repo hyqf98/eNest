@@ -31,8 +31,10 @@ import { forgetDevPlugin } from '@main/dev/DevConsole'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { themePackRegistry } from '@main/theme/themePacks'
 import { contributionRegistry } from '@main/contrib/ContributionRegistry'
-import { clearFocusTimer } from '@main/timer/focusTimerService'
-import { revalidateClipboardPolling } from '@main/clipboard/clipboardHistory'
+import { clearPluginDeadlineTasks } from '@main/timer/deadlineTaskService'
+import { refreshPluginBackgrounds, stopPluginBackground } from '@main/plugin/pluginBackgroundRuntime'
+import { clearPrivateDocuments } from '@main/plugin/pluginPrivateDocuments'
+import { clearPluginFileStreams } from '@main/plugin/pluginFileStreams'
 
 export interface UninstallResult {
   ok: boolean
@@ -49,6 +51,7 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
 
   cancelPluginInstalls(id)
   const release = pluginHost.blockPlugin(id)
+  stopPluginBackground(id, 'plugin uninstall')
   return withInstallLock(id, () => uninstallLocked(id)).finally(release)
 }
 
@@ -73,8 +76,8 @@ async function uninstallLocked(id: string): Promise<UninstallResult> {
   }
 
   // Timers outlive renderer tabs, so uninstall explicitly removes their state and records.
-  try { await clearFocusTimer(id) } catch (err) {
-    const msg = `clear focus timer failed: ${(err as Error).message}`
+  try { await clearPluginDeadlineTasks(id) } catch (err) {
+    const msg = `clear deadline tasks failed: ${(err as Error).message}`
     errors.push(msg)
     logWarn('uninstall', `${id} ${msg}`)
   }
@@ -140,7 +143,7 @@ async function uninstallLocked(id: string): Promise<UninstallResult> {
   if (pluginFilesRemoved) {
     try {
       await settingsStore.removePluginSettings(id)
-      revalidateClipboardPolling()
+      refreshPluginBackgrounds()
       logInfo('uninstall', `cleared plugin settings and permissions ${id}`)
     } catch (err) {
       const msg = `clear plugin settings failed: ${(err as Error).message}`
@@ -187,6 +190,8 @@ async function uninstallLocked(id: string): Promise<UninstallResult> {
   }
 
   try { await clearPluginBlobs(id) } catch (error) { errors.push(`remove attachments failed: ${String(error)}`) }
+  try { await clearPrivateDocuments(id) } catch (error) { errors.push(`remove private documents failed: ${String(error)}`) }
+  try { await clearPluginFileStreams(id) } catch (error) { errors.push(`remove private outputs failed: ${String(error)}`) }
 
   // 7) 开发态一并移除（若曾 addDevPlugin）；清理启用/禁用记录避免重装后仍禁用
   try {

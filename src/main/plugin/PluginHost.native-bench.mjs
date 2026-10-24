@@ -64,12 +64,8 @@ const adapters = {
   '@main/plugin/PermissionService': `export const permissionService={cancelFor(){}};`,
   '@main/proxy/proxyService': `export const applyProxyToPluginPartition=async()=>{}; export const getActiveProxy=()=>({type:'none'});`,
   '@main/db/pluginStorage': `export const releasePluginStorage=()=>true;`,
-  '@main/pin/pinService': `export const closeAllPins=()=>{};`,
   '@main/contrib/ContributionRegistry': `export const contributionRegistry={releaseQuickProviders(){}};`,
   '@main/hotkey/pluginRuntimeHotkeys': `export const releasePluginHotkeys=()=>{};`,
-  '@main/ssh/sshSessionManager': `export const releaseSshSessions=async()=>{};`,
-  '@main/database/dbSessionManager': `export const releaseDbSessions=async()=>{};`,
-  '@main/dsh/dshRuntimeService': `export const releaseDshRuntime=async()=>{};`,
   '@main/plugin/localFiles': `export const releaseLocalFiles=()=>{};`,
   '@main/theme/resolveThemeCss': `export const resolveThemeTokens=()=>({}); export const themeTokensToInjectScript=()=>'';`,
   '@main/plugin/externalLinks': `export const routeExternal=async()=>{}; export const isInternalNavigation=()=>true;`

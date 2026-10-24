@@ -1,0 +1,3 @@
+:root.has-bg-media.has-bg-atmosphere .settings-tabs {
+  background: var(--atmosphere-field);
+}

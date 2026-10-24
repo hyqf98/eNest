@@ -1,0 +1,5 @@
+.home-recovery { display:flex; flex:1; min-height:0; padding:clamp(24px,6vw,80px); flex-direction:column; align-items:flex-start; justify-content:center; gap:16px; color:var(--text); }
+.home-recovery-mark { color:var(--accent); font:600 calc(16px * var(--appearance-font-scale, 1)) var(--font-heading,var(--font)); letter-spacing:.08em; }
+.home-recovery h1 { margin:0; font:500 clamp(calc(24px * var(--appearance-font-scale, 1)),calc(3vw * var(--appearance-font-scale, 1)),calc(38px * var(--appearance-font-scale, 1)))/1.3 var(--font-heading,var(--font)); }
+.home-recovery p { max-width:38em; margin:0; color:var(--text-2); line-height:1.8; }
+.home-recovery-actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; }

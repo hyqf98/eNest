@@ -14,9 +14,13 @@
 | `theme` | 注册自己的主题包；有配额，不能覆盖其它来源，注册不等于自动应用 |
 | `vault.write` | 保存、判断和移除本插件的密钥引用；无明文读取接口，不能访问系统已有凭据 |
 | `fs.read` / `fs.write` | 仅限用户经宿主原生选择器选定的文件、目录或保存位置，以及本插件当前实例持有的文件句柄；保留读写用途与路径边界检查 |
-| `timer.background` | 本插件的后台专注计时与记录；每插件一份计时状态，记录最多 2000 条，计时通知仍受 `notify` 声明与拒绝设置控制 |
+| `timer.background` | 本插件通用 `deadlineTasks`；每插件最多 4 个计划，每计划最多 2000 条不可变回执；基础能力免额外授权，通知单独校验 `notify` |
 
-`agent.apps()` 只返回支持的应用、配置位置及安装、活跃状态，无需声明或授权，不授予配置文件读取能力。从 0.2.0 起，`db.dialects.list()` 与 `db.workbench({ action: 'drivers.list' })` 的资料来自调用方的插件后端，因此需要 `backend.node`；资料查询本身不授予数据库内容的读取能力。
+`background.call`、后台的私有文档/blob、普通 `auxiliary` 窗口和 `files.stream` 私有输出不新增权限枚举。它们仍绑定本插件、当前运行代次、入口及配额；后台声明的原生事件、捕获或置顶行为另受对应敏感权限控制，不能用基础容器绕过授权。
+
+0.2.2 不再提供 AI 配置、LAN、数据库、中间件和 SSH 专用宿主 API。它们由明确声明并获得 `backend.node` 授权的插件后端实现；旧的受限业务授权不能升级为完整 Node 信任。
+
+0.2.3 进一步把剪贴板历史迁至 clipboard 插件沙箱后台，选区、录制与贴图迁至插件仓 `@enest/native-surfaces`。`clipboard.history`、`screen.record`、`pin.create` 是保留的敏感权限名，不表示宿主仍提供同名历史 CRUD、录制会话或贴图业务 API。
 
 密钥库要求系统加密可用；Linux 的 `basic_text` / 未知后端不作为安全存储。保存失败不会降级为简单混淆。旧 XOR 凭据保留原文件并要求重新输入；新 key 最多 128 个 UTF-8 字节、单个 secret 最多 64 KiB，每插件最多 256 条 / 8 MiB 密文，已有超额数据仍可删除或缩减。
 
@@ -30,11 +34,11 @@
 - 授权并记住：列表内能力保存为 `allow`；下次打开与重启后沿用。升级后新增的敏感能力仍需授权，不会随旧授权自动放行。
 - 暂不允许：当前实例不再请求列表内能力，结束实例后可重新询问；不会把取消操作保存成永久拒绝。需要持续拒绝某项能力时，可在插件权限设置中设为 `deny`。
 - 超过 60 秒、关闭插件或实例失效：拒绝未完成的请求，不保存临时或持久授权。
-- 撤权会关闭该插件当前实例并回收已有连接、订阅、文件能力和任务；下次打开使用新授权状态。
+- 将敏感权限改为询问或拒绝，会停止该插件沙箱后台与原生订阅，关闭当前实例并回收已有连接、辅助窗口、捕获、文件能力和未完成输出；下次打开使用新授权状态。撤权不是删除已持久化私有数据，也不能收回插件此前已读取的内容。
 
 所有已安装插件都有设置入口，即使没有声明自己的设置项；持久授权结果会同步更新权限页面，可逐项改为允许、询问或拒绝。
 
-主进程仍逐次验证调用窗口、主 frame、插件 ID、精确 origin、manifest、运行代次及文件能力。插件或壳 renderer 发送“已同意”不能授予权限。`agent.write` 与 `agent.writeAssets` 获得 `config.agent.write` 授权后直接执行，继续遵守应用与路径白名单、配额和写前快照约束。恢复配置备份、删除资产、结束进程等破坏性操作仍由宿主展示具体目标并确认；参数 `confirmed: true` 不是用户授权凭据。
+主进程仍逐次验证调用窗口、主 frame、插件 ID、精确 origin、manifest、运行代次及文件能力。插件或壳 renderer 发送“已同意”不能授予权限。官方 AI 配置插件在自身白名单/快照约束下执行，并使用通用 `dialog.confirm` 获得新鲜原生确认。恢复配置备份、删除资产、结束进程等破坏性操作仍由宿主展示具体目标并确认；参数 `confirmed: true` 不是用户授权凭据。
 
 ## 敏感权限
 
@@ -42,28 +46,41 @@
 | --- | --- |
 | `clipboard.read` / `clipboard.write` | 系统剪贴板文本读取 / 写入 |
 | `clipboard.readImage` / `clipboard.writeImage` | 系统剪贴板图片读取 / 写入 |
-| `clipboard.history` / `clipboard.paste` | 剪贴板历史 / 向前台应用粘贴 |
-| `screen.capture` / `screen.record` / `pin.create` | 截图、录屏、置顶贴图 |
+| `clipboard.history` | 兼容权限名：授权后台接收原生 `clipboard.changed` 快照及相关前台后台调用；不是宿主历史 CRUD |
+| `clipboard.paste` | 向宿主捕获的原应用回贴已复制内容；系统授权请求单独受此权限控制 |
+| `screen.capture` | 原生 `screen.capture` 截图；`screen.displays` 只读几何，无需此权限 |
+| `screen.record` | 通用辅助页一次指定显示器的捕获，还需系统许可、当前可见实例和真实原生用户手势；不是宿主录制业务 API |
+| `pin.create` | 兼容权限名：非捕获辅助窗口的原生 `alwaysOnTop` 位置能力；贴图内容与交互由插件实现 |
 | `backend.node` | 运行插件自有 Node 后端；完整本机信任，具有当前用户可用的文件、网络和进程能力；不是操作系统沙箱 |
 | `net.fetch` | 宿主 HTTP(S) 请求；分片、SSE 仍有字节预算 |
 | `net.socket` | TCP、宿主 WebSocket 客户端和限域连接桥 |
-| `lan.share` | 用户选择文件的限时局域网分享，需有效只读文件句柄 |
 | `fs.rename` | 同目录改名；需要可写句柄，批量操作需宿主确认 |
 | `sys.inspect` / `sys.control` | 查看进程、端口 / 结束具体进程 |
-| `config.agent.read` / `config.agent.write` | 查看白名单 AI CLI 配置、会话、快照与资产列表 / 修改配置与资产、恢复备份 |
 | `shell.openExternal` | 系统浏览器打开 http、https、mailto、tel 链接 |
 | `notify` | 操作系统通知 |
 | `hotkey` | 注册影响其它应用的全局热键 |
 | `contribute` | 注册动态 Quick provider，接收全局搜索文本并提供结果；普通声明式入口无需此权限 |
-| `ssh.session` / `ssh.exec` / `ssh.sftp` | SSH 会话 / 命令与指标 / 远程文件操作 |
-| `ssh.agent` | 使用宿主系统 SSH agent；不能提供任意 agent socket 路径 |
-| `db.connect` / `db.query` / `db.schema` | 数据库连接 / 执行与导入 / 结构与补全 |
-| `mw.connect` / `mw.query` / `mw.admin` | 中间件连接 / 查询 / 修改，按 workbench action 校验 |
-| `dsh.connect` / `dsh.chat` / `dsh.admin` | DSH 专属运行时连接 / 对话 / 管理（见边界） |
+| `ssh.agent` | 官方 SSH 后端请求的细分授权；其解释与 socket 约束位于插件，不在壳的协议处理器 |
+| `db.connect` / `db.query` / `db.schema` | 数据库插件通过通用 `permission.authorize` 请求的细分授权 |
+| `mw.connect` / `mw.query` / `mw.admin` | 中间件插件通过通用 `permission.authorize` 请求的细分授权；action 解释位于插件 |
 
-主题读取、语言读取、身份读取和纯事件订阅同样无需额外权限。普通声明式入口直接可用；动态 Quick provider 会读取全局搜索文本，因此保留 `contribute` 授权，两类贡献点都由宿主绑定来源。已有 SSH/数据库/中间件适配 API 保留各自的敏感授权，并额外要求 `backend.node` 才能启动调用方自己的后端；原有连接/查询授权不会隐含完整 Node 信任。两个宿主文件选择器 `ssh.pickLocalFile`、`db.pickSqliteFile` 不启动后端。新业务可组合通用 HTTP、WebSocket、文件句柄或[本机后端](backend.md)，不需要为业务功能新增权限名。
+主题读取、语言读取、身份读取和纯事件订阅同样无需额外权限。普通声明式入口直接可用；动态 Quick provider 会读取全局搜索文本，因此保留 `contribute` 授权，两类贡献点都由宿主绑定来源。官方插件可通过通用后端控制请求已声明的细分授权。壳不解释 SQL、SSH 或中间件 action；对本机后端的完整 Node 信任仍必须单独明确声明。
 
-剪贴板历史只有用户实际保存 `clipboard.history=allow` 后才在后台采集；仅在 manifest 声明或选择本次运行允许不会开启持续监控。临时授权只允许当前实例访问已有历史。撤权后立即重检并停止不再被任何授权插件需要的采集。
+DSH 从 0.3.1 起要求 eNest `>=0.2.1`，业务实现迁入插件自己的后端，通过通用后端协议运行；旧 `dsh.connect`、`dsh.chat`、`dsh.admin` 专属权限与调用通道已移除。旧包须升级配套版本，旧授权不能转换成或隐含 `backend.node`。升级后新增的完整 Node 信任仍须用户明确授权，不可静默兼容放行。
+
+### 剪贴板观察与沙箱后台
+
+持续观察要求插件在 manifest 声明 `background.events: ["clipboard.changed"]` 及 `clipboard.history`，并实际保存 `clipboard.history=allow`。若 `eventSettings` 将事件绑定到插件声明的布尔设置，该值还必须为真。宿主维护一个共享原生观察器，向合格后台发送有界快照；历史模型、去重、置顶、保留与搜索由插件实现，普通前台不能订阅原生变化来绕过门禁。
+
+本次运行允许可以供当前前台调用本插件 `background.call`，但不启用持续观察或基于该敏感事件的 Quick 后台搜索；manifest 声明本身也不授权。系统 `requestPermission()` 不会写入 `clipboard.history=allow`。后台方法不接受其它插件 ID，私有文档/blob也不能跨插件读取。
+
+撤权、禁用或性能面板的停止操作会回收后台及其原生订阅；没有剩余授权订阅者时共享观察器停止。观察器重新开始时只对齐当前剪贴板，不导入停用期间内容。手动停止后，普通设置刷新和 Quick 搜索不会自动重启；显式前台后台调用、禁用再启用或构建更新可以解除停止，仍须重新满足授权。前台关闭不会取消已经持久授权且仍启用的事件订阅，后台运行实例则可空闲回收并从持久私有文档重建。
+
+### 屏幕辅助页
+
+普通辅助页只有 `enestAux` 的上下文/消息/关闭接口，没有完整 `enest` 或 Node。`screen.record` 不能变成任意 `getDisplayMedia`、摄像头或麦克风访问：宿主绑定当前主 frame、插件代次、指定显示器、可见且聚焦的辅助窗口与真实用户手势；每窗口只允许一次捕获。系统 loopback 音频是否可用取决于平台，不应宣传为通用麦克风权限。
+
+撤销 `screen.record` 关闭捕获辅助页，撤销 `pin.create` 关闭非捕获置顶辅助页；随后当前插件实例关闭，私有输出流也随运行域清理。录制与贴图状态由插件包管理，不能靠保留旧的 `enest.screen.record` / `enest.pin` 调用绕过上述流程。
 
 ## 系统文件：句柄，不是路径
 
@@ -80,7 +97,7 @@ if (file) {
 const destination = await enest.localFiles.pickSave({ defaultName: 'export.csv' })
 ```
 
-`localFiles.pick/pickSave/read/list/reveal/prepareDrag`、`shell.saveFile/saveTextFile`、`ssh.pickLocalFile` 和数据库文件选择器可直接调用，无需声明 `fs.read` / `fs.write` 或先经过通用授权框。文件选择器仍需用户选定目标；关闭或取消选择不会授予文件能力。
+`localFiles.pick/pickSave/read/list/reveal/prepareDrag`、`shell.saveFile/saveTextFile`可直接调用，无需声明 `fs.read` / `fs.write` 或先经过通用授权框。文件选择器仍需用户选定目标；关闭或取消选择不会授予文件能力。
 
 句柄绑定插件、真实路径、用途和当前运行代次。另一个插件、重载后的旧页面、撤权或关闭后的句柄均无效。不要持久化 `id`，恢复时让用户重新选择。`displayPath`、字符串绝对路径或 DOM 文件输入的 `path` 不能替代能力。浏览器下载和静默直接文件系统访问不获放行；`fromDrop` 最多接收 20 个路径，宿主展示全部候选并由用户确认后才签发句柄，插件自报路径本身不授予权限。
 
@@ -100,7 +117,11 @@ const destination = await enest.localFiles.pickSave({ defaultName: 'export.csv' 
 
 浏览器原生敏感权限、设备权限、下载、任意导航及直接外联默认拒绝。远程 HTTP 请求用 `enest.net.fetch`，WebSocket 用 `enest.net.websocket`。只有本插件明确配置的开发 origin（含同源 HMR）和宿主签发的实际连接桥可以直连。其它 localhost 端口和其它插件资源不获放行。
 
-**后端边界**：从 0.2.0 起，普通插件可以声明 `backend.entry` 并在获得 `backend.node` 授权后运行独立 Node utility process。页面仍保持上述隔离，但 Node 后端具有完整本机执行能力，细分的前端文件/网络权限不会构成它的操作系统沙箱。宿主验证包内入口、授权和实例归属，并在撤权时终止后端。DSH 的专属 `runtime/` 仍单独集成，同样不属于 Chromium 页面沙箱的保证范围。
+**后端边界**：从 0.2.0 起，普通插件可以声明 `backend.entry` 并在获得 `backend.node` 授权后运行独立 Node utility process。页面仍保持上述隔离，但 Node 后端具有完整本机执行能力，细分的前端文件/网络权限不会构成它的操作系统沙箱。宿主验证包内入口、授权和实例归属，并在撤权时终止后端。
+
+0.2.1 的 `protocolVersion: 1` 控制协议只提供当前实例的活动租约、已验证后代进程登记、回环子页面端点、代理解析和有界关闭，不提供任意宿主 IPC。资源绑定 `pluginId + generation + wcId`；子进程核验真实父子链与启动时间，端点限定显式 HTTP 回环端口，控制请求及活动/进程/端点数量均有预算。它们用于占用统计、正常空闲休眠协调和回收，不减少 `backend.node` 的完整本机信任。具体消息、参数和预算见[本机后端](backend.md)。
+
+任何声明后端的插件都可携带私有 `runtime/` 附件；不再为 DSH ID 单独豁免。附件与 `backend/` 一样不由页面资源协议提供，且禁止符号链接及非普通文件。宿主不会因为附件存在而自动执行它；插件后端负责自己的运行时业务，仍受当前实例关闭/撤权回收流程管理。
 
 ## 数据与系统权限
 

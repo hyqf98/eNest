@@ -33,9 +33,11 @@
 | [plugin.json](manifest.md) | 清单字段与完整示例 |
 | [enest API](api.md) | 完整方法参考：UI / 主题 / 设置 / 存储 / 剪贴板 / 通知 / 生命周期 |
 | [插件本机后端](backend.md) | 通用 backend.call、utility 协议、依赖打包与完整 Node 信任边界 |
+| [自绘设置与窗口边界](settings-and-windows.md) | 私有设置、page 入口、Quick / 桌面适配与宿主保留能力 |
 | [TypeScript 类型](api-types.md) | `window.enest` 接口声明与使用建议 |
 | [UI 集成标准](ui-standard.md) | chrome / 主题变量 / 透明底 / Canvas |
-| [主题工作区](home.md) | 四路由、ACK、动态设置描述符、隔离桥接及资源协议 |
+| [主题 Chrome](chrome.md) | classic / rail / dock 自绘入口、隔离快照与宿主动作边界 |
+| [主题工作区](home.md) | 路由与 ACK、动态设置描述符、隔离桥接及资源协议 |
 | [权限说明](permissions.md) | 权限键与 API 对照表 |
 | [调试与热更新](debug.md) | 开发者控制台、Vite HMR、DevTools |
 | [生命周期](lifecycle.md) | 状态机、事件时间线、handler 示例 |
@@ -48,3 +50,5 @@
 ## 下一步
 
 [快速开始 →](getting-started.md)
+
+- [后台步骤计划](deadline-tasks.md)

@@ -68,7 +68,7 @@ const MIME: Record<string, string> = {
   '.md': 'text/markdown; charset=utf-8'
 }
 
-/** 在 app ready 前注册 enest:// 为特权协议，使后续 handle 能处理 fetch/CORS */
+/** Register every scheme in one pre-ready call; later calls replace renderer privilege switches. */
 export function registerSchemesAsPrivileged(): void {
   protocol.registerSchemesAsPrivileged([
     {
@@ -85,6 +85,22 @@ export function registerSchemesAsPrivileged(): void {
     {
       scheme: QUICK_THEME_PROTOCOL,
       privileges: { standard: true, secure: true, corsEnabled: true, supportFetchAPI: true }
+    },
+    {
+      scheme: 'enest-home',
+      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
+    },
+    {
+      scheme: 'enest-chrome',
+      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
+    },
+    {
+      scheme: 'enest-background',
+      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
+    },
+    {
+      scheme: 'enest-settings',
+      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
     }
   ])
 }
