@@ -275,5 +275,227 @@
       "exitCode": 0,
       "scope": "Current documentation sync/check after consolidating the host security rationale in settings-and-windows.md."
     }
+  },
+  "postAuditMigration": {
+    "checkedAt": "2026-10-24T09:31:53.739Z",
+    "scope": "Additional source-migration fixes after 1f8865e/d05dc61. Does not replace earlier performance, GUI, ASAR or diagnostic-ZIP identities. Concurrent free-panel work preserved and not claimed complete.",
+    "fixes": [
+      "default-theme Quick usage retention, counts, normalized query preferences and legacy interpretation",
+      "native opaque stable identities and actual-success facts; bounded provider-private JSON/CAS standard",
+      "source suspension, asynchronous grant retirement and uninstall write-back fencing",
+      "canonical dynamic settings registration contract and generated SDK",
+      "unreachable duplicate save dispatch removal and native-bundle policy regression guard",
+      "null-safe default-startup receipt snapshot"
+    ],
+    "focusedTests": {
+      "invocation": "node --test --test-concurrency=1 src/preload/settingsContract.migration-20261024.test.mjs tools/packaging/dead-dispatch-cleanup-20261024.test.mjs src/main/theme/quickProviderState.migration-20261024.test.mjs src/main/theme/quickStateIntegration.migration-20261024.test.mjs src/main/theme/quickThemeSuspension.migration-20261024.test.mjs src/renderer/themes/default/quick/usagePolicy.migration-20261024.test.mjs",
+      "exitCode": 0,
+      "tests": 69,
+      "pass": 69,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0,
+      "uniqueFixtureCount": 6,
+      "fixtureIdentities": [
+        {
+          "path": "src/preload/settingsContract.migration-20261024.test.mjs",
+          "bytes": 3462,
+          "sha256": "e072b04c3f302563b6e1675c38029f93168a964617efd58175557ba7fb2b283e"
+        },
+        {
+          "path": "tools/packaging/dead-dispatch-cleanup-20261024.test.mjs",
+          "bytes": 7167,
+          "sha256": "483e9fecada579ec9011b8e8228d61fe619e1ef7d222a54da5f4401621d66c85"
+        },
+        {
+          "path": "src/main/theme/quickProviderState.migration-20261024.test.mjs",
+          "bytes": 16805,
+          "sha256": "3063fc13294d74a6d90f4f36de66cabb3e55524e6cdb4d7bf3a924646b18eb88"
+        },
+        {
+          "path": "src/main/theme/quickStateIntegration.migration-20261024.test.mjs",
+          "bytes": 20762,
+          "sha256": "d3ec41eef03d15c0dca6a908821d5b1f6b7a14ef5f54e30fcbfd629b6d96b51c"
+        },
+        {
+          "path": "src/main/theme/quickThemeSuspension.migration-20261024.test.mjs",
+          "bytes": 14961,
+          "sha256": "516ad6702a0921a7855bbcf2ab35b4cab15dd00b3116746c95025d0dbb729535"
+        },
+        {
+          "path": "src/renderer/themes/default/quick/usagePolicy.migration-20261024.test.mjs",
+          "bytes": 19236,
+          "sha256": "8bcdbde06580254e5438fdf5dc1c8aba9ae7965e6dc630a40900108aa17b3b81"
+        }
+      ],
+      "rawTap": {
+        "retained": false,
+        "bytes": 16695,
+        "sha256": "872650bbd018a4237c317c05b005f73434c3c9094f6bc26daa0ce6d98415de25"
+      },
+      "historicalSuitesExecuted": false,
+      "limitation": "Real production modules/expressions executed with isolated in-memory dependencies. No new Electron GUI, external-service or cross-platform native acceptance."
+    },
+    "completeTypecheck": {
+      "invocation": "npm run typecheck",
+      "exitCode": 2,
+      "errors": [
+        "src/main/panel/PanelManager.ts(396,7): error TS2304: Cannot find name 'PANEL_WIDGET_MIN_HEIGHT'.",
+        "src/main/panel/PanelManager.ts(397,9): error TS2304: Cannot find name 'PANEL_WIDGET_MIN_HEIGHT'.",
+        "src/main/panel/regionSelection.ts(75,9): error TS2339: Property 'settled' does not exist on type 'Session'.",
+        "src/main/panel/regionSelection.ts(76,5): error TS2339: Property 'settled' does not exist on type 'Session'.",
+        "src/main/panel/regionSelection.ts(145,41): error TS2339: Property 'settled' does not exist on type 'Session'.",
+        "src/main/panel/regionSelection.ts(146,67): error TS2339: Property 'settled' does not exist on type 'Session'.",
+        "src/main/panel/regionSelection.ts(151,16): error TS2339: Property 'settled' does not exist on type 'Session'.",
+        "src/main/panel/regionSelection.ts(158,26): error TS2769: No overload matches this call.",
+        "src/main/panel/regionSelection.ts(168,17): error TS2339: Property 'settled' does not exist on type 'Session'.",
+        "src/main/panel/regionSelection.ts(185,17): error TS2339: Property 'settled' does not exist on type 'Session'.",
+        "src/main/settings/SettingsStore.ts(243,5): error TS2741: Property 'panels' is missing in type '{ theme: { overrides: Partial<Record<\"light\" | \"dark\", Record<string, string>>>; mode: ThemeMode; packId?: string; background?: BackgroundConfig; backgroundSource?: \"user\" | \"pack\"; backgroundEffect?: string; }; ... 5 more ...; profile: { ...; }; }' but required in type 'SettingsData'."
+      ],
+      "blockedByConcurrentPanelDevelopment": true,
+      "panelImplementationModifiedToPass": false,
+      "rawLog": {
+        "retained": false,
+        "bytes": 1671,
+        "sha256": "47814b6916f736395f73187b6420eb702065b5f133627a52f9b1c1ac1b7cb177"
+      }
+    },
+    "rendererTypecheck": {
+      "invocation": "./node_modules/.bin/tsc --noEmit -p tsconfig.web.json",
+      "exitCode": 0,
+      "rawLog": {
+        "retained": false,
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "build": {
+      "invocation": "npm run build",
+      "exitCode": 0,
+      "bundledLicenseCount": 60,
+      "mixedImportWarnings": [
+        "src/main/logs/logService.ts",
+        "src/main/plugin/PermissionService.ts",
+        "src/main/theme/appearanceService.ts",
+        "src/main/plugin/PluginRegistry.ts",
+        "src/main/db/pluginStorage.ts",
+        "src/main/window/createQuickWindow.ts",
+        "src/main/plugin/localFiles.ts",
+        "src/main/plugin/PluginPermissions.ts",
+        "src/main/plugin/PluginHost.ts",
+        "src/main/plugin/pluginBackgroundRuntime.ts",
+        "src/main/vault/secretVault.ts",
+        "src/main/dev/DevConsole.ts",
+        "src/main/home/HomeSurfaceManager.ts",
+        "src/main/ipc/pluginHandlers.ts",
+        "src/main/ipc/shellHandlers.ts"
+      ],
+      "rawLog": {
+        "retained": false,
+        "bytes": 22952,
+        "sha256": "9e684d8e95f3488a3d45f2b9d15c48644f3afa8a26c20f9ca8e3c18146bcaa05"
+      },
+      "concurrentPanelCompilationIncluded": true,
+      "productionSourceGloballyFrozen": false
+    },
+    "currentOutputBoundaryObservation": {
+      "checkedAt": "2026-10-24T09:28:40.253Z",
+      "scope": "Current locally built output only; not a ZIP, native launch, all-platform validation, or a performance rerun. Includes concurrent panel compilation.",
+      "scriptFilesChecked": 67,
+      "releaseGuardsPassed": true,
+      "usageModelLocations": [
+        "out/renderer/assets/DefaultQuickSurface-lcev2GL2.js"
+      ],
+      "nativeLiteralImports": [
+        "./chunks/linuxScanner-DOrjuT0e.js",
+        "./chunks/macScanner-BQ6Ug6kW.js",
+        "./chunks/windowsScanner-BfGDF3v3.js",
+        "adm-zip",
+        "ajv/dist/2020.js",
+        "electron",
+        "electron-log/main",
+        "electron-updater",
+        "node:assert",
+        "node:async_hooks",
+        "node:buffer",
+        "node:child_process",
+        "node:console",
+        "node:crypto",
+        "node:diagnostics_channel",
+        "node:dns",
+        "node:events",
+        "node:fs",
+        "node:fs/promises",
+        "node:http",
+        "node:module",
+        "node:net",
+        "node:os",
+        "node:path",
+        "node:perf_hooks",
+        "node:process",
+        "node:querystring",
+        "node:readline",
+        "node:sqlite",
+        "node:stream",
+        "node:tls",
+        "node:url",
+        "node:util",
+        "node:util/types",
+        "node:worker_threads",
+        "node:zlib",
+        "string_decoder",
+        "ws"
+      ],
+      "forbiddenNativeImports": [],
+      "importantOutputs": [
+        {
+          "path": "out/main/index.js",
+          "bytes": 1129458,
+          "sha256": "7f168642449eaf1d8248216329edce2e6217a04c27503f602ba132b8c515f453"
+        },
+        {
+          "path": "out/preload/pluginPreload.cjs",
+          "bytes": 19473,
+          "sha256": "85b89c129e226e06a73a2806e50ba26c1eab841b313ae60ca0cd8b781c50d1a1"
+        },
+        {
+          "path": "out/preload/shellPreload.cjs",
+          "bytes": 17172,
+          "sha256": "5338a234f8182a324e051be0bd716c794a25c9268e5129872f5ed097b2c69440"
+        },
+        {
+          "path": "out/renderer/assets/DefaultQuickSurface-lcev2GL2.js",
+          "bytes": 22054,
+          "sha256": "da9d1d6b87371efe92f5db9e8744f2bb99b10b33aa01d13fe5e4da163b86056e"
+        },
+        {
+          "path": "out/renderer/assets/QuickLauncherApp-ha2HX7Zp.js",
+          "bytes": 25405,
+          "sha256": "b8d997dccc6981ded146e7be53684400ed90e7515401e5b9434bc144358a90f6"
+        }
+      ]
+    },
+    "contracts": {
+      "publicTypesChecked": 165,
+      "developerGuidesSynced": 21,
+      "developerGuidesChecked": 21,
+      "exitCode": 0
+    },
+    "bothRepositoriesDiffCheckPassed": true,
+    "newNativeAppRun": false,
+    "newPerformanceMeasurement": false,
+    "newSettingsRecording": false,
+    "newPlatformPackages": false,
+    "historicalPerformanceAndPackageEvidenceRewritten": false,
+    "screenshotFilesCreated": 0,
+    "temporaryNativeProfilesCreated": 0,
+    "toolsInstalled": false,
+    "commitOrPushPerformed": false,
+    "cleanup": {
+      "temporaryLogDirectoryRetained": false,
+      "rawLogsFoldedBeforeDeletion": true,
+      "addedNewPermanentEvidenceFiles": 0
+    }
   }
 }

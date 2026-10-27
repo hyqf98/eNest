@@ -27,7 +27,12 @@ import { logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, getAppPathsRoot } from '@main/paths/pathsService'
 import { openLocalPath } from '@main/paths/openLocalPath'
 import { pluginHost } from '@main/plugin/PluginHost'
+import { trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 import { broadcastNotice } from '@main/plugin/shellNotices'
+import { associationService } from '@main/openWith/associationService'
+import { resumeDeferredOpen } from '@main/openWith/openWithRouter'
+import type { OpenWithKey, OpenWithSetRequest } from '@shared/types/openWith'
+import { OPEN_WITH_EXT_RE, OPEN_WITH_SCHEME_RE } from '@shared/types/openWith'
 import {
   startGithubLogin,
   cancelGithubLogin,
@@ -47,6 +52,8 @@ import {
 import { uninstallPlugin } from '@main/plugin/PluginUninstaller'
 import { cancelPluginDeadlineTasks } from '@main/timer/deadlineTaskService'
 import { refreshPluginBackgrounds, stopPluginBackground } from '@main/plugin/pluginBackgroundRuntime'
+import { applyAppearanceToPanels, syncFreePanelSetting } from '@main/panel/PanelManager'
+import { applyPanelHotkeys } from '@main/hotkey/panelHotkey'
 import { stopPluginBackend } from '@main/plugin/pluginBackendRpc'
 import { broadcastPluginLocale, getPluginCallTrace } from '@main/ipc/pluginHandlers'
 import {
@@ -185,7 +192,7 @@ export function registerShellHandlers(): void {
     IpcChannels.ShellOpenPlugin,
     async (_e, pluginId: string, enter?: { code?: string; payload?: unknown }) => {
       try {
-        const tabId = await pluginHost.openPlugin(pluginId, enter)
+        const tabId = await pluginHost.openPlugin(pluginId, enter, { trustedUserNavigation: true })
         logInfo('plugin', `open ${pluginId} tab=${tabId}${enter?.code ? ` code=${enter.code}` : ''}`)
         return { ok: true, data: tabId }
       } catch (err) {
@@ -235,7 +242,7 @@ export function registerShellHandlers(): void {
   })
 
   handleShellIpc(IpcChannels.ShellActivatePlugin, (_e, tabId: string) => {
-    pluginHost.activatePlugin(tabId)
+    pluginHost.activatePlugin(tabId, undefined, true)
     return { ok: true }
   })
 
@@ -609,7 +616,16 @@ export function registerShellHandlers(): void {
   handleShellIpc(IpcChannels.ShellGetSettings, () => settingsStore.getAll())
 
   handleShellIpc(IpcChannels.ShellSetSettings, async (_e, partial) => {
+    if (partial && typeof partial === 'object' && ('mcp' in partial || 'mcpToken' in partial
+      || partial.general && typeof partial.general === 'object' && ('mcp' in partial.general || 'mcpToken' in partial.general))) {
+      throw new Error('MCP security settings require the dedicated native API')
+    }
     // A renderer only sees its own tab projection; it cannot overwrite the global session.
+    // panels 是主进程独占的布局快照，renderer 只能读（写入走 panel:* 通道）。
+    if (partial && typeof partial === 'object' && 'panels' in partial) {
+      const { panels: _panels, ...rest } = partial
+      partial = rest
+    }
     if (partial?.general && typeof partial.general === 'object') {
       const { sessionTabs: _tabs, sessionActivePluginId: _active, mainWindowState: _window, ...general } = partial.general
       if (general.quickLauncher && typeof general.quickLauncher === 'object') {
@@ -647,8 +663,53 @@ export function registerShellHandlers(): void {
       pluginHost.broadcastTheme()
       broadcastNotice('appearance.changed', { kind: 'font' })
     }
+    // 自由面板开关/快捷键变更：重注册热键；开启时恢复布局，关闭时释放面板内插件（保留布局记录）。
+    if (generalPatch && ('freePanel' in generalPatch || 'panelHotkey' in generalPatch)) {
+      const enabled = settingsStore.getAll().general.freePanel?.enabled === true
+      applyPanelHotkeys()
+      if ('freePanel' in generalPatch) {
+        void syncFreePanelSetting(enabled).catch(error => logWarn('panel', `sync setting failed: ${String(error)}`))
+      }
+    }
+    // 面板材质变更：立即应用到已开面板。
+    if (generalPatch && 'panelAppearance' in generalPatch) applyAppearanceToPanels()
     return result
   })
+
+  // —— 「打开方式」：壳统一能力（插件只声明，系统写入与路由在主进程）——
+
+  const parseOpenWithKey = (raw: unknown): OpenWithKey | null => {
+    const key = String(raw ?? '')
+    if (key.startsWith('ext:') && OPEN_WITH_EXT_RE.test(key.slice(4))) return key as OpenWithKey
+    if (key.startsWith('scheme:') && OPEN_WITH_SCHEME_RE.test(key.slice(7))) return key as OpenWithKey
+    return null
+  }
+
+  handleShellIpc(IpcChannels.ShellOpenWithList, () => associationService.list())
+
+  handleShellIpc(IpcChannels.ShellOpenWithSetDefault, (_e, req: OpenWithSetRequest) => {
+    const key = parseOpenWithKey(req?.key)
+    const pluginId = String(req?.pluginId ?? '')
+    if (!key || !pluginId) return { ok: false, error: 'invalid openWith request' }
+    return associationService.setDefault(key, pluginId)
+  })
+
+  handleShellIpc(IpcChannels.ShellOpenWithClearDefault, (_e, rawKey: unknown) => {
+    const key = parseOpenWithKey(rawKey)
+    if (!key) return { ok: false, error: 'invalid openWith key' }
+    return associationService.clearDefault(key)
+  })
+
+  handleShellIpc(IpcChannels.ShellOpenWithRoute, async (_e, req: OpenWithSetRequest) => {
+    const key = parseOpenWithKey(req?.key)
+    const pluginId = String(req?.pluginId ?? '')
+    if (!key || !pluginId) return { ok: false, error: 'invalid openWith request' }
+    return (await resumeDeferredOpen(key, pluginId))
+      ? { ok: true }
+      : { ok: false, error: '该插件未声明此类型或已停用' }
+  })
+
+  handleShellIpc(IpcChannels.ShellOpenWithOpenSystemSettings, () => associationService.openSystemSettings())
 
   /** 设置页插件分组：已注册 section 列表 */
   handleShellIpc(IpcChannels.ShellGetSettingsSections, () => pluginSettingsBridge.listAll())
@@ -685,15 +746,15 @@ export function registerShellHandlers(): void {
         ? options.filters
         : 'media'
       const win = getMainWindow()
-      const result = win
-        ? await dialog.showOpenDialog(win as never, {
+      const result = await trackNativeInteraction(win
+        ? dialog.showOpenDialog(win as never, {
             properties: ['openFile'],
             filters: [PICK_FILTERS[key]]
           })
-        : await dialog.showOpenDialog({
+        : dialog.showOpenDialog({
             properties: ['openFile'],
             filters: [PICK_FILTERS[key]]
-          })
+          }))
       if (result.canceled || result.filePaths.length === 0) return null
       return result.filePaths[0]
     }

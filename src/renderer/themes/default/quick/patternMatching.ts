@@ -4,7 +4,9 @@ import type { QuickContentMatch } from '@shared/types/quick'
 export function matchDefaultQuickContent(
   catalog: Array<{ id: string; content?: QuickContentMatch }>, text: string, signal?: AbortSignal
 ): Promise<Set<string>> {
-  const rules = catalog.filter(item => item.content).map(item => ({ id: item.id, ...item.content! }))
+  const rules = catalog
+    .filter(item => item.content && (item.content.type === 'regex' || item.content.type === 'over'))
+    .map(item => ({ id: item.id, ...item.content! }))
   if (!rules.length || !text.trim() || signal?.aborted || typeof Worker === 'undefined') return Promise.resolve(new Set())
   let worker: Worker
   try { worker = new Worker(new URL('./patternWorker.ts', import.meta.url), { type: 'module' }) }

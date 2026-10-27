@@ -180,3 +180,22 @@
   .page-settings .theme-card { padding: 12px; }
   .page-settings .account-card { padding: 24px; }
 }
+
+/* —— 打开方式（DefaultAppsSection）—— */
+.s-card h2 .open-with-system-btn {
+  margin-left: 10px;
+  font-weight: 400;
+}
+.open-with-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: 1px;
+}
+.open-with-chip--ok { color: var(--ok, #2e9e5b); background: color-mix(in srgb, var(--ok, #2e9e5b) 12%, transparent); }
+.open-with-chip--warn { color: var(--warn, #b8860b); background: color-mix(in srgb, var(--warn, #b8860b) 12%, transparent); }
+.open-with-chip--muted { color: var(--text-dim, #888); background: color-mix(in srgb, var(--text-dim, #888) 12%, transparent); }
+.open-with-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }

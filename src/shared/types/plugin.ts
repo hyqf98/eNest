@@ -1,4 +1,5 @@
 import type { PluginMemoryMonitorSettings } from './pluginMemory'
+import type { McpToolDeclaration } from './mcp'
 
 /** 宿主能力标识；基础能力直接可用，敏感能力需在 manifest 声明并取得用户授权。 */
 export type PluginPermission =
@@ -124,10 +125,12 @@ export interface CaptureDisplay {
   primary: boolean
 }
 
-/** 声明式内容处理指令；字符串指令继续保持兼容。 */
+/** 声明式内容处理指令；字符串指令继续保持兼容。img/files 对应 Quick 粘贴的图片/文件上下文。 */
 export type PluginFeatureCommand = string
   | { type: 'regex'; label: string; match?: string; regex?: string; minLength?: number }
   | { type: 'over'; label: string; exclude?: string; minLength?: number; maxLength?: number }
+  | { type: 'img'; label: string; extensions?: string[] }
+  | { type: 'files'; label: string; extensions?: string[]; minCount?: number; maxCount?: number; allowDirectory?: boolean }
 
 export interface PluginFeature {
   code: string
@@ -274,6 +277,26 @@ export interface HomeCardContribution {
   schemaVersion?: string
 }
 
+/**
+ * 「打开方式」贡献（manifest.contributes.openWith；open-with 插槽）。
+ * 纯声明：插件只声明能处理的扩展名 / MIME / URL scheme，系统注册与文件→插件
+ * 路由由壳统一负责（插件是壳内视图，OS 关联目标只能是 eNest 本体）。
+ * 打开时壳以 enter.code='open-file'|'open-url' + payload{paths,url} 唤起插件。
+ */
+export interface OpenWithContribution {
+  id: string
+  /** 小写、不含点的文件扩展名，如 'md' */
+  extensions?: string[]
+  /** MIME 类型，如 'text/markdown' */
+  mimeTypes?: string[]
+  /** URL scheme，小写不含 ://，如 'enest-md'；保留字 enest/http/https/file 与跨插件重复拒绝 */
+  schemes?: string[]
+  /** macOS CFBundleDocumentTypes 语义 */
+  role?: 'Editor' | 'Viewer' | 'Browser'
+  /** 贡献点 schema 版本；缺省视为当前版本 */
+  schemaVersion?: string
+}
+
 /** 左侧轨道入口贡献（orb 模式；本期仅数据层，渲染消费见交接说明） */
 export interface RailEntryContribution {
   id: string
@@ -295,6 +318,8 @@ export interface RailEntryContribution {
  * - quickProviders：运行时注册（provider 逻辑在插件 webContents 内，不可序列化）。
  */
 export interface PluginContributes {
+  /** Tools automatically available while the host MCP service is enabled. */
+  mcpTools?: McpToolDeclaration[]
   /** Quick 搜索 provider：注册异步查询入口（运行时注册，manifest 不声明） */
   quickProviders?: QuickProviderContribution[]
   /** 设置 section（声明式，持久化，重启即显示） */
@@ -307,10 +332,12 @@ export interface PluginContributes {
   themePacks?: ThemePack[]
   /** 首页提供者（来源绑定，入口由宿主校验） */
   homePages?: import('./appearance').HomePageContribution[]
+  /** 「打开方式」声明（纯声明；系统注册与路由由壳统一负责） */
+  openWith?: OpenWithContribution[]
 }
 
 /** 贡献点插槽名（contributions 表 slot 字段枚举） */
-export type ContributionSlot = 'settings' | 'home-cards' | 'rail-entries' | 'theme-packs' | 'home-pages'
+export type ContributionSlot = 'settings' | 'home-cards' | 'rail-entries' | 'theme-packs' | 'home-pages' | 'open-with' | 'mcp-tools'
 
 /** 运行时读取贡献项时附加的来源信息 */
 export interface SourcedContribution<T> {
@@ -623,16 +650,6 @@ export interface ProxyConfig {
   port?: number
 }
 
-/** Quick 最近使用一条记录 */
-export interface QuickRecentEntry {
-  /** 命令 id，如 `app:<path>` / `plugin:<id>:<code>` / `action:<action>` */
-  id: string
-  /** 最近一次使用时间戳（ms） */
-  ts: number
-  /** 累计使用次数 */
-  count: number
-}
-
 /** 全局呼出快捷启动小窗的设置 */
 export interface QuickLauncherSettings {
   /** 是否启用全局热键；false 时不注册 */
@@ -641,10 +658,6 @@ export interface QuickLauncherSettings {
   hotkeys: string[]
   /** 当前唯一生效的 accelerator；空/缺失时回退 hotkeys[0] */
   activeHotkey?: string
-  /** 最近使用命令（按 ts 倒序，截断 20）；缺省 = 尚未记录 */
-  recent?: QuickRecentEntry[]
-  /** 每个标准化搜索词上次选择的命令；有界保存最近 100 项。 */
-  queryPreferences?: Array<{ query: string; id: string }>
 }
 
 /** 启动 Splash 背景类型：brand 品牌色 / none 主题色 / image 自定义图 */
@@ -719,6 +732,12 @@ export interface GeneralSettings {
   quickLauncher?: QuickLauncherSettings
   /** 启动 Splash 背景；缺省 = brand 品牌色 */
   splashBackground?: SplashBackgroundConfig
+  /** 自由面板（小组件）功能开关；缺省视为关闭。 */
+  freePanel?: { enabled: boolean }
+  /** 自由面板呼出快捷键（归一后的 accelerator）；缺省用平台默认。 */
+  panelHotkey?: string
+  /** 自由面板外观（壳级，不随主题变化）。 */
+  panelAppearance?: import('./panel').PanelAppearance
 }
 
 /** GitHub 账号个人资料（设置 profile 段 user 字段；access token 单独加密存储，不落设置） */
@@ -768,11 +787,15 @@ export type PluginLaunchPatch = Omit<Partial<PluginLaunchConfig>, 'mode'> & {
 
 // —— 插件生命周期（对标 uTools onPluginEnter / onPluginOut）——
 
-/** openPlugin 可选进入载荷：code 对应 feature 指令，payload 为任意透传数据 */
+/**
+ * openPlugin 可选进入载荷：code 对应 feature 指令，payload 为任意透传数据；
+ * input 为 Quick 粘贴上下文（文本/图片/文件），由宿主按会话预算签发。
+ */
 export interface PluginEnterPayload {
   code?: string
-  type?: 'text' | 'regex' | 'over'
+  type?: 'text' | 'regex' | 'over' | 'img' | 'files'
   payload?: unknown
+  input?: import('./quick').QuickEnterInput
 }
 
 /** 关闭原因：用户关 Tab / 卸载插件 / 应用退出 */

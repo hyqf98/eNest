@@ -13,8 +13,11 @@ import { DefaultQuickBackground } from './DefaultQuickBackground'
 import { QuickAccessMenu } from './QuickAccessMenu'
 import { groupQuickCommands, moveQuickGridSelection, quickSelectionIndex, type QuickGridKey } from './grid'
 import { getQuickSearchResults } from './searchResults'
-import { rankDefaultQuickCatalog } from './searchPolicy'
+import { matchDefaultQuickMedia, rankDefaultQuickCatalog } from './searchPolicy'
 import { matchDefaultQuickContent } from './patternMatching'
+import { projectDefaultQuickUsage, type DefaultQuickOpened } from './usagePolicy'
+import type { DefaultQuickStateClient } from './usageState'
+import { useQuickUsage } from './useQuickUsage'
 import './quick.css'
 
 export interface DefaultQuickSurfaceProps {
@@ -22,6 +25,7 @@ export interface DefaultQuickSurfaceProps {
   active: boolean
   /** Compatibility policy for v1 themes which only replace presentation. */
   searchActive?: boolean
+  privateState: DefaultQuickStateClient
   onAction(action: QuickThemeAction): Promise<QuickThemeActionResult>
 }
 export interface DefaultQuickSurfaceHandle {
@@ -29,6 +33,7 @@ export interface DefaultQuickSurfaceHandle {
   /** Display-only v1 providers delegate their legacy grid keys to the default policy. */
   navigate(key: string, shift?: boolean): string | null
   layout(columns: number): void
+  recordOpened(opened: DefaultQuickOpened): void
 }
 
 const FILTERS: { kind: QuickCommandKind; label: string }[] = [
@@ -57,21 +62,25 @@ function HighlightTitle({ text, query }: { text: string; query: string }) {
 }
 
 export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, DefaultQuickSurfaceProps>(function DefaultQuickSurface(
-  { snapshot, active, searchActive = active, onAction }, ref
+  { snapshot, active, searchActive = active, privateState, onAction }, ref
 ) {
   const rootRef = useRef<HTMLDivElement>(null), inputRef = useRef<HTMLInputElement>(null), panelRef = useRef<HTMLDivElement>(null)
   const moreRef = useRef<HTMLButtonElement>(null), marketRef = useRef<HTMLButtonElement>(null)
   const actionRef = useRef(onAction)
   actionRef.current = onAction
   const dispatch = useCallback((action: QuickThemeAction) => actionRef.current(action), [])
+  const { usage, recordOpened } = useQuickUsage(privateState)
   const [categoriesOpen, setCategoriesOpen] = useState(false)
   const [columns, setColumns] = useState(QUICK_GRID_COLUMNS)
   const composing = useRef(false)
   const key = `${snapshot.queryRevision}:${snapshot.catalogRevision}`
   const [content, setContent] = useState({ key: '', matches: new Set<string>(), loading: false })
-  const plugin = snapshot.plugin, searching = snapshot.searching
+  const plugin = snapshot.plugin
   const showResults = !plugin
   const query = snapshot.query, kind = snapshot.filter
+  const inputItems = snapshot.input?.items ?? []
+  const media = useMemo(() => matchDefaultQuickMedia(snapshot.catalog, snapshot.input?.items), [snapshot.catalog, snapshot.input])
+  const searching = snapshot.searching || (media.mediaPresent && media.matches.size > 0)
   const focus = useCallback((selectAll = false) => { inputRef.current?.focus(); if (selectAll) inputRef.current?.select() }, [])
   useLayoutEffect(() => {
     if (rootRef.current) rootRef.current.inert = !active
@@ -92,9 +101,11 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
     // Icon bytes do not invalidate declarations or restart an in-flight regex worker.
   }, [searchActive, key, Boolean(plugin)])
 
-  const ranked = useMemo(() => rankDefaultQuickCatalog(snapshot.catalog, query, kind,
-    searching ? 60 : QUICK_GRID_COLUMNS * QUICK_HOME_ROWS, content.key === key ? content.matches : new Set()),
-  [snapshot.catalog, query, kind, searching, content.key, content.matches, key])
+  const usageCatalog = useMemo(() => projectDefaultQuickUsage(snapshot.catalog, usage, query), [snapshot.catalog, usage, query])
+  const ranked = useMemo(() => rankDefaultQuickCatalog(usageCatalog, query, kind,
+    searching || media.mediaPresent ? 60 : QUICK_GRID_COLUMNS * QUICK_HOME_ROWS, content.key === key ? content.matches : new Set(),
+    media.matches, media.mediaPresent),
+  [usageCatalog, query, kind, searching, content.key, content.matches, key, media])
   const allGroups = useMemo(() => showResults ? groupQuickCommands(ranked, searching || kind === 'action', QUICK_GRID_COLUMNS * QUICK_HOME_ROWS) : [], [ranked, searching, kind, showResults])
   const { groups, visibleItems, overflowCount } = useMemo(() => getQuickSearchResults(allGroups, columns, searching, snapshot.expanded), [allGroups, columns, searching, snapshot.expanded])
   const index = quickSelectionIndex(visibleItems, snapshot.selectedId)
@@ -105,6 +116,7 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
 
   useImperativeHandle(ref, () => ({
     focus,
+    recordOpened,
     layout: value => setColumns(Math.max(1, Math.min(8, Math.round(value)))),
     navigate: (key, shift) => {
       if (!searchActive || plugin || snapshot.busy || !visibleItems.length
@@ -113,7 +125,7 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
       const next = moveQuickGridSelection(index, groups.map(group => group.items.length), columns, key as QuickGridKey, shift)
       return visibleItems[next].id
     }
-  }), [focus, searchActive, plugin, snapshot.busy, visibleItems, query, index, groups, columns])
+  }), [focus, recordOpened, searchActive, plugin, snapshot.busy, visibleItems, query, index, groups, columns])
 
   useEffect(() => {
     if (!searchActive || plugin) return
@@ -168,11 +180,25 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   const select = (next: number) => { if (visibleItems[next]) void dispatch({ type: 'select', id: visibleItems[next].id }) }
   const open = (item: QuickThemeItem, mainWindow = false) => dispatch({ type: 'open', id: item.id, ...(mainWindow ? { container: 'shell' as const } : {}) })
   const changeQuery = (value: string) => { void dispatch({ type: 'query', query: value }) }
+  const onPaste = (event: { clipboardData: DataTransfer | null; preventDefault(): void }) => {
+    if (plugin || !searchActive) return
+    // 文本粘贴保持默认插入行为；仅在剪贴板携带图片/文件时拦截并交给宿主上下文。
+    const carriesMedia = Array.from(event.clipboardData?.items ?? []).some(item =>
+      item.kind === 'file' && (item.type.startsWith('image/') || item.type === 'Files' || item.type === 'text/uri-list' || !item.type))
+    if (!carriesMedia) return
+    event.preventDefault()
+    void dispatch({ type: 'paste' })
+  }
   const nativeKey = (event: KeyboardEvent) => dispatch({ type: 'key', key: event.key, shift: event.shiftKey, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey })
   const onKeyDown = (event: KeyboardEvent) => {
     if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return
     const inInput = event.target === inputRef.current
     const hasSelection = inInput && inputRef.current?.selectionStart !== inputRef.current?.selectionEnd
+    if (event.key === 'Backspace' && inInput && !query && !hasSelection && inputItems.length) {
+      event.preventDefault()
+      void dispatch({ type: 'input-clear', id: inputItems[inputItems.length - 1].id })
+      return
+    }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); focus(true); return }
     if (event.key === 'F6' && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault()
@@ -228,7 +254,16 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
             <button type="button" className="quick-plugin-grip" data-quick-native-drag title={`拖出「${plugin.title}」成为独立窗口；点击也可分离`} aria-label={`将${plugin.title}独立显示`} onClick={() => void dispatch({ type: 'plugin-detach' })}>
               <span aria-hidden="true">⠿</span><span>{plugin.title}</span>
             </button>
-          </> : <span className="quick-search-leading" aria-hidden><SearchIcon size={19} /></span>}
+          </> : <>
+            {inputItems.length > 0 && <span className="quick-input-chips" role="list" aria-label="粘贴内容">
+              {inputItems.slice(0, 4).map(chip => <span key={chip.id} className={`quick-input-chip kind-${chip.kind}`} role="listitem" title={chip.name ?? (chip.kind === 'image' ? '图片' : '文件')}>
+                <img src={chip.thumbnail} alt="" draggable={false} />
+                <button type="button" aria-label={`移除${chip.name ?? (chip.kind === 'image' ? '图片' : '文件')}`} onClick={() => { void dispatch({ type: 'input-clear', id: chip.id }); focus() }}>×</button>
+              </span>)}
+              {inputItems.length > 4 && <span className="quick-input-chip more" role="listitem">+{inputItems.length - 4}</span>}
+            </span>}
+            <span className="quick-search-leading" aria-hidden><SearchIcon size={19} /></span>
+          </>}
           accessory={<>
             {!plugin && busy && <span className="quick-input-status"><span className="quick-spinner" aria-label="搜索中" /></span>}
             <span className="quick-inline-tools">
@@ -244,6 +279,7 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
             </span>
           </>}
           inputProps={{ role: 'combobox', 'aria-expanded': showResults, 'aria-controls': showResults ? 'quick-results' : undefined, 'aria-activedescendant': showResults && selected && !snapshot.busy ? `quick-item-${index}` : undefined,
+            onPaste: event => onPaste(event),
             onCompositionStart: () => { composing.current = true; void dispatch({ type: 'composition', active: true }) },
             onCompositionEnd: () => { composing.current = false; void dispatch({ type: 'composition', active: false }) } }} />
         {!plugin && <div className="quick-categories-slot" id="quick-categories" aria-hidden={!categoriesOpen}><div className="quick-categories" aria-label="搜索范围">

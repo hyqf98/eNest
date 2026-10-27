@@ -17,13 +17,15 @@ import { bindNativeInstallDrop } from './installDropBridge'
  * 主进程侧另有超时兜底，本地 cap 只防悬挂。
  */
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { QuickInputAction, QuickInputConfig, PluginBlob, PluginFileSaveResult, ClipboardCapabilities, ClipboardFileInspection } from '@shared/types/plugin-tools'
+import type { QuickInputAction, QuickInputConfig, PluginBlob, PluginAsset, PluginAssetPutInput, PluginAssetPutResult, PluginAssetGetResult, PluginFileSaveResult, ClipboardCapabilities, ClipboardFileInspection } from '@shared/types/plugin-tools'
+import type { QuickEnterInput } from '@shared/types/quick'
 import type { AuxiliaryApi } from '@shared/types/auxiliary'
 import type { FileStreamsApi } from '@shared/types/file-stream'
 import type { DeadlineTaskStart, DeadlineTaskSnapshot } from '@shared/types/deadline-task'
 import type { VaultSetResult } from '@shared/types/vault'
 import type { LocalFileHandle, LocalFilePickOptions, PluginInputContext } from '@shared/types/local-files'
 import type { PluginToastOptions } from '@shared/types/notification'
+import type { McpCancelMessage, McpDispatchMessage, McpErrorCode, McpRegistrationAck, McpResultMessage, McpToolHandlers } from '@shared/types/mcp'
 import { BEFORE_CLOSE_ACK_LOCAL_CAP_MS, SAVE_REQUEST_ACK_LOCAL_CAP_MS } from '@shared/constants'
 import type { ShellNotice, ShellNoticeDataMap, ShellNoticeTopic, SaveRequestedEvent, SaveRequestedData } from '@shared/types/notice'
 import {
@@ -43,7 +45,8 @@ import type {
   PluginLifecycleMessage,
   PluginLaunchMode,
   ScreenBounds,
-  ScreenCaptureResult
+  ScreenCaptureResult,
+  SettingsSectionContribution
 } from '@shared/types/plugin'
 
 /** ack 等待的本地上限：略大于主进程超时，仅防悬挂；主进程超时是真正的兜底（配对常量在 @shared/constants） */
@@ -112,10 +115,114 @@ async function call<T = unknown>(method: string, args: unknown[] = []): Promise<
   }
   const result = (await ipcRenderer.invoke(IpcChannels.PluginCall, request)) as PluginCallResult
   if (!result?.ok) {
-    throw new Error(result?.error || 'plugin call failed')
+    const error = new Error(result?.error || 'plugin call failed') as Error & { code?: McpErrorCode }
+    if (result?.errorCode) error.code = result.errorCode
+    throw error
   }
   return result.data as T
 }
+
+let mcpHandlers: McpToolHandlers | undefined
+let mcpRegistrationId: string | undefined
+let mcpRegistering = false
+const earlyMcpDispatches: McpDispatchMessage[] = []
+const earlyMcpCancellations = new Map<string, string>()
+const activeMcpCalls = new Map<string, { registrationId: string; cancelled: boolean; callbacks: Set<() => void> }>()
+
+function sendMcpResult(message: McpResultMessage): void {
+  try {
+    const json = JSON.stringify(message)
+    if (new TextEncoder().encode(json).byteLength > 1024 * 1024) {
+      ipcRenderer.send(IpcChannels.PluginMcpResult, { registrationId: message.registrationId, requestId: message.requestId, errorCode: 'result-too-large' } satisfies McpResultMessage)
+    } else ipcRenderer.send(IpcChannels.PluginMcpResult, JSON.parse(json))
+  } catch {
+    try {
+      ipcRenderer.send(IpcChannels.PluginMcpResult, { registrationId: message.registrationId, requestId: message.requestId, errorCode: 'internal-error' } satisfies McpResultMessage)
+    } catch { /* The owner may already have been destroyed. */ }
+  }
+}
+
+async function dispatchMcpCall(message: McpDispatchMessage): Promise<void> {
+  if (!mcpHandlers || !mcpRegistrationId || message?.registrationId !== mcpRegistrationId || typeof message.requestId !== 'string') return
+  if (activeMcpCalls.has(message.requestId)) return
+  const handler = Object.prototype.hasOwnProperty.call(mcpHandlers, message.toolId) ? mcpHandlers[message.toolId] : undefined
+  if (!handler || activeMcpCalls.size) {
+    sendMcpResult({ registrationId: message.registrationId, requestId: message.requestId, errorCode: handler ? 'busy' : 'not-found' })
+    return
+  }
+  const state = { registrationId: message.registrationId, cancelled: earlyMcpCancellations.get(message.requestId) === message.registrationId, callbacks: new Set<() => void>() }
+  earlyMcpCancellations.delete(message.requestId)
+  activeMcpCalls.set(message.requestId, state)
+  const reply: McpResultMessage = { registrationId: message.registrationId, requestId: message.requestId }
+  try {
+    reply.result = await handler(message.arguments, {
+      requestId: message.requestId,
+      deadlineAt: message.deadlineAt,
+      onCancel(callback) {
+        if (typeof callback !== 'function') throw new TypeError('onCancel requires a function')
+        if (state.cancelled) {
+          try { callback() } catch { /* Cancellation callbacks must not interrupt settlement. */ }
+        } else state.callbacks.add(callback)
+        return () => { state.callbacks.delete(callback) }
+      }
+    })
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code
+    if (code === 'needs-consent' || code === 'permission-denied' || code === 'interaction-required') reply.errorCode = code
+    reply.result = { content: [{ type: 'text', text: state.cancelled ? 'Tool execution cancelled.' : 'Plugin tool execution failed.' }], isError: true }
+  } finally {
+    // A cancelled client still needs this real settlement fact to release its host guard.
+    activeMcpCalls.delete(message.requestId)
+    state.callbacks.clear()
+    sendMcpResult(reply)
+  }
+}
+
+async function registerMcpHandlers(handlers: McpToolHandlers): Promise<void> {
+  if (mcpHandlers || mcpRegistering || mcpRegistrationId) throw new Error('MCP handlers are already registered for this page')
+  if (!handlers || typeof handlers !== 'object' || Array.isArray(handlers)) throw new TypeError('MCP handlers must be an object')
+  const entries = Object.entries(handlers)
+  if (entries.length > 128 || entries.some(([id, handler]) => !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id) || typeof handler !== 'function')) throw new TypeError('MCP handler IDs and functions are invalid')
+  mcpRegistering = true
+  mcpHandlers = Object.fromEntries(entries)
+  try {
+    const ack = await ipcRenderer.invoke(IpcChannels.PluginMcpRegister, { toolIds: entries.map(([id]) => id) }) as McpRegistrationAck
+    if (!ack || typeof ack.registrationId !== 'string' || !ack.registrationId) throw new Error('MCP registration was not acknowledged')
+    mcpRegistrationId = ack.registrationId
+    for (const message of earlyMcpDispatches.splice(0)) void dispatchMcpCall(message)
+  } catch (error) {
+    mcpHandlers = undefined
+    mcpRegistrationId = undefined
+    earlyMcpDispatches.length = 0
+    throw error
+  } finally {
+    mcpRegistering = false
+    earlyMcpCancellations.clear()
+  }
+}
+
+ipcRenderer.on(IpcChannels.PluginMcpDispatch, (_event, message: McpDispatchMessage) => {
+  if (mcpRegistering && !mcpRegistrationId) {
+    if (message && typeof message.registrationId === 'string' && earlyMcpDispatches.length === 0) earlyMcpDispatches.push(message)
+    return
+  }
+  void dispatchMcpCall(message)
+})
+
+ipcRenderer.on(IpcChannels.PluginMcpCancel, (_event, message: McpCancelMessage) => {
+  if (!message || typeof message.requestId !== 'string' || typeof message.registrationId !== 'string') return
+  const state = activeMcpCalls.get(message.requestId)
+  if (!state) {
+    if (mcpRegistering && earlyMcpCancellations.size < 8) earlyMcpCancellations.set(message.requestId, message.registrationId)
+    return
+  }
+  if (state.registrationId !== message.registrationId || state.cancelled) return
+  state.cancelled = true
+  for (const callback of [...state.callbacks]) {
+    try { callback() } catch { /* A single callback must not prevent other listeners. */ }
+  }
+  state.callbacks.clear()
+})
 
 type Listener = (data: unknown) => void
 const listeners = new Map<string, Set<Listener>>()
@@ -318,6 +425,10 @@ export type SysPortInfo = {
 type Unsubscribe = () => void
 
 export interface EnestPluginApi {
+  /** Register exactly the manifest-declared tools after business initialization. */
+  mcp: {
+    registerHandlers(handlers: McpToolHandlers): Promise<void>
+  }
   setTitle(title: string): Promise<boolean>
   setIcon(icon: string): Promise<boolean>
   setBadge(badge: string | number): Promise<boolean>
@@ -434,11 +545,7 @@ export interface EnestPluginApi {
     respondQuickQuery(reqId: string, items: PluginQuickQueryItem[]): Promise<boolean>
   }
   settings: {
-    register(section: {
-      id: string
-      title: string
-      items: Array<{ key: string; type: string; label: string; default?: unknown; entry?: { code: string; payload?: unknown }; options?: Array<{ label: string; value: unknown }>; min?: number; max?: number; step?: number }>
-    }): Promise<boolean>
+    register(section: SettingsSectionContribution): Promise<boolean>
     get(key: string): Promise<unknown>
     set(key: string, value: unknown): Promise<boolean>
     onChange(cb: (event: { key: string; value: unknown }) => void): Unsubscribe
@@ -447,6 +554,8 @@ export interface EnestPluginApi {
     configure(config: QuickInputConfig): Promise<boolean>
     release(): Promise<boolean>
     escape(): Promise<boolean>
+    /** 读取本次 Quick 打开注入的输入上下文（文本/图片 dataUrl/只读文件句柄）；无则 null */
+    readContext(): Promise<QuickEnterInput | null>
     onChange(cb: (value: string) => void): Unsubscribe
     onAction(cb: (action: QuickInputAction) => void): Unsubscribe
   }
@@ -464,6 +573,13 @@ export interface EnestPluginApi {
       put(input: { dataUrl: string; name?: string }): Promise<PluginBlob>
       get(id: string): Promise<{ dataUrl: string; bytes: number } | null>
       remove(id: string): Promise<boolean>
+    }
+    /** 静态资源（二进制图片）：独立于 KV 与 blobs，可 list、稳定 assetId、get 回 dataUrl */
+    assets: {
+      put(input: PluginAssetPutInput): Promise<PluginAssetPutResult>
+      list(): Promise<PluginAsset[]>
+      get(assetId: string): Promise<PluginAssetGetResult | null>
+      delete(assetId: string): Promise<boolean>
     }
     get(key: string): Promise<unknown>
     set(key: string, value: unknown): Promise<boolean>
@@ -512,6 +628,10 @@ export interface EnestPluginApi {
       method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD'
       headers?: Record<string, string>
       body?: string
+      /** 二进制请求体（base64）：优先于 body，解码后原样发送（multipart 上传等场景，≤8MB） */
+      bodyBase64?: string
+      /** 鉴权注入：主进程从本插件 vault 解引用后写入请求头，密钥不回到页面 */
+      auth?: { secretRef: string; header?: string; scheme?: 'bearer' | 'raw' }
       timeoutMs?: number
       /** 流式响应 / SSE 模式（分片走 onChunk） */
       stream?: boolean
@@ -653,6 +773,7 @@ function subscribeToolEvent<T>(event: string, cb: (data: T) => void): Unsubscrib
 }
 
 const api: EnestPluginApi = {
+  mcp: { registerHandlers: registerMcpHandlers },
   setTitle: (title: string) => call<boolean>('ui.setTitle', [title]),
   setIcon: (icon: string) => call<boolean>('ui.setIcon', [icon]),
   setBadge: (badge: string | number) => call<boolean>('ui.setBadge', [badge]),
@@ -774,6 +895,7 @@ const api: EnestPluginApi = {
     configure: config => call('quickInput.configure', [config]),
     release: () => call('quickInput.release'),
     escape: () => call('quickInput.escape'),
+    readContext: () => call<QuickEnterInput | null>('quickInput.readContext'),
     onChange: cb => subscribeToolEvent('quick-input-change', cb),
     onAction: cb => subscribeToolEvent('quick-input-action', cb)
   },
@@ -791,6 +913,12 @@ const api: EnestPluginApi = {
       put: input => call('storage.blobs.put', [input]),
       get: id => call('storage.blobs.get', [id]),
       remove: id => call('storage.blobs.remove', [id])
+    },
+    assets: {
+      put: input => call('storage.assets.put', [input]),
+      list: () => call('storage.assets.list', []),
+      get: assetId => call('storage.assets.get', [assetId]),
+      delete: assetId => call('storage.assets.delete', [assetId])
     },
     get: (key: string) => call<unknown>('storage.get', [key]),
     set: (key: string, value: unknown) => call<boolean>('storage.set', [key, value]),
@@ -843,6 +971,8 @@ const api: EnestPluginApi = {
       method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD'
       headers?: Record<string, string>
       body?: string
+      bodyBase64?: string
+      auth?: { secretRef: string; header?: string; scheme?: 'bearer' | 'raw' }
       timeoutMs?: number
       stream?: boolean
     }) => call<NetFetchResult>('net.fetch', [req]),
@@ -1002,7 +1132,8 @@ ipcRenderer.on(IpcChannels.PluginLifecycle, (_e, message: PluginLifecycleMessage
         mode: message.mode ?? 'shell',
         code: message.code,
         type: message.type,
-        payload: message.payload
+        payload: message.payload,
+        input: message.input
       } satisfies PluginEnterEvent)
       break
     case 'out':

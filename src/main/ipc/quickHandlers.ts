@@ -6,19 +6,19 @@ import { handleShellIpc, onShellIpc } from '@main/ipc/ipcSecurity'
  * 关键依赖：createQuickWindow、quickHotkey、commandIndex、appScanner、appLauncher、
  * pluginHost、settingsStore、sendShellEvent。
  */
-import { ipcMain } from 'electron'
 import { getQuickWindow } from '@main/window/createQuickWindow'
 import { getQuickInputState, handleQuickInput } from '@main/plugin/quickInputService'
 import type { QuickInputMessage } from '@shared/types/plugin-tools'
 import { IpcChannels } from '@shared/types/ipc'
 import type {
+  QuickInputContextRequest,
+  QuickInputContextResult,
   QuickOpenRequest,
   QuickOpenResult,
   QuickSearchRequest,
   QuickSearchResult
 } from '@shared/types/quick'
 import type { PluginEnterPayload } from '@shared/types/plugin'
-import { normalizeSearchText } from '@shared/search'
 import { launchPlugin } from '@main/launcher/pluginLauncher'
 import {
   hideQuickWindow,
@@ -31,13 +31,20 @@ import {
   probeHotkey
 } from '@main/hotkey/quickHotkey'
 import { scanApplications } from '@main/launcher/appScanner'
-import { searchQuickCommands, validateQuickOpenTarget, QUICK_RECENT_MAX } from '@main/launcher/commandIndex'
+import { searchQuickCommands, validateQuickOpenTarget, quickOpenedIdentity } from '@main/launcher/commandIndex'
+import {
+  buildQuickEnterInput, forgetQuickEnterInput, listQuickInputContext, readClipboardIntoContext,
+  rememberQuickEnterInput, removeQuickInputContext
+} from '@main/launcher/quickInputContext'
+import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { launchLocalApp } from '@main/launcher/appLauncher'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
 import { logError, logInfo } from '@main/logs/logService'
-import { consumeQuickThemeGesture, getQuickThemeConfig } from '@main/theme/quickThemeProtocol'
+import { consumeQuickThemeGesture, getQuickThemeConfig, getQuickThemeStateOwner } from '@main/theme/quickThemeProtocol'
+import { quickProviderStates } from '@main/theme/quickStateService'
+import type { QuickProviderStateRequest, QuickProviderStateSnapshot } from '@shared/types/quickTheme'
 
 function focusMainWindow(): void {
   const win = getMainWindow()
@@ -48,25 +55,14 @@ function focusMainWindow(): void {
   }
 }
 
-function recentIdOf(req: QuickOpenRequest): string {
-  if (req.kind === 'app') return `app:${req.path}`
-  if (req.kind === 'plugin') return `plugin:${req.pluginId}:${req.code ?? ''}`
-  if (req.kind === 'action') return `action:${req.action}`
-  // plugin-escape / plugin-pin 不计入最近使用（非终结动作）
-  return ''
-}
-
-/**
- * 成功打开后把命令写入 general.quickLauncher.recent（截断 20）。
- * 必须合并既有 quickLauncher（保留 enabled/hotkeys），禁止整段覆盖。
- */
-async function touchRecent(req: QuickOpenRequest): Promise<void> {
+function openedFact(req: QuickOpenRequest): QuickOpenResult['opened'] {
   try {
-    const id = recentIdOf(req)
-    if (!id) return
-    settingsStore.recordQuickUse(id, 'query' in req ? req.query : undefined, QUICK_RECENT_MAX)
-  } catch (err) {
-    logError('quick', `touchRecent failed: ${(err as Error).message}`)
+    const stateKey = quickOpenedIdentity(req)
+    return stateKey ? { stateKey, at: Date.now() } : undefined
+  } catch {
+    // A failed private-state store must not report an already completed launch as failed.
+    logError('quick', 'native launch identity unavailable')
+    return undefined
   }
 }
 
@@ -76,24 +72,37 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
     if (req.kind === 'app') {
       await launchLocalApp(req.path)
       hideQuickWindow()
-      void touchRecent(req)
-      return { ok: true }
+      return { ok: true, opened: openedFact(req) }
     }
     if (req.kind === 'plugin') {
-      const enter: PluginEnterPayload | undefined = req.code || req.type || req.payload !== undefined
-        ? {
-            ...(req.code ? { code: req.code } : {}),
-            ...(req.type ? { type: req.type } : {}),
-            ...(req.payload !== undefined ? { payload: req.payload } : {})
-          }
-        : undefined
+      const query = typeof req.query === 'string' ? req.query.trim().slice(0, 4_096) : ''
+      const contextInput = req.input ? await buildQuickEnterInput(req.pluginId, req.input) : undefined
+      const hasPayload = req.payload !== undefined && req.payload !== null
+      // zTools 对齐：任何插件打开都携带当前输入文本；内容匹配/provider 自带载荷优先。
+      const enter: PluginEnterPayload | undefined =
+        req.code || req.type || hasPayload || query || contextInput
+          ? {
+              ...(req.code ? { code: req.code } : {}),
+              ...(req.type ? { type: req.type } : {}),
+              ...(hasPayload ? { payload: req.payload } : query ? { payload: query, type: req.type ?? 'text' } : {}),
+              ...(contextInput ? { input: contextInput } : {})
+            }
+          : undefined
       const result = await launchPlugin({
         pluginId: req.pluginId, source: 'quick', enter,
         mode: req.container === 'quick' || req.container === 'shell' ? req.container : undefined
       })
       if (!result.ok) return { ok: false, error: result.error }
-      void touchRecent(req)
-      return { ok: true, tabId: req.pluginId }
+      if (contextInput) {
+        // Context bytes were consumed by this launch; the plugin reads them back via quickInput.readContext.
+        const scope = getRuntimeScope(req.pluginId)
+        if (scope?.isCurrent() && !scope.isClosing) {
+          rememberQuickEnterInput(req.pluginId, scope.owner.generation, contextInput)
+          scope.addDisposer(() => forgetQuickEnterInput(req.pluginId))
+        }
+        removeQuickInputContext()
+      }
+      return { ok: true, tabId: req.pluginId, opened: openedFact(req) }
     }
     if (req.kind === 'plugin-escape') {
       // 插件态 Esc：回列表（view 隐藏保留进程，走休眠策略）
@@ -120,8 +129,7 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
     }
     if (req.kind === 'action' && req.action === 'refresh-apps') {
       const result = await scanApplications(true)
-      if (result.complete) void touchRecent(req)
-      return { ok: result.complete, error: result.errors[0] }
+      return { ok: result.complete, error: result.errors[0], ...(result.complete ? { opened: openedFact(req) } : {}) }
     }
     // action / panel 打开前：若 quick 正处插件态，先退场回列表（保留进程）
     const mounted = pluginHost.getQuickPlugin()
@@ -131,13 +139,11 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
     focusMainWindow()
     if (req.action === 'open-settings') {
       sendShellEvent({ type: 'quick-open-view', view: 'settings' })
-      void touchRecent(req)
-      return { ok: true }
+      return { ok: true, opened: openedFact(req) }
     }
     if (req.action === 'open-market') {
       sendShellEvent({ type: 'quick-open-view', view: 'home' })
-      void touchRecent(req)
-      return { ok: true }
+      return { ok: true, opened: openedFact(req) }
     }
     return { ok: true }
   } catch (err) {
@@ -164,13 +170,10 @@ export function registerQuickHandlers(): void {
 
   handleShellIpc(IpcChannels.QuickSearch, async (_e, payload: QuickSearchRequest) => {
     const query = String(payload?.query ?? '')
-    const quick = settingsStore.getQuickLauncherSettings()
     const items = await searchQuickCommands(
       query,
       payload?.limit ?? 20,
-      quick.recent ?? [],
       payload?.kind === 'app' || payload?.kind === 'plugin' || payload?.kind === 'action' ? payload.kind : undefined,
-      quick.queryPreferences?.find(entry => entry.query === normalizeSearchText(query))?.id,
       payload?.phase === 'catalog' || payload?.phase === 'static' || payload?.phase === 'enriched' || payload?.phase === 'providers' ? payload.phase : undefined,
       payload?.ids
     )
@@ -197,6 +200,29 @@ export function registerQuickHandlers(): void {
     if (event.sender.id !== getQuickWindow()?.webContents.id || typeof key !== 'string' || key.length > 128) return false
     return consumeQuickThemeGesture(key)
   })
+  handleShellIpc(IpcChannels.QuickProviderState, (event, request: QuickProviderStateRequest) => {
+    if (event.sender.id !== getQuickWindow()?.webContents.id) throw new Error('Quick state controller rejected')
+    if (!request || typeof request !== 'object' || Array.isArray(request) ||
+        request.providerKey !== null && (typeof request.providerKey !== 'string' || request.providerKey.length > 128)) {
+      throw new Error('Invalid Quick state request')
+    }
+    const owner = request.providerKey === null ? { source: 'enest.builtin', packId: 'default' }
+      : getQuickThemeStateOwner(request.providerKey)
+    if (!owner) throw new Error('Quick state provider retired')
+    if (request.operation === 'keys') {
+      if (request.providerKey !== null || !Array.isArray(request.identities) || request.identities.length > 256 ||
+          request.identities.some(id => typeof id !== 'string' || !id || id.length > 4_096)) {
+        throw new Error('Quick identity encoding rejected')
+      }
+      return { keys: quickProviderStates.encodeIdentities(request.identities) }
+    }
+    if (request.operation === 'write') return quickProviderStates.write(owner, request.expectedRevision, request.value)
+    if (request.operation !== 'read') throw new Error('Invalid Quick state operation')
+    const snapshot: QuickProviderStateSnapshot = quickProviderStates.read(owner)
+    // The trusted bundled provider alone interprets this opaque backup, never an untrusted theme.
+    if (request.providerKey === null && snapshot.revision === 0) snapshot.legacy = settingsStore.getQuickLauncherSettings()
+    return snapshot
+  })
 
   handleShellIpc(IpcChannels.QuickProbeHotkey, (_e, payload: { acc?: string }) => {
     const acc = String(payload?.acc ?? '')
@@ -207,6 +233,23 @@ export function registerQuickHandlers(): void {
   handleShellIpc(IpcChannels.QuickSetHotkeys,
     (_e, payload: import('@shared/types/quick').QuickHotkeyPatch) => saveQuickHotkeys(payload)
   )
+
+  // 粘贴上下文只经可信控制器进出；主题表面的 paste 动作在控制器侧已核对一次性原生手势。
+  handleShellIpc(IpcChannels.QuickInputContext, async (event, payload: QuickInputContextRequest): Promise<QuickInputContextResult> => {
+    if (event.sender.id !== getQuickWindow()?.webContents.id) return { ok: false, error: 'Quick context sender rejected' }
+    if (!payload || typeof payload !== 'object') return { ok: false, error: 'Invalid context request' }
+    try {
+      if (payload.operation === 'read-clipboard') {
+        await readClipboardIntoContext()
+        return { ok: true, items: listQuickInputContext() }
+      }
+      if (payload.operation === 'clear') return { ok: true, items: removeQuickInputContext(typeof payload.id === 'string' ? payload.id : undefined) }
+      if (payload.operation === 'list') return { ok: true, items: listQuickInputContext() }
+    } catch (error) {
+      logError('quick', `input context failed: ${(error as Error).message}`)
+    }
+    return { ok: false, error: 'Input context unavailable' }
+  })
 
   // 列表根据内容测量伸缩；插件始终使用宿主分配的最大内容区。
   onShellIpc(IpcChannels.QuickResize, (_e, payload: { height?: number; animate?: boolean }) => {

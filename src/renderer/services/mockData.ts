@@ -206,6 +206,8 @@ export const DEFAULT_SETTINGS: ShellSettingsData = {
     sessionActivePluginId: '',
     proxy: { type: 'system' },
     splashBackground: { type: 'brand', opacity: 0.55 },
+    freePanel: { enabled: false },
+    panelAppearance: { opacity: 0.78, material: 'blur' },
   },
   profile: {},
   launchAtLogin: true,

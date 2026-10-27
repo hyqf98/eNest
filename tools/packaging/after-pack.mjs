@@ -35,6 +35,11 @@ export function verifyShellBundleSource(path, source) {
   for (const channel of retiredPluginIpc) {
     if (source.includes(channel)) throw new Error(`Retired plugin IPC leaked into shell bundle ${path}: ${channel}`)
   }
+  if (/^out\/main\/.*\.[cm]?js$/.test(path.replaceAll('\\', '/'))) {
+    for (const marker of ['queryPreferences', 'recordQuickUse', 'QUICK_RECENT_MAX', 'touchRecent', 'withPreferences']) {
+      if (source.includes(marker)) throw new Error(`Default Quick usage policy leaked into native host ${path}: ${marker}`)
+    }
+  }
 }
 
 export function verifyShellArchive(archive) {

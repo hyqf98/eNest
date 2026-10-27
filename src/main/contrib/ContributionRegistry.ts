@@ -20,6 +20,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type {
   ContributionSlot,
   HomeCardContribution,
+  OpenWithContribution,
   PluginContributes,
   QuickProviderContribution,
   RailEntryContribution,
@@ -39,7 +40,9 @@ const DECLARABLE_SLOTS: Record<ContributionSlot, keyof PluginContributes> = {
   'home-cards': 'homeCards',
   'rail-entries': 'railEntries',
   'theme-packs': 'themePacks',
-  'home-pages': 'homePages'
+  'home-pages': 'homePages',
+  'open-with': 'openWith',
+  'mcp-tools': 'mcpTools'
 }
 
 interface ContribStatements {
@@ -342,4 +345,13 @@ export function listSettingsContributions(): Array<{
   data: SettingsSectionContribution
 }> {
   return contributionRegistry.listSlot<SettingsSectionContribution>('settings')
+}
+
+/** 读取 open-with 插槽（associationService 聚合消费：声明 → 系统注册 + 路由） */
+export function listOpenWithContributions(): Array<{
+  source: string
+  id: string
+  data: OpenWithContribution
+}> {
+  return contributionRegistry.listSlot<OpenWithContribution>('open-with')
 }

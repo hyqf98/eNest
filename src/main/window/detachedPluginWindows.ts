@@ -304,7 +304,10 @@ export function destroyDetachedWindow(id: string | number): void {
 export function destroyAllDetachedWindows(): void { for (const id of [...windows.keys()]) destroyDetachedWindow(id) }
 export function listDetachedWindows(): BaseWindow[] { return [...windows.values()].map(entry => entry.window) }
 
-setDetachedAppearanceSink(broadcastDetachedAppearance)
+// 与 createShellWindow 成环（环内模块体顺序由打包器决定），微任务注册避开 TDZ。
+queueMicrotask(() => {
+  setDetachedAppearanceSink(broadcastDetachedAppearance)
+})
 
 /** Restored chrome appears immediately, while the plugin runtime remains absent. */
 export function presentRestoredDetachedWindow(id: string | number): void {

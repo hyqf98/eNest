@@ -9,6 +9,8 @@ import { getMainWindow, getShellWebContents } from '@main/window/createShellWind
 import { acquireQuickInteraction, getQuickWebContents, getQuickWindow } from '@main/window/createQuickWindow'
 import { acquireOrbDragExpansion, getOrbDragSurface } from '@main/window/orbRailViews'
 import { constrainDetachedBounds, getDetachedChrome, getDetachedWindow, getPluginForDetachedSender, observeDetachedWindows } from '@main/window/detachedPluginWindows'
+import { getPanelChrome, getPanelForSender, getPanelIdForWindow, getPanelSurfaceBounds, getPanelWindow } from '@main/window/panelWindows'
+import { dropPluginIntoPanel } from '@main/panel/PanelManager'
 import { getTrustedSurfaceRole } from '@main/ipc/ipcSecurity'
 
 interface Surface { window: BaseWindow; bounds: WindowRect; contents: WebContents }
@@ -20,7 +22,7 @@ interface DragSession {
   lastInput: number; frame: ReturnType<typeof setTimeout> | null; target: Hit | null; ending: boolean
   originZone: WindowRect | null; leftOrigin: boolean; disposed: boolean
 }
-interface Hit { kind: 'shell' | 'quick'; index: number; senderId: number }
+interface Hit { kind: 'shell' | 'quick' | 'panel'; index: number; senderId: number; panelId?: string }
 const registrations = new Map<number, Registration>()
 const windowOrder = new Map<number, number>()
 const trackedWindows = new WeakSet<BaseWindow>()
@@ -85,6 +87,9 @@ function surface(senderId: number): Surface | null {
   } else if (role === 'detached') {
     const id = getPluginForDetachedSender(senderId)
     if (id) { win = getDetachedWindow(id); contents = getDetachedChrome(id)?.webContents ?? null; bounds = getDetachedChrome(id)?.getBounds() ?? null }
+  } else if (role === 'panel') {
+    const panelId = getPanelForSender(senderId)
+    if (panelId) { win = getPanelWindow(panelId); contents = getPanelChrome(panelId)?.webContents ?? null; bounds = getPanelChrome(panelId)?.getBounds() ?? null }
   }
   if (!win || win.isDestroyed() || !contents || contents.isDestroyed()) return null
   const outer = win.getContentBounds()
@@ -98,6 +103,8 @@ export function canSurfaceManagePlugin(senderId: number, pluginId: string): bool
   const placement = pluginHost.getPlacement(pluginId)
   if (role === 'detached') return getPluginForDetachedSender(senderId) === pluginId && placement?.kind === 'detached'
   if (role === 'quick') return placement?.kind === 'quick' && pluginHost.getQuickPlugin() === pluginId
+  // 面板内的组件由面板 chrome 拖动；插件自身的视图不参与 Tab 拖拽语义。
+  if (role === 'panel') return false
   return (role === 'shell' || role === 'orb') && placement?.kind === 'shell' && pluginHost.hasShellTab(pluginId)
 }
 function trackWindow(win: BaseWindow): void {
@@ -115,12 +122,13 @@ export function registerPluginDropTargets(contents: WebContents, input: unknown)
   if (!native) return
   trackWindow(native.window)
   const role = getTrustedSurfaceRole(contents.id)
-  const expected = role === 'quick' ? 'quick' : role === 'shell' || role === 'orb' ? 'shell' : null
+  const expected = role === 'quick' ? 'quick' : role === 'panel' ? 'panel' : role === 'shell' || role === 'orb' ? 'shell' : null
+  const panelId = role === 'panel' ? getPanelForSender(contents.id) ?? undefined : undefined
   const targets: PluginDropTarget[] = []
   if (expected && Array.isArray(input)) for (const target of input.slice(0, 2)) {
     if (target?.kind !== expected || !validRect(target.rect) || !['x', 'y'].includes(target.axis) || !Array.isArray(target.items)) continue
     const items = target.items.slice(0, 500).filter((item: any) => typeof item?.pluginId === 'string' && item.pluginId.length <= 200 && validRect(item.rect))
-    targets.push({ kind: expected, rect: { ...target.rect }, axis: target.axis, items: items.map((item: any) => ({ pluginId: item.pluginId, rect: { ...item.rect } })) })
+    targets.push({ kind: expected, rect: { ...target.rect }, axis: target.axis, items: items.map((item: any) => ({ pluginId: item.pluginId, rect: { ...item.rect } })), ...(panelId ? { panelId } : {}) })
   }
   const senderId = contents.id
   if (!registrations.has(senderId)) contents.once('destroyed', () => {
@@ -137,15 +145,24 @@ function windowAt(point: WindowPoint, preview: BaseWindow): BaseWindow | null {
   visible.sort((a, b) => Number(b.isAlwaysOnTop()) - Number(a.isAlwaysOnTop()) || Number(b.isFocused()) - Number(a.isFocused()) || (windowOrder.get(b.id) ?? 0) - (windowOrder.get(a.id) ?? 0))
   return visible.find(win => pointInRect(point, win.getBounds())) ?? null
 }
-function hitAt(active: DragSession, point: WindowPoint): { hit: Hit | null; inside: boolean } {
+function hitAt(active: DragSession, point: WindowPoint): { hit: Hit | null; inside: boolean; local?: WindowPoint } {
   const top = windowAt(point, active.preview)
   if (!top) return { hit: null, inside: false }
+  // 面板落点优先按窗口判定：chrome 注册 drop target 只为收到 broadcast 反馈
+  // （registrations 里有非空 targets 才会被推送），落点几何与 index 不依赖它。
+  const panelId = getPanelIdForWindow(top)
+  if (panelId) {
+    const panel = getPanelSurfaceBounds(panelId)
+    if (panel && pointInRect(point, panel)) {
+      return { hit: { kind: 'panel', index: 0, senderId: panel.senderId, panelId }, inside: true, local: { x: point.x - panel.x, y: point.y - panel.y } }
+    }
+  }
   for (const [senderId, registration] of registrations) {
     const native = surface(senderId)
     if (!native || native.window !== top || !pointInRect(point, native.bounds)) continue
     const local = { x: point.x - native.bounds.x, y: point.y - native.bounds.y }
     for (const target of registration.targets) if (pointInRect(local, target.rect)) {
-      return { hit: { kind: target.kind, index: insertionIndex(local, target, active.pluginId), senderId }, inside: true }
+      return { hit: { kind: target.kind, index: insertionIndex(local, target, active.pluginId), senderId, panelId: target.panelId }, inside: true, local }
     }
   }
   return { hit: null, inside: true }
@@ -296,8 +313,14 @@ export async function endPluginWindowDrag(senderId: number, token: string, cance
   try {
     if (result.hit) {
       const { kind, index } = result.hit
-      if (kind === 'shell' && pluginHost.getPlacement(active.pluginId)?.kind === 'shell') pluginHost.reorderPlugin(active.pluginId, index)
-      else await pluginHost.dockPlugin(active.pluginId, kind, index, commitCurrent)
+      if (kind === 'panel') {
+        const panelId = result.hit.panelId
+        if (!panelId) throw new Error('panel target is missing')
+        // 落点用面板内容区本地坐标，由 PanelManager 换算成组件矩形。
+        await dropPluginIntoPanel(panelId, active.pluginId, result.local ?? { x: 0, y: 0 })
+      }
+      else if (kind === 'shell' && pluginHost.getPlacement(active.pluginId)?.kind === 'shell') pluginHost.reorderPlugin(active.pluginId, index)
+      else await pluginHost.dockPlugin(active.pluginId, kind as 'shell' | 'quick', index, commitCurrent)
     } else if (!result.inside && (!active.originZone || active.leftOrigin || !pointInRect(point, active.originZone, 16))) {
       const detached = getDetachedWindow(active.pluginId)
       if (detached && !detached.isDestroyed()) {

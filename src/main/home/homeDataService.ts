@@ -292,10 +292,7 @@ function publicSearchItem(item: QuickCommand, handle: string): HomeSearchEntry {
     tags: publicTags(summary?.tags),
     aliases: item.aliases?.slice(0, 32).map(alias => publicText(alias, 256)).filter((alias): alias is string => !!alias),
     action: item.action,
-    content: item.content,
-    lastUsedTs: item.lastUsedTs,
-    useCount: item.useCount,
-    preferred: item.preferred
+    content: item.content
   }
 }
 
@@ -313,8 +310,7 @@ export async function searchHome(
   const query = typeof request.query === 'string' ? request.query.slice(0, 4096) : ''
   const kind = request.scope === 'installed' ? 'plugin'
     : request.scope === 'app' || request.scope === 'plugin' || request.scope === 'action' ? request.scope : undefined
-  const quick = settingsStore.getQuickLauncherSettings()
-  const commands = request.scope === 'market' ? [] : await searchQuickCommands(query, SEARCH_HANDLE_LIMIT, quick.recent ?? [], kind, undefined, 'catalog')
+  const commands = request.scope === 'market' ? [] : await searchQuickCommands(query, SEARCH_HANDLE_LIMIT, kind, 'catalog')
   if (!context.isCurrent()) return { items: [], revision: nextRevision() }
   const now = Date.now()
   pruneSearchHandles(now)

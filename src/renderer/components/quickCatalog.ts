@@ -1,4 +1,4 @@
-import type { QuickCommand, QuickOpenRequest } from '@shared/types/quick'
+import type { QuickCommand, QuickImageContext, QuickInputSelection, QuickOpenRequest } from '@shared/types/quick'
 import type { QuickThemeAction, QuickThemeCatalogItem, QuickThemeItem } from '@shared/types/quickTheme'
 
 export interface QuickCatalogRecord { id: string; command: QuickCommand; icon?: string }
@@ -34,13 +34,12 @@ export function projectQuickThemeResults(
 const publicText = (value: string, cap: number) => value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, cap)
 export function publicQuickCatalog(records: QuickCatalogRecord[]): QuickThemeCatalogItem[] {
   return records.map(({ id, command, icon }) => ({
-    id, kind: command.kind, title: publicText(command.title, 256),
+    id, stateKey: command.stateKey ?? '', kind: command.kind, title: publicText(command.title, 256),
     subtitle: command.kind === 'app' ? '本机应用' : command.kind === 'plugin' ? '插件指令' : '系统操作',
     aliases: (command.aliases ?? [command.title]).filter(alias => !/^(?:\/|[a-z]:[\\/])/i.test(alias)).slice(0, 100).map(alias => publicText(alias, 256)),
     ...(command.action ? { action: command.action } : {}),
     ...(command.content ? { content: { ...command.content } } : {}),
     ...(command.group === 'provider' ? { provider: true } : {}),
-    lastUsedTs: command.lastUsedTs, useCount: command.useCount, preferred: command.preferred,
     ...(safeQuickIcon(icon) ? { icon } : {})
   }))
 }
@@ -56,4 +55,25 @@ export function quickRequestFromRecord(record: QuickCatalogRecord, query: string
   if (command.kind !== 'plugin' || !command.pluginId) return null
   return { kind: 'plugin', pluginId: command.pluginId, code: command.code, type: command.type,
     payload: command.content ? query : command.payload, query, ...(container ? { container } : {}) }
+}
+
+/**
+ * Map the visible paste context to the launch selection for one command:
+ * img/files content rows attach their own kind only; plain plugin rows (name/cmds/alias
+ * hits) attach everything so "你好" + an image reaches the chosen plugin at once;
+ * regex/over and provider rows keep the existing payload path and never attach bytes.
+ */
+export function buildQuickInputSelection(items: QuickImageContext[], command: QuickCommand, query: string): QuickInputSelection | undefined {
+  if (!items.length) return undefined
+  const imageIds = items.filter(item => item.kind === 'image').map(item => item.id)
+  const fileIds = items.filter(item => item.kind !== 'image').map(item => item.id)
+  const type = command.content?.type
+  if (type === 'img') return imageIds.length ? { imageIds } : undefined
+  if (type === 'files') return fileIds.length ? { fileIds } : undefined
+  if (type === 'regex' || type === 'over' || command.group === 'provider') return undefined
+  const selection: QuickInputSelection = {}
+  if (imageIds.length) selection.imageIds = imageIds
+  if (fileIds.length) selection.fileIds = fileIds
+  if (query.trim()) selection.text = query.trim().slice(0, 4_096)
+  return selection.imageIds || selection.fileIds || selection.text ? selection : undefined
 }

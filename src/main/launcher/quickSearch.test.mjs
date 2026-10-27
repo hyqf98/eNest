@@ -16,10 +16,27 @@ const adapters = {
   quickProviders: `import {state} from 'test-state';export const queryQuickProviders = async (query,signal) => {state.providerQueries.push(query);return state.providerFn?state.providerFn(query,signal):state.providers};`,
   PluginHost: `import { state } from 'test-state'; export const pluginHost = { getPlacement: () => ({kind:'quick'}), openPlugin: async (...args) => { state.opened.push(args); return 't-'+args[0]; }, getQuickPlugin: () => null, dismissQuickPlugin: id => state.events.push(['dismiss',id]), pinToShell: id => state.events.push(['pin',id]) };`,
   quickInputService: `export const getQuickInputState=()=>null; export const handleQuickInput=()=>false;`,
-  createQuickWindow: `export const getQuickWindow=()=>null; import { state } from 'test-state'; export const hideQuickWindow = () => state.hidden++; export const setQuickContentHeight = () => {}; export const toggleQuickWindow = () => {};`,
+  createQuickWindow: `export const getQuickWindow=()=>({webContents:{id:1}}); import { state } from 'test-state'; export const hideQuickWindow = () => state.hidden++; export const setQuickContentHeight = () => {}; export const toggleQuickWindow = () => {};`,
   createShellWindow: `import { state } from 'test-state'; export const sendShellEvent = event => state.events.push(event); export const getMainWindow = () => ({ isDestroyed: () => false, isMinimized: () => false, show: () => state.shown++, focus: () => state.focused++ });`,
   pluginLaunchHotkeys: `import {state} from 'test-state'; export const getPluginLaunchAliases = id => state.aliases?.[id] ?? []; export const getPluginLaunchAliasRevision = () => JSON.stringify(state.aliases ?? {}); export const resolveLaunchMode = id => state.launchModes?.[id];`,
+  PluginRuntimeScope: `import { state } from 'test-state'; export const getRuntimeScope = id => state.scopeMissing ? null : ({ isCurrent: () => true, isClosing: false, owner: { generation: 7, pluginId: id }, addDisposer: fn => { state.scopeDisposers = (state.scopeDisposers ?? []).concat([fn]) } });`,
   pluginLauncher: `import {state} from 'test-state';export async function launchPlugin({pluginId,mode,source,enter}){if(source!=='quick')throw Error('wrong launch source');const container=mode??state.launchModes[pluginId]??'quick';state.opened.push([pluginId,enter,{container}]);if(container==='shell'){state.hidden++;state.focused++}return {ok:true}}`,
+  quickInputContext: `import { state } from 'test-state';
+    export const buildQuickEnterInput = async (pluginId, selection) => {
+      if (!selection) return undefined
+      state.contextBuilds = (state.contextBuilds ?? []).concat([selection])
+      return { ...(selection.text ? { text: selection.text } : {}), ...(selection.imageIds?.length ? { images: selection.imageIds.map(() => ({ dataUrl: 'data:image/png;base64,AA', width: 1, height: 1 })) } : {}), ...(selection.fileIds?.length ? { files: selection.fileIds.map(() => ({ handleId: 'h', path: '/tmp/x', name: 'x', size: 1, kind: 'file' })) } : {}) }
+    }
+    export const listQuickInputContext = () => state.contextItems ?? []
+    export const readClipboardIntoContext = async () => { state.clipboardReads = (state.clipboardReads ?? 0) + 1; return state.clipboardAdded ?? [] }
+    export const removeQuickInputContext = (id) => { state.contextRemoved = (state.contextRemoved ?? 0) + 1; if (id) state.contextItems = (state.contextItems ?? []).filter(item => item.id !== id); else state.contextItems = []; return state.contextItems ?? [] }
+    export const rememberQuickEnterInput = (pluginId) => { state.contextIssued = pluginId }
+    export const forgetQuickEnterInput = () => { state.contextIssued = null }
+    export const clearQuickInputContext = () => { state.contextItems = []; state.contextCleared = (state.contextCleared ?? 0) + 1 }
+    export const hasQuickImageContext = () => (state.contextItems ?? []).length > 0
+    export const addQuickImage = () => null
+    export const addQuickFiles = async () => []
+    export const readQuickEnterInput = () => null`,
   quickHotkey: `export const saveQuickHotkeys = value => value; export const getQuickHotkeyConfig = () => ({}); export const probeHotkey = () => ({});`,
   SettingsStore: `import { state } from 'test-state'; export const settingsStore = {
     getPluginLaunchSettings: () => ({}), getPluginLaunchConfig: () => undefined, getPluginLaunchRevision: () => 0,
@@ -32,6 +49,7 @@ const adapters = {
 const bundled = await build({
   stdin: { contents: `export * from '@main/launcher/commandIndex'; export * from '@main/ipc/quickHandlers'; export * from '@shared/search'; export { IpcChannels } from '@shared/types/ipc'; export {state} from 'test-state'; export {registerTrustedSurface} from '@main/ipc/ipcSecurity';`, resolveDir: root },
   tsconfig: join(root, 'tsconfig.node.json'), bundle: true, write: false, platform: 'node', format: 'esm',
+  loader: { '.css': 'text' },
   plugins: [{ name: 'adapters', setup(builder) {
     builder.onResolve({ filter: /.*/ }, ({ path }) => {
       const name = path.split('/').at(-1)
@@ -210,7 +228,7 @@ test('精确优于前缀、前缀优于包含；命中占比和应用权重只�
   assert.equal(results[3].code,'contains')
 })
 
-test('插件名称和用户别名只进入首个字符串feature，纯内容feature不作为普通入口', async () => {
+test('插件名称和用户别名进入首个字符串feature，纯内容feature获得名称回退行', async () => {
   state.manifests=[fixturePlugin('tools','panel',{name:'工具集合',features:[
     {code:'content',cmds:[{type:'regex',label:'处理数字',match:'/^\\d+$/'}]},
     {code:'first',cmds:['第一工具']},{code:'second',cmds:['第二工具']}
@@ -220,9 +238,12 @@ test('插件名称和用户别名只进入首个字符串feature，纯内容feat
     const hits=(await api.searchQuickCommands(query)).filter(item=>item.pluginId==='tools')
     assert.deepEqual(hits.map(item=>item.code),['first'])
   }
-  assert.deepEqual(await api.searchQuickCommands('纯内容插件'),[])
+  // 无字符串指令的插件不再隐身：首个 feature 行承载名称/用户别名，作为普通入口可搜。
+  const contentOnly=(await api.searchQuickCommands('纯内容插件')).filter(item=>item.pluginId==='content-only')
+  assert.deepEqual(contentOnly.map(item=>item.code),['only'])
   const empty=await api.searchQuickCommands('')
-  assert.ok(empty.every(item=>!['content','only'].includes(item.code)))
+  assert.ok(empty.every(item=>item.code!=='content'))
+  assert.ok(empty.some(item=>item.code==='only'&&item.pluginId==='content-only'))
   assert.ok((await api.searchQuickCommands('第二工具')).some(item=>item.code==='second'))
 })
 
@@ -289,6 +310,41 @@ test('Quick IPC传递匹配类型和原始payload，并使用窄设置快照读�
   state.queryPreferences=[{query:'help',id:'plugin:tool:last'}]
   const result=await state.handlers.get(api.IpcChannels.QuickSearch)(event,{query:' ＨＥＬＰ ',phase:'static'})
   assert.equal(result.items[0].code,'last')
+})
+
+test('按名称或别名打开插件也把当前输入文本交给插件（zTools 对齐）', async () => {
+  state.manifests=[fixturePlugin('translate','panel',{features:[{code:'main',cmds:['翻译','translate']}]})]
+  await open({kind:'plugin',pluginId:'translate',code:'main',query:' 你好 '})
+  assert.deepEqual(state.opened[0][1],{code:'main',type:'text',payload:'你好'})
+  await open({kind:'plugin',pluginId:'translate',code:'main',query:'   '})
+  assert.deepEqual(state.opened[1][1],{code:'main'},'空白输入不产生载荷')
+  await open({kind:'plugin',pluginId:'translate',query:'x'.repeat(5_000)})
+  assert.equal(state.opened[2][1].payload.length,4_096,'输入文本有界透传')
+})
+
+test('粘贴上下文按不透明 id 组装进 enter.input 并在启动后消费', async () => {
+  state.manifests=[fixturePlugin('image-tools','panel',{features:[{code:'main',cmds:['图片']}]})]
+  await open({kind:'plugin',pluginId:'image-tools',code:'main',query:'压缩',input:{imageIds:['img-1'],fileIds:['file-1'],text:'压缩'}})
+  const enter=state.opened[0][1]
+  assert.equal(enter.payload,'压缩')
+  assert.deepEqual(enter.input,{text:'压缩',images:[{dataUrl:'data:image/png;base64,AA',width:1,height:1}],files:[{handleId:'h',path:'/tmp/x',name:'x',size:1,kind:'file'}]})
+  assert.equal(state.contextIssued,'image-tools','启动成功后记录本实例输入上下文')
+  assert.equal(state.contextRemoved,1,'上下文随启动消费清空')
+  await open({kind:'plugin',pluginId:'image-tools',code:'main'})
+  assert.equal(state.opened[1][1].input,undefined,'无上下文请求不产生 input')
+})
+
+test('quick:input-context 仅服务 Quick 表面并维护宿主列表', async () => {
+  const handler=state.handlers.get(api.IpcChannels.QuickInputContext)
+  state.contextItems=[{id:'a',kind:'image',thumbnail:'data:image/png;base64,AA'}]
+  assert.deepEqual((await handler(event,{operation:'list'})).items,state.contextItems)
+  state.clipboardAdded=[{id:'b',kind:'file',name:'x.txt'}]
+  const read=await handler(event,{operation:'read-clipboard'})
+  assert.equal(state.clipboardReads,1)
+  assert.equal(read.ok,true)
+  assert.deepEqual((await handler(event,{operation:'clear',id:'a'})).items.map(item=>item.id),['b'])
+  assert.equal((await handler(event,null)).ok,false)
+  assert.equal((await handler({sender:{id:99}}, {operation:'list'})).ok,false)
 })
 
 test('首阶段不等待内容匹配或应用图标，enriched补全且不取消并行provider', async () => {

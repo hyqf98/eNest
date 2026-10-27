@@ -189,3 +189,24 @@
   .appearance-theme-card.btn { transition: none; }
   .appearance-theme-check { transition: none; }
 }
+
+/* —— 自由面板外观卡 —— */
+.appearance-seg-row { display: inline-flex; gap: 8px; }
+.appearance-opacity-row { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.appearance-opacity-row .ui-slider { flex: 1 1 auto; min-width: 160px; }
+.appearance-inline-status.is-error { color: var(--danger, #f05b5b); }
+/* 材质 + 浓度小样：CSS 无法采样桌面，用模拟背景表达底板观感。 */
+.panel-preview-swatch {
+  --preview-opacity: .78;
+  flex: none; width: 56px; height: 40px; border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: linear-gradient(135deg, #3d5a6a, #12202a 60%, #2a3d4a);
+  position: relative; overflow: hidden;
+}
+/* 底板层浓度 = 设置的 opacity；材质再按原生材质的观感在其上衰减。 */
+.panel-preview-swatch::after {
+  content: ''; position: absolute; inset: 0; background: var(--bg, #0e1518);
+}
+.panel-preview-swatch.material-none::after { opacity: var(--preview-opacity); }
+.panel-preview-swatch.material-blur::after { opacity: calc(var(--preview-opacity) * .55); }
+.panel-preview-swatch.material-system::after { opacity: calc(var(--preview-opacity) * .35); }

@@ -9,6 +9,8 @@ import type { ClipboardFileInspection } from '@shared/types/plugin-tools'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { acquireQuickInteraction } from '@main/window/createQuickWindow'
 import { acquirePluginActivity } from '@main/plugin/activityRegistry'
+import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
+import { assertInteractive, assertInteractionEpoch, getInteractionEpoch, trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 
 interface Grant { path: string; root: string; writable: boolean; temporary: boolean; pendingCreate?: boolean }
 /** Internal native-backend lifetime guard; never accepted from renderer options. */
@@ -138,6 +140,7 @@ export async function readLocalFile(pluginId: string, input: { handleId: string;
 }
 
 export async function pickLocalFiles(pluginId: string, options: LocalFilePickOptions = {}, control: LocalFilePickerControl = {}): Promise<LocalFileHandle[]> {
+  assertInteractive(pluginId)
   const assertOwner = pickerGuard(pluginId, control)
   assertOwner()
   const kind = options.kind ?? 'file'
@@ -168,7 +171,8 @@ export async function pickLocalFiles(pluginId: string, options: LocalFilePickOpt
   try {
     assertOwner()
     const parent = pluginHost.getContainerWindow(pluginId)
-    const nativeResult = parent ? dialog.showOpenDialog(parent, { properties, title: options.access === 'write' ? '选择允许插件修改的文件或目录' : '选择允许插件读取的文件或目录' }) : dialog.showOpenDialog({ properties, title: options.access === 'write' ? '选择允许插件修改的文件或目录' : '选择允许插件读取的文件或目录' })
+    assertInteractive(pluginId)
+    const nativeResult = trackNativeInteraction(parent ? dialog.showOpenDialog(parent, { properties, title: options.access === 'write' ? '选择允许插件修改的文件或目录' : '选择允许插件读取的文件或目录' }) : dialog.showOpenDialog({ properties, title: options.access === 'write' ? '选择允许插件修改的文件或目录' : '选择允许插件读取的文件或目录' }))
     const result = await waitForPicker(nativeResult, control.signal)
     assertOwner()
     if (result.canceled) return []
@@ -190,6 +194,7 @@ export async function pickLocalFiles(pluginId: string, options: LocalFilePickOpt
 
 /** A save picker grants exactly one new or existing destination, never its siblings. */
 export async function pickLocalSaveFile(pluginId: string, options: { defaultName?: string } = {}, control: LocalFilePickerControl = {}): Promise<LocalFileHandle | null> {
+  assertInteractive(pluginId)
   if (options.defaultName !== undefined && (typeof options.defaultName !== 'string' || options.defaultName.length > 255 || options.defaultName.includes('\0'))) {
     throw new Error('invalid default file name')
   }
@@ -219,7 +224,8 @@ export async function pickLocalSaveFile(pluginId: string, options: { defaultName
       title: '选择允许插件写入的文件',
       ...(suggestedName ? { defaultPath: suggestedName } : {})
     }
-    const nativeResult = parent ? dialog.showSaveDialog(parent, input) : dialog.showSaveDialog(input)
+    assertInteractive(pluginId)
+    const nativeResult = trackNativeInteraction(parent ? dialog.showSaveDialog(parent, input) : dialog.showSaveDialog(input))
     const answer = await waitForPicker(nativeResult, control.signal)
     assertOwner()
     if (answer.canceled || !answer.filePath) return null
@@ -248,6 +254,7 @@ export async function resolveLocalDirectoryTarget(pluginId: string, handleId: st
 }
 
 export async function localFilesFromDrop(pluginId: string, paths: string[]): Promise<LocalFileHandle[]> {
+  assertInteractive(pluginId)
   if (!Array.isArray(paths) || paths.length > 20 || paths.some((path) => typeof path !== 'string' || !isAbsolute(path))) throw new Error('invalid dropped files')
   const assertOwner = guardOwner(pluginId)
   const parent = pluginHost.getContainerWindow(pluginId)
@@ -255,7 +262,8 @@ export async function localFilesFromDrop(pluginId: string, paths: string[]): Pro
   const releaseWindow = pluginHost.acquireWindowInteraction(pluginId)
   const releaseFocus = acquireQuickInteraction()
   try {
-    const answer = await dialog.showMessageBox(parent, { type: 'question', message: '允许插件读取这些拖入的文件？', detail: paths.slice(0, 20).join('\n'), buttons: ['取消', '允许读取'], defaultId: 0, cancelId: 0 })
+    assertInteractive(pluginId)
+    const answer = await trackNativeInteraction(dialog.showMessageBox(parent, { type: 'question', message: '允许插件读取这些拖入的文件？', detail: paths.slice(0, 20).join('\n'), buttons: ['取消', '允许读取'], defaultId: 0, cancelId: 0 }))
     assertOwner()
     if (answer.response !== 1) return []
     return Promise.all([...new Set(paths)].map((path) => grantLocalFile(pluginId, path, { writable: false })))
@@ -298,7 +306,12 @@ export async function listLocalFiles(pluginId: string, input: { handleId: string
 }
 
 export async function revealLocalFile(pluginId: string, handleId: string): Promise<boolean> {
-  shell.showItemInFolder(await resolveLocalFileHandle(pluginId, handleId))
+  assertInteractive(pluginId)
+  const scope = getRuntimeScope(pluginId)!, epoch = getInteractionEpoch(scope)
+  const path = await resolveLocalFileHandle(pluginId, handleId)
+  assertInteractionEpoch(scope, epoch)
+  assertInteractive(scope)
+  shell.showItemInFolder(path)
   return true
 }
 
@@ -464,6 +477,7 @@ export async function prepareLocalDrag(pluginId: string, handleIds: string[]): P
 }
 
 export function startLocalDrag(pluginId: string, exportId: string): boolean {
+  assertInteractive(pluginId)
   const item = exportsByPlugin.get(pluginId)?.get(exportId)
   if (!item || item.expiresAt < Date.now()) throw new Error('drag files are not prepared; prepare them again')
   const wc = pluginHost.getWebContents(pluginId)

@@ -2,18 +2,22 @@ import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { bindQuickInputHost, clearQuickInput, configureQuickInput, escapeQuickInput } from '@main/plugin/quickInputService'
 import { getPluginBlob, putPluginBlob, removePluginBlob, savePluginFile } from '@main/plugin/pluginFiles'
+import { putPluginAsset, listPluginAssets, getPluginAsset, deletePluginAsset } from '@main/plugin/pluginAssets'
 import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
 import { hideQuickWindow, showQuickWindow, getQuickShowRevision } from '@main/window/createQuickWindow'
 import { nativeCapabilities, requestNativePermission, pasteToOriginal, type PasteOwner } from '@main/clipboard/nativeClipboard'
 import { inspectGrantedFilePaths, localFilesFromDrop, revealLocalFile } from '@main/plugin/localFiles'
+import { readQuickEnterInput } from '@main/launcher/quickInputContext'
 import { startDeadlineTask, getDeadlineTask, pauseDeadlineTask, resumeDeadlineTask, skipDeadlineTask, cancelDeadlineTask } from '@main/timer/deadlineTaskService'
 import type { PluginPermission } from '@shared/types/plugin'
 import type { QuickInputConfig } from '@shared/types/plugin-tools'
 import type { DeadlineTaskStart } from '@shared/types/deadline-task'
+import { assertInteractive, assertInteractionEpoch, getInteractionEpoch, trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 
 export const PLUGIN_TOOL_PERMISSIONS: Record<string, PluginPermission | null> = {
-  'quickInput.configure': null, 'quickInput.release': null, 'quickInput.escape': null, 'ui.openSettings': null,
+  'quickInput.configure': null, 'quickInput.release': null, 'quickInput.escape': null, 'quickInput.readContext': null, 'ui.openSettings': null,
   'storage.blobs.put': 'storage.local', 'storage.blobs.get': 'storage.local', 'storage.blobs.remove': 'storage.local',
+  'storage.assets.put': 'storage.local', 'storage.assets.list': 'storage.local', 'storage.assets.get': 'storage.local', 'storage.assets.delete': 'storage.local',
   'shell.saveFile': 'fs.write', 'shell.saveTextFile': 'fs.write',
   'clipboard.capabilities': null, 'clipboard.requestPermission': 'clipboard.paste',
   'clipboard.paste': 'clipboard.paste', 'clipboard.inspectFiles': null, 'clipboard.revealFile': null,
@@ -36,9 +40,15 @@ export function bindPluginTools(): void {
 }
 function pasteOwner(pluginId: string): PasteOwner {
   const scope = getRuntimeScope(pluginId), container = pluginHost.getPlacement(pluginId).kind
+  assertInteractive(pluginId)
+  const interactionEpoch = getInteractionEpoch(scope!)
   const placementRevision = pluginHost.getPlacementRevision(pluginId)
   let revision = getQuickShowRevision(), hidden = false
-  const runtimeCurrent = () => !!scope?.isCurrent() && !scope.isClosing && pluginHost.getPlacementRevision(pluginId) === placementRevision
+  const runtimeCurrent = () => {
+    assertInteractionEpoch(scope!, interactionEpoch)
+    assertInteractive(scope!)
+    return !!scope?.isCurrent() && !scope.isClosing && pluginHost.getPlacementRevision(pluginId) === placementRevision
+  }
   const isCurrent = () => runtimeCurrent() && (container !== 'quick' || getQuickShowRevision() === revision && (hidden ? !pluginHost.getQuickPlugin() : pluginHost.getQuickPlugin() === pluginId))
   return {
     isCurrent,
@@ -58,8 +68,15 @@ export async function dispatchPluginTool(pluginId: string, method: string, args:
   switch (method) {
     case 'quickInput.configure': return configureQuickInput(pluginId, first as QuickInputConfig)
     case 'quickInput.release': clearQuickInput(pluginId); return true
-    case 'quickInput.escape': return escapeQuickInput(pluginId)
+    case 'quickInput.escape': assertInteractive(pluginId); return escapeQuickInput(pluginId)
+    case 'quickInput.readContext': {
+      // 仅返回本实例当前 runtime 代次最近一次 Quick 打开注入的输入上下文。
+      const scope = getRuntimeScope(pluginId)
+      if (!scope?.isCurrent() || scope.isClosing) return null
+      return readQuickEnterInput(pluginId, scope.owner.generation)
+    }
     case 'ui.openSettings': {
+      assertInteractive(pluginId)
       hideQuickWindow('plugin-settings'); pluginHost.hideAllViews()
       const win = getMainWindow(); if (win && !win.isDestroyed()) { win.show(); win.focus() }
       sendShellEvent({ type: 'plugin-open-settings', pluginId }); return true
@@ -67,10 +84,14 @@ export async function dispatchPluginTool(pluginId: string, method: string, args:
     case 'storage.blobs.put': return putPluginBlob(pluginId, first)
     case 'storage.blobs.get': return getPluginBlob(pluginId, String(args[0] ?? ''))
     case 'storage.blobs.remove': return removePluginBlob(pluginId, String(args[0] ?? ''))
+    case 'storage.assets.put': return putPluginAsset(pluginId, first)
+    case 'storage.assets.list': return listPluginAssets(pluginId)
+    case 'storage.assets.get': return getPluginAsset(pluginId, String(args[0] ?? ''))
+    case 'storage.assets.delete': return deletePluginAsset(pluginId, String(args[0] ?? ''))
     case 'shell.saveFile': case 'shell.saveTextFile': return savePluginFile(pluginId, first)
     case 'clipboard.capabilities': return nativeCapabilities()
-    case 'clipboard.requestPermission': return requestNativePermission()
-    case 'clipboard.paste': return pasteToOriginal(getRuntimeScope(pluginId)?.signal, pasteOwner(pluginId))
+    case 'clipboard.requestPermission': assertInteractive(pluginId); return trackNativeInteraction(requestNativePermission())
+    case 'clipboard.paste': assertInteractive(pluginId); return pasteToOriginal(getRuntimeScope(pluginId)?.signal, pasteOwner(pluginId))
     case 'clipboard.inspectFiles': return inspectGrantedFilePaths(pluginId, first)
     case 'clipboard.revealFile': {
       const scope = getRuntimeScope(pluginId)

@@ -9,6 +9,7 @@ import { Button } from '@renderer/components/ui/Button'
 import { Segmented } from '@renderer/components/ui/Segmented'
 import { ThemeSelectionCards } from './ThemeSelectionCards'
 import { ThemeSettingsFields } from './ThemeSettingsFields'
+import { PanelAppearanceCard } from './PanelAppearanceCard'
 import './appearanceSettings.css'
 
 function previewField(appearance: ResolvedAppearance, field: ThemeSettingsField, value: ThemeSettingValue): void {
@@ -269,6 +270,8 @@ export function AppearanceSettingsSection() {
           {activePack && <Button variant="ghost" size="sm" onClick={async () => { await flush(); try { await useAppearanceStore.getState().updateThemeProfile({ theme: appearance.profile.identity, reset: true }) } catch { setError('恢复默认失败，请重试。') } }}>恢复本主题默认</Button>}
         </div>
       </section>
+      {/* eNest 壳通用外观：自由面板材质（不随主题 profile 走，写 general.panelAppearance）。 */}
+      <PanelAppearanceCard />
     </div>
   )
 }

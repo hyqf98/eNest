@@ -154,8 +154,9 @@ function normalizeContributes(
     out.railEntries = raw.railEntries
   }
   if (Array.isArray(raw.homePages) && raw.homePages.length > 0) out.homePages = raw.homePages
+  if (Array.isArray(raw.mcpTools) && raw.mcpTools.length > 0) out.mcpTools = raw.mcpTools
   const hasAny =
-    out.settings !== undefined || out.homeCards !== undefined || out.railEntries !== undefined || out.homePages !== undefined
+    out.settings !== undefined || out.homeCards !== undefined || out.railEntries !== undefined || out.homePages !== undefined || out.mcpTools !== undefined
   return hasAny ? out : undefined
 }
 

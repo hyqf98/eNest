@@ -35,7 +35,7 @@ export function registerPluginWindowHandlers(): void {
       const win = getDetachedWindow(id)
       if (!win || win.isDestroyed()) throw new Error('Window is closed')
       switch (command.action) {
-        case 'activate': await pluginHost.openPlugin(id); break
+        case 'activate': await pluginHost.openPlugin(id, undefined, { trustedUserNavigation: true }); break
         case 'toggle-always-on-top': toggleDetachedAlwaysOnTop(id); break
         case 'minimize': win.minimize(); break
         case 'maximize': if (win.isMaximized()) win.unmaximize(); else win.maximize(); break

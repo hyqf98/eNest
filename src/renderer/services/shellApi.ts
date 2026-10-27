@@ -4,6 +4,7 @@ import type { AccountState, AccountLoginResult } from '@shared/types/account'
 import type { AppPaths, DevPluginLoadOptions, MarketInstallResult, PluginMarketStatus, PluginLaunchPatch, PluginPermission, PluginPermissionGrant, PluginSummary, ProxyConfig, ThemeMode, ThemeTokens } from '@shared/types/plugin'
 import type { HardwareAccelSetResult, HardwareAccelState, PickFileOptions, PluginLaunchSetResult, ProxySetResult, ShellSettingsSection, ShellThemeResult } from '@shared/types/shell'
 import type { ShellSettingsData } from '@shared/types/shellSettings'
+import type { McpCatalogPage, McpCatalogQuery, McpConfiguration, McpStatus } from '@shared/types/mcpSettings'
 import type { AppearanceSnapshot, ThemeProfilePatch } from '@shared/types/appearance'
 import type { ThemeSettingsConfig, ThemeSettingsSnapshot, ThemeSettingsAction, ThemeSettingsActionResult } from '@shared/types/themeSettings'
 import type { WorkspaceRoute } from '@shared/types/workspace'
@@ -15,6 +16,11 @@ import { createLazyPreviewShellApi, createNativeShellApi } from './shellApiAdapt
 
 /** preload 注入到渲染进程的完整 shell 能力面 */
 export interface ShellApi {
+  getMcpStatus(): Promise<McpStatus>
+  configureMcp(input: McpConfiguration): Promise<McpStatus>
+  copyMcpConnectionConfig(): Promise<void>
+  resetMcpToken(): Promise<McpStatus>
+  listMcpTools(query?: McpCatalogQuery): Promise<McpCatalogPage>
   getPlugins(): Promise<PluginSummary[]>
   getMarketStatus(refresh?: boolean): Promise<PluginMarketStatus>
   /** 只读性能采样，浏览器 mock 不提供原生进程数据。 */
@@ -59,6 +65,12 @@ export interface ShellApi {
     pluginId: string,
     patch: PluginLaunchPatch
   ): Promise<PluginLaunchSetResult>
+  /** 「打开方式」：插件声明 + 路由 + 系统状态（壳统一能力） */
+  getOpenWithList?(): Promise<import('@shared/types/openWith').OpenWithListResult>
+  setOpenWithDefault?(key: string, pluginId: string): Promise<import('@shared/types/openWith').OpenWithActionResult>
+  clearOpenWithDefault?(key: string): Promise<import('@shared/types/openWith').OpenWithActionResult>
+  routeOpenWith?(key: string, pluginId: string): Promise<import('@shared/types/openWith').OpenWithActionResult>
+  openOpenWithSystemSettings?(): Promise<void>
   /** 从市场安装/更新：sample 优先，否则远程入队；force 强制走远程更新 */
   installMarketPlugin?(
     pluginId: string,
@@ -189,16 +201,27 @@ export interface ShellApi {
   quickToggle?(): Promise<void>
   quickHide?(): void
   quickSearch?(query: string, limit?: number, kind?: QuickCommandKind, phase?: import('@shared/types/quick').QuickSearchPhase, ids?: string[]): Promise<{ items: QuickCommand[]; total?: number }>
-  quickOpen?(req: QuickOpenRequest): Promise<{ ok: boolean; error?: string }>
+  quickOpen?(req: QuickOpenRequest): Promise<import('@shared/types/quick').QuickOpenResult>
   quickScanApps?(force?: boolean): Promise<ApplicationScanResult>
   quickGetConfig?(): Promise<QuickHotkeyConfig>
   quickGetTheme?(): Promise<import('@shared/types/quickTheme').QuickThemeConfig | null>
   quickAuthorizeTheme?(key: string): Promise<boolean>
+  quickProviderState?(request: import('@shared/types/quickTheme').QuickProviderStateRequest): Promise<import('@shared/types/quickTheme').QuickProviderStateSnapshot | { keys: string[] }>
   onQuickThemeKey?(cb: (key: { key: string; meta?: boolean; ctrl?: boolean; alt?: boolean; shift?: boolean }) => void): () => void
   quickSetHotkeys?(payload: QuickHotkeyPatch): Promise<QuickHotkeyApplyResult>
   quickProbeHotkey?(acc: string): Promise<import('@shared/types/quick').QuickHotkeyProbeResult>
   quickResize?(height: number, animate?: boolean): void
   quickInput?(message?: import('@shared/types/plugin-tools').QuickInputMessage): Promise<import('@shared/types/plugin-tools').QuickInputState | boolean | null>
+  /** 读取/维护宿主保管的粘贴上下文（剪贴板图片与文件；渲染层不提交字节或路径） */
+  quickInputContext?(request: import('@shared/types/quick').QuickInputContextRequest): Promise<import('@shared/types/quick').QuickInputContextResult>
+  /** 自由面板：框选区域并创建面板。 */
+  createPanel?(): Promise<{ ok: boolean; cancelled?: boolean; id?: string; bounds?: import('@shared/types/panel').PanelBounds; error?: string }>
+  /** 自由面板：列出当前活动面板。 */
+  listPanels?(): Promise<Array<{ id: string; bounds: import('@shared/types/panel').PanelBounds; widgetCount: number }>>
+  /** 自由面板：关闭指定面板。 */
+  closePanel?(panelId: string): Promise<{ ok: boolean }>
+  /** 自由面板：保存呼出快捷键并立即重注册（返回注册结果）。 */
+  setPanelHotkey?(accelerator: string): Promise<import('@shared/types/panel').PanelHotkeyApplyResult>
   onQuickShown?(cb: () => void): () => void
 }
 

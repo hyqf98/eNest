@@ -45,7 +45,7 @@ import {
 } from '@main/db/pluginStorage'
 import { assertPermission } from '@main/plugin/PluginPermissions'
 import { pluginHost } from '@main/plugin/PluginHost'
-import { acquireQuickInteraction, hideQuickWindow } from '@main/window/createQuickWindow'
+import { hideQuickWindow } from '@main/window/createQuickWindow'
 import { pickLocalFiles, readLocalFile, localFilesFromDrop, listLocalFiles, revealLocalFile, prepareLocalDrag, startLocalDrag, endLocalDrag } from '@main/plugin/localFiles'
 import type { LocalFilePickOptions, PluginInputContext } from '@shared/types/local-files'
 import {
@@ -69,6 +69,7 @@ import {
 } from '@main/plugin/PermissionService'
 import {
   checkScreenCapture,
+  assertScreenCaptureAllowed,
   openScreenCaptureSettings
 } from '@main/plugin/OsPermissionChecks'
 import { registerRuntimeHotkey, unregisterRuntimeHotkey } from '@main/hotkey/pluginRuntimeHotkeys'
@@ -93,6 +94,7 @@ import { writeClipboardText, writeClipboardImage, writeClipboardFiles } from '@m
 import type { AuxiliaryOpen } from '@shared/types/auxiliary'
 import type { FileStreamOpen } from '@shared/types/file-stream'
 import { vaultSet, vaultHas, vaultRemove } from '@main/vault/secretVault'
+import { assertInteractive, interactionError, interactionErrorCode, isNonInteractive, runHostRpc, trackHostRpc } from '@main/plugin/pluginInteractionPolicy'
 
 /** method → 所需权限映射；null 表示无需权限（settings.get/set 由 Bridge 管控 key 白名单） */
 const runtimeLeases = new Map<string, { release: () => void; unregister: () => void; pluginId: string }>()
@@ -190,9 +192,7 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'fs.renameBatch': 'fs.rename',
   'sys.processes': 'sys.inspect',
   'sys.ports': 'sys.inspect',
-  'sys.kill': 'sys.control',
-  // 保存位置由原生选择器确认；fs.write 不再另弹通用授权框。
-  'shell.saveTextFile': 'fs.write'
+  'sys.kill': 'sys.control'
 }
 
 /** net.fetch 响应体上限（2MB），防止插件拉超大资源 */
@@ -274,6 +274,7 @@ async function openExternalWithPermission(
     throw new Error('only http(s)/mailto/tel urls allowed')
   }
   assertPermission(manifest, 'shell.openExternal')
+  assertInteractive(pluginId)
   await shell.openExternal(url)
 }
 
@@ -289,7 +290,10 @@ async function ensureRuntimeGrant(
   if (isBuiltinCapability(perm)) return true
   const grant = settingsStore.getPermissionGrant(pluginId, perm)
   if (grant === 'allow') return true
-  if (grant === 'deny') return false
+  if (grant === 'deny') {
+    if (isNonInteractive(pluginId)) throw interactionError('permission-denied', `permission denied: ${perm}`)
+    return false
+  }
   const osHint =
     perm === 'screen.capture' || perm === 'screen.record'
       ? checkScreenCapture().hint
@@ -301,13 +305,6 @@ function argStr(args: unknown[], objKey: string, pos: number): string {
   const o = asObj(args)
   if (o[objKey] != null) return String(o[objKey])
   return String(args[pos] ?? '')
-}
-
-function argNum(args: unknown[], objKey: string, pos: number, fallback: number): number {
-  const o = asObj(args)
-  if (o[objKey] != null && o[objKey] !== '') return Number(o[objKey])
-  const v = args[pos]
-  return v == null || v === '' ? fallback : Number(v)
 }
 
 /** 按 method 分发到具体实现，权限已在调用前校验 */
@@ -369,16 +366,20 @@ async function dispatch(
     }
 
     case 'ui.openInShell':
+      assertInteractive(pluginId)
       pluginHost.pinToShell(pluginId)
       return true
     case 'ui.setInputContext':
       pluginHost.setInputContext(pluginId, args[0] as PluginInputContext)
       return true
     case 'ui.focus':
+      assertInteractive(pluginId)
       return pluginHost.focusPlugin(pluginId)
     case 'ui.focusSearch':
+      assertInteractive(pluginId)
       return pluginHost.focusSearch(pluginId)
     case 'ui.dismissQuick': {
+      assertInteractive(pluginId)
       // 插件提交完成主动收起小窗（如回车回贴/复制后）；走统一隐藏语义，
       // 下次呼出仍恢复本插件。非 quick 挂载者调用为无操作。
       if (pluginHost.getQuickPlugin() !== pluginId) return false
@@ -426,6 +427,7 @@ async function dispatch(
       return true
     }
     case 'ui.toast': {
+      assertInteractive(pluginId)
       const scope = getRuntimeScope(pluginId)
       if (!scope || !scope.isCurrent() || scope.isClosing) throw new Error('plugin runtime unavailable')
       showNotification(pluginHost.getContainerWindow(pluginId), args[0], {
@@ -624,6 +626,10 @@ async function dispatch(
         method?: string
         headers?: Record<string, string>
         body?: string
+        /** 二进制请求体（base64）：优先于 body，解码后原样发送（multipart 等场景） */
+        bodyBase64?: string
+        /** 鉴权注入：主进程从本插件 vault 解引用后写入请求头，密钥不回到页面 */
+        auth?: { secretRef: string; header?: string; scheme?: 'bearer' | 'raw' }
         timeoutMs?: number
         stream?: boolean
       }
@@ -633,6 +639,22 @@ async function dispatch(
         allowInsecure ? /^https?:\/\//i.test(u) : /^https:\/\//i.test(u)
       const schemeName = allowInsecure ? 'http(s)' : 'https'
       if (req.body !== undefined && (typeof req.body !== 'string' || Buffer.byteLength(req.body) > 8 * 1024 * 1024)) throw new Error('request body exceeds 8 MiB')
+      let binaryBody: Uint8Array | undefined
+      if (req.bodyBase64 !== undefined) {
+        if (typeof req.bodyBase64 !== 'string' || req.bodyBase64.length > 11 * 1024 * 1024) throw new Error('request body exceeds 8 MiB')
+        binaryBody = new Uint8Array(Buffer.from(req.bodyBase64, 'base64'))
+        if (binaryBody.byteLength > 8 * 1024 * 1024) throw new Error('request body exceeds 8 MiB')
+      }
+      const requestHeaders: Record<string, string> = { ...(req.headers ?? {}) }
+      if (req.auth && typeof req.auth.secretRef === 'string' && req.auth.secretRef) {
+        const { resolveSecret } = await import('@main/vault/secretVault')
+        const secret = resolveSecret(pluginId, req.auth.secretRef.slice(0, 512))
+        if (!secret) throw new Error('vault secret not found; re-enter the credential in plugin settings')
+        const header = (req.auth.header ?? 'authorization').toLowerCase()
+        const scheme = req.auth.scheme ?? 'bearer'
+        if (requestHeaders[header] !== undefined) throw new Error('auth header conflicts with explicit header')
+        requestHeaders[header] = scheme === 'raw' ? secret : `Bearer ${secret}`
+      }
       let url = String(req.url ?? '')
       if (!schemeOk(url)) throw new Error(`only ${schemeName} urls allowed`)
       const method = (req.method ?? 'GET').toUpperCase()
@@ -647,9 +669,10 @@ async function dispatch(
       scope.signal.addEventListener('abort', abort, { once: true })
       if ((netFetchCounts.get(scope) ?? 0) >= 8) { scope.signal.removeEventListener('abort', abort); throw new Error('network request limit (8) reached') }
       const releaseNetworkActivity = scope.acquireActivity('network request')
+      const releaseNetworkRpc = trackHostRpc(scope)
       netFetchCounts.set(scope, (netFetchCounts.get(scope) ?? 0) + 1)
       let released = false
-      const releaseActivity = (): void => { if (released) return; released = true; releaseNetworkActivity(); netFetchCounts.set(scope, Math.max(0, (netFetchCounts.get(scope) ?? 1) - 1)) }
+      const releaseActivity = (): void => { if (released) return; released = true; releaseNetworkActivity(); releaseNetworkRpc(); netFetchCounts.set(scope, Math.max(0, (netFetchCounts.get(scope) ?? 1) - 1)) }
       const timer = setTimeout(() => controller.abort(), timeoutMs)
       const streamMode = req.stream === true
       let detachedStream = false
@@ -670,8 +693,8 @@ async function dispatch(
         for (let hop = 0; hop < 5; hop++) {
           res = await electronNet.fetch(url, {
             method,
-            headers: req.headers ?? {},
-            body: method === 'GET' || method === 'HEAD' ? undefined : req.body,
+            headers: requestHeaders,
+            body: method === 'GET' || method === 'HEAD' ? undefined : (binaryBody ?? req.body),
             signal: controller.signal,
             redirect: 'manual'
           })
@@ -748,38 +771,8 @@ async function dispatch(
       await openExternalWithPermission(pluginId, manifest, url)
       return true
     }
-    case 'shell.saveTextFile': {
-      const o = asObj(args)
-      const content = String(o.content ?? args[1] ?? '')
-      const defaultName = String(o.defaultName || o.filename || args[0] || 'export.txt')
-      const scope = getRuntimeScope(pluginId)
-      if (!scope || !scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
-      const releaseWindow = pluginHost.acquireWindowInteraction(pluginId)
-      const releaseActivity = scope.acquireActivity('file:export')
-      const releaseFocus = acquireQuickInteraction()
-      const release = () => { releaseWindow(); releaseFocus(); releaseActivity() }
-      scope.signal.addEventListener('abort', release, { once: true })
-      const assertCurrent = () => {
-        if (!scope.isCurrent() || scope.signal.aborted) throw new Error('plugin runtime is closing')
-      }
-      try {
-        const { dialog } = await import('electron')
-        assertCurrent()
-        const { writeFile } = await import('node:fs/promises')
-        assertCurrent()
-        const win = pluginHost.getContainerWindow(pluginId)
-        const saveOpts = { defaultPath: defaultName, filters: [{ name: 'All Files', extensions: ['*'] }] }
-        const result = win ? await dialog.showSaveDialog(win, saveOpts) : await dialog.showSaveDialog(saveOpts)
-        assertCurrent()
-        if (result.canceled || !result.filePath) return null
-        await writeFile(result.filePath, content, 'utf-8')
-        return { ok: true, path: result.filePath }
-      } finally {
-        scope.signal.removeEventListener('abort', release)
-        release()
-      }
-    }
     case 'notify': {
+      assertInteractive(pluginId)
       const payload = (args[0] ?? {}) as { title?: string; body?: string }
       new Notification({
         title: payload.title ?? APP_NAME,
@@ -908,44 +901,42 @@ export function registerPluginHandlers(): void {
         const scope = getRuntimeScope(hostPluginId)
         const allowed = () => scope?.owner.wcId === senderId && scope.isCurrent() && (!scope.isClosing || CLOSE_SAFE.test(method))
         if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
-        // 权限为 null 表示该方法无需 manifest 声明（settings 由 Bridge 管控）
-        const required = method === 'localFiles.pick' && asObj(args).access === 'write' ? 'fs.write'
-          : method === 'auxiliary.open' && asObj(args).capture ? 'screen.record'
-          : method === 'auxiliary.open' && asObj(args).alwaysOnTop === true ? 'pin.create' : METHOD_PERMISSION[method]
-        if (required === undefined) {
-          return { ok: false, error: `unknown method: ${method}` }
-        }
-        if (required) {
-          // 基础能力无需声明；敏感能力必须声明（错误文案为插件兼容契约）。
-          assertPermission(manifest, required)
-          // 基础能力免弹窗；敏感能力按壳层 grant 三态授权。
-          const granted = await ensureRuntimeGrant(
-            hostPluginId,
-            required,
-            `调用宿主 API：${method}`
-          )
-          if (!granted) {
-            return { ok: false, error: `permission denied: ${required}` }
+        return await runHostRpc(scope!, async (): Promise<PluginCallResult> => {
+          // 权限为 null 表示该方法无需 manifest 声明（settings 由 Bridge 管控）
+          const required = method === 'localFiles.pick' && asObj(args).access === 'write' ? 'fs.write'
+            : method === 'auxiliary.open' && asObj(args).capture ? 'screen.record'
+            : method === 'auxiliary.open' && asObj(args).alwaysOnTop === true ? 'pin.create' : METHOD_PERMISSION[method]
+          if (required === undefined) {
+            return { ok: false, error: `unknown method: ${method}` }
           }
-          // OS 层（darwin 屏幕授权）：grant 放行后在执行前检查，避免黑屏/空帧
-          if (required === 'screen.capture' || required === 'screen.record') {
-            const osCheck = checkScreenCapture()
-            if (!osCheck.ok) {
-              return { ok: false, error: 'os permission denied: screen' }
+          if (required) {
+            // 基础能力无需声明；敏感能力必须声明（错误文案为插件兼容契约）。
+            assertPermission(manifest, required)
+            // 基础能力免弹窗；敏感能力按壳层 grant 三态授权。
+            const granted = await ensureRuntimeGrant(
+              hostPluginId,
+              required,
+              `调用宿主 API：${method}`
+            )
+            if (!granted) {
+              return { ok: false, error: `permission denied: ${required}` }
+            }
+            // OS 层（darwin 屏幕授权）：grant 放行后在执行前检查，避免黑屏/空帧
+            if (required === 'screen.capture' || required === 'screen.record') {
+              assertScreenCaptureAllowed(hostPluginId)
             }
           }
-        }
-        if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
-        const startedAt = Date.now()
-        try {
-          const data = await dispatch(hostPluginId, method, args, manifest)
-          recordPluginCall({
-            ts: startedAt,
-            pluginId: hostPluginId,
-            method,
-            ok: true,
-            durationMs: Date.now() - startedAt
-          })
+          if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
+          const startedAt = Date.now()
+          try {
+            const data = await dispatch(hostPluginId, method, args, manifest)
+            recordPluginCall({
+              ts: startedAt,
+              pluginId: hostPluginId,
+              method,
+              ok: true,
+              durationMs: Date.now() - startedAt
+            })
           return { ok: true, data }
         } catch (err) {
           const error = (err as Error).message
@@ -957,10 +948,11 @@ export function registerPluginHandlers(): void {
             durationMs: Date.now() - startedAt,
             error
           })
-          return { ok: false, error }
+          return { ok: false, error, errorCode: interactionErrorCode(err) }
         }
+        })
       } catch (err) {
-        return { ok: false, error: (err as Error).message }
+        return { ok: false, error: (err as Error).message, errorCode: interactionErrorCode(err) }
       }
     }
   )

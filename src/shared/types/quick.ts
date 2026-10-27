@@ -12,12 +12,59 @@ export type QuickActionId =
   | 'refresh-apps'
 
 /** Validated declaration, not an evaluated match. The selected theme owns matching. */
+export type QuickContentType = 'text' | 'regex' | 'over' | 'img' | 'files'
+
 export interface QuickContentMatch {
-  type: 'regex' | 'over'
+  type: QuickContentType
   source?: string
   flags?: string
   minLength: number
   maxLength?: number
+  /** img/files: lowercase extension allowlist (no dot). Empty means any supported type. */
+  extensions?: string[]
+  /** files only: accept directory entries. */
+  allowDirectory?: boolean
+  /** files only: accepted entry count bounds (defaults 1..20). */
+  minCount?: number
+  maxCount?: number
+}
+
+/**
+ * Host-held paste-context entry projected into renderers and themes.
+ * Full image bytes never enter the theme snapshot: thumbnails are bounded data URLs.
+ */
+export interface QuickImageContext {
+  /** Opaque session handle; valid only until the context is cleared. */
+  id: string
+  kind: 'image' | 'file' | 'directory'
+  name?: string
+  size?: number
+  width?: number
+  height?: number
+  /** Bounded PNG data URL for preview (≤64 KiB). */
+  thumbnail: string
+}
+
+/**
+ * Opaque selection of host-held paste-context entries sent with an open request.
+ * Only ids the host published in this session resolve; paths and bytes never travel from renderers.
+ */
+export interface QuickInputSelection {
+  imageIds?: string[]
+  fileIds?: string[]
+  /** Host echo of the current query for the enter input; bounded and re-sliced in main. */
+  text?: string
+}
+
+/**
+ * Bounded enter input handed to a plugin with the launch.
+ * Images carry full data URLs (host-validated budgets); files carry a host-minted
+ * read-only handle plus display metadata — the path is informational, reading goes via handleId.
+ */
+export interface QuickEnterInput {
+  text?: string
+  images?: Array<{ dataUrl: string; width: number; height: number }>
+  files?: Array<{ handleId: string; path: string; name: string; size: number; kind: 'file' | 'directory' }>
 }
 
 export type QuickSearchPhase = 'catalog' | 'static' | 'enriched' | 'providers'
@@ -27,6 +74,8 @@ export interface QuickCommand {
   kind: QuickCommandKind
   /** 列表稳定 id */
   id: string
+  /** Host-signed stable identity for provider state; does not authorize a launch. */
+  stateKey?: string
   title: string
   subtitle: string
   /** kind=app：可执行路径；kind=plugin：无 */
@@ -42,20 +91,14 @@ export interface QuickCommand {
   icon?: string
   /** kind=app：linux .desktop Icon= 原始值；appLauncher 提图时解析，其他平台忽略 */
   iconName?: string
-  /** 最近使用时间戳（ms）；有值时 UI 可归入「最近」分区 */
-  lastUsedTs?: number
-  /** 累计使用次数（来自 settings recent） */
-  useCount?: number
   /** 命中的触发关键词（uTools 风格）；有值时 UI 高亮 */
   keywordHit?: string
   /** 由检索层分组，界面保持组内相关性顺序。 */
   group?: 'best' | 'match' | 'recommendation' | 'provider'
-  type?: 'text' | 'regex' | 'over'
+  type?: QuickContentType
   /** 内容匹配或动态 provider 的进入载荷。 */
   payload?: unknown
   content?: QuickContentMatch
-  /** Opaque preference metadata; the theme decides whether/how to use it. */
-  preferred?: boolean
 }
 
 export interface QuickSearchRequest {
@@ -80,12 +123,14 @@ export type QuickOpenContainer = 'quick' | 'shell'
  * 打开/交互请求。
  * - app / plugin / action：打开命令（plugin 可带 container 显式指定容器；
  *   缺省由主进程决策：每插件启动方式设置 > 跟随入口 quick）
+ * - plugin.input：宿主渲染层选择的粘贴上下文句柄集合（图片/文件按本会话 id 引用，
+ *   主进程在启动时校验 id 归属并把字节/文件句柄组装成 enter.input；主题表面不能提交路径或字节）
  * - plugin-escape：插件态 Esc 回列表（载荷 = 当前插件 id）
  * - plugin-pin：⌘Enter / 「固定到主窗」按钮（载荷 = 当前插件 id）
  */
 export type QuickOpenRequest =
   | { kind: 'app'; path: string; query?: string }
-  | { kind: 'plugin'; pluginId: string; code?: string; container?: QuickOpenContainer; type?: 'text' | 'regex' | 'over'; payload?: unknown; query?: string }
+  | { kind: 'plugin'; pluginId: string; code?: string; container?: QuickOpenContainer; type?: QuickContentType; payload?: unknown; query?: string; input?: QuickInputSelection }
   | { kind: 'action'; action: QuickActionId; query?: string }
   | { kind: 'plugin-escape'; pluginId: string }
   | { kind: 'plugin-pin'; pluginId: string }
@@ -94,6 +139,8 @@ export type QuickOpenRequest =
 export interface QuickOpenResult {
   ok: boolean
   error?: string
+  /** Returned only after an actual validated successful native launch. */
+  opened?: { stateKey: string; at: number }
   /** container=quick 且成功挂载时返回 tabId（t- 前缀），渲染层无需消费 */
   tabId?: string
 }
@@ -105,6 +152,16 @@ export interface QuickPluginModeInfo {
   title: string
   loading?: boolean
 }
+
+/**
+ * quick:input-context 请求。渲染层不提交字节或路径：paste 事件时系统剪贴板必然已包含
+ * 被粘贴内容，统一由主进程读取（clipboard.read 位图 / nativeClipboard readFiles 文件）。
+ */
+export type QuickInputContextRequest =
+  | { operation: 'read-clipboard' }
+  | { operation: 'list' }
+  | { operation: 'clear'; id?: string }
+export interface QuickInputContextResult { ok: boolean; error?: string; items?: QuickImageContext[] }
 
 /** 本地已安装应用扫描项 */
 export interface LocalApp {

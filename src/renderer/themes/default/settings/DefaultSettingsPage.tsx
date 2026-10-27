@@ -31,9 +31,11 @@ import './settings.css'
 
 const ProfileSection = lazy(() => import('./ProfileSection').then(module => ({ default: module.ProfileSection })))
 const AppearanceSettingsSection = lazy(() => import('./AppearanceSettingsSection').then(module => ({ default: module.AppearanceSettingsSection })))
+const FreePanelSection = lazy(() => import('./FreePanelSection').then(module => ({ default: module.FreePanelSection })))
 const DevConsoleSection = lazy(() => import('./DevConsoleSection').then(module => ({ default: module.DevConsoleSection })))
 const QuickSettingsSection = lazy(() => import('./QuickSettingsSection').then(module => ({ default: module.QuickSettingsSection })))
 const PluginMemorySection = lazy(() => import('./PluginMemorySection').then(module => ({ default: module.PluginMemorySection })))
+const DefaultAppsSection = lazy(() => import('./DefaultAppsSection').then(module => ({ default: module.DefaultAppsSection })))
 const ColorPickerField = lazy(() => import('@renderer/components/ColorPickerField').then(module => ({ default: module.ColorPickerField })))
 
 type CloseBehavior = 'minimize-tray' | 'quit'
@@ -807,6 +809,10 @@ export function DefaultSettingsPage() {
         )}
 
         {settingsTab === 'general' && <TopTabBarSection />}
+
+        {settingsTab === 'general' && <FreePanelSection />}
+
+        {settingsTab === 'general' && <DefaultAppsSection />}
 
         {settingsTab === 'general' && <PluginMemorySection />}
 

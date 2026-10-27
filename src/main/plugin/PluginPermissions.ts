@@ -1,5 +1,6 @@
 import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { isBuiltinCapability } from '@shared/pluginPermissionPolicy'
+import { assertInteractive, assertInteractionEpoch, getInteractionEpoch, interactionError, trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 /**
  * PluginPermissions — 插件权限校验
  * 职责：放行内置基础能力，检查敏感能力的 manifest 声明，断言调用是否被授权。
@@ -16,7 +17,7 @@ export function hasPermission(manifest: PluginManifest, perm: PluginPermission):
 /** 权限不足时抛出 Error，由 pluginHandlers 捕获后返回给插件 */
 export function assertPermission(manifest: PluginManifest, perm: PluginPermission): void {
   if (!hasPermission(manifest, perm)) {
-    throw new Error(`permission denied: ${perm}`)
+    throw interactionError('permission-denied', `permission denied: ${perm}`)
   }
 }
 
@@ -29,7 +30,7 @@ export async function authorizePluginPermission(pluginId: string, permission: Pl
   const manifest = pluginRegistry.getManifest(pluginId)
   if (!manifest || !scope?.isCurrent() || scope.isClosing || signal?.aborted) throw new Error('plugin runtime unavailable')
   assertPermission(manifest, permission)
-  if (!(await permissionService.request(pluginId, permission, summary, undefined, signal))) throw new Error(`permission denied: ${permission}`)
+  if (!(await permissionService.request(pluginId, permission, summary, undefined, signal))) throw interactionError('permission-denied', `permission denied: ${permission}`)
   if (!scope.isCurrent() || scope.isClosing || signal?.aborted) throw new Error('plugin runtime is closing or stale')
 }
 
@@ -39,6 +40,8 @@ export async function confirmPluginOperation(pluginId: string, message: string, 
   options: { title?: string; signal?: AbortSignal; requireVisible?: boolean } = {}): Promise<void> {
   const scope = getRuntimeScope(pluginId)
   if (!scope?.isCurrent() || scope.isClosing) throw new Error('plugin runtime unavailable')
+  assertInteractive(scope)
+  const interactionEpoch = getInteractionEpoch(scope)
   if (confirmationPending.has(scope)) throw new Error('another operation is awaiting native confirmation')
   confirmationPending.add(scope)
   let releaseInteraction = (): void => {}
@@ -50,10 +53,12 @@ export async function confirmPluginOperation(pluginId: string, message: string, 
     const win = pluginHost.getContainerWindow(pluginId)
     if (!scope.isCurrent() || scope.isClosing || !win || win.isDestroyed()
       || options.signal?.aborted || options.requireVisible && !pluginHost.isPluginVisible(pluginId)) throw new Error('plugin runtime unavailable')
+    assertInteractionEpoch(scope, interactionEpoch)
+    assertInteractive(scope)
     releaseWindow = pluginHost.acquireWindowInteraction(pluginId)
     releaseInteraction = acquireQuickInteraction()
-    const result = await dialog.showMessageBox(win, { type: 'warning', title: options.title, message, detail: `插件：${pluginId}\n${detail.slice(0, 1000)}`, buttons: ['取消', '确认操作'], defaultId: 0, cancelId: 0,
-      signal: options.signal ? AbortSignal.any([scope.signal, options.signal]) : scope.signal })
+    const result = await trackNativeInteraction(dialog.showMessageBox(win, { type: 'warning', title: options.title, message, detail: `插件：${pluginId}\n${detail.slice(0, 1000)}`, buttons: ['取消', '确认操作'], defaultId: 0, cancelId: 0,
+      signal: options.signal ? AbortSignal.any([scope.signal, options.signal]) : scope.signal }))
     if (result.response !== 1 || !scope.isCurrent() || scope.isClosing || options.signal?.aborted
       || options.requireVisible && !pluginHost.isPluginVisible(pluginId)) throw new Error('operation cancelled')
   } finally { releaseWindow(); releaseInteraction(); confirmationPending.delete(scope) }

@@ -8,6 +8,7 @@ import { getPluginOwnedProcesses } from '@main/plugin/pluginOwnedProcesses'
 import { getMainWindow } from '@main/window/createShellWindow'
 import { logInfo } from '@main/logs/logService'
 import { PerformanceCaptureRecorder } from '@main/plugin/performanceCaptureRecorder'
+import { trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 import type { PerformanceCaptureExportResult, PerformanceCaptureProcess, PerformanceCaptureSample } from '@shared/types/performanceCapture'
 
 const MAX_PROCESSES = 512
@@ -104,7 +105,7 @@ export async function exportPerformanceCapture(): Promise<PerformanceCaptureExpo
     const options = { title: 'Export eNest performance recording', defaultPath: `eNest-performance-${new Date(report.state.startedAt!).toISOString().replace(/[:.]/g, '-')}.json`,
       filters: [{ name: 'JSON', extensions: ['json'] }] }
     const window = getMainWindow()
-    const result = window && !window.isDestroyed() ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options)
+    const result = await trackNativeInteraction(window && !window.isDestroyed() ? dialog.showSaveDialog(window, options) : dialog.showSaveDialog(options))
     if (result.canceled || !result.filePath) return { exported: false, sampleCount: report.samples.length }
     try { await writeFile(result.filePath, JSON.stringify(report, null, 2), { encoding: 'utf8', mode: 0o600 }) }
     catch { throw new Error('Could not write the performance recording; choose a writable location') }

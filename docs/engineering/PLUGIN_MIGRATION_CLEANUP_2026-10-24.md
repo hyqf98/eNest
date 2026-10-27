@@ -2,6 +2,8 @@
 
 日期：2026-10-24，宿主 0.2.3 / Electron 44.9.3。本文统一记录本次插件化范围、最终复审收尾及保留的验收来源；重复的中间报告已清理，不将不同构建的数字混写为最终成绩。
 
+> 后续复审又修复了 Quick 状态策略、动态设置契约和死派发残留，详见文末「追加源码复审」。正文原有 17 项验证、180 模块清单、多插件性能与三个 ZIP 均保留原阶段身份，不是追加修改后的重测或重新打包数据。自由面板由另一位 AI 并行开发，本轮不修改其实现。
+
 本次迁移将 DB/MW/SSH/DSH/RDP 的驱动、协议与工作台，AI 应用配置适配与 Codex Pets，LAN 分享业务，剪贴板历史与番茄状态/历史，以及选区、贴图、录制界面和 MediaRecorder 策略交给插件仓。壳保留标准、权限、安装/加载、生命周期、原生能力、通用文件/存储/密钥与窗口管理。默认主题的 Quick 搜索/排序、Settings、classic/orb chrome 和 Workspace 展示统一归 `themes/default/`，仍按产品约定源码内置，不迁入独立插件仓；第三方主题的注册与隔离能力保留。壳账户协议及有退场条件的旧数据转交兼容是明确边界，不宣称宿主只剩 OS 原语。
 
 ## 本轮已处理
@@ -100,3 +102,30 @@ Linux 尚未生成包，不能用 macOS Mach-O helper 冒充 Linux ELF。[原生
 TAP 与构建/类型/契约日志在删除前折叠到[交付验证记录](performance-2026-10-24/cleanup-final/delivery-status.json)，保留原摘要和范围，不把记录整理伪装为重新执行。打包后仅恢复已有 `js-yaml 4.3.2` 的直接开发依赖声明并离线同步 lock，没有安装依赖；运行时直接依赖仍为 5 个，原 ASAR 已包含传递的 js-yaml，原包与构建指纹保持原身份。该声明修复后的 typecheck 及 21 篇开发指南同步/检查均另行 exit0，不代表重打包。
 
 验证结束时的未提交标记是带时间戳的历史快照，不是当前授权状态；本次提交/推送由交付流程执行，以实际结果为准，不在本报告预先宣称已推送成功。最新本地 ZIP/解包目录不入源码库，三个 manifest 和真实包 hash 随证据保留。
+
+## 追加源码复审：Quick 状态与公开契约
+
+上一轮并非已经没有源码残留。继续追踪真实调用链后，本轮确认并完成以下修复：
+
+| 残留或缺口 | 本轮完成 |
+| --- | --- |
+| 最近使用与关键词偏好仍由宿主记录 | 从 `SettingsStore` 删除 `recordQuickUse`，从 `quickHandlers` 删除 `touchRecent`，从 `commandIndex` 删除 `withPreferences`、20 项保留常量和历史输入；Home 目录也不再读取或投影该模型。公共 DTO 删除旧历史条目及 `lastUsedTs/useCount/preferred` 字段 |
+| 默认模型缺少独立持久化流程 | `themes/default/quick/usagePolicy.ts`、`usageState.ts`、`useQuickUsage.ts` 拥有最近 20 项、计数、查询归一化、32 字符上限、100 项偏好、旧模型解释和排序投影。旧 Quick 配置只向可信内置提供者首次转交，不删除原备份；新文档只保存 opaque 身份，不保存应用路径 |
+| 第三方 Quick 不能实现自己的持久模型 | 新增 `enestQuick.state.read/write`，宿主仅提供按原生 `source + packId` 绑定的有界纯 JSON/CAS 存储、HMAC 稳定身份和真实启动成功回执。完整记录≤128KiB、深度≤20、节点≤10000；不共享默认模型，不接受 stable key 作为启动授权 |
+| 异步/卸载代次边界 | 控制器只转交实际成功事实，不把失败、固定、返回或 Tab 当作新打开；主题更换后不把迟到回执交给替代提供者。首次导入与后续写入冲突有界重读合并。卸载从等待安装锁之前就暂停来源并退役 grant，关闭清理后的异步窗口不能重建已删状态；异步配置还使用 retirement epoch 防暂停/恢复 ABA |
+| 动态设置的公开类型不完整 | `pluginPreload.settings.register` 复用 `SettingsSectionContribution`，SDK 正式包含 `schemaVersion` 和逐项 `shareWithThemes`，不再依靠手写简化 DTO 或调用方强制转换 |
+| 通用保存接口保留死重复实现 | 删除 `pluginHandlers` 中被工具路由提前返回遮蔽的 `shell.saveTextFile` 分支、辅助函数/导入及重复权限项。两个保存方法仍经唯一的 `savePluginFile` 原语，保留原生选择器、生命周期与授权边界 |
+
+还修复了新增回执快照中的空引用：默认主题没有第三方配置时，不能用两个可选链结果相等来判定回执存在。新用例实际执行该表达式的默认空状态、更换提供者和相同提供者三个分支。默认主题仍按产品约定源码内置；这不是把策略移回宿主标准层，也不是将内置主题当作待安装业务插件。
+
+### 本轮验证与限制
+
+串行显式运行 **6 个本轮新增 fixture，69/69 通过，0 失败/跳过**，没有运行历史套件。覆盖真实转译的状态存储类、Quick IPC 回调、Quick/Settings 桥、主题策略/状态会话、控制器真实表达式与保存派发链，并补齐卸载暂停和失败路径。它们使用隔离内存依赖，不等价于新 GUI、真实外部连接或跨平台原生验收。
+
+生产 `npm run build` exit0，保留 60 包许可证；构建仍有静态/动态混合导入警告，不声称这些模块已懒加载。当前输出的 67 个 JS/CJS/MJS/HTML 逐一经过发布守卫；`queryPreferences` 模型仅出现在 `DefaultQuickSurface` chunk，main 没有旧历史策略标记，字面导入中没有已迁出的数据库/SSH/编辑器驱动。发布守卫新增原生 main 策略回流拒绝检查，不把字符串守卫等同于所有未来业务的完整证明。165 个公共类型、21 篇开发指南同步/检查通过，两仓 diff 卫生检查通过。
+
+本轮 renderer `tsc --noEmit -p tsconfig.web.json` exit0；完整 `npm run typecheck` 最近一次仍 exit2，11 条诊断全部属于并行自由面板：`PanelManager` 的高度常量、`regionSelection` 的 Session/事件类型，以及 `SettingsStore.mergeDefaults` 尚未合入 `panels`。本轮不修改、回退或声称修复这些并行实现；因此不能宣称整仓类型验收通过。
+
+实际命令、fixture 路径/计数、日志哈希、错误列表和构建观察折叠保存在[交付验证记录的追加段](performance-2026-10-24/cleanup-final/delivery-status.json) `postAuditMigration`。本轮临时日志折叠后删除，未创建截图/原生配置，未安装工具，未提交/推送或把自由面板改动混入提交。没有重跑多插件性能、Settings 录制或三端 ZIP，不把正文旧指标重新标为本轮结果。
+
+本轮确认的迁移残留已完成修复，独立 native/renderer 复核未再发现同类有实证的遗留；宿主保留的是标准、安全门禁、有界资源、原生能力、加载与生命周期，以及此前明确的账户/兼容边界。此结论不替代自由面板的整仓收口、Linux 构建、签名和真实跨平台验收。

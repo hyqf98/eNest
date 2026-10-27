@@ -4,7 +4,12 @@ import type { ShellEventPayload } from './ipc'
 import type { ResolvedBackgroundEffect } from '@shared/backgroundEffects'
 
 /** Presentation mode stays compatible with the plugin SDK; placement is host-only. */
-export type PluginPlacement = { kind: 'shell' } | { kind: 'quick' } | { kind: 'detached'; windowId: number }
+export type PluginPlacement =
+  | { kind: 'shell' }
+  | { kind: 'quick' }
+  | { kind: 'detached'; windowId: number }
+  /** Free panel: the plugin view is a child of a panel window's content view. */
+  | { kind: 'panel'; panelId: string }
 export interface WindowPoint { x: number; y: number }
 export interface WindowRect extends WindowPoint { width: number; height: number }
 export interface DetachedPluginState {
@@ -40,17 +45,19 @@ export type PluginWindowCommand =
   | { action: 'input'; message?: QuickInputMessage }
   | { action: 'input-tab'; shift?: boolean }
 export interface PluginDropTarget {
-  kind: 'shell' | 'quick'
+  kind: 'shell' | 'quick' | 'panel'
   rect: WindowRect
   axis: 'x' | 'y'
   items: Array<{ pluginId: string; rect: WindowRect }>
+  /** Panel surfaces only: identifies which panel owns this drop zone. */
+  panelId?: string
 }
 export interface PluginDragFeedback {
   active: boolean
   /** Correlates feedback with the host-owned drag session, including its final event. */
   token?: string
   pluginId?: string
-  target?: 'shell' | 'quick' | 'outside' | null
+  target?: 'shell' | 'quick' | 'panel' | 'outside' | null
   index?: number
   point?: WindowPoint
   /** Main converts the screen cursor to each receiving native surface's local DIP. */

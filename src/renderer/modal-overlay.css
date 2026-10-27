@@ -6,3 +6,29 @@ html { color-scheme: normal !important; }
 .native-update-panel h2 { margin:0; font:600 22px/1.4 var(--font-heading,var(--font)); }
 .native-update-panel .update-title-meta { min-width:0; }
 .native-update-panel :is(p, li) { overflow-wrap:anywhere; }
+
+/* —— 打开方式选择（open-with-choice）—— */
+.open-with-panel .open-with-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 0 4px;
+}
+.open-with-choice-btn {
+  justify-content: flex-start;
+  width: 100%;
+}
+.open-with-choice-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 9px;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  flex: none;
+  background: var(--accent, #4a7dbe);
+}

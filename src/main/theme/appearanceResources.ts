@@ -3,6 +3,7 @@ import { createReadStream, linkSync, unlinkSync } from 'node:fs'
 import { copyFile, mkdir, open, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path'
 import { dialog } from 'electron'
+import { trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 import { FONTS_DIR } from '@shared/constants'
 import { isPluginAssetPath } from '@shared/pluginContract'
 import { isSafeAppearanceBackgroundColor, isSafePalettePaint } from '@shared/theme/defaultTheme/backgroundPalettes'
@@ -167,7 +168,7 @@ async function importSelectedFile(kind: 'media' | 'font', canCommit: () => boole
   assertImportCurrent(canCommit)
   const allowed = kind === 'font' ? FONT_MIME : Object.fromEntries(Object.entries(MEDIA_MIME).filter(([, mime]) => !imageOnly || mime.startsWith('image/')))
   const extensions = Object.keys(allowed).map(ext => ext.slice(1))
-  const selection = await dialog.showOpenDialog({ title: kind === 'font' ? '导入公共字体' : '选择主题背景', properties: ['openFile'], filters: [{ name: kind === 'font' ? '字体' : imageOnly ? '图片' : '图片与视频', extensions }] })
+  const selection = await trackNativeInteraction(dialog.showOpenDialog({ title: kind === 'font' ? '导入公共字体' : '选择主题背景', properties: ['openFile'], filters: [{ name: kind === 'font' ? '字体' : imageOnly ? '图片' : '图片与视频', extensions }] }))
   assertImportCurrent(canCommit)
   if (selection.canceled || selection.filePaths.length !== 1) return null
   const source = await realpath(selection.filePaths[0])

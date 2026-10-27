@@ -1,0 +1,86 @@
+/**
+ * region-overlay — 全屏框选样式
+ * 遮罩靠超大 box-shadow 铺满整屏（不额外加 DOM 层），选区外区域自然变暗。
+ * 冻结背景图由主进程经 ?frozen=1 提示，这里用 body::before 承接（见 region-overlay.tsx 注入）。
+ */
+
+:root {
+  --region-accent: #5b8cff;
+  --region-danger: #f5a524;
+  --region-label-bg: rgba(20, 24, 28, 0.82);
+  --region-label-fg: #f5f7fa;
+}
+
+html, body, #root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent !important;
+  cursor: crosshair;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+.region-hint {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: var(--region-label-bg);
+  color: var(--region-label-fg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.region-hint-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.region-hint-sub {
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+.region-size {
+  position: fixed;
+  top: 0;
+  left: 0;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--region-label-bg);
+  color: var(--region-label-fg);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  z-index: 3;
+  will-change: transform;
+}
+
+.region-box {
+  position: fixed;
+  top: 0;
+  left: 0;
+  border: 1px solid var(--region-accent);
+  border-radius: 2px;
+  /* 超大阴影即遮罩：选区外整屏压暗，不额外铺 DOM。 */
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
+  pointer-events: none;
+  z-index: 1;
+  will-change: transform, width, height;
+}
+
+.region-box[data-valid='false'] {
+  border-color: var(--region-danger);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--region-danger) inset;
+}

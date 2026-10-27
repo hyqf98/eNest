@@ -730,7 +730,11 @@ export class HomeSurfaceManager {
 }
 
 export const homeSurfaceManager = new HomeSurfaceManager()
-setHomeEventSink(payload => homeSurfaceManager.handleShellEvent(payload))
+// 与 createShellWindow 成环（经 appearanceService 等路径），微任务注册避开环内
+// 模块体顺序不确定导致的 TDZ。
+queueMicrotask(() => {
+  setHomeEventSink(payload => homeSurfaceManager.handleShellEvent(payload))
+})
 appearanceService.subscribeAppearance(({ appearance }) => homeSurfaceManager.updateAppearance(appearance))
 homeSurfaceManager.onFault(message => {
   const { theme } = getAppearance()

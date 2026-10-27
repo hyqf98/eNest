@@ -5,6 +5,7 @@ import type { PluginRuntimeScope } from './PluginRuntimeScope'
 import { PluginBackendFiles } from './pluginBackendFiles'
 import { PLUGIN_PERMISSIONS, type PluginPermission } from '@shared/types/plugin'
 import type { LocalFilePickOptions } from '@shared/types/local-files'
+import { runHostRpc } from '@main/plugin/pluginInteractionPolicy'
 
 const methods = new Set(['secret.resolve', 'permission.authorize', 'dialog.confirm', 'files.resolve', 'files.directoryTarget',
   'files.pick', 'files.save', 'files.exportDirectory', 'files.export', 'files.open', 'files.read', 'files.close', 'storage.get', 'storage.set', 'log.write'])
@@ -39,7 +40,7 @@ export class PluginBackendCapabilities {
   async request(method: string, params: Record<string, unknown>): Promise<unknown> {
     if (method === 'files.close') return this.files.close(params.token)
     this.assertCurrent()
-    const request = this.dispatch(method, params)
+    const request = runHostRpc(this.scope, () => this.dispatch(method, params))
     if (method === 'files.exportDirectory') this.pending.add(request)
     try { const value = await request; this.assertCurrent(); return value }
     finally { this.pending.delete(request) }

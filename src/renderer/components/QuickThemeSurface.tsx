@@ -6,6 +6,7 @@ import type {
   QuickThemeConfig,
   QuickThemeSnapshot
 } from '@shared/types/quickTheme'
+import { readQuickStateSnapshot, readQuickStateValue } from './quickStateValidation'
 import './QuickThemeSurface.css'
 
 export interface QuickThemeSurfaceProps {
@@ -56,6 +57,13 @@ function isKind(value: unknown): value is QuickCommandKind {
 function readAction(value: unknown): QuickThemeAction | null {
   if (!isRecord(value)) return null
   switch (value.type) {
+    case 'state-read':
+      return hasOnlyKeys(value, ['type']) ? { type: 'state-read' } : null
+    case 'state-write': {
+      if (!hasOnlyKeys(value, ['type', 'expectedRevision', 'value']) || !Number.isSafeInteger(value.expectedRevision) || Number(value.expectedRevision) < 0) return null
+      const parsed = readQuickStateValue(value.value)
+      return parsed ? { type: 'state-write', expectedRevision: Number(value.expectedRevision), value: parsed.value } : null
+    }
     case 'query':
       return hasOnlyKeys(value, ['type', 'query']) && isString(value.query, 4_096, true)
         ? { type: 'query', query: value.query } : null
@@ -100,6 +108,11 @@ function readAction(value: unknown): QuickThemeAction | null {
     case 'expand':
       return hasOnlyKeys(value, ['type', 'expanded']) && typeof value.expanded === 'boolean'
         ? { type: 'expand', expanded: value.expanded } : null
+    case 'paste':
+      return hasOnlyKeys(value, ['type']) ? { type: 'paste' } : null
+    case 'input-clear':
+      return hasOnlyKeys(value, ['type', 'id']) && (value.id === undefined || isString(value.id, ITEM_ID_LIMIT))
+        ? { type: 'input-clear', ...(value.id !== undefined ? { id: value.id } : {}) } : null
     case 'open-market':
     case 'open-settings':
     case 'refresh-apps':
@@ -135,9 +148,10 @@ function readAction(value: unknown): QuickThemeAction | null {
 
 function readResult(value: unknown): QuickThemeActionResult {
   if (!isRecord(value) || typeof value.ok !== 'boolean') return { ok: false, error: '主题操作未能完成。' }
-  return typeof value.error === 'string'
-    ? { ok: value.ok, error: value.error.slice(0, 512) }
-    : { ok: value.ok }
+  const state = value.state === undefined ? undefined : readQuickStateSnapshot(value.state)
+  if (value.state !== undefined && !state) return { ok: false, error: '主题私有状态无效。' }
+  return { ok: value.ok, ...(typeof value.error === 'string' ? { error: value.error.slice(0, 512) } : {}),
+    ...(value.ok && state ? { state } : {}) }
 }
 
 const QuickThemeFrame = forwardRef<QuickThemeSurfaceHandle, QuickThemeSurfaceProps>(function QuickThemeFrame(

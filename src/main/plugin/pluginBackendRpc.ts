@@ -5,6 +5,7 @@ import { pluginHost } from './PluginHost'
 import { registerPluginProcess } from './pluginOwnedProcesses'
 import { PluginBackendControl } from './pluginBackendControl'
 import { getAppPaths } from '@main/paths/pathsService'
+import { interactionErrorCode, runHostRpc } from '@main/plugin/pluginInteractionPolicy'
 
 interface Pending {
   resolve: (value: unknown) => void
@@ -152,8 +153,8 @@ function backendFor(pluginId: string): Backend {
         if (!Number.isSafeInteger(id) || backend.hostRequests.has(id!) || backend.hostRequests.size >= 64) throw new Error('invalid or excessive backend control requests')
         backend.hostRequests.add(id!)
         const reply = (result: object) => { if (!backend.exited) { try { child.postMessage({ type: 'host.response', id, ...result }) } catch { /* retiring channel */ } } }
-        void backend.control.request(message.method, message.params).then(
-          data => reply({ ok: true, data }), error => reply({ ok: false, error: String(error).slice(0, 4096) })
+        void runHostRpc(scope, () => backend.control.request(message.method, message.params)).then(
+          data => reply({ ok: true, data }), error => reply({ ok: false, error: String(error).slice(0, 4096), errorCode: interactionErrorCode(error) })
         ).finally(() => backend.hostRequests.delete(id!))
         return
       }

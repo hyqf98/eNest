@@ -1,36 +1,53 @@
 /** Native launch directory and provider transport. Search policy belongs to the selected theme. */
-import type { QuickCommand, QuickCommandKind, QuickContentMatch, QuickOpenRequest, QuickSearchPhase } from '@shared/types/quick'
-import type { PluginManifest, QuickRecentEntry } from '@shared/types/plugin'
+import type { QuickCommand, QuickCommandKind, QuickContentMatch, QuickContentType, QuickOpenRequest, QuickSearchPhase } from '@shared/types/quick'
+import type { PluginManifest } from '@shared/types/plugin'
 import { pluginProtocolUrl } from '@shared/constants'
 import { parsePluginCommandPattern } from '@shared/pluginCommands'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { getPluginLaunchAliases, getPluginLaunchAliasRevision } from '@main/hotkey/pluginLaunchHotkeys'
 import { searchAll } from '@main/plugin/pluginBackgroundRuntime'
+import { quickProviderStates } from '@main/theme/quickStateService'
 import { getCachedApps, scanApplications } from './appScanner'
 import { getAppIconDataUrl } from './appLauncher'
 import { queryQuickProviders, type QuickProviderItem } from './quickProviders'
 import { getCatalogPluginIcon } from './catalogIcons'
 
 const DIRECTORY_LIMIT = 8_192
-export const QUICK_RECENT_MAX = 20
 const ACTION_IDS = ['open-market', 'open-settings', 'refresh-apps'] as const
 const NATIVE_ACTIONS: QuickCommand[] = ACTION_IDS.map(action => ({
   kind: 'action', id: `action:${action}`, action, title: action, subtitle: '', aliases: [], type: 'text'
 }))
 
 interface ContentDeclaration {
-  type: 'regex' | 'over'
+  type: 'regex' | 'over' | 'img' | 'files'
   label: string
   match?: string
   regex?: string
   exclude?: string
   minLength?: number
   maxLength?: number
+  extensions?: string[]
+  allowDirectory?: boolean
+  minCount?: number
+  maxCount?: number
 }
 
 /** Manifest validation is a host boundary; expressions are never executed here. */
 function contentDeclaration(value: ContentDeclaration): QuickContentMatch | null {
-  if (!value || !['regex', 'over'].includes(value.type) || !value.label?.trim()) return null
+  if (!value || !['regex', 'over', 'img', 'files'].includes(value.type) || !value.label?.trim()) return null
+  if (value.extensions !== undefined && (value.extensions.length > 16 ||
+      value.extensions.some(extension => typeof extension !== 'string' || !/^[a-z0-9]{1,10}$/.test(extension)))) return null
+  if (value.type === 'img' || value.type === 'files') {
+    const minCount = value.minCount ?? 1
+    const maxCount = value.maxCount ?? 20
+    if (!Number.isSafeInteger(minCount) || minCount < 1 || minCount > 20) return null
+    if (!Number.isSafeInteger(maxCount) || maxCount < minCount || maxCount > 20) return null
+    return {
+      type: value.type, minLength: 0,
+      ...(value.extensions?.length ? { extensions: [...value.extensions] } : {}),
+      ...(value.type === 'files' ? { allowDirectory: value.allowDirectory === true, minCount, maxCount } : {})
+    }
+  }
   const expression = value.type === 'regex' ? value.match ?? value.regex : value.exclude
   const parsed = expression === undefined ? null : parsePluginCommandPattern(expression)
   if ((value.type === 'regex' && !parsed) || (expression !== undefined && !parsed)) return null
@@ -71,7 +88,7 @@ export function buildPluginCommands(): QuickCommand[] {
         subtitle: manifest.description || '', pluginId, icon, aliases: [...userAliases, manifest.name, manifest.id], type: 'text' })
       continue
     }
-    const primary = features.find(feature => feature.cmds?.some(command => typeof command === 'string' && command.trim()))
+    const primary = features.find(feature => feature.cmds?.some(command => typeof command === 'string' && command.trim())) ?? features[0]
     for (const feature of features) {
       const names = (feature.cmds ?? []).filter((command): command is string => typeof command === 'string' && Boolean(command.trim()))
       const base: QuickCommand = {
@@ -111,12 +128,22 @@ function nativeDirectory(): QuickCommand[] {
   return [...NATIVE_ACTIONS, ...buildPluginCommands(), ...buildAppCommands()].slice(0, DIRECTORY_LIMIT)
 }
 
-function withPreferences(items: QuickCommand[], recent: QuickRecentEntry[], preferredId?: string): QuickCommand[] {
-  const usage = new Map(recent.map(entry => [entry.id, entry]))
-  return items.map(item => {
-    const entry = usage.get(item.id) ?? (item.pluginId ? usage.get(`plugin:${item.pluginId}:${item.code ?? ''}`) : undefined)
-    return { ...item, lastUsedTs: entry?.ts, useCount: entry?.count, preferred: item.id === preferredId }
-  })
+/** Identity encoding does not grant launch authority or interpret provider-private state. */
+function launchIdentity(item: QuickCommand | QuickOpenRequest): string {
+  if (item.kind === 'app') return `app:${item.path}`
+  if (item.kind === 'plugin') return `plugin:${item.pluginId}:${item.code ?? ''}`
+  if (item.kind === 'action') return `action:${item.action}`
+  return ''
+}
+
+function withStateKeys(items: QuickCommand[]): QuickCommand[] {
+  const keys = quickProviderStates.encodeIdentities(items.map(launchIdentity))
+  return items.map((item, index) => ({ ...item, stateKey: keys[index] }))
+}
+
+export function quickOpenedIdentity(request: QuickOpenRequest): string | null {
+  const identity = launchIdentity(request)
+  return identity ? quickProviderStates.encodeIdentities([identity])[0] : null
 }
 
 type ProviderResult = { pluginId: string; providerId: string; items: QuickProviderItem[] }
@@ -145,8 +172,7 @@ let providerSearch: AbortController | null = null
 
 /** Compatibility name for existing bridges. No query matching, ranking or recommendations run in main. */
 export async function searchQuickCommands(
-  query: string, limit = 20, recent: QuickRecentEntry[] = [], kind?: QuickCommandKind,
-  preferredId?: string, phase?: QuickSearchPhase, ids?: string[]
+  query: string, limit = 20, kind?: QuickCommandKind, phase?: QuickSearchPhase, ids?: string[]
 ): Promise<QuickCommand[]> {
   if (phase === 'providers') {
     providerSearch?.abort()
@@ -159,7 +185,7 @@ export async function searchQuickCommands(
     const live = settled[0].status === 'fulfilled' ? settled[0].value : []
     const background = settled[1].status === 'fulfilled' ? settled[1].value.map(result => ({ ...result, providerId: 'background' })) : []
     const cap = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 20
-    return withPreferences(providerCommands([...live, ...background]).slice(0, cap), recent, preferredId)
+    return withStateKeys(providerCommands([...live, ...background]).slice(0, cap))
   }
   if (!getCachedApps() && (!kind || kind === 'app')) await scanApplications(false)
   const directory = nativeDirectory().filter(item => !kind || item.kind === kind)
@@ -171,9 +197,9 @@ export async function searchQuickCommands(
       if (item.kind === 'app' && item.path && !item.icon) item.icon = await getAppIconDataUrl(item.path, item.iconName)
       if (item.kind === 'plugin' && item.pluginId) item.icon = await getCatalogPluginIcon(item.pluginId)
     }))
-    return withPreferences(items, recent, preferredId)
+    return withStateKeys(items)
   }
-  return withPreferences(directory, recent, preferredId)
+  return withStateKeys(directory)
 }
 
 /** Revalidate immediately before a native open, including after plugin disable/uninstall. */

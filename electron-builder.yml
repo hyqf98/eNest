@@ -35,6 +35,59 @@ extraResources:
 
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
+# —— 由 scripts/generate-builder-associations.mjs 生成（源：build/open-with.json），请勿手改 ——
+# macOS: Info.plist CFBundleURLTypes / CFBundleDocumentTypes；Windows: NSIS 注册；Linux: .desktop MimeType
+protocols:
+  - name: "eNest 打开方式"
+    schemes:
+      - enest
+  - name: "eNest Markdown"
+    schemes:
+      - enest-md
+  - name: "eNest Database"
+    schemes:
+      - enest-db
+fileAssociations:
+  - ext: "md"
+    name: "Markdown 文档"
+    role: "Editor"
+  - ext: "markdown"
+    name: "Markdown 文档"
+    role: "Editor"
+  - ext: "json"
+    name: "JSON 文件"
+    role: "Editor"
+  - ext: "jsonc"
+    name: "JSONC 文件"
+    role: "Editor"
+  - ext: "db"
+    name: "SQLite 数据库"
+    role: "Viewer"
+  - ext: "sqlite"
+    name: "SQLite 数据库"
+    role: "Viewer"
+  - ext: "png"
+    name: "PNG 图片"
+    role: "Viewer"
+  - ext: "jpg"
+    name: "JPEG 图片"
+    role: "Viewer"
+  - ext: "jpeg"
+    name: "JPEG 图片"
+    role: "Viewer"
+  - ext: "webp"
+    name: "WebP 图片"
+    role: "Viewer"
+  - ext: "gif"
+    name: "GIF 图片"
+    role: "Viewer"
+  - ext: "txt"
+    name: "文本文件"
+    role: "Viewer"
+  - ext: "log"
+    name: "日志文件"
+    role: "Viewer"
+
 mac:
   # macOS .lproj 使用下划线；26.x 同时裁剪 app 与 Framework 中的语言包。
   electronLanguages: [en, zh_CN, zh_TW]

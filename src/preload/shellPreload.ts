@@ -5,6 +5,7 @@ import type {
 } from '@shared/types/shortcuts'
 import type { AccountState, AccountLoginResult } from '@shared/types/account'
 import type { ShellSettingsData } from '@shared/types/shellSettings'
+import type { McpCatalogPage, McpCatalogQuery, McpConfiguration, McpStatus } from '@shared/types/mcpSettings'
 export type { ShellSettingsData } from '@shared/types/shellSettings'
 /**
  * shellPreload — 壳子渲染层预加载脚本
@@ -65,6 +66,8 @@ import type {
   QuickHotkeyApplyResult,
   QuickHotkeyConfig,
   QuickHotkeyPatch,
+  QuickInputContextRequest,
+  QuickInputContextResult,
   QuickOpenRequest,
   QuickOpenResult,
   QuickSearchResult
@@ -86,6 +89,11 @@ async function expectOk(promise: Promise<{ ok: boolean; error?: string }>): Prom
 }
 
 export interface EnestShellApi {
+  getMcpStatus(): Promise<McpStatus>
+  configureMcp(input: McpConfiguration): Promise<McpStatus>
+  copyMcpConnectionConfig(): Promise<void>
+  resetMcpToken(): Promise<McpStatus>
+  listMcpTools(query?: McpCatalogQuery): Promise<McpCatalogPage>
   openExternal(url: string): Promise<void>
   getThemeSettingsConfig(): Promise<import('@shared/types/themeSettings').ThemeSettingsConfig | null>
   getThemeSettingsSnapshot(key: string): Promise<import('@shared/types/themeSettings').ThemeSettingsSnapshot>
@@ -136,6 +144,13 @@ export interface EnestShellApi {
     pluginId: string,
     patch: PluginLaunchPatch
   ): Promise<PluginLaunchSetResult>
+  /** 「打开方式」：插件声明 + 路由 + 系统状态 */
+  getOpenWithList(): Promise<import('@shared/types/openWith').OpenWithListResult>
+  setOpenWithDefault(key: string, pluginId: string): Promise<import('@shared/types/openWith').OpenWithActionResult>
+  clearOpenWithDefault(key: string): Promise<import('@shared/types/openWith').OpenWithActionResult>
+  /** 「用哪个插件打开」选择：只写路由并恢复被暂停的打开 */
+  routeOpenWith(key: string, pluginId: string): Promise<import('@shared/types/openWith').OpenWithActionResult>
+  openOpenWithSystemSettings(): Promise<void>
   /** 从市场安装/更新：sample 优先，否则远程入队；force 强制走远程更新 */
   installMarketPlugin(
     pluginId: string,
@@ -270,16 +285,32 @@ export interface EnestShellApi {
   quickGetConfig(): Promise<QuickHotkeyConfig>
   quickGetTheme(): Promise<import('@shared/types/quickTheme').QuickThemeConfig | null>
   quickAuthorizeTheme(key: string): Promise<boolean>
+  quickProviderState(request: import('@shared/types/quickTheme').QuickProviderStateRequest): Promise<import('@shared/types/quickTheme').QuickProviderStateSnapshot | { keys: string[] }>
   onQuickThemeKey(cb: (key: { key: string; meta?: boolean; ctrl?: boolean; alt?: boolean; shift?: boolean }) => void): Unsubscribe
   quickSetHotkeys(payload: QuickHotkeyPatch): Promise<QuickHotkeyApplyResult>
   quickProbeHotkey(acc: string): Promise<import('@shared/types/quick').QuickHotkeyProbeResult>
   /** 请求主进程按内容高度调整小窗 */
   quickResize(height: number, animate?: boolean): void
   quickInput(message?: QuickInputMessage): Promise<QuickInputState | boolean | null>
+  /** 读取/维护宿主保管的粘贴上下文（剪贴板图片与文件；渲染层不提交字节或路径） */
+  quickInputContext(request: QuickInputContextRequest): Promise<QuickInputContextResult>
+  /** 自由面板：框选区域并创建面板。 */
+  createPanel(): Promise<{ ok: boolean; cancelled?: boolean; id?: string; bounds?: import('@shared/types/panel').PanelBounds; error?: string }>
+  /** 自由面板：列出当前活动面板。 */
+  listPanels(): Promise<Array<{ id: string; bounds: import('@shared/types/panel').PanelBounds; widgetCount: number }>>
+  /** 自由面板：关闭指定面板。 */
+  closePanel(panelId: string): Promise<{ ok: boolean }>
+  /** 自由面板：保存呼出快捷键并立即重注册（返回注册结果）。 */
+  setPanelHotkey(accelerator: string): Promise<import('@shared/types/panel').PanelHotkeyApplyResult>
   onQuickShown(cb: () => void): Unsubscribe
 }
 
 const api: EnestShellApi = {
+  getMcpStatus: () => ipcRenderer.invoke(IpcChannels.ShellMcpStatus),
+  configureMcp: input => ipcRenderer.invoke(IpcChannels.ShellMcpConfigure, input),
+  copyMcpConnectionConfig: () => ipcRenderer.invoke(IpcChannels.ShellMcpCopyConnection),
+  resetMcpToken: () => ipcRenderer.invoke(IpcChannels.ShellMcpRotateToken),
+  listMcpTools: query => ipcRenderer.invoke(IpcChannels.ShellMcpCatalog, query),
   openExternal: url => ipcRenderer.invoke(IpcChannels.ShellOpenExternal, url),
   getThemeSettingsConfig: () => ipcRenderer.invoke(IpcChannels.ThemeSettingsConfig),
   getThemeSettingsSnapshot: key => ipcRenderer.invoke(IpcChannels.ThemeSettingsSnapshot, key),
@@ -497,6 +528,25 @@ const api: EnestShellApi = {
     ipcRenderer.invoke(IpcChannels.ShellGetPluginsDirty) as Promise<PluginDirtyState>,
   saveAllPlugins: () =>
     ipcRenderer.invoke(IpcChannels.ShellSaveAllPlugins) as Promise<PluginSaveSummary>,
+
+  getOpenWithList: () =>
+    ipcRenderer.invoke(IpcChannels.ShellOpenWithList) as Promise<
+      import('@shared/types/openWith').OpenWithListResult
+    >,
+  setOpenWithDefault: (key: string, pluginId: string) =>
+    ipcRenderer.invoke(IpcChannels.ShellOpenWithSetDefault, { key, pluginId }) as Promise<
+      import('@shared/types/openWith').OpenWithActionResult
+    >,
+  clearOpenWithDefault: (key: string) =>
+    ipcRenderer.invoke(IpcChannels.ShellOpenWithClearDefault, key) as Promise<
+      import('@shared/types/openWith').OpenWithActionResult
+    >,
+  routeOpenWith: (key: string, pluginId: string) =>
+    ipcRenderer.invoke(IpcChannels.ShellOpenWithRoute, { key, pluginId }) as Promise<
+      import('@shared/types/openWith').OpenWithActionResult
+    >,
+  openOpenWithSystemSettings: () =>
+    ipcRenderer.invoke(IpcChannels.ShellOpenWithOpenSystemSettings) as Promise<void>,
   getAccountState: () => ipcRenderer.invoke(IpcChannels.ShellAccountState),
   loginAccount: (providerId) => ipcRenderer.invoke(IpcChannels.ShellAccountLogin, providerId),
   cancelAccountLogin: (providerId) => ipcRenderer.invoke(IpcChannels.ShellAccountCancel, providerId),
@@ -590,6 +640,7 @@ const api: EnestShellApi = {
     ipcRenderer.invoke(IpcChannels.QuickGetConfig) as Promise<QuickHotkeyConfig>,
   quickGetTheme: () => ipcRenderer.invoke(IpcChannels.QuickThemeGetConfig),
   quickAuthorizeTheme: key => ipcRenderer.invoke(IpcChannels.QuickThemeAuthorize, key),
+  quickProviderState: request => ipcRenderer.invoke(IpcChannels.QuickProviderState, request),
   onQuickThemeKey(cb) {
     const handler = (_event: unknown, data: { key: string; meta?: boolean; ctrl?: boolean; alt?: boolean; shift?: boolean }) => cb(data)
     ipcRenderer.on(IpcChannels.QuickThemeKey, handler)
@@ -605,6 +656,15 @@ const api: EnestShellApi = {
     ipcRenderer.send(IpcChannels.QuickResize, { height, animate })
   },
   quickInput: (message?: QuickInputMessage) => ipcRenderer.invoke(IpcChannels.QuickInput, message),
+  quickInputContext: (request: QuickInputContextRequest) => ipcRenderer.invoke(IpcChannels.QuickInputContext, request) as Promise<QuickInputContextResult>,
+  /** 自由面板：框选区域并创建面板（返回面板 id 与最终 bounds）。 */
+  createPanel: () => ipcRenderer.invoke(IpcChannels.PanelCreate) as Promise<{ ok: boolean; cancelled?: boolean; id?: string; bounds?: import('@shared/types/panel').PanelBounds; error?: string }>,
+  /** 自由面板：列出当前活动面板。 */
+  listPanels: () => ipcRenderer.invoke(IpcChannels.PanelList) as Promise<Array<{ id: string; bounds: import('@shared/types/panel').PanelBounds; widgetCount: number }>>,
+  /** 自由面板：关闭指定面板（释放其内插件）。 */
+  closePanel: (panelId: string) => ipcRenderer.invoke(IpcChannels.PanelClose, panelId) as Promise<{ ok: boolean }>,
+  /** 自由面板：保存呼出快捷键并立即重注册（返回注册结果）。 */
+  setPanelHotkey: (accelerator: string) => ipcRenderer.invoke(IpcChannels.PanelSetHotkey, accelerator) as Promise<import('@shared/types/panel').PanelHotkeyApplyResult>,
   onQuickShown(cb: () => void): Unsubscribe {
     const handler = () => cb()
     ipcRenderer.on(IpcChannels.QuickShown, handler)

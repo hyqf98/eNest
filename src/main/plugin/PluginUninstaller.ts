@@ -1,4 +1,5 @@
 import { clearPluginBlobs } from '@main/plugin/pluginFiles'
+import { clearPluginAssets } from '@main/plugin/pluginAssets'
 /**
  * PluginUninstaller — 插件卸载器
  * 职责：完整卸载一个已安装插件——关闭运行中 Tab → 清空 partition storage 与磁盘残壳
@@ -35,6 +36,8 @@ import { clearPluginDeadlineTasks } from '@main/timer/deadlineTaskService'
 import { refreshPluginBackgrounds, stopPluginBackground } from '@main/plugin/pluginBackgroundRuntime'
 import { clearPrivateDocuments } from '@main/plugin/pluginPrivateDocuments'
 import { clearPluginFileStreams } from '@main/plugin/pluginFileStreams'
+import { quickProviderStates } from '@main/theme/quickStateService'
+import { suspendQuickThemeSource } from '@main/theme/quickThemeProtocol'
 
 export interface UninstallResult {
   ok: boolean
@@ -50,9 +53,16 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
   if (!id) return { ok: false, error: 'plugin id required' }
 
   cancelPluginInstalls(id)
-  const release = pluginHost.blockPlugin(id)
-  stopPluginBackground(id, 'plugin uninstall')
-  return withInstallLock(id, () => uninstallLocked(id)).finally(release)
+  const release = pluginHost.blockPlugin(id, 'uninstall')
+  let resumeQuickTheme: (() => void) | undefined
+  try {
+    resumeQuickTheme = suspendQuickThemeSource(id)
+    stopPluginBackground(id, 'plugin uninstall')
+    return await withInstallLock(id, () => uninstallLocked(id))
+  } finally {
+    resumeQuickTheme?.()
+    release()
+  }
 }
 
 async function uninstallLocked(id: string): Promise<UninstallResult> {
@@ -142,6 +152,13 @@ async function uninstallLocked(id: string): Promise<UninstallResult> {
   // 删除失败时保留仍安装着的插件设置；成功移除后不让同 ID 重装继承授权与密钥。
   if (pluginFilesRemoved) {
     try {
+      quickProviderStates.removeSource(id)
+    } catch (err) {
+      const msg = `clear Quick provider state failed: ${(err as Error).message}`
+      errors.push(msg)
+      logWarn('uninstall', `${id} ${msg}`)
+    }
+    try {
       await settingsStore.removePluginSettings(id)
       refreshPluginBackgrounds()
       logInfo('uninstall', `cleared plugin settings and permissions ${id}`)
@@ -192,6 +209,7 @@ async function uninstallLocked(id: string): Promise<UninstallResult> {
   try { await clearPluginBlobs(id) } catch (error) { errors.push(`remove attachments failed: ${String(error)}`) }
   try { await clearPrivateDocuments(id) } catch (error) { errors.push(`remove private documents failed: ${String(error)}`) }
   try { await clearPluginFileStreams(id) } catch (error) { errors.push(`remove private outputs failed: ${String(error)}`) }
+  try { await clearPluginAssets(id) } catch (error) { errors.push(`remove plugin assets failed: ${String(error)}`) }
 
   // 7) 开发态一并移除（若曾 addDevPlugin）；清理启用/禁用记录避免重装后仍禁用
   try {
@@ -246,6 +264,13 @@ async function uninstallLocked(id: string): Promise<UninstallResult> {
     contributionRegistry.unregisterBySource(id)
   } catch (err) {
     logWarn('uninstall', `${id} remove contributions failed: ${(err as Error).message}`)
+  }
+
+  // 8d) GC 指向该插件的「打开方式」路由（openWith 段仅主进程写）
+  try {
+    await settingsStore.removeOpenWithRoutesForPlugin(id)
+  } catch (err) {
+    logWarn('uninstall', `${id} remove openWith routes failed: ${(err as Error).message}`)
   }
 
   // 9) 生命周期：clearing-storage → uninstalled

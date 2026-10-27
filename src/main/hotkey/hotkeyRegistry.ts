@@ -5,7 +5,7 @@ import { normalizeAccelerator } from '@shared/accelerator'
 import { logError, logWarn } from '@main/logs/logService'
 
 export interface HotkeyOwner {
-  kind: 'quick' | 'runtime' | 'shortcut'
+  kind: 'quick' | 'runtime' | 'shortcut' | 'panel'
   id: string
   pluginId?: string
 }

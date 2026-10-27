@@ -31,7 +31,7 @@ test('command literals preserve escapes and flags and reject malformed or oversi
   assert.ok(api.parsePluginCommandPattern(`/${'a'.repeat(2046)}/`))
 })
 
-test('existing text commands and mixed regex/over features remain valid', () => {
+test('existing text commands and mixed regex/over/img/files features remain valid', () => {
   assert.deepEqual(api.collectPluginFeatureIssues(undefined), [])
   assert.deepEqual(api.collectPluginFeatureIssues([]), [])
   assert.deepEqual(api.collectPluginFeatureIssues(feature([
@@ -39,7 +39,11 @@ test('existing text commands and mixed regex/over features remain valid', () => 
     { type: 'regex', label: '识别网址', match: '/^https?:\\/\\//i', minLength: 8 },
     { type: 'regex', label: '兼容字段', regex: '/^[0-9]+$/', minLength: 0 },
     { type: 'regex', label: '主字段优先', match: '/first/', regex: '/second/' },
-    { type: 'over', label: '翻译', exclude: '/^https?:/i', minLength: 1, maxLength: 10000 }
+    { type: 'over', label: '翻译', exclude: '/^https?:/i', minLength: 1, maxLength: 10000 },
+    { type: 'img', label: '处理图片' },
+    { type: 'img', label: '压缩 PNG', extensions: ['png', 'jpeg'] },
+    { type: 'files', label: '批量文件', minCount: 1, maxCount: 10, allowDirectory: true },
+    { type: 'files', label: '文本文件', extensions: ['txt', 'md'] }
   ])), [])
 })
 
@@ -48,7 +52,12 @@ test('invalid structures, duplicate feature identities and command typos report 
   assert.match(api.collectPluginFeatureIssues([null])[0], /features\[0\]/)
   assert.match(api.collectPluginFeatureIssues([{ code: ' ', cmds: [] }]).join('\n'), /code/)
   assert.match(api.collectPluginFeatureIssues([...feature(['ok']), ...feature(['other'])]).join('\n'), /code 重复/)
-  for (const cmd of ['', '  ', null, [], { type: 'img', label: '图片' }, { type: 'regex', label: '缺正则' }, { type: 'over', label: ' ' }, { type: 'over', label: '拼写错误', minLenght: 1 }]) {
+  for (const cmd of ['', '  ', null, [], { type: 'img' }, { type: 'img', label: '图片', exclude: '/x/' },
+    { type: 'img', label: '图片', extensions: ['PNG'] }, { type: 'img', label: '图片', extensions: ['a'.repeat(11)] },
+    { type: 'files', label: '文件', minCount: 0 }, { type: 'files', label: '文件', maxCount: 21 },
+    { type: 'files', label: '文件', minCount: 5, maxCount: 4 }, { type: 'files', label: '文件', allowDirectory: 'yes' },
+    { type: 'window', label: '窗口' },
+    { type: 'regex', label: '缺正则' }, { type: 'over', label: ' ' }, { type: 'over', label: '拼写错误', minLenght: 1 }]) {
     assert.match(api.collectPluginFeatureIssues(feature([cmd])).join('\n'), /features\[0\]\.cmds\[0\]/, JSON.stringify(cmd))
   }
 })

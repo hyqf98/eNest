@@ -77,6 +77,18 @@ IPC 通道名只定义在 `@shared/types/ipc`，preload 与 main 共用。
 - 目录/已安装/详情属于主题 Workspace，导航走 `navigateWorkspace` 和 ACK。设置入口仍隐藏 Workspace 并走 `set-view: settings`；`SettingsSurfaceController` 选择当前主题的隔离 `settingsPage`，未提供或故障时使用源码内置默认主题设置。默认实现位于 `themes/default/settings/`。主题仅获白名单描述符和 opaque field ID；插件字段须 `shareWithThemes: true`，修改另一插件偏好逐次原生确认；账号、权限、开发者、路径和媒体选择仍由可信原生界面负责。Workspace 不提供设置路由，不存在「受保护设置」恢复机制；不能只靠 DOM z-index。
 - 标题栏高度与 `TITLEBAR_HEIGHT`（`@shared/constants`）及 CSS `--titlebar-h` 必须一致（当前 36）。
 
+## 自由面板（小组件）
+
+默认关闭，`设置 → 通用 → 自由面板` 开启（`general.freePanel.enabled`）。开启后框选屏幕区域生成置顶透明面板，把插件当小组件自由拼接。
+
+- 插件是**第四种 placement** `{ kind: 'panel'; panelId }`，语义是**移动**（同一 webContents 换父级，与独立窗口同构），沿用 `?mode=shell`，插件无需改动。
+- 面板组件**常驻可见**：`PluginHost.isPresented` 对 panel 恒真，免疫 3 分钟空闲休眠与 LRU(6) 驱逐。
+- 面板**不写** `windowSession` / `sessionTabs`；布局存独立 `panels` 段（仅主进程写，`shell:set-settings` 会剥离 renderer 写入），重启由 `restorePanels` 先建窗口再 2 并发冷启动组件。
+- 拖动（组件与整块面板）全部**主进程驱动**：读光标 + `setBounds`，渲染层零 setState、不逐帧上报。**不要用 `-webkit-app-region: drag`**——该区域右键不触发 `contextmenu`，而「添加组件」就是空白处右键。
+- 拖动/覆盖层期间必须隐藏本面板所有插件原生视图（`PanelManager.syncPanelVisibility` + `PluginHost.panelSuppressed`），否则原生 view 截走指针导致拖动卡死、菜单点不到。
+- 关闭面板 = 逐插件走完整 `closePlugin` 链路（beforeClose → session 快照 → disposeEntry），再销毁窗口。关开关则释放插件但**保留**布局记录。
+- 新 surface 必须在 `ipcSecurity` 显式登记 role + 通道白名单（`panel` / `region`）；未列入的 role 会落到全通分支。详见 `docs/engineering/panel-windows.md`。
+
 ## 动画
 
 - 所有 GSAP 时长/缓动走 `@renderer/gsap/marketMotion` 的 `d()` / `dy()` / `ease()`（尊重 `data-anim` 低/中/高）。
@@ -90,7 +102,7 @@ IPC 通道名只定义在 `@shared/types/ipc`，preload 与 main 共用。
 - 新主题使用 `ThemePackV2` + schema；所有外观字段在主题 Tab 内动态渲染，禁止按主题 ID 写页面分支。`layout.variant` 是可扩展语义标记，不是内置枚举。
 - `enest.theme.register()` 只登记，不能自动切换；外观只经 `appearance-changed` 快照同步。通知外观走受限 `notifications` 字段，内容/来源/关闭/计时由宿主拥有。
 - 首页贡献复用 `HomeSurfaceManager`，专用 `enestWorkspace`（`enestHome` 别名）没有普通插件 `enest` 或完整 `shellApi`。新提供者声明 `catalog/detail` 两路由，已安装是提供者本地目录筛选，不向宿主发送 `installed` 路由；渲染后 ACK。设置入口用 `openSettings` 动作请求宿主切换原生设置视图。
-- 默认 Quick 的搜索、拼音、规则、排序、最近/推荐均在 `themes/default/quick/`；主进程仅提供可验证目录、provider 传输和原生启动。第三方 Quick 使用 `enestQuick` 安全目录/结果投影，不接受磁盘启动路径或任意启动 payload。
+- 默认 Quick 的搜索、拼音、规则、排序、最近/推荐、使用计数与关键词偏好及旧模型解释均在 `themes/default/quick/`；主进程仅提供可验证目录、provider 传输、原生启动成功事实和有界提供者私有 JSON/CAS 存储。第三方 Quick 使用 `enestQuick` 安全目录/结果投影及 `state.read/write`，以稳定 opaque `stateKey` 管理自己的模型，不获得默认主题历史、不接受磁盘启动路径或任意启动 payload。
 - 启动直接加载源码内置主题（已选第三方主题则恢复有效选择），隐藏预热与默认启动动画并行，ready/路由 ACK/提交后复用同一首页。没有首启主题选择页、确认标记或正常「准备首页」页；故障恢复保留，隐藏预热不能解除恢复锁。原生 orb 可见性由 `App` 的启动/开屏预览门禁统一控制，`ShellLayout` 不另设门禁。
 - 背景 `has-bg-media` 时：内容区可加毛玻璃，但 **不要**用同选择器覆盖 `.chip.active` / `.segmented button.active`。
 

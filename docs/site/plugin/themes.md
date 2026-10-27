@@ -43,7 +43,7 @@ Quick 小窗使用同一 `appearance-changed` 权威快照，隐藏时仍接收�
 
 入口是包内相对 HTML，最长 240 字符，只接受安全 ASCII 路径，不含 URL、点段、反斜杠或 `backend/runtime/node_modules/src/test/tests` 目录。入口和依赖必须随插件构建发布。该声明只随用户显式选择的主题生效；省略声明、页面错误或 8 秒内未就绪时回退内置 Quick，不影响已选主题与业务插件会话。
 
-页面运行在 `sandbox="allow-scripts"`、不含同源权限的隔离 iframe，通过宿主提前注入的 **`window.enestQuick`** 交互。没有普通插件 `enest`、`enestShell`、Node 或任意网络／文件访问能力。脚本、样式和资源使用本包相对路径；不能动态访问其它插件资源。主题能看到当次显示的搜索词、安全目录和插件搜索来源的显示文本，因此不要将此接口解释为不接触用户数据；宿主不公开应用路径、完整设置、原始历史列表、剪贴板载荷或原始启动请求。目录可以包含每项的 `lastUsedTs/useCount/preferred` 偏好元数据、别名、经过校验的内容匹配声明和宿主发布的图标字节。主题决定是否及如何使用它们，不应把这些数据发送到外部。
+页面运行在 `sandbox="allow-scripts"`、不含同源权限的隔离 iframe，通过宿主提前注入的 **`window.enestQuick`** 交互。没有普通插件 `enest`、`enestShell`、Node 或任意网络／文件访问能力。脚本、样式和资源使用本包相对路径；不能动态访问其它插件资源。主题能看到当次显示的搜索词、安全目录和插件搜索来源的显示文本，因此不要将此接口解释为不接触用户数据；宿主不公开应用路径、完整设置、其它主题历史、剪贴板载荷或原始启动请求。目录包含稳定 opaque `stateKey`、别名、经过校验的内容匹配声明和宿主发布的图标字节，不再发布宿主计算的 `lastUsedTs/useCount/preferred`。使用次数、近期列表、关键词学习等模型应由提供者通过自己的私有状态实现，不应把这些数据发送到外部。
 
 最小页面脚本（放入包内外部 JS 文件）：
 
@@ -73,7 +73,22 @@ api.ready()
 window.addEventListener('pagehide', () => { offState(); offFocus() }, { once: true })
 ```
 
-`getState/onState` 提供 `QuickThemeSnapshot`，`onFocus` 请求输入框聚焦。`action` 支持 `query/composition/filter/results/select/open/expand/open-market/open-settings/refresh-apps/retry/hide/plugin-back/plugin-pin/plugin-focus/plugin-detach/layout/key`，完整参数以 SDK 的 `EnestQuickApi` 为准。结果 `id` 是当前目录有效的不透明句柄，不得持久化或用作应用路径；执行仍经过宿主校验。打开、隐藏、固定等动作需要当前真实鼠标或键盘输入，主题自行发送 `key` 不构成授权。`open-market` 打开桌面主窗插件市场，不在小窗加载市场。
+`getState/onState` 提供 `QuickThemeSnapshot`，`onFocus` 请求输入框聚焦。`action` 支持 `query/composition/filter/results/select/open/expand/open-market/open-settings/refresh-apps/retry/hide/paste/input-clear/plugin-back/plugin-pin/plugin-focus/plugin-detach/layout/key`，完整参数以 SDK 的 `EnestQuickApi` 为准。结果 `id` 是当前目录有效的不透明句柄，不得持久化或用作应用路径；执行仍经过宿主校验。打开、隐藏、固定、`paste` 等动作需要当前真实鼠标或键盘输入（⌘V/⌘X 同样确认手势但不拦截按键），主题自行发送 `key` 不构成授权。`open-market` 打开桌面主窗插件市场，不在小窗加载市场。
+
+快照 `input` 描述宿主保管的粘贴上下文：`{ items: QuickImageContext[], hasText: boolean }` 或 null。`items` 最多 12 项，每项只含不透明 `id`、`kind`（image/file/directory）、展示元数据与不超过 64KB 的 PNG `thumbnail`（文件/目录为内置占位图）；图片原始字节与文件真实路径不进入主题。`action({ type: 'paste' })` 请求宿主读取系统剪贴板图片/文件并入上下文，成功与否以 `ok` 为准，最新上下文在随后的 `onState` 快照 `input` 中到达（没有新内容时保持原上下文）；`action({ type: 'input-clear', id })` 移除单项，省略 `id` 清空全部，同样经快照同步。目录中 `content.type` 为 `img`/`files` 的行只在对应上下文存在时命中；不接管检索的主题沿用默认策略的同一门控。成功启动时上下文由宿主直接组装进插件 `onEnter.input`，主题不经手启动载荷。
+
+### Quick 提供者私有状态
+
+`api.state.read()` 返回 `{ revision, value }`，`api.state.write(value, expectedRevision)` 原子比较 revision 后写入并返回新快照；首次读取为 `{ revision: 0, value: null }`。仅访问当前选中主题的 `source + packId` 命名空间，切换/重新加载后保留，来源卸载时删除。读取、写入自己的文档不需要点击授权；失效页面、换代次、修订冲突、非法值或持久化失败均拒绝，不能当作写入成功。冲突时重新读取并合并自己的模型，不要无限重试。
+
+```js
+const previous = await api.state.read()
+const saved = await api.state.write({ schemaVersion: 1, favorites: [] }, previous.revision)
+```
+
+只接受 null、布尔、有限数字、字符串、稠密数组和普通 JSON 对象；禁止 `__proto__/constructor/prototype` 键、非 JSON 值、循环和自定义实例。深度最多 20、最多 10000 个节点，持久记录含 revision 外壳不超过 128KiB。`id` 每次目录重建可能改变；`catalog[].stateKey` 是跨重建/重启稳定的不透明身份，仅供存储关联，不能用于 `open`，也无法从中还原本地路径。
+
+成功完成宿主校验和原生启动后，快照 `opened` 提供 `{ sequence, stateKey, at, query }`；同一 sequence 的重发应去重。只有实际成功的应用/插件/原生入口打开产生回执，失败、返回、固定、Tab 不记录。提供者可据此维护自己的近期或偏好，宿主不替它决定计数、保留数量和查询学习规则。默认主题维护自己的最近 20 项与最多 100 个短查询偏好，并仅在可信默认适配器内解释旧 Quick 配置；第三方不能读取或接管那份旧数据。只自绘呈现、不接管检索的页面继续使用默认检索及其私有模型，不代表共享默认历史的读取权限。
 
 上面的最小页面只替换呈现，兼容使用默认主题的检索策略。要接管检索，在 `state.catalog` 上执行自己的匹配、排序与分组，并提交当前版本的句柄投影：
 

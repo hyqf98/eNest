@@ -1,7 +1,7 @@
 import { ipcMain, shell, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
 
-export type SurfaceRole = 'install' | 'notification' | 'shell' | 'quick' | 'orb' | 'dock' | 'home' | 'detached' | 'modal'
+export type SurfaceRole = 'install' | 'notification' | 'shell' | 'quick' | 'orb' | 'dock' | 'home' | 'detached' | 'modal' | 'panel' | 'region'
 type SenderEvent = IpcMainEvent | IpcMainInvokeEvent
 const surfaces = new Map<number, { contents: WebContents; role: SurfaceRole; url: string }>()
 const installChannels = [IpcChannels.InstallDropState, IpcChannels.InstallDropFiles, IpcChannels.InstallSurfaceReady, IpcChannels.InstallSurfaceDismiss]
@@ -23,8 +23,8 @@ const detachedChannels = new Set<string>([...windowChannels, ...installChannels,
 const quickChannels = new Set<string>([
   ...notificationClientChannels,
   ...windowChannels,
-  ...sharedReads, IpcChannels.QuickInput, IpcChannels.QuickToggle, IpcChannels.QuickHide,
-  IpcChannels.QuickSearch, IpcChannels.QuickOpen, IpcChannels.QuickGetConfig, IpcChannels.QuickThemeGetConfig, IpcChannels.QuickThemeAuthorize,
+  ...sharedReads, IpcChannels.QuickInput, IpcChannels.QuickInputContext, IpcChannels.QuickToggle, IpcChannels.QuickHide,
+  IpcChannels.QuickSearch, IpcChannels.QuickOpen, IpcChannels.QuickGetConfig, IpcChannels.QuickThemeGetConfig, IpcChannels.QuickThemeAuthorize, IpcChannels.QuickProviderState,
   IpcChannels.QuickResize, IpcChannels.ShellSetView, IpcChannels.ShellGetPlugins,
   IpcChannels.ShellActivatePlugin, IpcChannels.ShellOpenPlugin
 ])
@@ -48,6 +48,16 @@ const orbChannels = new Set<string>([
   IpcChannels.ShellGoHome, IpcChannels.ShellSetView, IpcChannels.WindowMinimize,
   IpcChannels.WindowMaximize, IpcChannels.WindowClose
 ])
+// Panel chrome may only read its own snapshot and issue panel commands; no shell or plugin access.
+const panelChannels = new Set<string>([
+  IpcChannels.PanelGetState,
+  IpcChannels.PanelCommand,
+  IpcChannels.PanelDragTick,
+  // 面板可作为「拖入目标」：注册自身内容区落点并接收拖拽反馈（Tab / 独立窗口 → 面板）。
+  IpcChannels.PluginDragTargets
+])
+// Region overlay reports a selection or a cancel, nothing else.
+const regionChannels = new Set<string>([IpcChannels.RegionConfirm, IpcChannels.RegionCancel])
 
 /** Only window creation can register a privileged surface, never renderer-provided IDs or URLs. */
 export function registerTrustedSurface(contents: WebContents, role: SurfaceRole, url: string): void {
@@ -100,6 +110,8 @@ export function assertSurfaceSender(event: SenderEvent, channel: string): void {
     surface.role === 'home' && !homeChannels.has(channel) ||
     surface.role === 'detached' && !detachedChannels.has(channel)
     || surface.role === 'modal' && !modalChannels.has(channel)
+    || surface.role === 'panel' && !panelChannels.has(channel)
+    || surface.role === 'region' && !regionChannels.has(channel)
   ) {
     throw new Error('IPC denied: surface capability')
   }

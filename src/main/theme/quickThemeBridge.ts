@@ -25,6 +25,36 @@ function bridgeSource(kind: 'quick' | 'settings'): string {
   const stateWaiters = new Set();
   const pending = new Map();
   const copy = value => structuredClone(value);
+  ${kind === 'quick' ? `const privateSnapshot = state => {
+    try {
+      if (!state || !Number.isSafeInteger(state.revision) || state.revision < 0 || !Object.hasOwn(state, 'value')) return null;
+      let nodes = 0;
+      const inspect = (value, depth) => {
+        if (++nodes > 10000 || depth > 20) throw new Error('Invalid Quick state');
+        if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
+        if (typeof value === 'number' && Number.isFinite(value)) return;
+        if (!value || typeof value !== 'object') throw new Error('Invalid Quick state');
+        const proto = Object.getPrototypeOf(value);
+        if (Array.isArray(value)) {
+          if (proto !== Array.prototype || Object.keys(value).length !== value.length) throw new Error('Invalid Quick state');
+          for (let index = 0; index < value.length; index++) {
+            if (!Object.hasOwn(value, index)) throw new Error('Invalid Quick state');
+            inspect(value[index], depth + 1);
+          }
+        } else {
+          if (proto !== Object.prototype && proto !== null) throw new Error('Invalid Quick state');
+          for (const key of Object.keys(value)) {
+            if (['__proto__', 'constructor', 'prototype'].includes(key)) throw new Error('Invalid Quick state');
+            inspect(value[key], depth + 1);
+          }
+        }
+      };
+      inspect(state.value, 0);
+      const json = JSON.stringify(state.value);
+      if (new TextEncoder().encode(json).byteLength > 128 * 1024) return null;
+      return { revision: state.revision, value: JSON.parse(json) };
+    } catch { return null; }
+  };` : ''}
   const send = message => port.postMessage({ ...message, generation });
   const flush = () => {
     if (!port || closed) return;
@@ -62,7 +92,8 @@ function bridgeSource(kind: 'quick' | 'settings'): string {
     } else if (message.type === 'action-result' && typeof message.id === 'string') {
       const result = message.result;
       if (result && typeof result.ok === 'boolean') pending.get(message.id)?.finish({
-        ok: result.ok, ...(typeof result.error === 'string' ? { error: result.error.slice(0, 512) } : {})
+        ok: result.ok, ...(typeof result.error === 'string' ? { error: result.error.slice(0, 512) } : {})${kind === 'quick' ? `,
+        ...(privateSnapshot(result.state) ? { state: privateSnapshot(result.state) } : {})` : ''}
       });
     }
   };
@@ -100,6 +131,20 @@ function bridgeSource(kind: 'quick' | 'settings'): string {
     },
     onState(listener) { return subscribe(stateListeners, listener); },
     onFocus(listener) { return subscribe(focusListeners, listener); },
+    ${kind === 'quick' ? `state: Object.freeze({
+      async read() {
+        const result = await api.action({ type: 'state-read' });
+        if (!result.ok || !result.state) throw new Error(result.error || 'Quick private state unavailable');
+        return copy(result.state);
+      },
+      async write(value, expectedRevision) {
+        const state = privateSnapshot({ revision: expectedRevision, value });
+        if (!state) throw new Error('Invalid Quick private state');
+        const result = await api.action({ type: 'state-write', expectedRevision, value: state.value });
+        if (!result.ok || !result.state) throw new Error(result.error || 'Quick private state unavailable');
+        return copy(result.state);
+      }
+    }),` : ''}
     action(action) {
       if (closed || pending.size >= 64) return Promise.resolve({ ok: false, error: '${label} action unavailable' });
       let value;

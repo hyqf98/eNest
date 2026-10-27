@@ -99,15 +99,26 @@ eNest 使用自己的连续匹配评分，不引入 Fuse，也不声称数值排
 
 ## 明确未对齐的范围
 
-1. **图片、文件、前台窗口指令**：本次 `PluginFeatureCommand` 只支持 string/regex/over，不接受 img/files/window 对象。尚无图片或文件上下文的筛选、文件类型/扩展名校验、匹配启动载荷链路。
-2. **粘贴内容卡片与二次筛选**：当前文本仍进入 Quick 查询；没有 zTools 将 pastedText 与 searchQuery 分离的完整交互。文本 regex/over 的 payload 是当前原始查询，不能宣称已经支持独立的剪贴板上下文。
+1. **文件读取与前台窗口指令**：粘贴图片与文件的上下文链路已实现（见下文「已对齐：粘贴内容上下文」）；`window` 前台窗口指令仍未引入，Quick 不读取前台应用状态。文件交付为宿主签发的只读 `localFiles` 句柄，不提供任意路径 API，也不做文件类型图标提取。
+2. **文本与搜索词的完全分离卡片**：粘贴的纯文本仍进入 Quick 查询（zTools 把 pastedText 与 searchQuery 分为两个上下文并以卡片展示）。eNest 的文本语义等价达成：打开任意插件时当前输入文本恒随 `onEnter.payload` 交付，regex/over 命中同样携带原文；差异只在 UI 上不存在独立文本卡片与二次筛选。图片/文件则是独立上下文，不写入查询字符串。
 3. **首页固定区与推荐置顶**：常用两行遵循 eNest 的需求；没有照搬独立固定区、推荐固定顺序及拖动排序。
 4. **精确排序等价**：没有使用 Fuse 的原始分数；eNest 自己计算位置、长度占比并给予非精确系统应用 300 分奖励，细分权重仍不逐数值复刻。连续匹配、拼音、分组和查询偏好属于行为对齐，非结果逐位相等保证。
    内容推荐频次使用 eNest 有界最近使用记录；未在该记录中的条目按零次处理，不等同于 zTools 的独立完整使用统计库。
 5. **完整插件协议**：动态 provider、插件进入事件和共享输入框使用 eNest API；不提供 `window.ztools` 兼容层，不能直接安装所有 zTools 插件。
 6. **平台验收**：源码契约跨平台共用；本机的真实 Electron 图形验证只覆盖 macOS。Windows/Linux 的窗口动画、输入法和原生拖动仍需对应系统实测。
 
-后续若需要图片/文件上下文，应成套补齐请求类型、输入预览/移除、主进程文件句柄授权、匹配规则、启动载荷和插件示例；只在 schema 接受对象而不实现这些链路，会产生可搜索却不能正确执行的入口。
+## 已对齐：粘贴内容上下文（2026-10-26）
+
+对标 zTools 的 img/files 独立内容上下文（[SearchBox.vue handlePaste / SearchResults.vue 启动载荷](https://github.com/ZToolsCenter/ZTools/blob/6c9dee8c998ed7b4e6d0a80ad4311d3d8d24f72c/src/renderer/src/components/search/SearchBox.vue#L719-L784)）与 uTools 的 `cmds {type:'img'|'files'}` + `onPluginEnter` 语义，成套补齐了链路：
+
+- **请求类型**：`QuickContentMatch.type` 扩为 `text/regex/over/img/files`；`PluginFeatureCommand` 新增 img（`extensions`）与 files（`extensions/minCount/maxCount/allowDirectory`）声明，schema、安装器与 `enest-validate` 同形校验。
+- **输入预览/移除**：默认 Quick 输入框左侧渲染有界缩略图（≤4 可见 + 计数，hover 删除钮、空输入 Backspace 移除末项、Esc 先清上下文）；图片经 `nativeImage` 缩到 128px PNG（≤64KB data URL）进入快照，主题 iframe 经 `snapshot.input` 只见缩略图，原始字节与文件路径始终留在主进程 `quickInputContext`（≤8 图 / 单张 12MiB / 合计 32MiB / ≤20 文件）。
+- **剪贴板读取**：paste 事件统一走 `quick:input-context { operation: 'read-clipboard' }` 由主进程读取（`clipboard.read()` 位图 / `nativeClipboard.readFiles` 文件），渲染层不提交字节或路径；剪贴板滞后一拍时 60ms 有界重试。主题表面的 `paste` 动作要求一次性原生手势（⌘V/⌘X 确认手势但不拦截按键）。img/files 目录行只在对应上下文存在时进入「最佳匹配」；上下文存在时文本 over 推荐只在没有名称命中时出现（zTools：图片存在时不显示无关 over）。
+- **启动载荷**：宿主按不透明 id 组装 `QuickEnterInput { text?, images?[], files?[] }` 随 `enter.input` 交付（`PluginEnterPayload.type` 同步扩枚举）。文件按启动时刻重新 realpath 校验后经 `grantLocalFile` 签发只读句柄；成功启动即视为消费，上下文清空，挂载期间可经 `enest.quickInput.readContext()` 按 runtime 代次重取。Quick 隐藏清空全部上下文。
+- **文本随任意打开交付**：`handleOpen` 不再丢弃 `req.query`——插件打开时若无内容匹配载荷/provider 载荷，输入文本（有界 4096）作为 string `payload` 交付，旧插件的 `typeof payload === 'string'` 分支即刻可用（翻译、Anything 等无需改动）。
+- **插件示例**：`plugins/image-tools` 1.3.0 声明 `{type:'img', label:'压缩这张图片'}` 并在 `onEnter` 导入 `input.images`；文档见 `docs/site/plugin/manifest.md#触发词与内容指令` 与 `dual-mode-tools.md#输入上下文文本--图片--文件`。
+
+与 zTools 的既有差异保留：eNest 不做文件类型图标提取、无独立文本卡片、files 交付为句柄而非裸路径授权；用户决策（2026-10-26）为 Quick 粘贴上下文按静默授权语义处理（不弹宿主确认），实际可读范围仍由只读句柄收敛。
 
 ## 验证入口
 

@@ -3,6 +3,8 @@ import type {
   PluginShortcutMutationResult, PluginShortcutLaunchResult, ShortcutProbeResult
 } from '@shared/types/shortcuts'
 import type { AccountState, AccountLoginResult } from '@shared/types/account'
+import type { QuickProviderStateSnapshot } from '@shared/types/quickTheme'
+import type { McpStatus } from '@shared/types/mcpSettings'
 /** Browser-preview-only adapter. Loaded lazily when no native preload is present. */
 import type {
   AppPaths,
@@ -69,6 +71,7 @@ import {
 } from '@renderer/services/mockData'
 
 import type { ShellApi } from './shellApi'
+import { readQuickStateSnapshot, readQuickStateValue } from '@renderer/components/quickStateValidation'
 
 type EventCb = (payload: ShellEventPayload) => void
 
@@ -82,6 +85,15 @@ export function createMockApi(): ShellApi {
   let appearanceRevision = 0
   let appearanceKey = ''
   let appearanceState: AppearanceSettings | undefined
+  const quickStateKey = 'enest.preview.quick-provider-state.v1'
+  let previewQuickContext: import('@shared/types/quick').QuickImageContext[] = []
+  const readQuickState = (): QuickProviderStateSnapshot => {
+    const saved = localStorage.getItem(quickStateKey)
+    if (saved === null) return { revision: 0, value: null, legacy: Reflect.get(readMockSettings().general ?? {}, 'quickLauncher') }
+    const snapshot = readQuickStateSnapshot(JSON.parse(saved) as unknown)
+    if (!snapshot) throw new Error('Invalid preview Quick private state')
+    return snapshot
+  }
 
   const emit = (payload: ShellEventPayload): void => {
     for (const cb of listeners) cb(payload)
@@ -166,6 +178,13 @@ export function createMockApi(): ShellApi {
   }
 
   return {
+    async getMcpStatus(): Promise<McpStatus> {
+      return { configuration: { enabled: false, port: 43921 }, state: 'disabled', endpoint: 'http://127.0.0.1:43921/mcp', sessionCount: 0, activeCalls: 0, recentCalls: [], error: 'Browser preview cannot start the native MCP service or access credentials.' }
+    },
+    async configureMcp() { throw new Error('MCP configuration requires the native eNest application') },
+    async copyMcpConnectionConfig() { throw new Error('MCP credentials are unavailable in browser preview') },
+    async resetMcpToken() { throw new Error('MCP credentials are unavailable in browser preview') },
+    async listMcpTools() { return { tools: [] } },
     async getPlugins() {
       return mockRegistry.getPlugins()
     },
@@ -322,6 +341,21 @@ export function createMockApi(): ShellApi {
       settings = { ...settings, pluginLaunch: { ...settings.pluginLaunch, [id]: next } }
       writeMockSettings(settings)
       return { ok: true, config: next }
+    },
+    async getOpenWithList() {
+      return { platform: 'darwin', packaged: false, rows: [] }
+    },
+    async setOpenWithDefault() {
+      return { ok: false, error: '浏览器预览不支持系统默认应用设置' }
+    },
+    async clearOpenWithDefault() {
+      return { ok: false, error: '浏览器预览不支持系统默认应用设置' }
+    },
+    async routeOpenWith() {
+      return { ok: false, error: '浏览器预览不支持系统默认应用设置' }
+    },
+    async openOpenWithSystemSettings() {
+      // Browser preview has no OS default-app settings page.
     },
     async installMarketPlugin(id) {
       const existing = mockRegistry.getById(id)
@@ -499,6 +533,9 @@ export function createMockApi(): ShellApi {
       }
     },
     async setSettings(partial) {
+      if ('mcp' in partial || 'mcpToken' in partial || partial.general && ('mcp' in partial.general || 'mcpToken' in partial.general)) {
+        throw new Error('MCP security settings require the dedicated native API')
+      }
       if ('pluginShortcuts' in partial || 'pluginLaunch' in partial || 'quick' in partial) {
         throw new Error('快捷键和启动偏好必须使用专用设置接口')
       }
@@ -809,6 +846,40 @@ export function createMockApi(): ShellApi {
       /* mock：浏览器无小窗高度 */
     },
     async quickInput() { return null },
+    async quickInputContext(request) {
+      // 浏览器预览以内存列表模拟宿主粘贴上下文；文件剪贴板在 Web 不可读。
+      if (request.operation === 'clear') {
+        if (request.id) previewQuickContext = previewQuickContext.filter(item => item.id !== request.id)
+        else previewQuickContext = []
+        return { ok: true, items: [...previewQuickContext] }
+      }
+      if (request.operation === 'list') return { ok: true, items: [...previewQuickContext] }
+      try {
+        const items = await navigator.clipboard.read()
+        const added: import('@shared/types/quick').QuickImageContext[] = []
+        for (const item of items) {
+          const type = item.types.find(entry => entry.startsWith('image/'))
+          if (!type) continue
+          const blob = await item.getType(type)
+          if (blob.size > 12 * 1024 * 1024) break
+          const dimensions = await createImageBitmap(blob)
+            .then(image => ({ width: image.width, height: image.height }))
+            .catch(() => ({ width: 0, height: 0 }))
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result ?? ''))
+            reader.onerror = () => reject(reader.error)
+            reader.readAsDataURL(blob)
+          })
+          added.push({ id: crypto.randomUUID(), kind: 'image', width: dimensions.width, height: dimensions.height, size: blob.size, thumbnail: dataUrl })
+          break
+        }
+        previewQuickContext = [...previewQuickContext, ...added].slice(0, 12)
+        return { ok: true, items: added }
+      } catch {
+        return { ok: false, error: 'Browser preview clipboard is unavailable' }
+      }
+    },
     async quickOpen() {
       return { ok: false, error: 'mock' }
     },
@@ -817,6 +888,25 @@ export function createMockApi(): ShellApi {
     },
     quickGetConfig: async () => shortcuts.quickConfig(),
     quickGetTheme: async () => null,
+    async quickProviderState(request) {
+      if (request.providerKey !== null) throw new Error('Browser preview has no isolated Quick provider')
+      if (request.operation === 'keys') {
+        if (request.identities.length > 256 || request.identities.some(identity => typeof identity !== 'string' || !identity || identity.length > 4_096)) throw new Error('Invalid preview Quick identities')
+        const keys = await Promise.all(request.identities.map(async identity => {
+          const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`enest.preview.quick\u0000${identity}`))
+          return `preview-${Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('')}`
+        }))
+        return { keys }
+      }
+      const snapshot = readQuickState()
+      if (request.operation === 'read') return snapshot
+      if (!Number.isSafeInteger(request.expectedRevision) || request.expectedRevision !== snapshot.revision) throw new Error('Quick private state revision conflict')
+      const parsed = readQuickStateValue(request.value)
+      if (!parsed || snapshot.revision === Number.MAX_SAFE_INTEGER) throw new Error('Invalid preview Quick private state')
+      const saved = { revision: snapshot.revision + 1, value: parsed.value }
+      localStorage.setItem(quickStateKey, JSON.stringify(saved))
+      return saved
+    },
     getThemeSettingsConfig: async () => null,
     getThemeSettingsSnapshot: async () => { throw new Error('Browser preview has no isolated theme settings provider') },
     setThemeSettingsActive: async () => false,
@@ -828,6 +918,18 @@ export function createMockApi(): ShellApi {
       const probe = shortcuts.probe(acc, undefined, true)
       return { acc: probe.accelerator, free: probe.status === 'free', ours: false, hint: probe.hint,
         ...(probe.status === 'free' ? {} : { conflict: probe }) }
+    },
+    async createPanel() {
+      return { ok: false, cancelled: true, error: 'Browser preview does not support native region selection' }
+    },
+    async listPanels() {
+      return []
+    },
+    async closePanel() {
+      return { ok: false }
+    },
+    async setPanelHotkey() {
+      return { ok: false, enabled: false, hotkey: '', error: 'Browser preview has no native hotkeys' }
     },
   }
 }

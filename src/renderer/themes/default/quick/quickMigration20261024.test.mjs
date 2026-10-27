@@ -112,19 +112,20 @@ test('main supplies a neutral directory and generic background results, never de
     './appLauncher': 'export const getAppIconDataUrl=async()=>"data:image/png;base64,AA=="',
     './quickProviders': 'export const queryQuickProviders=async()=>[]',
     './catalogIcons': 'export const getCatalogPluginIcon=async()=>"data:image/png;base64,AA=="',
+    '@main/theme/quickStateService': 'export const quickProviderStates = { encodeIdentities: identities => identities.map((_, index) => "sk-" + index) }',
   }
   const source = await bundle('src/main/launcher/commandIndex.ts', [{ name: 'native-fixtures', setup(build) {
     build.onResolve({ filter: /.*/ }, args => args.path in stubs ? { path: args.path, namespace: 'fixture' } : undefined)
     build.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ contents: stubs[args.path], loader: 'js' }))
   } }])
   const api = evaluate(source, { __quickFixture: fixture })
-  const directory = await api.searchQuickCommands('does-not-match', 1, [], undefined, undefined, 'catalog')
+  const directory = await api.searchQuickCommands('does-not-match', 1, undefined, 'catalog')
   assert.ok(directory.some(item => item.kind === 'app'))
   assert.ok(directory.some(item => item.content?.type === 'regex'))
   assert.equal(directory[0].title, 'open-market', 'default action copy is not part of main')
-  assert.deepEqual(plain((await api.searchQuickCommands('anything-else', 1, [], undefined, undefined, 'static')).map(item => item.id)), plain(directory.map(item => item.id)))
-  assert.deepEqual(plain(await api.searchQuickCommands('', 20, [], undefined, undefined, 'enriched', ['unknown'])), [])
-  const provider = await api.searchQuickCommands('fixture query', 20, [], undefined, undefined, 'providers')
+  assert.deepEqual(plain((await api.searchQuickCommands('anything-else', 1, undefined, 'static')).map(item => item.id)), plain(directory.map(item => item.id)))
+  assert.deepEqual(plain(await api.searchQuickCommands('', 20, undefined, 'enriched', ['unknown'])), [])
+  const provider = await api.searchQuickCommands('fixture query', 20, undefined, 'providers')
   assert.deepEqual(plain(fixture.calls), [['fixture query', 20]])
   assert.deepEqual(plain(provider[0].payload), { record: 7 })
   assert.equal(provider[0].pluginId, manifest.id)

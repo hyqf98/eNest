@@ -10,6 +10,7 @@ import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
  * 关键依赖：resolvePreload、logService；外观由 renderer 的权威快照同步。
  */
 import { capturePasteTarget } from '@main/clipboard/nativeClipboard'
+import { clearQuickInputContext } from '@main/launcher/quickInputContext'
 import { join } from 'node:path'
 import { app, BaseWindow, screen, View, WebContentsView } from 'electron'
 import {
@@ -228,11 +229,15 @@ export function getQuickWebContents() {
 }
 
 // Quick 表面事件转发：sendShellEvent 对 quick-plugin-mode 额外投递到 Quick wc
-//（独立 WebContents / 独立 ipcRenderer，主壳事件不会自动到达）。模块加载即注册。
-setQuickEventSink((payload) => {
-  const wc = quickWindow?.webContents
-  if (!wc || wc.isDestroyed()) return
-  wc.send(IpcChannels.ShellEvent, payload)
+//（独立 WebContents / 独立 ipcRenderer，主壳事件不会自动到达）。
+// 本模块与 createShellWindow 经 PluginHost 等成环，环内模块体的先后顺序由打包器
+// 决定；微任务在整个模块图求值后才执行，避免 sink 目标 let 处于 TDZ。
+queueMicrotask(() => {
+  setQuickEventSink((payload) => {
+    const wc = quickWindow?.webContents
+    if (!wc || wc.isDestroyed()) return
+    wc.send(IpcChannels.ShellEvent, payload)
+  })
 })
 
 export function isQuickVisible(): boolean {
@@ -563,6 +568,8 @@ export function setQuickPluginHiddenHook(fn: (() => void) | null): void {
 
 export function hideQuickWindow(reason = 'explicit'): void {
   showRevision++
+  // 隐藏即放弃本次粘贴上下文：图片字节与文件路径不跨呼出保留。
+  clearQuickInputContext()
   // The delayed activate event from ordering Quick out must not reopen main.
   guardMainWindowActivation()
   blurGuardUntil = 0

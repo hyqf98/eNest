@@ -16,6 +16,7 @@ import { extractPluginArchive, writePluginBuildRevision } from './pluginInstallT
 import type { PluginManifest } from '@shared/types/plugin'
 import { PLUGIN_PERMISSIONS } from '@shared/types/plugin'
 import { collectPluginFeatureIssues } from '@shared/pluginCommands'
+import { collectMcpToolDeclarationIssues } from '@shared/mcpTools'
 import { isPluginAssetPath, isPluginBackendPath, normalizePluginDevUrl, PLUGIN_ENTRY, PLUGIN_ICON, PLUGIN_README, PLUGIN_SCREENSHOTS } from '@shared/pluginContract'
 import { resolvePluginFile } from './pluginPaths'
 import { resolveBackendFile } from './pluginBackendPath'
@@ -121,6 +122,7 @@ export function collectManifestIssues(
   }
 
   for (const issue of collectPluginFeatureIssues(m.features)) pushError(errors, m.id, issue)
+  for (const issue of collectMcpToolDeclarationIssues((m.contributes as Record<string, unknown> | undefined)?.mcpTools)) pushError(errors, m.id, issue)
 
   if (m.permissions !== undefined) {
     if (!Array.isArray(m.permissions)) {

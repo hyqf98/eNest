@@ -176,7 +176,7 @@ function snapshot(key: string): ThemeSettingsSnapshot {
   const publishedIds = new Set(published.flatMap(group => group.fields.map(field => field.id)))
   current.fields = new Map([...fields].filter(([id]) => publishedIds.has(id)))
   return { version: 1, revision: ++revision, locale: all.general.locale, appearance: publicAppearance(appearance), groups: published,
-    nativeSections: [{ id: 'general', title: en ? 'System, account, performance and security' : '系统、账号、性能与安全' }, { id: 'theme', title: en ? 'Theme selection and local media' : '主题切换与本地媒体' }, { id: 'dev', title: en ? 'Developer tools' : '开发者工具' },
+    nativeSections: [{ id: 'general', title: en ? 'System, account, performance and security' : '系统、账号、性能与安全' }, { id: 'theme', title: en ? 'Theme selection and local media' : '主题切换与本地媒体' }, { id: 'dev', title: en ? 'Developer tools' : '开发者工具' }, { id: 'mcp', title: en ? 'MCP connection and security' : 'MCP 连接与安全' },
       ...plugins.slice(0, 128).map(plugin => ({ id: `p:${plugin.id}` as const, title: plugin.manifest.name }))] }
 }
 function validValue(descriptor: ThemeSettingsFieldDescriptor, value: unknown): value is ThemeSettingsValue {

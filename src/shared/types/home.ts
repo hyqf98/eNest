@@ -84,9 +84,6 @@ export interface HomeSearchEntry {
   aliases?: string[]
   action?: import('./quick').QuickActionId
   content?: import('./quick').QuickContentMatch
-  lastUsedTs?: number
-  useCount?: number
-  preferred?: boolean
 }
 
 export interface HomeDetail {

@@ -10,6 +10,7 @@ import { registerPluginProtocolForSession } from '@main/plugin/pluginProtocol'
 import { permissionService } from '@main/plugin/PermissionService'
 import { captureDisplaySource, resolveCaptureDisplay } from '@main/screen/screenService'
 import { resolvePreload } from '@main/window/createShellWindow'
+import { assertInteractive, assertInteractionEpoch, getInteractionEpoch, isNonInteractive } from '@main/plugin/pluginInteractionPolicy'
 
 interface Surface {
   id: string
@@ -18,6 +19,7 @@ interface Surface {
   url: string
   scope: PluginRuntimeScope
   revision: string
+  interactionEpoch: number
   win?: BrowserWindow
   session?: Session
   wcId?: number
@@ -151,6 +153,8 @@ export function registerAuxiliaryHandlers(): void {
 }
 export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen): Promise<{ windowId: string }> {
   const scope = requireOwner(pluginId)
+  assertInteractive(scope)
+  const interactionEpoch = getInteractionEpoch(scope)
   const summary = pluginRegistry.get(pluginId), root = pluginRegistry.getRootPath(pluginId)
   if (!root || !summary || !input || typeof input.entry !== 'string' || !/^assets\/.+\.html$/.test(input.entry) || input.entry.length > 512) throw new Error('Auxiliary entry must be a local plugin HTML asset')
   const initialBytes = auxiliaryPayloadBytes(input.data, MAX_INITIAL)
@@ -167,7 +171,7 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
   while (ownSlots.has(slot)) slot++
   ownSlots.set(slot, id); slots.set(pluginId, ownSlots)
   const surface: Surface = { id, slot, entry: input.entry, url: `enest://plugin/${pluginId}/${input.entry.split('/').map(encodeURIComponent).join('/')}?auxiliary=${id}`,
-    scope, revision: pluginRegistry.getBuildRevision(pluginId), closed: false, initial: input.data, initialBytes, contextRead: false,
+    scope, revision: pluginRegistry.getBuildRevision(pluginId), interactionEpoch, closed: false, initial: input.data, initialBytes, contextRead: false,
     display: { id: display.id, ...display.bounds, scaleFactor: display.scaleFactor },
     ...(input.capture ? { capture: { displayId: display.id, withAudio: input.capture.withAudio === true } } : {}),
     topmost: input.alwaysOnTop === true, capturing: false, captureUsed: false, release: () => {}, requestStart: 0, requests: 0, messageBytes: 0 }
@@ -181,11 +185,14 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
   try {
     if (!await resolvePluginFile(root, input.entry, summary.devSource === true)) throw new Error('Auxiliary entry not found or unsafe')
     if (!current(surface)) throw new Error('Auxiliary owner changed')
+    assertInteractionEpoch(scope, interactionEpoch)
+    assertInteractive(scope)
     if (!surface.capture && surface.topmost && !permissionService.isGranted(pluginId, 'pin.create')) throw new Error('permission denied: pin.create')
     const isolated = session.fromPartition(`enest-auxiliary-${createHash('sha256').update(pluginId).digest('hex')}-${slot}`, { cache: false })
     surface.session = isolated
     registerPluginProtocolForSession(isolated, pluginId, root)
     const captureAllowed = (): boolean => !!surface.capture && current(surface)
+      && !isNonInteractive(scope) && getInteractionEpoch(scope) === interactionEpoch
       && permissionService.isGranted(pluginId, 'screen.record') && !!surface.win?.isVisible() && surface.win.isFocused()
     isolated.setPermissionRequestHandler((contents, permission, callback, details) => callback(contents === surface.win?.webContents && permission === 'display-capture' && details.isMainFrame && details.requestingUrl === surface.url && captureAllowed()))
     isolated.setPermissionCheckHandler((contents, permission, _origin, details) => contents === surface.win?.webContents && permission === 'display-capture' && details.isMainFrame && details.requestingUrl === surface.url && captureAllowed())
@@ -245,6 +252,8 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
     surface.timer.unref?.()
     await win.loadURL(surface.url)
     if (!current(surface)) throw new Error('Auxiliary window closed during loading')
+    assertInteractionEpoch(scope, interactionEpoch)
+    assertInteractive(scope)
     if (surface.capture ? !permissionService.isGranted(pluginId, 'screen.record') : surface.topmost && !permissionService.isGranted(pluginId, 'pin.create')) throw new Error('Auxiliary permission was revoked')
     clearTimeout(surface.timer); surface.timer = undefined
     if (surface.capture && !surface.captureUsed) {
@@ -257,6 +266,7 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
 }
 export function sendAuxiliaryMessage(pluginId: string, id: string, data: unknown, options?: { visible?: boolean }): void {
   const surface = owned(pluginId, id)
+  if (options?.visible === true) assertInteractive(surface.scope)
   rate(surface, auxiliaryPayloadBytes(data, MAX_MESSAGE))
   surface.win!.webContents.send(IpcChannels.AuxiliaryMessage, data)
   if (options?.visible === false) surface.win!.hide()

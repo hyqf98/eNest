@@ -63,6 +63,8 @@ export function probeShortcutConflict(value: string, excludeId?: string, exclude
   if (configured) return confirmable({ accelerator, status: 'shortcut', ownerBindingId: configured.id,
     ownerPluginId: configured.pluginId, ownerLabel: label(configured.pluginId) })
   if ((owner?.kind === 'quick' && excludeQuick) || (owner?.kind === 'shortcut' && owner.id === excludeId)) return { accelerator, status: 'free' }
+  // 自由面板快捷键是壳级占用，与插件快捷键冲突时报告为系统占用（不能由业务覆盖）。
+  if (owner?.kind === 'panel') return { accelerator, status: 'system', hint: '该快捷键已被自由面板占用，请先在通用设置中更改面板快捷键。' }
   if (owner) return { accelerator, status: owner.kind, ownerBindingId: owner.kind === 'shortcut' ? owner.id : undefined,
     ownerPluginId: owner.pluginId, ownerLabel: label(owner.pluginId), hint: '该快捷键的归属状态已变化，请刷新后重试。' }
   const native = probeNativeHotkey(accelerator)

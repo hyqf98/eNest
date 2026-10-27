@@ -76,6 +76,13 @@ function handleEvent(payload: ShellEventPayload): void {
     case 'quick-open-view':
       store.setView(payload.view)
       break
+    case 'open-with-unhandled':
+      notify.warn(
+        payload.reason === 'no-provider'
+          ? `没有插件声明处理 ${payload.kind === 'ext' ? `.${payload.value}` : `${payload.value}://`}，可在插件市场安装对应插件`
+          : `打开 ${payload.kind === 'ext' ? `.${payload.value}` : `${payload.value}://`} 的插件启动失败`
+      )
+      break
     case 'quick-config-changed':
       store.appendLog('info', `[quick] hotkeys: ${payload.hotkeys.join(', ') || '(none)'}`)
       break

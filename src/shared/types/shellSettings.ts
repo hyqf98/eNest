@@ -35,6 +35,12 @@ export interface GeneralSettingsData {
   proxy?: { type: 'system' | 'none' | 'http'; host?: string; port?: number }
   /** 启动 Splash 背景；缺省 brand = 默认品牌色 */
   splashBackground?: SplashBackgroundConfig
+  /** 自由面板（小组件）功能开关；缺省视为关闭。 */
+  freePanel?: { enabled: boolean }
+  /** 自由面板呼出快捷键（归一后的 accelerator）；缺省用平台默认。 */
+  panelHotkey?: string
+  /** 自由面板外观（壳级，不随主题变化）。 */
+  panelAppearance?: import('./panel').PanelAppearance
   [key: string]: unknown
 }
 
@@ -52,6 +58,8 @@ export interface ShellSettingsData {
   quick?: { enabled?: boolean; hotkeys?: string[]; activeHotkey?: string }
   /** 个人资料段（GitHub OAuth 配置 + 已连接账号；与主进程 SettingsData.profile 对齐） */
   profile?: { githubClientId?: string; user?: import('@shared/types/plugin').UserProfile }
+  /** 自由面板布局记录；只由主进程写入，renderer 只读。 */
+  panels?: import('./panel').PersistedPanel[]
   /** @deprecated mock 兼容扁平字段 */
   launchAtLogin?: boolean
   closeBehavior?: 'minimize-tray' | 'quit'

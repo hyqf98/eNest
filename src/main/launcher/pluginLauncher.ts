@@ -12,7 +12,7 @@ import { logWarn } from '@main/logs/logService'
 export interface PluginLaunchRequest {
   pluginId: string
   mode?: PluginLaunchMode
-  source: 'shortcut' | 'quick' | 'settings'
+  source: 'shortcut' | 'quick' | 'settings' | 'open-with'
   enter?: PluginEnterPayload
 }
 

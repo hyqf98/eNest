@@ -11,6 +11,10 @@
 ```ts
 /** Generated from the eNest preload and shared API types. Do not edit. */
 export interface EnestPluginApi {
+    /** Register exactly the manifest-declared tools after business initialization. */
+    mcp: {
+        registerHandlers(handlers: McpToolHandlers): Promise<void>;
+    };
     setTitle(title: string): Promise<boolean>;
     setIcon(icon: string): Promise<boolean>;
     setBadge(badge: string | number): Promise<boolean>;
@@ -141,27 +145,7 @@ export interface EnestPluginApi {
         respondQuickQuery(reqId: string, items: PluginQuickQueryItem[]): Promise<boolean>;
     };
     settings: {
-        register(section: {
-            id: string;
-            title: string;
-            items: Array<{
-                key: string;
-                type: string;
-                label: string;
-                default?: unknown;
-                entry?: {
-                    code: string;
-                    payload?: unknown;
-                };
-                options?: Array<{
-                    label: string;
-                    value: unknown;
-                }>;
-                min?: number;
-                max?: number;
-                step?: number;
-            }>;
-        }): Promise<boolean>;
+        register(section: SettingsSectionContribution): Promise<boolean>;
         get(key: string): Promise<unknown>;
         set(key: string, value: unknown): Promise<boolean>;
         onChange(cb: (event: {
@@ -173,6 +157,8 @@ export interface EnestPluginApi {
         configure(config: QuickInputConfig): Promise<boolean>;
         release(): Promise<boolean>;
         escape(): Promise<boolean>;
+        /** 读取本次 Quick 打开注入的输入上下文（文本/图片 dataUrl/只读文件句柄）；无则 null */
+        readContext(): Promise<QuickEnterInput | null>;
         onChange(cb: (value: string) => void): Unsubscribe;
         onAction(cb: (action: QuickInputAction) => void): Unsubscribe;
     };
@@ -198,6 +184,13 @@ export interface EnestPluginApi {
                 bytes: number;
             } | null>;
             remove(id: string): Promise<boolean>;
+        };
+        /** 静态资源（二进制图片）：独立于 KV 与 blobs，可 list、稳定 assetId、get 回 dataUrl */
+        assets: {
+            put(input: PluginAssetPutInput): Promise<PluginAssetPutResult>;
+            list(): Promise<PluginAsset[]>;
+            get(assetId: string): Promise<PluginAssetGetResult | null>;
+            delete(assetId: string): Promise<boolean>;
         };
         get(key: string): Promise<unknown>;
         set(key: string, value: unknown): Promise<boolean>;
@@ -262,6 +255,14 @@ export interface EnestPluginApi {
             method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD';
             headers?: Record<string, string>;
             body?: string;
+            /** 二进制请求体（base64）：优先于 body，解码后原样发送（multipart 上传等场景，≤8MB） */
+            bodyBase64?: string;
+            /** 鉴权注入：主进程从本插件 vault 解引用后写入请求头，密钥不回到页面 */
+            auth?: {
+                secretRef: string;
+                header?: string;
+                scheme?: 'bearer' | 'raw';
+            };
             timeoutMs?: number;
             /** 流式响应 / SSE 模式（分片走 onChunk） */
             stream?: boolean;
@@ -494,6 +495,10 @@ export interface EnestQuickApi {
         selectAll: boolean;
     }) => void): () => void;
     action(action: QuickThemeAction): Promise<QuickThemeActionResult>;
+    state: {
+        read(): Promise<QuickStateSnapshot>;
+        write(value: unknown, expectedRevision: number): Promise<QuickStateSnapshot>;
+    };
 }
 
 export interface ThemeChromeApi {
@@ -524,6 +529,18 @@ export interface AuxiliaryPageApi {
     post(data: unknown): Promise<void>;
     close(): Promise<void>;
 }
+
+export interface McpToolDeclaration {
+    id: string;
+    description: string;
+    inputSchema: McpJsonSchema;
+    title?: string;
+    outputSchema?: McpJsonSchema;
+    annotations?: McpToolAnnotations;
+}
+
+/** Portable MCP contracts. No SDK or Electron runtime dependency crosses this boundary. */
+export type McpErrorCode = 'busy' | 'needs-consent' | 'permission-denied' | 'interaction-required' | 'not-found' | 'invalid-arguments' | 'not-ready' | 'timeout' | 'cancelled' | 'unavailable' | 'internal-error' | 'result-too-large';
 
 export type Listener = (data: unknown) => void;
 
@@ -803,6 +820,8 @@ export interface LocalFilePickOptions {
 
 export type PluginInputContext = 'workbench' | 'terminal' | 'editor' | 'overlay';
 
+export type McpToolHandlers = Record<string, McpToolHandler>;
+
 /**
  * v1 已注册 topic → data 类型映射。
  * 扩展约定：topic 命名 `<域>.<节点>`；新增关键节点在此追加条目，
@@ -894,6 +913,25 @@ export interface PluginBlob {
     bytes: number;
 }
 
+export type PluginAsset = PluginAssetMeta;
+
+export interface PluginAssetPutInput {
+    bytes: ArrayBuffer;
+    mime: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+    name?: string;
+    assetId?: string;
+}
+
+export interface PluginAssetPutResult extends PluginAsset {
+    path: string;
+}
+
+export interface PluginAssetGetResult {
+    dataUrl: string;
+    mime: string;
+    bytes: number;
+}
+
 export interface PluginFileSaveResult {
     ok: boolean;
     path: string;
@@ -950,6 +988,15 @@ export interface CaptureDisplay {
  */
 export type PluginLaunchMode = 'quick' | 'shell';
 
+/** 声明式设置 section（manifest.contributes.settings；持久化，重启即显示） */
+export interface SettingsSectionContribution {
+    id: string;
+    title: string;
+    items: SettingsSectionContributionItem[];
+    /** 贡献点 schema 版本；缺省视为当前版本 */
+    schemaVersion?: string;
+}
+
 /** 可由主题插件动态注册的主题包（V2 完整契约见 types/appearance.ts） */
 export interface ThemePack {
     id: string;
@@ -968,6 +1015,27 @@ export type ThemePackRegistrationInput = Omit<ThemePack, 'source' | 'mode' | 'ba
     source?: string;
     background?: ThemePackV2['background'];
 } | ThemePackV2Input;
+
+/**
+ * Bounded enter input handed to a plugin with the launch.
+ * Images carry full data URLs (host-validated budgets); files carry a host-minted
+ * read-only handle plus display metadata — the path is informational, reading goes via handleId.
+ */
+export interface QuickEnterInput {
+    text?: string;
+    images?: Array<{
+        dataUrl: string;
+        width: number;
+        height: number;
+    }>;
+    files?: Array<{
+        handleId: string;
+        path: string;
+        name: string;
+        size: number;
+        kind: 'file' | 'directory';
+    }>;
+}
 
 /** An opaque reference, resolvable only in the same plugin's trusted backend. */
 export interface VaultSetResult {
@@ -1114,6 +1182,12 @@ export interface WorkspaceNavigationAck {
     ok: boolean;
 }
 
+/** Bounded provider-private JSON. The host does not interpret the provider's schema. */
+export interface QuickStateSnapshot {
+    revision: number;
+    value: unknown;
+}
+
 export interface QuickThemeSnapshot {
     version: 1;
     revision: number;
@@ -1139,15 +1213,30 @@ export interface QuickThemeSnapshot {
         placeholder: string;
         acceptsInput: boolean;
     } | null;
+    /**
+     * Host-held paste context (bounded thumbnails only; full bytes stay in main).
+     * Null when nothing is attached. Items ≤12.
+     */
+    input: {
+        items: QuickImageContext[];
+        hasText: boolean;
+    } | null;
     appearance: QuickThemeAppearance;
     bounds: {
         width: number;
         height: number;
         inputHeight: number;
     };
+    opened?: QuickThemeOpenedReceipt | null;
 }
 
 export type QuickThemeAction = {
+    type: 'state-read';
+} | {
+    type: 'state-write';
+    expectedRevision: number;
+    value: unknown;
+} | {
     type: 'query';
     query: string;
 } | {
@@ -1181,6 +1270,15 @@ export type QuickThemeAction = {
 } | {
     type: 'expand';
     expanded: boolean;
+}
+/** Request the host read clipboard image/file into the paste context; needs a one-shot native gesture. */
+ | {
+    type: 'paste';
+}
+/** Remove one paste-context entry by opaque id; omit id to clear the whole context. */
+ | {
+    type: 'input-clear';
+    id?: string;
 } | {
     type: 'open-market' | 'open-settings' | 'refresh-apps' | 'retry' | 'hide' | 'plugin-back' | 'plugin-pin' | 'plugin-focus' | 'plugin-detach';
 } | {
@@ -1199,6 +1297,7 @@ export type QuickThemeAction = {
 export interface QuickThemeActionResult {
     ok: boolean;
     error?: string;
+    state?: QuickStateSnapshot;
 }
 
 export interface ThemeChromeSnapshot {
@@ -1348,12 +1447,28 @@ export interface AuxiliaryContext {
     };
 }
 
+/** A self-contained JSON Schema 2020-12 document; references must stay local. */
+export type McpJsonSchema = Record<string, unknown>;
+
+/** Descriptive hints only; these never grant host permissions. */
+export interface McpToolAnnotations {
+    title?: string;
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+}
+
 // —— 插件生命周期（对标 uTools onPluginEnter / onPluginOut）——
-/** openPlugin 可选进入载荷：code 对应 feature 指令，payload 为任意透传数据 */
+/**
+ * openPlugin 可选进入载荷：code 对应 feature 指令，payload 为任意透传数据；
+ * input 为 Quick 粘贴上下文（文本/图片/文件），由宿主按会话预算签发。
+ */
 export interface PluginEnterPayload {
     code?: string;
-    type?: 'text' | 'regex' | 'over';
+    type?: 'text' | 'regex' | 'over' | 'img' | 'files';
     payload?: unknown;
+    input?: QuickEnterInput;
 }
 
 /** 关闭原因：用户关 Tab / 卸载插件 / 应用退出 */
@@ -1588,6 +1703,8 @@ export interface HomePageContribution {
     variants: string[];
 }
 
+export type McpToolHandler = (argumentsValue: Record<string, unknown>, context: McpHandlerContext) => McpToolResult | Promise<McpToolResult>;
+
 /**
  * 壳统一通知（ShellNotice）— 壳软件关键节点事件的标准信封。
  *
@@ -1615,6 +1732,44 @@ export interface NotificationOptions {
     level?: NotificationLevel;
     /** 0 keeps the card until dismissed; otherwise 1500–60000 ms. */
     duration?: number;
+}
+
+export interface PluginAssetMeta {
+    assetId: string;
+    name: string;
+    mime: string;
+    bytes: number;
+    createdAt: number;
+}
+
+/** 设置 section 贡献项：manifest、主进程设置桥和动态渲染共用。 */
+export interface SettingsSectionContributionItem {
+    key: string;
+    /** Explicit public presentation opt-in. Text, credentials and undeclared fields remain private. */
+    shareWithThemes?: boolean;
+    /**
+     * 控件类型（10 种）：text / string / switch / boolean / bool / select /
+     * number / slider / color / page。
+     * - string/bool 为 text/switch 的别名（对齐插件侧声明习惯）；
+     * - slider 需 min/max/step；color 渲染颜色输入；page 打开插件内独立设置页。
+     * - 非法类型渲染层回退 text。
+     */
+    type: string;
+    label: string;
+    /** type=page：打开本插件并发送入口事件；缺省 code=settings。 */
+    entry?: {
+        code: string;
+        payload?: unknown;
+    };
+    default?: unknown;
+    options?: Array<{
+        label: string;
+        value: unknown;
+    }>;
+    /** type=slider：范围与步长 */
+    min?: number;
+    max?: number;
+    step?: number;
 }
 
 export interface BackgroundConfig {
@@ -1731,9 +1886,6 @@ export interface HomeSearchEntry {
     aliases?: string[];
     action?: QuickActionId;
     content?: QuickContentMatch;
-    lastUsedTs?: number;
-    useCount?: number;
-    preferred?: boolean;
 }
 
 export type WorkspaceRoute = {
@@ -1759,6 +1911,22 @@ export type WorkspacePage = 'catalog' | 'detail';
  */
 export type QuickCommandKind = 'app' | 'plugin' | 'action';
 
+/**
+ * Host-held paste-context entry projected into renderers and themes.
+ * Full image bytes never enter the theme snapshot: thumbnails are bounded data URLs.
+ */
+export interface QuickImageContext {
+    /** Opaque session handle; valid only until the context is cleared. */
+    id: string;
+    kind: 'image' | 'file' | 'directory';
+    name?: string;
+    size?: number;
+    width?: number;
+    height?: number;
+    /** Bounded PNG data URL for preview (≤64 KiB). */
+    thumbnail: string;
+}
+
 export interface QuickThemeAppearance {
     mode: AppearanceColorMode;
     tokens: Record<string, string>;
@@ -1771,6 +1939,14 @@ export interface QuickThemeAppearance {
             url: string;
         }>;
     };
+}
+
+/** A successful native launch fact, not an instruction to maintain any particular history model. */
+export interface QuickThemeOpenedReceipt {
+    sequence: number;
+    stateKey: string;
+    at: number;
+    query: string;
 }
 
 /** Opaque handles expire whenever the current result set changes. No launch paths or payloads. */
@@ -1787,12 +1963,11 @@ export interface QuickThemeItem {
 
 /** A native directory descriptor. IDs are session capabilities, not launch targets. */
 export interface QuickThemeCatalogItem extends Omit<QuickThemeItem, 'group'> {
+    /** Stable opaque identity for private state, never a launch capability or local path. */
+    stateKey: string;
     aliases: string[];
     content?: QuickContentMatch;
     provider?: boolean;
-    lastUsedTs?: number;
-    useCount?: number;
-    preferred?: boolean;
 }
 
 export type ShellView = 'home' | 'settings' | 'plugin';
@@ -1881,6 +2056,21 @@ export interface DeadlineTaskStep {
     };
 }
 
+export interface McpToolResult {
+    content: McpContentBlock[];
+    /** Must be JSON-serializable. False, zero and null are meaningful results. */
+    structuredContent?: unknown;
+    isError?: boolean;
+}
+
+export interface McpHandlerContext {
+    requestId: string;
+    /** Absolute Unix time in milliseconds. */
+    deadlineAt: number;
+    /** Runs immediately if already cancelled; returns an unsubscribe function. */
+    onCancel(callback: () => void): () => void;
+}
+
 export type NotificationLevel = 'info' | 'success' | 'warn' | 'error';
 
 export type NotificationFormat = 'text' | 'html' | 'markdown';
@@ -1904,13 +2094,19 @@ export interface BackgroundEffectBase {
 
 export type QuickActionId = 'open-market' | 'open-settings' | 'refresh-apps';
 
-/** Validated declaration, not an evaluated match. The selected theme owns matching. */
 export interface QuickContentMatch {
-    type: 'regex' | 'over';
+    type: QuickContentType;
     source?: string;
     flags?: string;
     minLength: number;
     maxLength?: number;
+    /** img/files: lowercase extension allowlist (no dot). Empty means any supported type. */
+    extensions?: string[];
+    /** files only: accept directory entries. */
+    allowDirectory?: boolean;
+    /** files only: accepted entry count bounds (defaults 1..20). */
+    minCount?: number;
+    maxCount?: number;
 }
 
 export type ThemeSettingValue = string | number | boolean | BackgroundConfig | null;
@@ -1956,6 +2152,42 @@ export interface ThemeSettingOption {
     preview?: ThemeSettingOptionPreview;
 }
 
+export type McpContentBlock = ({
+    type: 'text';
+    text: string;
+} | {
+    type: 'image';
+    data: string;
+    mimeType: string;
+} | {
+    type: 'audio';
+    data: string;
+    mimeType: string;
+} | {
+    type: 'resource_link';
+    uri: string;
+    name: string;
+    title?: string;
+    description?: string;
+    mimeType?: string;
+    size?: number;
+} | {
+    type: 'resource';
+    resource: {
+        uri: string;
+        mimeType?: string;
+    } & ({
+        text: string;
+    } | {
+        blob: string;
+    });
+}) & {
+    annotations?: McpContentAnnotations;
+};
+
+/** Validated declaration, not an evaluated match. The selected theme owns matching. */
+export type QuickContentType = 'text' | 'regex' | 'over' | 'img' | 'files';
+
 export type ThemeLayoutKey = 'density' | 'gap' | 'sidebarWidth' | 'contentWidth' | 'columns' | 'tabStyle' | ThemeTabStripKey;
 
 export type ThemeBackgroundKey = 'texture' | 'intensity' | 'speed' | 'direction' | 'effect' | 'media' | 'warmth' | 'grain' | 'scale' | 'wash' | 'kind' | 'palette' | 'color' | 'opacity' | 'fit';
@@ -1979,6 +2211,12 @@ export type ThemeSettingOptionPreview = {
     kind: 'asset';
     src: string;
 };
+
+export interface McpContentAnnotations {
+    audience?: Array<'user' | 'assistant'>;
+    priority?: number;
+    lastModified?: string;
+}
 
 /** Options a theme can expose for the classic top tab strip. */
 export type ThemeTabStripKey = 'tabOpacity' | 'tabAutoHide';

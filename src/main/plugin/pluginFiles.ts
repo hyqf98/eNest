@@ -6,6 +6,7 @@ import { getAppPaths } from '@main/paths/pathsService'
 import { acquireQuickInteraction } from '@main/window/createQuickWindow'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
+import { assertInteractive, trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 
 const queues = new Map<string, { tail: Promise<unknown>; count: number }>()
 const blobDir = (id: string) => join(getAppPaths().data, 'plugin-attachments', createHash('sha256').update(id).digest('hex'))
@@ -81,6 +82,7 @@ interface SaveInput { defaultName?: string; filename?: string; content?: string;
 const saving = new Set<string>()
 export async function savePluginFile(pluginId: string, input: SaveInput): Promise<{ ok: boolean; path: string } | null> {
   const scope = owner(pluginId)
+  assertInteractive(scope)
   if (saving.has(pluginId)) throw new Error('已有保存对话框，请先完成或取消')
   if (String(input?.dataUrl ?? input?.content ?? '').length > 96 * 1024 * 1024) throw new Error('导出文件超过 64 MB')
   let payload: SaveInput | null = { ...input }
@@ -96,7 +98,9 @@ export async function savePluginFile(pluginId: string, input: SaveInput): Promis
   try {
     const options = { defaultPath: basename(payload.defaultName || payload.filename || 'export.txt') }
     const win = pluginHost.getContainerWindow(pluginId)
-    const picked = await Promise.race([win && !win.isDestroyed() ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options), aborted])
+    assertInteractive(scope)
+    const nativeResult = trackNativeInteraction(win && !win.isDestroyed() ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options))
+    const picked = await Promise.race([nativeResult, aborted])
     current(scope)
     if (picked.canceled || !picked.filePath || !payload) return null
     const data = payload.dataUrl !== undefined ? decode(payload.dataUrl, 64 * 1024 * 1024).data : Buffer.from(String(payload.content ?? ''), 'utf8')

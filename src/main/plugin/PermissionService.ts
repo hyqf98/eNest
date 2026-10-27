@@ -8,6 +8,7 @@ import { settingsStore } from '@main/settings/SettingsStore'
 import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { getMainWindow } from '@main/window/createShellWindow'
 import { logWarn } from '@main/logs/logService'
+import { assertInteractive, assertInteractionEpoch, getInteractionEpoch, interactionError, isNonInteractive, trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 
 export type PermissionDecision = 'once' | 'always' | 'deny'
 interface Request {
@@ -17,6 +18,8 @@ interface Request {
   scope: PluginRuntimeScope
   promise: Promise<boolean>
   resolve: (allowed: boolean) => void
+  reject: (error: Error) => void
+  interactionEpoch: number
   cleanup: () => void
   controller: AbortController
   sourceSignal?: AbortSignal
@@ -59,15 +62,21 @@ export class PermissionService {
     const scope = getRuntimeScope(pluginId)
     if (!PLUGIN_PERMISSIONS.includes(permission) || !scope?.isCurrent() || scope.isClosing) return Promise.resolve(false)
     const decision = this.decision(scope, permission)
-    if (decision !== undefined) return Promise.resolve(decision)
+    if (decision !== undefined) {
+      if (!decision && isNonInteractive(scope)) throw interactionError('permission-denied', `permission denied: ${permission}`)
+      return Promise.resolve(decision)
+    }
+    if (isNonInteractive(scope)) throw interactionError('needs-consent', `permission requires consent: ${permission}`)
+    assertInteractive(scope)
     const pending = [this.active, ...this.queue].find(item => item && !item.settled && item.scope === scope && item.permission === permission && item.sourceSignal === signal)
     if (pending) return pending.promise
     if (this.queue.length >= 64 || this.queue.filter(item => item.pluginId === pluginId).length >= 8) return Promise.resolve(false)
 
     let resolve!: Request['resolve']
-    const promise = new Promise<boolean>(done => { resolve = done })
+    let reject!: Request['reject']
+    const promise = new Promise<boolean>((done, fail) => { resolve = done; reject = fail })
     const releaseActivity = scope.acquireActivity('plugin permission request')
-    const request: Request = { pluginId, permission, osHint, scope, promise, resolve, cleanup: () => {}, controller: new AbortController(), sourceSignal: signal, settled: false }
+    const request: Request = { pluginId, permission, osHint, scope, promise, resolve, reject, interactionEpoch: getInteractionEpoch(scope), cleanup: () => {}, controller: new AbortController(), sourceSignal: signal, settled: false }
     const abort = (): void => {
       this.cancelRequest(request)
     }
@@ -118,6 +127,8 @@ export class PermissionService {
       if (currentDecision !== undefined) { this.settle(request, currentDecision); return }
       const win = pluginHost.getContainerWindow(request.pluginId) || getMainWindow()
       if (!win || win.isDestroyed()) { this.settle(request, false); return }
+      assertInteractionEpoch(request.scope, request.interactionEpoch)
+      assertInteractive(request.scope)
       if (win.isMinimized()) win.restore()
       win.show()
       const releaseWindow = pluginHost.acquireWindowInteraction(request.pluginId)
@@ -137,13 +148,13 @@ export class PermissionService {
         ...(request.osHint || permissions.some(permission => permission === 'screen.capture' || permission === 'screen.record')
           ? ['屏幕等系统权限仍需在操作系统中授权。'] : [])
       ].join('\n')
-      const response = await waitForConsent(dialog.showMessageBox(win, {
+      const response = await waitForConsent(trackNativeInteraction(dialog.showMessageBox(win, {
         type: 'question', title: 'eNest 插件授权',
         message: `允许「${manifest.name || request.pluginId}」使用以下能力？`,
         detail,
         buttons: ['暂不允许', '本次运行允许', '授权并记住'], defaultId: 0, cancelId: 0, noLink: true,
         signal: request.controller.signal
-      }), request.controller.signal)
+      })), request.controller.signal)
       if (!response || request.settled || request.controller.signal.aborted || !request.scope.isCurrent() || request.scope.isClosing) return
       if (response.response !== 0 && response.response !== 1 && response.response !== 2) { this.settle(request, false); return }
       if (response.response === 2) {
@@ -160,7 +171,13 @@ export class PermissionService {
         this.runtimeDecisions.set(request.scope, decisions)
       }
       this.settle(request, this.decision(request.scope, request.permission) === true)
-    } catch (error) { logWarn('permission', String(error)); this.cancelRequest(request) }
+    } catch (error) {
+      if (!request.settled && typeof (error as { code?: unknown })?.code === 'string') {
+        request.settled = true
+        request.cleanup()
+        request.reject(error as Error)
+      } else { logWarn('permission', String(error)); this.cancelRequest(request) }
+    }
     finally {
       this.settle(request, false)
       releaseInteraction()

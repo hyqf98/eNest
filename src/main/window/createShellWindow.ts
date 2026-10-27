@@ -256,6 +256,9 @@ let detachedAppearanceSink: (() => void) | null = null
 export function setDetachedAppearanceSink(sink: (() => void) | null): void { detachedAppearanceSink = sink }
 let notificationAppearanceSink: (() => void) | null = null
 export function setNotificationAppearanceSink(sink: () => void): void { notificationAppearanceSink = sink }
+/** 面板 chrome 独立文档：主题/外观变化后重读 token 与材质。 */
+let panelAppearanceSink: (() => void) | null = null
+export function setPanelAppearanceSink(sink: (() => void) | null): void { panelAppearanceSink = sink }
 const appearanceSettings = new Set(['locale', 'animationLevel', 'fontFamily', 'fontFamilyEn', 'fontSizeScale', 'customFonts'])
 
 let installEventSink: ((payload: ShellEventPayload) => void) | null = null
@@ -272,6 +275,7 @@ export function sendShellEvent(payload: ShellEventPayload): void {
   if (payload.type === 'appearance-changed' || payload.type === 'theme-changed' || payload.type === 'theme-packs-changed' || payload.type === 'settings-changed' && payload.generalKeys.some(key => appearanceSettings.has(key))) {
     try { detachedAppearanceSink?.() } catch { /* independent chrome may be retiring */ }
     try { notificationAppearanceSink?.() } catch { /* notifications may be retiring */ }
+    try { panelAppearanceSink?.() } catch { /* panel chrome may be retiring */ }
   }
   const wc = getShellWebContents()
   if (wc && !wc.isDestroyed()) wc.send(IpcChannels.ShellEvent, payload)

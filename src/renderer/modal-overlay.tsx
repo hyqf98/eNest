@@ -56,7 +56,7 @@ function NativeModal() {
   return <Dialog.Root open onOpenChange={open => { if (!open) action('cancel') }}>
     <Dialog.Portal>
       <Dialog.Overlay className="confirm-overlay native-modal-backdrop" />
-      <Dialog.Content className={state.kind === 'confirm' ? `confirm-panel${state.options?.danger ? ' is-danger' : ''}` : 'native-update-panel update-modal'}
+      <Dialog.Content className={state.kind === 'confirm' ? `confirm-panel${state.options?.danger ? ' is-danger' : ''}` : state.kind === 'open-with-choice' ? 'confirm-panel open-with-panel' : 'native-update-panel update-modal'}
         onOpenAutoFocus={event => { event.preventDefault(); cancel.current?.focus({ preventScroll: true }) }}
         onEscapeKeyDown={event => { event.preventDefault(); action('cancel') }}
         onInteractOutside={event => event.preventDefault()}>
@@ -67,6 +67,22 @@ function NativeModal() {
           <div className="confirm-actions">
             <Button ref={cancel} variant="ghost" onClick={() => action('cancel')}>{text('取消', 'Cancel')}</Button>
             <Button variant={state.options?.danger ? 'danger' : 'primary'} onClick={() => action('confirm')}>{state.options?.confirmLabel}</Button>
+          </div>
+        </> : state.kind === 'open-with-choice' ? <>
+          <Dialog.Title>{text('选择打开方式', 'Open with')}</Dialog.Title>
+          <Dialog.Description>{text(`要用哪个组件打开此${state.openWith?.value ?? ''}？选择后会记住，下次直接打开。`, `Which component should open this ${state.openWith?.value ?? ''}? Your choice will be remembered.`)}</Dialog.Description>
+          <div className="open-with-choices">
+            {state.openWith?.choices.map(choice => (
+              <Button key={choice.pluginId} className="open-with-choice-btn" onClick={() => action(`open-with:${choice.pluginId}`)}>
+                <span className="open-with-choice-glyph" style={choice.color ? { background: choice.color } : undefined}>
+                  {choice.glyph ?? choice.pluginName.slice(0, 1)}
+                </span>
+                {choice.pluginName}
+              </Button>
+            ))}
+          </div>
+          <div className="confirm-actions">
+            <Button ref={cancel} variant="ghost" onClick={() => action('cancel')}>{text('取消', 'Cancel')}</Button>
           </div>
         </> : <>
           <header className="update-header">

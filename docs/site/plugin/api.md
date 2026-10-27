@@ -18,7 +18,7 @@ const api = window.enest
 
 普通插件页面使用 `window.enest`；Workspace 使用专用 `window.enestWorkspace`；V2 主题包声明 `quick: { version: 1, entry }` 的 Quick 页面只获得 **`window.enestQuick`**，不可复用普通插件或壳子 API。
 
-`enestQuick.ready()` 通知首帧就绪；`getState()` 与 `onState(listener)` 获取当次展示快照；`onFocus(listener)` 处理宿主焦点请求；`action(request)` 提交受限查询、过滤、选中、打开、展开、市场入口、隐藏、业务插件返回／固定／聚焦及有界布局请求。结果 ID 是短期不透明句柄；真实启动请求、文件路径、设置与历史不出桥。主题页不能凭自己发送的按键消息伪造用户授权。详细声明、可运行示例、原生几何限制及失败回退见[主题包标准](themes.md#quick-自绘页面-v1)，参数以自动生成的 `EnestQuickApi` 为准。
+`enestQuick.ready()` 通知首帧就绪；`getState()` 与 `onState(listener)` 获取当次展示快照；`onFocus(listener)` 处理宿主焦点请求；`action(request)` 提交受限查询、过滤、选中、打开、展开、市场入口、隐藏、业务插件返回／固定／聚焦及有界布局请求。`state.read()/state.write(value, expectedRevision)` 提供当前提供者有界 JSON/CAS 私有存储；目录 `stateKey` 与成功启动 `opened` 回执供其实现自己的近期/偏好模型，不接受 stable key 作为启动授权。结果 ID 是短期不透明句柄；真实启动请求、文件路径、全量设置与其它提供者历史不出桥。主题页不能凭自己发送的按键消息伪造用户授权。详细声明、可运行示例、原生几何限制及失败回退见[主题包标准](themes.md#quick-自绘页面-v1)，参数以自动生成的 `EnestQuickApi` 为准。
 
 ## 调用模型
 
@@ -89,6 +89,7 @@ resolve({ ok: true, data })
 | `storage` | `get/set/remove/clear` | 基础能力 | 持久化 KV |
 | `storage.session` | `get/set/remove/clear` | 基础能力 | 会话态 KV |
 | `storage.blobs` | `put/get/remove` | 基础能力 | 本插件私有图片附件 |
+| `storage.assets` | `put/list/get/delete` | 基础能力 | 本插件私有静态资源（二进制图片）：`put({bytes, mime, name?, assetId?})` 收 ArrayBuffer（png/jpeg/webp/gif，单文件 ≤32MB、每插件 1GB），稳定 `assetId` 幂等覆盖；`list()` 枚举、`get(id)` 回 dataUrl（预览/导出用） |
 | `background` | `call(method, args?, { timeoutMs? }?)` | 按声明事件校验 | 调用本插件沙箱后台的私有方法，不是 Node 后端 |
 | `auxiliary` | `open/send/close/list` | 普通窗口为基础能力；捕获/置顶另验权限 | 包内辅助页；辅助页只有 `enestAux` |
 | `files.stream` | `open/write/finish/abort` | 基础能力 | 当前实例的有界私有输出流，不接受目标路径 |
@@ -101,13 +102,14 @@ resolve({ ok: true, data })
 | `clipboard` | `inspectFiles(paths)` / `revealFile(path)` | 基础能力，仍校验目标 | 只检查已授权文件；定位前由原生选择确认签发能力 |
 | `screen` | `capture({ displayId?, bounds? })` | `screen.capture` | 截图 |
 | `screen` | `displays()` | 基础能力 | 显示器几何、缩放与主屏标记，不读取屏幕内容 |
-| `net` | `fetch({ url, method?, headers?, body?, timeoutMs?, stream? })` | `net.fetch` | 受控 HTTP(S) / 流式 / SSE |
+| `net` | `fetch({ url, method?, headers?, body?, bodyBase64?, auth?, timeoutMs?, stream? })` | `net.fetch` | 受控 HTTP(S) / 流式 / SSE；`bodyBase64` 为二进制请求体（≤8MB，multipart 上传等）；`auth.secretRef` 由主进程从本插件 vault 解引用注入鉴权头（默认 `Authorization: Bearer`，可改 header/scheme），密钥不回到页面 |
 | `net.socket` | `connect/send/close/list` / `serveWs(socketId)` | `net.socket` | 出站 TCP + 本地 ws 桥 |
 | `net` | `onNetData(cb)` / `onNetClose(cb)` / `onChunk(cb)` | 无（纯订阅） | `net.data` / `net.close` / `net.chunk` 事件 |
 | `sys` | `processes()` / `ports()` / `kill(pid, opts)` | `sys.inspect` / `sys.control` | 本机进程 / 端口 / 结束确认 |
 | `shell` | `openExternal(url)` | `shell.openExternal` | 系统浏览器打开 |
 | `shell` | `saveFile(payload)` / `saveTextFile(payload)` | 基础能力 | 用户经原生对话框选定保存位置后写入 |
 | `deadlineTasks` | `start/get/pause/resume/skip/cancel/onChange` | 基础能力 | 插件自定义持久化步骤计划；不含业务周期/统计；通知单独校验 `notify` |
+| `quickInput` | `configure({placeholder?,value?})` / `release()` / `escape()` / `readContext()` / `onChange(cb)` / `onAction(cb)` | 基础能力 | 当前 Quick 插件接管小窗顶部输入；readContext 读取本次进入携带的文本/图片/文件上下文 |
 | `vault` | `set(key, secret)` | 基础能力 | 存密钥，返回引用 |
 | `vault` | `has(keyOrRef)` | 基础能力 | 判断密钥是否存在 |
 | `vault` | `remove(keyOrRef)` | 基础能力 | 删除密钥 |
@@ -525,7 +527,7 @@ enest.contribute.onQuickQuery(async ({ reqId, query }) => {
 | | |
 |--|--|
 | **权限** | 基础能力，无需声明或授权 |
-| **参数** | `section: { id: string; title: string; items: Array<{ key, type, label, default? }> }` |
+| **参数** | `section: SettingsSectionContribution`，与 `contributes.settings` 复用同一契约；包含 `schemaVersion?`、`items[].shareWithThemes?` |
 | **返回** | `Promise<boolean>` |
 | **错误** | `invalid settings section`（缺 `id` 或 `title`） |
 
@@ -544,12 +546,14 @@ await enest.settings.register({
 |------|------|
 | `section.id` | 分组唯一 id |
 | `section.title` | 设置页分组标题 |
+| `section.schemaVersion` | 可选 schema 版本字符串；省略使用当前版本 |
 | `items[].key` | 设置键，后续 `settings.get/set` 使用 |
 | `items[].type` | 控件类型：`text` / `string` / `switch` / `boolean` / `bool` / `select`（含 `options`）/ `number` / `slider`（含 `min` / `max` / `step`）/ `color`；`page` 为打开本插件设置功能的入口（基础能力）。非法类型渲染层回退 `text` |
 | `items[].label` | 控件标签 |
 | `items[].default` | 默认值（可选） |
 | `items[].options` | `select` 的选项列表 `Array<{ label, value }>` |
 | `items[].min` / `max` / `step` | `slider` 的范围与步长 |
+| `items[].shareWithThemes` | 可选布尔值，只有显式 `true` 的安全简单字段可进入第三方设置描述符；不是共享整个插件设置，跨插件写入仍逐次原生确认 |
 
 ---
 
@@ -905,6 +909,10 @@ ws.binaryType = 'arraybuffer'
 
 ## shell — 系统能力
 
+### 打开方式（宿主统一能力，非插件 API）
+
+「设为默认打开软件」不暴露给插件：系统关联的写入目标只能是 eNest 本体（插件是壳内视图），注册、状态检测与「类型→插件」路由统一由壳主进程负责。插件只经 [manifest `contributes.openWith`](manifest.md#打开方式contributesopenwith) 声明能处理的类型/scheme；命中后以 `onEnter`（`code: 'open-file' | 'open-url'`）收到 `{ paths?, handles?, url? }`，文件读取走 `localFiles.read` 只读句柄。管理界面在壳设置 → 通用 → 打开方式。
+
 ### `shell.openExternal(url)`
 
 用系统默认浏览器打开外部链接。
@@ -990,6 +998,48 @@ await enest.notify({ title: '备份完成', body: '已写入 128 个文件' })
 
 ---
 
+## quickInput — Quick 顶部输入接管
+
+### `quickInput.configure(config)` / `release()` / `escape()`
+
+仅当前挂载于 Quick 小窗的插件可接管顶部输入框。
+
+| | |
+|--|--|
+| **权限** | 基础能力，无需声明或授权 |
+| **参数** | `config: { placeholder: string; value: string }` — placeholder ≤160 字符，value ≤100000 字符 |
+| **返回** | `Promise<boolean>` — 接管/释放/退出是否生效 |
+
+```js
+await enest.quickInput.configure({ placeholder: '输入待办内容…', value: draft })
+const offChange = enest.quickInput.onChange(value => setValue(value))
+const offAction = enest.quickInput.onAction(action => {
+  if (action === 'submit') save()
+})
+```
+
+迁移、隐藏、返回全局搜索或实例销毁立即解除接管，旧 generation 的消息无效；重新进入 Quick 需重新 `configure`。`onChange` 收到宿主输入框的实时文本，`onAction` 收到 `next / previous / submit / clear`（方向键、Enter、清空）。完整键盘语义见[双模式工具接口 — 接管顶部输入](dual-mode-tools.md#接管顶部输入)。
+
+### `quickInput.readContext()`
+
+读取本次 Quick 启动注入给当前插件实例的输入上下文（文本 / 粘贴图片 / 粘贴文件）。
+
+| | |
+|--|--|
+| **权限** | 基础能力，无需声明或授权 |
+| **参数** | 无 |
+| **返回** | `Promise<QuickEnterInput \| null>` — `{ text?, images?: Array<{ dataUrl, width, height }>, files?: Array<{ handleId, path, name, size, kind }> }`；无上下文或实例已换代返回 null |
+
+```js
+// onEnter 已交付同一对象；输入框清空后重开插件、或需要按当前上下文继续处理时再读取。
+const ctx = await enest.quickInput.readContext()
+if (ctx?.images?.length) importImages(ctx.images.map(image => image.dataUrl))
+```
+
+文件条目经 `localFiles.read/list({ handleId })` 读取（宿主签发的只读句柄），`path` 仅用于展示。上下文只在 Quick 启动注入的成功实例与当前 runtime 代次内可读；离开 Quick、换代或销毁后返回 null，重复激活不重放旧上下文。字段边界与启动语义见[双模式工具接口 — 输入上下文](dual-mode-tools.md#输入上下文)。
+
+---
+
 ## 事件总线
 
 ### `on(event, cb)` / `off(event, cb)`
@@ -1012,7 +1062,7 @@ enest.off('enter', onEnter)
 
 | 事件 | 触发 | 数据 |
 |------|------|------|
-| `enter` | 首次加载完成 / Tab 激活 / 唤醒重建 | `{ tabId, code?, payload?, mode? }` |
+| `enter` | 首次加载完成 / Tab 激活 / 唤醒重建 | `{ tabId, code?, type?, payload?, input?, mode? }` |
 | `out` | 切到其它 Tab / Quick 退场 | `{ isKill: false }` |
 | `beforeClose` | 即将销毁 | `{ reason }` |
 | `destroy` | 关闭已开始 | `undefined` |
@@ -1134,16 +1184,20 @@ enest.onSaveRequested(async ({ reason, deadlineMs }) => {
 
 | | |
 |--|--|
-| **参数** | `cb: (event: { tabId: string; code?: string; payload?: unknown; mode?: 'quick' \| 'shell' }) => void` |
+| **参数** | `cb: (event: { tabId: string; code?: string; type?: 'text' \| 'regex' \| 'over' \| 'img' \| 'files'; payload?: unknown; input?: QuickEnterInput; mode?: 'quick' \| 'shell' }) => void` |
 | **返回** | `() => void` — 取消订阅 |
 
 ```js
-enest.onEnter(({ tabId, code, payload, mode }) => {
+enest.onEnter(({ tabId, code, type, payload, input, mode }) => {
   console.log('进入', tabId, code, payload, mode)
+  // Quick 粘贴上下文：文本 / 图片 dataUrl / 宿主签发的只读文件句柄
+  const text = input?.text ?? (typeof payload === 'string' ? payload : '')
+  for (const image of input?.images ?? []) loadFromDataUrl(image.dataUrl)
+  for (const file of input?.files ?? []) readViaHandle(file.handleId)
 })
 ```
 
-`code` / `payload` 来自 `openPlugin` 的进入载荷，对应 `features[].code` 与透传数据；`mode` 为本次进入的启动方式（quick / shell），与 `getLaunchMode()` 一致。
+`code` / `payload` 来自 `openPlugin` 的进入载荷，对应 `features[].code` 与透传数据；Quick 打开插件时 `payload` 恒为当前输入文本（regex/over 命中为原始文本，provider 结果为 provider 载荷）；`input` 为本次启动携带的粘贴上下文（文本/图片/文件，有界），仅 Quick 启动携带上下文时存在。`mode` 为本次进入的启动方式（quick / shell），与 `getLaunchMode()` 一致。完整交互见[双模式工具接口 — 输入上下文](dual-mode-tools.md#输入上下文)；重复激活不重放旧 `payload`/`input`。挂载期间可用 `enest.quickInput.readContext()` 重取本次上下文。
 
 ### `onOut(cb)`
 

@@ -2,6 +2,7 @@
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { dialog } from 'electron'
+import { trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 import { resolveLocalUserPath } from '@main/paths/userPath'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import type { DevPluginLoadOptions, PluginSummary } from '@shared/types/plugin'
@@ -109,7 +110,7 @@ export async function loadDevPlugin(dirPath: string, options: DevPluginLoadOptio
 export async function pickAndLoadDevPlugin(dirPath?: string, options: DevPluginLoadOptions = {}): Promise<PluginSummary | null> {
   let dir = dirPath?.trim()
   if (!dir) {
-    const result = await dialog.showOpenDialog({ title: '选择含 plugin.json 的插件源码目录', properties: ['openDirectory'] })
+    const result = await trackNativeInteraction(dialog.showOpenDialog({ title: '选择含 plugin.json 的插件源码目录', properties: ['openDirectory'] }))
     if (result.canceled || !result.filePaths[0]) return null
     dir = result.filePaths[0]
   }

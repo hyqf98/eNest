@@ -18,6 +18,37 @@ await enest.quickInput.configure({ placeholder: '搜索内容…', value: draft 
 
 `Mod+K` 聚焦顶部输入，`Mod+Enter` 固定到桌面，多行执行使用 `Mod+Shift+Enter`。顶部输入栏和普通工作台中的裸 Esc、返回按钮均直接回到空白全局搜索。终端、编辑器和弹层声明相应 inputContext 后继续自行处理 Esc；输入法组合期间宿主不拦截。长按 Esc 不会在返回后继续隐藏 Quick。插件主动调用 `quickInput.escape()` 仍先清空非空查询，再返回搜索；清空按钮只清空查询。
 
+## 输入上下文
+
+Quick 小窗的输入框支持粘贴图片与文件（uTools/zTools 的内容上下文模型）。粘贴后输入框左侧出现有界缩略图，悬停显示删除按钮，空输入框 Backspace 移除最后一项，Esc 先清上下文再退出。图片与文件字节由宿主按会话保管（最多 8 张图 / 单张 12 MB / 合计 32 MB，最多 20 个文件），Quick 隐藏、退场或成功启动即清空，不跨呼出保留，主题表面只见缩略图。
+
+搜索时携带图片/文件上下文会命中插件 `features[].cmds` 中声明的 `img`/`files` 指令（详见 [plugin.json](manifest.md)）；纯名称或别名打开插件时，当前输入文本同样随启动交付，等价 uTools「选择处理器后带入内容」。插件在 `onEnter` 中接收：
+
+```js
+enest.onEnter(async ({ code, type, payload, input }) => {
+  // 1) 文本：payload 始终是当前原始输入字符串（含 regex/over 命中），保持旧插件兼容。
+  const text = input?.text ?? (typeof payload === 'string' ? payload : '')
+  // 2) 图片：宿主校验过的 data URL，可直接作为 <img src>。
+  for (const image of input?.images ?? []) loadCanvas(image.dataUrl)
+  // 3) 文件：宿主签发的只读句柄；读取走 localFiles.read({handleId})，不承诺裸路径可访问。
+  for (const file of input?.files ?? []) {
+    const handle = { id: file.handleId, name: file.name, kind: file.kind, size: file.size }
+    if (handle.kind === 'file') { const dataUrl = await enest.localFiles.read({ handleId: handle.id, encoding: 'dataUrl' }); importImage(dataUrl) }
+  }
+})
+```
+
+| 字段 | 约定 |
+|---|---|
+| `input.text` | 启动时的输入文本（≤4096 字符），与 `payload` 同源 |
+| `input.images[]` | `{ dataUrl, width, height }`；PNG/JPEG/WebP/GIF，数量与体积受宿主预算约束 |
+| `input.files[]` | `{ handleId, path, name, size, kind: 'file'\|'directory' }`；`handleId` 是本实例的只读 `localFiles` 句柄，`path` 仅用于展示，插件读取一律经 `localFiles.read/list({handleId})` |
+| `type` | 命中的内容指令类型：`text`/`regex`/`over`/`img`/`files` |
+
+已被注入的上下文可在插件仍挂载于 Quick 期间通过 `enest.quickInput.readContext()` 重新读取（返回同形状 `QuickEnterInput`，无则为 null）；离开 Quick、换代或实例销毁后失效。重复激活（无新载荷的 enter）不会重放旧 input。
+
+该链路由当前宿主源码引入。更早打包的旧宿主按旧 `plugin-manifest.schema.json` 校验，`features.items.additionalProperties:false` 会直接拒绝包含 `img`/`files` 指令的包（fail-fast），属预期；新宿主接受并执行完整链路。官方参考实现见插件仓 `plugins/image-tools`（粘贴图片 → 压缩）。
+
 ## 设置、主题和反馈
 
 `contributes.settings` 提供静态声明与默认值；`settings.get(key)` 优先读已保存值，无值才返回声明默认值（false 和 0 不会被误判为空）。`settings.set(key,value)` 只能写声明过的键；`settings.onChange(({key,value})=>{})` 同步壳设置变更。`ui.openSettings()` 隐藏原生插件层并定位当前插件设置。复杂管理入口使用 `type: 'page'` 和 `entry: {code,payload?}`。

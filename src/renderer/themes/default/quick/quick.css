@@ -81,6 +81,16 @@
 .quick-search-bar .search-box input { height: 100%; padding: 0; font-size: 1.08rem; line-height: 24px; letter-spacing: 0; }
 .quick-search-bar .search-box input:focus-visible { outline: none; }
 .quick-search-leading { display: grid; place-items: center; flex: 0 0 24px; width: 24px; height: 28px; border-radius: 6px; color: var(--text-3); }
+/* Paste-context thumbnails sit left of the search icon; each chip removes on hover focus. */
+.quick-input-chips { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 6px; flex: 0 0 auto; height: 100%; }
+.quick-input-chip { position: relative; display: grid; place-items: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
+.quick-input-chip img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.quick-input-chip.kind-file img, .quick-input-chip.kind-directory img { object-fit: none; transform: scale(1.6); opacity: .8; }
+.quick-input-chip.more { font-size: 11px; color: var(--text-2); background: transparent; border-style: dashed; }
+.quick-input-chip button { position: absolute; inset: 0; display: grid; place-items: center; border: 0; padding: 0; margin: 0; width: auto; height: auto; background: rgba(0,0,0,.55); color: #fff; font-size: 15px; line-height: 1; border-radius: 0; opacity: 0; cursor: pointer; transition: opacity var(--quick-feedback) ease; }
+.quick-input-chip:hover button, .quick-input-chip button:focus-visible { opacity: 1; }
+:root[data-anim="low"] .quick-input-chip button { transition: none; }
+:root[data-anim="low"] .quick-input-chips, :root[data-anim="low"] .quick-input-chip { animation: none; }
 .quick-plugin-back:hover { background: var(--surface-2); }
 .quick-plugin-back:hover svg { color: var(--link); }
 .quick-plugin-grip { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 28px; max-width: 108px; height: 30px; padding: 0 5px; border-radius: 6px; cursor: grab; color: var(--text-2); touch-action: none; }
@@ -255,7 +265,7 @@
 }
 
 /* Snapshot-backed inner materials; native outer radius, docking and grid geometry stay host-owned. */
-:where(:root[data-surface='quick'][data-appearance-legacy='false']) .quick-root :is(.quick-search-leading, .quick-plugin-grip, .quick-category, .quick-icon-tile) { border-radius: var(--appearance-control-radius); }
+:where(:root[data-surface='quick'][data-appearance-legacy='false']) .quick-root :is(.quick-search-leading, .quick-plugin-grip, .quick-category, .quick-icon-tile, .quick-input-chip) { border-radius: var(--appearance-control-radius); }
 :where(:root[data-surface='quick'][data-appearance-legacy='false']) .quick-root :is(.quick-item, .quick-error) { border-radius: var(--appearance-card-radius); }
 :where(:root[data-surface='quick'][data-appearance-legacy='false']) .quick-root .quick-categories-slot { border-radius: var(--appearance-panel-radius); }
 :where(:root[data-surface='quick'][data-appearance-legacy='false']) .quick-root :is(.quick-item, .quick-category, .quick-categories-slot, .quick-error, .quick-access-actions) { border-width: var(--appearance-border-width); }

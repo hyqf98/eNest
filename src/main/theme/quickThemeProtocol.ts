@@ -40,16 +40,36 @@ const HEADERS = {
 const COLOR_TOKENS = new Set(['--bg', '--surface', '--surface-2', '--surface-3', '--text', '--text-2', '--text-3', '--accent', '--ok', '--danger', '--border', '--border-strong', '--link'])
 const FONT_STACK = /^[\p{L}\p{N}_ '".,\-]{0,512}$/u
 interface Selection { signature: string; rootInput: string; entry: string; appearance: ResolvedAppearance }
-interface ResourceGrant { signature: string; rootInput: string; root: string; entry: string; key: string; url: string }
+interface ResourceGrant { source: string; signature: string; rootInput: string; root: string; entry: string; key: string; url: string }
 interface QuickPolicy {
   contents: WebContents
   isActive: () => boolean
   gesture: { key: string; at: number } | null
 }
 let currentGrant: ResourceGrant | null = null
+let grantRetirement = 0
+const suspendedSources = new Map<string, Set<symbol>>()
 const policies = new Map<number, QuickPolicy>()
 const installedSessions = new WeakSet<Session>()
 let watchingChanges = false
+
+/** Suspend before awaiting uninstall work: Quick frames do not belong to PluginHost. */
+export function suspendQuickThemeSource(source: string): () => void {
+  const selected = getAppearance().theme.source === source
+  const tokens = suspendedSources.get(source) ?? new Set<symbol>()
+  suspendedSources.set(source, tokens)
+  const token = Symbol()
+  tokens.add(token)
+  if (currentGrant?.source === source || selected) grantRetirement++
+  if (currentGrant?.source === source) currentGrant = null
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    tokens.delete(token)
+    if (!tokens.size && suspendedSources.get(source) === tokens) suspendedSources.delete(source)
+  }
+}
 
 function watchChanges(): void {
   if (watchingChanges) return
@@ -72,6 +92,7 @@ function currentSelection(): Selection | null {
   const appearance = getAppearance()
   const quick = appearance.quick
   const source = appearance.theme.source
+  if (suspendedSources.has(source)) { currentGrant = null; return null }
   const pack = themePackRegistry.get(appearance.theme.id) as ThemePackV2 | null
   const rootInput = pluginRegistry.getAssetRootPath(source)
   if (!quick || quick.version !== 1 || !safePackagePath(quick.entry) || extname(quick.entry).toLowerCase() !== '.html' ||
@@ -88,6 +109,13 @@ function currentSelection(): Selection | null {
 
 function liveGrant(): ResourceGrant | null {
   return currentSelection() && currentGrant
+}
+
+/** Resolve state ownership natively; an expired resource key cannot name a replacement provider. */
+export function getQuickThemeStateOwner(key: string): { source: string; packId: string } | null {
+  const selected = currentSelection()
+  if (!selected || !currentGrant || currentGrant.key !== key) return null
+  return { source: selected.appearance.theme.source, packId: selected.appearance.theme.id }
 }
 
 function entryUrl(key: string, path: string): string {
@@ -163,14 +191,15 @@ export async function getQuickThemeConfig(): Promise<QuickThemeConfig | null> {
   watchChanges()
   const selected = currentSelection()
   if (!selected) return null
+  const retirement = grantRetirement
   try {
     const root = await realpath(selected.rootInput)
     if (!await inspectFile(root, selected.entry)) return null
     const latest = currentSelection()
-    if (!latest || latest.signature !== selected.signature) return null
+    if (!latest || latest.signature !== selected.signature || retirement !== grantRetirement) return null
     if (!currentGrant || currentGrant.root !== root) {
       const key = randomBytes(32).toString('hex')
-      currentGrant = { signature: latest.signature, rootInput: latest.rootInput, root, entry: latest.entry, key, url: entryUrl(key, latest.entry) }
+      currentGrant = { source: latest.appearance.theme.source, signature: latest.signature, rootInput: latest.rootInput, root, entry: latest.entry, key, url: entryUrl(key, latest.entry) }
     }
     return { key: currentGrant.key, url: currentGrant.url, appearance: publicAppearance(latest.appearance) }
   } catch { return null }
@@ -345,6 +374,8 @@ export function registerQuickThemeWebContentsPolicy(contents: WebContents, isAct
       return
     }
     if (!input.isAutoRepeat && ['enter', ' ', 'space'].includes(lower)) grantGesture()
+    // ⌘V/⌘X 也授予手势（粘贴读取剪贴板），但不拦截按键：iframe 内文本粘贴照常。
+    if (!input.isAutoRepeat && command && (lower === 'v' || lower === 'x')) grantGesture()
   })
   contents.on('blur', () => { policy.gesture = null; pendingMouseGesture = null })
   contents.on('did-start-navigation', () => { policy.gesture = null; pendingMouseGesture = null })

@@ -12,6 +12,7 @@ Main
 ├── Theme Workspace WebContentsView（目录、已安装、详情）
 ├── Plugin WebContentsView × N（各插件独立 persist:plugin-{id}）
 ├── Quick BrowserWindow / Plugin WebContentsView（快捷面板）
+├── Free Panel BaseWindow × N（自由面板：chrome 底板 View + 组件 Plugin WebContentsView，置顶透明）
 ├── orb rail WebContentsView（主窗内顶层导航）
 ├── utilityProcess：插件自己的 backend（统一通用 RPC）
 └── 宿主服务：窗口、文件能力、私有存储/密钥、网络桥、计时、主题与权限
@@ -20,6 +21,8 @@ Main
 所有 renderer 关闭 Node 集成、开启 contextIsolation 和 Chromium sandbox。preload 构建为自包含 `.cjs`，仅暴露 contextBridge API；插件不能自带可执行 preload。可选后端需要 `backend.node` 完整本机信任，具备当前用户可用的 Node 文件、网络和进程能力；utilityProcess 只隔离故障与生命周期，不是操作系统沙箱。DSH 的运行时业务与其启动的外部进程由 DSH 插件后端管理，经通用控制协议登记归属，不再由壳内 DSH 专属服务实现。
 
 原生插件视图在 shell DOM 之上。返回目录走 `navigateWorkspace`，隐藏业务视图并等待路由 ACK；进入设置则隐藏 Workspace 表面并切到原生设置视图（`set-view: settings`），不存在受保护设置恢复通道。授权使用主进程原生对话框。orb rail 在插件挂载后重新置顶。主窗标题栏固定 36px，插件内容 bounds 由窗口实际尺寸和 chrome 高度计算；Quick 启动模式与主窗通过 API 明确切换，断点只调整空间布局。
+
+自由面板（默认关闭，设置 → 通用开启）提供第四种插件 placement `{ kind: 'panel'; panelId }`：用户框选区域生成置顶透明窗口，把插件作为组件在其内自由拼接（移动语义，同一 webContents 换父级，沿用 `?mode=shell`）。面板组件常驻可见（`isPresented` 对 panel 恒真，免疫空闲休眠与 LRU），拖动与缩放全程主进程驱动（读光标 + setBounds + 边/中心吸附线），组件条与底板由面板 chrome 绘制。布局持久化在独立 `panels` 设置段（仅主进程写），重启后先建窗口再按 2 并发上限冷启动组件。详见 [panel-windows.md](panel-windows.md)。
 
 启动在 Home IPC 就绪后直接隐藏预热工作区，与源码内置主题的开屏和轻量会话恢复并行；首次启动不再显示主题选择或写入完成标记，后续保留有效插件主题选择；`ready`、路由 ACK 和事务提交完成后，直接显示同一个实例，不插入正常加载/准备页。原生 orb 投影等壳完成启动再开启。设置/注册表和解析外观使用主进程内存状态，不把完整设置或资源授权复制到工作区持久缓存；具体门禁和缓存边界见 `THEME_STANDARD.md`。
 
@@ -33,6 +36,7 @@ Main
 | `src/main/paths`、`db`、`settings` | 数据根、迁移、SQLite、缓冲 KV 与设置 |
 | `src/main/plugin/pluginBackend*` | 通用后端 RPC、文件/密钥能力与实例回收；数据库、中间件、SSH 门面及业务 DTO 均在插件仓 |
 | `src/main/window` | 窗口创建、原生层 bounds 与可见性 |
+| `src/main/panel` | 自由面板：几何纯函数、布局持久化、区域框选、编排（经窄接口调用插件运行时，不反向依赖 PluginHost） |
 | `src/main/home`、`src/main/theme` | 隔离 Workspace 生命周期与安全数据、统一外观解析/事务/资源 |
 | `src/preload` | 壳、插件和辅助窗口的最小 API 桥 |
 | `src/renderer` | React UI、布局、状态、主题、动效 |
@@ -78,6 +82,8 @@ DSH 0.3.1 将 profile/设置、工作台、运行时下载与升级、进程管�
 ## 能力边界
 
 插件 IPC 校验 WebContents 身份、主 frame、origin、插件 ID、当前运行代次。壳提供统一能力，插件自行实现业务。基础存储/UI/设置/主题/声明式入口/私有密钥保存直接可用；只有敏感能力先声明，再经 ask/allow/deny 决策；原生对话框串行执行，撤权关闭当前代次。浏览器敏感权限、下载、任意导航与直接外联默认拒绝，开发 origin 与宿主签发的连接桥按精确范围放行。
+
+「设为默认打开软件」（文件类型 / URL scheme 关联）是壳统一能力：插件不是独立 OS 应用，系统关联写入目标只能是 eNest 本体，插件仅经 `contributes.openWith` 声明（open-with 插槽）。`src/main/openWith/` 聚合声明、维护设置段 `openWith` 的「类型→插件」路由表（仅主进程写，renderer 写入在 set-settings 剥离），并按平台注册：Linux xdg-mime/xdg-settings 可程序化设默认；Windows HKCU 候选 + 引导系统设置；macOS 候选来自打包期 Info.plist，默认切换由用户在系统层完成——设置页对每行如实显示三态。外部打开入口（open-file/open-url/second-instance argv）由 `openWithRouter` 解析：路由命中或单候选自动路由后经 `launchPlugin(source: 'open-with')` 唤起插件并附带只读文件句柄（OS 双击 = 用户选定，与拖入同语义）；多候选弹原生选择框（modalSurface open-with-choice），无人接手发 `open-with-unhandled` toast。macOS 候选类型随壳发版维护在 `build/open-with.json`，`scripts/generate-builder-associations.mjs check` 防止与 electron-builder.yml 漂移；Windows/Linux 运行时动态注册不受此限制。卸载插件时 `PluginUninstaller` 摘除指向它的路由。
 
 系统文件通过原生选择器签发的能力句柄访问，绑定插件、用途、真实路径和运行代次。在宿主文件 API 中，裸路径仅展示。官方数据库后端通过 SQLite authorizer、DuckDB 外部访问锁定防止 SQL 通道绕过文件授权；这不限制已获完整 Node 信任的后端自行执行其它 Node 代码。文件读取、网络流、SSE、连接队列和待写存储都有预算。
 

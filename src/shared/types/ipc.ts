@@ -23,6 +23,7 @@ import type { PluginShortcutsSnapshot } from './shortcuts'
 import type { NotificationOptions } from './notification'
 import type { ShellSettingsSection } from './shell'
 import type { AuxiliaryEvent } from './auxiliary'
+import type { McpErrorCode } from './mcp'
 
 /**
  * IPC 通道常量 — 主进程 / preload / 渲染进程共用。
@@ -49,6 +50,11 @@ export const IpcChannels = {
   /** 壳子 → 主进程 */
   ShellGetPlugins: 'shell:get-plugins',
   ShellGetMarketStatus: 'shell:get-market-status',
+  ShellMcpStatus: 'shell:mcp-status',
+  ShellMcpConfigure: 'shell:mcp-configure',
+  ShellMcpCopyConnection: 'shell:mcp-copy-connection',
+  ShellMcpRotateToken: 'shell:mcp-rotate-token',
+  ShellMcpCatalog: 'shell:mcp-catalog',
   ShellOpenPlugin: 'shell:open-plugin',
   ShellClosePlugin: 'shell:close-plugin',
   ShellStopPluginResources: 'shell:stop-plugin-resources',
@@ -121,6 +127,13 @@ export const IpcChannels = {
   ShellGetSettingsSections: 'shell:get-settings-sections',
   /** 壳子设置页：写入单个插件设置项（同步 Bridge + SettingsStore） */
   ShellSetPluginSetting: 'shell:set-plugin-setting',
+
+  /** 「打开方式」：列表（贡献+路由+系统状态）/ 设默认 / 移除 / 只写路由 / 打开系统设置 */
+  ShellOpenWithList: 'shell:open-with-list',
+  ShellOpenWithSetDefault: 'shell:open-with-set-default',
+  ShellOpenWithClearDefault: 'shell:open-with-clear-default',
+  ShellOpenWithRoute: 'shell:open-with-route',
+  ShellOpenWithOpenSystemSettings: 'shell:open-with-open-system-settings',
 
   /** 路径与数据 */
   ShellGetPaths: 'shell:get-paths',
@@ -207,6 +220,7 @@ export const IpcChannels = {
   QuickGetConfig: 'quick:get-config',
   QuickThemeGetConfig: 'quick:theme-get-config',
   QuickThemeAuthorize: 'quick:theme-authorize',
+  QuickProviderState: 'quick:provider-state',
   QuickThemeKey: 'quick:theme-key',
   QuickSetHotkeys: 'quick:set-hotkeys',
   /** 探测组合键是否可被本进程注册（用于录制时发现系统/他应用占用） */
@@ -214,6 +228,8 @@ export const IpcChannels = {
   /** 渲染层测量内容高度后请求调整小窗高度（内容撑开/收起） */
   QuickResize: 'quick:resize',
   QuickInput: 'quick:plugin-input',
+  /** 读取剪贴板图片/文件并入宿主保管的粘贴上下文，或按 id 移除/清空上下文 */
+  QuickInputContext: 'quick:input-context',
 
   /** Restricted full-page home runtime. The host owns entry, generation and lifecycle. */
   HomeReady: 'home:ready',
@@ -234,6 +250,10 @@ export const IpcChannels = {
   /** 插件 preload → 主进程（经 permission 校验） */
   PluginCall: 'plugin:call',
   PluginEvent: 'plugin:event',
+  PluginMcpRegister: 'plugin:mcp-register',
+  PluginMcpResult: 'plugin:mcp-result',
+  PluginMcpDispatch: 'plugin:mcp-dispatch',
+  PluginMcpCancel: 'plugin:mcp-cancel',
 
   /** 壳子 → 主进程：读取 plugin:call 调用跟踪环形缓冲（DevConsole） */
   ShellGetPluginTrace: 'shell:get-plugin-trace',
@@ -262,7 +282,34 @@ export const IpcChannels = {
   OsOpenScreenSettings: 'shell:os-open-screen-settings',
 
   /** 主进程 → Quick 渲染层：窗口已显示，请求聚焦输入框 */
-  QuickShown: 'quick:shown'
+  QuickShown: 'quick:shown',
+
+  /** —— 自由面板（小组件）：面板 chrome surface ↔ 主进程 —— */
+  /** 面板 chrome → 主进程：读取面板状态快照 */
+  PanelGetState: 'panel:get-state',
+  /** 面板 chrome → 主进程：统一命令入口（添加/移除组件、拖动、关闭面板等） */
+  PanelCommand: 'panel:command',
+  /** 面板 chrome → 主进程：拖动进行中的保活与节流触发（主进程自行读光标） */
+  PanelDragTick: 'panel:drag-tick',
+  /** 主进程 → 面板 chrome：状态快照变更 */
+  PanelState: 'panel:state',
+  /** 主进程 → 面板 chrome：拖动反馈（吸附后的矩形与辅助线） */
+  PanelDrag: 'panel:drag',
+  /** 壳渲染层 → 主进程：框选区域并创建面板 */
+  PanelPickRegion: 'panel:pick-region',
+  /** 壳渲染层 → 主进程：列出活动面板（设置页/入口展示） */
+  PanelList: 'panel:list',
+  /** 壳渲染层 → 主进程：新建面板（先框选） */
+  PanelCreate: 'panel:create',
+  /** 壳渲染层 → 主进程：关闭指定面板 */
+  PanelClose: 'panel:close',
+  /** 壳渲染层 → 主进程：保存面板呼出快捷键并立即重注册（返回注册结果，镜像 quick:set-hotkeys） */
+  PanelSetHotkey: 'panel:set-hotkey',
+
+  /** 区域选择 surface ↔ 主进程 */
+  RegionConfirm: 'panel-region:confirm',
+  RegionCancel: 'panel-region:cancel',
+  RegionState: 'panel-region:state'
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]
@@ -339,6 +386,10 @@ export type ShellEventPayload =
   | { type: 'contributions-changed'; slot: string; source: string }
   /** 原生授权对话框或设置页更新敏感权限后，同步设置 UI。基础能力不进入此表。 */
   | { type: 'permission-grants-changed'; pluginId: string; grants: Partial<Record<PluginPermission, PluginPermissionGrant>> }
+  /** 自由面板集合变化（创建/关闭/组件增删）；壳子据此刷新入口与设置页状态。 */
+  | { type: 'panels-changed' }
+  /** 外部打开无人接手或启动失败：渲染层提示用户（toast） */
+  | { type: 'open-with-unhandled'; kind: 'ext' | 'scheme'; value: string; reason: 'no-provider' | 'launch-failed' }
   /**
    * 废弃的 renderer 权限请求载荷，仅保留类型兼容。
    * 宿主不再发出此事件，renderer 不能据此授予权限；原生对话框是唯一授权入口。
@@ -523,6 +574,7 @@ export interface PluginCallResult {
   ok: boolean
   data?: unknown
   error?: string
+  errorCode?: McpErrorCode
 }
 
 /**

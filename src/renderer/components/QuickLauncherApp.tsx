@@ -1,15 +1,16 @@
 /** Native Quick controller. Providers own rendering, matching, ranking and result layout. */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import type { QuickCommand, QuickCommandKind, QuickOpenRequest, QuickPluginModeInfo } from '@shared/types/quick'
+import type { QuickCommand, QuickCommandKind, QuickImageContext, QuickOpenRequest, QuickPluginModeInfo } from '@shared/types/quick'
 import type { QuickInputState } from '@shared/types/plugin-tools'
-import type { QuickThemeAction, QuickThemeActionResult, QuickThemeConfig, QuickThemeItem, QuickThemeSnapshot } from '@shared/types/quickTheme'
+import type { QuickProviderStateRequest, QuickThemeAction, QuickThemeActionResult, QuickThemeConfig, QuickThemeItem, QuickThemeOpenedReceipt, QuickThemeSnapshot } from '@shared/types/quickTheme'
 import { QUICK_BAR_AREA_H, QUICK_CORNER_RADIUS } from '@shared/constants'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
 import { shellApi } from '@renderer/services/shellApi'
 import { bindPluginDragSource, bindPluginDropTarget } from '@renderer/services/pluginWindowDrag'
 import type { DefaultQuickSurfaceHandle } from '@renderer/themes/default/quick/DefaultQuickSurface'
+import type { DefaultQuickStateClient } from '@renderer/themes/default/quick/usageState'
 import { QuickThemeSurface, type QuickThemeSurfaceHandle } from './QuickThemeSurface'
-import { projectQuickThemeResults, publicQuickCatalog, quickRequestFromRecord, safeQuickIcon, updateQuickCatalog, type QuickCatalogRecord } from './quickCatalog'
+import { buildQuickInputSelection, projectQuickThemeResults, publicQuickCatalog, quickRequestFromRecord, safeQuickIcon, updateQuickCatalog, type QuickCatalogRecord } from './quickCatalog'
 import '@renderer/styles/plugin-window-drag.css'
 import './quickHost.css'
 
@@ -18,6 +19,10 @@ type ThemeKey = Extract<QuickThemeAction, { type: 'key' }>
 interface DirectoryState { revision: number; records: QuickCatalogRecord[] }
 const catalogIconCache = new Map<string, string>()
 const iconKey = (record: QuickCatalogRecord) => record.command.icon ?? record.command.id
+const providerState = (request: QuickProviderStateRequest) => {
+  if (!shellApi.quickProviderState) return Promise.reject(new Error('Native Quick private state is unavailable'))
+  return shellApi.quickProviderState(request)
+}
 const cachedRecords = (records: QuickCatalogRecord[]) => records.map(record => ({ ...record,
   icon: record.icon ?? (safeQuickIcon(record.command.icon) ? record.command.icon : catalogIconCache.get(iconKey(record))) }))
 
@@ -30,6 +35,8 @@ export function QuickLauncherApp() {
   const customSearchRef = useRef(false)
   const remoteView = useRef<QuickThemeSurfaceHandle>(null)
   const defaultView = useRef<DefaultQuickSurfaceHandle>(null)
+  const [providerOpened, setProviderOpened] = useState<{ owner: string; receipt: QuickThemeOpenedReceipt } | null>(null)
+  const openedSequence = useRef(0)
   const themeKey = useRef(themeConfig?.key)
   themeKey.current = themeConfig?.key
   const root = useRef<HTMLDivElement>(null)
@@ -53,6 +60,9 @@ export function QuickLauncherApp() {
   const modeRef = useRef(pluginMode)
   const [pluginInput, setPluginInput] = useState<QuickInputState | null>(null)
   const inputRef = useRef(pluginInput)
+  const [inputContext, setInputContext] = useState<QuickImageContext[]>([])
+  const contextRef = useRef(inputContext)
+  contextRef.current = inputContext
   const inputRevision = useRef(0)
   const queryRevision = useRef(0)
   const searchSequence = useRef(0)
@@ -63,6 +73,23 @@ export function QuickLauncherApp() {
   const [bounds, setBounds] = useState({ width: innerWidth, height: innerHeight, inputHeight: QUICK_BAR_AREA_H })
   const current = useRef({ directory, items, selectedId })
   current.current = { directory, items, selectedId }
+  const defaultPrivateState = useMemo<DefaultQuickStateClient>(() => ({
+    read: async () => {
+      const result = await providerState({ providerKey: null, operation: 'read' })
+      if ('keys' in result) throw new Error('Invalid Quick state response')
+      return result
+    },
+    write: async (expectedRevision, value) => {
+      const result = await providerState({ providerKey: null, operation: 'write', expectedRevision, value })
+      if ('keys' in result) throw new Error('Invalid Quick state response')
+      return result
+    },
+    encodeIdentities: async identities => {
+      const result = await providerState({ providerKey: null, operation: 'keys', identities })
+      if (!('keys' in result) || result.keys.length !== identities.length) throw new Error('Invalid Quick identity response')
+      return result.keys
+    }
+  }), [])
 
   const focus = useCallback((selectAll = false) => {
     ;(themeReadyRef.current ? remoteView : defaultView).current?.focus(selectAll)
@@ -131,10 +158,19 @@ export function QuickLauncherApp() {
 
   const execute = useCallback(async (request: QuickOpenRequest): Promise<boolean> => {
     if (openingRef.current) return false
+    const owner = themeReadyRef.current ? themeKey.current : undefined
+    const defaultPolicy = !themeReadyRef.current || !customSearchRef.current
     openingRef.current = true; setOpening(true); setError(null)
     try {
       const result = await shellApi.quickOpen?.(request)
       if (!result?.ok) { setError('无法打开，请稍后重试。'); return false }
+      if (result.opened) {
+        // 带粘贴上下文启动成功即视为已消费，本地镜像清空（主进程同步移除字节）。
+        if (request.kind === 'plugin' && request.input) { setInputContext([]); invalidate() }
+        const receipt = { ...result.opened, sequence: ++openedSequence.current, query: 'query' in request ? request.query ?? '' : '' }
+        if (defaultPolicy) defaultView.current?.recordOpened(receipt)
+        if (owner && owner === themeKey.current && themeReadyRef.current) setProviderOpened({ owner, receipt })
+      }
       if (request.kind === 'action' && request.action === 'refresh-apps') { invalidate(); setRefresh(value => value + 1) }
       return true
     } catch { setError('无法打开，请稍后重试。'); return false }
@@ -193,6 +229,10 @@ export function QuickLauncherApp() {
     })
     const offShown = shellApi.onQuickShown?.(() => {
       setQuery(inputRef.current?.value ?? ''); setFilter(null); invalidate(); setShown(value => value + 1)
+      // 主进程在隐藏时清空上下文，呼出后镜像必须与宿主对齐。
+      void shellApi.quickInputContext?.({ operation: 'list' })
+        .then(result => { if (result?.ok) setInputContext(result.items ?? []) })
+        .catch(() => { setInputContext([]) })
       requestAnimationFrame(() => focus())
     })
     return () => { offEvent?.(); offShown?.() }
@@ -243,11 +283,26 @@ export function QuickLauncherApp() {
   }, [items, directory.records])
 
   const authorized = useCallback(async (trusted: boolean) => trusted || Boolean(themeConfig && await shellApi.quickAuthorizeTheme?.(themeConfig.key)), [themeConfig])
+  const applyContext = useCallback((items: QuickImageContext[] | undefined) => {
+    setInputContext(Array.isArray(items) ? items.slice(0, 12) : [])
+    invalidate()
+  }, [invalidate])
+  const pasteFromClipboard = useCallback(async (): Promise<QuickThemeActionResult> => {
+    try {
+      const result = await shellApi.quickInputContext?.({ operation: 'read-clipboard' })
+      if (!result?.ok) return { ok: false, error: '无法读取剪贴板内容。' }
+      applyContext(result.items)
+      return { ok: true }
+    } catch { return { ok: false, error: '无法读取剪贴板内容。' } }
+  }, [applyContext])
   const openHandle = useCallback(async (id: string, container?: 'quick' | 'shell') => {
     if (!current.current.items.some(item => item.id === id)) return false
     const record = current.current.directory.records.find(record => record.id === id)
     const request = record && quickRequestFromRecord(record, query, container)
-    return request ? execute(request) : false
+    if (!request) return false
+    const selection = request.kind === 'plugin' && record
+      ? buildQuickInputSelection(contextRef.current, record.command, query) : undefined
+    return execute(selection ? { ...request, ...(selection ? { input: selection } : {}) } : request)
   }, [execute, query])
 
   const keyAction = useCallback(async (input: ThemeKey, trusted: boolean): Promise<QuickThemeActionResult> => {
@@ -260,6 +315,11 @@ export function QuickLauncherApp() {
       if (modeRef.current) { pendingQuery.current = null; return { ok: await escapePlugin() } }
       if (query) changeQuery('')
       else if (filter) { invalidate(); setFilter(null) }
+      else if (contextRef.current.length) {
+        contextRef.current = []; setInputContext([])
+        void shellApi.quickInputContext?.({ operation: 'clear' }).catch(() => undefined)
+        invalidate()
+      }
       else shellApi.quickHide?.()
       return { ok: true }
     }
@@ -291,7 +351,17 @@ export function QuickLauncherApp() {
   useEffect(() => shellApi.onQuickThemeKey?.(input => { if (themeReadyRef.current) void keyAction({ type: 'key', ...input }, true) }), [keyAction])
 
   const action = useCallback(async (request: QuickThemeAction, trusted = false): Promise<QuickThemeActionResult> => {
-    if (trusted ? themeReadyRef.current && (request.type !== 'results' || customSearchRef.current) : !themeReadyRef.current || !themeConfig) return { ok: false }
+    const privateStateAction = request.type === 'state-read' || request.type === 'state-write'
+    if (trusted ? !privateStateAction && themeReadyRef.current && (request.type !== 'results' || customSearchRef.current) : !themeReadyRef.current || !themeConfig) return { ok: false }
+    if (privateStateAction) {
+      const providerKey = trusted ? null : themeConfig!.key
+      try {
+        const result = await providerState({ providerKey,
+          ...(request.type === 'state-read' ? { operation: 'read' as const } : { operation: 'write' as const, expectedRevision: request.expectedRevision, value: request.value }) })
+        if ('keys' in result || !trusted && (providerKey !== themeKey.current || !themeReadyRef.current)) return { ok: false }
+        return { ok: true, state: { revision: result.revision, value: result.value } }
+      } catch { return { ok: false, error: '无法读写主题的私有状态，请重试。' } }
+    }
     if (request.type === 'query') { if (request.query !== query) changeQuery(request.query.slice(0, 4_096)); return { ok: true } }
     if (request.type === 'composition') { composingRef.current = request.active; setComposing(request.active); return { ok: true } }
     if (request.type === 'filter') { if (request.kind !== filter) { invalidate(); setFilter(request.kind) }; return { ok: true } }
@@ -316,12 +386,20 @@ export function QuickLauncherApp() {
       setSelectedId(request.id); return { ok: true }
     }
     if (request.type === 'expand') { setExpanded(request.expanded); return { ok: true } }
+    if (request.type === 'input-clear') {
+      try {
+        const result = await shellApi.quickInputContext?.({ operation: 'clear', ...(request.id ? { id: request.id } : {}) })
+        applyContext(result?.items)
+        return { ok: result?.ok === true }
+      } catch { return { ok: false, error: '无法移除粘贴内容，请重试。' } }
+    }
     if (request.type === 'key') return keyAction(request, trusted)
     if (request.type === 'retry') { invalidate(); setRefresh(value => value + 1); return { ok: true } }
     const before = queryRevision.current, modeBefore = modeRef.current?.pluginId, providerBefore = themeKey.current
     if (!await authorized(trusted)) return { ok: false, error: '请通过点击或按键执行此操作。' }
     if (queryRevision.current !== before || modeRef.current?.pluginId !== modeBefore || themeKey.current !== providerBefore) return { ok: false }
     if (request.type === 'open') return { ok: await openHandle(request.id, request.container) }
+    if (request.type === 'paste') return pasteFromClipboard()
     if (request.type === 'open-market' || request.type === 'open-settings' || request.type === 'refresh-apps') {
       return { ok: await execute({ kind: 'action', action: request.type, query }) }
     }
@@ -337,14 +415,16 @@ export function QuickLauncherApp() {
       return { ok: result?.ok === true }
     }
     return { ok: false }
-  }, [authorized, catalog, changeQuery, escapePlugin, execute, filter, invalidate, keyAction, openHandle, query, themeConfig])
+  }, [applyContext, authorized, catalog, changeQuery, escapePlugin, execute, filter, invalidate, keyAction, openHandle, pasteFromClipboard, query, themeConfig])
 
   const snapshot: QuickThemeSnapshot = {
     version: 1, revision: ++snapshotRevision.current, query, filter, searching: Boolean(query.trim()), loading, busy: opening, composing,
     error, items, catalog, catalogRevision: directory.revision, queryRevision: queryRevision.current, shown,
+    opened: providerOpened && providerOpened.owner === themeConfig?.key ? providerOpened.receipt : null,
     selectedId, expanded, hiddenCount, emptyMarket,
     plugin: pluginMode ? { title: pluginMode.title, loading: pluginMode.loading === true,
       placeholder: pluginInput?.placeholder?.slice(0, 256) || '搜索其它应用或插件…', acceptsInput: Boolean(pluginInput) } : null,
+    input: inputContext.length ? { items: inputContext, hasText: Boolean(query.trim()) } : null,
     appearance: themeConfig?.appearance ?? { mode: appearance.mode, tokens: appearance.tokens, fonts: appearance.fonts,
       components: appearance.components, animation: appearance.animation.effective, resources: { fonts: [] } }, bounds
   }
@@ -353,7 +433,8 @@ export function QuickLauncherApp() {
     style={{ '--quick-bar-h': `${QUICK_BAR_AREA_H}px`, '--quick-radius': `${QUICK_CORNER_RADIUS}px` } as CSSProperties}>
     <div className="quick-default-provider" hidden={themeReady}>
       <Suspense fallback={<div role="status" aria-label="正在加载快捷启动" />}>
-        <DefaultQuickSurface ref={defaultView} snapshot={snapshot} active={!themeReady} searchActive={!themeReady || !customSearch} onAction={request => action(request, true)} />
+        <DefaultQuickSurface ref={defaultView} snapshot={snapshot} active={!themeReady} searchActive={!themeReady || !customSearch}
+          privateState={defaultPrivateState} onAction={request => action(request, true)} />
       </Suspense>
     </div>
     {themeConfig && <QuickThemeSurface key={themeConfig.key} ref={remoteView} config={themeConfig} snapshot={snapshot}

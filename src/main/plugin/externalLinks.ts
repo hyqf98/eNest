@@ -13,7 +13,8 @@ import { assertPermission } from '@main/plugin/PluginPermissions'
 import { permissionService } from '@main/plugin/PermissionService'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { shell } from 'electron'
-import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
+import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
+import { assertInteractive, runHostRpc } from '@main/plugin/pluginInteractionPolicy'
 
 /**
  * 引流一条站外 URL：
@@ -25,6 +26,13 @@ import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 export async function routeExternal(pluginId: string, rawUrl: string): Promise<void> {
   const scope = getRuntimeScope(pluginId)
   if (!scope || scope.signal.aborted) return
+  try { await runHostRpc(scope, () => routeInteractiveExternal(scope, rawUrl)) }
+  catch { logWarn('external', `${pluginId}: external navigation is unavailable in this runtime context`) }
+}
+
+async function routeInteractiveExternal(scope: PluginRuntimeScope, rawUrl: string): Promise<void> {
+  const pluginId = scope.owner.pluginId
+  assertInteractive(scope)
   const url = String(rawUrl ?? '')
   let protocol: string
   try {
@@ -58,6 +66,7 @@ export async function routeExternal(pluginId: string, rawUrl: string): Promise<v
     logInfo('external', `${pluginId}: user denied external nav ${url.slice(0, 120)}`)
     return
   }
+  assertInteractive(scope)
   await shell.openExternal(url).catch((err: Error) => {
     logWarn('external', `openExternal failed: ${err.message}`)
   })

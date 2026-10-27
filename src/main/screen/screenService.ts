@@ -3,14 +3,15 @@ import { desktopCapturer, screen } from 'electron'
 import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { permissionService } from '@main/plugin/PermissionService'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
-import { checkScreenCapture } from '@main/plugin/OsPermissionChecks'
+import { assertScreenCaptureAllowed } from '@main/plugin/OsPermissionChecks'
+import { interactionError } from '@main/plugin/pluginInteractionPolicy'
 import type { ScreenBounds, ScreenCaptureResult } from '@shared/types/plugin'
 
 function authorized(pluginId: string, permission: 'screen.capture' | 'screen.record'): void {
   const scope = getRuntimeScope(pluginId)
   if (!scope?.isCurrent() || scope.isClosing || scope.signal.aborted) throw new Error('Capture owner is closing')
-  if (!pluginRegistry.getManifest(pluginId)?.permissions?.includes(permission) || !permissionService.isGranted(pluginId, permission)) throw new Error(`permission denied: ${permission}`)
-  if (!checkScreenCapture().ok) throw new Error('os permission denied: screen')
+  if (!pluginRegistry.getManifest(pluginId)?.permissions?.includes(permission) || !permissionService.isGranted(pluginId, permission)) throw interactionError('permission-denied', `permission denied: ${permission}`)
+  assertScreenCaptureAllowed(pluginId)
 }
 export function resolveCaptureDisplay(displayId?: number): Electron.Display {
   if (displayId !== undefined && (!Number.isSafeInteger(displayId) || !screen.getAllDisplays().some(display => display.id === displayId))) throw new Error('Display unavailable')

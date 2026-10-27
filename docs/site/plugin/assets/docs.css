@@ -958,6 +958,7 @@ article.markdown-section {
   --ns-shell: #adb95a;
   --ns-vault: #e5726f;
   --ns-db: #d47f9e;
+  --ns-quickinput: #7fd1b9;
   --ns-core: #9aa5a0;
 }
 [data-theme="light"] {
@@ -975,6 +976,7 @@ article.markdown-section {
   --ns-shell: #74861f;
   --ns-vault: #b52f2f;
   --ns-db: #a33e66;
+  --ns-quickinput: #2a9d8f;
   --ns-core: #67746e;
 }
 
@@ -1013,6 +1015,7 @@ article.markdown-section {
 .markdown-section h3[data-ns="vault"]     { --ns-c: var(--ns-vault); }
 .markdown-section h3[data-ns="db"]        { --ns-c: var(--ns-db); }
 .markdown-section h3[data-ns="ssh"]       { --ns-c: var(--ns-net); }
+.markdown-section h3[data-ns="quickinput"] { --ns-c: var(--ns-quickinput); }
 .markdown-section h3[data-ns="core"]      { --ns-c: var(--ns-core); }
 
 /* h3 内 code：签名排版（mono 稍大 + ns 着色），JS 未跑时也是普通 code 样式 */

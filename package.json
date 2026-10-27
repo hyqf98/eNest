@@ -23,9 +23,12 @@
     "predev": "npm run native:build",
     "prebuild": "npm run native:build",
     "postbuild": "node tools/packaging/collect-bundled-licenses.mjs",
+    "associations:check": "node scripts/generate-builder-associations.mjs check",
     "test:packaging": "node --test tools/packaging/*.test.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/node": "2.1.2",
+    "@modelcontextprotocol/server": "2.4.0",
     "adm-zip": "^0.6.1",
     "ajv": "^8.20.0",
     "electron-log": "^5.4.4",

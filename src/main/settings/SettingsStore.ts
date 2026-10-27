@@ -28,11 +28,12 @@ import { getDefaultSettingsPath, setAppPathsRoot } from '@main/paths/pathsServic
 import { resolveLocalUserPath } from '@main/paths/userPath'
 import { kvStore } from '@main/db/sqliteService'
 import { sendShellEvent } from '@main/window/createShellWindow'
-import { normalizeSearchText } from '@shared/search'
+import { DEFAULT_PANEL_APPEARANCE, type PersistedPanel } from '@shared/types/panel'
 import { filterPermissionGrants, isBuiltinCapability } from '@shared/pluginPermissionPolicy'
 import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
 import type { PluginShortcutBinding } from '@shared/types/shortcuts'
 import { DEFAULT_PLUGIN_MEMORY_MONITOR, normalizePluginMemoryMonitor } from '@shared/types/pluginMemory'
+import { emptyOpenWithRoutes, type OpenWithRoutes } from '@shared/types/openWith'
 import type { AppearanceSettings, LegacyAppearanceBackup } from '@shared/types/appearance'
 import { migrateAppearanceSettings, THEME_PROFILE_LEGACY, themeProfileKey } from '@shared/theme/appearance'
 import { migratePluginShortcuts } from './pluginShortcutMigration'
@@ -62,6 +63,10 @@ export interface SettingsData {
   pluginShortcuts: PluginShortcutBinding[]
   /** 个人资料段（GitHub OAuth 配置 + 已连接账号；token 不在此处） */
   profile: ProfileSettings
+  /** 自由面板布局；只由主进程写（renderer 写入在 shell:set-settings 被剥离）。 */
+  panels: PersistedPanel[]
+  /** 「打开方式」路由表（类型/scheme → pluginId）；只由主进程写。 */
+  openWith: OpenWithRoutes
 }
 
 const DEFAULTS: SettingsData = {
@@ -82,16 +87,36 @@ const DEFAULTS: SettingsData = {
     sessionActivePluginId: '',
     proxy: { type: 'system' },
     quickLauncher: defaultQuickLauncher(),
-    splashBackground: { type: 'brand', opacity: 0.55 }
+    splashBackground: { type: 'brand', opacity: 0.55 },
+    freePanel: { enabled: false },
+    panelAppearance: { ...DEFAULT_PANEL_APPEARANCE }
   },
   plugins: {},
   pluginLaunch: {},
   pluginShortcuts: [],
-  profile: {}
+  profile: {},
+  panels: [],
+  openWith: emptyOpenWithRoutes()
 }
 
 /** settings 表中的唯一行键 */
 const SETTINGS_ROW_KEY = 'app'
+
+/** 路由表结构校验：只保留 `ext`/`scheme` 两桶的 string→string，限制规模 */
+function normalizeOpenWithRoutes(raw: unknown): OpenWithRoutes {
+  const out = emptyOpenWithRoutes()
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out
+  for (const kind of ['ext', 'scheme'] as const) {
+    const bag = (raw as Record<string, unknown>)[kind]
+    if (!bag || typeof bag !== 'object' || Array.isArray(bag)) continue
+    for (const [value, pluginId] of Object.entries(bag as Record<string, unknown>)) {
+      if (typeof pluginId !== 'string' || !pluginId.trim()) continue
+      if (Object.keys(out[kind]).length >= 256) break
+      out[kind][value] = pluginId
+    }
+  }
+  return out
+}
 
 function validateBackgroundEffectSelection(value: unknown): void {
   if (value !== undefined && (typeof value !== 'string' || value.length > 1024
@@ -110,6 +135,7 @@ function isLegacyFullSettings(raw: Partial<SettingsData> | null): boolean {
   if (raw.theme !== undefined) return true
   if (raw.plugins !== undefined && Object.keys(raw.plugins).length > 0) return true
   if (raw.pluginLaunch !== undefined || raw.pluginShortcuts !== undefined) return true
+  if (raw.panels !== undefined && raw.panels.length > 0) return true
   const generalKeys = Object.keys(raw.general ?? {})
   return generalKeys.some((k) => k !== 'dataRoot')
 }
@@ -242,7 +268,9 @@ export class SettingsStore {
       plugins: { ...raw.plugins },
       pluginLaunch: migrated.pluginLaunch,
       pluginShortcuts: migrated.pluginShortcuts,
-      profile: { ...DEFAULTS.profile, ...raw.profile }
+      profile: { ...DEFAULTS.profile, ...raw.profile },
+      panels: Array.isArray(raw.panels) ? raw.panels : [],
+      openWith: normalizeOpenWithRoutes(raw.openWith)
     }
   }
 
@@ -268,23 +296,6 @@ export class SettingsStore {
   getQuickLauncherSettings(): QuickLauncherSettings {
     this.ensureLoaded()
     return structuredClone(this.data.general.quickLauncher ?? defaultQuickLauncher())
-  }
-
-  /** 同步更新狭窄的 Quick 状态，避免搜索/启动复制所有插件设置。 */
-  recordQuickUse(id: string, query: string | undefined, maxRecent: number): void {
-    this.ensureLoaded()
-    const quick = this.data.general.quickLauncher ??= defaultQuickLauncher()
-    const previous = quick.recent ?? []
-    const count = previous.find(entry => entry.id === id)?.count ?? 0
-    quick.recent = [{ id, ts: Date.now(), count: count + 1 }, ...previous.filter(entry => entry.id !== id)]
-      .slice(0, maxRecent)
-    const normalized = normalizeSearchText(query ?? '')
-    // Long content belongs to the invoked plugin, not the query-preference store.
-    if (normalized && normalized.length <= 32) {
-      quick.queryPreferences = [{ query: normalized, id }, ...(quick.queryPreferences ?? [])
-        .filter(entry => entry.query !== normalized)].slice(0, 100)
-    }
-    this.schedulePersist()
   }
 
   /** Small appearance snapshot for native plugin documents; excludes history, grants and window state. */
@@ -474,6 +485,11 @@ export class SettingsStore {
 
   /** 浅合并更新 theme/general/plugins 并持久化；dataRoot 变更即时生效 */
   async setAll(partial: Partial<Omit<SettingsData, 'general'>> & { general?: Partial<GeneralSettings> }): Promise<SettingsData> {
+    // openWith 路由表主进程独占（renderer 写入一律剥离；写入走 openWith:* 通道）
+    if ('openWith' in partial) {
+      const { openWith: _openWith, ...rest } = partial
+      partial = rest
+    }
     validateBackgroundEffectSelection(partial.theme?.backgroundEffect)
     if (partial.general && Object.hasOwn(partial.general, 'pluginMemoryMonitor')) {
       const value = partial.general.pluginMemoryMonitor
@@ -521,6 +537,8 @@ export class SettingsStore {
       const { user: _incomingUser, ...rest } = partial.profile
       next.profile = { ...next.profile, ...rest, user: next.profile.user }
     }
+    // panels 整体替换：面板布局是主进程独占的完整快照，逐条合并会留下已删面板。
+    if (partial.panels) next.panels = structuredClone(partial.panels)
     this.schedulePersist()
     if (partial.pluginLaunch) this.pluginLaunchRevision++
     if (partial.general && 'dataRoot' in partial.general) {
@@ -561,6 +579,47 @@ export class SettingsStore {
     delete this.data.plugins[pluginId]
     this.schedulePersist()
     sendShellEvent({ type: 'permission-grants-changed', pluginId, grants: {} })
+  }
+
+  // —— 「打开方式」路由表（主进程独占；renderer 只读投影）——
+
+  getOpenWithRoutes(): OpenWithRoutes {
+    this.ensureLoaded()
+    return structuredClone(this.data.openWith)
+  }
+
+  /** 写入一条路由（同键覆盖） */
+  async setOpenWithRoute(kind: 'ext' | 'scheme', value: string, pluginId: string): Promise<OpenWithRoutes> {
+    this.ensureLoaded()
+    if (!value || !pluginId) throw new Error('invalid openWith route')
+    this.data.openWith[kind][value] = pluginId
+    this.schedulePersist()
+    return this.getOpenWithRoutes()
+  }
+
+  /** 移除一条路由（幂等） */
+  async clearOpenWithRoute(kind: 'ext' | 'scheme', value: string): Promise<OpenWithRoutes> {
+    this.ensureLoaded()
+    if (Object.hasOwn(this.data.openWith[kind], value)) {
+      delete this.data.openWith[kind][value]
+      this.schedulePersist()
+    }
+    return this.getOpenWithRoutes()
+  }
+
+  /** 卸载/禁用插件：清掉指向它的全部路由 */
+  async removeOpenWithRoutesForPlugin(pluginId: string): Promise<void> {
+    this.ensureLoaded()
+    let changed = false
+    for (const kind of ['ext', 'scheme'] as const) {
+      for (const [value, target] of Object.entries(this.data.openWith[kind])) {
+        if (target === pluginId) {
+          delete this.data.openWith[kind][value]
+          changed = true
+        }
+      }
+    }
+    if (changed) this.schedulePersist()
   }
 
   // —— 运行时权限授权（壳层三态；存 plugins[pluginId].permissionGrants）——

@@ -27,7 +27,7 @@ import { initLogService, logError, logInfo, logWarn } from '@main/logs/logServic
 import { kvStore } from '@main/db/sqliteService'
 import { flushAll } from '@main/db/pluginStorage'
 import { themePackRegistry } from '@main/theme/themePacks'
-import { createShellWindow } from '@main/window/createShellWindow'
+import { createShellWindow, setPanelAppearanceSink, getMainWindow, getShellWebContents } from '@main/window/createShellWindow'
 import { flushMainWindowState } from '@main/window/mainWindowState'
 import {
   destroyOrbRailViews,
@@ -58,6 +58,10 @@ import {
 } from '@main/hotkey/pluginLaunchHotkeys'
 import { scanApplications } from '@main/launcher/appScanner'
 import { initUpdateService } from '@main/update/updateService'
+import { associationService } from '@main/openWith/associationService'
+import {
+  flushPendingOpenWith, handleOpenFile, handleOpenUrl, handleOpenWithArgv, setOpenWithReadyProbe
+} from '@main/openWith/openWithRouter'
 import { startPluginBackgrounds, disposePluginBackgrounds } from '@main/plugin/pluginBackgroundRuntime'
 import { stopClipboardChanges } from '@main/clipboard/clipboardNativeEvents'
 import { disposePluginInstallWorkers } from '@main/plugin/pluginInstallTasks'
@@ -73,6 +77,19 @@ import { registerHomeIpc } from '@main/home/homeIpc'
 import { initDeadlineTasks, shutdownDeadlineTasks, shutdownDeadlineTasksSync } from '@main/timer/deadlineTaskService'
 import { permissionService } from '@main/plugin/PermissionService'
 import { registerThemeSettingsHandlers } from '@main/theme/themeSettingsSurface'
+import { registerPanelHandlers } from '@main/ipc/panelHandlers'
+import { registerRegionSurfaceHandlers } from '@main/panel/regionSelection'
+import {
+  applyAppearanceToPanels,
+  disposePanels,
+  preparePanelShutdown,
+  refreshPanelThemes,
+  registerPanelWindowHost,
+  restorePanels,
+  syncFreePanelSetting
+} from '@main/panel/PanelManager'
+import { isFreePanelEnabled } from '@main/panel/panelStore'
+import { applyPanelHotkeys, disposePanelHotkeys } from '@main/hotkey/panelHotkey'
 
 registerSchemesAsPrivileged()
 
@@ -209,6 +226,27 @@ if (!gotLock) {
   app.quit()
 }
 
+// —— 外部打开（双击文件 / 点击链接）——
+// macOS 的 open-file/open-url 可能在 ready 前到达，必须提前注册；router 内部入队等窗口就绪。
+app.on('open-file', (event, path) => {
+  event.preventDefault()
+  handleOpenFile(path)
+})
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  handleOpenUrl(url)
+})
+// Windows/Linux：第二实例把 argv（文件路径/URL）交给已运行实例
+app.on('second-instance', (_event, argv) => {
+  handleOpenWithArgv(argv)
+  const win = getMainWindow()
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  }
+})
+
 void app.whenReady().then(async () => {
   if (!gotLock) return
   try {
@@ -253,6 +291,27 @@ void app.whenReady().then(async () => {
 
     const win: BaseWindow = createShellWindow()
     logInfo('main', 'window ok')
+
+    // 外部打开：等壳渲染层首屏完成再放行排队请求（避免 open-with-choice 事件丢在挂载前）
+    const armOpenWith = () => {
+      setOpenWithReadyProbe(() => {
+        const wc = getShellWebContents()
+        return !!wc && !wc.isDestroyed() && !wc.isLoading()
+      })
+      flushPendingOpenWith()
+    }
+    const shellWc = getShellWebContents()
+    if (shellWc) {
+      if (shellWc.isLoading()) shellWc.once('did-finish-load', armOpenWith)
+      else armOpenWith()
+    }
+    // 冷启动 argv（Windows/Linux 双击文件）：窗口创建后再解析，命中插件走 shell 模式
+    handleOpenWithArgv(process.argv)
+    // 用户此前选择过的 scheme 幂等同步系统注册（未选择的 scheme 不碰）
+    void associationService.syncRoutedSchemes().catch((err) => {
+      logWarn('open-with', `sync schemes failed: ${String(err)}`)
+    })
+
     const syncShellVisibility = () => pluginHost.setShellVisible(win.isVisible() && !win.isMinimized())
     win.on('hide', syncShellVisibility)
     win.on('minimize', syncShellVisibility)
@@ -322,6 +381,14 @@ void app.whenReady().then(async () => {
     registerAuxiliaryHandlers()
     registerThemeSettingsHandlers()
     registerHomeIpc(homeSurfaceManager)
+    registerPanelHandlers()
+    registerRegionSurfaceHandlers()
+    registerPanelWindowHost()
+    // 主题/外观变化 → 面板 chrome 重读 token 与材质（独立文档不随主壳 data-* 联动）。
+    setPanelAppearanceSink(() => {
+      refreshPanelThemes()
+      applyAppearanceToPanels()
+    })
     logInfo('main', 'ipc ok')
     startPluginMemoryMonitor()
     void prewarmHomeSurface().catch(error => logWarn('home', `startup prepare failed: ${String(error)}`))
@@ -336,6 +403,13 @@ void app.whenReady().then(async () => {
 
     startPluginBackgrounds()
     logInfo('main', 'plugin backgrounds ready (lazy)')
+
+    // 自由面板：功能开启时先建窗口（只画占位条），再按并发上限逐个冷启动组件插件。
+    if (isFreePanelEnabled()) {
+      void restorePanels().catch(error => logWarn('panel', `restore failed: ${String(error)}`))
+    }
+    // 面板快捷键（功能关闭时内部自行不注册）。
+    applyPanelHotkeys()
 
     initUpdateService()
     logInfo('main', 'update service ok')
@@ -374,6 +448,7 @@ app.on('before-quit', (event) => {
   quitting = true
   event.preventDefault()
   pluginHost.prepareSessionShutdown()
+  preparePanelShutdown()
   cancelPluginWindowDrag()
   // Plugins receive the same bounded lifecycle grace; no business-specific shutdown services run in main.
   const forceTimer = setTimeout(() => {
@@ -385,6 +460,7 @@ app.on('before-quit', (event) => {
   forceTimer.unref?.()
 
   disposeQuickHotkeys()
+  disposePanelHotkeys()
   // 每插件启动热键显式簿记释放（releaseAllGlobalShortcutsSync 兜底仍生效）
   releaseAllPluginLaunchHotkeys()
   releaseAllGlobalShortcutsSync()
@@ -405,6 +481,8 @@ app.on('before-quit', (event) => {
     .then(() => {
       destroyQuickWindow()
       destroyAllDetachedWindows()
+      // 面板内插件已由 pluginHost.destroyAll 释放，这里只销毁面板窗口本身。
+      disposePanels()
     })
     .finally(() => {
       clearTimeout(forceTimer)
