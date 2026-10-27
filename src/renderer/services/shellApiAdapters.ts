@@ -12,7 +12,7 @@ const ASYNC_METHODS = [
   'installMarketPlugin', 'getTheme', 'getAppearance', 'updateThemeProfile', 'activateTheme', 'setAppearanceMode',
   'setHomeVisible', 'navigateWorkspace', 'retryHome', 'getHomeState', 'pickAppearanceMedia', 'importAppearanceFont',
   'removeAppearanceFont', 'openNativeModal', 'setAppearancePerformanceLimited', 'setTheme', 'loadDevPlugin',
-  'forgetDevPlugin', 'reloadPlugin', 'setDevKillOnHide', 'setDevPluginMode', 'rebuildDevPlugin', 'openDevTools',
+  'forgetDevPlugin', 'reloadPlugin', 'setDevKillOnHide', 'openDevTools',
   'getPluginCallTrace', 'getThemeSettingsConfig', 'getThemeSettingsSnapshot', 'setThemeSettingsActive',
   'dispatchThemeSettingsAction', 'getSettings', 'setSettings', 'getSettingsSections', 'setPluginSetting', 'getPaths',
   'pickFile', 'getPluginReadme', 'getHardwareAcceleration', 'setHardwareAcceleration', 'getProxy', 'setProxy',

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import type { PluginPresentation } from './pluginPresentation'
 import { useI18n } from '@renderer/hooks/useI18n'
@@ -15,6 +15,40 @@ interface Props {
   onPreviewChange?: (open: boolean) => void
 }
 
+function GalleryImage({ url, visible, requested, label, eager, onReady, onFailed, onFadeEnd }: {
+  url: string; visible: boolean; requested: boolean; label: string; eager: boolean
+  onReady: (url: string) => void; onFailed: (url: string) => void; onFadeEnd: (url: string) => void
+}) {
+  const imageRef = useRef<HTMLImageElement>(null)
+  const onReadyRef = useRef(onReady)
+  onReadyRef.current = onReady
+  useLayoutEffect(() => {
+    const image = imageRef.current!
+    image.src = url
+    return () => { image.removeAttribute('src') }
+  }, [url])
+  useLayoutEffect(() => {
+    if (!requested) return
+    const image = imageRef.current!
+    let cancelled = false
+    let decoding = false
+    const decode = () => {
+      if (decoding) return
+      decoding = true
+      void image.decode().catch(() => undefined).then(() => {
+        if (!cancelled && image.naturalWidth > 0) onReadyRef.current(url)
+      })
+    }
+    image.addEventListener('load', decode)
+    if (image.complete && image.naturalWidth > 0) decode()
+    return () => { cancelled = true; image.removeEventListener('load', decode) }
+  }, [url, requested])
+  return <img ref={imageRef} className={`product-gallery-image${visible ? ' is-visible' : ''}`}
+    alt={visible ? label : ''} aria-hidden={!visible} loading={eager ? 'eager' : 'lazy'} decoding="async"
+    referrerPolicy="no-referrer" draggable={false} onError={() => onFailed(url)}
+    onTransitionEnd={event => { if (event.propertyName === 'opacity' && !visible) onFadeEnd(url) }} />
+}
+
 /** 真实截图图库；失效图片自动跳过，没有截图时只展示插件身份。 */
 export function ProductVisual({ plugin, active, mediaVisible = true, screenshot, onScreenshotChange, onPreviewChange }: Props) {
   const sources = [...new Set(plugin.screenshots?.map(source => source.trim()).filter(Boolean))].slice(0, 8)
@@ -29,10 +63,10 @@ function ProductGallery({ plugin, active, sources, screenshot, onScreenshotChang
   const english = locale === 'en-US'
   const [selected, setSelected] = useState<string | undefined>(sources[0])
   const [failed, setFailed] = useState<Set<string>>(() => new Set())
-  const [loaded, setLoaded] = useState<Set<string>>(() => new Set())
-  const [lastReady, setLastReady] = useState<string>()
+  const [frames, setFrames] = useState<{ displayed?: string; outgoing?: string; pendingReady?: string }>({})
   const [previewOpen, setPreviewOpen] = useState(false)
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const figureRef = useRef<HTMLElement>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
   const previewCallbackRef = useRef(onPreviewChange)
   const reportedPreviewRef = useRef(false)
@@ -43,17 +77,42 @@ function ProductGallery({ plugin, active, sources, screenshot, onScreenshotChang
   const requested = screenshot ?? selected
   const source = requested && available.includes(requested) ? requested :
     available.find(url => sources.indexOf(url) > sources.indexOf(requested ?? '')) ?? available[0]
+  const sourceRef = useRef(source)
+  sourceRef.current = source
   const position = Math.max(0, available.indexOf(source))
-  const ready = Boolean(source && loaded.has(source))
-  // Keep the last decoded frame while a newly chosen image loads. Both images stay
-  // mounted so successful switches crossfade, including rapid changes of direction.
-  const displayed = ready ? source : lastReady && available.includes(lastReady) && loaded.has(lastReady) ? lastReady : available.find(url => loaded.has(url))
+  const displayed = frames.displayed && available.includes(frames.displayed) ? frames.displayed : undefined
+  const ready = Boolean(source && source === displayed)
+  // Only the displayed frame, its outgoing crossfade and the newest decode stay
+  // resident. Retired decode promises cannot commit after a later selection.
+  const slots = [...new Set([frames.outgoing, displayed, source].filter((url): url is string => Boolean(url && available.includes(url))))]
   const screenshotLabel = english ? `${plugin.name} screenshots` : `${plugin.name}功能截图`
   const viewLabel = english ? 'View screenshot' : '查看大图'
   const previousLabel = english ? 'Previous screenshot' : '上一张截图'
   const nextLabel = english ? 'Next screenshot' : '下一张截图'
 
-  useEffect(() => { if (ready) setLastReady(source) }, [ready, source])
+  useLayoutEffect(() => {
+    setFrames(current => current.pendingReady && current.pendingReady !== source
+      ? { displayed: current.displayed, outgoing: current.outgoing } : current)
+  }, [source])
+
+  const finishFade = useCallback((outgoing: string) => {
+    setFrames(current => {
+      if (current.outgoing !== outgoing) return current
+      const next = current.pendingReady === sourceRef.current ? current.pendingReady : undefined
+      return next && next !== current.displayed
+        ? { displayed: next, outgoing: current.displayed }
+        : { displayed: current.displayed }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!frames.outgoing) return
+    const rawDuration = figureRef.current ? getComputedStyle(figureRef.current).getPropertyValue('--gallery-duration').trim() : '420ms'
+    const duration = parseFloat(rawDuration) * (rawDuration.endsWith('ms') ? 1 : 1000)
+    const outgoing = frames.outgoing
+    const timer = setTimeout(() => finishFade(outgoing), duration === 0 ? 0 : (Number.isFinite(duration) ? duration : 420) + 50)
+    return () => clearTimeout(timer)
+  }, [frames.outgoing, frames.displayed, finishFade])
 
   useEffect(() => {
     if (!active) setPreviewOpen(false)
@@ -128,26 +187,26 @@ function ProductGallery({ plugin, active, sources, screenshot, onScreenshotChang
     if (active && returnFocusRef.current?.isConnected) returnFocusRef.current.focus({ preventScroll: true })
   }
 
-  const markLoaded = (url: string, image: HTMLImageElement) => {
-    void image.decode().catch(() => undefined).then(() => {
-      if (image.naturalWidth > 0) setLoaded(current => current.has(url) ? current : new Set(current).add(url))
+  const markLoaded = (url: string) => {
+    if (url !== source) return
+    setFrames(current => {
+      if (current.displayed === url || current.pendingReady === url) return current
+      // A reversal can reuse both live layers and their current opacity.
+      if (current.outgoing === url) return { displayed: url, outgoing: current.displayed }
+      // Finish the current crossfade before handing off to the newest decoded
+      // choice; dropping a still-visible outgoing image would expose the backdrop.
+      return current.outgoing ? { ...current, pendingReady: url } : { displayed: url, outgoing: current.displayed }
     })
   }
   const markFailed = (url: string) => setFailed(current => current.has(url) ? current : new Set(current).add(url))
 
-  const renderImages = () => available.map((url, index) => (
-    <img
+  const renderImages = () => slots.map((url) => (
+    <GalleryImage
       key={url}
-      className={`product-gallery-image${url === displayed ? ' is-visible' : ''}`}
-      src={url}
-      alt={url === displayed ? `${plugin.name}${english ? ' screenshot ' : '截图 '}${index + 1}` : ''}
-      aria-hidden={url !== displayed}
-      loading={active && index === position ? 'eager' : 'lazy'}
-      decoding="async"
-      referrerPolicy="no-referrer"
-      draggable={false}
-      onLoad={event => markLoaded(url, event.currentTarget)}
-      onError={() => markFailed(url)}
+      url={url} visible={url === displayed} requested={url === source} eager={active && url === source}
+      label={`${plugin.name}${english ? ' screenshot ' : '截图 '}${available.indexOf(url) + 1}`}
+      onReady={markLoaded} onFailed={markFailed}
+      onFadeEnd={finishFade}
     />
   ))
 
@@ -159,6 +218,7 @@ function ProductGallery({ plugin, active, sources, screenshot, onScreenshotChang
 
   return (
     <figure
+      ref={figureRef}
       className={`product-visual ${source ? 'product-screenshot' : 'product-identity'}`}
       data-product-gallery
       data-media-resident="true"

@@ -132,9 +132,10 @@
 }
 
 .profile-id-input:focus-visible {
-  outline: none;
+  outline: 2px solid transparent;
+  outline-offset: 0;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--accent) 20%, transparent);
+  box-shadow: var(--focus-ring, 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent));
 }
 
 .profile-connect-row {

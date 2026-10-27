@@ -15,7 +15,8 @@
     "paths": {
       "@main/*": ["src/main/*"],
       "@preload/*": ["src/preload/*"],
-      "@shared/*": ["src/shared/*"]
+      "@shared/*": ["src/shared/*"],
+      "@test/*": ["tests/*"]
     }
   },
   "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*", "electron.vite.config.ts"]

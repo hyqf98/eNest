@@ -10,10 +10,9 @@
  *    打开方式 → 全部更改」确认。
  *  - 状态检测：读 LaunchServices 偏好里的 LSHandlers（只读；失败返回 undefined）。
  */
-import { execFileSync } from 'node:child_process'
 import { app, shell } from 'electron'
 import type { OpenWithStatus } from '@shared/types/openWith'
-import { registrationAvailable, type OpenWithRegistrar } from './registrar'
+import { registrationAvailable, run, type OpenWithRegistrar } from './registrar'
 
 const MAC_BUNDLE_ID = 'com.github.eNest.shell'
 
@@ -26,24 +25,36 @@ interface LSHandler {
   LSHandlerURLScheme?: string
 }
 
-/** 读 LaunchServices secure 偏好（defaults export → plutil 转 JSON）；失败返回 null */
-function readLaunchServicesHandlers(): LSHandler[] | null {
+let handlersCache: { expiresAt: number; value: LSHandler[] | null } | undefined
+let handlersRead: Promise<LSHandler[] | null> | undefined
+
+/** 读 LaunchServices secure 偏好；同一列表只读取一次，子进程不阻塞窗口与快捷键。 */
+async function loadLaunchServicesHandlers(): Promise<LSHandler[] | null> {
   try {
-    const xml = execFileSync('/usr/bin/defaults', ['export', 'com.apple.LaunchServices/com.apple.launchservices.secure', '-'], {
-      encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore']
-    })
-    const json = execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '--', '-'], {
-      input: xml, encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'ignore']
-    })
-    const parsed = JSON.parse(json) as { LSHandlers?: unknown }
+    const xml = await run('/usr/bin/defaults', ['export', 'com.apple.LaunchServices/com.apple.launchservices.secure', '-'], 3000)
+    if (xml.code !== 0) return null
+    const json = await run('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '--', '-'], 3000, xml.stdout)
+    if (json.code !== 0) return null
+    const parsed = JSON.parse(json.stdout) as { LSHandlers?: unknown }
     return Array.isArray(parsed.LSHandlers) ? (parsed.LSHandlers as LSHandler[]) : null
   } catch {
     return null
   }
 }
 
-function extIsDefault(ext: string): boolean | undefined {
-  const handlers = readLaunchServicesHandlers()
+function readLaunchServicesHandlers(): Promise<LSHandler[] | null> {
+  if (handlersCache && handlersCache.expiresAt > Date.now()) return Promise.resolve(handlersCache.value)
+  if (!handlersRead) {
+    handlersRead = loadLaunchServicesHandlers().then(value => {
+      handlersCache = { value, expiresAt: Date.now() + 30_000 }
+      return value
+    }).finally(() => { handlersRead = undefined })
+  }
+  return handlersRead
+}
+
+async function extIsDefault(ext: string): Promise<boolean | undefined> {
+  const handlers = await readLaunchServicesHandlers()
   if (!handlers) return undefined
   const hit = handlers.find(
     (h) => h?.LSHandlerContentTag === ext && h?.LSHandlerContentTagClass === 'public.filename-extension'
@@ -84,11 +95,12 @@ export const darwinRegistrar: OpenWithRegistrar = {
   },
 
   async detect(kind, value): Promise<OpenWithStatus | undefined> {
+    if (!registrationAvailable()) return undefined
     if (kind === 'scheme') {
       if (app.isDefaultProtocolClient(value)) return 'default'
       return registrationAvailable() ? 'candidate' : undefined
     }
-    const isDefault = extIsDefault(value)
+    const isDefault = await extIsDefault(value)
     if (isDefault === undefined) return undefined
     if (isDefault) return 'default'
     return registrationAvailable() ? 'candidate' : 'unregistered'

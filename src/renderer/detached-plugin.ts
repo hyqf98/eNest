@@ -4,6 +4,8 @@ import { IS_MAC } from '@shared/platform'
 import { applyLevelToDefaults } from '@renderer/gsap/marketMotion'
 import { applyAppearanceToDom } from '@renderer/services/appearanceDom'
 import { startBackgroundEffect } from '@renderer/background/backgroundEffect'
+import { bindBackgroundVideoPlayback } from '@renderer/background/videoPlayback'
+import { retainBackgroundResource } from '@renderer/background/backgroundLifetime'
 import { validateBackgroundEffects } from '@shared/backgroundEffects'
 import { backgroundAtmosphereStyle, syncBackgroundAtmosphere, syncBackgroundAtmosphereTheme } from '@renderer/components/backgroundAtmosphere'
 import { bindPluginDragSource } from '@renderer/services/pluginWindowDrag'
@@ -45,7 +47,9 @@ function syncBackground(): void {
   const effect = appearance?.backgroundEffect
   const level = appearance?.animationLevel ?? 'medium'
   const reduced = reducedMotion.matches
-  const signature = JSON.stringify([effect ?? null, level, reduced])
+  const continuous = appearance?.resolved?.animation.continuous ?? true
+  const theme = appearance?.resolved?.theme
+  const signature = JSON.stringify([effect ?? null, level, reduced, continuous, theme?.source, theme?.id, theme?.version])
   if (signature === backgroundSignature && backgroundContainer) {
     if (!effect && !backgroundAtmosphereStyle(appearance?.background)) {
       clearBackground?.(); clearBackground = undefined; backgroundContainer = undefined
@@ -68,12 +72,16 @@ function syncBackground(): void {
   if (!effect) { clearBackground = () => container.remove(); return }
   const failed = () => container.classList.add('background-effect--fallback')
   if (effect.renderer === 'preset') {
-    const canvas = document.createElement('canvas')
-    container.appendChild(canvas)
-    const stop = startBackgroundEffect(canvas, {
-      preset: effect.preset, level, reducedMotion: reduced, colors: effect.colors, speed: effect.speed, onError: failed,
+    const lifetime = retainBackgroundResource(() => {
+      const canvas = document.createElement('canvas')
+      container.appendChild(canvas)
+      container.classList.remove('background-effect--fallback')
+      const background = startBackgroundEffect(canvas, {
+        preset: effect.preset, level, reducedMotion: reduced, continuous, colors: effect.colors, speed: effect.speed, onError: failed,
+      })
+      return { setPaused: background.setPaused, dispose() { background.dispose(); canvas.remove() } }
     })
-    clearBackground = () => { stop(); container.remove() }
+    clearBackground = () => { lifetime.dispose(); container.remove() }
     return
   }
   // Recheck media ownership before assigning a renderer URL, including state from
@@ -91,48 +99,22 @@ function syncBackground(): void {
   const video = document.createElement('video')
   video.muted = true; video.loop = true; video.playsInline = true
   video.preload = 'metadata'
-  if (media.poster) video.poster = media.poster
-  const animate = level !== 'low' && !reduced
+  const animate = level !== 'low' && !reduced && continuous
   container.appendChild(video)
-  let mediaDisposed = false
-  let mediaFailed = false
-  let focused = document.hasFocus()
-  const releaseSource = () => {
-    video.pause(); video.removeAttribute('src'); video.load()
-  }
-  const fail = () => {
-    if (mediaDisposed || mediaFailed) return
-    mediaFailed = true
-    releaseSource()
-    failed()
-  }
-  const sync = () => {
-    if (mediaDisposed || mediaFailed) return
-    if (!animate || document.hidden || !focused) video.pause()
-    else void video.play().catch((error: unknown) => {
-      // Pausing can reject an outstanding play; autoplay denial keeps the poster.
-      const name = error && typeof error === 'object' && 'name' in error ? error.name : ''
-      if (name !== 'AbortError' && name !== 'NotAllowedError') fail()
-    })
-  }
-  const focus = () => { focused = true; sync() }
-  const blur = () => { focused = false; sync() }
-  video.addEventListener('loadeddata', sync)
-  video.addEventListener('error', fail)
-  document.addEventListener('visibilitychange', sync)
-  window.addEventListener('focus', focus)
-  window.addEventListener('blur', blur)
-  // A poster (or the static fallback) suffices in low/reduced mode; no decoder needed.
-  if (animate) video.src = media.video
-  sync()
+  const videoSource = media.video
+  const videoPoster = media.poster
+  const lifetime = retainBackgroundResource(() => {
+    container.classList.remove('background-effect--fallback')
+    const playback = bindBackgroundVideoPlayback(video, { enabled: animate, onError: failed })
+    if (videoPoster) video.poster = videoPoster
+    // A poster (or the static fallback) suffices in low/reduced mode; no decoder needed.
+    if (animate) video.src = videoSource
+    playback.sync()
+    return { setPaused: playback.setPaused, dispose() { playback.dispose(); video.removeAttribute('poster') } }
+  })
   clearBackground = () => {
-    mediaDisposed = true
-    video.removeEventListener('loadeddata', sync)
-    video.removeEventListener('error', fail)
-    document.removeEventListener('visibilitychange', sync)
-    window.removeEventListener('focus', focus)
-    window.removeEventListener('blur', blur)
-    releaseSource(); video.removeAttribute('poster')
+    lifetime.dispose()
+    video.removeAttribute('poster')
     container.remove()
   }
 }

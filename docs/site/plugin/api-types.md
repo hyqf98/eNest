@@ -173,37 +173,7 @@ export interface EnestPluginApi {
             taskId: string;
         }) => void): Unsubscribe;
     };
-    storage: {
-        blobs: {
-            put(input: {
-                dataUrl: string;
-                name?: string;
-            }): Promise<PluginBlob>;
-            get(id: string): Promise<{
-                dataUrl: string;
-                bytes: number;
-            } | null>;
-            remove(id: string): Promise<boolean>;
-        };
-        /** 静态资源（二进制图片）：独立于 KV 与 blobs，可 list、稳定 assetId、get 回 dataUrl */
-        assets: {
-            put(input: PluginAssetPutInput): Promise<PluginAssetPutResult>;
-            list(): Promise<PluginAsset[]>;
-            get(assetId: string): Promise<PluginAssetGetResult | null>;
-            delete(assetId: string): Promise<boolean>;
-        };
-        get(key: string): Promise<unknown>;
-        set(key: string, value: unknown): Promise<boolean>;
-        remove(key: string): Promise<boolean>;
-        clear(): Promise<boolean>;
-        /** 会话态 KV：主进程内存，插件关闭 / 应用退出即清空，不落盘 */
-        session: {
-            get(key: string): Promise<unknown>;
-            set(key: string, value: unknown): Promise<boolean>;
-            remove(key: string): Promise<boolean>;
-            clear(): Promise<boolean>;
-        };
-    };
+    storage: PluginStorageApi;
     background: {
         call<T = unknown>(method: string, args?: unknown[], options?: {
             timeoutMs?: number;
@@ -384,6 +354,11 @@ export interface EnestPluginApi {
             ok: boolean;
             path: string;
         } | null>;
+        /**
+         * 统一路径解析：把 `~/x`、`./x`、裸相对路径与绝对路径归一成绝对路径。
+         * 只做词法归一与存在性探测，不授予读写权限（真实文件访问仍需 localFiles 句柄）。
+         */
+        resolvePath(input: PluginPathResolveInput): Promise<PluginPathResolveResult>;
     };
     notify(payload: {
         title?: string;
@@ -434,8 +409,9 @@ export interface EnestPluginApi {
     onOut(cb: (event: PluginOutEvent) => void): Unsubscribe;
     /** 即将销毁：可在此 flush 草稿；回调返回 Promise 时 preload 等其 settle 再 ack */
     onBeforeSuspend(cb: () => void | Promise<unknown>): Unsubscribe;
+    /** Explicit activity leases: at most 128 per runtime, 4096 globally; released with the owning runtime. */
     runtime: {
-        acquireActivity(reason: string): Promise<string>;
+        acquireActivity(reason?: string): Promise<string>;
         releaseActivity(token: string): Promise<void>;
     };
     /** Calls the plugin-owned Node backend after explicit backend.node consent. */
@@ -541,6 +517,39 @@ export interface McpToolDeclaration {
 
 /** Portable MCP contracts. No SDK or Electron runtime dependency crosses this boundary. */
 export type McpErrorCode = 'busy' | 'needs-consent' | 'permission-denied' | 'interaction-required' | 'not-found' | 'invalid-arguments' | 'not-ready' | 'timeout' | 'cancelled' | 'unavailable' | 'internal-error' | 'result-too-large';
+
+/**
+ * 「打开方式」贡献（manifest.contributes.openWith；open-with 插槽）。
+ * 纯声明：插件只声明能处理的扩展名 / MIME / URL scheme，系统注册与文件→插件
+ * 路由由壳统一负责（插件是壳内视图，OS 关联目标只能是 eNest 本体）。
+ * 打开时壳以 enter.code='open-file'|'open-url' + payload{paths,url} 唤起插件。
+ */
+export interface OpenWithContribution {
+    id: string;
+    /** 小写、不含点的文件扩展名，如 'md' */
+    extensions?: string[];
+    /** MIME 类型，如 'text/markdown' */
+    mimeTypes?: string[];
+    /** URL scheme，小写不含 ://，如 'enest-md'；保留字 enest/http/https/file 与跨插件重复拒绝 */
+    schemes?: string[];
+    /** macOS CFBundleDocumentTypes 语义 */
+    role?: 'Editor' | 'Viewer' | 'Browser';
+    /** 贡献点 schema 版本；缺省视为当前版本 */
+    schemaVersion?: string;
+}
+
+/**
+ * 进入载荷（壳 → 插件）：双击文件 / 点击链接命中路由后，壳以
+ * enter.code='open-file'|'open-url'、payload=OpenWithEnterPayload 唤起插件。
+ */
+export interface OpenWithEnterPayload {
+    /** 绝对路径列表（展示用）；同类型多文件合并为一次进入 */
+    paths?: string[];
+    /** 宿主签发的只读文件句柄（插件经 localFiles.read 读取，不能拿裸路径绕开授权） */
+    handles?: LocalFileHandle[];
+    /** open-url 时的完整 URL */
+    url?: string;
+}
 
 export type Listener = (data: unknown) => void;
 
@@ -908,30 +917,6 @@ export interface QuickInputConfig {
     value: string;
 }
 
-export interface PluginBlob {
-    id: string;
-    bytes: number;
-}
-
-export type PluginAsset = PluginAssetMeta;
-
-export interface PluginAssetPutInput {
-    bytes: ArrayBuffer;
-    mime: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
-    name?: string;
-    assetId?: string;
-}
-
-export interface PluginAssetPutResult extends PluginAsset {
-    path: string;
-}
-
-export interface PluginAssetGetResult {
-    dataUrl: string;
-    mime: string;
-    bytes: number;
-}
-
 export interface PluginFileSaveResult {
     ok: boolean;
     path: string;
@@ -1016,6 +1001,26 @@ export type ThemePackRegistrationInput = Omit<ThemePack, 'source' | 'mode' | 'ba
     background?: ThemePackV2['background'];
 } | ThemePackV2Input;
 
+export interface PluginPathResolveInput {
+    /** 用户输入或插件配置里的路径；支持 `~`、`~/x`、`./x` 与裸相对写法 */
+    input: string;
+    /** 相对路径的基准，缺省 home（`./` 与裸相对路径都按此展开） */
+    base?: PluginPathBase;
+}
+
+export interface PluginPathResolveResult {
+    /** 归一化后的绝对路径；解析失败为 null */
+    path: string | null;
+    /** 输入是否本来就是绝对路径 */
+    absolute: boolean;
+    /** 实际使用的基准目录（home / data / cwd 之一对应的绝对路径） */
+    base: string;
+    /** 目标是否存在（只读探测，不创建） */
+    exists: boolean;
+    /** 失败原因（面向用户，可直接展示） */
+    error?: string;
+}
+
 /**
  * Bounded enter input handed to a plugin with the launch.
  * Images carry full data URLs (host-validated budgets); files carry a host-minted
@@ -1035,6 +1040,22 @@ export interface QuickEnterInput {
         size: number;
         kind: 'file' | 'directory';
     }>;
+}
+
+export interface PluginStorageApi extends PluginKeyValueStorageApi {
+    /** @deprecated Use assets. Compatibility adapter over the same private image service. */
+    blobs: PluginBlobsApi;
+    assets: PluginAssetsApi;
+    /** Completed private outputs created by files.stream; no raw paths are accepted. */
+    files: PluginStoredFilesApi;
+    /** Commit this plugin's prior queued KV writes with a SQLite FULL WAL sync. */
+    flush(): Promise<PluginStorageCommitReceipt>;
+    /** Atomically commit 1-100 unique-key changes together with prior queued writes. */
+    commit(operations: PluginStorageOperation[]): Promise<PluginStorageCommitReceipt>;
+    /** Clears persistent KV only; images, settings, session data and secrets are not removed. */
+    clear(): Promise<boolean>;
+    /** In-memory KV, cleared on explicit plugin close; hibernation may restore its snapshot. */
+    session: PluginKeyValueStorageApi;
 }
 
 /** An opaque reference, resolvable only in the same plugin's trusted backend. */
@@ -1685,11 +1706,14 @@ export interface DeadlineTaskReceipt {
 
 /** Ordered, owner-private temporary output. No arbitrary filesystem paths are accepted. */
 export interface FileStreamOpen {
+    /** 1..12 lowercase letters/digits; "part" is reserved for incomplete streams. */
     extension: string;
 }
 
 export interface FileStreamResult {
+    /** Stable private output ID, accepted by storage.files after finish. */
     id: string;
+    /** @deprecated Display-only compatibility value; use storage.files to read, remove or export. */
     path: string;
     size: number;
 }
@@ -1732,14 +1756,6 @@ export interface NotificationOptions {
     level?: NotificationLevel;
     /** 0 keeps the card until dismissed; otherwise 1500–60000 ms. */
     duration?: number;
-}
-
-export interface PluginAssetMeta {
-    assetId: string;
-    name: string;
-    mime: string;
-    bytes: number;
-    createdAt: number;
 }
 
 /** 设置 section 贡献项：manifest、主进程设置桥和动态渲染共用。 */
@@ -1804,6 +1820,66 @@ export type BackgroundEffectDefinition = BackgroundEffectBase & ({
 export interface ThemePackV2Input extends Omit<ThemePackV2, 'source' | 'mode'> {
     source?: string;
     mode?: ThemeMode;
+}
+
+/** 插件填写的路径基准：home=用户目录，data=该插件持久化目录，cwd=进程工作目录 */
+export type PluginPathBase = 'home' | 'data' | 'cwd';
+
+export interface PluginStoredFilesApi {
+    /** UUID-ordered pages, default 100 and at most 200 entries. Pass nextCursor back unchanged. */
+    list(options?: PluginStoredFileListOptions): Promise<PluginStoredFilePage>;
+    get(id: string, options?: PluginStoredFileReadOptions): Promise<PluginStoredFileChunk | null>;
+    /** Removes the completed private file and releases its storage quota. Missing IDs return false. */
+    remove(id: string): Promise<boolean>;
+    /** Native save confirmation is mandatory. Cancel returns null; no arbitrary target path is accepted. */
+    export(id: string, options?: PluginStoredFileExportOptions): Promise<PluginStoredFileExportResult | null>;
+}
+
+export interface PluginAssetsApi {
+    put(input: PluginAssetPutInput): Promise<PluginAssetPutResult>;
+    /** Includes this plugin's legacy attachments; no startup migration is required. */
+    list(): Promise<PluginAsset[]>;
+    get(assetId: string): Promise<PluginAssetGetResult | null>;
+    remove(assetId: string): Promise<boolean>;
+    /** @deprecated Use remove(). This is an alias with identical behavior. */
+    delete(assetId: string): Promise<boolean>;
+}
+
+export interface PluginBlobsApi {
+    put(input: {
+        dataUrl: string;
+        name?: string;
+    }): Promise<PluginBlob>;
+    get(id: string): Promise<{
+        dataUrl: string;
+        bytes: number;
+    } | null>;
+    remove(id: string): Promise<boolean>;
+}
+
+export interface PluginKeyValueStorageApi {
+    get(key: string): Promise<unknown>;
+    set(key: string, value: unknown): Promise<boolean>;
+    remove(key: string): Promise<boolean>;
+    clear(): Promise<boolean>;
+}
+
+export type PluginStorageOperation = {
+    op: 'set';
+    key: string;
+    value: unknown;
+} | {
+    op: 'remove';
+    key: string;
+    value?: never;
+};
+
+export interface PluginStorageCommitReceipt {
+    /** Unique receipt, not a CAS token or a cross-domain transaction identifier. */
+    commitId: string;
+    committedAt: number;
+    /** Distinct keys committed, including the plugin's previously queued changes. */
+    committedKeys: number;
 }
 
 /**
@@ -1994,7 +2070,7 @@ export interface ThemeSettingsFieldDescriptor {
     confirmation?: boolean;
 }
 
-export type NativeSettingsSection = 'general' | 'theme' | 'dev' | `p:${string}`;
+export type NativeSettingsSection = 'general' | 'theme' | 'dev' | 'mcp' | `p:${string}`;
 
 export type ThemeSettingsValue = string | number | boolean | null;
 
@@ -2092,6 +2168,73 @@ export interface BackgroundEffectBase {
     logoStyle?: BackgroundEffectPreset;
 }
 
+export interface PluginStoredFileListOptions {
+    cursor?: string;
+    limit?: number;
+}
+
+export interface PluginStoredFilePage {
+    items: PluginStoredFile[];
+    nextCursor: string | null;
+}
+
+export interface PluginStoredFileReadOptions {
+    /** Nonnegative safe integer. At or beyond EOF returns an empty buffer. */
+    offset?: number;
+    /** 1..524288 bytes; defaults to 524288. Zero is not a valid read length. */
+    length?: number;
+}
+
+export interface PluginStoredFileChunk {
+    file: PluginStoredFile;
+    offset: number;
+    bytes: ArrayBuffer;
+    nextOffset: number | null;
+}
+
+export interface PluginStoredFileExportOptions {
+    defaultName?: string;
+}
+
+export interface PluginStoredFileExportResult {
+    ok: true;
+    path: string;
+    size: number;
+}
+
+export type PluginAsset = PluginAssetMeta;
+
+/** Supply exactly one representation; data URLs carry their own MIME type. */
+export type PluginAssetPutInput = {
+    name?: string;
+    assetId?: string;
+} & ({
+    bytes: ArrayBuffer;
+    mime: PluginAssetMime;
+    dataUrl?: never;
+} | {
+    dataUrl: string;
+    bytes?: never;
+    mime?: never;
+});
+
+export interface PluginAssetPutResult extends PluginAsset {
+    /** @deprecated Compatibility only. Render with assets.get(); this path grants no filesystem access. */
+    path: string;
+}
+
+export interface PluginAssetGetResult {
+    dataUrl: string;
+    mime: string;
+    bytes: number;
+}
+
+/** Plugin-private storage contracts; filesystem paths never grant file access. */
+export interface PluginBlob {
+    id: string;
+    bytes: number;
+}
+
 export type QuickActionId = 'open-market' | 'open-settings' | 'refresh-apps';
 
 export interface QuickContentMatch {
@@ -2184,6 +2327,24 @@ export type McpContentBlock = ({
 }) & {
     annotations?: McpContentAnnotations;
 };
+
+export interface PluginStoredFile {
+    id: string;
+    extension: string;
+    size: number;
+    createdAt: number;
+}
+
+export interface PluginAssetMeta {
+    /** Opaque identifier. Pass it back unchanged, including any existing suffix. */
+    assetId: string;
+    name: string;
+    mime: string;
+    bytes: number;
+    createdAt: number;
+}
+
+export type PluginAssetMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
 
 /** Validated declaration, not an evaluated match. The selected theme owns matching. */
 export type QuickContentType = 'text' | 'regex' | 'over' | 'img' | 'files';

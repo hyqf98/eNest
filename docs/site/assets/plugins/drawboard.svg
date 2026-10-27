@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- 画板：纸面 + 手绘笔迹 + 钢笔 -->
+  <rect x="3.5" y="5" width="25" height="22" rx="3" fill="#f6efe3" stroke="#3d2f1e" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M8 20.5c3-1.2 4-2 6.5-2.2 2-.2 3.5.8 5.5-.3" fill="none" stroke="#1d5c8a" stroke-width="2" stroke-linecap="round"/>
+  <path d="M8.5 12.5c2.5-.8 4.2 1.2 6.5.4" fill="none" stroke="#a61e1e" stroke-width="1.9" stroke-linecap="round"/>
+  <g transform="rotate(40 22 10)">
+    <path d="M21.5 3.5 L24.5 3.5 L25 9 L21 9 Z" fill="#3d2f1e"/>
+    <path d="M21 9 h4 l-1 5.5 h-2 Z" fill="#8a8f98"/>
+    <path d="M22 14.5 h2 l-.4 3 h-1.2 Z" fill="#3d2f1e"/>
+  </g>
+</svg>

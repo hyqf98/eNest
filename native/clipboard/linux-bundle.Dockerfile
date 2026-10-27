@@ -1,5 +1,5 @@
 # Build/run from the repository root:
-# docker build -f native/clipboard/linux-bundle.Dockerfile -t enest-clipboard-bundle-test native/clipboard
+# docker build -f native/clipboard/linux-bundle.Dockerfile -t enest-clipboard-bundle-test .
 # printf '%s\n' '{"id":1,"command":"capabilities"}' | docker run --rm -i enest-clipboard-bundle-test
 FROM node:22-bookworm-slim AS dependencies
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
@@ -7,7 +7,7 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 FROM dependencies AS build
 WORKDIR /build
-COPY linux.c linux-build.mjs ./
+COPY native/clipboard/linux.c native/clipboard/linux-build.mjs ./
 RUN node --input-type=module -e "import { buildLinuxHelper } from './linux-build.mjs'; await buildLinuxHelper({ source: './linux.c', outputDir: './bundle' });"
 
 FROM dependencies AS verify
@@ -16,7 +16,7 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY --from=build /build/bundle /build/bundle
-COPY linux-smoke.py linux-portal-smoke.py ./
+COPY tests/native/clipboard/linux-smoke.py tests/native/clipboard/linux-portal-smoke.py ./
 RUN xvfb-run -a python3 linux-smoke.py /build/bundle/clipboard-helper \
     && dbus-run-session -- python3 linux-portal-smoke.py /build/bundle/clipboard-helper
 

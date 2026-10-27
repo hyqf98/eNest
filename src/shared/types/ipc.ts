@@ -29,287 +29,478 @@ import type { McpErrorCode } from './mcp'
  * IPC 通道常量 — 主进程 / preload / 渲染进程共用。
  * 约定：全部为 request-response（invoke），事件推送走 `shell:event`。
  */
+export const PluginBackgroundHost = 'plugin-background:host'
+export const PluginBackgroundReady = 'plugin-background:ready'
+export const PluginBackgroundRequest = 'plugin-background:request'
+export const PluginBackgroundResponse = 'plugin-background:response'
+export const AuxiliaryContext = 'auxiliary:context'
+export const AuxiliaryMessage = 'auxiliary:message'
+export const AuxiliaryPost = 'auxiliary:post'
+export const AuxiliaryClose = 'auxiliary:close'
+export const PluginWindowState = 'window:plugin-state'
+export const PluginWindowCommand = 'window:plugin-command'
+export const PluginWindowEvent = 'window:plugin-event'
+export const PluginDragBegin = 'window:plugin-drag-begin'
+export const PluginDragArm = 'window:plugin-drag-arm'
+export const PluginDragUpdate = 'window:plugin-drag-update'
+export const PluginDragEnd = 'window:plugin-drag-end'
+export const PluginDragTargets = 'window:plugin-drag-targets'
+export const PluginDragEvent = 'window:plugin-drag-event'
+/** 壳子 → 主进程 */
+export const ShellGetPlugins = 'shell:get-plugins'
+export const ShellGetMarketStatus = 'shell:get-market-status'
+export const ShellMcpStatus = 'shell:mcp-status'
+export const ShellMcpConfigure = 'shell:mcp-configure'
+export const ShellMcpCopyConnection = 'shell:mcp-copy-connection'
+export const ShellMcpRotateToken = 'shell:mcp-rotate-token'
+export const ShellMcpCatalog = 'shell:mcp-catalog'
+export const ShellOpenPlugin = 'shell:open-plugin'
+export const ShellClosePlugin = 'shell:close-plugin'
+export const ShellStopPluginResources = 'shell:stop-plugin-resources'
+export const ShellActivatePlugin = 'shell:activate-plugin'
+/** 隐藏全部插件 WebContentsView（回首页/设置时调用，避免遮挡壳子 UI） */
+export const ShellHidePlugins = 'shell:hide-plugins'
+/** 设置插件内容区左侧 inset（orb 传统通道模式；overlay 模式恒为 0） */
+export const ShellSetPluginInset = 'shell:set-plugin-inset'
+/** 主壳标题栏让出的高度；原生子视图始终保留顶部唤出区。 */
+export const ShellSetPluginTopInset = 'shell:set-plugin-top-inset'
+/** 壳子 → 主进程：同步圆轨悬浮窗所需 Tab 状态 */
+export const ShellGetPluginDiagnostics = 'shell:get-plugin-diagnostics'
+export const ShellGetPluginMemorySnapshot = 'shell:get-plugin-memory-snapshot'
+export const ShellStartPerformanceCapture = 'shell:start-performance-capture'
+export const ShellGetPerformanceCaptureState = 'shell:get-performance-capture-state'
+export const ShellStopPerformanceCapture = 'shell:stop-performance-capture'
+export const ShellExportPerformanceCapture = 'shell:export-performance-capture'
+export const ThemeChromeSnapshot = 'theme-chrome:snapshot'
+export const ThemeChromeChanged = 'theme-chrome:changed'
+export const ThemeChromeAction = 'theme-chrome:action'
+export const ThemeChromeReady = 'theme-chrome:ready'
+export const ThemeSettingsConfig = 'theme-settings:config'
+export const ThemeSettingsSnapshot = 'theme-settings:snapshot'
+export const ThemeSettingsActive = 'theme-settings:active'
+export const ThemeSettingsAction = 'theme-settings:action'
+export const ShellRestoreTabs = 'shell:restore-tabs'
+export const ShellSyncOrbState = 'shell:sync-orb-state'
+/** 悬浮窗 → 主进程：读取圆轨状态 */
+export const ShellGetOrbState = 'shell:get-orb-state'
+/** 主进程 → 悬浮窗：Tab 状态变更推送 */
+export const ShellOrbEvent = 'shell:orb-event'
+/** 悬浮窗/壳子：回首页 */
+export const ShellGoHome = 'shell:go-home'
+/** 悬浮窗/壳子：切换主壳视图 */
+export const ShellSetView = 'shell:set-view'
+/** 圆轨 rail 视图展开/收起：主进程切换 WebContentsView 宽度 */
+export const ShellSetOrbRailExpanded = 'shell:set-orb-rail-expanded'
+export const ShellGetTheme = 'shell:get-theme'
+export const ShellSetTheme = 'shell:set-theme'
+export const ShellGetAppearance = 'shell:get-appearance'
+export const ShellUpdateThemeProfile = 'shell:update-theme-profile'
+export const ShellActivateTheme = 'shell:activate-theme'
+export const ShellSetAppearanceMode = 'shell:set-appearance-mode'
+export const ShellSetHomeVisible = 'shell:set-home-visible'
+export const ShellNavigateWorkspace = 'shell:navigate-workspace'
+export const ShellRetryHome = 'shell:retry-home'
+export const ShellGetHomeState = 'shell:get-home-state'
+export const ShellPickAppearanceMedia = 'shell:pick-appearance-media'
+export const ShellImportAppearanceFont = 'shell:import-appearance-font'
+export const ShellRemoveAppearanceFont = 'shell:remove-appearance-font'
+export const ShellSetAppearancePerformanceLimited = 'shell:set-appearance-performance-limited'
+export const ModalOpen = 'modal:open'
+export const ModalReady = 'modal:ready'
+export const ModalState = 'modal:state'
+export const ModalRespond = 'modal:respond'
+export const ShellLoadDevPlugin = 'shell:load-dev-plugin'
+export const ShellForgetDevPlugin = 'shell:forget-dev-plugin'
+/** 开发者控制台：切换 dev 插件「退出到后台立即结束运行」（对齐 uTools） */
+export const ShellSetDevKillOnHide = 'shell:set-dev-kill-on-hide'
+export const ShellReloadPlugin = 'shell:reload-plugin'
+export const ShellOpenDevTools = 'shell:open-devtools'
+export const ShellGetSettings = 'shell:get-settings'
+export const ShellOpenExternal = 'shell:open-external'
+export const ShellSetSettings = 'shell:set-settings'
+/** 壳子设置页：拉取插件已注册的设置 section 列表 */
+export const ShellGetSettingsSections = 'shell:get-settings-sections'
+/** 壳子设置页：写入单个插件设置项（同步 Bridge + SettingsStore） */
+export const ShellSetPluginSetting = 'shell:set-plugin-setting'
+
+/** 「打开方式」：列表（贡献+路由+系统状态）/ 设默认 / 移除 / 只写路由 / 打开系统设置 */
+export const ShellOpenWithList = 'shell:open-with-list'
+export const ShellOpenWithSetDefault = 'shell:open-with-set-default'
+export const ShellOpenWithClearDefault = 'shell:open-with-clear-default'
+export const ShellOpenWithRoute = 'shell:open-with-route'
+export const ShellOpenWithOpenSystemSettings = 'shell:open-with-open-system-settings'
+
+/** 路径与数据 */
+export const ShellGetPaths = 'shell:get-paths'
+export const ShellOpenPath = 'shell:open-path'
+export const ShellPickFile = 'shell:pick-file'
+export const ShellGetPluginReadme = 'shell:get-plugin-readme'
+
+/** 硬件加速（写入设置后需重启） */
+export const ShellGetHardwareAccel = 'shell:get-hardware-accel'
+export const ShellSetHardwareAccel = 'shell:set-hardware-accel'
+
+/** 网络代理：读/写（写即 session.setProxy）/ 连通性测试 */
+export const ShellGetProxy = 'shell:get-proxy'
+export const ShellSetProxy = 'shell:set-proxy'
+export const ShellTestProxy = 'shell:test-proxy'
+
+/** 自定义字体：复制到 ~/.eNest/fonts/、读 base64、删除 */
+export const ShellSaveCustomFont = 'shell:save-custom-font'
+export const ShellReadCustomFont = 'shell:read-custom-font'
+export const ShellDeleteCustomFont = 'shell:delete-custom-font'
+
+/** 插件拖拽/路径安装：入队后由主进程 installQueue 限流执行 */
+export const InstallDropState = 'install:drop-state'
+export const InstallDropFiles = 'install:drop-files'
+export const InstallSurfaceReady = 'install:surface-ready'
+export const InstallSurfaceState = 'install:surface-state'
+export const InstallSurfaceDismiss = 'install:surface-dismiss'
+export const ShellInstallPlugin = 'shell:install-plugin'
+export const ShellGetInstallQueue = 'shell:get-install-queue'
+
+/** 卸载插件：关闭 Tab → 清 partition storage → 删文件 → 重扫注册表 */
+export const ShellUninstallPlugin = 'shell:uninstall-plugin'
+
+/** 启用/禁用已安装插件（持久化到 plugins/disabled.json） */
+export const ShellSetPluginEnabled = 'shell:set-plugin-enabled'
+
+/** 每插件 Quick 搜索偏好：启动方式 / 自定义触发词 */
+export const ShellSetPluginLaunch = 'shell:set-plugin-launch'
+export const ShellGetPluginShortcuts = 'shell:get-plugin-shortcuts'
+export const ShellSavePluginShortcut = 'shell:save-plugin-shortcut'
+export const ShellRemovePluginShortcut = 'shell:remove-plugin-shortcut'
+export const ShellProbePluginShortcut = 'shell:probe-plugin-shortcut'
+export const ShellLaunchPluginShortcut = 'shell:launch-plugin-shortcut'
+export const ShellBeginShortcutCapture = 'shell:begin-shortcut-capture'
+export const ShellEndShortcutCapture = 'shell:end-shortcut-capture'
+
+/** 从市场安装/更新插件：本地 sample 优先，否则远程 assetUrl 下载入队 */
+export const ShellInstallMarketPlugin = 'shell:install-market-plugin'
+
+/** 应用自动更新（GitHub Release + electron-updater） */
+export const ShellCheckUpdate = 'shell:check-update'
+export const ShellDownloadUpdate = 'shell:download-update'
+export const ShellInstallUpdate = 'shell:install-update'
+export const ShellGetUpdateState = 'shell:get-update-state'
+
+/** 更新重启前：查询插件未保存数据 / 广播一键保存（save.requested 通知） */
+export const ShellGetPluginsDirty = 'shell:get-plugins-dirty'
+export const ShellSaveAllPlugins = 'shell:save-all-plugins'
+
+/** GitHub 个人资料（浏览器授权码流 PKCE / 设备流兜底：登录 / 取消 / 读取 / 退出） */
+export const ShellAccountState = 'shell:account-state'
+export const ShellAccountLogin = 'shell:account-login'
+export const ShellAccountCancel = 'shell:account-cancel'
+export const ShellAccountLogout = 'shell:account-logout'
+export const ShellGithubLogin = 'shell:github-login'
+export const ShellGithubCancelLogin = 'shell:github-cancel-login'
+export const ShellGetProfile = 'shell:get-profile'
+export const ShellGithubLogout = 'shell:github-logout'
+
+/** 系统级通知（Electron Notification） */
+export const ShellSystemNotify = 'shell:system-notify'
+export const NotificationShow = 'notification:show'
+export const NotificationDismiss = 'notification:dismiss'
+export const NotificationState = 'notification:state'
+export const NotificationMeasure = 'notification:measure'
+export const NotificationOpenLink = 'notification:open-link'
+
+/** 快捷启动（Quick 小窗） */
+export const QuickToggle = 'quick:toggle'
+export const QuickHide = 'quick:hide'
+export const QuickSearch = 'quick:search'
+export const QuickOpen = 'quick:open'
+export const QuickScanApps = 'quick:scan-apps'
+export const QuickGetConfig = 'quick:get-config'
+export const QuickThemeGetConfig = 'quick:theme-get-config'
+export const QuickThemeAuthorize = 'quick:theme-authorize'
+export const QuickProviderState = 'quick:provider-state'
+export const QuickThemeKey = 'quick:theme-key'
+export const QuickSetHotkeys = 'quick:set-hotkeys'
+/** 探测组合键是否可被本进程注册（用于录制时发现系统/他应用占用） */
+export const QuickProbeHotkey = 'quick:probe-hotkey'
+/** 渲染层测量内容高度后请求调整小窗高度（内容撑开/收起） */
+export const QuickResize = 'quick:resize'
+export const QuickInput = 'quick:plugin-input'
+/** 读取剪贴板图片/文件并入宿主保管的粘贴上下文，或按 id 移除/清空上下文 */
+export const QuickInputContext = 'quick:input-context'
+
+/** Restricted full-page home runtime. The host owns entry, generation and lifecycle. */
+export const HomeReady = 'home:ready'
+export const HomeAck = 'home:ack'
+export const HomeGetCatalog = 'home:get-catalog'
+export const HomeGetDetail = 'home:get-detail'
+export const HomeSearch = 'home:search'
+export const HomeRefresh = 'home:refresh'
+export const HomeAction = 'home:action'
+export const HomeGetAppearance = 'home:get-appearance'
+export const HomeGetConfig = 'home:get-config'
+export const HomeEvent = 'home:event'
+export const PluginHomeRegister = 'plugin:home-register'
+
+export const WindowMinimize = 'window:minimize'
+export const WindowMaximize = 'window:maximize'
+export const WindowClose = 'window:close'
+
+/** 插件 preload → 主进程（经 permission 校验） */
+export const PluginCall = 'plugin:call'
+export const PluginEvent = 'plugin:event'
+export const PluginMcpRegister = 'plugin:mcp-register'
+export const PluginMcpResult = 'plugin:mcp-result'
+export const PluginMcpDispatch = 'plugin:mcp-dispatch'
+export const PluginMcpCancel = 'plugin:mcp-cancel'
+
+/** 壳子 → 主进程：读取 plugin:call 调用跟踪环形缓冲（DevConsole） */
+export const ShellGetPluginTrace = 'shell:get-plugin-trace'
+
+/** 主进程 → 插件 webContents 生命周期推送（enter/out/beforeClose/destroy） */
+export const PluginLifecycle = 'plugin:lifecycle'
+/** 插件 preload → 主进程：beforeClose 确认（可选，超时 1500ms 兜底） */
+export const PluginLifecycleAck = 'plugin:lifecycle-ack'
+
+/** 主进程 → 壳子渲染进程推送 */
+export const ShellEvent = 'shell:event'
+
+/** —— 运行时权限（壳层三态）—— */
+
+/** 废弃 renderer 授权响应通道；主进程拒绝，敏感授权仅由原生对话框决定。 */
+export const PermissionResponse = 'shell:permission-response'
+/** 壳渲染层 → 主进程：读插件权限授权表（缺省 ask） */
+export const PermissionGrantsGet = 'shell:permission-grants-get'
+/** 壳渲染层 → 主进程：写单项权限授权（设置页三态分段） */
+export const PermissionGrantsSet = 'shell:permission-grants-set'
+/**
+ * 壳渲染层 → 主进程：打开 macOS「屏幕录制」系统隐私设置面板。
+ * 只读安全的内部通道：仅跳转系统设置，不暴露任何插件数据；
+ * 插件不可调用（handler 限定壳窗口 sender）。
+ */
+export const OsOpenScreenSettings = 'shell:os-open-screen-settings'
+
+/** 主进程 → Quick 渲染层：窗口已显示，请求聚焦输入框 */
+export const QuickShown = 'quick:shown'
+
+/** —— 自由面板（小组件）：面板 chrome surface ↔ 主进程 —— */
+/** 面板 chrome → 主进程：读取面板状态快照 */
+export const PanelGetState = 'panel:get-state'
+/** 面板 chrome → 主进程：统一命令入口（添加/移除组件、拖动、关闭面板等） */
+export const PanelCommand = 'panel:command'
+/** 面板 chrome → 主进程：拖动进行中的保活与节流触发（主进程自行读光标） */
+export const PanelDragTick = 'panel:drag-tick'
+/** 主进程 → 面板 chrome：状态快照变更 */
+export const PanelState = 'panel:state'
+/** 主进程 → 面板 chrome：拖动反馈（吸附后的矩形与辅助线） */
+export const PanelDrag = 'panel:drag'
+/** 壳渲染层 → 主进程：框选区域并创建面板 */
+export const PanelPickRegion = 'panel:pick-region'
+/** 壳渲染层 → 主进程：列出活动面板（设置页/入口展示） */
+export const PanelList = 'panel:list'
+/** 壳渲染层 → 主进程：新建面板（先框选） */
+export const PanelCreate = 'panel:create'
+/** 壳渲染层 → 主进程：关闭指定面板 */
+export const PanelClose = 'panel:close'
+/** 壳渲染层 → 主进程：保存面板呼出快捷键并立即重注册（返回注册结果，镜像 quick:set-hotkeys） */
+export const PanelSetHotkey = 'panel:set-hotkey'
+
+/** 区域选择 surface ↔ 主进程 */
+export const RegionConfirm = 'panel-region:confirm'
+export const RegionCancel = 'panel-region:cancel'
+export const RegionState = 'panel-region:state'
+
+/** Compatibility map for dynamic enumeration. Preloads use static namespace members for tree shaking. */
 export const IpcChannels = {
-  PluginBackgroundHost: 'plugin-background:host',
-  PluginBackgroundReady: 'plugin-background:ready',
-  PluginBackgroundRequest: 'plugin-background:request',
-  PluginBackgroundResponse: 'plugin-background:response',
-  AuxiliaryContext: 'auxiliary:context',
-  AuxiliaryMessage: 'auxiliary:message',
-  AuxiliaryPost: 'auxiliary:post',
-  AuxiliaryClose: 'auxiliary:close',
-  PluginWindowState: 'window:plugin-state',
-  PluginWindowCommand: 'window:plugin-command',
-  PluginWindowEvent: 'window:plugin-event',
-  PluginDragBegin: 'window:plugin-drag-begin',
-  PluginDragArm: 'window:plugin-drag-arm',
-  PluginDragUpdate: 'window:plugin-drag-update',
-  PluginDragEnd: 'window:plugin-drag-end',
-  PluginDragTargets: 'window:plugin-drag-targets',
-  PluginDragEvent: 'window:plugin-drag-event',
-  /** 壳子 → 主进程 */
-  ShellGetPlugins: 'shell:get-plugins',
-  ShellGetMarketStatus: 'shell:get-market-status',
-  ShellMcpStatus: 'shell:mcp-status',
-  ShellMcpConfigure: 'shell:mcp-configure',
-  ShellMcpCopyConnection: 'shell:mcp-copy-connection',
-  ShellMcpRotateToken: 'shell:mcp-rotate-token',
-  ShellMcpCatalog: 'shell:mcp-catalog',
-  ShellOpenPlugin: 'shell:open-plugin',
-  ShellClosePlugin: 'shell:close-plugin',
-  ShellStopPluginResources: 'shell:stop-plugin-resources',
-  ShellActivatePlugin: 'shell:activate-plugin',
-  /** 隐藏全部插件 WebContentsView（回首页/设置时调用，避免遮挡壳子 UI） */
-  ShellHidePlugins: 'shell:hide-plugins',
-  /** 设置插件内容区左侧 inset（orb 传统通道模式；overlay 模式恒为 0） */
-  ShellSetPluginInset: 'shell:set-plugin-inset',
-  /** 主壳标题栏让出的高度；原生子视图始终保留顶部唤出区。 */
-  ShellSetPluginTopInset: 'shell:set-plugin-top-inset',
-  /** 壳子 → 主进程：同步圆轨悬浮窗所需 Tab 状态 */
-  ShellGetPluginDiagnostics: 'shell:get-plugin-diagnostics',
-  ShellGetPluginMemorySnapshot: 'shell:get-plugin-memory-snapshot',
-  ShellStartPerformanceCapture: 'shell:start-performance-capture',
-  ShellGetPerformanceCaptureState: 'shell:get-performance-capture-state',
-  ShellStopPerformanceCapture: 'shell:stop-performance-capture',
-  ShellExportPerformanceCapture: 'shell:export-performance-capture',
-  ThemeChromeSnapshot: 'theme-chrome:snapshot',
-  ThemeChromeChanged: 'theme-chrome:changed',
-  ThemeChromeAction: 'theme-chrome:action',
-  ThemeChromeReady: 'theme-chrome:ready',
-  ThemeSettingsConfig: 'theme-settings:config',
-  ThemeSettingsSnapshot: 'theme-settings:snapshot',
-  ThemeSettingsActive: 'theme-settings:active',
-  ThemeSettingsAction: 'theme-settings:action',
-  ShellRestoreTabs: 'shell:restore-tabs',
-  ShellSyncOrbState: 'shell:sync-orb-state',
-  /** 悬浮窗 → 主进程：读取圆轨状态 */
-  ShellGetOrbState: 'shell:get-orb-state',
-  /** 主进程 → 悬浮窗：Tab 状态变更推送 */
-  ShellOrbEvent: 'shell:orb-event',
-  /** 悬浮窗/壳子：回首页 */
-  ShellGoHome: 'shell:go-home',
-  /** 悬浮窗/壳子：切换主壳视图 */
-  ShellSetView: 'shell:set-view',
-  /** 圆轨 rail 视图展开/收起：主进程切换 WebContentsView 宽度 */
-  ShellSetOrbRailExpanded: 'shell:set-orb-rail-expanded',
-  ShellGetTheme: 'shell:get-theme',
-  ShellSetTheme: 'shell:set-theme',
-  ShellGetAppearance: 'shell:get-appearance',
-  ShellUpdateThemeProfile: 'shell:update-theme-profile',
-  ShellActivateTheme: 'shell:activate-theme',
-  ShellSetAppearanceMode: 'shell:set-appearance-mode',
-  ShellSetHomeVisible: 'shell:set-home-visible',
-  ShellNavigateWorkspace: 'shell:navigate-workspace',
-  ShellRetryHome: 'shell:retry-home',
-  ShellGetHomeState: 'shell:get-home-state',
-  ShellPickAppearanceMedia: 'shell:pick-appearance-media',
-  ShellImportAppearanceFont: 'shell:import-appearance-font',
-  ShellRemoveAppearanceFont: 'shell:remove-appearance-font',
-  ShellSetAppearancePerformanceLimited: 'shell:set-appearance-performance-limited',
-  ModalOpen: 'modal:open',
-  ModalReady: 'modal:ready',
-  ModalState: 'modal:state',
-  ModalRespond: 'modal:respond',
-  ShellLoadDevPlugin: 'shell:load-dev-plugin',
-  ShellForgetDevPlugin: 'shell:forget-dev-plugin',
-  /** 开发者控制台：切换 dev 插件「退出到后台立即结束运行」（对齐 uTools） */
-  ShellSetDevKillOnHide: 'shell:set-dev-kill-on-hide',
-  /** 开发者控制台：切换 dev 插件 dev（HMR/源码）/ prod（构建产物正式形态）模式 */
-  ShellSetDevPluginMode: 'shell:set-dev-plugin-mode',
-  /** 开发者控制台：prod 模式手动重建（执行解析出的构建命令并重载） */
-  ShellRebuildDevPlugin: 'shell:rebuild-dev-plugin',
-  ShellReloadPlugin: 'shell:reload-plugin',
-  ShellOpenDevTools: 'shell:open-devtools',
-  ShellGetSettings: 'shell:get-settings',
-  ShellOpenExternal: 'shell:open-external',
-  ShellSetSettings: 'shell:set-settings',
-  /** 壳子设置页：拉取插件已注册的设置 section 列表 */
-  ShellGetSettingsSections: 'shell:get-settings-sections',
-  /** 壳子设置页：写入单个插件设置项（同步 Bridge + SettingsStore） */
-  ShellSetPluginSetting: 'shell:set-plugin-setting',
-
-  /** 「打开方式」：列表（贡献+路由+系统状态）/ 设默认 / 移除 / 只写路由 / 打开系统设置 */
-  ShellOpenWithList: 'shell:open-with-list',
-  ShellOpenWithSetDefault: 'shell:open-with-set-default',
-  ShellOpenWithClearDefault: 'shell:open-with-clear-default',
-  ShellOpenWithRoute: 'shell:open-with-route',
-  ShellOpenWithOpenSystemSettings: 'shell:open-with-open-system-settings',
-
-  /** 路径与数据 */
-  ShellGetPaths: 'shell:get-paths',
-  ShellOpenPath: 'shell:open-path',
-  ShellPickFile: 'shell:pick-file',
-  ShellGetPluginReadme: 'shell:get-plugin-readme',
-
-  /** 硬件加速（写入设置后需重启） */
-  ShellGetHardwareAccel: 'shell:get-hardware-accel',
-  ShellSetHardwareAccel: 'shell:set-hardware-accel',
-
-  /** 网络代理：读/写（写即 session.setProxy）/ 连通性测试 */
-  ShellGetProxy: 'shell:get-proxy',
-  ShellSetProxy: 'shell:set-proxy',
-  ShellTestProxy: 'shell:test-proxy',
-
-  /** 自定义字体：复制到 ~/.eNest/fonts/、读 base64、删除 */
-  ShellSaveCustomFont: 'shell:save-custom-font',
-  ShellReadCustomFont: 'shell:read-custom-font',
-  ShellDeleteCustomFont: 'shell:delete-custom-font',
-
-  /** 插件拖拽/路径安装：入队后由主进程 installQueue 限流执行 */
-  InstallDropState: 'install:drop-state',
-  InstallDropFiles: 'install:drop-files',
-  InstallSurfaceReady: 'install:surface-ready',
-  InstallSurfaceState: 'install:surface-state',
-  InstallSurfaceDismiss: 'install:surface-dismiss',
-  ShellInstallPlugin: 'shell:install-plugin',
-  ShellGetInstallQueue: 'shell:get-install-queue',
-
-  /** 卸载插件：关闭 Tab → 清 partition storage → 删文件 → 重扫注册表 */
-  ShellUninstallPlugin: 'shell:uninstall-plugin',
-
-  /** 启用/禁用已安装插件（持久化到 plugins/disabled.json） */
-  ShellSetPluginEnabled: 'shell:set-plugin-enabled',
-
-  /** 每插件 Quick 搜索偏好：启动方式 / 自定义触发词 */
-  ShellSetPluginLaunch: 'shell:set-plugin-launch',
-  ShellGetPluginShortcuts: 'shell:get-plugin-shortcuts',
-  ShellSavePluginShortcut: 'shell:save-plugin-shortcut',
-  ShellRemovePluginShortcut: 'shell:remove-plugin-shortcut',
-  ShellProbePluginShortcut: 'shell:probe-plugin-shortcut',
-  ShellLaunchPluginShortcut: 'shell:launch-plugin-shortcut',
-  ShellBeginShortcutCapture: 'shell:begin-shortcut-capture',
-  ShellEndShortcutCapture: 'shell:end-shortcut-capture',
-
-  /** 从市场安装/更新插件：本地 sample 优先，否则远程 assetUrl 下载入队 */
-  ShellInstallMarketPlugin: 'shell:install-market-plugin',
-
-  /** 应用自动更新（GitHub Release + electron-updater） */
-  ShellCheckUpdate: 'shell:check-update',
-  ShellDownloadUpdate: 'shell:download-update',
-  ShellInstallUpdate: 'shell:install-update',
-  ShellGetUpdateState: 'shell:get-update-state',
-
-  /** 更新重启前：查询插件未保存数据 / 广播一键保存（save.requested 通知） */
-  ShellGetPluginsDirty: 'shell:get-plugins-dirty',
-  ShellSaveAllPlugins: 'shell:save-all-plugins',
-
-  /** GitHub 个人资料（浏览器授权码流 PKCE / 设备流兜底：登录 / 取消 / 读取 / 退出） */
-  ShellAccountState: 'shell:account-state',
-  ShellAccountLogin: 'shell:account-login',
-  ShellAccountCancel: 'shell:account-cancel',
-  ShellAccountLogout: 'shell:account-logout',
-  ShellGithubLogin: 'shell:github-login',
-  ShellGithubCancelLogin: 'shell:github-cancel-login',
-  ShellGetProfile: 'shell:get-profile',
-  ShellGithubLogout: 'shell:github-logout',
-
-  /** 系统级通知（Electron Notification） */
-  ShellSystemNotify: 'shell:system-notify',
-  NotificationShow: 'notification:show',
-  NotificationDismiss: 'notification:dismiss',
-  NotificationState: 'notification:state',
-  NotificationMeasure: 'notification:measure',
-  NotificationOpenLink: 'notification:open-link',
-
-  /** 快捷启动（Quick 小窗） */
-  QuickToggle: 'quick:toggle',
-  QuickHide: 'quick:hide',
-  QuickSearch: 'quick:search',
-  QuickOpen: 'quick:open',
-  QuickScanApps: 'quick:scan-apps',
-  QuickGetConfig: 'quick:get-config',
-  QuickThemeGetConfig: 'quick:theme-get-config',
-  QuickThemeAuthorize: 'quick:theme-authorize',
-  QuickProviderState: 'quick:provider-state',
-  QuickThemeKey: 'quick:theme-key',
-  QuickSetHotkeys: 'quick:set-hotkeys',
-  /** 探测组合键是否可被本进程注册（用于录制时发现系统/他应用占用） */
-  QuickProbeHotkey: 'quick:probe-hotkey',
-  /** 渲染层测量内容高度后请求调整小窗高度（内容撑开/收起） */
-  QuickResize: 'quick:resize',
-  QuickInput: 'quick:plugin-input',
-  /** 读取剪贴板图片/文件并入宿主保管的粘贴上下文，或按 id 移除/清空上下文 */
-  QuickInputContext: 'quick:input-context',
-
-  /** Restricted full-page home runtime. The host owns entry, generation and lifecycle. */
-  HomeReady: 'home:ready',
-  HomeAck: 'home:ack',
-  HomeGetCatalog: 'home:get-catalog',
-  HomeGetDetail: 'home:get-detail',
-  HomeSearch: 'home:search',
-  HomeRefresh: 'home:refresh',
-  HomeAction: 'home:action',
-  HomeGetAppearance: 'home:get-appearance',
-  HomeGetConfig: 'home:get-config',
-  HomeEvent: 'home:event',  PluginHomeRegister: 'plugin:home-register',
-
-  WindowMinimize: 'window:minimize',
-  WindowMaximize: 'window:maximize',
-  WindowClose: 'window:close',
-
-  /** 插件 preload → 主进程（经 permission 校验） */
-  PluginCall: 'plugin:call',
-  PluginEvent: 'plugin:event',
-  PluginMcpRegister: 'plugin:mcp-register',
-  PluginMcpResult: 'plugin:mcp-result',
-  PluginMcpDispatch: 'plugin:mcp-dispatch',
-  PluginMcpCancel: 'plugin:mcp-cancel',
-
-  /** 壳子 → 主进程：读取 plugin:call 调用跟踪环形缓冲（DevConsole） */
-  ShellGetPluginTrace: 'shell:get-plugin-trace',
-
-  /** 主进程 → 插件 webContents 生命周期推送（enter/out/beforeClose/destroy） */
-  PluginLifecycle: 'plugin:lifecycle',
-  /** 插件 preload → 主进程：beforeClose 确认（可选，超时 1500ms 兜底） */
-  PluginLifecycleAck: 'plugin:lifecycle-ack',
-
-  /** 主进程 → 壳子渲染进程推送 */
-  ShellEvent: 'shell:event',
-
-  /** —— 运行时权限（壳层三态）—— */
-
-  /** 废弃 renderer 授权响应通道；主进程拒绝，敏感授权仅由原生对话框决定。 */
-  PermissionResponse: 'shell:permission-response',
-  /** 壳渲染层 → 主进程：读插件权限授权表（缺省 ask） */
-  PermissionGrantsGet: 'shell:permission-grants-get',
-  /** 壳渲染层 → 主进程：写单项权限授权（设置页三态分段） */
-  PermissionGrantsSet: 'shell:permission-grants-set',
-  /**
-   * 壳渲染层 → 主进程：打开 macOS「屏幕录制」系统隐私设置面板。
-   * 只读安全的内部通道：仅跳转系统设置，不暴露任何插件数据；
-   * 插件不可调用（handler 限定壳窗口 sender）。
-   */
-  OsOpenScreenSettings: 'shell:os-open-screen-settings',
-
-  /** 主进程 → Quick 渲染层：窗口已显示，请求聚焦输入框 */
-  QuickShown: 'quick:shown',
-
-  /** —— 自由面板（小组件）：面板 chrome surface ↔ 主进程 —— */
-  /** 面板 chrome → 主进程：读取面板状态快照 */
-  PanelGetState: 'panel:get-state',
-  /** 面板 chrome → 主进程：统一命令入口（添加/移除组件、拖动、关闭面板等） */
-  PanelCommand: 'panel:command',
-  /** 面板 chrome → 主进程：拖动进行中的保活与节流触发（主进程自行读光标） */
-  PanelDragTick: 'panel:drag-tick',
-  /** 主进程 → 面板 chrome：状态快照变更 */
-  PanelState: 'panel:state',
-  /** 主进程 → 面板 chrome：拖动反馈（吸附后的矩形与辅助线） */
-  PanelDrag: 'panel:drag',
-  /** 壳渲染层 → 主进程：框选区域并创建面板 */
-  PanelPickRegion: 'panel:pick-region',
-  /** 壳渲染层 → 主进程：列出活动面板（设置页/入口展示） */
-  PanelList: 'panel:list',
-  /** 壳渲染层 → 主进程：新建面板（先框选） */
-  PanelCreate: 'panel:create',
-  /** 壳渲染层 → 主进程：关闭指定面板 */
-  PanelClose: 'panel:close',
-  /** 壳渲染层 → 主进程：保存面板呼出快捷键并立即重注册（返回注册结果，镜像 quick:set-hotkeys） */
-  PanelSetHotkey: 'panel:set-hotkey',
-
-  /** 区域选择 surface ↔ 主进程 */
-  RegionConfirm: 'panel-region:confirm',
-  RegionCancel: 'panel-region:cancel',
-  RegionState: 'panel-region:state'
+  PluginBackgroundHost,
+  PluginBackgroundReady,
+  PluginBackgroundRequest,
+  PluginBackgroundResponse,
+  AuxiliaryContext,
+  AuxiliaryMessage,
+  AuxiliaryPost,
+  AuxiliaryClose,
+  PluginWindowState,
+  PluginWindowCommand,
+  PluginWindowEvent,
+  PluginDragBegin,
+  PluginDragArm,
+  PluginDragUpdate,
+  PluginDragEnd,
+  PluginDragTargets,
+  PluginDragEvent,
+  ShellGetPlugins,
+  ShellGetMarketStatus,
+  ShellMcpStatus,
+  ShellMcpConfigure,
+  ShellMcpCopyConnection,
+  ShellMcpRotateToken,
+  ShellMcpCatalog,
+  ShellOpenPlugin,
+  ShellClosePlugin,
+  ShellStopPluginResources,
+  ShellActivatePlugin,
+  ShellHidePlugins,
+  ShellSetPluginInset,
+  ShellSetPluginTopInset,
+  ShellGetPluginDiagnostics,
+  ShellGetPluginMemorySnapshot,
+  ShellStartPerformanceCapture,
+  ShellGetPerformanceCaptureState,
+  ShellStopPerformanceCapture,
+  ShellExportPerformanceCapture,
+  ThemeChromeSnapshot,
+  ThemeChromeChanged,
+  ThemeChromeAction,
+  ThemeChromeReady,
+  ThemeSettingsConfig,
+  ThemeSettingsSnapshot,
+  ThemeSettingsActive,
+  ThemeSettingsAction,
+  ShellRestoreTabs,
+  ShellSyncOrbState,
+  ShellGetOrbState,
+  ShellOrbEvent,
+  ShellGoHome,
+  ShellSetView,
+  ShellSetOrbRailExpanded,
+  ShellGetTheme,
+  ShellSetTheme,
+  ShellGetAppearance,
+  ShellUpdateThemeProfile,
+  ShellActivateTheme,
+  ShellSetAppearanceMode,
+  ShellSetHomeVisible,
+  ShellNavigateWorkspace,
+  ShellRetryHome,
+  ShellGetHomeState,
+  ShellPickAppearanceMedia,
+  ShellImportAppearanceFont,
+  ShellRemoveAppearanceFont,
+  ShellSetAppearancePerformanceLimited,
+  ModalOpen,
+  ModalReady,
+  ModalState,
+  ModalRespond,
+  ShellLoadDevPlugin,
+  ShellForgetDevPlugin,
+  ShellSetDevKillOnHide,
+  ShellReloadPlugin,
+  ShellOpenDevTools,
+  ShellGetSettings,
+  ShellOpenExternal,
+  ShellSetSettings,
+  ShellGetSettingsSections,
+  ShellSetPluginSetting,
+  ShellOpenWithList,
+  ShellOpenWithSetDefault,
+  ShellOpenWithClearDefault,
+  ShellOpenWithRoute,
+  ShellOpenWithOpenSystemSettings,
+  ShellGetPaths,
+  ShellOpenPath,
+  ShellPickFile,
+  ShellGetPluginReadme,
+  ShellGetHardwareAccel,
+  ShellSetHardwareAccel,
+  ShellGetProxy,
+  ShellSetProxy,
+  ShellTestProxy,
+  ShellSaveCustomFont,
+  ShellReadCustomFont,
+  ShellDeleteCustomFont,
+  InstallDropState,
+  InstallDropFiles,
+  InstallSurfaceReady,
+  InstallSurfaceState,
+  InstallSurfaceDismiss,
+  ShellInstallPlugin,
+  ShellGetInstallQueue,
+  ShellUninstallPlugin,
+  ShellSetPluginEnabled,
+  ShellSetPluginLaunch,
+  ShellGetPluginShortcuts,
+  ShellSavePluginShortcut,
+  ShellRemovePluginShortcut,
+  ShellProbePluginShortcut,
+  ShellLaunchPluginShortcut,
+  ShellBeginShortcutCapture,
+  ShellEndShortcutCapture,
+  ShellInstallMarketPlugin,
+  ShellCheckUpdate,
+  ShellDownloadUpdate,
+  ShellInstallUpdate,
+  ShellGetUpdateState,
+  ShellGetPluginsDirty,
+  ShellSaveAllPlugins,
+  ShellAccountState,
+  ShellAccountLogin,
+  ShellAccountCancel,
+  ShellAccountLogout,
+  ShellGithubLogin,
+  ShellGithubCancelLogin,
+  ShellGetProfile,
+  ShellGithubLogout,
+  ShellSystemNotify,
+  NotificationShow,
+  NotificationDismiss,
+  NotificationState,
+  NotificationMeasure,
+  NotificationOpenLink,
+  QuickToggle,
+  QuickHide,
+  QuickSearch,
+  QuickOpen,
+  QuickScanApps,
+  QuickGetConfig,
+  QuickThemeGetConfig,
+  QuickThemeAuthorize,
+  QuickProviderState,
+  QuickThemeKey,
+  QuickSetHotkeys,
+  QuickProbeHotkey,
+  QuickResize,
+  QuickInput,
+  QuickInputContext,
+  HomeReady,
+  HomeAck,
+  HomeGetCatalog,
+  HomeGetDetail,
+  HomeSearch,
+  HomeRefresh,
+  HomeAction,
+  HomeGetAppearance,
+  HomeGetConfig,
+  HomeEvent,
+  PluginHomeRegister,
+  WindowMinimize,
+  WindowMaximize,
+  WindowClose,
+  PluginCall,
+  PluginEvent,
+  PluginMcpRegister,
+  PluginMcpResult,
+  PluginMcpDispatch,
+  PluginMcpCancel,
+  ShellGetPluginTrace,
+  PluginLifecycle,
+  PluginLifecycleAck,
+  ShellEvent,
+  PermissionResponse,
+  PermissionGrantsGet,
+  PermissionGrantsSet,
+  OsOpenScreenSettings,
+  QuickShown,
+  PanelGetState,
+  PanelCommand,
+  PanelDragTick,
+  PanelState,
+  PanelDrag,
+  PanelPickRegion,
+  PanelList,
+  PanelCreate,
+  PanelClose,
+  PanelSetHotkey,
+  RegionConfirm,
+  RegionCancel,
+  RegionState,
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]

@@ -17,7 +17,8 @@
       "@main/*": ["src/main/*"],
       "@preload/*": ["src/preload/*"],
       "@renderer/*": ["src/renderer/*"],
-      "@shared/*": ["src/shared/*"]
+      "@shared/*": ["src/shared/*"],
+      "@test/*": ["tests/*"]
     }
   },
   "include": ["src/renderer/**/*", "src/shared/**/*", "src/preload/**/*"]

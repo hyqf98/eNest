@@ -41,7 +41,7 @@ const ColorPickerField = lazy(() => import('@renderer/components/ColorPickerFiel
 type CloseBehavior = 'minimize-tray' | 'quit'
 type NotifyPosition = 'center' | 'bottom-right'
 
-/** 历史 mock 值 'tray' 归一到共享契约 'minimize-tray' */
+/** 未设置或无效的关闭行为回落到托盘。 */
 function normalizeCloseBehavior(v: unknown): CloseBehavior {
   return v === 'quit' ? 'quit' : 'minimize-tray'
 }
@@ -69,6 +69,36 @@ function Field({
       {children}
     </div>
   )
+}
+
+function PluginSettingInput({ item, raw, onCommit }: {
+  item: PluginSettingsItem; raw: unknown; onCommit: (value: unknown) => void
+}) {
+  const confirmed = raw === undefined || raw === null ? '' : String(raw)
+  const [draft, setDraft] = useState(confirmed)
+  const editing = useRef(false)
+  const numeric = item.type === 'number'
+  useEffect(() => { if (!editing.current && draft !== confirmed) setDraft(confirmed) })
+  return <Input type={numeric ? 'number' : 'text'} className="plugin-setting-input" aria-label={item.label}
+    min={numeric ? item.min : undefined} max={numeric ? item.max : undefined} step={numeric ? item.step ?? 'any' : undefined}
+    value={draft} onChange={event => { editing.current = true; setDraft(event.currentTarget.value) }}
+    onBlur={event => {
+      const changed = editing.current
+      editing.current = false
+      if (!changed) { setDraft(confirmed); return }
+      const input = event.currentTarget, value = input.value
+      if (numeric && (!value.trim() || !Number.isFinite(Number(value)) || !input.validity.valid)) {
+        setDraft(confirmed)
+        const range = Number.isFinite(item.min) && Number.isFinite(item.max) ? `${item.min}～${item.max}`
+          : Number.isFinite(item.min) ? `不小于 ${item.min}` : `不大于 ${item.max}`
+        notify.warn(input.validity.rangeUnderflow || input.validity.rangeOverflow
+          ? `请输入${range}的数字，已恢复原值`
+          : input.validity.stepMismatch ? `数字步长应为 ${item.step}，已恢复原值` : '请输入有效数字，已恢复原值')
+        return
+      }
+      if (value !== confirmed) onCommit(numeric ? Number(value) : value)
+      else setDraft(confirmed)
+    }} />
 }
 
 function TopTabBarSection() {
@@ -258,14 +288,14 @@ function Card({ title, hint, children, className }: { title: string; hint?: stri
   )
 }
 
-/** 从 settings 响应中取出 general（兼容扁平 mock / 嵌套主进程两种形状） */
+/** 从宿主设置快照读取通用设置。 */
 function pickGeneral(settings: Awaited<ReturnType<typeof shellApi.getSettings>>) {
   const g = settings.general ?? {}
   return {
     locale: (g.locale as Locale | undefined) ?? undefined,
     hardwareAcceleration: g.hardwareAcceleration,
     dataRoot: g.dataRoot,
-    closeBehavior: normalizeCloseBehavior(g.closeBehavior ?? settings.closeBehavior),
+    closeBehavior: normalizeCloseBehavior(g.closeBehavior),
     notifyPosition: normalizeNotifyPosition(g.notifyPosition),
     proxy: (g.proxy as ProxyConfig | undefined) ?? undefined,
   }
@@ -311,6 +341,28 @@ export function DefaultSettingsPage() {
   /** 插件 settings.register 注入的 section 与持久化值 */
   const [pluginSections, setPluginSections] = useState<PluginSettingsSection[]>([])
   const [pluginSettings, setPluginSettings] = useState<Record<string, Record<string, unknown>>>({})
+  const confirmedPluginSettings = useRef<Record<string, Record<string, unknown>>>({})
+  const pendingPluginSettings = useRef(new Map<string, { revision: number; pluginId: string; key: string; value: unknown }>())
+  const pluginSettingWriteRevision = useRef(0)
+  const pluginSettingReadRevision = useRef(0)
+  const pluginSettingWrites = useRef<Promise<void>>(Promise.resolve())
+  const pluginSettingsMounted = useRef(false)
+  const publishPluginSettings = useCallback(() => {
+    if (!pluginSettingsMounted.current) return
+    const next = { ...confirmedPluginSettings.current }
+    for (const pending of pendingPluginSettings.current.values()) {
+      next[pending.pluginId] = { ...next[pending.pluginId], [pending.key]: pending.value }
+    }
+    setPluginSettings(next)
+  }, [])
+  const refreshPluginSettings = useCallback(async () => {
+    if (!pluginSettingsMounted.current) return
+    const revision = ++pluginSettingReadRevision.current
+    const settings = await shellApi.getSettings()
+    if (!pluginSettingsMounted.current || revision !== pluginSettingReadRevision.current) return
+    confirmedPluginSettings.current = settings.plugins ?? {}
+    publishPluginSettings()
+  }, [publishPluginSettings])
 
   /** Installed plugins keep their own settings entry, including before their first launch. */
   const settingsPlugins = installed
@@ -372,51 +424,53 @@ export function DefaultSettingsPage() {
     }
   }, [])
 
-  /** 插件设置 section + 已持久化值；订阅 settings-sections 实时刷新 */
+  /** Native snapshots update confirmed values without erasing an in-flight local edit. */
   useEffect(() => {
     let cancelled = false
-    void (async () => {
-      try {
-        const settings = await shellApi.getSettings()
-        if (!cancelled && settings.plugins) {
-          setPluginSettings(settings.plugins as Record<string, Record<string, unknown>>)
-        }
-      } catch {
-        /* ignore */
-      }
-      if (shellApi.getSettingsSections) {
-        try {
-          const sections = await shellApi.getSettingsSections()
-          if (!cancelled) setPluginSections(sections)
-        } catch {
-          /* ignore */
-        }
-      }
-    })()
-    if (!shellApi.onEvent) {
-      return () => {
-        cancelled = true
-      }
+    let sectionsRevision = 0
+    pluginSettingsMounted.current = true
+    const loadSections = async () => {
+      const revision = ++sectionsRevision
+      const sections = await shellApi.getSettingsSections?.()
+      if (!cancelled && revision === sectionsRevision && sections) setPluginSections(sections)
     }
-    const off = shellApi.onEvent((payload) => {
+    const off = shellApi.onEvent?.((payload) => {
       if (payload.type === 'settings-sections') {
+        sectionsRevision++
         setPluginSections(payload.sections ?? [])
       }
+      if (payload.type === 'plugin-settings-changed' || payload.type === 'settings-sections' || payload.type === 'plugins-changed') {
+        void refreshPluginSettings().catch(() => undefined)
+      }
+      if (payload.type === 'plugins-changed' || payload.type === 'contributions-changed' && payload.slot === 'settings') {
+        void loadSections().catch(() => undefined)
+      }
     })
+    void refreshPluginSettings().catch(() => undefined)
+    void loadSections().catch(() => undefined)
     return () => {
       cancelled = true
-      off()
+      pluginSettingsMounted.current = false
+      pluginSettingReadRevision.current++
+      off?.()
     }
-  }, [])
+  }, [refreshPluginSettings])
 
   /** 写入插件单项：优先 setPluginSetting（同步 Bridge），回落 setSettings.plugins */
   const handlePluginSetting = useCallback(
-    (pluginId: string, key: string, value: unknown) => {
-      setPluginSettings((prev) => ({
-        ...prev,
-        [pluginId]: { ...(prev[pluginId] ?? {}), [key]: value },
-      }))
-      void (async () => {
+    (pluginId: string, key: string, value: unknown, continuous = false) => {
+      const identity = JSON.stringify([pluginId, key]), revision = ++pluginSettingWriteRevision.current
+      pendingPluginSettings.current.set(identity, { revision, pluginId, key, value })
+      pluginSettingReadRevision.current++
+      publishPluginSettings()
+      // Keep rapid control changes ordered; a newer queued value supersedes one
+      // that has not been sent yet, while acknowledged writes remain rollback-safe.
+      const save = pluginSettingWrites.current.then(async () => {
+        if (pendingPluginSettings.current.get(identity)?.revision !== revision) return
+        if (continuous) {
+          await new Promise(resolve => setTimeout(resolve, 120))
+          if (pendingPluginSettings.current.get(identity)?.revision !== revision) return
+        }
         try {
           if (shellApi.setPluginSetting) {
             await shellApi.setPluginSetting(pluginId, key, value)
@@ -427,12 +481,20 @@ export function DefaultSettingsPage() {
               plugins: { ...(settings.plugins ?? {}), [pluginId]: bag },
             })
           }
+          confirmedPluginSettings.current = { ...confirmedPluginSettings.current,
+            [pluginId]: { ...confirmedPluginSettings.current[pluginId], [key]: value } }
         } catch {
-          /* 乐观更新；写入失败下次 hydrate 会纠正 */
+          if (pluginSettingsMounted.current) notify.error('插件设置未保存，已保留上次确认的值。')
+        } finally {
+          pluginSettingReadRevision.current++
+          if (pendingPluginSettings.current.get(identity)?.revision === revision) pendingPluginSettings.current.delete(identity)
+          publishPluginSettings()
+          void refreshPluginSettings().catch(() => undefined)
         }
-      })()
+      })
+      pluginSettingWrites.current = save.catch(() => undefined)
     },
-    [],
+    [publishPluginSettings, refreshPluginSettings],
   )
 
   /** 订阅主进程 update-status 推送，并拉取一次当前状态 */
@@ -443,7 +505,6 @@ export function DefaultSettingsPage() {
         if (!cancelled && s) setUpdateState(s)
       })
     }
-    if (!shellApi.onEvent) return () => undefined
     const off = shellApi.onEvent((payload) => {
       if (payload.type === 'update-status' && payload.state) {
         setUpdateState(payload.state)
@@ -477,14 +538,6 @@ export function DefaultSettingsPage() {
       try {
         const result = await check()
         if (result) setUpdateState(result)
-        // 无 IPC 事件时（浏览器 mock）才在此补提示；Electron 由 update-status 事件统一提示
-        if (!shellApi.onEvent) {
-          if (result?.status === 'not-available') {
-            toastStore.getState().push(t('toasts.updateNone'))
-          } else if (result?.status === 'error') {
-            toastStore.getState().push(t('toasts.updateError'))
-          }
-        }
       } catch {
         toastStore.getState().push(t('toasts.updateError'))
       } finally {
@@ -867,34 +920,7 @@ export function DefaultSettingsPage() {
                 )
               }
               if (item.type === 'number') {
-                return (
-                  <Input
-                    type="number"
-                    className="plugin-setting-input"
-                    aria-label={item.label}
-                    min={item.min}
-                    max={item.max}
-                    step={item.step ?? 'any'}
-                    defaultValue={raw === undefined || raw === null ? '' : String(raw)}
-                    onBlur={(e) => {
-                      const input = e.currentTarget
-                      const n = Number(input.value)
-                      if (!input.value.trim() || !Number.isFinite(n) || !input.validity.valid) {
-                        const outOfRange = input.validity.rangeUnderflow || input.validity.rangeOverflow
-                        const stepMismatch = input.validity.stepMismatch
-                        input.value = raw === undefined || raw === null ? '' : String(raw)
-                        const range = Number.isFinite(item.min) && Number.isFinite(item.max)
-                          ? `${item.min}～${item.max}`
-                          : Number.isFinite(item.min) ? `不小于 ${item.min}` : `不大于 ${item.max}`
-                        notify.warn(outOfRange
-                          ? `请输入${range}的数字，已恢复原值`
-                          : stepMismatch ? `数字步长应为 ${item.step}，已恢复原值` : '请输入有效数字，已恢复原值')
-                        return
-                      }
-                      handlePluginSetting(id, item.key, n)
-                    }}
-                  />
-                )
+                return <PluginSettingInput item={item} raw={raw} onCommit={value => handlePluginSetting(id, item.key, value)} />
               }
               if (item.type === 'slider') {
                 const min = Number.isFinite(item.min) ? (item.min as number) : 0
@@ -910,7 +936,7 @@ export function DefaultSettingsPage() {
                       step={step}
                       value={[value]}
                       aria-label={item.label}
-                      onValueChange={([next]) => handlePluginSetting(id, item.key, next)}
+                      onValueChange={([next]) => handlePluginSetting(id, item.key, next, true)}
                     />
                     <span className="plugin-slider-value">{value}</span>
                   </div>
@@ -922,7 +948,7 @@ export function DefaultSettingsPage() {
                   <ColorPickerField
                     value={color}
                     label={item.label}
-                    onChange={(hex) => handlePluginSetting(id, item.key, hex)}
+                    onChange={(hex) => handlePluginSetting(id, item.key, hex, true)}
                   />
                 )
               }
@@ -934,14 +960,7 @@ export function DefaultSettingsPage() {
               ) {
                 console.warn('[settings] unknown item type, fallback to text:', item.type, item.key)
               }
-              return (
-                <Input
-                  className="plugin-setting-input"
-                  aria-label={item.label}
-                  defaultValue={raw === undefined || raw === null ? '' : String(raw)}
-                  onBlur={(e) => handlePluginSetting(id, item.key, e.target.value)}
-                />
-              )
+              return <PluginSettingInput item={item} raw={raw} onCommit={value => handlePluginSetting(id, item.key, value)} />
             }
             return (
               <Card key={id} title={p.name} className="plugin-settings-card">

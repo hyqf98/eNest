@@ -1,6 +1,5 @@
 /* Ordered style entry. Fragment order preserves the original selector/declaration cascade. */
-@import './pluginArtwork.css';
-@import './settingsBase.css';
+@import '@renderer/themes/default/settings/settingsBase.css';
 @import './markdown.css';
 @import './frameBackground.css';
 @import '@renderer/themes/default/settings/cardMediaSurface.css';

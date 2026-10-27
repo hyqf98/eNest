@@ -1,6 +1,6 @@
 # 错误码
 
-壳子错误经两条路径回到你面前：
+常见宿主错误通过以下路径呈现；本页不是全部内部错误字符串的穷举，也不是插件可以订阅任意壳 IPC 的授权：
 
 1. **API Promise reject** — `Error.message` 为下表字符串
 2. **壳子事件** — `shell:event` 的 `plugin-error` 推送到开发者页 / Toast
@@ -21,22 +21,23 @@
 | `unauthorized sender` | 发起调用的页面不属于壳子管理的插件 | 正常插件不会出现；检查是否在非插件环境误用 API |
 | `plugin id mismatch` | `request.pluginId` 与发送者实际插件 id 不一致 | 不要手动构造 IPC；使用 `window.enest`（`zapi` 为 deprecated 别名） |
 | `manifest not found` | 发送者在 Host 中无对应 manifest | 重新打开插件；开发者控制台重新加载 |
-| `toast message required` | `ui.toast({ message: '' })` 或缺 message | 传入非空 `message` |
+| `notification rate limit: 10 per 10 seconds` | 短时间内提交过多壳通知 | 合并提示，避免轮询或批处理逐项发 toast |
 | `invalid settings section` | `settings.register` 缺 `id` 或 `title` | 补齐 section 字段 |
-| `unknown settings key: <key>` | `settings.get/set` 读写未注册的设置项 | key 必须来自 `settings.register` 或 `contributes.settings` 声明过的 item |
+| `unsupported settings schema version` | 注册版本既非省略，也非字符串 `'1'` | 不要传数字 `1` 或猜测新版本 |
+| `unknown settings key: <key>` | `settings.set` 写入未注册或 `page` 项 | 写入键须来自当前插件可写声明；`get` 对未保存且无默认值的合法键返回 `undefined` |
 | `storage quota exceeded` | 每插件超过 1000 键，或单值超过 512KB | 拆分存储 / 精简数据；超大二进制不要放 storage |
 | `only http(s)/mailto/tel urls allowed` | `shell.openExternal` 传入非 http(s)/mailto/tel URL | 只允许 `http://` / `https://` / `mailto:` / `tel:`；`file://` 等会被拒 |
-| `net.fetch timeout` | `net.fetch` 超时（默认 15s，上限 60s） | 增大 `timeoutMs`（≤60000）或检查目标可达性 |
+| `net.fetch timeout` | `net.fetch` 超时（默认 15s，上限 120s），或在途请求被终止 | 核对生命周期及目标可达性，不盲目重放有副作用的请求 |
 | `plugin call failed` | preload 侧兜底：IPC 返回 `{ ok: false }` 但无 error 字符串 | 查看 DevTools 与主进程日志 |
 
 ### net.fetch 系列约束
 
 | 消息 | 触发 |
 |------|------|
-| `only https urls allowed` | URL 非 `https://`，或重定向某一跳落到非 https |
-| `only GET/POST allowed` | `method` 不是 GET / POST |
-| `response body too large` | 响应体超 2MB（`content-length` 或实际字节） |
-| `net.fetch timeout` | 超时（默认 15s，`timeoutMs` 可调，下限 1s 上限 60s） |
+| `only https urls allowed` / `only http(s) urls allowed` | URL 或重定向不符合当前 manifest 的协议限制；明文 HTTP 需声明 `net.allowInsecure` |
+| `only GET/POST/PUT/PATCH/DELETE/HEAD allowed` | 使用了不支持的请求方法 |
+| `response body too large` | 非流式响应超 2 MiB，或流式响应的声明大小超 32 MiB；实际流式失败也可能通过 `net.chunk` 终态 error 交付 |
+| `net.fetch timeout` | 默认 15s，`timeoutMs` 范围 1s–120s；已有流式响应后的失败观察 chunk 终态 |
 | `redirect without location` | 重定向响应（3xx）缺少 `Location` 头，无法继续跟随 |
 | `net.fetch failed` | 请求无响应 / 网络层失败的兜底错误 |
 
@@ -55,6 +56,10 @@
 - `secure credential storage unavailable`：系统密钥库不可用，解锁或配置系统密钥库后重试；不会静默存明文或混淆数据。
 - `legacy insecure vault secret requires re-entry`：旧 XOR 凭据需要重新输入，原文件保留。
 - vault 大小或数量超限：缩减或删除本插件旧凭据后重试，拒绝的写入不会覆盖已有凭据。
+
+### 存储与关闭期间的失败
+
+`storage.set/remove` 成功只确认入队，需要提交回执时使用 `flush/commit`。图片指针替换、完成文件发布或原生导出替换后，目录同步失败、实例退役或通信中断可能导致“已提交但回执/持久性未确认”；不能把所有 reject 都解释为磁盘未改变。按稳定 ID 或业务记录核对，再幂等重试；不要删除仍可能是唯一副本的数据。完整预算、旧数据与结果不确定语义见[存储标准](storage.md)。
 
 ### 权限错误示例
 
@@ -94,7 +99,7 @@ invalid plugin.json:
 |------|------|------|
 | `plugin.json 根节点必须是对象` | 清单 JSON 不是对象 | 检查最外层结构 |
 | `字段 id 缺失或不是字符串（必填，反向域名）` | 缺 `id` 或非字符串 | 补齐反向域名 id |
-| `字段 id "<id>" 不是合法反向域名（形如 com.example.plugin）` | id 格式不合法（需至少两段，小写字母/数字/连字符） | 改为 `com.example.plugin` 形式 |
+| `字段 id "<id>" 不是合法反向域名（形如 com.example.plugin）` | id 不符合当前 manifest schema | 按 schema 使用反向域名；保留 `com.github.eNest` 的大小写，不自行归一化来源 |
 | `字段 name 缺失或为空（必填）` | 缺 `name` 或空白 | 补齐显示名 |
 | `字段 version "<v>" 不是 semver（x.y.z）` | 版本号不合 semver（允许 `-beta.1` / `+build` 后缀） | 改为 `x.y.z` |
 | `字段 main 缺失或不是字符串（必填，HTML 入口相对路径）` | 缺 `main` | 补 HTML 入口 |
@@ -113,12 +118,13 @@ invalid plugin.json:
 | `invalid plugin.json: not valid JSON` | JSON 语法错误 | 检查逗号、引号、尾逗号 |
 | `invalid plugin.json:` + 上述逐字段列表 | manifest 校验失败（一次收集全部） | 按列表逐条修复 |
 | `plugin not installed: <id>` | 打开未安装插件 | 先安装，或开发者控制台加载本地目录 |
-| `sample not found for plugin: <id>` | 本地预览产物不存在 | 在插件仓库构建 `plugins/<id>/dist/`，再刷新预览列表 |
+| `local preview build not found for plugin: <id>` | 开发态未扫描到此完整插件 ID 的发行产物 | 在插件仓库构建 `plugins/<短名>/dist/` 并刷新预览列表；同末段但不同完整 ID 的插件不能代替 |
+| `local preview installation is unavailable in a packaged application` | 正式包调用开发 checkout 安装入口 | 使用市场安装或选择发行包，不依赖本地源码目录 |
 | `路径不存在: <path>` | 安装源路径为空或不存在 | 核对拖入的文件 / 文件夹 |
 | `不支持的安装包类型: <name>（需要文件夹或 .enestplugin/.zip）` | 扩展名不匹配 | 打成 `.enestplugin` / `.zip`，或直接拖文件夹 |
 | `无法读取安装包: <detail>` | zip 解压 / 读取失败 | 包是否损坏；权限是否足够 |
 | `安装包为空或无法读取` | 解压后无有效内容 | 重新打包 |
-| `安装包中未找到 plugin.json（需位于根目录或一级子目录）` | 包结构不合规范 | `plugin.json` 必须在 zip 根目录，或 **唯一一层** 子目录内 |
+| `安装包根目录必须包含 plugin.json，不支持外层目录` | 包内多包了一层文件夹，或缺少根清单 | ZIP 根直接包含 `plugin.json`、`index.html` 与发行资源，不含 `dist/` 或插件目录外壳 |
 
 ---
 
@@ -156,8 +162,8 @@ invalid plugin.json:
 3. `permissions` 是否覆盖当前调用的敏感 API（基础能力无需声明）
 4. 开发态端口 / `development.main`（或 `enest.dev.url`）是否正确，启动命令能否在插件目录手动跑通
 5. 是否在 `background: transparent` 时忘了把 `body` 设为透明（视觉问题）
-6. 仍失败：**关 Tab 重开**，或卸载后重新加载本地目录
-7. 修改过 `plugin.json` 权限后，必须 **关 Tab 重开**（reload 不会重读权限）
+6. 仍失败：先关闭重开实例并查看指定插件日志；不要把会清理私有数据的卸载当作默认排查步骤
+7. 修改过 `plugin.json` 后刷新开发注册，或构建并安装新包；普通 HMR 不等于已更新清单和授权
 
 ---
 

@@ -1,5 +1,5 @@
 .appearance-settings { min-width: 0; }
-/* 主题页两张卡：切换主题 / 主题参数，保持与其他设置卡同一书写顺序 */
+/* 主题页只有一张卡：主题配置（主题选择 → 自由面板外观 → 主题参数 → footer），分区靠小节标题与发丝线分隔 */
 .appearance-settings-stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 /* 卡间距交给 stack 的 gap，抵消设置页通用 .s-card 的下外边距 */
 .appearance-settings-stack > .s-card.appearance-card { margin-bottom: 0; }
@@ -13,7 +13,19 @@
 /* 模式切换固定在卡片右上，选项不折行 */
 .appearance-card-head > .segmented { flex: 0 0 auto; }
 .appearance-card-head > .segmented button { white-space: nowrap; overflow: visible; text-overflow: clip; }
-.appearance-card-source { flex: none; max-width: 220px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-3); background: var(--surface-2); font: calc(11px * var(--appearance-font-scale, 1))/1.6 var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* —— 卡内分区：自由面板外观 / 主题参数 —— */
+/* 卡标题 16 > 分区标题 15 > 分区内分组标题 13 > 字段说明 12，合并成一张卡后层级仍然清楚 */
+.appearance-section { min-width: 0; }
+.appearance-section-head { padding-top: 20px; margin: 26px 0 16px; border-top: 1px solid var(--border-strong); }
+.appearance-section-head-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; }
+.appearance-section-title { margin: 0; color: var(--text); font-size: calc(15px * var(--appearance-font-scale, 1)); font-weight: 600; line-height: 1.45; letter-spacing: -.005em; }
+.appearance-section-head .hint,
+.page-settings .appearance-section-head .hint { margin: 4px 0 0; max-width: 58ch; }
+/* 主题分组在合并卡里已是第三级：靠字号 + 字重与分区标题拉开，不与字段标签混淆 */
+.appearance-section-tuning .appearance-group-title { font-size: calc(13px * var(--appearance-font-scale, 1)); }
+/* 分区内首个字段不再叠第二条发丝线（分区头已经分隔过一次） */
+.appearance-panel-fields { min-width: 0; }
+.page-settings .appearance-panel-fields > .field:first-child { border-top: 0; }
 .appearance-inline-status { margin: 4px 0 0; }
 .appearance-empty { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 16px; border: 1px dashed var(--border-strong); border-radius: var(--appearance-control-radius, 10px); background: var(--surface-2); }
 .appearance-empty > p { margin: 0; color: var(--text-2); font-size: calc(12px * var(--appearance-font-scale, 1)); }
@@ -96,7 +108,7 @@
 .appearance-settings .appearance-field { gap: 22px; }
 /* 字段标签比分组标题轻一档，避免「分组」和「字段」读成同级 */
 .page-settings .field.appearance-field .label { font-weight: 500; }
-.appearance-slider-row { display: flex; align-items: center; justify-content: flex-end; gap: 15px; width: 100%; max-width: 295px; }
+.appearance-slider-row { display: flex; align-items: center; justify-content: flex-end; gap: 15px; width: 100%; max-width: var(--settings-control-width, 280px); }
 .appearance-slider-row .ui-slider { flex: 1; min-width: 90px; }
 .appearance-slider-row output { flex: 0 0 auto; min-width: 40px; color: var(--text-2); font: calc(12px * var(--appearance-font-scale, 1))/1.6 var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* 字号比例：滑杆与上面三个下拉同宽，读数带单位后也保持单行 */
@@ -120,7 +132,7 @@
 .appearance-media-controls, .appearance-font-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .appearance-font-controls .ui-select-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 字体绑定字段（三种字体 + 字号比例）共用右列宽度，滑杆与下拉在同一条竖线上 */
-.page-settings .field.appearance-field-target-font { grid-template-columns: minmax(0, 1fr) minmax(0, 400px); align-items: center; gap: 12px 24px; }
+.page-settings .field.appearance-field-target-font { grid-template-columns: minmax(0, 1fr) minmax(0, var(--settings-control-width-wide, 400px)); align-items: center; gap: 12px 24px; }
 .page-settings .field.appearance-field-target-font > .appearance-font-controls { justify-self: stretch; width: 100%; flex-wrap: nowrap; justify-content: flex-end; gap: 8px; }
 .appearance-field-target-font .appearance-font-controls > .ui-select-trigger { flex: 1 1 auto; min-width: 0; max-width: none; }
 /* 字号比例：滑杆与上面三个下拉同宽，读数带单位后也保持单行 */
@@ -178,7 +190,6 @@
 :root[data-anim='low'] .appearance-theme-card.btn { transition: none; }
 @media (max-width: 700px) {
   .appearance-card-head { flex-direction: column; align-items: stretch; gap: 14px; }
-  .appearance-card-source { align-self: flex-start; max-width: 100%; }
   .appearance-recovery { flex-wrap: wrap; }
   .appearance-settings .field { flex-wrap: wrap; }
   .appearance-slider-row { width: min(100%, 250px); }
@@ -190,7 +201,7 @@
   .appearance-theme-check { transition: none; }
 }
 
-/* —— 自由面板外观卡 —— */
+/* —— 自由面板外观分区 —— */
 .appearance-seg-row { display: inline-flex; gap: 8px; }
 .appearance-opacity-row { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .appearance-opacity-row .ui-slider { flex: 1 1 auto; min-width: 160px; }

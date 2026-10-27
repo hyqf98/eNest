@@ -23,6 +23,8 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 
 资源路径不得包含绝对路径、URL、反斜杠、点段、隐藏段、百分号编码或查询片段。`logo`、任意 main 路径和单独 settings HTML 入口已移除；设置使用 contributes.settings 或插件内页面。
 
+`contributes.mcpTools` 声明可供本机 MCP 客户端调用的业务工具（每插件最多 128 项，处理器在普通插件页注册）；服务默认关闭，声明不授予额外权限。字段、JSON Schema 限制、注册流程及当前交付边界见 [MCP 工具贡献](mcp.md)。
+
 ## 触发词与内容指令
 
 `features[].cmds` 是 Quick 小窗唯一的可检索入口声明，对标 uTools / zTools 的 `features`。每个 feature 有稳定 `code`（进入载荷 `code` 与之对应）、可选 `explain`（副标题），以及至少一条 `cmds`。`cmds` 混合三种形状：
@@ -61,7 +63,7 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 
 ## 小窗、主窗和 UI
 
-同一插件支持 `quick` 与 `shell` 两种容器，不定义两种包类型。`getLaunchMode()` 读取实际容器，`onModeChange()` 响应切换；宽度断点不能代替启动模式。
+同一插件支持 `quick` 与 `shell` 两种展示模式，不定义两种包类型。`getLaunchMode()` 读取当前模式，`onModeChange()` 响应模式切换；独立窗口和[自由面板](panels.md)是挂载位置，不增加第三种模式。宽度断点不能代替启动模式，也不能假定每次移动 View 都触发模式变化。
 
 默认 `chrome:none`、`themeAware:true`、`background:opaque`、`preferredColorScheme:auto`。使用宿主主题 token、字体和动画档位。不同容器只调整布局和可见操作，不重复创建业务状态。
 
@@ -87,7 +89,7 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 
 - `extensions` 小写无点扩展名；`mimeTypes` 主要供 Linux（xdg-mime）使用；`schemes` 小写不含 `://`，`enest`、`http`、`https`、`file`、`mailto` 为壳保留，跨插件重复先声明者得。
 - 用户把某类型设为默认后，双击文件 / 点击链接会打开 eNest 并唤起对应插件：`onEnter` 收到 `code: 'open-file' | 'open-url'`，`payload` 为 `{ paths?, handles?, url? }`。**文件读取必须走 `localFiles.read({ handleId })`**（基础能力，无需授权），`handles` 是宿主签发的只读句柄，`paths` 仅作展示，不能绕开句柄自行访问。
-- 平台能力边界：Linux 可程序化设默认；Windows 写入 HKCU 候选、切换默认引导到系统设置；macOS 候选来自安装包声明（新类型需随壳发版），默认切换由用户在 Finder/系统设置完成。设置页对每行如实显示「系统默认 / 已注册候选 / 未注册」。
+- 平台能力边界：Linux 可通过 `xdg-mime` 程序化设默认，但当前支持的文件类型仍依赖壳安装包的 MIME 声明与宿主 `EXT_MIME` 映射；尚未实现插件安装后的任意扩展名/MIME 动态注册，新类型需要补齐映射与打包声明。Windows 写入 HKCU 候选、切换默认引导到系统设置；macOS 候选来自安装包声明（新类型需随壳发版），默认切换由用户在 Finder/系统设置完成。设置页对每行如实显示「系统默认 / 已注册候选 / 未注册」，不能把壳内路由选择等同于操作系统默认已修改。
 
 ## 综合插件与主题插件
 
@@ -95,4 +97,4 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 
 主题插件也使用同一标准包和 index.html 预览页。固定主题通过 `contributes.themePacks` 声明，支持 V1 包与 `schemaVersion: 2` 的完整外观包；动态编辑主题通过基础能力 `enest.theme.register(pack)` 注册，无需权限弹窗。主题 source 由宿主绑定插件，停用或卸载会撤下主题贡献。注册只增加可选项，不会自动激活主题或首页。V2 主题包可在顶层用 `palettes` 追加自己的氛围配色，id 不得覆盖宿主内置的 `theme / dawn / mint / linen / peach / ocean / forest / ink`，含 `url()` 之类的不安全画法在注册时即被拒绝。不要直接修改壳设置文件或全局 CSS 文件。
 
-完整字段形状由插件仓库 `docs/plugin-manifest.schema.json` 定义；实际 API 签名由[生成类型](api-types.md)定义，不手抄权限数量或类型副本。
+完整字段形状见[官方 manifest Schema](https://github.com/hyqf98/eNest_plugin/blob/main/docs/plugin-manifest.schema.json)；实际 API 签名由[生成类型](api-types.md)定义，不手抄权限数量或类型副本。

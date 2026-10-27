@@ -19,11 +19,13 @@ function progId(ext: string): string {
 }
 
 async function regAddDefault(key: string, data: string): Promise<void> {
-  await run('reg', ['add', key, '/ve', '/t', 'REG_SZ', '/d', data, '/f'])
+  const result = await run('reg', ['add', key, '/ve', '/t', 'REG_SZ', '/d', data, '/f'])
+  if (result.code !== 0) throw new Error(result.stderr.trim() || 'Windows 注册表写入失败')
 }
 
 async function regAddValue(key: string, name: string, data: string, type = 'REG_SZ'): Promise<void> {
-  await run('reg', ['add', key, '/v', name, '/t', type, '/d', data, '/f'])
+  const result = await run('reg', ['add', key, '/v', name, '/t', type, '/d', data, '/f'])
+  if (result.code !== 0) throw new Error(result.stderr.trim() || 'Windows 注册表写入失败')
 }
 
 async function registerFileCandidate(ext: string): Promise<void> {

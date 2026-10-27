@@ -2,7 +2,7 @@
  * PluginInstaller — 插件包安装器
  * 职责：从目录 / .enestplugin(zip) 读取并校验 plugin.json，复制到
  *       {plugins}/{id}/{version}/，通过进度回调上报 0–100。
- * 被 PluginRegistry（scan / installFromSample）、DevConsole、installQueue 调用。
+ * 被 PluginRegistry（scan / installLocalPreview）、DevConsole、installQueue 调用。
  * 校验使用插件仓库同步的 JSON Schema，并补充引擎版本与真实文件布局检查；
  * 校验暂存副本后才原子发布，不接受旧嵌套包格式。
  * 关键依赖：adm-zip（解压）、pathsService 由调用方传入 destRoot、logService。
@@ -78,7 +78,7 @@ function pushError(errors: string[], rawId: unknown, msg: string): void {
 }
 
 /**
- * 程序化校验 manifest（替代旧 isManifest 的四字段检查）。
+ * 程序化完整校验 manifest。
  * 与 eNest_plugin/docs/plugin-manifest.schema.json 的差异：
  * - 此处额外校验 schema 做不到的：engines.enest 与壳子版本匹配、main 文件存在。
  * 返回全部错误列表；空数组 = 通过。
@@ -223,23 +223,6 @@ export function engineSatisfies(appVersion: string, range: string): boolean {
   return cmp(app, req) === 0
 }
 
-/** 旧名兼容导出：仅做必填字段形状检查（不含文件/版本范围副作用），供轻量场景使用 */
-export function isManifest(value: unknown): value is PluginManifest {
-  return collectManifestIssuesShape(value)
-}
-
-function collectManifestIssuesShape(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false
-  const m = value as Record<string, unknown>
-  return (
-    typeof m.id === 'string' &&
-    typeof m.name === 'string' &&
-    typeof m.version === 'string' &&
-    typeof m.main === 'string' &&
-    collectPluginFeatureIssues(m.features).length === 0
-  )
-}
-
 /** 从目录读取 plugin.json 并完整校验（收集全部错误后一次抛出），返回类型安全的 manifest */
 export async function installFromDirectory(dir: string, options: { source?: boolean; metadataOnly?: boolean } = {}): Promise<PluginManifest> {
   const manifestPath = join(dir, 'plugin.json')
@@ -316,10 +299,15 @@ export async function installFromFolder(
   destRoot: string,
   onProgress?: InstallProgress,
   operation = beginPluginInstall(),
-  onPublished?: InstallPublished
+  onPublished?: InstallPublished,
+  expectedIdentity?: { id: string; version?: string }
 ): Promise<InstallResult> {
   onProgress?.(8, '读取 plugin.json')
   const manifest = await installFromDirectory(srcDir)
+  if (expectedIdentity && (manifest.id !== expectedIdentity.id ||
+    expectedIdentity.version !== undefined && manifest.version !== expectedIdentity.version)) {
+    throw new Error('安装包身份与预期插件不一致')
+  }
   return withInstallLock(manifest.id, async () => {
     assertInstallCurrent(manifest.id, operation)
     const version = manifest.version || '0.0.0'

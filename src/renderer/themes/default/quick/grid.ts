@@ -26,40 +26,6 @@ export function groupQuickCommands<T extends QuickGridEntry>(items: T[], searchi
   return groups
 }
 
-/** Dynamic results are appended without changing static identities or ranking. */
-export function appendQuickProviders(items: QuickCommand[], providers: QuickCommand[]): QuickCommand[] {
-  const ids = new Set(items.map(item => item.id))
-  const appended = providers.filter(item => {
-    if (ids.has(item.id)) return false
-    ids.add(item.id)
-    return true
-  }).map(item => ({ ...item, group: 'provider' as const }))
-  return appended.length ? [...items, ...appended] : items
-}
-
-/** Enrichment supplies ranked static matches; retain usable commands and live providers. */
-export function mergeQuickEnriched(items: QuickCommand[], enriched: QuickCommand[]): QuickCommand[] {
-  if (!enriched.length) return items
-  const previous = new Map(items.map(item => [item.id, item]))
-  const seen = new Set<string>()
-  const merged: QuickCommand[] = []
-  for (const item of enriched) {
-    if (seen.has(item.id)) continue
-    seen.add(item.id)
-    const existing = previous.get(item.id)
-    merged.push({ ...item, group: item.group ?? 'best', icon: item.icon ?? (existing?.group === 'provider' ? undefined : existing?.icon) })
-  }
-  // Content matches can displace names at the backend limit. Keep those names
-  // usable for this query, so a command under the user's cursor never vanishes.
-  for (const item of items) {
-    if (item.group !== 'provider' && !seen.has(item.id)) {
-      seen.add(item.id)
-      merged.push(item)
-    }
-  }
-  return appendQuickProviders(merged, items.filter(item => item.group === 'provider'))
-}
-
 /** Locate the same command after an enriched group has been inserted before it. */
 export function quickSelectionIndex(items: Array<{ id: string }>, selectedId: string | null, fallbackIndex = 0): number {
   const preserved = selectedId === null ? -1 : items.findIndex(item => item.id === selectedId)

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IpcChannels } from '@shared/types/ipc'
+import * as IpcChannels from '@shared/types/ipc'
 import type { PluginDragFeedback, PluginWindowEvent, PluginWindowsApi } from '@shared/types/plugin-window'
 
 /** The same narrow capability bridge is used by shell chrome and detached chrome. */

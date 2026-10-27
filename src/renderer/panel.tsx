@@ -251,7 +251,7 @@ function PanelApp({ initialState }: { initialState: PanelState | null }): React.
   /** 整块面板移动/缩放：与组件拖动同一套主进程 tick，不用 -webkit-app-region（其右键不触发 contextmenu）。 */
   const beginWindowDrag = useCallback((event: React.PointerEvent, mode: 'move' | 'resize', edge?: PanelResizeEdge) => {
     if (event.button !== 0 || !api) return
-    if ((event.target as HTMLElement).closest('[data-no-drag]')) return
+    if (mode === 'move' && (event.target as HTMLElement).closest('[data-no-drag]')) return
     event.preventDefault()
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
     windowDraggingRef.current = true

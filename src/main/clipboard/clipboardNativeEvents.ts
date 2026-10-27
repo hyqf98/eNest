@@ -139,8 +139,7 @@ export function stopClipboardChanges(): void {
   previousFingerprint = null
 }
 
-/** Exposed for deterministic fixture checks, not a renderer API. */
-export async function pollClipboardChanges(): Promise<void> {
+async function pollClipboardChanges(): Promise<void> {
   for (const delivery of [...consumers.values()]) pumpDelivery(delivery)
   if (!consumers.size) { if (timer) stopClipboardChanges(); return }
   if (polling || pendingWrites || isNativeClipboardBusy() || !consumers.size) return

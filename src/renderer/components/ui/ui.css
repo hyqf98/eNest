@@ -1,5 +1,20 @@
 /* —— ui 组件层通用样式（行为来自 Radix，视觉走 tokens） —— */
 
+/* —— 统一聚焦环 ——
+   outline 画的是矩形，永远不会跟随 border-radius：输入框（9px）、开关（胶囊）、
+   色块（圆形）聚焦时会露出四角，看起来"不贴合、加粗"。这里统一改用 box-shadow
+   柔光环，沿控件圆角自然贴合。宿主机与官方插件（pk-ui.css）共用同一组参数。 */
+:root {
+  --focus-ring-width: 3px;
+  --focus-ring-color: color-mix(in srgb, var(--accent) 20%, transparent);
+  --focus-ring: 0 0 0 var(--focus-ring-width) var(--focus-ring-color);
+  --focus-ring-tight: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+/* 高对比模式不渲染 box-shadow：由各控件的 forced-colors 规则退回系统高亮描边。 */
+@media (forced-colors: active) {
+  :root { --focus-ring: none; --focus-ring-tight: none; }
+}
+
 /* Tooltip：跟随主题 token 的轻提示 */
 .ui-tooltip {
   box-sizing: border-box;
@@ -45,8 +60,9 @@
   cursor: not-allowed;
 }
 .ui-checkbox:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  outline: 2px solid transparent;
+  outline-offset: 0;
+  box-shadow: var(--focus-ring);
 }
 .ui-checkbox-indicator {
   display: grid;
@@ -92,8 +108,9 @@
   box-shadow: 0 0 0 1px var(--border-strong);
 }
 .ui-slider-thumb:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 5px;
+  outline: 2px solid transparent;
+  outline-offset: 0;
+  box-shadow: 0 0 0 1px var(--border-strong), var(--focus-ring);
 }
 
 /* Dialog 通用基座（业务弹窗多用自有类名，此处为无类调用提供缺省视觉） */

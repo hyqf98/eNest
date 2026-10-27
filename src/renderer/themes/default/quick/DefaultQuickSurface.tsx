@@ -5,6 +5,7 @@ import type { QuickCommandKind } from '@shared/types/quick'
 import type { QuickThemeAction, QuickThemeActionResult, QuickThemeItem, QuickThemeSnapshot } from '@shared/types/quickTheme'
 import { QUICK_BAR_AREA_H, QUICK_BORDER_WIDTH, QUICK_CONTENT_HEIGHT, QUICK_CORNER_RADIUS, QUICK_GRID_COLUMNS, QUICK_HOME_HEIGHT, QUICK_HOME_ROWS } from '@shared/constants'
 import { IS_MAC } from '@shared/platform'
+import { normalizeSearchText } from '@shared/search'
 import { d, ease } from '@renderer/gsap/marketMotion'
 import { Button } from '@renderer/components/ui/Button'
 import { SearchField } from '@renderer/components/SearchField'
@@ -13,8 +14,9 @@ import { DefaultQuickBackground } from './DefaultQuickBackground'
 import { QuickAccessMenu } from './QuickAccessMenu'
 import { groupQuickCommands, moveQuickGridSelection, quickSelectionIndex, type QuickGridKey } from './grid'
 import { getQuickSearchResults } from './searchResults'
-import { matchDefaultQuickMedia, rankDefaultQuickCatalog } from './searchPolicy'
-import { matchDefaultQuickContent } from './patternMatching'
+import { assembleDefaultQuickResults, matchDefaultQuickMedia, rankDefaultQuickHome } from './catalogPolicy'
+import { useQuickNameSearch } from './useQuickNameSearch'
+import { useQuickContentMatches } from './useQuickContentMatches'
 import { projectDefaultQuickUsage, type DefaultQuickOpened } from './usagePolicy'
 import type { DefaultQuickStateClient } from './usageState'
 import { useQuickUsage } from './useQuickUsage'
@@ -25,6 +27,8 @@ export interface DefaultQuickSurfaceProps {
   active: boolean
   /** Compatibility policy for v1 themes which only replace presentation. */
   searchActive?: boolean
+  /** Internal retry/source invalidation only, never a public theme protocol field. */
+  retryRevision?: number
   privateState: DefaultQuickStateClient
   onAction(action: QuickThemeAction): Promise<QuickThemeActionResult>
 }
@@ -62,7 +66,7 @@ function HighlightTitle({ text, query }: { text: string; query: string }) {
 }
 
 export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, DefaultQuickSurfaceProps>(function DefaultQuickSurface(
-  { snapshot, active, searchActive = active, privateState, onAction }, ref
+  { snapshot, active, searchActive = active, retryRevision = 0, privateState, onAction }, ref
 ) {
   const rootRef = useRef<HTMLDivElement>(null), inputRef = useRef<HTMLInputElement>(null), panelRef = useRef<HTMLDivElement>(null)
   const moreRef = useRef<HTMLButtonElement>(null), marketRef = useRef<HTMLButtonElement>(null)
@@ -73,11 +77,10 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   const [categoriesOpen, setCategoriesOpen] = useState(false)
   const [columns, setColumns] = useState(QUICK_GRID_COLUMNS)
   const composing = useRef(false)
-  const key = `${snapshot.queryRevision}:${snapshot.catalogRevision}`
-  const [content, setContent] = useState({ key: '', matches: new Set<string>(), loading: false })
   const plugin = snapshot.plugin
   const showResults = !plugin
   const query = snapshot.query, kind = snapshot.filter
+  const hasQuery = Boolean(query.trim())
   const inputItems = snapshot.input?.items ?? []
   const media = useMemo(() => matchDefaultQuickMedia(snapshot.catalog, snapshot.input?.items), [snapshot.catalog, snapshot.input])
   const searching = snapshot.searching || (media.mediaPresent && media.matches.size > 0)
@@ -89,29 +92,24 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   useEffect(() => { setCategoriesOpen(false) }, [snapshot.shown, Boolean(plugin)])
   useLayoutEffect(() => { if (panelRef.current) panelRef.current.scrollTop = 0 }, [snapshot.queryRevision])
 
-  useEffect(() => {
-    if (!searchActive || plugin) return
-    const controller = new AbortController()
-    const pending = searching && snapshot.catalog.some(item => item.content)
-    setContent({ key, matches: new Set(), loading: pending })
-    if (pending) void matchDefaultQuickContent(snapshot.catalog, query, controller.signal).then(matches => {
-      if (!controller.signal.aborted) setContent({ key, matches, loading: false })
-    })
-    return () => controller.abort()
-    // Icon bytes do not invalidate declarations or restart an in-flight regex worker.
-  }, [searchActive, key, Boolean(plugin)])
-
   const usageCatalog = useMemo(() => projectDefaultQuickUsage(snapshot.catalog, usage, query), [snapshot.catalog, usage, query])
-  const ranked = useMemo(() => rankDefaultQuickCatalog(usageCatalog, query, kind,
-    searching || media.mediaPresent ? 60 : QUICK_GRID_COLUMNS * QUICK_HOME_ROWS, content.key === key ? content.matches : new Set(),
-    media.matches, media.mediaPresent),
-  [usageCatalog, query, kind, searching, content.key, content.matches, key, media])
+  const policyEnabled = searchActive && !plugin
+  const names = useQuickNameSearch(usageCatalog, query, kind, policyEnabled, snapshot.composing, retryRevision)
+  const content = useQuickContentMatches(snapshot.catalog, query, policyEnabled && !snapshot.composing, retryRevision)
+  const policyPending = names.pending
+  const displayError = snapshot.error || (hasQuery ? names.error : null)
+  const ranked = useMemo(() => {
+    const limit = searching || media.mediaPresent ? 60 : QUICK_GRID_COLUMNS * QUICK_HOME_ROWS
+    if (!hasQuery) return rankDefaultQuickHome(usageCatalog, kind, limit, media.matches)
+    const named = normalizeSearchText(query).length <= 32 || !media.mediaPresent ? names.matches : []
+    return assembleDefaultQuickResults(usageCatalog, named, kind, limit, content.matches, media.matches, media.mediaPresent)
+  }, [usageCatalog, query, kind, searching, content.matches, media, hasQuery, names.matches])
   const allGroups = useMemo(() => showResults ? groupQuickCommands(ranked, searching || kind === 'action', QUICK_GRID_COLUMNS * QUICK_HOME_ROWS) : [], [ranked, searching, kind, showResults])
   const { groups, visibleItems, overflowCount } = useMemo(() => getQuickSearchResults(allGroups, columns, searching, snapshot.expanded), [allGroups, columns, searching, snapshot.expanded])
   const index = quickSelectionIndex(visibleItems, snapshot.selectedId)
   const selected = visibleItems[index]
-  const busy = snapshot.loading || content.key === key && content.loading
-  const showMarketEmpty = searching && !kind && showResults && !busy && !snapshot.composing && !snapshot.error
+  const busy = snapshot.loading || policyPending || content.pending
+  const showMarketEmpty = searching && !kind && showResults && !busy && !snapshot.composing && !displayError
     && !ranked.some(item => item.kind === 'app' || item.kind === 'plugin')
 
   useImperativeHandle(ref, () => ({
@@ -128,11 +126,11 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   }), [focus, recordOpened, searchActive, plugin, snapshot.busy, visibleItems, query, index, groups, columns])
 
   useEffect(() => {
-    if (!searchActive || plugin) return
+    if (!searchActive || plugin || snapshot.composing || hasQuery && policyPending) return
     void dispatch({ type: 'results', catalogRevision: snapshot.catalogRevision, queryRevision: snapshot.queryRevision,
       items: visibleItems.map(item => ({ id: item.id, title: item.title, group: item.group })), hiddenCount: overflowCount,
       emptyMarket: showMarketEmpty, expanded: snapshot.expanded })
-  }, [searchActive, Boolean(plugin), visibleItems, overflowCount, showMarketEmpty, snapshot.expanded, snapshot.catalogRevision, snapshot.queryRevision, dispatch])
+  }, [searchActive, Boolean(plugin), snapshot.composing, hasQuery, policyPending, visibleItems, overflowCount, showMarketEmpty, snapshot.expanded, snapshot.catalogRevision, snapshot.queryRevision, dispatch])
 
   useLayoutEffect(() => {
     panelRef.current?.querySelector<HTMLElement>(`[data-index="${index}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
@@ -287,8 +285,8 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
             title={`${filter.label}${kind === filter.kind ? ' · 点击查看全部' : ''}`} onClick={() => { void dispatch({ type: 'filter', kind: kind === filter.kind ? null : filter.kind }); setCategoriesOpen(false); focus() }}><CategoryIcon kind={filter.kind} /></button>)}
         </div></div>}
       </div>
-      {snapshot.error && <div className="quick-error" role="alert">{snapshot.error}<button type="button" onClick={() => void dispatch({ type: 'retry' })}>重试</button></div>}
-      {plugin?.loading && !snapshot.error && <div className="quick-plugin-loading" role="status" aria-live="polite"><span className="quick-spinner" aria-hidden="true" /><span>正在启动 {plugin.title}…</span></div>}
+      {displayError && <div className="quick-error" role="alert">{displayError}<button type="button" onClick={() => void dispatch({ type: 'retry' })}>重试</button></div>}
+      {plugin?.loading && !displayError && <div className="quick-plugin-loading" role="status" aria-live="polite"><span className="quick-spinner" aria-hidden="true" /><span>正在启动 {plugin.title}…</span></div>}
       {showResults && <div className="quick-panel" data-home={!searching} ref={panelRef}>
         <div id="quick-results" className="quick-results" role="listbox" aria-label={searching ? '搜索结果' : '常用应用与插件'} aria-busy={busy}>
           {groups.map(group => <div key={group.id} className="quick-result-group" role="group" aria-labelledby={`quick-group-${group.id}`}>
@@ -310,7 +308,7 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
             void dispatch({ type: 'expand', expanded: !snapshot.expanded }); focus()
           }}>{snapshot.expanded ? '收起' : `更多 ${overflowCount}`}</Button></div>}
         {showMarketEmpty && <div className="quick-empty"><span role="status">没有找到插件或本机应用，可以到插件市场找找</span><Button ref={marketRef} className="quick-empty-market" variant="ghost" size="sm" disabled={snapshot.busy} onClick={() => void dispatch({ type: 'open-market' })}>去插件市场</Button></div>}
-        {!showMarketEmpty && !visibleItems.length && <div className="quick-empty"><span>{busy ? '正在查找应用与插件…' : searching ? '没有找到匹配项' : '暂时没有常用应用或插件'}</span><small>{busy ? '正在补齐搜索结果，请稍候' : searching ? '试试应用名称、插件名或指令关键词' : '搜索并打开后会显示在这里'}</small>
+        {!displayError && !showMarketEmpty && !visibleItems.length && <div className="quick-empty"><span>{busy ? '正在查找应用与插件…' : searching ? '没有找到匹配项' : '暂时没有常用应用或插件'}</span><small>{busy ? '正在补齐搜索结果，请稍候' : searching ? '试试应用名称、插件名或指令关键词' : '搜索并打开后会显示在这里'}</small>
           {!busy && <button type="button" onClick={() => void dispatch({ type: 'refresh-apps' })}>重新扫描应用</button>}</div>}
       </div>}
     </div>

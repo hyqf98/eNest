@@ -59,12 +59,12 @@ Vue/React 的卸载清理还不能替代插件生命周期：后台暂停动画�
 
 ## 官方参考
 
-插件仓库的 `plugins/` 是自动枚举的实际示例；按对应功能读取 `src` 与 README，而不是复制打包后 JS：
+[官方插件仓库](https://github.com/hyqf98/eNest_plugin/tree/main/plugins)的 `plugins/` 是实际示例；按对应功能读取 `src` 与 README，而不是复制打包后 JS。表中为完整插件 ID，源码目录使用最后一段短名：
 
 | 示例 | 学习内容 |
 | --- | --- |
 | `com.github.eNest.todos` | 持久化、编辑与列表布局 |
-| `com.github.eNest.theme-demo` | 声明式主题、运行时注册、预览入口 |
+| `com.github.eNest.sketchbook` | 声明式主题、Workspace、Quick 与设置页面 |
 | `com.github.eNest.database` | 数据库句柄、局部表格滚动与会话清理 |
 | `com.github.eNest.ssh` | 私钥能力、终端与文件传输 |
 | `com.github.eNest.net-kit` | HTTP、宿主 WebSocket、订阅清理 |

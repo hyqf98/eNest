@@ -1,6 +1,7 @@
 /** 首页与 Quick 共用输入、清空和焦点反馈；检索范围由所在页面决定。 */
 import type { InputHTMLAttributes, ReactNode, RefObject } from 'react'
 import { SearchIcon, XIcon } from './icons'
+import './SearchField.css'
 
 interface Props {
   value: string

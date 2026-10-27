@@ -1,4 +1,6 @@
-/* Shared presentation for every plugin's settings.register fields. */
+/* Shared presentation for every plugin's settings.register fields.
+   控件宽度不在这里定义：右列宽度由 settings.css 的 --settings-control-width 单点控制，
+   宿主设置项与插件动态注册的设置项因此完全对齐（此前写死的 240px / 52% 是错位根因）。 */
 .plugin-settings-card .plugin-settings-section {
   margin-top: 22px;
 }
@@ -26,49 +28,9 @@
   line-height: 1.5;
 }
 
-.plugin-settings-card .field .plugin-setting-input,
-.plugin-settings-card .plugin-setting-select {
-  width: 240px;
-  min-width: 0;
-  max-width: 52%;
-}
-
-.plugin-settings-card .field .plugin-setting-input,
-.plugin-settings-card .plugin-setting-select .ui-select-trigger {
-  box-sizing: border-box;
-  height: var(--settings-control-h, 36px);
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-2);
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.4;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.plugin-settings-card .plugin-setting-select .ui-select-trigger {
-  width: 100%;
-  min-width: 0;
-}
-
+/* 尺寸、边框、圆角与聚焦态沿用宿主输入框（settings.css），这里只保留数字输入的特性。 */
 .plugin-settings-card .field .plugin-setting-input {
-  position: static;
   font-variant-numeric: tabular-nums;
-}
-
-.plugin-settings-card .field .plugin-setting-input:hover,
-.plugin-settings-card .plugin-setting-select .ui-select-trigger:hover {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-}
-
-.plugin-settings-card .field .plugin-setting-input:focus-visible,
-.plugin-settings-card button:focus-visible,
-.plugin-settings-card input[type='range']:focus-visible,
-.plugin-settings-card input[type='color']:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
 }
 
 .plugin-settings-card .field .plugin-setting-input[type='number'] {
@@ -82,9 +44,9 @@
   margin: 0;
 }
 
-.plugin-settings-card .plugin-slider-row {
-  width: 240px;
-  max-width: 52%;
+.plugin-settings-card .field .plugin-setting-input:hover,
+.plugin-settings-card .plugin-setting-select:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
 
 .plugin-settings-card .plugin-slider-value {
@@ -97,20 +59,19 @@
   text-align: center;
 }
 
+/* 插件卡片内的按钮 / 色块 / 原生 range：统一用贴合圆角的柔光环，不用矩形 outline。
+   插件卡片的次级按钮在静息态被 settings.css 显式压掉 box-shadow（特异性更高），
+   这里必须给出同级更高的聚焦规则，否则键盘聚焦看不到环。 */
+.plugin-settings-card button:focus-visible,
+.plugin-settings-card input[type='range']:focus-visible,
+.plugin-settings-card input[type='color']:focus-visible,
+.page-settings .plugin-settings-card .field > .btn:not(.btn-primary):not(.btn-danger):focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 0;
+  box-shadow: var(--focus-ring, 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent));
+}
+
 :root[data-anim='low'] .plugin-settings-card .field .plugin-setting-input,
 :root[data-anim='low'] .plugin-settings-card .ui-select-trigger {
   transition: none;
-}
-
-@media (max-width: 680px) {
-  .plugin-settings-card .field {
-    gap: 12px;
-  }
-
-  .plugin-settings-card .field .plugin-setting-input,
-  .plugin-settings-card .plugin-setting-select,
-  .plugin-settings-card .plugin-slider-row {
-    width: 100%;
-    max-width: none;
-  }
 }

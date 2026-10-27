@@ -6,7 +6,7 @@
  * 2. 卸载路径 `any → clearing-storage → uninstalled` 与运行态正交，
  *    若混进 Host 会把「关闭视图」和「抹掉数据」两套语义搅在一起。
  *
- * 状态机（与 docs/engineering/LIFECYCLE_REVIEW.md §4 对齐，按任务规格扩展）：
+ * 状态机（公开生命周期契约见 docs/site/plugin/lifecycle.md）：
  *
  *   installed → opening → ready → active ⇄ background → closing → closed
  *                                 ↘ crash          ↓ hibernate

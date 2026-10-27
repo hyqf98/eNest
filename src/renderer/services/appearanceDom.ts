@@ -4,6 +4,9 @@ import { applyLevelToDefaults } from '@renderer/gsap/marketMotion'
 import { syncBackgroundAtmosphereTheme } from '@renderer/components/backgroundAtmosphere'
 
 let appliedProperties = new Set<string>()
+let appliedRoot: HTMLElement | null = null
+let appliedMediaKey = ''
+let appliedLevel: HomeResolvedAppearance['animation']['effective'] | undefined
 const fonts = new Map<string, { face: FontFace; url: string }>()
 
 /** Called by an isolated workspace when its renderer is retired. */
@@ -15,35 +18,48 @@ export function releaseAppearanceResources(): void {
 /** Apply the same semantic snapshot in every trusted renderer and release old resources. */
 export function applyAppearanceToDom(appearance: HomeResolvedAppearance & { resources?: HomeAppearanceSnapshot['resources'] }): void {
   const root = document.documentElement
-  root.dataset.theme = appearance.mode
-  root.dataset.appearanceTheme = appearance.theme.id
-  root.dataset.appearanceSource = appearance.theme.source
-  root.dataset.appearanceLegacy = String(appearance.theme.legacy)
-  root.dataset.appearanceLayout = appearance.layout.variant
-  root.dataset.tabStyle = appearance.layout.tabStyle === 'orb' ? 'orb' : 'classic'
+  if (appliedRoot !== root) {
+    appliedRoot = root
+    appliedProperties = new Set()
+    appliedMediaKey = ''
+    appliedLevel = undefined
+  }
   const notifications = appearance.notifications ?? DEFAULT_NOTIFICATION_STYLE
-  root.dataset.notificationLayout = notifications.layout
-  root.dataset.notificationAccent = notifications.accent
-  root.dataset.notificationShadow = notifications.shadow
-  root.dataset.appearanceTexture = appearance.background.texture
-  root.dataset.appearanceEffect = appearance.background.effect === 'none' ? 'none' : 'enabled'
-  root.dataset.anim = appearance.animation.effective
-  root.style.colorScheme = appearance.mode
-  const properties = appearanceStyleProperties(appearance)
-  for (const key of appliedProperties) if (!(key in properties)) root.style.removeProperty(key)
-  for (const [key, value] of Object.entries(properties)) {
+  const attributes = {
+    theme: appearance.mode, appearanceTheme: appearance.theme.id, appearanceSource: appearance.theme.source,
+    appearanceLegacy: String(appearance.theme.legacy), appearanceLayout: appearance.layout.variant,
+    tabStyle: appearance.layout.tabStyle === 'orb' ? 'orb' : 'classic',
+    notificationLayout: notifications.layout, notificationAccent: notifications.accent, notificationShadow: notifications.shadow,
+    appearanceTexture: appearance.background.texture, appearanceEffect: appearance.background.effect === 'none' ? 'none' : 'enabled',
+    anim: appearance.animation.effective,
+  }
+  for (const [key, value] of Object.entries(attributes)) if (root.dataset[key] !== value) root.dataset[key] = value
+  if (root.style.colorScheme !== appearance.mode) root.style.colorScheme = appearance.mode
+  const setProperty = (key: string, value: string) => {
+    if (root.style.getPropertyValue(key) === value) return
     if (value) root.style.setProperty(key, value)
     else root.style.removeProperty(key)
   }
+  const properties = appearanceStyleProperties(appearance)
+  for (const key of appliedProperties) if (!(key in properties)) setProperty(key, '')
+  for (const [key, value] of Object.entries(properties)) setProperty(key, value || '')
   appliedProperties = new Set(Object.keys(properties))
   // The original shell uses a 14px baseline; opted-in business plugins keep 13px.
-  root.style.setProperty('--font-size-base', `${14 * appearance.fonts.scale}px`)
+  setProperty('--font-size-base', `${14 * appearance.fonts.scale}px`)
   const hasEffect = appearance.background.effect !== 'none'
-  root.classList.toggle('has-bg-media', hasEffect || !!appearance.background.media?.value)
-  root.classList.toggle('has-bg-effect', hasEffect)
-  root.style.setProperty('--bg-media-opacity', String(appearance.background.media?.opacity ?? 0.85))
-  syncBackgroundAtmosphereTheme(root, appearance.background.media)
-  applyLevelToDefaults(appearance.animation.effective)
+  const hasMedia = hasEffect || !!appearance.background.media?.value
+  if (root.classList.contains('has-bg-media') !== hasMedia) root.classList.toggle('has-bg-media', hasMedia)
+  if (root.classList.contains('has-bg-effect') !== hasEffect) root.classList.toggle('has-bg-effect', hasEffect)
+  setProperty('--bg-media-opacity', String(appearance.background.media?.opacity ?? 0.85))
+  const mediaKey = JSON.stringify(appearance.background.media ?? null)
+  if (appliedMediaKey !== mediaKey) {
+    syncBackgroundAtmosphereTheme(root, appearance.background.media)
+    appliedMediaKey = mediaKey
+  }
+  if (appliedLevel !== appearance.animation.effective) {
+    applyLevelToDefaults(appearance.animation.effective)
+    appliedLevel = appearance.animation.effective
+  }
   const resources = appearance.resources?.fonts ?? []
   for (const [family, entry] of fonts) if (!resources.some(font => font.family === family && font.url === entry.url)) {
     document.fonts.delete(entry.face)

@@ -100,10 +100,6 @@ export interface ShellApi {
   reloadPlugin(pluginId: string): Promise<void>
   /** 开发者控制台：切换/查询 dev 插件「退出到后台立即结束运行」（mock 恒 false） */
   setDevKillOnHide(pluginId: string, enabled?: boolean): Promise<boolean>
-  /** 开发者控制台：切换 dev/prod 模式（mock no-op） */
-  setDevPluginMode(pluginId: string, mode: 'dev' | 'prod'): Promise<void>
-  /** 开发者控制台：prod 模式手动重建（mock no-op） */
-  rebuildDevPlugin(pluginId: string): Promise<void>
   openDevTools(pluginId: string): Promise<void>
   /** plugin:call 调用跟踪（Electron；mock 返回空数组） */
   getPluginCallTrace?(): Promise<PluginCallTraceEntry[]>
@@ -230,7 +226,7 @@ const rawShell = window.enestShell
 /** Preview data is development-only; a release missing its preload must fail closed. */
 export const shellApi: ShellApi = rawShell ? createNativeShellApi(rawShell)
   : import.meta.env.DEV
-    ? createLazyPreviewShellApi(async () => (await import('./mockShellApi')).createMockApi())
+    ? createLazyPreviewShellApi(async () => (await import('@test/fixtures/browser-preview/mockShellApi')).createMockApi())
     : createNativeShellApi({} as ShellApi)
 
 export const isMockShell = import.meta.env.DEV && !rawShell

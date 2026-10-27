@@ -1,7 +1,7 @@
 /**
  * PluginRegistry — 插件注册表
  * 职责：扫描 ~/.eNest/plugins（pathsService）下已安装插件，维护安装/开发态插件列表与 manifest，
- * 支持从示例目录安装、远程市场下载安装、开发态加载；合并启用/禁用状态。
+ * 支持开发态本地预览安装、远程市场下载安装、开发态加载；合并启用/禁用状态。
  * 被 index.ts 扫描初始化，被 PluginHost / shellHandlers / pluginHandlers 查询。
  * 关键依赖：pathsService、PluginInstaller（manifest 解析）、
  * marketClient（远程列表与资产下载）、pluginEnabledStore（启用状态）。
@@ -76,12 +76,6 @@ function freezeDescriptor<T>(value: T): T {
 
 function pluginsRoot(): string {
   return getAppPaths().plugins
-}
-
-/** Local installation consumes the same built output as a release archive. */
-function resolveSampleDir(id: string): string | null {
-  const path = join(app.getAppPath(), 'eNest_plugin', 'plugins', id.split('.').pop() ?? id, 'dist')
-  return existsSync(join(path, 'plugin.json')) ? path : null
 }
 
 /**
@@ -188,6 +182,8 @@ export class PluginRegistry {
   private installedRevision = 0
   private mutationRevision = 0
   private installedEnabledSignature = ''
+  /** 同名同类目重复安装的告警去重签名；仅在集合变化时重新提示，不自动处理任何插件。 */
+  private duplicateWarningSignature = ''
   private buildEpochs = new Map<string, number>()
   private descriptors: readonly InstalledPluginDescriptor[] | null = null
   private descriptorCacheHits = 0
@@ -331,8 +327,8 @@ private syncContributes(manifest: PluginManifest, enabled: boolean): void {
       for (const entry of entries) {
         if (!isLatest()) break
         try {
-          await themePackRegistry.registerPlugin(entry.data, pluginId)
-          registered++
+          const result = await themePackRegistry.registerPluginWithStatus(entry.data, pluginId)
+          if (result.changed) registered++
         } catch (err) {
           logWarn('registry', `theme pack "${entry.id}" from ${pluginId} rejected: ${(err as Error).message}`)
         }
@@ -422,6 +418,7 @@ private removeThemePackContributions(pluginId: string): void {
             this.syncContributes(item.manifest, isEnabledSync(id))
           }
         }
+        this.warnDuplicateInstallations(next)
       } while (request !== this.scanRequested)
       await this.scanLocalPreviews()
       void this.refreshRemoteMarket()
@@ -431,13 +428,41 @@ private removeThemePackContributions(pluginId: string): void {
     return task
   }
 
+  /**
+   * 通用重复安装诊断（不按插件 ID 特判、绝不自动处理）。
+   * 两个启用插件声明相同的 name + category 时，几乎总是同一插件以两个 id 并存
+   * （典型场景：发布者改名后的旧包残留）。它们会争抢相同的 Quick 命令与设置分区，
+   * 因此宿主按重复集合记录一条警告，让情况在日志与开发者控制台可见。
+   * 宿主在此不禁用、不卸载、不重排任何插件。
+   */
+  private warnDuplicateInstallations(items: Map<string, InstalledPlugin>): void {
+    const byKey = new Map<string, string[]>()
+    for (const [id, item] of items) {
+      if (this.dev.has(id) || !isEnabledSync(id)) continue
+      const name = (item.manifest.name ?? '').trim()
+      if (!name) continue
+      const category = (item.manifest.category ?? '').trim()
+      const key = `${name}\u0000${category}`
+      const group = byKey.get(key)
+      if (group) group.push(id)
+      else byKey.set(key, [id])
+    }
+    const duplicates = [...byKey.values()].filter((group) => group.length > 1)
+    const signature = duplicates.map((group) => [...group].sort().join(',')).sort().join(';')
+    if (signature === this.duplicateWarningSignature) return
+    this.duplicateWarningSignature = signature
+    for (const group of duplicates) {
+      logWarn('registry', `duplicate installation: ${group.join(' / ')} declare the same plugin name; keep only the current one to avoid conflicting entries`)
+    }
+  }
+
   /** Checkout previews publish metadata/assets only; they never start a dev server or backend. */
   private async scanLocalPreviews(): Promise<void> {
-    if (app.isPackaged) return
+    if (app.isPackaged) { this.localPreviews.clear(); return }
     const root = join(app.getAppPath(), 'eNest_plugin', 'plugins')
     const next = new Map<string, InstalledPlugin>()
     let ids: string[]
-    try { ids = await readdir(root) } catch { return }
+    try { ids = await readdir(root) } catch { this.localPreviews.clear(); return }
     for (const id of ids) {
       if (id.startsWith('.')) continue
       // A complete build wins; a source-only checkout remains browsable without npm/build.
@@ -454,6 +479,15 @@ private removeThemePackContributions(pluginId: string): void {
       }
     }
     this.localPreviews = next
+  }
+
+  /** Resolve only a scanned full identity; a same-suffix plugin is never an installation source. */
+  private resolveLocalPreviewRoot(id: string): string | null {
+    if (app.isPackaged) return null
+    const preview = this.localPreviews.get(id)
+    if (!preview || preview.manifest.id !== id) return null
+    const root = preview.devSource ? join(preview.rootPath, 'dist') : preview.rootPath
+    return existsSync(join(root, 'plugin.json')) ? root : null
   }
 
   getAssetRootPath(id: string): string | null { return this.getRootPath(id) ?? this.localPreviews.get(id)?.rootPath ?? null }
@@ -618,17 +652,19 @@ private removeThemePackContributions(pluginId: string): void {
     this.syncContributes(result.manifest, isEnabledSync(result.manifest.id))
   }
 
-/** 从内置示例目录安装插件到 userData/plugins，已安装则直接返回 */
-  async installFromSample(id: string): Promise<PluginSummary> {
+  /** Development checkout installation uses the same validated distribution as a release archive. */
+  async installLocalPreview(id: string): Promise<PluginSummary> {
+    if (app.isPackaged) throw new Error('local preview installation is unavailable in a packaged application')
     if (this.installed.has(id)) {
       return this.get(id)!
     }
-    const src = resolveSampleDir(id)
+    const src = this.resolveLocalPreviewRoot(id)
     if (!src) {
-      throw new Error(`sample not found for plugin: ${id}`)
+      throw new Error(`local preview build not found for plugin: ${id}`)
     }
-    const { manifest } = await installFromFolder(src, pluginsRoot(), undefined, undefined, (result) => this.publishInstalledBuild(result))
-    return this.get(manifest.id)!
+    await installFromFolder(src, pluginsRoot(), undefined, undefined,
+      (result) => this.publishInstalledBuild(result), { id })
+    return this.get(id)!
   }
 
   /**
@@ -716,7 +752,7 @@ private removeThemePackContributions(pluginId: string): void {
 /**
  * 确保插件已安装：
  * 1. 已安装/开发态 → 直接返回（用 installed/dev map，避免禁用时 summary 缺 rootPath 误判）
- * 2. 本地 sample 存在 → 同步安装
+ * 2. 开发态已扫描的本地预览产物存在 → 安装
  * 3. 远程市场有资产 → 下载安装（并发去重）
  * 4. 否则抛出明确错误
  */
@@ -731,9 +767,9 @@ private removeThemePackContributions(pluginId: string): void {
     if (inflight) return inflight
 
     const task = (async (): Promise<PluginSummary> => {
-      // sample 优先（离线可用、速度快）
-      if (resolveSampleDir(id)) {
-        return this.installFromSample(id)
+      // Local checkout previews are a development capability, never a packaged-app fallback.
+      if (this.resolveLocalPreviewRoot(id)) {
+        return this.installLocalPreview(id)
       }
       // 远程下载
       if (this.getRemoteEntry(id)?.assetUrl) {
@@ -749,7 +785,7 @@ private removeThemePackContributions(pluginId: string): void {
         })
       }
       throw new Error(
-        `plugin not installable: ${id}（无本地 sample 且远程市场无可用资产）`
+        `plugin not installable: ${id}（无本地预览产物且远程市场无可用资产）`
       )
     })()
 

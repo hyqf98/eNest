@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IpcChannels } from '@shared/types/ipc'
+import * as IpcChannels from '@shared/types/ipc'
 import { BACKGROUND_MESSAGE_LIMIT, type BackgroundRequest, type BackgroundResponse } from '@shared/types/pluginBackgroundProtocol'
 import type { PluginBackgroundBridge, PluginBackgroundHandlers } from '@shared/types/pluginBackground'
 

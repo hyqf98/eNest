@@ -41,18 +41,7 @@
   align-items: center;
   margin-left: auto;
 }
-/* dev/prod 模式切换的紧凑分段控件 */
-.dev-mode-seg {
-  padding: 3px;
-  gap: 2px;
-}
-.dev-mode-seg button {
-  height: 22px;
-  padding: 0 10px;
-  border-radius: 8px;
-  font-size: calc(12px * var(--appearance-font-scale, 1));
-}
-/* 解析出的启动/构建命令标签（如 pnpm run dev） */
+/* dev 插件解析出的启动命令标签（如 pnpm run dev） */
 .dev-command-tag {
   font-size: calc(11px * var(--appearance-font-scale, 1));
   color: var(--text-2);

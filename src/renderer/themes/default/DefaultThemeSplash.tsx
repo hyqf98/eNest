@@ -1,15 +1,15 @@
 /** The default theme owns the original launch background and logo choreography. */
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
-import { playSplash, type SplashHandles, type SplashPlayback } from '@renderer/themes/default/motion/splashMotion'
+import { useCallback, useRef } from 'react'
+import { playSplash, type SplashHandles } from '@renderer/themes/default/motion/splashMotion'
 import type { HomeResolvedAppearance } from '@shared/types/home'
-import { useReducedMotion } from '@renderer/hooks/useReducedMotion'
+import { useSplashLifecycle } from '@renderer/themes/default/useSplashLifecycle'
 import { BUILTIN_BACKGROUND_EFFECTS } from '@shared/backgroundEffects'
 import { backgroundAtmosphereStyle } from '@renderer/components/backgroundAtmosphere'
 import { DefaultThemeBackground } from '@renderer/themes/default/DefaultThemeBackground'
 import { resolveMediaSrc } from '@renderer/services/themeResources'
 import { Button } from '@renderer/components/ui/Button'
 
-export function DefaultThemeSplash({ appearance, hydrated = true, onDone, preview = false, ready = true }: { appearance: HomeResolvedAppearance; hydrated?: boolean; onDone: () => void; preview?: boolean; ready?: boolean }) {
+export function DefaultThemeSplash({ appearance, hydrated = true, onDone, preview = false, ready = true }: { appearance: Pick<HomeResolvedAppearance, 'theme' | 'background' | 'animation' | 'splash'>; hydrated?: boolean; onDone: () => void; preview?: boolean; ready?: boolean }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const level = appearance.animation.effective
   const effect = BUILTIN_BACKGROUND_EFFECTS.find(item => item.id === appearance.background.effect)
@@ -18,23 +18,9 @@ export function DefaultThemeSplash({ appearance, hydrated = true, onDone, previe
   const atmosphere = backgroundAtmosphereStyle(appearance.background.media)
   const hasUnifiedBackground = Boolean(effect || (atmosphere && !photo?.playable))
   const logoStyle = effect?.logoStyle ?? (effect?.renderer === 'preset' ? effect.preset : 'fold')
-  const reducedMotion = useReducedMotion()
-  const onDoneRef = useRef(onDone)
-  onDoneRef.current = onDone
-  const readyRef = useRef(ready)
-  readyRef.current = ready
-  const playbackRef = useRef<SplashPlayback | null>(null)
-  const completedRef = useRef(false)
-
-  const complete = useCallback(() => {
-    if (completedRef.current) return
-    completedRef.current = true
-    onDoneRef.current()
-  }, [])
-
-  useLayoutEffect(() => {
+  const startPlayback = useCallback((complete: () => void, initialReady: boolean) => {
     const root = rootRef.current
-    if (!root || !hydrated || reducedMotion) return
+    if (!root) return
     const handles: SplashHandles = {
       root,
       hex: root.querySelector('.splash-hex'),
@@ -44,25 +30,9 @@ export function DefaultThemeSplash({ appearance, hydrated = true, onDone, previe
       wordChars: Array.from(root.querySelectorAll('.splash-word-char')),
       sub: root.querySelector('.splash-sub'),
     }
-    const playback = playSplash(handles, complete, level, logoStyle, readyRef.current)
-    playbackRef.current = playback
-    return () => {
-      playbackRef.current = null
-      playback()
-    }
-  }, [hydrated, level, reducedMotion, preview, logoStyle, complete])
-
-  useLayoutEffect(() => {
-    playbackRef.current?.setReady(ready)
-    if (hydrated && reducedMotion && !preview && ready) complete()
-  }, [hydrated, reducedMotion, preview, ready, complete])
-
-  useEffect(() => {
-    if (!preview) return
-    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') onDoneRef.current() }
-    window.addEventListener('keydown', close)
-    return () => window.removeEventListener('keydown', close)
-  }, [preview])
+    return playSplash(handles, complete, level, logoStyle, initialReady)
+  }, [level, preview, logoStyle])
+  useSplashLifecycle(startPlayback, { hydrated, onDone, preview, ready })
 
   return (
     <div className={`splash splash--${level}${hasUnifiedBackground ? ' splash--effect' : ''}${splash?.type === 'none' ? ' splash--theme' : ''}${photo?.playable ? ' splash--photo' : ''}`} ref={rootRef}

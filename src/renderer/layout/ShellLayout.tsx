@@ -19,7 +19,7 @@ import { useShellEvents } from '@renderer/hooks/useShellEvents'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
 import { useI18n } from '@renderer/hooks/useI18n'
 
-const SettingsPage = lazy(() => import('@renderer/pages/SettingsPage').then(module => ({ default: module.SettingsPage })))
+const SettingsPage = lazy(() => import('@renderer/components/SettingsSurfaceController').then(module => ({ default: module.SettingsSurfaceController })))
 const MarketPage = import.meta.env.DEV
   ? lazy(() => import('@renderer/themes/default/workspace/preview/MarketPage').then(module => ({ default: module.MarketPage })))
   : null

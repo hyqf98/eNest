@@ -11,6 +11,8 @@ import type {
 import { completeLegacyPackBackground, declaredPalettePaints, patchThemeProfile, reconcileThemeProfile, resolveAppearance, themeProfileKey } from '@shared/theme/appearance'
 import { DEFAULT_THEME_IDENTITY } from '@shared/theme/builtinThemes'
 import { settingsStore } from '@main/settings/SettingsStore'
+import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { getAppPathsRoot } from '@main/paths/pathsService'
 import type { HomeTransaction } from '@main/home/HomeSurfaceManager'
 import { themePackRegistry } from '@main/theme/themePacks'
 import { publicAppearanceFonts, publicAppearanceMedia } from './appearanceResources'
@@ -18,13 +20,26 @@ import { publicAppearanceFonts, publicAppearanceMedia } from './appearanceResour
 export interface AppearanceChange { revision: number; appearance: ResolvedAppearance }
 type AppearanceListener = (change: AppearanceChange) => void
 
+interface AppearanceInput {
+  settings: AppearanceSettings
+  packs: ThemePackV2[]
+  pack: ThemePackV2 | null
+  customFonts: AppearanceSnapshot['customFonts']
+  systemDark: boolean
+  reducedMotion: boolean
+  performanceLimited: boolean
+  appearanceInput: string
+}
+
 function isVersionTwo(pack: ThemePack): pack is ThemePackV2 {
   return (pack as Partial<ThemePackV2>).schemaVersion === 2
 }
 
-function findV2Pack(identity: ThemeIdentity, packs = themePackRegistry.list()): ThemePackV2 | null {
-  return packs.find((pack): pack is ThemePackV2 => isVersionTwo(pack) &&
-    pack.source === identity.source && pack.id === identity.id) ?? null
+function findV2Pack(identity: ThemeIdentity, packs?: readonly ThemePack[]): ThemePackV2 | null {
+  const pack = packs
+    ? packs.find(pack => pack.source === identity.source && pack.id === identity.id)
+    : themePackRegistry.getByIdentity(identity)
+  return pack && isVersionTwo(pack) ? pack : null
 }
 
 function freezeTree<T>(value: T): T {
@@ -43,6 +58,9 @@ class AppearanceService {
   private publishedRevision = 0
   private contentKey = ''
   private cache = new Map<PluginPreferredColorScheme, ResolvedAppearance>()
+  private inputKey = ''
+  private inputCache: AppearanceInput | null = null
+  private snapshotCache: AppearanceSnapshot | null = null
   private listeners = new Set<AppearanceListener>()
   private nativeThemeWatcherStarted = false
   private prepareHome: ((candidate: ResolvedAppearance) => Promise<HomeTransaction>) | null = null
@@ -60,7 +78,17 @@ class AppearanceService {
     nativeTheme.on('updated', () => { this.refreshAppearance() })
   }
 
-  private read() {
+  private read(): AppearanceInput {
+    const systemDark = nativeTheme.shouldUseDarkColors
+    let reducedMotion = false
+    try { reducedMotion = systemPreferences.getAnimationSettings().prefersReducedMotion } catch { /* Unsupported platform. */ }
+    const performanceLimited = this.performanceLimited
+    const installedRevision = pluginRegistry.getInstalledRevision()
+    const dataRoot = getAppPathsRoot()
+    const key = () => JSON.stringify([settingsStore.getAppearanceInputRevision(), themePackRegistry.getRevision(), installedRevision,
+      dataRoot, systemDark, reducedMotion, performanceLimited])
+    const inputKey = key()
+    if (this.inputCache && this.inputKey === inputKey) return this.inputCache
     const stored = settingsStore.getAppearanceSettings()
     const allPacks = themePackRegistry.list()
     const settings = completeLegacyPackBackground(stored, allPacks)
@@ -69,11 +97,11 @@ class AppearanceService {
     const activeIdentity: ThemeIdentity = settings.active
     const pack = findV2Pack(activeIdentity, packs)
     const customFonts = settingsStore.getPluginAppearance().customFonts ?? []
-    let reducedMotion = false
-    try { reducedMotion = systemPreferences.getAnimationSettings().prefersReducedMotion } catch { /* Unsupported platform. */ }
-    const performanceLimited = this.performanceLimited
-    const appearanceInput = JSON.stringify({ settings, packs, customFonts, systemDark: nativeTheme.shouldUseDarkColors, reducedMotion, performanceLimited })
-    return { settings, packs, pack, customFonts, systemDark: nativeTheme.shouldUseDarkColors, reducedMotion, performanceLimited, appearanceInput }
+    const appearanceInput = JSON.stringify({ settings, packs, customFonts, installedRevision, dataRoot, systemDark, reducedMotion, performanceLimited })
+    // Legacy completion can commit settings while constructing this input.
+    this.inputKey = key()
+    this.inputCache = freezeTree({ settings, packs, pack, customFonts, systemDark, reducedMotion, performanceLimited, appearanceInput })
+    return this.inputCache
   }
 
   getAppearance(preferred: PluginPreferredColorScheme = 'auto'): ResolvedAppearance {
@@ -82,12 +110,13 @@ class AppearanceService {
   }
 
   // Cache values stay private; each public getter detaches only its final DTO.
-  private resolveInput(input: ReturnType<AppearanceService['read']>, preferred: PluginPreferredColorScheme = 'auto'): ResolvedAppearance {
+  private resolveInput(input: AppearanceInput, preferred: PluginPreferredColorScheme = 'auto'): ResolvedAppearance {
     const key = input.appearanceInput
     if (key !== this.contentKey) {
       this.contentKey = key
       this.revision++
       this.cache.clear()
+      this.snapshotCache = null
     }
     const mode = preferred === 'light' || preferred === 'dark' ? preferred : 'auto'
     const cached = this.cache.get(mode)
@@ -105,7 +134,7 @@ class AppearanceService {
       splash: appearance.splash ? { ...appearance.splash, media: publicAppearanceMedia(appearance.splash.media, declaredPaints) } : { type: 'brand' as const, media: null, opacity: 0.55 },
       resources: { fonts: publicAppearanceFonts(appearance.fonts) },
     }
-    this.cache.set(mode, resolved)
+    this.cache.set(mode, freezeTree(resolved))
     return resolved
   }
 
@@ -113,18 +142,20 @@ class AppearanceService {
     this.startNativeThemeWatcher()
     const input = this.read()
     const appearance = this.resolveInput(input)
+    if (this.snapshotCache?.appearance === appearance) return detached(this.snapshotCache)
     const { settings, packs, customFonts } = input
     const identity = { source: appearance.theme.source, id: appearance.theme.id }
     const storedProfile = settings.profiles[themeProfileKey(identity)] ?? {
       identity, schemaVersion: 1, values: {}, colors: {}, quarantined: {}
     }
     const profile = reconcileThemeProfile(findV2Pack(identity, packs), storedProfile)
-    return detached({
+    this.snapshotCache = freezeTree({
       appearance,
       profile,
       packs,
       customFonts
     })
+    return detached(this.snapshotCache)
   }
 
   async activateTheme(identity: ThemeIdentity, recovery?: AppearanceSettings['recovery'], canCommit?: () => boolean): Promise<AppearanceSnapshot> {

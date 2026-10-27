@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react'
+import { useCallback, useRef, type CSSProperties } from 'react'
 import type { HomeResolvedAppearance } from '@shared/types/home'
-import { playPaperSplash, type SplashPlayback } from '@renderer/themes/default/motion/splashMotion'
-import { useReducedMotion } from '@renderer/hooks/useReducedMotion'
+import { playPaperSplash } from '@renderer/themes/default/motion/splashMotion'
+import { useSplashLifecycle } from '@renderer/themes/default/useSplashLifecycle'
 import { Button } from '@renderer/components/ui/Button'
 
 interface Props {
-  appearance: HomeResolvedAppearance
+  appearance: Pick<HomeResolvedAppearance, 'animation' | 'tokens' | 'fonts'>
   hydrated: boolean
   onDone: () => void
   preview?: boolean
@@ -15,45 +15,19 @@ interface Props {
 /** Host-rendered paper choreography; a theme supplies only semantic appearance data. */
 export function PaperSplash({ appearance, hydrated, onDone, preview = false, ready = true }: Props) {
   const rootRef = useRef<HTMLDivElement>(null)
-  const playbackRef = useRef<SplashPlayback | null>(null)
-  const completedRef = useRef(false)
-  const onDoneRef = useRef(onDone)
-  const readyRef = useRef(ready)
-  const reducedMotion = useReducedMotion()
-  onDoneRef.current = onDone
-  readyRef.current = ready
-  const complete = useCallback(() => {
-    if (completedRef.current) return
-    completedRef.current = true
-    onDoneRef.current()
-  }, [])
-
-  useLayoutEffect(() => {
+  const startPlayback = useCallback((complete: () => void, initialReady: boolean) => {
     const root = rootRef.current
     const sheet = root?.querySelector<HTMLElement>('.paper-splash-sheet')
-    if (!root || !sheet || !hydrated || reducedMotion) return
-    const playback = playPaperSplash({
+    if (!root || !sheet) return
+    return playPaperSplash({
       root,
       sheet,
       tabs: Array.from(root.querySelectorAll('.paper-splash-tab')),
       strokes: Array.from(root.querySelectorAll('[data-paper-stroke]')),
       labels: Array.from(root.querySelectorAll('[data-paper-label]')),
-    }, complete, readyRef.current)
-    playbackRef.current = playback
-    return () => { playbackRef.current = null; playback() }
-  }, [hydrated, appearance.animation.effective, reducedMotion, complete])
-
-  useLayoutEffect(() => {
-    playbackRef.current?.setReady(ready)
-    if (hydrated && reducedMotion && !preview && ready) complete()
-  }, [hydrated, reducedMotion, preview, ready, complete])
-
-  useEffect(() => {
-    if (!preview) return
-    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') onDoneRef.current() }
-    window.addEventListener('keydown', close)
-    return () => window.removeEventListener('keydown', close)
-  }, [preview])
+    }, complete, initialReady)
+  }, [appearance.animation.effective])
+  useSplashLifecycle(startPlayback, { hydrated, onDone, preview, ready })
 
   const style = {
     ...appearance.tokens,

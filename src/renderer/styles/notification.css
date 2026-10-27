@@ -40,7 +40,15 @@
 .notify-close svg { width: 15px; height: 15px; }
 .notify-close:hover { background: var(--surface-2, #edf0f4); color: var(--text, #242b35); }
 .notify-close:active { background: color-mix(in srgb, var(--notify-tone) 13%, transparent); }
-.notify-close:focus-visible, .notify-body:focus-visible, .notify-body a:focus-visible { outline: 2px solid var(--accent, #4b78bc); outline-offset: 2px; }
+.notify-close:focus-visible, .notify-body:focus-visible, .notify-body a:focus-visible, .notify-action:focus-visible { outline: 2px solid var(--accent, #4b78bc); outline-offset: 2px; }
+/* 错误卡的复制/关闭同列排列；两枚图标按钮与卡片顶部对齐。 */
+.notify-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
+.notify-action { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; margin: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text-3, #76808c); cursor: pointer; transition: background-color 120ms, color 120ms; }
+.notify-action-icon { display: grid; place-items: center; }
+.notify-action svg { width: 15px; height: 15px; }
+.notify-action:hover { background: var(--surface-2, #edf0f4); color: var(--text, #242b35); }
+.notify-action:active { background: color-mix(in srgb, var(--notify-tone) 13%, transparent); }
+.notify-action[data-copied] { color: var(--ok, #298b68); }
 .notify-hint { margin-top: 7px; color: var(--text-3, #7a8490); font-size: calc(10.5px * var(--appearance-font-scale, 1)); }
 /* Keep rich content inside the flex column and its scrollbar padding, not under close/actions. */
 .notify-body .markdown-body, .notify-rich { min-width: 0; max-width: 100%; font: inherit; color: inherit; }
@@ -62,7 +70,8 @@
 :root[data-notification-layout='compact'] .notify-card { gap: calc(8px * var(--notify-density)); padding: calc(10px * var(--notify-density)) calc(10px * var(--notify-density)) calc(10px * var(--notify-density)) calc(12px * var(--notify-density)); }
 :root[data-notification-layout='compact'] .notify-symbol { width: 24px; height: 24px; border-radius: 7px; }
 :root[data-notification-layout='compact'] .notify-heading { margin-top: 0; margin-bottom: 2px; }
-:root[data-notification-layout='banner'] .notify-card { display: grid; grid-template-columns: 28px minmax(0, 1fr) 24px; padding-top: calc(18px * var(--notify-density)); background: color-mix(in srgb, var(--notify-tone) 4%, var(--surface, #fff)); }
+/* 末列随动作区伸缩：错误卡多一个复制按钮。 */
+:root[data-notification-layout='banner'] .notify-card { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; padding-top: calc(18px * var(--notify-density)); background: color-mix(in srgb, var(--notify-tone) 4%, var(--surface, #fff)); }
 :root[data-notification-layout='banner'] .notify-card::before { inset: 0 0 auto; width: auto; height: 3px; }
 :root[data-notification-layout='banner'] .notify-heading { margin-top: 0; padding-bottom: 5px; border-bottom: 1px solid var(--border, #ccd1d9); }
 :root[data-notification-accent='icon'] .notify-card::before, :root[data-notification-accent='none'] .notify-card::before { content: none; }
@@ -70,4 +79,4 @@
 :root[data-notification-accent='none'] .notify-symbol { color: var(--text-2, #586373); background: var(--surface-2, #edf0f4); }
 :root[data-notification-shadow='none'] .notify-card { box-shadow: none; }
 :root[data-notification-shadow='raised'] .notify-card { box-shadow: var(--notify-shadow-raised); }
-@media (prefers-reduced-motion: reduce) { .notify-close { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .notify-close, .notify-action { transition: none; } }

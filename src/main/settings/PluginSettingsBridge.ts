@@ -11,7 +11,7 @@
 import { sendShellEvent } from '@main/window/createShellWindow'
 import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { settingsStore } from '@main/settings/SettingsStore'
-import type { SettingsSectionContribution } from '@shared/types/plugin'
+import { CONTRIB_SCHEMA_VERSION, type SettingsSectionContribution } from '@shared/types/plugin'
 import type { ShellSettingsSection } from '@shared/types/shell'
 import { logWarn } from '@main/logs/logService'
 import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
@@ -29,10 +29,14 @@ export class PluginSettingsBridge {
       logWarn('settings-bridge', 'register rejected: invalid section')
       return
     }
+    if (section.schemaVersion !== undefined && section.schemaVersion !== CONTRIB_SCHEMA_VERSION) {
+      throw new Error('unsupported settings schema version')
+    }
     const items = Array.isArray(section.items) ? section.items.filter(item => isPluginSettingKey(item?.key)) : []
     contributionRegistry.registerSettingsSection(pluginId, {
       id: section.id,
       title: section.title,
+      schemaVersion: section.schemaVersion,
       items: items.map((item) => ({
         key: item?.key ?? '',
         type: item?.type ?? 'text',

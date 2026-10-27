@@ -14,5 +14,3 @@ export function resolvePluginBackendPackage(pluginId: string): { entry: string; 
   const runtimeRoot = pluginRegistry.get(pluginId)?.devUrl ? join(root, 'dist') : root
   return { entry: resolveBackendFile(runtimeRoot, manifest.backend.entry), root: runtimeRoot }
 }
-
-export function resolvePluginBackendEntry(pluginId: string): string { return resolvePluginBackendPackage(pluginId).entry }

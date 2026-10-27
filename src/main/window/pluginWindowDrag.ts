@@ -331,9 +331,5 @@ export async function endPluginWindowDrag(senderId: number, token: string, cance
     }
   } finally { dispose(active) }
 }
-export function getPluginDragDiagnostics() {
-  return { active: !!session, armed: !!armed, registrations: registrations.size, sourceId: session?.senderId ?? null }
-}
-
 // Observe focus/show order from creation, including windows that have never dragged.
 observeDetachedWindows(trackWindow)

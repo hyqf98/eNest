@@ -1,0 +1,11 @@
+# The native Linux bundle uses the repository root only to include isolated fixtures.
+**
+!native/
+!native/clipboard/
+!native/clipboard/linux.c
+!native/clipboard/linux-build.mjs
+!tests/
+!tests/native/
+!tests/native/clipboard/
+!tests/native/clipboard/linux-smoke.py
+!tests/native/clipboard/linux-portal-smoke.py

@@ -137,20 +137,16 @@ export function getQuickPluginBounds(): Electron.Rectangle {
 function loadQuickRenderer(win: QuickWindow): void {
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (devUrl) {
-    const url = new URL(devUrl)
-    url.searchParams.set('surface', 'quick')
+    const url = new URL('quick.html', devUrl.endsWith('/') ? devUrl : `${devUrl}/`)
     quickRendererUrls.set(win, url.href)
     registerTrustedSurface(win.webContents, 'quick', url.href)
     void win.webContents.loadURL(url.href).catch(error => logError('quick', `renderer load failed: ${String(error)}`))
   } else {
-    const file = join(app.getAppPath(), 'out', 'renderer', 'index.html')
+    const file = join(app.getAppPath(), 'out', 'renderer', 'quick.html')
     const url = pathToFileURL(file)
-    url.searchParams.set('surface', 'quick')
     quickRendererUrls.set(win, url.href)
     registerTrustedSurface(win.webContents, 'quick', pathToFileURL(file).href)
-    void win.webContents.loadFile(file, {
-      query: { surface: 'quick' }
-    }).catch(error => logError('quick', `renderer load failed: ${String(error)}`))
+    void win.webContents.loadFile(file).catch(error => logError('quick', `renderer load failed: ${String(error)}`))
   }
 }
 

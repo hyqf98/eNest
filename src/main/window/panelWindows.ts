@@ -246,7 +246,7 @@ function themeSnapshot(): { theme: PanelState['theme']; resolved?: PanelState['r
 /** 原生裁切半径跟随主题 panelRadius，与 CSS --appearance-panel-radius 保持同源。 */
 function nativePanelRadius(): number {
   const radius = resolveThemeTokens('auto').appearance?.components.panelRadius
-  return typeof radius === 'number' && Number.isFinite(radius) && radius > 0 ? radius : PANEL_CORNER_RADIUS
+  return typeof radius === 'number' && Number.isFinite(radius) && radius >= 0 ? radius : PANEL_CORNER_RADIUS
 }
 
 export interface CreatePanelOptions {
@@ -254,6 +254,7 @@ export interface CreatePanelOptions {
   bounds: PanelBounds
   appearance: PanelAppearance
   widgets: PanelWidgetState[]
+  guard?: () => boolean
 }
 
 /**
@@ -261,6 +262,7 @@ export interface CreatePanelOptions {
  * 避免出现空白原生窗口闪一下。
  */
 export async function createPanelWindow(options: CreatePanelOptions): Promise<PanelWindowRecord> {
+  if (options.guard?.() === false) throw new Error('panel creation cancelled')
   const existing = records.get(options.id)
   if (existing && !existing.window.isDestroyed()) return existing
   const bounds = constrainPanelBounds(options.bounds)
@@ -358,11 +360,11 @@ export async function createPanelWindow(options: CreatePanelOptions): Promise<Pa
         timer.unref?.()
       })
     ])
+    if (records.get(options.id) !== record || options.guard?.() === false) throw new Error('panel creation cancelled')
   } catch (error) {
-    destroyPanelWindow(options.id)
+    if (records.get(options.id) === record) destroyPanelWindow(options.id)
     throw error
   }
-  if (records.get(options.id) !== record) throw new Error('panel creation cancelled')
 
   layoutPanelChrome(record)
   record.ready = true

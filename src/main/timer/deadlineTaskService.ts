@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { kvStore, runInTransaction } from '@main/db/sqliteService'
+import { logWarn } from '@main/logs/logService'
 import type { DeadlineTaskEvent, DeadlineTaskPlan, DeadlineTaskReceipt, DeadlineTaskSnapshot, DeadlineTaskStart, DeadlineTaskState } from '@shared/types/deadline-task'
 import { migrateLegacyTimerPayloads } from './legacyTimerMigration'
 
@@ -145,7 +146,11 @@ export async function initDeadlineTasks(eventSink: (event: DeadlineTaskEvent) =>
   timer = undefined; initialized = false; active.clear(); sink = eventSink; enabled = isOwnerEnabled
   const db = database()
   db.exec('CREATE TABLE IF NOT EXISTS deadline_tasks (plugin_id TEXT NOT NULL, id TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (plugin_id,id)); CREATE TABLE IF NOT EXISTS deadline_receipts (seq INTEGER PRIMARY KEY AUTOINCREMENT, plugin_id TEXT NOT NULL, task_id TEXT NOT NULL, id TEXT NOT NULL, value TEXT NOT NULL); CREATE INDEX IF NOT EXISTS deadline_receipts_owner ON deadline_receipts(plugin_id,task_id,seq)')
-  await migrateLegacyTimerPayloads()
+  try { await migrateLegacyTimerPayloads() }
+  catch (error) {
+    const reason = error instanceof SyntaxError ? 'invalid legacy JSON' : error instanceof Error ? error.message : 'unknown migration error'
+    logWarn('timer', `legacy ownership migration deferred; original retained for retry on next startup: ${reason}`)
+  }
   runInTransaction(db, () => {
     const rows = db.prepare('SELECT plugin_id, value FROM deadline_tasks').all() as Array<{ plugin_id: string; value: string }>
     for (const row of rows) {

@@ -79,9 +79,8 @@ export function getHomeAppearanceSnapshot(candidate: ResolvedAppearance): HomeAp
   // The snapshot re-applies the publication filter after appearanceService; carry the active
   // pack's declared palette paints so a theme's own atmosphere is not dropped here. Match on
   // source + id, because another plugin may register a pack with the same id.
-  const activePack = themePackRegistry.list().find(pack =>
-    (pack as Partial<ThemePackV2>).schemaVersion === 2 &&
-    pack.source === candidate.theme.source && pack.id === candidate.theme.id) as ThemePackV2 | undefined
+  const pack = themePackRegistry.getByIdentity(candidate.theme)
+  const activePack = (pack as Partial<ThemePackV2> | null)?.schemaVersion === 2 ? pack as ThemePackV2 : undefined
   const declaredPaints = declaredPalettePaints(activePack)
   const fonts = (candidate.resources?.fonts ?? publicAppearanceFonts(candidate.fonts)).slice(0, 8)
     .filter(font => typeof font.family === 'string' && font.family.length <= 128 && !/[\u0000-\u001f\u007f]/.test(font.family) && selectedFonts.has(font.family) && /^enest:\/\/appearance\/font\/[a-f0-9]{64}$/.test(font.url))
@@ -382,14 +381,14 @@ async function installPlugin(id: string, context: HomeActionContext): Promise<{ 
   }
   if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
   try {
-    const installed = await pluginRegistry.installFromSample(id)
+    const installed = await pluginRegistry.installLocalPreview(id)
     if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
     sendShellEvent({ type: 'install-result', jobId: `sample-${id}`, name: installed.name, ok: true })
     sendShellEvent({ type: 'plugins-changed' })
     void refreshPluginBackgrounds()
     return { ok: true }
-  } catch (sampleError) {
-    logInfo('home', `sample miss ${id}: ${(sampleError as Error).message}`)
+  } catch (previewError) {
+    logInfo('home', `local preview unavailable ${id}: ${(previewError as Error).message}`)
   }
   if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
   const remote = pluginRegistry.getRemoteEntry(id)

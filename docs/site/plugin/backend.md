@@ -240,7 +240,7 @@ npm ci
 node scripts/build-plugin.mjs ssh remote-desktop
 ```
 
-连接 Vite 开发服务器时，前端可以 HMR，后端仍从源码根的 **`dist/backend/index.cjs`** 加载，因此必须先构建。后端修改后重新构建（prod 模式的「重新构建」即可），再关闭/重载插件以创建新进程；Vite HMR 不会替换已经运行的后端。验证完整发布行为时切换 **prod（正式包）模式**。不要使用普通「静态源码」模式直接运行 TypeScript 后端。
+连接 Vite 开发服务器时，前端可以 HMR，后端仍从源码根的 **`dist/backend/index.cjs`** 加载，因此必须先构建。后端修改后在插件目录重新运行构建命令（如 `npm run build`），再关闭/重载插件以创建新进程；Vite HMR 不会替换已经运行的后端。开发者控制台没有 dev/prod 切换：验证完整发布行为时让开发服务离线，壳会按 `enest.output` 产物目录以生产 CSP 预览。不要使用「静态源码」预览直接运行 TypeScript 后端。
 
 `.enestplugin` 的根仍是 `dist` 的直接内容，包含声明的 `backend/**`。普通市场下载上限统一为 **256 MiB**，安装解压总量上限为 **2 GiB**；这些上限不豁免身份、摘要、路径和符号链接检查。
 

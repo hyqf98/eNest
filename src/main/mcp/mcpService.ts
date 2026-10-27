@@ -1,13 +1,13 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { clipboard } from 'electron'
-import { McpServer, fromJsonSchema, isInitializeRequest, type CallToolResult } from '@modelcontextprotocol/server'
-import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node'
+import { app, clipboard } from 'electron'
+import type { McpServer, CallToolResult } from '@modelcontextprotocol/server'
+import type { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node'
 import type { McpCatalogQuery, McpConfiguration, McpStatus } from '@shared/types/mcpSettings'
 import { listMcpTools } from './mcpCatalog'
 import { callMcpTool, getMcpExecutionState, setMcpAccepting } from './mcpDispatcher'
 import { failureCode, failureResult, MCP_MAX_BYTES, McpFailure } from './mcpErrors'
-import { DEFAULT_MCP_CONFIGURATION, readMcpConfiguration, readOrCreateMcpToken, replaceMcpToken, validateMcpConfiguration, writeMcpConfiguration } from './mcpCredentialStore'
+import { DEFAULT_MCP_CONFIGURATION, invalidateMcpTokenOperations, readMcpConfiguration, readOrCreateMcpToken, replaceMcpToken, validateMcpConfiguration, writeMcpConfiguration } from './mcpCredentialStore'
 import { disposeMcpSchemaValidator } from './mcpSchemaValidator'
 
 interface Session {
@@ -16,11 +16,16 @@ interface Session {
 }
 let configuration = { ...DEFAULT_MCP_CONFIGURATION }, state: McpStatus['state'] = 'disabled', error: string | undefined
 let http: Server | undefined, token: string | undefined, revision = 0, pendingInitializations = 0
+let shuttingDown = false
 let idleTimer: ReturnType<typeof setInterval> | undefined
 const sessions = new Map<string, Session>()
 let operations = Promise.resolve()
-function serial<T>(action: () => Promise<T>): Promise<T> {
-  const operation = operations.then(action)
+let pendingOperations = 0
+const MAX_PENDING_OPERATIONS = 8
+function serial<T>(action: () => Promise<T>, cleanup = false): Promise<T> {
+  if (!cleanup && pendingOperations >= MAX_PENDING_OPERATIONS) return Promise.reject(new Error('MCP 操作繁忙，请稍后重试'))
+  pendingOperations++
+  const operation = operations.then(action).finally(() => { pendingOperations-- })
   operations = operation.then(() => {}, () => {})
   return operation
 }
@@ -61,12 +66,22 @@ function protocolResult(value: unknown): CallToolResult {
   if (Buffer.byteLength(JSON.stringify(result)) > MCP_MAX_BYTES - 2048) return failureResult('result-too-large') as CallToolResult
   return result
 }
-function buildSession(): Session {
-  const server = new McpServer({ name: 'eNest', version: '0.2.3' }, { maxToolInputElements: 50_000 })
+async function buildSession(serviceRevision: number): Promise<Session> {
+  const [{ McpServer, fromJsonSchema }, { NodeStreamableHTTPServerTransport }] = await Promise.all([
+    import('@modelcontextprotocol/server'), import('@modelcontextprotocol/node')
+  ])
+  const server = new McpServer({ name: 'eNest', version: app.getVersion() }, { maxToolInputElements: 50_000 })
   const controller = new AbortController()
   const transport = new NodeStreamableHTTPServerTransport({
     sessionIdGenerator: randomUUID, maxRequestBodySize: MCP_MAX_BYTES,
-    onsessioninitialized: id => { sessions.set(id, session) },
+    onsessioninitialized: id => {
+      if (shuttingDown || state !== 'running' || revision !== serviceRevision) {
+        controller.abort()
+        void server.close().catch(() => {})
+        return
+      }
+      sessions.set(id, session)
+    },
     onsessionclosed: id => { controller.abort(); sessions.delete(id) }
   })
   const session: Session = { server, transport, controller, lastActive: Date.now(), open: 0 }
@@ -90,7 +105,7 @@ function buildSession(): Session {
   return session
 }
 async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (state !== 'running' || !authorized(req)) { reject(res, 401, 'Unauthorized or invalid local origin'); return }
+  if (shuttingDown || state !== 'running' || !authorized(req)) { reject(res, 401, 'Unauthorized or invalid local origin'); return }
   const requestRevision = revision
   try {
     const body = req.method === 'POST' ? await readBody(req) : undefined
@@ -100,11 +115,13 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     let session = typeof id === 'string' ? sessions.get(id) : undefined
     if (!session) {
       if (id) { reject(res, 404, 'Session not found'); return }
+      const { isInitializeRequest } = await import('@modelcontextprotocol/server')
+      if (shuttingDown || revision !== requestRevision) { reject(res, 401, 'Credentials retired'); return }
       if (req.method !== 'POST' || !isInitializeRequest(body)) { reject(res, 400, 'Initialize a session first'); return }
       if (sessions.size + pendingInitializations >= 8) { reject(res, 503, 'Session limit reached'); return }
       pendingInitializations++
       try {
-        session = buildSession()
+        session = await buildSession(requestRevision)
         await session.server.connect(session.transport)
         const current = session
         const previousClose = current.transport.onclose
@@ -112,6 +129,9 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         if (requestRevision !== revision) { await session.server.close(); reject(res, 401, 'Credentials retired'); return }
         await session.transport.handleRequest(req, res, body)
         if (!session.transport.sessionId) await session.server.close()
+      } catch (cause) {
+        await session?.server.close().catch(() => {})
+        throw cause
       } finally { pendingInitializations-- }
       return
     }
@@ -123,6 +143,10 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
 }
 async function stop(): Promise<void> {
   revision++
+  invalidateMcpTokenOperations()
+  // Retire credentials before awaiting session cleanup; in-flight initialization cannot revive them.
+  state = 'disabled'
+  token = undefined
   setMcpAccepting(false)
   if (idleTimer) clearInterval(idleTimer)
   idleTimer = undefined
@@ -135,14 +159,18 @@ async function stop(): Promise<void> {
     current.closeAllConnections()
     await new Promise<void>(resolve => current.close(() => resolve()))
   }
-  token = undefined
-  state = 'disabled'
 }
 async function start(): Promise<void> {
-  if (!configuration.enabled) { state = 'disabled'; return }
+  if (shuttingDown || !configuration.enabled) { state = 'disabled'; return }
+  const startingRevision = revision
+  const assertCurrent = (): void => {
+    if (shuttingDown || revision !== startingRevision) throw new McpFailure('unavailable')
+  }
   state = 'starting'; error = undefined
   try {
-    token = readOrCreateMcpToken()
+    const credential = await readOrCreateMcpToken(assertCurrent)
+    assertCurrent()
+    token = credential
     const current = createServer((req, res) => { void route(req, res) })
     current.requestTimeout = 80_000; current.headersTimeout = 10_000; current.keepAliveTimeout = 5000
     current.maxHeadersCount = 64
@@ -151,7 +179,8 @@ async function start(): Promise<void> {
       current.once('error', rejectStart)
       current.listen(configuration.port, '127.0.0.1', () => { current.removeListener('error', rejectStart); resolve() })
     })
-    current.on('error', () => { void serial(async () => { await stop(); state = 'error'; error = 'MCP 本地服务异常，请重新启用' }) })
+    if (shuttingDown) { await stop(); return }
+    current.once('error', () => { void serial(async () => { await stop(); state = 'error'; error = 'MCP 本地服务异常，请重新启用' }, true) })
     state = 'running'; setMcpAccepting(true)
     idleTimer = setInterval(() => {
       const cutoff = Date.now() - 15 * 60_000
@@ -159,6 +188,7 @@ async function start(): Promise<void> {
     }, 60_000)
     idleTimer.unref?.()
   } catch (cause) {
+    if (shuttingDown || revision !== startingRevision) return
     await stop()
     state = 'error'
     error = cause && typeof cause === 'object' && Reflect.get(cause, 'code') === 'EADDRINUSE'
@@ -167,27 +197,52 @@ async function start(): Promise<void> {
         ? cause.message : 'MCP 启动失败；壳功能不受影响'
   }
 }
+function prepareShutdown(): void {
+  shuttingDown = true
+  revision++
+  invalidateMcpTokenOperations()
+  token = undefined
+  setMcpAccepting(false)
+  for (const session of sessions.values()) session.controller.abort()
+}
+function assertNotShuttingDown(): void {
+  if (shuttingDown) throw new McpFailure('unavailable')
+}
 export const mcpService = {
   getStatus,
+  prepareShutdown,
   initialize: () => serial(async () => {
+    if (shuttingDown) return
     try { configuration = readMcpConfiguration(); await start() }
     catch { state = 'error'; error = 'MCP 配置无法读取；请在原生设置中重新保存' }
   }),
   configure: (input: McpConfiguration) => serial(async () => {
+    assertNotShuttingDown()
     validateMcpConfiguration(input)
     writeMcpConfiguration(input)
     await stop(); configuration = { ...input }; await start()
     return getStatus()
   }),
   copyConnectionConfig: () => serial(async () => {
+    assertNotShuttingDown()
     if (state !== 'running' || !token) throw new Error('请先启用并成功启动 MCP 服务')
-    clipboard.writeText(JSON.stringify({ mcpServers: { enest: { type: 'http', url: getStatus().endpoint, headers: { Authorization: `Bearer ${token}` } } } }, null, 2))
+    await clipboard.writeText(JSON.stringify({ mcpServers: { enest: { type: 'http', url: getStatus().endpoint, headers: { Authorization: `Bearer ${token}` } } } }, null, 2))
   }),
   rotateToken: () => serial(async () => {
+    assertNotShuttingDown()
+    const rotatingRevision = revision
+    const assertCurrent = (): void => {
+      assertNotShuttingDown()
+      if (revision !== rotatingRevision) throw new McpFailure('unavailable')
+    }
     // Persist the replacement first. A secure-storage failure preserves the live token/session.
-    replaceMcpToken()
+    await replaceMcpToken(assertCurrent)
+    assertCurrent()
     await stop(); await start()
     return getStatus()
   }),
-  shutdown: () => serial(async () => { await stop(); disposeMcpSchemaValidator() })
+  shutdown: () => {
+    prepareShutdown()
+    return serial(async () => { await stop(); disposeMcpSchemaValidator() }, true)
+  }
 }

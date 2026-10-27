@@ -1,5 +1,5 @@
 import { ipcRenderer, webUtils } from 'electron'
-import { IpcChannels } from '@shared/types/ipc'
+import * as IpcChannels from '@shared/types/ipc'
 
 interface NativeFileDrag {
   isTrusted: boolean

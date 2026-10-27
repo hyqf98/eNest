@@ -5,7 +5,7 @@
  *       - 解析 client → server 帧（必须 mask；text/binary/ping/close）
  *       - 编码 server → client 帧（不 mask；text/binary/pong/close）
  *       分片（fragmentation）按协议合并（仅对 text/binary 首帧带 FIN=0 的场景）。
- * 被 socketBridge / wsFrames.test.mjs 使用。不处理扩展协商（permessage-deflate 拒绝）。
+ * 被 socketBridge 使用。不处理扩展协商（permessage-deflate 拒绝）。
  */
 import { createHash } from 'node:crypto'
 
@@ -92,11 +92,6 @@ export function encodeWsFrame(opcode: number, payload: Buffer, fin = true): Buff
 /** server → client 二进制帧 */
 export function encodeWsBinary(payload: Buffer): Buffer {
   return encodeWsFrame(WS_OPCODE.binary, payload)
-}
-
-/** server → client 文本帧 */
-export function encodeWsText(text: string): Buffer {
-  return encodeWsFrame(WS_OPCODE.text, Buffer.from(text, 'utf8'))
 }
 
 /** server → client close 帧（带状态码） */

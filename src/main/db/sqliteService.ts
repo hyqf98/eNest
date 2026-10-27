@@ -134,6 +134,25 @@ export function runInTransaction<T>(db: DatabaseSync, fn: () => T): T {
   }
 }
 
+/** Explicit plugin commits pay for a WAL sync; ordinary coalesced writes stay NORMAL. */
+export function runInDurableTransaction<T>(db: DatabaseSync, fn: () => T): T {
+  const mode = db.prepare('PRAGMA journal_mode').get() as { journal_mode: string }
+  if (mode.journal_mode.toLowerCase() !== 'wal') throw new Error('durable storage requires a WAL database')
+  const previous = db.prepare('PRAGMA synchronous').get() as { synchronous: number }
+  const fullSync = db.prepare('PRAGMA fullfsync').get() as { fullfsync: number }
+  try {
+    db.exec('PRAGMA synchronous = FULL')
+    if (process.platform === 'darwin') db.exec('PRAGMA fullfsync = ON')
+    return runInTransaction(db, fn)
+  } finally {
+    // A committed write must not be reported as rolled back if restoring tuning fails.
+    try {
+      db.exec(`PRAGMA synchronous = ${previous.synchronous}`)
+      if (process.platform === 'darwin') db.exec(`PRAGMA fullfsync = ${fullSync.fullfsync}`)
+    } catch (error) { console.error('[enest] failed to restore SQLite sync settings', error) }
+  }
+}
+
 export const kvStore = new EnestKvStore()
 
 /** 便捷包装，供 IPC handler 使用（需在 initDatabase 之后） */

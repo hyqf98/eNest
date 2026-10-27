@@ -1,8 +1,9 @@
-import { net, safeStorage, shell } from 'electron'
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
-import { createHash, randomBytes } from 'node:crypto'
+import { net, shell } from 'electron'
+import { existsSync, readFileSync, writeFileSync, unlinkSync, renameSync, rmSync } from 'node:fs'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
-import { getAppPaths } from '@main/paths/pathsService'
+import { getAppPaths, getAppPathsGeneration } from '@main/paths/pathsService'
+import { decryptCredential, encryptCredential } from '@main/vault/secureStorage'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
 import { setOrbProfile } from '@main/window/orbRailViews'
@@ -29,7 +30,11 @@ const WEB_LOGIN_TIMEOUT_MS = 120_000
 /** shell:github-login 响应：渲染层展示 user_code（设备流）或等待文案（浏览器流） */
 export type { GithubLoginSessionPayload }
 
-let tokenCache: string | null | undefined // undefined = 未读盘
+interface CredentialContext { generation: number; rootGeneration: number; revision: number; file: string }
+let tokenCache: { context: CredentialContext; token: string | null } | undefined
+let tokenRead: { context: CredentialContext; promise: Promise<string | null> } | undefined
+let tokenRevision = 0
+let loginStorage: CredentialContext | null = null
 /** 登录代次：取消 / 重新登录递增，旧轮询链自检后静默退出，杜绝取消后仍写 token */
 let loginGeneration = 0
 /** 浏览器授权码流在飞的回环服务器（取消时关闭） */
@@ -39,40 +44,73 @@ let loginSession: GithubLoginSessionPayload | null = null
 let activeAbort: AbortController | null = null
 let loginTimeout: ReturnType<typeof setTimeout> | null = null
 
-function secureStorageAvailable(): boolean {
-  return safeStorage.isEncryptionAvailable() &&
-    !(process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text')
-}
-
 function tokenFile(): string {
   return join(getAppPaths().data, 'github.token')
 }
 
-function readToken(): string | null {
-  if (tokenCache !== undefined) return tokenCache
-  tokenCache = null
-  try {
-    const file = tokenFile()
-    if (!existsSync(file)) return null
-    if (!secureStorageAvailable()) return null
-    tokenCache = safeStorage.decryptString(readFileSync(file))
-  } catch (err) {
-    logWarn('github', `read token failed: ${(err as Error).message}`)
-    tokenCache = null
-  }
-  return tokenCache
+function credentialContext(): CredentialContext {
+  return { generation: loginGeneration, rootGeneration: getAppPathsGeneration(), revision: tokenRevision, file: tokenFile() }
 }
 
-function writeToken(token: string): void {
-  if (!secureStorageAvailable()) {
-    throw new Error('系统密钥库不可用（safeStorage），出于安全不保存登录凭据')
+function isCredentialCurrent(context: CredentialContext): boolean {
+  return context.generation === loginGeneration && context.revision === tokenRevision
+    && context.rootGeneration === getAppPathsGeneration() && context.file === tokenFile()
+}
+
+function persistToken(file: string, encrypted: Buffer): void {
+  const temporary = `${file}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(temporary, encrypted, { flag: 'wx', mode: 0o600 })
+    renameSync(temporary, file)
+  } finally { rmSync(temporary, { force: true }) }
+}
+
+async function readToken(): Promise<string | null> {
+  if (tokenCache && isCredentialCurrent(tokenCache.context)) return tokenCache.token
+  if (tokenRead && isCredentialCurrent(tokenRead.context)) return tokenRead.promise
+  const context = credentialContext()
+  const promise = (async (): Promise<string | null> => {
+    try {
+      if (!existsSync(context.file)) {
+        tokenCache = { context, token: null }
+        return null
+      }
+      const original = readFileSync(context.file)
+      const { result, shouldReEncrypt } = await decryptCredential(original)
+      if (!isCredentialCurrent(context)) return null
+      const replacement = shouldReEncrypt ? await encryptCredential(result) : undefined
+      if (!isCredentialCurrent(context) || !existsSync(context.file) || !readFileSync(context.file).equals(original)) return null
+      if (replacement) persistToken(context.file, replacement)
+      tokenCache = { context, token: result }
+      return result
+    } catch {
+      // A locked keyring is retryable; never cache a decryption failure as a missing credential.
+      if (isCredentialCurrent(context)) logWarn('github', 'read token failed; unlock the system keyring (existing credential preserved)')
+      return null
+    }
+  })()
+  tokenRead = { context, promise }
+  try { return await promise }
+  finally { if (tokenRead?.promise === promise) tokenRead = undefined }
+}
+
+function writeToken(token: string, encrypted: Buffer, context: CredentialContext): void {
+  if (!isCredentialCurrent(context)) throw new Error('登录已取消或数据目录已变更，请重新登录')
+  persistToken(context.file, encrypted)
+  tokenRevision++
+  tokenCache = { context: credentialContext(), token }
+}
+
+async function encryptToken(token: string): Promise<Buffer> {
+  try { return await encryptCredential(token) }
+  catch {
+    throw new Error('系统密钥库不可用或加密失败（safeStorage），出于安全不保存登录凭据')
   }
-  writeFileSync(tokenFile(), safeStorage.encryptString(token), { mode: 0o600 })
-  tokenCache = token
 }
 
 function clearToken(): void {
-  tokenCache = null
+  tokenRevision++
+  tokenCache = { context: credentialContext(), token: null }
   try {
     const file = tokenFile()
     if (existsSync(file)) unlinkSync(file)
@@ -154,6 +192,7 @@ export async function startGithubLogin(): Promise<GithubLoginSessionPayload> {
   if (!config.available) throw new Error(config.availabilityError || '此版本尚未配置 GitHub 登录，请联系发布方完成登录配置。')
   if (isLoginPolling()) throw new Error('已有登录进行中，请先取消')
   const generation = ++loginGeneration
+  loginStorage = credentialContext()
   pollingGen = generation
   activeAbort = new AbortController()
   try {
@@ -168,6 +207,7 @@ export async function startGithubLogin(): Promise<GithubLoginSessionPayload> {
 function endPending(): void {
   pollingGen = null
   loginSession = null
+  loginStorage = null
   if (loginTimeout) clearTimeout(loginTimeout)
   loginTimeout = null
   activeAbort?.abort()
@@ -186,9 +226,15 @@ function failLogin(generation: number, error: unknown): void {
 
 async function finishLogin(generation: number, token: string): Promise<void> {
   if (generation !== loginGeneration) return
+  const context = loginStorage
+  if (!context || !isCredentialCurrent(context)) throw new Error('登录已取消或数据目录已变更，请重新登录')
   const profile = await fetchProfile(token, activeAbort?.signal)
   if (generation !== loginGeneration) return
-  writeToken(token)
+  if (!isCredentialCurrent(context)) throw new Error('登录已取消或数据目录已变更，请重新登录')
+  const encrypted = await encryptToken(token)
+  if (generation !== loginGeneration) return
+  // No await between the guarded credential commit and profile commit/notification.
+  writeToken(token, encrypted, context)
   try { settingsStore.setProfileUser(profile) }
   catch (error) { clearToken(); throw error }
   activeCallback?.complete(true)
@@ -297,14 +343,14 @@ export function logoutGithub(): void {
 }
 
 export async function refreshProfileOnBoot(): Promise<void> {
-  const generation = loginGeneration
-  const token = readToken()
-  if (!token) return
+  const context = credentialContext()
+  const token = await readToken()
+  if (!token || !isCredentialCurrent(context)) return
   try {
     const profile = await fetchProfile(token)
-    if (generation === loginGeneration) publishProfile(profile)
+    if (isCredentialCurrent(context)) publishProfile(profile)
   } catch (err) {
-    if (generation !== loginGeneration) return
+    if (!isCredentialCurrent(context)) return
     if ((err as { status?: number }).status === 401) {
       clearToken()
       publishProfile(null)
@@ -316,4 +362,7 @@ export function getProfileUser(): UserProfile | null {
   const user = settingsStore.getAll().profile?.user
   return user && typeof user.login === 'string' ? user : null
 }
-export function hasGithubToken(): boolean { return readToken() !== null }
+export async function hasGithubToken(): Promise<boolean> {
+  const context = credentialContext()
+  return await readToken() !== null && isCredentialCurrent(context)
+}

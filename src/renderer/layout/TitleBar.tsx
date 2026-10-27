@@ -1,7 +1,7 @@
 /** 原生子视图在标题栏下面，展开状态与内容起点由 ShellLayout 同步。 */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
-import { TabStrip } from '@renderer/layout/TabStrip'
+import { TabStrip } from '@renderer/themes/default/chrome/TabStrip'
 import { shellApi } from '@renderer/services/shellApi'
 import { useAnimationLevel, useReducedMotion } from '@renderer/hooks/useAnimationLevel'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'

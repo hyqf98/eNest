@@ -30,10 +30,6 @@ export function hasPluginActivity(pluginId: string): boolean {
   return (activities.get(pluginId)?.size ?? 0) > 0
 }
 
-export function listPluginActivities(pluginId: string): Array<{ key: string; reason: string; startedAt: number }> {
-  return [...(activities.get(pluginId)?.values() ?? [])].map(({ key, reason, startedAt }) => ({ key, reason, startedAt }))
-}
-
 export function releasePluginActivities(pluginId: string): void {
   activities.delete(pluginId)
 }

@@ -1,129 +1,109 @@
-# AGENTS.md — eNest 开发约定
+# AGENTS.md — eNest 开发标准
 
-eNest：Electron 插件化桌面壳子。改代码前先读本文；与 `ARCHITECTURE.md`、`docs/` 冲突时以更新的约定为准。
+## 软件性质与职责
 
-## 快速命令
+eNest 是插件化桌面壳，不是把一组业务工具写在一起的桌面应用。宿主使用 Electron、React、TypeScript；业务插件可自行选择前端框架。依赖版本以 `package.json` 和锁文件为准。
+
+- **宿主拥有通用原生能力**：窗口、实例生命周期、隔离与权限、安装更新、文件句柄、私有存储、全局快捷键、系统集成与 MCP 传输。
+- **插件拥有业务**：界面、算法、数据模型、协议驱动、业务后台和自己的设置页面。不得按插件 ID 增加专属处理器、权限、驱动回退或默认安装逻辑。
+- **主题拥有呈现**：首页/目录/详情、Quick、启动动画、外观参数及受限设置页面。宿主拥有安全控制器、持久化、输入资格和故障回退，不把可信权限交给主题。
+- 唯一源码内置主题为 `enest.builtin / default`，浅/深是同一主题的模式。声明在 `src/shared/theme/defaultTheme/package.ts`，实现在 `src/renderer/themes/default/`，随壳编译，不从插件仓安装。第三方主题走相同贡献契约，不为主题 ID 写页面分支。
+- `eNest_plugin/` 是独立 Git 仓库，包含官方插件、SDK、共享包、构建工具和开发 skill。修改跨仓契约时同步两边，但用户未要求不得 commit/push。
+
+## 文档的唯一入口
+
+- `docs/site/`：产品官网和下载页；`docs/site/plugin/`：官方插件 API 与开发指南。
+- 本文件：宿主性质、工程边界与开发约束。根 `README.md`：项目入口与常用命令。
+- 不再建立 `docs/engineering/`、`docs/TASK_STATES/` 或重复的架构/阶段/审计报告。修复过程和当次验证结论留在任务回复、PR 或 Git 记录；只有用户明确要求交付独立文档时再创建。
+- 长期有效的契约直接更新对应官方指南，不能只写在过程报告中。产品页不把开发版本称为已发布版本，不把源码、截图、静态检查或构建通过称为原生验收。
+- `docs/site/plugin/api-types.md` 与插件 SDK 类型由脚本生成，不手改；`eNest_plugin/docs/developer/` 是官方指南的同步副本，不另立一套标准。
+- 工具自己的必要使用说明紧邻工具保存；运行报告、截图和性能输出使用被忽略的 `.cache/verification/`，不得回写 `docs/`，任务临时产物用完清理。
+
+## 工程目录与导入
+
+| 区域 | 职责 | 禁止内容 |
+| --- | --- | --- |
+| `src/main` | 原生窗口、宿主服务、IPC、持久化、资源与权限 | React UI、插件业务驱动 |
+| `src/preload` | 最小 contextBridge 与事件桥接 | 业务实现、权限决策 |
+| `src/renderer` | 壳控制器、主题、React UI 和动画 | 直接访问 Node/Electron 主进程 API |
+| `src/shared` | 跨端 DTO、IPC 常量、无平台依赖的纯模型 | 原生运行时依赖 |
+| `tests` | 用例、mock、fixture、浏览器预览、原生探针 | 正式运行时依赖 |
+
+跨目录必须使用 `@main`、`@preload`、`@renderer`、`@shared`，分别指向 `src` 下同名目录；只有同目录可用 `./`。禁止跨目录 `../` 链。新增别名须同时维护 `electron.vite.config.ts` 和两份 `tsconfig.*.json`。
+
+`@test` 指向 `tests`，只能用于验证支持。唯一允许的源码入口是 `shellApi.ts` 在 `import.meta.env.DEV` 且没有原生 preload 时动态加载浏览器预览；正式依赖图不得包含夹具，缺失 preload 必须失败而非使用假数据兜底。
+
+### 命名与源码边界
+
+- 按职责命名，遵循所在目录的大小写习惯；React 组件 PascalCase，hook 使用 `use` 前缀，独立脚本通常 kebab-case。
+- 禁止给维护代码附创建日期、数字轮次、`final/new/copy` 等标签。`win32`、`sha256`、真实协议版本、资源尺寸和生成哈希等技术标识保留。
+- 测试使用 `.test.mjs`、`.browser.test.mjs`、`.native.test.mjs` 等有意义后缀，全部放在 `tests/`。只为测试提供的观察器、伪数据和包装函数不能留在 `src`。
+- 清理代码前核对生产调用者和跨仓消费者；重命名同步导入、脚本、CI 和现行文档，不靠保留死入口维持旧断言。
+- 产品快捷键探测、代理连通检查和开发诊断是真实功能，不能仅凭名称中的 test/probe 删除。独立验证配置的 `ENEST_TEST_USER_DATA` / `ENEST_TEST_DATA_ROOT` 安全钩子保留，避免触碰用户真实目录。
+
+## API 与安全标准
+
+新增能力先查官方 API 和共享组件；只有现有能力无法表达的通用原生需求才扩展宿主。一次改动必须覆盖共享类型、IPC 常量、preload、主进程分发、权限、参数/配额、生命周期清理、SDK 和对应官方文档。
+
+- IPC 名称只在 `src/shared/types/ipc.ts` 定义。跨端 DTO 复用 `src/shared/types/`，不在 main/preload/renderer/mock 各写一套同名接口。
+- 每种原生表面在 `ipcSecurity` 显式登记角色和通道白名单；插件调用校验实例、主 frame、origin 和运行代次。异步授权或加载完成后再次校验，旧调用不能交给新实例。
+- 页面关闭 Node 集成、开启 contextIsolation 与 sandbox；preload 为自包含 CJS。插件自有 `backend.entry` 经通用 RPC 运行，`backend.node` 是完整本机信任，utilityProcess 不是操作系统沙箱。
+- 基础/敏感分类只用 `src/shared/pluginPermissionPolicy.ts`。本插件私有数据、设置、UI、主题、声明式入口和后台计时等基础能力仍需身份与配额检查；网络、剪贴板、系统控制、AI 配置/资产等敏感能力按标准授权。
+- `fs.read` / `fs.write` 仅限宿主选择器选定目标或当前实例持有的句柄；选择目标即授权，拖入路径仍须确认，路径字符串不能充当授权。密钥仅经宿主密钥库，不放在普通设置或日志。
+- 所有后台任务绑定当前实例及取消信号；关闭、禁用、升级、卸载和退出必须回收。MCP 沿用已获权限，不弹出授权/文件选择器、不自动安装、不把隐藏任务拉到前台；取消不代表已撤销业务副作用。
+- 旧数据迁移只移交已验证来源和所有者的原始数据，业务解释留在插件。保留原数据、提交标记和归属校验；不能为消除插件 ID 字面量而开放任意旧数据路径。旧 `db.*` / `mw.*` 权限名称需兼容迁移，不能直接删掉已有授权。
+
+## 数据与设置
+
+- 全局 UI 状态使用 `shellStore`；宿主持久化由 `settingsStore` 管理，数据库为 `{dataRoot}/data/enest.db`，`~/.eNest/settings.json` 只保存数据根引导信息。保留用户指定目录，不把持久化只做在 renderer state/localStorage。
+- 插件统一使用 `enest.storage`：KV、`assets` 图片资源和 `files` 完成输出各有明确生命周期。`set/remove` 是缓冲写入；需可靠提交时等待 `flush/commit`，KV 事务不等于跨图片/文件事务。旧 `blobs` 只是兼容入口，不再新增平行存储接口。
+- 插件设置可以通过 `SettingsSectionContribution` 注册到宿主，也可声明 `page` 入口在插件内自绘；均按插件归属持久化，不能读写宿主保留设置键。
+- 主题只获得白名单描述符和不透明字段 ID；插件字段只有 `shareWithThemes: true` 才可公开，每次跨插件写入原生确认并复核版本、当前值和代次。账号、权限、开发者、路径/媒体选择保留可信原生入口。
+- 默认通知使用 `notifyService`；显示时读取 `general.notifyPosition`。主题只能控制受限视觉语义，不能篡改通知来源、内容、关闭与计时。
+
+## 主题、页面与控件
+
+- 外观唯一链路是 `appearanceService → ResolvedAppearance → useAppearance/appearanceDom`。不新增独立可写的字体、背景、动画或 Tab 外观 store；预览通过 `updateThemeProfile` 提交，以确认 revision 为准，失败恢复。
+- 新主题使用 `ThemePackV2` 与 schema；`theme.register` 只登记，不自动切换。`layout.variant` 是可扩展语义，不是内置主题枚举。
+- 默认目录、详情、设置、Quick、开屏及专属 CSS/动效归 `themes/default/`。公共基础控件、Markdown、安全控制器、跨窗口背景引擎可共享，不把真实主题实现放回公共组件。
+- Workspace 只有 `catalog/detail` 路由和匹配代次的 ACK；已安装是提供者本地筛选。设置经 `openSettings` 请求切换宿主设置视图，不是 Workspace 路由，也没有旧的“受保护设置恢复”通道。
+- `SettingsSurfaceController` 选择隔离 `settingsPage`，未提供或故障时使用内置默认设置。Workspace、Quick、设置、chrome、辅助页各用自己的受限桥，不得获得普通插件 `enest` 或完整 `shellApi`。
+- Quick 默认检索、拼音、排序、最近/推荐和旧历史解释归默认主题；宿主只提供安全目录、来源传输、成功启动事实及 source/pack 私有 JSON/CAS。图片预览在输入框左侧，不移到上方；缩略图不授予路径/原始数据访问权。
+- 启动直接加载有效主题，隐藏预热与开屏并行；ready、路由 ACK、提交后复用同一首页。不恢复首启选主题、确认标记或正常“准备首页”中间页，不绕过故障恢复门禁。
+- 基础控件统一复用 `src/renderer/components/ui/`（Radix 行为 + 主题 CSS）；升级公共控件时同步派生插件仓 `src/ui` 模板，不在页面重复造裸控件。
+- GSAP 时长、位移和缓动走 `marketMotion` 的 `d/dy/ease`；CSS 动画尊重动画档位和减少动态效果。背景材质不覆盖选中控件状态，不改变现有 CSS 级联顺序。
+
+## 窗口、快捷键与生命周期
+
+- 插件使用原生 `WebContentsView`，位于 shell DOM 之上；模态、菜单和拖动不能仅靠 CSS z-index。classic/orb 共享会话，orb 原生导航在插件挂载后保持置顶，启动可见性由 `App` 统一控制。
+- 标题栏几何与 `TITLEBAR_HEIGHT` / `--titlebar-h` 保持一致；折叠、展开同步原生内容 bounds，不在页面重复补高度。
+- 插件切换主窗、Quick、独立窗、自由面板必须走宿主 placement/生命周期，不重造业务实例来伪装移动。全局快捷键统一处理归属、冲突、录制租约、注册结果与持久化回滚；不能先保存再忽略系统注册失败。
+- 自由面板默认关闭。面板组件常驻可见，免于空闲休眠/LRU；布局由主进程写独立 `panels` 段，不混入 `windowSession/sessionTabs`，renderer 不能直接提交该段。
+- 面板拖动/缩放由主进程读光标与 `setBounds` 驱动，不逐帧 React setState/IPC，不使用 `-webkit-app-region: drag`；覆盖层期间隐藏该面板插件原生视图，结束恢复。
+- 关闭面板走完整插件关闭链路；关闭功能保留布局。恢复先建窗口再限并发装载，多屏丢失时映射到可见工作区；恢复/关闭串行、代次失效立即生效，退出不能用空活动表覆盖保存布局。
+
+## 开发与交付
+
+Node.js 版本满足 `package.json.engines`；使用现有工具链与锁文件，不擅自全局安装工具。主进程/preload 修改后重启 dev，纯 renderer 可使用 HMR。网络相关实现沿用 `proxyService`，不得绕过用户代理配置。
 
 ```bash
-npm run dev          # electron-vite dev
-npm run typecheck    # tsc node + web（提交前必须通过）
-npm run build        # electron-vite build
-npm run lint         # eslint（若配置存在）
+npm run dev
+npm run typecheck
+npm run audit:source
+npm run build
+npm run audit:source -- --build-output
 ```
 
-插件开发者 SDK 在插件仓 `eNest_plugin/packages/plugin-sdk`；打包图标只认 `build/icon.{icns,ico,png}`（electron-builder buildResources）。`assets/icons/` 仅存运行时图标（`enest-icon-256.png` 窗口 / `dock-runtime.png` Dock），经 extraResources 打进 Resources/icons。
+公共契约或指南变更后，从宿主根目录同步并检查：
 
-主进程/preload 变更需重启 `npm run dev`；纯 renderer 可依赖 HMR。
-
-## 目录与别名（强制）
-
-**禁止**跨目录写 `../../../`。使用与 `electron.vite.config.ts`、`tsconfig.*.json` 一致的别名：
-
-| 别名 | 路径 |
-|------|------|
-| `@main/*` | `src/main/*` |
-| `@preload/*` | `src/preload/*` |
-| `@renderer/*` | `src/renderer/*` |
-| `@shared/*` | `src/shared/*` |
-
-```ts
-// ✅
-import { pluginHost } from '@main/plugin/PluginHost'
-import { useShellStore } from '@renderer/stores/shellStore'
-import type { PluginTab } from '@shared/types/plugin'
-
-// ❌ 不要
-import { pluginHost } from '../plugin/PluginHost'
+```bash
+node eNest_plugin/scripts/generate-api-types.mjs --host-root .
+node eNest_plugin/scripts/generate-api-types.mjs --host-root . --check
+node eNest_plugin/scripts/sync-developer-docs.mjs --host-root .
+node eNest_plugin/scripts/sync-developer-docs.mjs --host-root . --check
 ```
 
-同一目录内相对导入（如 `./Button`）可以保留。跨目录请直接写 `@` 别名。
-
-新增顶层目录时，必须同时改：`electron.vite.config.ts` 的 `sharedAlias`、`tsconfig.node.json`、`tsconfig.web.json`。
-
-## 三端职责
-
-| 区域 | 职责 | 不要放 |
-|------|------|--------|
-| `src/main` | 窗口、插件 WebContentsView、IPC、设置持久化、代理、更新 | UI / React |
-| `src/preload` | `contextBridge` API 暴露 | 业务逻辑 |
-| `src/renderer` | React UI、GSAP、样式 | Node/Electron 主进程 API |
-| `src/shared` | 三方共用类型与常量（IPC 通道、PluginManifest…） | 运行时依赖 |
-
-IPC 通道名只定义在 `@shared/types/ipc`，preload 与 main 共用。
-
-跨端 DTO 在 `@shared/types/` 定义并复用；壳 API 的 preload、renderer 与 mock 不各写一份同名请求/响应接口。
-
-## UI 组件层（2026-10 起基线）
-
-- 主壳基础控件统一走 `@renderer/components/ui/`（Button/Input/Checkbox/Switch/Tooltip/Dialog/Segmented/Select/Slider）：行为来自 Radix UI，视觉沿用手写 CSS 类（`.btn/.switch/.segmented/.ui-select-*` 等，token 直读）。**新增基础控件优先扩展该层，不要在页面里再手写裸控件**。
-- 该组件层是官方插件 `src/ui/`（`pk-*`）模板的**唯一上游**：壳组件升级时同步派生到插件仓（见 `eNest_plugin/docs/developer/react-migration-sop.md`）。
-- 官方插件已全面 React 化（React 18 + Radix，与壳同栈、每插件独立打包）；插件规范保持框架无关，第三方插件可自由选型。
-
-插件业务界面、算法、数据模型和协议处理放在插件仓库；壳只扩展可复用的原生能力。不要按插件业务功能增加专用权限或主进程处理器。基础/敏感分类统一使用 `@shared/pluginPermissionPolicy`：插件私有存储、UI、设置、主题、声明式入口、私有密钥保存和插件自身后台计时无需声明或额外权限授权。`fs.read` / `fs.write` 仅限用户经宿主原生选择器选定的文件或当前实例持有的文件句柄，选择目标即授权，不追加通用权限框；拖入路径仍由宿主确认目标，不能静默访问任意路径。网络、剪贴板、系统控制、AI 应用配置与资产等敏感能力继续声明并授权；计时到期的系统通知仍单独受 `notify` 控制。两类都校验实例归属、参数、配额和资源回收，基础能力不得接触宿主保留设置键。
-
-## 状态与设置
-
-- 全局 UI 状态：`@renderer/stores/shellStore`（zustand）
-- 外观唯一权威：主进程 `appearanceService` → `ResolvedAppearance` → renderer `useAppearance`；字体/背景/动画/Tab/通知样式不再有独立可写 store。`useAnimationLevel` 只读取有效动画档。
-- 通知：优先 `@renderer/services/notifyService`（`notify.info/success/...`）；`toastStore.push` 为兼容层。默认位置由设置 `general.notifyPosition`（中间弹框/右下角）决定，主进程 `showNotification` 对未显式指定 position 的通知在显示时读取
-- 持久化：主进程 `settingsStore`（`{dataRoot}/data/enest.db`；`~/.eNest/settings.json` 仅存数据根引导信息）+ mock（localStorage）字段契约对齐；新设置写入 `general` 或独立段，勿只写 UI 本地 state
-
-主题字段可在本地预览，但必须通过 `updateThemeProfile` 提交并以宿主持久化后的 revision 为准；失败恢复确认状态。主题工作区的设置只能经 `enestWorkspace` 描述符接口，不得读取全量 `shellApi.getSettings()`。
-
-## Tab 与插件层（易踩坑）
-
-- 插件内容是 **原生 `WebContentsView`**，叠在 shell 渲染层**之上**。渲染层 UI **不能**盖住插件区。
-- **classic**：Tab 在标题栏；**orb**：左侧圆轨 = 主窗口内顶层 WebContentsView（`@main/window/orbRailViews`，rail 收起窄条 hover 展开 + 左下角 dock 设置钮），真实 DOM 鼠标事件，插件视图挂载后必须 `raiseOrbRailViews()` 保持置顶，插件内容全宽，禁止左侧白条通道。
-- 目录/已安装/详情属于主题 Workspace，导航走 `navigateWorkspace` 和 ACK。设置入口仍隐藏 Workspace 并走 `set-view: settings`；`SettingsSurfaceController` 选择当前主题的隔离 `settingsPage`，未提供或故障时使用源码内置默认主题设置。默认实现位于 `themes/default/settings/`。主题仅获白名单描述符和 opaque field ID；插件字段须 `shareWithThemes: true`，修改另一插件偏好逐次原生确认；账号、权限、开发者、路径和媒体选择仍由可信原生界面负责。Workspace 不提供设置路由，不存在「受保护设置」恢复机制；不能只靠 DOM z-index。
-- 标题栏高度与 `TITLEBAR_HEIGHT`（`@shared/constants`）及 CSS `--titlebar-h` 必须一致（当前 36）。
-
-## 自由面板（小组件）
-
-默认关闭，`设置 → 通用 → 自由面板` 开启（`general.freePanel.enabled`）。开启后框选屏幕区域生成置顶透明面板，把插件当小组件自由拼接。
-
-- 插件是**第四种 placement** `{ kind: 'panel'; panelId }`，语义是**移动**（同一 webContents 换父级，与独立窗口同构），沿用 `?mode=shell`，插件无需改动。
-- 面板组件**常驻可见**：`PluginHost.isPresented` 对 panel 恒真，免疫 3 分钟空闲休眠与 LRU(6) 驱逐。
-- 面板**不写** `windowSession` / `sessionTabs`；布局存独立 `panels` 段（仅主进程写，`shell:set-settings` 会剥离 renderer 写入），重启由 `restorePanels` 先建窗口再 2 并发冷启动组件。
-- 拖动（组件与整块面板）全部**主进程驱动**：读光标 + `setBounds`，渲染层零 setState、不逐帧上报。**不要用 `-webkit-app-region: drag`**——该区域右键不触发 `contextmenu`，而「添加组件」就是空白处右键。
-- 拖动/覆盖层期间必须隐藏本面板所有插件原生视图（`PanelManager.syncPanelVisibility` + `PluginHost.panelSuppressed`），否则原生 view 截走指针导致拖动卡死、菜单点不到。
-- 关闭面板 = 逐插件走完整 `closePlugin` 链路（beforeClose → session 快照 → disposeEntry），再销毁窗口。关开关则释放插件但**保留**布局记录。
-- 新 surface 必须在 `ipcSecurity` 显式登记 role + 通道白名单（`panel` / `region`）；未列入的 role 会落到全通分支。详见 `docs/engineering/panel-windows.md`。
-
-## 动画
-
-- 所有 GSAP 时长/缓动走 `@renderer/gsap/marketMotion` 的 `d()` / `dy()` / `ease()`（尊重 `data-anim` 低/中/高）。
-- CSS 动效用 `:root[data-anim="low|medium|high"]` 覆盖，勿写死与档位无关的大位移。
-- 轮播 hover 上移：容器需 `padding` 裁切缓冲 + 负 `margin`，避免 `overflow: hidden` 切顶边。
-
-## 主题与背景
-
-- 只保留一套内置 eNest 默认主题 `enest.builtin / default`（浅/深为两模式），保持原页面、动效和外观设置。源码内置包声明集中在 `@shared/theme/defaultTheme/package`，使用标准 `contributes.themePacks / homePages`；UI 与启动动画位于 `@renderer/themes/default/`。内置包随壳编译，不放入插件仓，不经过插件安装或磁盘注册表加载；第三方主题插件能力保留。完整规范见 `docs/engineering/THEME_STANDARD.md` 与 `docs/site/plugin/themes.md`、`home.md`。
-- 默认目录/详情及其样式、轮播、图库和 DEV 预览归 `themes/default/workspace/`，专属开屏/卡片/Tab 编排归 `themes/default/motion/`；不要将真实主题实现放回公共 `components/`。基础控件、Markdown、安全表面控制器、动画档位工具和跨窗口背景引擎仍是共享设施。
-- 新主题使用 `ThemePackV2` + schema；所有外观字段在主题 Tab 内动态渲染，禁止按主题 ID 写页面分支。`layout.variant` 是可扩展语义标记，不是内置枚举。
-- `enest.theme.register()` 只登记，不能自动切换；外观只经 `appearance-changed` 快照同步。通知外观走受限 `notifications` 字段，内容/来源/关闭/计时由宿主拥有。
-- 首页贡献复用 `HomeSurfaceManager`，专用 `enestWorkspace`（`enestHome` 别名）没有普通插件 `enest` 或完整 `shellApi`。新提供者声明 `catalog/detail` 两路由，已安装是提供者本地目录筛选，不向宿主发送 `installed` 路由；渲染后 ACK。设置入口用 `openSettings` 动作请求宿主切换原生设置视图。
-- 默认 Quick 的搜索、拼音、规则、排序、最近/推荐、使用计数与关键词偏好及旧模型解释均在 `themes/default/quick/`；主进程仅提供可验证目录、provider 传输、原生启动成功事实和有界提供者私有 JSON/CAS 存储。第三方 Quick 使用 `enestQuick` 安全目录/结果投影及 `state.read/write`，以稳定 opaque `stateKey` 管理自己的模型，不获得默认主题历史、不接受磁盘启动路径或任意启动 payload。
-- 启动直接加载源码内置主题（已选第三方主题则恢复有效选择），隐藏预热与默认启动动画并行，ready/路由 ACK/提交后复用同一首页。没有首启主题选择页、确认标记或正常「准备首页」页；故障恢复保留，隐藏预热不能解除恢复锁。原生 orb 可见性由 `App` 的启动/开屏预览门禁统一控制，`ShellLayout` 不另设门禁。
-- 背景 `has-bg-media` 时：内容区可加毛玻璃，但 **不要**用同选择器覆盖 `.chip.active` / `.segmented button.active`。
-
-## 插件仓库 `eNest_plugin/`
-
-- 剪贴板历史模型/去重/保留/迁移解释在 clipboard 插件的沙箱后台；壳只提供声明式事件后台、私有文档/blob、有界资源和原生剪贴板事件。无授权、禁用或停止资源后不得自动唤醒。
-- 选区/贴图/录制界面和 MediaRecorder 策略在插件仓 `packages/native-surfaces`；壳只提供 `screen.capture/displays`、`auxiliary` 和私有 `files.stream`。辅助页仅有 `enestAux`，不能获得完整 `enest`；录屏必须真实原生手势及系统许可。
-
-- monorepo：`plugins/<短名>/plugin.json`；id = `com.github.eNest.<短名>`，目录名 === id 末段
-- 资产命名：`{短名}@{version}.enestplugin`
-- 索引：CI 生成 `registry.json`（列表 + 分类 + asset.url/sha256）
-- 分类枚举：效率 / 开发 / 设计 / 媒体 / 其它  
-- Schema：`eNest_plugin/docs/*.schema.json`；说明见该目录 `README.md`
-
-## 代理
-
-设置 `general.proxy` → 主进程 `proxyService`（`session.setProxy` + `HTTP(S)_PROXY`）。改网络相关逻辑时保持与 proxy 兼容。
-
-## 提交前
-
-1. `npm run typecheck` 通过  
-2. 新文件使用 `@` 别名导入  
-3. 不要提交 `out/`、本地 `dist/` 插件包  
-4. 用户未明确要求时不要 `git commit` / `push`
+- 不主动运行单元测试、浏览器/native smoke 或性能用例；只有用户明确要求时才执行。构建遇到历史测试失败应跳过，不为变绿去修改无关历史断言。静态检查、构建和真实运行验收分别报告。
+- 修改前检查工作区，保留已有改动；遇到未知并发改动先确认，不用 reset/checkout 覆盖，不擅自提交或推送。
+- 打包图标只认 `build/icon.{icns,ico,png}`；`assets/icons` 是运行时资源。系统关联声明同步 `build/open-with.json` 与 builder；通用运行时/许可证不能为减包体随意裁剪。
+- 不提交 `out/`、`release/`、插件 `dist/`、用户数据或临时验证产物。提交前保证所需 typecheck、静态边界、生成一致性和两仓 diff 检查通过；未执行的目标平台行为明确标注。

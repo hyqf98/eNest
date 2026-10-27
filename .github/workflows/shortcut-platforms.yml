@@ -37,10 +37,10 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
       - name: Accelerator aliases and local user paths across all platforms
-        run: node --test src/shared/accelerator.test.mjs src/main/paths/userPath.test.mjs
+        run: node --test tests/shared/accelerator.test.mjs tests/main/paths/userPath.test.mjs
       - name: Native macOS and Windows registration
         if: runner.os != 'Linux'
-        run: node --test src/main/hotkey/hotkeyPlatform.native.test.mjs
+        run: node --test tests/main/hotkey/hotkeyPlatform.native.test.mjs
       - name: Native Linux X11 registration (Wayland requires desktop acceptance)
         if: runner.os == 'Linux'
-        run: xvfb-run -a node --test src/main/hotkey/hotkeyPlatform.native.test.mjs
+        run: xvfb-run -a node --test tests/main/hotkey/hotkeyPlatform.native.test.mjs

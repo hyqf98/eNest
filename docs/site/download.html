@@ -4,15 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <title>下载 eNest — 把工具放回手边</title>
+    <title>eNest 下载与发布 — 插件化桌面壳</title>
     <meta
       name="description"
-      content="为 macOS、Windows 和 Linux 获取 eNest，把日常效率工具和开发工具放进同一个工作台。安装包与版本说明通过 GitHub Releases 获取。"
+      content="eNest 是插件化桌面壳，构建目标涵盖 macOS、Windows 和 Linux。目前尚无公开发行版，安装包与版本说明以 GitHub Releases 为准。"
     />
-    <meta property="og:title" content="下载 eNest — 把工具放回手边" />
+    <meta property="og:title" content="eNest 下载与发布 — 插件化桌面壳" />
     <meta
       property="og:description"
-      content="选择你的平台，开始组合属于自己的桌面工作台。"
+      content="查看 eNest 的公开发行状态、平台构建目标与插件使用说明。"
     />
     <meta property="og:type" content="website" />
     <link rel="icon" href="assets/icons/enest-icon-256.png" />
@@ -452,12 +452,12 @@
           <p class="eyebrow">A PLACE FOR YOUR TOOLS</p>
           <h1 id="download-title">让工具，<br /><span>回到手边。</span></h1>
           <p class="section-copy">
-            从一次下载开始，把日常效率与开发工作<br
+            用插件组合工具、主题与桌面。<br
               class="download-desktop-break"
-            />放进同一个工作台。
+            />目前尚无公开发行版，请以发布页为准。
           </p>
           <a class="button primary" href="#platforms"
-            >选择你的平台 <span aria-hidden="true">↓</span></a
+            >查看发布说明 <span aria-hidden="true">↓</span></a
           >
         </div>
         <div class="download-object" aria-hidden="true">
@@ -478,8 +478,8 @@
         aria-labelledby="platforms-title"
       >
         <div class="download-section-heading">
-          <h2 id="platforms-title">选一个平台，就位。</h2>
-          <p>安装包与版本说明均来自 GitHub Releases</p>
+          <h2 id="platforms-title">为你的平台，留好位置。</h2>
+          <p>以下为构建目标，不代表已有可下载的发行包。</p>
         </div>
         <article class="download-platform" aria-labelledby="macos-title">
           <div class="download-platform-heading">
@@ -489,16 +489,16 @@
           <div>
             <p class="download-formats">Apple Silicon / Intel</p>
             <p class="download-description">
-              选择 arm64 或 x64 安装包，支持 DMG 与 ZIP 格式。
+              构建目标为 arm64 / x64 的 DMG 与 ZIP；待正式发布后选择对应附件。
             </p>
           </div>
           <a
             class="button secondary"
-            href="https://github.com/hyqf98/eNest/releases/latest"
+            href="https://github.com/hyqf98/eNest/releases"
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="在 GitHub Releases 选择 macOS 安装包（新窗口）"
-            >获取 macOS 版 <span aria-hidden="true">↗</span></a
+            aria-label="在 GitHub Releases 查看 macOS 发布情况（新窗口）"
+            >查看发布页 <span aria-hidden="true">↗</span></a
           >
         </article>
         <article class="download-platform" aria-labelledby="windows-title">
@@ -507,18 +507,18 @@
             <h3 id="windows-title">Windows</h3>
           </div>
           <div>
-            <p class="download-formats">x64 / EXE</p>
+            <p class="download-formats">x64 / EXE / ZIP</p>
             <p class="download-description">
-              通过安装向导完成设置，可以自行选择安装位置。
+              构建目标为 x64 安装向导与 ZIP；安装向导支持选择安装位置。
             </p>
           </div>
           <a
             class="button secondary"
-            href="https://github.com/hyqf98/eNest/releases/latest"
+            href="https://github.com/hyqf98/eNest/releases"
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="在 GitHub Releases 选择 Windows 安装包（新窗口）"
-            >获取 Windows 版 <span aria-hidden="true">↗</span></a
+            aria-label="在 GitHub Releases 查看 Windows 发布情况（新窗口）"
+            >查看发布页 <span aria-hidden="true">↗</span></a
           >
         </article>
         <article class="download-platform" aria-labelledby="linux-title">
@@ -529,29 +529,28 @@
           <div>
             <p class="download-formats">x64 / AppImage / deb</p>
             <p class="download-description">
-              选择便携的 AppImage，或适用于 Debian / Ubuntu 的 deb。
+              构建目标为 x64 AppImage 与 deb；系统依赖和支持范围以发行说明为准。
             </p>
           </div>
           <a
             class="button secondary"
-            href="https://github.com/hyqf98/eNest/releases/latest"
+            href="https://github.com/hyqf98/eNest/releases"
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="在 GitHub Releases 选择 Linux 安装包（新窗口）"
-            >获取 Linux 版 <span aria-hidden="true">↗</span></a
+            aria-label="在 GitHub Releases 查看 Linux 发布情况（新窗口）"
+            >查看发布页 <span aria-hidden="true">↗</span></a
           >
         </article>
         <div class="download-release-note">
           <p>
-            点击后进入发布页，在 Assets
-            中选择对应平台的文件。实际可用安装包、版本号、包体大小及系统兼容性，以该版本附件和发布说明为准。
+            发行后可在发布页的 Assets 中选择对应平台文件。没有对应附件时，该平台尚无可下载版本；版本号、包体大小、系统兼容性和功能范围均以发行说明为准。
           </p>
           <a
             class="download-text-link"
             href="https://github.com/hyqf98/eNest/releases"
             target="_blank"
             rel="noopener noreferrer"
-            >全部版本 <span aria-hidden="true">↗</span></a
+            >发行记录 <span aria-hidden="true">↗</span></a
           >
         </div>
       </section>
@@ -565,21 +564,21 @@
               >01 / INSTALL</span
             >
             <h3>安装 eNest</h3>
-            <p>下载适合当前设备的版本，打开安装包，完成安装。</p>
+            <p>正式发行后，选择与你的系统和架构匹配的附件，按该版本说明安装。</p>
           </li>
           <li>
             <span class="download-step-number" aria-hidden="true"
               >02 / ADD TOOLS</span
             >
             <h3>装上常用工具</h3>
-            <p>打开插件市场，按你的日常工作选择工具，需要时再添加。</p>
+            <p>工具与第三方主题按需安装。默认主题随壳提供，不必一次装齐所有插件。</p>
           </li>
           <li>
             <span class="download-step-number" aria-hidden="true"
               >03 / MAKE SPACE</span
             >
             <h3>安排自己的桌面</h3>
-            <p>用 Quick 快速打开工具，也可以留在工作台，或放进独立窗口。</p>
+            <p>用 Quick 快速打开，留在主窗口或独立展开；开启自由面板后可把工具固定在桌面区域。</p>
           </li>
         </ol>
       </section>
@@ -601,9 +600,7 @@
           <details>
             <summary>下载按钮为什么打开 GitHub？</summary>
             <p>
-              eNest 通过 GitHub Releases
-              分发安装包和版本说明。进入发布页后，展开
-              Assets，选择与你的操作系统和设备架构对应的文件。
+              GitHub Releases 是 eNest 的公开发行入口。目前尚无公开发行版，因此按钮指向发行列表，而不是不存在的安装包。源码中的开发版本号不代表已经发布。
             </p>
           </details>
           <details>
@@ -616,6 +613,30 @@
               >阅读接入方式。
             </p>
           </details>
+          <details>
+            <summary>自由面板会记住桌面布局吗？</summary>
+            <p>
+              自由面板默认关闭，在「设置 → 通用 → 自由面板」开启。插件可以移动、缩放和对齐，面板布局独立保存；重新启动时恢复，显示器变化时会将窗口调整到可用工作区。实际窗口行为取决于系统与显示器配置。
+            </p>
+          </details>
+          <details>
+            <summary>主题和插件设置如何扩展？</summary>
+            <p>
+              主题集中定义外观，也可贡献首页、Quick、窗口导航和设置页。插件可把设置项注册到壳，或提供自己的设置页面。主题只接收允许共享的设置，账号、权限、路径与媒体选择仍由可信宿主界面处理；启动流程也由宿主管理。
+            </p>
+          </details>
+          <details>
+            <summary>插件数据保存在什么地方？</summary>
+            <p>
+              宿主提供统一的插件私有存储：记录与设置、图片资产、已完成的文件输出按插件隔离，并由同一插件的不同窗口共用。开发者可使用持久化回执确认保存。私有存储不等于云同步，也不授予任意本机文件访问权；插件原生后端需要另行授予完整本机信任。详见<a href="plugin/#/storage">存储标准</a>。
+            </p>
+          </details>
+          <details>
+            <summary>现在能直接连接 MCP 客户端吗？</summary>
+            <p>
+              当前源码已有插件工具声明、处理器注册和本机 MCP 服务，默认关闭，原生管理入口尚未提供。它不是已交付的用户开关，也不会自动为插件授权。开发者可阅读<a href="plugin/#/mcp">MCP 工具贡献标准</a>了解接入与权限边界。
+            </p>
+          </details>
         </div>
       </section>
 
@@ -623,7 +644,7 @@
         <div>
           <p class="eyebrow">BUILT TO BE EXTENDED</p>
           <h2 id="developer-title">也为你的下一个工具，留个位置。</h2>
-          <p>从一个想法到一个插件，让常用的能力成为桌面的一部分。</p>
+          <p>插件负责业务，壳提供生命周期、动态设置、私有存储与受控原生能力。</p>
         </div>
         <div class="download-developer-links">
           <a class="button primary" href="plugin/"
@@ -648,7 +669,7 @@
           height="28"
         /><span>eNest</span></a
       >
-      <p>把常用工具，放进同一个工作台。</p>
+      <p>插件提供工具，eNest 把它们放在一起。</p>
       <nav aria-label="页脚导航">
         <a href="index.html">产品首页</a><a href="plugin/">开发文档</a
         ><a

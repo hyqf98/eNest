@@ -499,14 +499,17 @@ export class PluginHost {
   }
 
   /** 把插件挂到面板（移动语义，同 webContents 换父级）。 */
-  async mountInPanel(pluginId: string, panelId: string): Promise<void> {
+  async mountInPanel(pluginId: string, panelId: string, guard?: () => boolean): Promise<void> {
     pluginId = toPluginId(pluginId)
+    if (guard?.() === false) throw new Error('panel mount cancelled')
     if (!this.entries.has(pluginId)) {
       // deferPresentation：先分配运行时但不加载，等原生父级（面板窗口）确认存在后再统一启动，
       // 避免挂载失败时留下一个已加载却没父级的 renderer。
-      await this.openPlugin(pluginId, undefined, { deferPresentation: true, container: 'shell' })
+      await this.openPlugin(pluginId, undefined, { deferPresentation: true, container: 'shell', guard })
     }
+    if (guard?.() === false) throw new Error('panel mount cancelled')
     return this.transfer(pluginId, async () => {
+      if (guard?.() === false) throw new Error('panel mount cancelled')
       const entry = this.entries.get(pluginId)
       if (!entry || entry.scope.isClosing || this.shuttingDown || this.barriers.has(pluginId)) throw new Error('plugin is unavailable')
       const current = this.getPlacement(pluginId)
@@ -869,11 +872,6 @@ export class PluginHost {
     this.scheduleHibernate(pid)
   }
 
-  /** 插件当前是否处于休眠态（渲染进程已销毁，逻辑 Tab 保留） */
-  isHibernated(pluginId: string): boolean {
-    return this.getState(pluginId) === 'hibernated'
-  }
-
   /** 当前生命周期状态（未打开返回 installed） */
   getState(pluginId: string): PluginLifecycleState {
     return this.states.get(pluginId) ?? INITIAL_LIFECYCLE_STATE
@@ -1159,7 +1157,7 @@ export class PluginHost {
     if (!summary || opts?.backgroundExecution && (!summary.installed || summary.enabled === false || !summary.rootPath)) {
       throw new Error(`MCP plugin is not installed or enabled: ${pluginId}`)
     }
-    if (summary.dev && summary.devUrl && summary.devMode !== 'prod') {
+    if (summary.dev && summary.devUrl) {
       const devUrl = await resumeDevServer(pluginId)
       if (operation?.cancelled || this.shuttingDown || this.barriers.has(pluginId)) {
         if (!operation?.preserveDevServer) stopDevServer(pluginId)
@@ -1385,7 +1383,7 @@ export class PluginHost {
     }
     if (!opts?.deferPresentation) this.startEntryLoad(entry)
     // 源码预览的 dev 插件：监听文件变更自动重载；devUrl 模式由框架 HMR 负责；
-    // prod（dist 预览）不挂 watcher，避免构建中途的半成品产物触发重载，重建后显式重载
+    // 产物目录预览不挂 watcher，避免构建中途的半成品产物触发重载
     if (summary.dev && summary.devSource) startDevWatch(pluginId, rootPath)
     this.publishTabs()
     refreshPanelsForPlugin(pluginId)
@@ -2668,7 +2666,7 @@ bindDetachedWindowHost({
 
 /** 面板运行时能力注入：面板模块不直接依赖 PluginHost（避免循环依赖）。 */
 bindPanelPluginHost({
-  mountInPanel: (pluginId, panelId) => pluginHost.mountInPanel(pluginId, panelId),
+  mountInPanel: (pluginId, panelId, guard) => pluginHost.mountInPanel(pluginId, panelId, guard),
   unmountFromPanel: (pluginId, target, position) => pluginHost.unmountFromPanel(pluginId, target, position),
   setPanelWidgetBounds: (pluginId, rect: PanelWidgetRect) => pluginHost.setPanelWidgetBounds(pluginId, rect),
   setPanelWidgetVisibility: (pluginId, visible) => pluginHost.setPanelWidgetVisibility(pluginId, visible),

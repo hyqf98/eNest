@@ -39,7 +39,7 @@
 .plugin-memory-action > span { display: inline-flex; }
 .plugin-memory-process-details { display: grid; gap: 4px; max-width: 360px; font-variant-numeric: tabular-nums; }
 .plugin-memory-note { margin: 14px 0 0; color: var(--text-2); font-size: 11px; line-height: 1.7; }
-.plugin-memory-section [tabindex='0']:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.plugin-memory-section [tabindex='0']:focus-visible { outline: 2px solid transparent; outline-offset: 0; border-radius: 4px; box-shadow: var(--focus-ring-tight, 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent)); }
 .plugin-memory-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (max-width: 580px) {
   .plugin-memory-summary { gap: 12px 24px; }

@@ -53,7 +53,10 @@ export class PluginBackendCapabilities {
     if (method === 'secret.resolve') {
       const { resolveSecret } = await import('@main/vault/secretVault')
       this.assertCurrent()
-      return resolveSecret(id, text(params.ref, 512))
+      return resolveSecret(id, text(params.ref, 512), () => {
+        this.assertCurrent()
+        if (this.abort.signal.aborted) throw new Error('Plugin backend is closing')
+      })
     }
     if (method === 'permission.authorize') {
       if (!(PLUGIN_PERMISSIONS as readonly unknown[]).includes(params.permission)) throw new Error('Unknown backend permission')

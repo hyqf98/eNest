@@ -44,9 +44,9 @@ DSH 0.3.1 使用同一机制：`contributes.settings` 的 `manage` 页面入口�
 
 ## 私有设置与授权边界
 
-- `settings.register(section)` 可动态声明同样的分组；静态 `contributes.settings` 优先用于安装后即需可见的入口。
+- `settings.register(section)` 可动态声明同样的分组，同一来源的同 ID 分组会替换原声明；静态 `contributes.settings` 优先用于安装后即需可见的入口。`schemaVersion` 只支持省略或字符串 `'1'`，不是数字 `1`，其它值拒绝并返回 `unsupported settings schema version`。
 - `settings.get(key)` 只读调用插件自己的合法键。已持久化值优先，无值时读取声明默认值；`false`、`0` 不被替换。为兼容旧设置，合法的旧私有持久化键仍可读取；既无保存值也无声明默认值时返回 `undefined`。
-- `settings.set(key, value)` 只写本插件已注册、非 `page` 的字段；未知键会拒绝。插件应校验自己的业务值，等待保存成功后再显示成功状态。
+- `settings.set(key, value)` 只写本插件已注册、非 `page` 的字段；未知键会拒绝。宿主等待真实持久化成功后才广播确认值，失败 reject，不发布成功态。插件应校验自己的业务值，等待保存成功后再显示成功状态，失败时保留或恢复最后确认值；它不同于 KV `storage.set` 的排队语义。
 - `settings.onChange(({key,value}) => ...)` 同步壳通用控件与插件自绘页的写入。离开页面时取消订阅，不要增加永久轮询。
 - `permissionGrants`、`__proto__`、`prototype`、`constructor` 是宿主保留键，不能注册、读取或写入。API 不接受另一个 `pluginId` 来跨插件读写。
 - 普通插件没有 `shellApi.getSettings()` 或完整的 `window.enestShell`。不要为自绘设置暴露全量设置、权限表、账户令牌、历史窗口位置或其它插件配置。
@@ -54,13 +54,25 @@ DSH 0.3.1 使用同一机制：`contributes.settings` 的 `manage` 页面入口�
 
 ```js
 const api = window.enest
-const followsTheme = (await api.settings.get('followShellTheme')) ?? true
-await api.settings.set('followShellTheme', !followsTheme)
+const apply = value => {
+  document.documentElement.dataset.followTheme = String(value === true)
+}
+let receivedChange = false
 const off = api.settings.onChange(({ key, value }) => {
-  if (key === 'followShellTheme') document.documentElement.dataset.followTheme = String(value)
+  if (key !== 'followShellTheme') return
+  receivedChange = true
+  apply(value)
 })
 window.addEventListener('pagehide', off, { once: true })
+const initial = await api.settings.get('followShellTheme')
+if (!receivedChange) apply(initial ?? true)
+
+async function saveFollowShellTheme(value) {
+  await api.settings.set('followShellTheme', value)
+}
 ```
+
+先订阅再读取，避免初始化期间的旧读取覆盖新通知。将 `saveFollowShellTheme` 绑定实际的用户保存动作，并捕获失败、保留最后确认值；成功值由 `onChange` 应用，不要在页面加载时自动反转持久化开关。
 
 `enest.ui.openSettings()` 打开宿主设置并定位本插件分组；它不直接打开插件自绘页面。用户再点击 `page` 项，或插件在自己的 UI 中直接切换设置路由。敏感资源访问依然使用各自权限，提供设置页面不等于获得网络、系统控制或 `backend.node` 信任。
 
@@ -169,6 +181,8 @@ Quick 与桌面共用页面状态、会话、编辑器 model。使用 `ResizeObs
 
 独立插件窗口是宿主的挂载位置，不是第三种 `PluginLaunchMode`。拖出、收回、窗口最小化/最大化、置顶和几何历史由可信原生标题栏控制；插件页面不获得宿主内部 `PluginWindowsApi`。这样可保证同一个 View、generation、runtime scope 在迁移中保持归属，权限对话框跟随实际容器。下节的包内辅助页是另一种受限资源，不是任意控制主窗口或独立插件容器的接口。
 
+自由面板是另一种宿主挂载位置，插件仍使用 `shell` 模式和完整的普通插件 API，不获得 `enestPanel`。组件的移动、缩放、对齐线、显示器恢复和布局持久化由宿主处理；插件只适配实际内容区，见[自由面板](panels.md)。切换挂载位置不一定改变 `PluginLaunchMode`，不能依赖每次迁移都收到 `onModeChange`。
+
 插件自绘弹层必须放在自己的文档内。原生 `WebContentsView` 在壳 renderer 之上，不能依靠壳 CSS `z-index` 盖住插件。
 
 ## 沙箱后台与包内辅助页
@@ -186,7 +200,7 @@ eNest 0.2.3 将业务后台、选区/录制/贴图与原生容器分开。各文
 
 选区、贴图内容、缩放和 MediaRecorder 流程由插件仓 `@enest/native-surfaces` 提供，并随使用它的插件构建。`createNativeSurfaces(window.enest)` 返回本地 facade，才具有 `surfaces.screen.selectRegion/record` 与 `surfaces.pin`；原生 `window.enest.screen` 只有 `capture/displays`，没有宿主 `pin`。官方辅助页放在 `assets/vendor/native-surfaces/`，不能依赖壳中的固定业务页面。
 
-录制数据先经 `enestAux.post` 交给拥有者，再用主页面的 `files.stream.open/write/finish/abort` 有序写入私有输出；辅助页没有文件 API，任何一层都不接受任意保存路径。每块需确认、队列有界，`finish` 成功后才显示保存成功。正常关闭只提供有界收尾期，撤权、禁用、崩溃或强制销毁会回收辅助窗口、捕获轨和未完成输出。已有成功文件不会因撤权被解释成业务历史或自动删除；卸载按插件私有目录清理。
+录制数据先经 `enestAux.post` 交给拥有者，再用主页面的 `files.stream.open/write/finish/abort` 有序写入私有输出；辅助页没有文件 API，任何一层都不接受任意保存路径。每块需确认、队列有界，`finish` 成功后才显示保存成功。完成文件的 ID 由 `storage.files.get/list/remove/export` 管理，导出仍须原生保存确认；业务不再需要原件时应显式删除，不能只删业务索引。正常关闭只提供有界收尾期，撤权、禁用、崩溃或强制销毁会回收辅助窗口、捕获轨和未完成输出。提交后回执失败可能已经留下完成文件，应按[存储标准](storage.md)核对；已有完成文件不会因撤权自动删除，卸载按插件私有目录清理。
 
 clipboard 的 `history.*` 则是该插件注册的 `background.call` 方法，不是 `enest.clipboard.history`。持续观察需要持久授权及启用的事件开关；关闭前台不等于关闭已授权后台，手动停止、禁用或撤权才按各自生命周期释放。没有敏感授权时，后台不得因设置刷新或 Quick 查询被唤醒采集。完整签名和权限语义见 [API 参考](api.md) 与[权限说明](permissions.md)。
 

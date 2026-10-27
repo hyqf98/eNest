@@ -1,5 +1,13 @@
 [
   {
+    "id": "com.github.eNest.ai-canvas",
+    "name": "AI 画布",
+    "description": "AI 视觉工作台：手绘风节点画布编排文生图、图生图与提示词模板工作流，OpenAI Images 协议自定义接入，生成图自动入库画廊。",
+    "category": "设计",
+    "slug": "ai-canvas",
+    "icon": "assets/plugins/ai-canvas.svg"
+  },
+  {
     "id": "com.github.eNest.anything",
     "name": "Anything 文件搜索",
     "description": "全盘文件即时搜索：Spotlight / Everything 引擎，关键词高亮、排序分页、文本与图片预览，打开、定位、移入废纸篓。",
@@ -88,9 +96,17 @@
     "icon": "assets/plugins/diff.svg"
   },
   {
+    "id": "com.github.eNest.drawboard",
+    "name": "画板",
+    "description": "手绘风自由画板：压感钢笔、荧光笔、手绘图形与文字、贴图标注，滚轮缩放空格平移，多页草稿自动保存，一键复制与导出 PNG/JPG。",
+    "category": "设计",
+    "slug": "drawboard",
+    "icon": "assets/plugins/drawboard.svg"
+  },
+  {
     "id": "com.github.eNest.dsh",
     "name": "DSH 驾驶舱",
-    "description": "DeepSeek Harness 会话驾驶舱：小窗查看多会话进度并快速对话，大桌面嵌入完整 DSH Web UI；自带运行时（零本地依赖）与热更新、profile 管理、一键备份升级回退",
+    "description": "DeepSeek Harness 会话驾驶舱与管理中心：完整 Web UI、快速对话、内核按需在线安装与多版本切换、Profile 环境配置与同步、进程启停和安全备份清理",
     "category": "开发",
     "slug": "dsh",
     "icon": "assets/plugins/dsh.svg"
@@ -129,8 +145,8 @@
   },
   {
     "id": "com.github.eNest.markdown",
-    "name": "Markdown 笔记",
-    "description": "分组笔记树、实时预览、全文搜索、图片附件、模板与导出；Quick 速记直落收件箱。",
+    "name": "Markdown 编辑器",
+    "description": "Typora 式所见即所得 Markdown 编辑器：即时渲染、Typora 主题、手绘风 Mermaid、图床上传（PicList/GitHub/自定义脚本）与本地文件工作台。",
     "category": "效率",
     "slug": "markdown",
     "icon": "assets/plugins/markdown.svg"
@@ -190,6 +206,14 @@
     "category": "媒体",
     "slug": "screen-assistant",
     "icon": "assets/plugins/screen-assistant.svg"
+  },
+  {
+    "id": "com.github.eNest.sketchbook",
+    "name": "素描本",
+    "description": "手绘纸面主题：纸灰、灰蓝、鼠尾草三套浅深色板，保留手写字、抖动描边与胶带装订；整页低负载漂移，开屏由宿主统一呈现。",
+    "category": "设计",
+    "slug": "sketchbook",
+    "icon": "assets/plugins/sketchbook.svg"
   },
   {
     "id": "com.github.eNest.ssh",

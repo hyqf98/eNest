@@ -19,8 +19,8 @@ macOS builds use Objective-C and system frameworks, producing a universal arm64/
 
 ## Validation
 
-- `ENEST_NATIVE_CLIPBOARD=1 node --test native/clipboard/tests/mac.integration.test.mjs`: real Cocoa fixture, file clipboard read/write, two windows in the same app, verified paste into the original window, rejected unknown/destroyed targets. It restores the pre-test clipboard and prior active app; it never pastes into a user document.
-- `node --test src/main/clipboard/clipboardFormats.test.mjs`: Unicode URI encoding, shell-like filenames as data, invalid URL and DROPFILES boundaries.
+- `ENEST_NATIVE_CLIPBOARD=1 node --test tests/native/clipboard/mac.integration.test.mjs`: real Cocoa fixture, file clipboard read/write, two windows in the same app, verified paste into the original window, rejected unknown/destroyed targets. It restores the pre-test clipboard and prior active app; it never pastes into a user document.
+- `node --test tests/main/clipboard/clipboardFormats.test.mjs`: Unicode URI encoding, shell-like filenames as data, invalid URL and DROPFILES boundaries.
 - Linux Xvfb and private D-Bus portal commands are documented in `LINUX.md`. They exercise actual X server/IPC protocols, but do not claim GNOME/KDE/Wayland end-user desktop acceptance.
 
 On 2026-10-13, the macOS native fixture passed. Windows real desktop and Linux real desktop permission/focus checks remain required before claiming full platform acceptance. Helper capabilities intentionally report degraded behavior rather than guessing unavailable origins or windows.

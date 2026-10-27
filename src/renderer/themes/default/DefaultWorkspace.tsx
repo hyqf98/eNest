@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react'
 import gsap from 'gsap'
 import type { HomeCatalogItem, HomeDetail } from '@shared/types/home'
 import type { PluginPresentation } from '@renderer/themes/default/workspace/pluginPresentation'
@@ -84,6 +84,38 @@ function DefaultWorkspaceDetail({ state, controller, origin }: {
     </section>} />
 }
 
+const DefaultWorkspaceCatalog = memo(function DefaultWorkspaceCatalog({ plugins, categoryKeys, category, seg, loading, visible, detailOpen, continuous, gridRef, controller, onOpen, onDetail }: {
+  plugins: PluginPresentation[]; categoryKeys: string[]; category: string; seg: 'browse' | 'installed'
+  loading: boolean; visible: boolean; detailOpen: boolean; continuous: boolean
+  gridRef: RefObject<HTMLDivElement>; controller: DefaultWorkspaceController
+  onOpen: (id: string) => void; onDetail: (id: string, origin?: HTMLElement | null) => void
+}) {
+  const { t, locale } = useI18n()
+  const english = locale === 'en-US'
+  const list = useMemo(() => plugins.filter(plugin =>
+    (seg !== 'installed' || plugin.installed) && (category === '全部' || plugin.category === category)), [plugins, seg, category])
+  const groups = useMemo(() => categoryKeys.slice(1).map(key => ({ key, plugins: list.filter(plugin => plugin.category === key) })).filter(group => group.plugins.length), [categoryKeys, list])
+  const carouselItems = useMemo(() => plugins.filter(plugin => plugin.featured).slice(0, 5), [plugins])
+  const label = (key: string) => key === '全部' ? t('market.all') : CATEGORY_I18N[key] ? t(CATEGORY_I18N[key]) : key
+  const onUninstall = useCallback((pluginId: string) => controller.manage({ type: 'uninstallPlugin', pluginId }, pluginId), [controller])
+  const onSetEnabled = useCallback((pluginId: string, enabled: boolean) => controller.manage({ type: 'setPluginEnabled', pluginId, enabled }, pluginId), [controller])
+  const renderPlugin = useCallback((plugin: PluginPresentation) => <PluginCardView plugin={plugin} onOpen={onOpen} onDetail={onDetail}
+    onUninstall={onUninstall} onSetEnabled={onSetEnabled} />, [onOpen, onDetail, onUninstall, onSetEnabled])
+  return <>
+    {seg === 'browse' && category === '全部' && carouselItems.length > 0 && <section className="market-featured" aria-label={english ? 'Recommended by the plugin repository' : '插件仓库推荐'}><div className="market-featured-heading"><h2>{english ? 'Featured plugins' : '精选推荐'}</h2><span>{english ? 'From the plugin repository' : '来自插件仓库'}</span></div><FeaturedCarousel items={carouselItems} onOpen={onOpen} onDetail={onDetail}
+      paused={detailOpen || !visible} continuous={continuous} mediaVisible={visible} /></section>}
+    <div className="home-toolbar"><SegmentTabs value={seg} onChange={value => controller.setBasePage(value === 'installed' ? 'installed' : 'catalog')} /><CategoryChips categories={categoryKeys.map(label)} value={label(category)} onChange={value => controller.setCategory(categoryKeys.find(key => label(key) === value) ?? '全部')} /></div>
+    <section className="market-catalog" aria-label={seg === 'installed' ? t('market.installedPlugins') : t('market.browse')}>
+      <div className="sr-only" aria-live="polite">{t('market.pluginsCount', { n: list.length })}</div>
+      <div className="market-category-list" ref={gridRef} aria-busy={loading}>
+        {loading ? <div className="market-loading" role="status"><span className="market-loading-icon" aria-hidden="true"><i /><i /><i /></span><strong>{english ? 'Preparing the marketplace' : '正在准备插件市场'}</strong><span>{english ? 'Installed and local plugins stay available' : '已安装与本地插件保持可用'}</span></div>
+          : list.length === 0 ? <div className="empty"><strong>{seg === 'installed' && category === '全部' ? t('market.emptyInstalled') : t('market.emptySearch')}</strong><span>{t('market.emptyHint')}</span><button className="btn btn-ghost" type="button" onClick={() => { controller.setCategory('全部'); controller.setBasePage('catalog') }}>{t('market.viewAll')}</button></div>
+            : groups.map(group => <MarketCategoryView key={group.key} category={label(group.key)} plugins={group.plugins} renderPlugin={renderPlugin} />)}
+      </div>
+    </section>
+  </>
+})
+
 /** Marketplace presentation owned by the compiled default theme package. */
 export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getState, controller.getState)
@@ -93,19 +125,28 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
   const gridRef = useRef<HTMLDivElement>(null)
   const originRef = useRef<HTMLElement | null>(null)
   const previousSeg = useRef<'browse' | 'installed' | null>(null)
-  const plugins = useMemo(() => state.catalog?.items.map(workspacePluginPresentation) ?? [], [state.catalog])
+  const presentationsRef = useRef<{ entries: Map<string, { signature: string; plugin: PluginPresentation }>; items: PluginPresentation[] }>({ entries: new Map(), items: [] })
+  const plugins = useMemo(() => {
+    const previous = presentationsRef.current
+    const entries = new Map<string, { signature: string; plugin: PluginPresentation }>()
+    const items = (state.catalog?.items ?? []).map(item => {
+      const plugin = workspacePluginPresentation(item)
+      const signature = JSON.stringify(plugin)
+      const cached = previous.entries.get(plugin.id)
+      const entry = cached?.signature === signature ? cached : { signature, plugin }
+      entries.set(plugin.id, entry)
+      return entry.plugin
+    })
+    const stableItems = items.length === previous.items.length && items.every((item, index) => item === previous.items[index]) ? previous.items : items
+    presentationsRef.current = { entries, items: stableItems }
+    return stableItems
+  }, [state.catalog])
   const seg = state.basePage === 'installed' ? 'installed' : 'browse'
   const searching = Boolean(state.query.trim())
-  const showFeatured = seg === 'browse' && state.category === '全部' && !searching
   const categoryKeys = useMemo(() => {
     const keys = new Set(plugins.map(plugin => plugin.category))
     return ['全部', ...Object.keys(CATEGORY_I18N).filter(key => keys.has(key)), ...Array.from(keys).filter(key => !CATEGORY_I18N[key])]
   }, [plugins])
-  const list = useMemo(() => plugins.filter(plugin =>
-    (seg !== 'installed' || plugin.installed) && (state.category === '全部' || plugin.category === state.category)), [plugins, seg, state.category])
-  const groups = useMemo(() => categoryKeys.slice(1).map(key => ({ key, plugins: list.filter(plugin => plugin.category === key) })).filter(group => group.plugins.length), [categoryKeys, list])
-  const label = (key: string) => key === '全部' ? t('market.all') : CATEGORY_I18N[key] ? t(CATEGORY_I18N[key]) : key
-  const carouselItems = useMemo(() => plugins.filter(plugin => plugin.featured).slice(0, 5), [plugins])
   const installedCount = plugins.filter(plugin => plugin.installed).length
   const detailOpen = state.route.page === 'detail'
   const detail = detailOpen ? state.detail : undefined
@@ -114,6 +155,7 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
     originRef.current = origin ?? null
     void controller.navigate({ page: 'detail', pluginId })
   }, [controller])
+  const handleDetailOrigin = useCallback((origin: HTMLElement | null) => { originRef.current = origin }, [])
 
   useEffect(() => {
     if (!categoryKeys.includes(state.category)) controller.setCategory('全部')
@@ -148,22 +190,11 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
         <header className="market-page-heading"><div><h1>{english ? 'Plugin marketplace' : '插件市场'}</h1><p>{english ? `${plugins.length} plugins · ${installedCount} installed` : `${plugins.length} 个插件 · 已安装 ${installedCount} 个`}</p></div>
           <button type="button" className="market-refresh" onClick={() => void controller.refreshCatalog()} disabled={state.refreshing} aria-busy={state.refreshing} title={state.refreshing ? english ? 'Refreshing…' : '正在刷新…' : english ? 'Refresh marketplace' : '刷新市场'} aria-label={english ? 'Refresh marketplace' : '刷新插件市场'}><RotateCwIcon size={15} /></button>
         </header>
-        <DefaultWorkspaceSearch state={state} controller={controller} onDetailOrigin={origin => { originRef.current = origin }} />
+        <DefaultWorkspaceSearch state={state} controller={controller} onDetailOrigin={handleDetailOrigin} />
         {state.message && <div className="market-source-notice default-workspace-notice" role="status"><span>{state.message}</span><button type="button" className="btn btn-ghost btn-sm" onClick={controller.dismissMessage}>{english ? 'Dismiss' : '关闭提示'}</button></div>}
-        {!searching && <>
-          {showFeatured && carouselItems.length > 0 && <section className="market-featured" aria-label={english ? 'Recommended by the plugin repository' : '插件仓库推荐'}><div className="market-featured-heading"><h2>{english ? 'Featured plugins' : '精选推荐'}</h2><span>{english ? 'From the plugin repository' : '来自插件仓库'}</span></div><FeaturedCarousel items={carouselItems} onOpen={handleOpen} onDetail={handleDetail}
-            paused={detailOpen || !state.visible} continuous={state.appearance.appearance.animation.continuous} mediaVisible={state.visible} /></section>}
-          <div className="home-toolbar"><SegmentTabs value={seg} onChange={value => controller.setBasePage(value === 'installed' ? 'installed' : 'catalog')} /><CategoryChips categories={categoryKeys.map(label)} value={label(state.category)} onChange={value => controller.setCategory(categoryKeys.find(key => label(key) === value) ?? '全部')} /></div>
-          <section className="market-catalog" aria-label={seg === 'installed' ? t('market.installedPlugins') : t('market.browse')}>
-            <div className="sr-only" aria-live="polite">{t('market.pluginsCount', { n: list.length })}</div>
-            <div className="market-category-list" ref={gridRef} aria-busy={state.loading}>
-              {state.loading ? <div className="market-loading" role="status"><span className="market-loading-icon" aria-hidden="true"><i /><i /><i /></span><strong>{english ? 'Preparing the marketplace' : '正在准备插件市场'}</strong><span>{english ? 'Installed and local plugins stay available' : '已安装与本地插件保持可用'}</span></div>
-                : list.length === 0 ? <div className="empty"><strong>{seg === 'installed' && state.category === '全部' ? t('market.emptyInstalled') : t('market.emptySearch')}</strong><span>{t('market.emptyHint')}</span><button className="btn btn-ghost" type="button" onClick={() => { controller.setCategory('全部'); controller.setBasePage('catalog') }}>{t('market.viewAll')}</button></div>
-                  : groups.map(group => <MarketCategoryView key={group.key} category={label(group.key)} plugins={group.plugins} renderPlugin={plugin => <PluginCardView plugin={plugin} onOpen={handleOpen} onDetail={handleDetail}
-                    onUninstall={pluginId => controller.manage({ type: 'uninstallPlugin', pluginId }, pluginId)} onSetEnabled={(pluginId, enabled) => controller.manage({ type: 'setPluginEnabled', pluginId, enabled }, pluginId)} />} />)}
-            </div>
-          </section>
-        </>}
+        {!searching && <DefaultWorkspaceCatalog plugins={plugins} categoryKeys={categoryKeys} category={state.category} seg={seg}
+          loading={state.loading} visible={state.visible} detailOpen={detailOpen} continuous={state.appearance.appearance.animation.continuous}
+          gridRef={gridRef} controller={controller} onOpen={handleOpen} onDetail={handleDetail} />}
       </div>
       {detail && <DefaultWorkspaceDetail key={detail.pluginId} state={state} controller={controller} origin={originRef.current} />}
     </section>

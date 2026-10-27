@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>eNest — 把常用工具，放进同一个工作台</title>
+    <title>eNest — 用插件组合你的桌面工作台</title>
     <meta
       name="description"
-      content="从剪贴板、截图到数据库与 SSH，用插件组合你的桌面工作台。Quick 随时呼出，主窗口持续工作，独立窗口自由展开。"
+      content="eNest 是插件化桌面壳。按需安装工具与主题，在 Quick、主窗口、独立窗口和自由面板中工作，共用动态设置、私有存储与权限管理。"
     />
     <meta property="og:title" content="eNest — 你的工具，各就各位" />
-    <meta property="og:description" content="把常用工具，放进同一个工作台。" />
+    <meta property="og:description" content="插件提供工具与主题，eNest 负责窗口、生命周期和共用能力。" />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="assets/screens/screen-assistant.webp" />
     <meta name="theme-color" content="#F1F0EC" />
@@ -60,18 +60,18 @@
         <div class="stage hero-stage">
           <div class="wrap hero-top">
             <div>
-              <p class="eyebrow">你的工具，各就各位。</p>
+              <p class="eyebrow">插件化桌面壳 · 你的工具，各就各位。</p>
               <h1>
                 把常用工具，<br />放进同一个<span class="accent">工作台。</span>
               </h1>
             </div>
             <div class="hero-aside">
               <p>
-                随手的小事，专注的大事。<br />从一次复制，到一整个项目，<br />给每件工具一个顺手的位置。
+                工具按需安装，主题自由选择。<br />eNest 管好窗口、设置与生命周期，<br />插件专注完成你的工作。
               </p>
               <a class="button primary" href="download.html"
                 >下载 eNest <span aria-hidden="true">↗</span></a
-              ><span class="platform-note">macOS · Windows · Linux</span>
+              ><span class="platform-note">发布目标：macOS · Windows · Linux</span>
             </div>
           </div>
           <div class="assembly" aria-label="eNest 插件工作台展示">
@@ -136,7 +136,6 @@
                 href="#catalog"
                 aria-label="浏览Markdown"
                 ><img
-                  class="mono-icon"
                   src="assets/plugins/markdown.svg"
                   width="42"
                   height="42"
@@ -153,7 +152,7 @@
               >
             </div>
             <div class="assembly-caption">
-              <span>一个入口，无限组合。</span
+              <span>同一个壳，按需组合。截图为既有版本示例。</span
               ><a href="#features"
                 >探索工作方式 <span aria-hidden="true">↓</span></a
               >
@@ -169,7 +168,7 @@
               <h2>小事快一点。<br />大事，展开做。</h2>
             </div>
             <p class="section-copy">
-              同一个插件，跟着你的节奏。<br />临时查一查，或坐下来认真处理。
+              同一个插件，跟着你的节奏。<br />自由面板还能把工具留在桌面，记住布局。
             </p>
           </div>
           <div class="form-layout">
@@ -178,7 +177,7 @@
                 ><span class="step-mark">↗</span
                 ><span
                   ><strong>Quick 小窗</strong
-                  ><small>随时呼出，完成眼前的一件事。</small></span
+                  ><small>快捷键呼出，搜索插件、应用与命令。</small></span
                 ></a
               ><a class="form-step" href="#workspace" data-form="1"
                 ><span class="step-mark">▤</span
@@ -217,7 +216,7 @@
                     >查看大图 <span aria-hidden="true">↗</span></span
                   >
                 </button>
-                <figcaption>随时呼出，直接开始。</figcaption>
+                <figcaption>支持拼音搜索与内容匹配；粘贴图片在输入框左侧预览。</figcaption>
               </figure>
               <figure class="form-panel" id="workspace" data-form-panel="1">
                 <button
@@ -257,12 +256,12 @@
                     >查看大图 <span aria-hidden="true">↗</span></span
                   >
                 </button>
-                <figcaption>让窗口的位置，适应你的桌面。</figcaption>
+                <figcaption>独立展开或置顶，按需要安排桌面与屏幕。</figcaption>
               </figure>
             </div>
           </div>
           <div class="stage-foot">
-            <span>Quick / 工作台 / 独立窗口</span
+            <span>Quick / 主窗口 / 独立窗口 / 自由面板（设置中开启）</span
             ><a href="#scenarios">找到你的使用场景 ↗</a>
           </div>
         </div>
@@ -337,11 +336,10 @@
                 <button
                   type="button"
                   data-preview="markdown"
-                  data-title="Markdown 笔记"
-                  data-description="写下想法，用熟悉的 Markdown 整理内容。"
+                  data-title="Markdown 编辑器"
+                  data-description="所见即所得编辑、主题与图床。截图为早期笔记界面，当前功能以插件版本为准。"
                 >
                   <img
-                    class="mono-icon"
                     src="assets/plugins/markdown.svg"
                     alt=""
                     width="28"
@@ -423,7 +421,7 @@
                   data-description="在统一入口管理消息中间件连接与调试。"
                 >
                   <img
-                    src="assets/plugins/middleware.svg?v=20261014"
+                    src="assets/plugins/middleware.svg"
                     alt=""
                     width="28"
                     height="28"
@@ -436,8 +434,7 @@
                   data-description="HTTP、WebSocket 与 SSE，让接口调试更顺手。"
                 >
                   <img
-                    class="mono-icon"
-                    src="assets/plugins/net-kit.svg?v=20261014"
+                    src="assets/plugins/net-kit.svg"
                     alt=""
                     width="28"
                     height="28"
@@ -481,7 +478,7 @@
           </div>
           <div>
             <p class="section-copy">
-              效率、开发、设计与媒体。<br />挑需要的，留下顺手的。
+              34 个官方插件，涵盖工具与主题。<br />按需安装；可用版本以插件市场为准。
             </p>
             <a class="text-link" href="download.html">在 eNest 中探索插件 ↗</a>
           </div>
@@ -502,12 +499,39 @@
               其它
             </button>
           </div>
-          <span class="catalog-count" aria-live="polite">34 个工具</span>
+          <span class="catalog-count" aria-live="polite">34 个插件</span>
         </div>
         <div class="tool-grid">
-          <article class="tool" data-category="其它">
+          <article class="tool" data-category="设计" data-plugin-id="com.github.eNest.ai-canvas">
             <img
-              class="mono-icon"
+              src="assets/plugins/ai-canvas.svg"
+              alt=""
+              width="44"
+              height="44"
+              loading="lazy"
+            />
+            <div>
+              <h3>AI 画布</h3>
+              <p>AI 视觉工作台：手绘风节点画布编排文生图、图生图与提示词模板工作流，OpenAI Images 协议自定义接入，生成图自动入库画廊。</p>
+            </div>
+            <span class="tool-category">设计</span>
+          </article>
+          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.anything">
+            <img
+              src="assets/plugins/anything.svg"
+              alt=""
+              width="44"
+              height="44"
+              loading="lazy"
+            />
+            <div>
+              <h3>Anything 文件搜索</h3>
+              <p>全盘文件即时搜索：Spotlight / Everything 引擎，关键词高亮、排序分页、文本与图片预览，打开、定位、移入废纸篓。</p>
+            </div>
+            <span class="tool-category">效率</span>
+          </article>
+          <article class="tool" data-category="其它" data-plugin-id="com.github.eNest.batch-rename">
+            <img
               src="assets/plugins/batch-rename.svg"
               alt=""
               width="44"
@@ -516,14 +540,11 @@
             />
             <div>
               <h3>批量重命名</h3>
-              <p>
-                拖入多文件，查找替换 / 序号 / 日期 / 大小写 /
-                扩展名规则链实时预览，确认后批量改名，支持撤销。
-              </p>
+              <p>拖入多文件，查找替换（正则）/ 序号 / 日期 / 大小写 / 插入 / 删除片段 / 扩展名规则链实时预览（diff 高亮 + 冲突检测），确认后批量改名，支持撤销。</p>
             </div>
             <span class="tool-category">其它</span>
           </article>
-          <article class="tool" data-category="效率">
+          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.calculator">
             <img
               src="assets/plugins/calculator.svg"
               alt=""
@@ -533,11 +554,11 @@
             />
             <div>
               <h3>计算器</h3>
-              <p>科学计算、Ans 与内存寄存器、可收藏的本地计算历史。</p>
+              <p>科学计算、变量赋值、Ans 与内存寄存器、百分比双语义、千分位显示、可收藏的本地计算历史。</p>
             </div>
             <span class="tool-category">效率</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.ccswitch">
             <img
               src="assets/plugins/ccswitch.svg"
               alt=""
@@ -547,11 +568,11 @@
             />
             <div>
               <h3>供应商切换</h3>
-              <p>管理 AI 应用的供应商配置、MCP 与会话，查看用量。</p>
+              <p>AI CLI 供应商切换台：10 应用配置管理、50+ 预设、切换历史与回退、全量备份、MCP 同步、会话浏览与用量统计（复刻 cc-switch）</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="效率">
+          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.clipboard">
             <img
               src="assets/plugins/clipboard.svg"
               alt=""
@@ -561,31 +582,12 @@
             />
             <div>
               <h3>剪贴板</h3>
-              <p>搜索文本、图片与文件历史；快捷回贴，桌面预览与批量整理。</p>
+              <p>搜索文本、图片与文件历史；快捷回贴，文本变换工具条与暂存片段，批量整理。</p>
             </div>
             <span class="tool-category">效率</span>
           </article>
-          <article class="tool" data-category="设计">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.codec">
             <img
-              class="mono-icon"
-              src="assets/plugins/code-shot.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>代码截图</h3>
-              <p>
-                粘贴代码生成高亮截图卡片：多语言着色、跟随主题配色、macOS
-                窗口栏样式，复制 / 保存 PNG / 2x 高清。
-              </p>
-            </div>
-            <span class="tool-category">设计</span>
-          </article>
-          <article class="tool" data-category="开发">
-            <img
-              class="mono-icon"
               src="assets/plugins/codec.svg"
               alt=""
               width="44"
@@ -594,13 +596,11 @@
             />
             <div>
               <h3>编解码</h3>
-              <p>
-                Base64、URL、Hex、Unicode、HTML 编解码与 JWT、URL 参数查看。
-              </p>
+              <p>Base64、URL、Hex、Unicode、HTML 编解码与 JWT、URL 参数、Data URL 查看；逐行批量、错误定位、文件转 Data URL、最近转换记录。</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.codex-pets">
             <img
               src="assets/plugins/codex-pets.svg"
               alt=""
@@ -610,18 +610,12 @@
             />
             <div>
               <h3>Codex 宠物市场</h3>
-              <p>
-                浏览 codex-pets.net
-                社区宠物画廊：搜索、排序、标签筛选与分页；逐帧 sprite
-                预览与光标跟随动效；一键安装宠物包到本机 Codex（自动检测
-                ~/.codex），并管理已安装宠物。
-              </p>
+              <p>浏览 codex-pets.net 社区宠物画廊：搜索、排序、标签筛选与分页；逐帧 sprite 预览与光标跟随动效；一键安装宠物包到本机 Codex（自动检测 ~/.codex），并管理已安装宠物。</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="设计">
+          <article class="tool" data-category="设计" data-plugin-id="com.github.eNest.color-picker">
             <img
-              class="mono-icon"
               src="assets/plugins/color-picker.svg"
               alt=""
               width="44"
@@ -630,16 +624,12 @@
             />
             <div>
               <h3>取色器</h3>
-              <p>
-                屏幕与图片精准取色，支持 HEX/RGB/HSL 透明颜色、WCAG
-                对比度检查、命名色板与 CSS/JSON 导出。
-              </p>
+              <p>屏幕与图片精准取色，HEX/RGB/HSL/OKLCH 一键复制、和谐色生成、WCAG 对比度检查、命名色板与 CSS/JSON 导出。</p>
             </div>
             <span class="tool-category">设计</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.cron">
             <img
-              class="mono-icon"
               src="assets/plugins/cron.svg"
               alt=""
               width="44"
@@ -648,14 +638,11 @@
             />
             <div>
               <h3>Cron 工具</h3>
-              <p>
-                五域可视化构建、表达式与自然语言互转、未来执行预览、预设库与
-                crontab 导出。
-              </p>
+              <p>五/六域可视化构建、中文人性化描述、未来执行预览、预设库与 crontab 导出。</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.database">
             <img
               src="assets/plugins/database.svg"
               alt=""
@@ -665,15 +652,12 @@
             />
             <div>
               <h3>数据库</h3>
-              <p>
-                多数据库工作台：离线编辑器、查询与结果编辑、结构关系、资源中心和只读数据比较
-              </p>
+              <p>多数据库工作台：离线编辑器、查询与结果编辑、结构关系、资源中心和只读数据比较</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.diff">
             <img
-              class="mono-icon"
               src="assets/plugins/diff.svg"
               alt=""
               width="44"
@@ -682,11 +666,25 @@
             />
             <div>
               <h3>文本对比</h3>
-              <p>双栏对比文本与字节差异，定位改动并导出对比结果。</p>
+              <p>双栏 LCS 行级对比、行内字符细化、差异导航计数、hex 字节对比与 unified diff 导出。</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="设计" data-plugin-id="com.github.eNest.drawboard">
+            <img
+              src="assets/plugins/drawboard.svg"
+              alt=""
+              width="44"
+              height="44"
+              loading="lazy"
+            />
+            <div>
+              <h3>画板</h3>
+              <p>手绘风自由画板：压感钢笔、荧光笔、手绘图形与文字、贴图标注，滚轮缩放空格平移，多页草稿自动保存，一键复制与导出 PNG/JPG。</p>
+            </div>
+            <span class="tool-category">设计</span>
+          </article>
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.dsh">
             <img
               src="assets/plugins/dsh.svg"
               alt=""
@@ -696,18 +694,12 @@
             />
             <div>
               <h3>DSH 驾驶舱</h3>
-              <p>
-                DeepSeek Harness
-                会话驾驶舱：小窗查看多会话进度并快速对话，大桌面嵌入完整 DSH Web
-                UI；自带运行时（零本地依赖）与热更新、profile
-                管理、一键备份升级回退
-              </p>
+              <p>DeepSeek Harness 会话驾驶舱与管理中心：完整 Web UI、快速对话、内核按需在线安装与多版本切换、Profile 环境配置与同步、进程启停和安全备份清理</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.hash">
             <img
-              class="mono-icon"
               src="assets/plugins/hash.svg"
               alt=""
               width="44"
@@ -716,16 +708,12 @@
             />
             <div>
               <h3>哈希与加密</h3>
-              <p>
-                多算法同屏哈希（SHA 家族/MD5）、HMAC、AES-GCM 与 RSA
-                加解密签名、JWT 解码、hex/base64 输出。
-              </p>
+              <p>多算法同屏哈希（SHA 家族/MD5）、文件哈希进度反馈、校验对比 diff、HMAC、AES-GCM 与 RSA 加解密签名、JWT 解码、hex/base64 输出。</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="媒体">
+          <article class="tool" data-category="媒体" data-plugin-id="com.github.eNest.image-tools">
             <img
-              class="mono-icon"
               src="assets/plugins/image-tools.svg"
               alt=""
               width="44"
@@ -734,16 +722,12 @@
             />
             <div>
               <h3>图片工具箱</h3>
-              <p>
-                图片压缩、格式转换、批量缩放、裁剪旋转、文字水印、EXIF
-                查看、色板提取与贴图预览。
-              </p>
+              <p>图片压缩、格式转换、批量缩放、裁剪旋转、文字水印、EXIF 查看、色板提取与贴图预览。</p>
             </div>
             <span class="tool-category">媒体</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.json-tools">
             <img
-              class="mono-icon"
               src="assets/plugins/json-tools.svg"
               alt=""
               width="44"
@@ -752,15 +736,12 @@
             />
             <div>
               <h3>JSON 工具</h3>
-              <p>
-                无损数字 JSON 格式化、校验、树浏览、搜索、键排序与差异比较。
-              </p>
+              <p>无损数字 JSON 格式化、路径查询、TypeScript 类型生成、统计、树浏览与差异比较。</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="其它">
+          <article class="tool" data-category="其它" data-plugin-id="com.github.eNest.lan-share">
             <img
-              class="mono-icon"
               src="assets/plugins/lan-share.svg"
               alt=""
               width="44"
@@ -769,16 +750,12 @@
             />
             <div>
               <h3>局域网传件</h3>
-              <p>
-                同一 Wi-Fi 下把文件发给手机：取件码 +
-                二维码即扫即下，限时自动关闭，下载实时日志。
-              </p>
+              <p>同一 Wi-Fi 下把文件发给手机：取件码 + 二维码即扫即下，限时自动关闭，下载实时日志。</p>
             </div>
             <span class="tool-category">其它</span>
           </article>
-          <article class="tool" data-category="效率">
+          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.markdown">
             <img
-              class="mono-icon"
               src="assets/plugins/markdown.svg"
               alt=""
               width="44"
@@ -786,17 +763,14 @@
               loading="lazy"
             />
             <div>
-              <h3>Markdown 笔记</h3>
-              <p>
-                分组笔记树、实时预览、全文搜索、图片附件、模板与导出；Quick
-                速记直落收件箱。
-              </p>
+              <h3>Markdown 编辑器</h3>
+              <p>Typora 式所见即所得 Markdown 编辑器：即时渲染、Typora 主题、手绘风 Mermaid、图床上传（PicList/GitHub/自定义脚本）与本地文件工作台。</p>
             </div>
             <span class="tool-category">效率</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.middleware">
             <img
-              src="assets/plugins/middleware.svg?v=20261014"
+              src="assets/plugins/middleware.svg"
               alt=""
               width="44"
               height="44"
@@ -804,17 +778,13 @@
             />
             <div>
               <h3>中间件控制台</h3>
-              <p>
-                Kafka / RabbitMQ / MQTT / RocketMQ 统一控制台：连接管理、Topic
-                与队列、消息查询溯源与实时监听、消费组与监控
-              </p>
+              <p>Kafka / RabbitMQ / MQTT / RocketMQ 统一控制台：连接管理、Topic 与队列、消息查询溯源与实时监听、消费组与监控</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.net-kit">
             <img
-              class="mono-icon"
-              src="assets/plugins/net-kit.svg?v=20261014"
+              src="assets/plugins/net-kit.svg"
               alt=""
               width="44"
               height="44"
@@ -822,16 +792,12 @@
             />
             <div>
               <h3>网络调试台</h3>
-              <p>
-                HTTP / TCP / WebSocket 调试工作台：流式响应与
-                SSE、十六进制字节流、编解码策略、断言、curl 导入导出、集合与历史
-              </p>
+              <p>HTTP / TCP / WebSocket 调试工作台：流式响应与 SSE、十六进制字节流、编解码策略、断言、curl 导入导出、集合与历史</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="效率">
+          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.password-kit">
             <img
-              class="mono-icon"
               src="assets/plugins/password-kit.svg"
               alt=""
               width="44"
@@ -840,13 +806,12 @@
             />
             <div>
               <h3>密码工具箱</h3>
-              <p>随机密码与 UUID v4 批量生成，字符排除、结果遮罩和复制格式。</p>
+              <p>随机密码、密码短语与 PIN 生成，强度检查（熵 + 破解时间估算），UUID v4 批量与本地生成历史。</p>
             </div>
             <span class="tool-category">效率</span>
           </article>
-          <article class="tool" data-category="效率">
+          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.pomodoro">
             <img
-              class="mono-icon"
               src="assets/plugins/pomodoro.svg"
               alt=""
               width="44"
@@ -855,28 +820,12 @@
             />
             <div>
               <h3>番茄钟</h3>
-              <p>安排专注与休息，回顾阶段记录和本地统计。</p>
+              <p>专注计时、长短休息与时长预设，结束提示和本地统计。</p>
             </div>
             <span class="tool-category">效率</span>
           </article>
-          <article class="tool" data-category="效率">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.regex">
             <img
-              class="mono-icon"
-              src="assets/plugins/qrcode.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>二维码</h3>
-              <p>二维码模板、PNG/SVG 导出、批量图集及多图离线识别。</p>
-            </div>
-            <span class="tool-category">效率</span>
-          </article>
-          <article class="tool" data-category="开发">
-            <img
-              class="mono-icon"
               src="assets/plugins/regex.svg"
               alt=""
               width="44"
@@ -885,13 +834,11 @@
             />
             <div>
               <h3>正则工作台</h3>
-              <p>
-                正则实时匹配高亮、捕获分组、替换预览、常用片段库与元字符速查。
-              </p>
+              <p>正则实时匹配高亮、捕获分组、替换预览、常用片段库与元字符速查。</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.remote-desktop">
             <img
               src="assets/plugins/remote-desktop.svg"
               alt=""
@@ -901,14 +848,11 @@
             />
             <div>
               <h3>远程桌面</h3>
-              <p>
-                VNC / RDP 远程桌面：资产管理、SSH
-                隧道、多会话画布、剪贴板互通与连接诊断
-              </p>
+              <p>VNC / RDP 远程桌面：资产管理、SSH 隧道、多会话画布、剪贴板互通与连接诊断</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="媒体">
+          <article class="tool" data-category="媒体" data-plugin-id="com.github.eNest.screen-assistant">
             <img
               src="assets/plugins/screen-assistant.svg"
               alt=""
@@ -918,31 +862,25 @@
             />
             <div>
               <h3>屏幕助手</h3>
-              <p>
-                截图与原图历史、裁剪箭头文字马赛克标注、区域录屏和贴图管理；小窗快速操作，桌面展开完整编辑。
-              </p>
+              <p>截图与原图历史、裁剪箭头文字马赛克标注（含工具快捷键）、区域录屏和贴图管理；粘性半透明工具头，小窗快速操作，桌面展开完整编辑。</p>
             </div>
             <span class="tool-category">媒体</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="设计" data-plugin-id="com.github.eNest.sketchbook">
             <img
-              class="mono-icon"
-              src="assets/plugins/snippets.svg"
+              src="assets/plugins/sketchbook.svg"
               alt=""
               width="44"
               height="44"
               loading="lazy"
             />
             <div>
-              <h3>代码片段</h3>
-              <p>
-                代码片段库：语法标签着色、占位符模板、Quick
-                即搜即复制、导入导出与使用排序。
-              </p>
+              <h3>素描本</h3>
+              <p>手绘纸面主题：纸灰、灰蓝、鼠尾草三套浅深色板，保留手写字、抖动描边与胶带装订；整页低负载漂移，开屏由宿主统一呈现。</p>
             </div>
-            <span class="tool-category">开发</span>
+            <span class="tool-category">设计</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.ssh">
             <img
               src="assets/plugins/ssh.svg"
               alt=""
@@ -952,16 +890,12 @@
             />
             <div>
               <h3>SSH管理</h3>
-              <p>
-                SSH
-                工作台：快速连接、终端提示、远程文件、三平台资源与进程端口、服务容器、传输和隧道
-              </p>
+              <p>SSH 工作台：快速连接、终端提示、远程文件、三平台资源与进程端口、服务容器、传输和隧道</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="效率">
+          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.sticky-notes">
             <img
-              class="mono-icon"
               src="assets/plugins/sticky-notes.svg"
               alt=""
               width="44"
@@ -970,13 +904,12 @@
             />
             <div>
               <h3>备忘录</h3>
-              <p>快速记录、Markdown 预览、标签整理、归档回收与本地备份。</p>
+              <p>快速记录、Markdown 预览、颜色筛选、标签整理、归档回收与本地备份。</p>
             </div>
             <span class="tool-category">效率</span>
           </article>
-          <article class="tool" data-category="效率">
+          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.sysguard">
             <img
-              class="mono-icon"
               src="assets/plugins/sysguard.svg"
               alt=""
               width="44"
@@ -985,16 +918,12 @@
             />
             <div>
               <h3>进程与端口</h3>
-              <p>
-                本机进程与监听端口巡检：双表联动、搜索、收藏置顶、结束进程危险确认、CPU·内存
-                60 秒滚动曲线
-              </p>
+              <p>本机进程与端口巡检：概览仪表盘（CPU·内存数据卡 + 迷你趋势 + 阈值告警 + Top 进程）、双表联动、搜索、收藏置顶、结束进程危险确认、滚动曲线、刷新频率可调</p>
             </div>
             <span class="tool-category">效率</span>
           </article>
-          <article class="tool" data-category="开发">
+          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.timestamp">
             <img
-              class="mono-icon"
               src="assets/plugins/timestamp.svg"
               alt=""
               width="44"
@@ -1003,13 +932,12 @@
             />
             <div>
               <h3>时间戳</h3>
-              <p>时间戳与时区转换、批量转换、日期加减与时间差。</p>
+              <p>时间戳与时区转换、多时区时钟、格式模板、批量转换、日期加减与时间差。</p>
             </div>
             <span class="tool-category">开发</span>
           </article>
-          <article class="tool" data-category="效率">
+          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.todos">
             <img
-              class="mono-icon"
               src="assets/plugins/todos.svg"
               alt=""
               width="44"
@@ -1018,29 +946,11 @@
             />
             <div>
               <h3>待办清单</h3>
-              <p>任务清单、截止日期、子任务与标签；快捷记录，桌面完整整理。</p>
+              <p>任务清单、拖拽排序、截止日期、优先级、子任务进度与标签；快捷记录，桌面完整整理。</p>
             </div>
             <span class="tool-category">效率</span>
           </article>
-          <article class="tool" data-category="效率">
-            <img
-              class="mono-icon"
-              src="assets/plugins/totp.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>验证器</h3>
-              <p>
-                TOTP 两步验证：otpauth
-                导入、倒计时环出码、点击复制、分组搜索与口令加密备份。
-              </p>
-            </div>
-            <span class="tool-category">效率</span>
-          </article>
-          <article class="tool" data-category="效率">
+          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.translate">
             <img
               src="assets/plugins/translate.svg"
               alt=""
@@ -1050,13 +960,12 @@
             />
             <div>
               <h3>翻译</h3>
-              <p>多引擎翻译、语言切换、本地历史与收藏、双语复制导出。</p>
+              <p>多引擎翻译、原文译文对照即时翻译（防抖）、语言快捷切换、历史与收藏、双语复制导出。</p>
             </div>
             <span class="tool-category">效率</span>
           </article>
-          <article class="tool" data-category="效率">
+          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.unit-convert">
             <img
-              class="mono-icon"
               src="assets/plugins/unit-convert.svg"
               alt=""
               width="44"
@@ -1065,14 +974,12 @@
             />
             <div>
               <h3>单位与汇率</h3>
-              <p>
-                长度/面积/体积/质量/温度/速度/数据量/进制/汇率同屏联动换算，人民币大写。
-              </p>
+              <p>长度/面积/体积/质量/温度/速度/数据量/时间/压力/能量/进制/汇率同屏联动换算，公式展示与常用单位置顶，人民币大写。</p>
             </div>
             <span class="tool-category">效率</span>
           </article>
         </div>
-        <p class="catalog-empty" hidden>这个分类还没有工具。</p>
+        <p class="catalog-empty" hidden>这个分类还没有插件。</p>
       </section>
       <section class="chapter personal" id="personal" data-chapter="personal">
         <div class="stage personal-stage wrap">
@@ -1082,7 +989,7 @@
               工具各就各位。<br />风格，<span class="accent">自己定。</span>
             </h2>
             <p class="section-copy">
-              明暗主题、背景与氛围。<br />让每天打开的地方，待着更舒服。
+              主题定义配色、字体、背景与动效，也可提供首页、Quick 和设置页。<br />插件设置可汇入壳，或提供自己的页面。
             </p>
             <div class="appearance-options" aria-label="外观预览">
               <button type="button" data-appearance="light" aria-pressed="true">
@@ -1101,7 +1008,7 @@
                 <span class="swatch ambient"></span>氛围
               </button>
             </div>
-            <p class="appearance-note">点击切换工作台预览</p>
+            <p class="appearance-note">点击切换默认主题的既有界面示例；默认主题随壳提供。</p>
           </div>
           <div class="personal-visual" data-appearance-stage="light">
             <div class="material-back"></div>
@@ -1109,12 +1016,12 @@
               class="screenshot appearance-shot"
               type="button"
               data-zoom="assets/screens/shell.webp"
-              data-caption="eNest 明亮主题工作台"
-              aria-label="放大eNest 明亮主题工作台"
+              data-caption="eNest 默认主题明亮界面示例"
+              aria-label="放大eNest 默认主题明亮界面示例"
             >
               <img
                 src="assets/screens/shell.webp"
-                alt="eNest 明亮主题工作台"
+                alt="eNest 默认主题明亮界面示例"
                 width="1280"
                 height="720"
                 loading="lazy"
@@ -1137,15 +1044,18 @@
         <h2>用得顺手，<br />也握得住分寸。</h2>
         <div class="principle">
           <span class="principle-symbol" aria-hidden="true">⊞</span>
-          <h3>自己的记录，在本机。</h3>
+          <h3>统一存储，按插件隔离。</h3>
           <p>
-            插件私有数据按插件隔离，本地设置与记录保存在本机。连接外部服务时，由对应插件完成请求。
+            设置、记录、图片与文件通过宿主私有存储接口管理，同一插件在不同窗口共用数据。前台通过宿主网络接口访问外部服务时，按插件声明的权限授权。
           </p>
         </div>
         <div class="principle">
           <span class="principle-symbol" aria-hidden="true">⊙</span>
           <h3>敏感能力，按需授权。</h3>
-          <p>按插件管理网络、剪贴板等敏感权限。文件访问限定在你选择的目标。</p>
+          <p>按插件管理网络、剪贴板等敏感权限。前台文件接口仅访问你选择的目标；插件原生后端需要另行授予完整本机信任。</p>
+          <p>
+            <a href="plugin/#/mcp">MCP 工具贡献接口</a>供开发者接入；服务默认关闭，原生管理入口尚未提供。
+          </p>
         </div>
       </section>
       <section class="closing" id="download">
@@ -1166,7 +1076,7 @@
               >制作你的插件 ↗</a
             >
           </div>
-          <p class="platform-note">macOS · Windows · Linux</p>
+          <p class="platform-note">发行状态与平台附件，以 GitHub Releases 为准。</p>
         </div>
       </section>
     </main>
@@ -1179,7 +1089,7 @@
           alt=""
         />eNest</a
       >
-      <p>把常用工具，放进同一个工作台。</p>
+      <p>插件提供工具，eNest 把它们放在一起。</p>
       <nav aria-label="页脚导航">
         <a href="download.html">下载</a><a href="plugin/">开发文档</a
         ><a
@@ -1199,7 +1109,7 @@
         </button>
       </div>
       <img alt="" width="1200" height="800" />
-      <p>eNest 实际界面 · 演示数据</p>
+      <p>既有版本界面 · 演示数据 · 不代表当前全部功能或原生行为验收</p>
     </dialog>
   </body>
 </html>

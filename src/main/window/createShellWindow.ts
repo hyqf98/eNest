@@ -287,6 +287,7 @@ export function sendShellEvent(payload: ShellEventPayload): void {
     payload.type === 'quick-input' ||
     payload.type === 'quick-focus-search' ||
     payload.type === 'plugins-changed' ||
+    payload.type === 'plugin-launch-changed' ||
     payload.type === 'theme-changed' ||
     payload.type === 'theme-packs-changed' ||
     payload.type === 'appearance-changed' ||

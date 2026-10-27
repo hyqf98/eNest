@@ -27,7 +27,7 @@ type HostMessage =
   | { type: 'action-result'; id: string; result: QuickThemeActionResult }
 
 interface ThemeBridge {
-  publishState(): void
+  publishState(force?: boolean): void
   flushFocus(): void
 }
 
@@ -189,6 +189,9 @@ const QuickThemeFrame = forwardRef<QuickThemeSurfaceHandle, QuickThemeSurfacePro
     let port: MessagePort | null = null
     let untransferredPort: MessagePort | null = null
     let timer: number | undefined
+    let stateFrame = 0
+    let stateTimer: ReturnType<typeof setTimeout> | undefined
+    let published: QuickThemeSnapshot | null = null
     const messageTimes: number[] = []
     const pendingActions = new Set<string>()
     const recentActions = new Set<string>()
@@ -198,6 +201,8 @@ const QuickThemeFrame = forwardRef<QuickThemeSurfaceHandle, QuickThemeSurfacePro
       disposed = true
       generation = null
       window.clearTimeout(timer)
+      cancelAnimationFrame(stateFrame)
+      clearTimeout(stateTimer)
       window.removeEventListener('message', receiveConnect)
       window.removeEventListener('messageerror', receiveWindowError)
       frame!.removeEventListener('load', receiveLoad)
@@ -334,12 +339,35 @@ const QuickThemeFrame = forwardRef<QuickThemeSurfaceHandle, QuickThemeSurfacePro
       if (!disposed && ++loads > 1) fail()
     }
 
+    const flushState = () => {
+      cancelAnimationFrame(stateFrame); stateFrame = 0
+      clearTimeout(stateTimer); stateTimer = undefined
+      const state = latestRef.current.snapshot
+      if (disposed || !port || state === published) return
+      published = state
+      send({ type: 'state', state })
+    }
     const bridge: ThemeBridge = {
-      publishState() { send({ type: 'state', state: latestRef.current.snapshot }) },
+      publishState(force = false) {
+        const next = latestRef.current.snapshot
+        if (disposed || !port || next === published) return
+        // Handle retirement, launch receipts and lifecycle changes must never wait
+        // behind a paint frame. Only ordinary selection/layout churn is coalesced.
+        if (force || !published || next.queryRevision !== published.queryRevision || next.catalogRevision !== published.catalogRevision
+          || next.shown !== published.shown || next.opened?.sequence !== published.opened?.sequence
+          || next.error !== published.error || next.busy !== published.busy || next.composing !== published.composing
+          || Boolean(next.plugin) !== Boolean(published.plugin) || next.plugin?.title !== published.plugin?.title
+          || next.plugin?.loading !== published.plugin?.loading) { flushState(); return }
+        if (!stateFrame) {
+          stateFrame = requestAnimationFrame(flushState)
+          stateTimer = setTimeout(flushState, 50)
+        }
+      },
       flushFocus() {
         if (disposed || !ready || frame!.getAttribute('aria-hidden') === 'true' || pendingFocusRef.current === null) return
         const selectAll = pendingFocusRef.current
         pendingFocusRef.current = null
+        bridge.publishState(true)
         frame!.focus({ preventScroll: true })
         send({ type: 'focus', selectAll })
       }

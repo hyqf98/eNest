@@ -16,6 +16,7 @@ const MAX_IMAGE_BYTES = 12 * 1024 * 1024
 const MAX_TOTAL_IMAGE_BYTES = 32 * 1024 * 1024
 const MAX_FILES = 20
 const THUMBNAIL_SIZE = 128
+const MAX_THUMBNAIL_BYTES = 64 * 1024
 const DATA_URL_RE = /^data:image\/(?:png|jpeg|webp|gif);base64,([a-z0-9+/=]+)$/i
 
 interface StoredImage { id: string; dataUrl: string; width: number; height: number; bytes: number; thumbnail: string }
@@ -23,14 +24,22 @@ interface StoredFile { id: string; path: string; name: string; size: number; kin
 
 const images = new Map<string, StoredImage>()
 const files = new Map<string, StoredFile>()
+let contextEpoch = 0
+let pasteQueue: Promise<void> = Promise.resolve()
+let pendingPastes = 0
 /** Last assembled enter input per plugin, readable by that plugin via quickInput.readContext while mounted in Quick. */
 const issuedInputs = new Map<string, { generation: number; input: QuickEnterInput }>()
 
 function imageThumbnail(image: Electron.NativeImage): string {
   const { width, height } = image.getSize()
-  return (width > THUMBNAIL_SIZE || height > THUMBNAIL_SIZE
-    ? image.resize({ width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE, quality: 'best' })
-    : image).toDataURL()
+  for (let edge = THUMBNAIL_SIZE; edge >= 1; edge = Math.floor(edge / 2)) {
+    const scale = Math.min(1, edge / Math.max(width, height))
+    const thumbnail = (scale < 1 ? image.resize({
+      width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)), quality: 'best'
+    }) : image).toDataURL()
+    if (thumbnail.length <= MAX_THUMBNAIL_BYTES) return thumbnail
+  }
+  throw new Error('Quick thumbnail exceeds transfer limit')
 }
 
 function fileGlyph(kind: 'file' | 'directory'): string {
@@ -82,12 +91,14 @@ async function admitPath(path: string): Promise<StoredFile | null> {
 }
 
 /** Each clipboard/DOM file paste supersedes the previous file set (documented paste semantics). */
-async function addQuickFiles(paths: string[]): Promise<QuickImageContext[]> {
+async function addQuickFiles(paths: string[], epoch: number): Promise<QuickImageContext[]> {
   const next: StoredFile[] = []
   for (const path of Array.isArray(paths) ? paths.slice(0, MAX_FILES) : []) {
+    if (epoch !== contextEpoch) return []
     const stored = await admitPath(path)
     if (stored) next.push(stored)
   }
+  if (epoch !== contextEpoch) return []
   for (const stale of [...files.values()]) files.delete(stale.id)
   for (const stored of next) files.set(stored.id, stored)
   return next.map(projectFile)
@@ -113,24 +124,38 @@ async function readClipboardKind(): Promise<{ kind: ClipboardKind; image?: Elect
 }
 
 /** Paste events can land one tick before the OS clipboard updates; retry while the kind is still plain text. */
-async function readClipboardStable(): Promise<Awaited<ReturnType<typeof readClipboardKind>>> {
+async function readClipboardStable(epoch: number): Promise<Awaited<ReturnType<typeof readClipboardKind>>> {
   let result = await readClipboardKind().catch(() => ({ kind: 'text' }) as Awaited<ReturnType<typeof readClipboardKind>>)
   if (result.kind !== 'text') return result
-  for (let attempt = 0; attempt < 3 && result.kind === 'text'; attempt++) {
+  for (let attempt = 0; attempt < 3 && result.kind === 'text' && epoch === contextEpoch; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 60))
+    if (epoch !== contextEpoch) break
     result = await readClipboardKind().catch(() => ({ kind: 'text' }) as Awaited<ReturnType<typeof readClipboardKind>>)
   }
   return result
 }
 
 export async function readClipboardIntoContext(): Promise<QuickImageContext[]> {
-  const result = await readClipboardStable()
-  if (result.kind === 'image' && result.image) {
-    const context = addQuickImage(result.image.toDataURL())
-    return context ? [context] : []
+  if (pendingPastes >= MAX_IMAGES) return []
+  pendingPastes++
+  const epoch = contextEpoch, previous = pasteQueue
+  let release!: () => void
+  pasteQueue = new Promise(resolve => { release = resolve })
+  try {
+    // Capture each paste immediately, but commit in request order so images accumulate
+    // and a slower file read cannot replace a newer paste. Clear/hide retires the queue.
+    const [result] = await Promise.all([readClipboardStable(epoch), previous])
+    if (epoch !== contextEpoch) return []
+    if (result.kind === 'image' && result.image) {
+      const context = addQuickImage(result.image.toDataURL())
+      return context ? [context] : []
+    }
+    if (result.kind === 'files') return await addQuickFiles(result.paths ?? [], epoch)
+    return []
+  } finally {
+    if (epoch === contextEpoch) pendingPastes--
+    release()
   }
-  if (result.kind === 'files') return addQuickFiles(result.paths ?? [])
-  return []
 }
 
 function project(entry: StoredImage): QuickImageContext {
@@ -145,12 +170,18 @@ export function listQuickInputContext(): QuickImageContext[] {
 }
 
 export function removeQuickInputContext(id?: string): QuickImageContext[] {
-  if (id === undefined) { images.clear(); files.clear() }
+  if (id === undefined) clearQuickInputContext()
   else { images.delete(id); files.delete(id) }
   return listQuickInputContext()
 }
 
-export function clearQuickInputContext(): void { images.clear(); files.clear() }
+export function clearQuickInputContext(): void {
+  contextEpoch++
+  pasteQueue = Promise.resolve()
+  pendingPastes = 0
+  images.clear()
+  files.clear()
+}
 
 /** Resolve opaque session ids into the bounded enter payload. Unknown ids drop silently. */
 export async function buildQuickEnterInput(pluginId: string, selection: QuickInputSelection | undefined): Promise<QuickEnterInput | undefined> {

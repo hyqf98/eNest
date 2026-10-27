@@ -78,6 +78,8 @@ import { initDeadlineTasks, shutdownDeadlineTasks, shutdownDeadlineTasksSync } f
 import { permissionService } from '@main/plugin/PermissionService'
 import { registerThemeSettingsHandlers } from '@main/theme/themeSettingsSurface'
 import { registerPanelHandlers } from '@main/ipc/panelHandlers'
+import { registerMcpHandlers } from '@main/ipc/mcpHandlers'
+import { mcpService } from '@main/mcp/mcpService'
 import { registerRegionSurfaceHandlers } from '@main/panel/regionSelection'
 import {
   applyAppearanceToPanels,
@@ -130,6 +132,7 @@ function releaseAllGlobalShortcutsSync(): void {
 let shuttingDown = false
 
 function beginShutdown(reason: string): void {
+  mcpService.prepareShutdown()
   if (!shuttingDown) {
     shuttingDown = true
     flushMainWindowState(true)
@@ -154,6 +157,7 @@ function handleFatalSignal(sig: NodeJS.Signals | string): void {
     /* ignore */
   }
   try {
+    preparePanelShutdown()
     shutdownDeadlineTasksSync()
     pluginHost.prepareSessionShutdown()
     flushAll()
@@ -376,6 +380,7 @@ void app.whenReady().then(async () => {
     registerModalSurfaceHandlers()
     registerShellHandlers()
     registerPluginHandlers()
+    registerMcpHandlers()
     registerQuickHandlers()
     registerPluginWindowHandlers()
     registerAuxiliaryHandlers()
@@ -390,6 +395,7 @@ void app.whenReady().then(async () => {
       applyAppearanceToPanels()
     })
     logInfo('main', 'ipc ok')
+    void mcpService.initialize().catch(error => logWarn('mcp', `initialization failed: ${String(error)}`))
     startPluginMemoryMonitor()
     void prewarmHomeSurface().catch(error => logWarn('home', `startup prepare failed: ${String(error)}`))
 
@@ -472,7 +478,7 @@ app.on('before-quit', (event) => {
   destroyHomeSurface()
   // 先 destroyAll 再销毁 Quick 小窗：Quick 内嵌插件的 webContents 仍存活，
   // 能真正收到 beforeClose 并 flush；若先毁小窗，向已销毁目标只能空等 ack
-  void Promise.allSettled([pluginHost.destroyAll(), disposePluginInstallWorkers(), shutdownDeadlineTasks().catch(error => logWarn('timer', `shutdown save failed: ${String(error)}`))])
+  void Promise.allSettled([pluginHost.destroyAll(), disposePluginInstallWorkers(), mcpService.shutdown(), shutdownDeadlineTasks().catch(error => logWarn('timer', `shutdown save failed: ${String(error)}`))])
     .catch((error) => logWarn('main', `shutdown cleanup failed: ${String(error)}`))
     .then(() => {
       disposeAuxiliaryWindows()

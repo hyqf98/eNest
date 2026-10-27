@@ -1,4 +1,3 @@
-import { clearPluginBlobs } from '@main/plugin/pluginFiles'
 import { clearPluginAssets } from '@main/plugin/pluginAssets'
 /**
  * PluginUninstaller — 插件卸载器
@@ -206,7 +205,6 @@ async function uninstallLocked(id: string): Promise<UninstallResult> {
     logWarn('uninstall', `${id} ${msg}`)
   }
 
-  try { await clearPluginBlobs(id) } catch (error) { errors.push(`remove attachments failed: ${String(error)}`) }
   try { await clearPrivateDocuments(id) } catch (error) { errors.push(`remove private documents failed: ${String(error)}`) }
   try { await clearPluginFileStreams(id) } catch (error) { errors.push(`remove private outputs failed: ${String(error)}`) }
   try { await clearPluginAssets(id) } catch (error) { errors.push(`remove plugin assets failed: ${String(error)}`) }

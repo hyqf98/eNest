@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- AI 画布：纸面 + 手绘节点 + 连线 + 星尘 -->
+  <rect x="3.5" y="5" width="25" height="22" rx="3" fill="#f6efe3" stroke="#3d2f1e" stroke-width="1.6" stroke-linejoin="round"/>
+  <rect x="6.5" y="9" width="7" height="5.5" rx="1.6" fill="#ffffff" stroke="#3d2f1e" stroke-width="1.4" stroke-linejoin="round"/>
+  <rect x="18" y="17.5" width="7.5" height="5.5" rx="1.6" fill="#ffffff" stroke="#3d2f1e" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M13.6 11.8 C 16 11.8 15.5 20 18 20.2" fill="none" stroke="#a61e1e" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="2.6 2.2"/>
+  <path d="M7 17.5 c 1.8 .3 2.6 1.4 4.6 1.2" fill="none" stroke="#1d5c8a" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M20 8.4 l.7 1.5 1.5 .7 -1.5 .7 -.7 1.5 -.7 -1.5 -1.5 -.7 1.5 -.7 Z" fill="#e8a13a" stroke="#3d2f1e" stroke-width=".8" stroke-linejoin="round"/>
+</svg>

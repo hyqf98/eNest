@@ -78,6 +78,8 @@
   );
 
   const tools = [...document.querySelectorAll(".tool")];
+  const catalogCount = document.querySelector(".catalog-count");
+  if (catalogCount) catalogCount.textContent = `${tools.length} 个插件`;
   document.querySelectorAll("[data-filter]").forEach((button) =>
     button.addEventListener("click", () => {
       document
@@ -92,7 +94,7 @@
           tool.dataset.category !== button.dataset.filter;
         if (!tool.hidden) count++;
       });
-      document.querySelector(".catalog-count").textContent = `${count} 个工具`;
+      if (catalogCount) catalogCount.textContent = `${count} 个插件`;
       document.querySelector(".catalog-empty").hidden = count > 0;
       animate(document.querySelector(".tool-grid"), [
         { opacity: 0.5, transform: "translateY(6px)" },
@@ -147,7 +149,7 @@
       );
     const button = appearanceStage.querySelector("[data-zoom]");
     const path = `assets/screens/${value === "light" ? "shell" : `shell-${value}`}.webp`;
-    const label = `eNest ${value === "light" ? "明亮" : value === "dark" ? "深色" : "氛围"}主题工作台`;
+    const label = `eNest 默认主题${value === "light" ? "明亮" : value === "dark" ? "深色" : "氛围"}界面示例`;
     button.dataset.zoom = path;
     button.dataset.caption = label;
     button.setAttribute("aria-label", `放大${label}`);

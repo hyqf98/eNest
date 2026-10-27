@@ -35,6 +35,7 @@ interface Runtime {
   generation: number
   reference: { source: string; id: string; variant: string }
   appearance: ResolvedAppearance
+  sentAppearanceKey: string
   key: string
   view: WebContentsView
   ready: boolean
@@ -169,6 +170,7 @@ export class HomeSurfaceManager {
       generation,
       reference,
       appearance: candidate,
+      sentAppearanceKey: '',
       key: runtimeKey,
       view,
       ready: false,
@@ -287,6 +289,7 @@ export class HomeSurfaceManager {
       entryPath: page.entryPath,
       rootPath: page.rootPath,
       contribution: page.contribution,
+      buildRevision: page.contribution.source === BUILT_IN_HOME_SOURCE ? 'builtin' : pluginRegistry.getBuildRevision(page.contribution.source),
       devRevision: this.devRevisions.get(page.contribution.source) ?? 0,
     })
   }
@@ -537,11 +540,14 @@ export class HomeSurfaceManager {
 
   private sendAppearance(runtime: Runtime, appearance: ResolvedAppearance): void {
     const wc = runtime.view.webContents
-    if (wc.isDestroyed()) return
+    if (runtime.retired || wc.isDestroyed()) return
+    const snapshot = { ...getHomeAppearanceSnapshot(appearance), generation: runtime.generation }
+    // Prepared and committed payloads can share a revision but differ in public resources.
+    const key = JSON.stringify(snapshot)
+    if (runtime.sentAppearanceKey === key) return
     this.setViewBackground(runtime.view, appearance)
-    wc.send(IpcChannels.HomeEvent, {
-      appearance: { ...getHomeAppearanceSnapshot(appearance), generation: runtime.generation }
-    })
+    wc.send(IpcChannels.HomeEvent, { appearance: snapshot })
+    runtime.sentAppearanceKey = key
   }
 
   private attachHidden(runtime: Runtime): void {

@@ -21,7 +21,7 @@ import { IpcChannels, type OrbRailSyncRequest } from '@shared/types/ipc'
 import type { ResolvedAppearance, ThemeProfilePatch } from '@shared/types/appearance'
 import { APP_NAME, FONTS_DIR, toPluginId, toTabId } from '@shared/constants'
 import type { DevPluginLoadOptions, PluginLaunchPatch, ThemeTokens } from '@shared/types/plugin'
-import { forgetDevPlugin, pickAndLoadDevPlugin, rebuildDevPlugin, setDevPluginMode } from '@main/dev/DevConsole'
+import { forgetDevPlugin, pickAndLoadDevPlugin } from '@main/dev/DevConsole'
 import { setDevPluginKillOnHide } from '@main/dev/devPluginsStore'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, getAppPathsRoot } from '@main/paths/pathsService'
@@ -379,7 +379,7 @@ export function registerShellHandlers(): void {
 
   /**
    * shell:install-market-plugin — 从市场安装/更新插件。
-   * 策略：本地 sample 优先（同步）；否则远程 assetUrl 入队下载（进度经 install-progress）。
+   * 策略：开发态本地预览产物优先；否则远程 assetUrl 入队下载（进度经 install-progress）。
    * force=true 时已安装也会走远程更新（需 latestVersion 更高）。
    */
   handleShellIpc(
@@ -397,11 +397,11 @@ export function registerShellHandlers(): void {
           return { ok: true, data: { ok: true, mode: 'already', name: existing.name } }
         }
 
-        // 未安装：先试 sample（离线/内置），失败再远程
+        // 未安装：先试开发态本地预览产物，失败再远程
         if (!existing.installed) {
           try {
-            const summary = await pluginRegistry.installFromSample(id)
-            logInfo('ipc', `shell:install-market-plugin ${id} via sample`)
+            const summary = await pluginRegistry.installLocalPreview(id)
+            logInfo('ipc', `shell:install-market-plugin ${id} via local preview`)
             sendShellEvent({
               type: 'install-result',
               jobId: `sample-${id}`,
@@ -411,11 +411,12 @@ export function registerShellHandlers(): void {
             sendShellEvent({ type: 'plugins-changed' })
             // Update generic background declarations after installation.
             refreshPluginBackgrounds()
+            // Keep the existing IPC result tag for preview clients; this is not bundled plugin content.
             return { ok: true, data: { ok: true, mode: 'sample', name: summary.name } }
-          } catch (sampleErr) {
+          } catch (previewError) {
             logInfo(
               'ipc',
-              `sample miss ${id}: ${(sampleErr as Error).message} → try remote`
+              `local preview unavailable ${id}: ${(previewError as Error).message} → try remote`
             )
           }
         }
@@ -427,7 +428,7 @@ export function registerShellHandlers(): void {
             ok: false,
             error: force
               ? `no remote asset to update: ${id}`
-              : `plugin not installable: ${id}（无本地 sample 且远程无资产）`
+              : `plugin not installable: ${id}（无本地预览产物且远程无资产）`
           }
         }
         const job = enqueueInstallFromUrl(remote.assetUrl, {
@@ -548,13 +549,9 @@ export function registerShellHandlers(): void {
   handleShellIpc(IpcChannels.ShellForgetDevPlugin, async (_e, pluginId: string) => {
     if (typeof pluginId !== 'string' || !pluginRegistry.get(pluginId)?.dev) return { ok: false, error: '开发插件不存在' }
     try {
-      await pluginHost.closePlugin(pluginId, 'tab-close')
       await forgetDevPlugin(pluginId)
-      pluginHost.setKillOnHide(pluginId, false)
-      pluginRegistry.removeDevPlugin(pluginId)
       await pluginRegistry.scan()
       refreshPluginBackgrounds()
-      sendShellEvent({ type: 'plugins-changed' })
       return { ok: true }
     } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) } }
   })
@@ -568,32 +565,6 @@ export function registerShellHandlers(): void {
         void setDevPluginKillOnHide(pluginId, enabled === true)
       }
       return { ok: true, data: pluginHost.getKillOnHide(pluginId) }
-    } catch (err) {
-      return { ok: false, error: (err as Error).message }
-    }
-  })
-
-  /** dev 插件 dev/prod 模式切换：更新 dev.json 并在打开态下原地重载（prod 首次进入自动构建） */
-  handleShellIpc(IpcChannels.ShellSetDevPluginMode, async (_e, pluginId: string, mode?: 'dev' | 'prod') => {
-    try {
-      if (typeof pluginId !== 'string' || !pluginId) return { ok: false, error: 'pluginId required' }
-      if (mode !== 'dev' && mode !== 'prod') return { ok: false, error: 'Invalid development mode' }
-      await setDevPluginMode(pluginId, mode)
-      sendShellEvent({ type: 'plugins-changed' })
-      refreshPluginBackgrounds()
-      return { ok: true }
-    } catch (err) {
-      return { ok: false, error: (err as Error).message }
-    }
-  })
-
-  /** dev 插件手动重建：执行解析出的构建命令；完成后打开态原地重载新产物 */
-  handleShellIpc(IpcChannels.ShellRebuildDevPlugin, async (_e, pluginId: string) => {
-    try {
-      if (typeof pluginId !== 'string' || !pluginId) return { ok: false, error: 'pluginId required' }
-      await rebuildDevPlugin(pluginId)
-      sendShellEvent({ type: 'plugins-changed' })
-      return { ok: true }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
@@ -722,8 +693,8 @@ export function registerShellHandlers(): void {
       const k = String(key ?? '')
       if (!id || !k) return { ok: false, error: 'pluginId and key required' }
       if (!pluginSettingsBridge.isWritableKey(id, k)) return { ok: false, error: 'Unknown or read-only plugin settings key' }
-      pluginSettingsBridge.set(id, k, value)
       await settingsStore.setPluginSetting(id, k, value)
+      pluginSettingsBridge.set(id, k, value)
       refreshPluginBackgrounds()
       pluginHost.sendEvent(id, { type: 'settings-change', key: k, value })
       sendShellEvent({ type: 'plugin-settings-changed', pluginId: id })
@@ -943,11 +914,10 @@ export function registerShellHandlers(): void {
     cancelGithubLogin()
     return { ok: true }
   })
-  handleShellIpc(IpcChannels.ShellGetProfile, () => ({
-    user: getProfileUser(),
-    hasToken: hasGithubToken(),
-    polling: isLoginPolling()
-  }))
+  handleShellIpc(IpcChannels.ShellGetProfile, async () => {
+    const hasToken = await hasGithubToken()
+    return { user: getProfileUser(), hasToken, polling: isLoginPolling() }
+  })
   handleShellIpc(IpcChannels.ShellGithubLogout, () => {
     logoutGithub()
     return { ok: true }

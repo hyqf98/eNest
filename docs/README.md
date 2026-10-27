@@ -1,53 +1,16 @@
-# docs/ 目录说明
+# eNest 官方文档
 
-当前插件开发标准从 [开发文档入口](site/plugin/README.md) 开始；本轮改动与实际验证见 [标准化交付报告](engineering/PLUGIN_STANDARDIZATION_REPORT.md) 和后续 [能力与权限收口](engineering/PLUGIN_PERMISSION_CLOSEOUT.md)。SDK、构建工具、文档同步副本和 `skills/enest-development` 在独立插件仓库维护。旧评审/决策记录只用于追溯，不作为现行契约。
+`docs/` 只维护产品官网与官方插件开发文档，不存放开发过程、阶段汇报、审计结论或运行产物。
 
-按用途分成两块，互不混放：
+| 入口 | 内容 |
+| --- | --- |
+| [产品首页](site/index.html) | 软件定位、窗口形态、插件目录与使用场景 |
+| [下载说明](site/download.html) | 真实发行入口、平台包与安装注意事项 |
+| [官方 API 与开发指南](site/plugin/README.md) | 清单、公共 API、权限、存储、生命周期、主题、设置与 MCP |
+| [网站维护](site/README.md) | 本地预览、内容来源与 GitHub Pages 发布方式 |
 
-```
-docs/
-├── compose/         # 组成式规格（模块级 spec，给维护者）
-│   └── spec/
-│       ├── core-plugins.md
-│       ├── quick-launcher.md
-│       └── ssh-db-plugins.md
-│
-├── engineering/     # 工程内部文档（Markdown，给开发者/维护者）
-│   ├── ARCHITECTURE.md
-│   ├── PLUGIN_SPEC.md
-│   ├── LIFECYCLE_REVIEW.md
-│   ├── PERF_REPORT.md
-│   ├── SMOKE_MANUAL.md
-│   ├── DEVELOPMENT.md
-│   └── AUTOMATION.md
-│
-└── site/            # 对外静态站（GitHub Pages 发布根）
-    ├── index.html   # 软件官方首页（可继续扩展介绍页）
-    ├── plugin/      # 插件开发文档站
-    └── assets/      # 站点样式与图标
-```
+GitHub Pages 发布根保持为 `docs/site/`，由 `.github/workflows/deploy-pages.yml` 发布；API 文档与产品页共用同一站点，不需要重新部署另一套文档服务。
 
-| 类型 | 路径 | 是否上 Pages |
-|------|------|----------------|
-| 组成式规格 | `docs/compose/` | 否 |
-| 工程文档 | `docs/engineering/` | 否 |
-| 官网 / 文档站 | `docs/site/` | 是（Actions 发布） |
+宿主的性质与开发约束统一在根 [AGENTS.md](../AGENTS.md)，项目命令在根 [README.md](../README.md)。官方 API 的可同步 Markdown 是 `docs/site/plugin/`；插件仓的 `docs/developer/` 是生成副本，不单独维护。
 
-后续设计**软件官网介绍页**时，继续在 `docs/site/` 下加页面即可，例如：
-
-```
-docs/site/
-├── index.html          # 首页（现状）
-├── product.html        # 产品介绍（待设计）
-├── download.html       # 下载
-├── changelog.html      # 更新日志
-└── plugin/             # 插件文档（已有）
-```
-
-部署：Settings → Pages → Source = **GitHub Actions**，workflow 发布 `docs/site`。
-
-本地预览：
-
-```bash
-python3 -m http.server 8080 --directory docs/site
-```
+更新能力时直接修改对应指南和产品说明，不另建工程报告目录。验证输出放在被忽略的 `.cache/verification/`，临时文件完成后清理；当次验证结果在任务回复中说明。

@@ -9,18 +9,17 @@ import type { DevPluginLoadOptions, PluginSummary } from '@shared/types/plugin'
 import { resolvePluginUi } from '@shared/types/plugin'
 import { pluginCategoryColor, toTabId } from '@shared/constants'
 import { logInfo, logWarn } from '@main/logs/logService'
-import { dropDevPluginRecord, readDevPluginRecords, updateDevPluginMode, upsertDevPluginRecord } from './devPluginsStore'
+import { dropDevPluginRecord, readDevPluginRecords, upsertDevPluginRecord } from './devPluginsStore'
 import { resolveDevPluginEntry } from './devPluginEntry'
-import { resolveDevCommandPlan } from './devCommandResolver'
-import { runDevBuild } from './devBuildRunner'
 import { forgetDevServer } from './devServerManager'
 import { startDevRegistrationWatch, stopDevRegistrationWatch, stopDevWatch } from './devPluginWatcher'
 
-/** 自动拉起开发服务是默认开发体验；显式 url / mode 覆盖时不影响其语义。 */
+/** 自动拉起开发服务是默认开发体验；显式 url 覆盖时不影响其语义。 */
 const DEFAULT_DEV_OPTIONS: DevPluginLoadOptions = { autoStartServer: true }
 let changeRevision = 0
 const devChanges = new Map<string, number>()
 
+/** Retire the previous in-flight sequence and release both watchers for this id. */
 function beginDevChange(id: string, revision = ++changeRevision): () => boolean {
   devChanges.set(id, revision)
   stopDevRegistrationWatch(id)
@@ -29,11 +28,8 @@ function beginDevChange(id: string, revision = ++changeRevision): () => boolean 
 }
 
 function watchRegistration(summary: PluginSummary, outputPath: string): void {
-  if (summary.devMode !== 'prod' && summary.sourcePath) {
-    startDevRegistrationWatch(summary.id, summary.sourcePath, outputPath)
-  } else {
-    stopDevRegistrationWatch(summary.id)
-  }
+  if (summary.sourcePath) startDevRegistrationWatch(summary.id, summary.sourcePath, outputPath)
+  else stopDevRegistrationWatch(summary.id)
 }
 
 async function publishDevSource(id: string, isCurrent: () => boolean): Promise<void> {
@@ -45,6 +41,33 @@ async function publishDevSource(id: string, isCurrent: () => boolean): Promise<v
   const { homeSurfaceManager } = await import('@main/home/HomeSurfaceManager')
   if (!isCurrent()) return
   await homeSurfaceManager.reloadDevSource(id)
+}
+
+async function prepareDevPlugin(dirPath: string, options: DevPluginLoadOptions = {}) {
+  const sourcePath = resolveLocalUserPath(dirPath, { baseDir: process.cwd() })
+  const { rootPath, manifest, devUrl, devSource, devKind, plan } = await resolveDevPluginEntry(sourcePath, { ...DEFAULT_DEV_OPTIONS, ...options })
+  const category = manifest.category ?? '开发'
+  const summary: PluginSummary = {
+    id: manifest.id, name: manifest.name, version: manifest.version,
+    description: manifest.description ?? '', author: manifest.author ?? '', category,
+    installs: 'dev', color: pluginCategoryColor(category), glyph: manifest.name.slice(0, 1),
+    permissions: manifest.permissions ?? [], installed: true,
+    rootPath, sourcePath, devUrl, devSource, dev: true,
+    devKind, devCommand: devUrl ? plan.start?.label : undefined,
+    ui: resolvePluginUi(manifest.ui)
+  }
+  return { summary, manifest, outputPath: resolve(sourcePath, plan.output) }
+}
+
+/** Recheck automatic selection on reload without closing or changing placement. */
+export async function prepareDevPluginReload(plugin: PluginSummary, isCurrent: () => boolean = () => true) {
+  if (!plugin.dev || !plugin.sourcePath || !isCurrent()) return null
+  const record = (await readDevPluginRecords()).find(record => record.id === plugin.id)
+  if (!isCurrent()) return null
+  const prepared = await prepareDevPlugin(plugin.sourcePath, record ? { url: record.url } : { url: plugin.devUrl })
+  if (!isCurrent()) return null
+  if (prepared.summary.id !== plugin.id) throw new Error('插件源码的 id 已变化，请重新加载该目录')
+  return prepared
 }
 
 async function refreshDevRegistration(id: string, isCurrent: () => boolean): Promise<void> {
@@ -59,33 +82,6 @@ async function refreshDevRegistration(id: string, isCurrent: () => boolean): Pro
   if (!isCurrent()) return
   const { pluginHost } = await import('@main/plugin/PluginHost')
   if (isCurrent() && pluginHost.isOpen(id)) pluginHost.reloadPlugin(toTabId(id))
-}
-
-async function prepareDevPlugin(dirPath: string, options: DevPluginLoadOptions = {}) {
-  const sourcePath = resolveLocalUserPath(dirPath, { baseDir: process.cwd() })
-  const { rootPath, manifest, devUrl, devSource, plan, mode } = await resolveDevPluginEntry(sourcePath, { ...DEFAULT_DEV_OPTIONS, ...options })
-  const category = manifest.category ?? '开发'
-  const summary: PluginSummary = {
-    id: manifest.id, name: manifest.name, version: manifest.version,
-    description: manifest.description ?? '', author: manifest.author ?? '', category,
-    installs: 'dev', color: pluginCategoryColor(category), glyph: manifest.name.slice(0, 1),
-    permissions: manifest.permissions ?? [], installed: true,
-    rootPath, sourcePath, devUrl, devSource, dev: true,
-    devMode: mode, devCommand: mode === 'prod' ? plan.build?.label : plan.start?.label,
-    ui: resolvePluginUi(manifest.ui)
-  }
-  return { summary, manifest, outputPath: resolve(sourcePath, plan.output) }
-}
-
-/** Recheck automatic selection on reload without closing or changing placement. */
-export async function prepareDevPluginReload(plugin: PluginSummary, isCurrent: () => boolean = () => true) {
-  if (!plugin.dev || !plugin.sourcePath || !isCurrent()) return null
-  const record = (await readDevPluginRecords()).find(record => record.id === plugin.id)
-  if (!isCurrent()) return null
-  const prepared = await prepareDevPlugin(plugin.sourcePath, record ? { url: record.url, mode: record.mode } : { url: plugin.devUrl, mode: plugin.devMode })
-  if (!isCurrent()) return null
-  if (prepared.summary.id !== plugin.id) throw new Error('插件源码的 id 已变化，请重新加载该目录')
-  return prepared
 }
 
 export async function loadDevPlugin(dirPath: string, options: DevPluginLoadOptions = {}, persist = true): Promise<PluginSummary> {
@@ -103,7 +99,7 @@ export async function loadDevPlugin(dirPath: string, options: DevPluginLoadOptio
   watchRegistration(summary, outputPath)
   await publishDevSource(manifest.id, isCurrent)
   if (!isCurrent()) throw new Error('开发插件加载已取消')
-  logInfo('dev', `loaded ${manifest.id}: ${summary.devUrl ?? summary.rootPath}`)
+  logInfo('dev', `loaded ${manifest.id}: ${summary.devUrl ?? summary.rootPath} (${summary.devKind ?? 'static'})`)
   return registered
 }
 
@@ -125,39 +121,65 @@ export async function restoreDevPlugins(): Promise<void> {
   for (const rec of records) {
     if (!existsSync(rec.path)) { logWarn('dev', `source unavailable: ${rec.id}`); continue }
     try {
-      await loadDevPlugin(rec.path, { url: rec.url, mode: rec.mode }, false)
+      await loadDevPlugin(rec.path, { url: rec.url }, false)
       if (rec.killOnHide) pluginHost.setKillOnHide(rec.id, true)
     } catch (error) { logWarn('dev', `restore ${rec.id}: ${(error as Error).message}`) }
   }
 }
 
+/**
+ * Release everything a development registration owns. Order matters: stop accepting
+ * reloads, close the live view, then the development server tree, background/timers,
+ * routes and finally the registry entry and its persisted record. Plugin data is kept —
+ * the source folder may be loaded again.
+ *
+ * When the full uninstaller drives this, it has already removed the registry entry and
+ * closed the view with its own lifecycle; here only the persisted record is dropped.
+ */
 export async function forgetDevPlugin(id: string): Promise<void> {
+  const ownsTeardown = pluginRegistry.get(id)?.dev === true
   beginDevChange(id)
-  forgetDevServer(id)
+  await forgetDevServer(id)
+  if (!ownsTeardown) {
+    await dropDevPluginRecord(id)
+    return
+  }
+  const { pluginHost } = await import('@main/plugin/PluginHost')
+  // Views, MCP runtime, backend/background processes, panel and session-tab references all
+  // retire through the same close chain the uninstaller uses.
+  try { await pluginHost.closePlugin(id, 'uninstall') }
+  catch (error) { logWarn('dev', `${id}: close view: ${(error as Error).message}`) }
+  pluginHost.setKillOnHide(id, false)
+  const { stopPluginBackground } = await import('@main/plugin/pluginBackgroundRuntime')
+  try { stopPluginBackground(id, 'development registration removed') }
+  catch (error) { logWarn('dev', `${id}: background: ${(error as Error).message}`) }
+  const { permissionService } = await import('@main/plugin/PermissionService')
+  try { permissionService.cancelFor(id) }
+  catch (error) { logWarn('dev', `${id}: permissions: ${(error as Error).message}`) }
+  const { clearPluginDeadlineTasks } = await import('@main/timer/deadlineTaskService')
+  try { clearPluginDeadlineTasks(id) }
+  catch (error) { logWarn('dev', `${id}: timers: ${(error as Error).message}`) }
+  const { releasePluginLaunchHotkey } = await import('@main/hotkey/pluginLaunchHotkeys')
+  try { releasePluginLaunchHotkey(id) }
+  catch (error) { logWarn('dev', `${id}: hotkeys: ${(error as Error).message}`) }
+  const { associationService } = await import('@main/openWith/associationService')
+  try { await associationService.removeRoutesForPlugin(id) }
+  catch (error) { logWarn('dev', `${id}: open-with routes: ${(error as Error).message}`) }
+  const { invalidatePluginFileCache, invalidatePluginCodeCache } = await import('@main/plugin/pluginProtocol')
+  const rootPath = pluginRegistry.getRootPath(id)
+  try {
+    if (rootPath) invalidatePluginFileCache(rootPath)
+    await invalidatePluginCodeCache(id)
+  } catch (error) { logWarn('dev', `${id}: protocol cache: ${(error as Error).message}`) }
+  // Drop residual lifecycle memory: quick-plugin hints, hibernation records and tab state.
+  try { pluginHost.beginUninstall(id); pluginHost.finishUninstall(id) }
+  catch (error) { logWarn('dev', `${id}: lifecycle state: ${(error as Error).message}`) }
+  pluginRegistry.removeDevPlugin(id)
+  devChanges.delete(id)
   await dropDevPluginRecord(id)
-}
-
-/** Mode changes refresh registration and Home even when no ordinary Tab is open. */
-export async function setDevPluginMode(id: string, mode: 'dev' | 'prod'): Promise<void> {
-  const isCurrent = beginDevChange(id)
-  const record = (await readDevPluginRecords()).find(record => record.id === id)
-  if (!isCurrent()) return
-  if (!record) throw new Error('开发插件记录不存在，请重新加载该目录')
-  await updateDevPluginMode(id, mode)
-  if (!isCurrent()) return
-  await refreshDevRegistration(id, isCurrent)
-}
-
-/** Rebuild uses the same registration/theme/Home commit path, independently of Tab lifetime. */
-export async function rebuildDevPlugin(id: string): Promise<void> {
-  const isCurrent = beginDevChange(id)
-  const summary = pluginRegistry.get(id)
-  const record = (await readDevPluginRecords()).find(record => record.id === id)
-  if (!isCurrent()) return
-  const sourcePath = summary?.sourcePath ?? record?.path
-  if (!sourcePath || !existsSync(sourcePath)) throw new Error('插件源码目录不可用，请重新加载该目录')
-  const plan = resolveDevCommandPlan(sourcePath)
-  await runDevBuild(id, sourcePath, plan)
-  if (!isCurrent()) return
-  await refreshDevRegistration(id, isCurrent)
+  const { appearanceService } = await import('@main/theme/appearanceService')
+  appearanceService.invalidate()
+  const { sendShellEvent } = await import('@main/window/createShellWindow')
+  sendShellEvent({ type: 'plugins-changed' })
+  logInfo('dev', `forgotten ${id}: view, dev server, watchers, background, timers and registration released`)
 }

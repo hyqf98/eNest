@@ -8,6 +8,7 @@ import { Button } from '@renderer/components/ui/Button'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
 import { useAppearanceSync } from '@renderer/hooks/useAppearanceSync'
+import { useDuplicatePluginNotice } from '@renderer/hooks/useDuplicatePluginNotice'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { initMotion } from '@renderer/gsap/marketMotion'
 import { shellApi } from '@renderer/services/shellApi'
@@ -42,6 +43,7 @@ export default function App() {
   const quick = isQuickSurface()
   const view = useShellStore((s) => s.view)
   const workspaceReady = startupStatus === 'ready' && workspacePrepared && splashDone
+  useDuplicatePluginNotice(!quick && workspaceReady)
 
   useEffect(() => {
     const openLink = (event: MouseEvent): void => {

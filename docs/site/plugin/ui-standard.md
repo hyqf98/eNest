@@ -288,7 +288,7 @@ function cssVar(name, fallback) {
 
 let accent = cssVar('--accent', '#5b8cff')
 
-const api = window.enest // zapi 为 @deprecated 别名，计划 v2 移除
+const api = window.enest // zapi 仅作 deprecated 兼容别名
 api?.theme.getTokens().then(({ tokens }) => {
   accent = tokens['--accent'] || accent
 })
@@ -482,7 +482,7 @@ gl.clear(gl.COLOR_BUFFER_BIT)
 **src/main.js**
 
 ```js
-const api = window.enest // zapi 为 @deprecated 别名，计划 v2 移除
+const api = window.enest // zapi 仅作 deprecated 兼容别名
     const canvas = document.getElementById('c')
     const ctx = canvas.getContext('2d')
     let accent = getComputedStyle(document.documentElement)

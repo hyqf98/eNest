@@ -11,6 +11,7 @@
 import { existsSync, renameSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { isDeepStrictEqual } from 'node:util'
 import { nativeTheme } from 'electron'
 import type {
   GeneralSettings as SharedGeneralSettings,
@@ -101,6 +102,11 @@ const DEFAULTS: SettingsData = {
 
 /** settings 表中的唯一行键 */
 const SETTINGS_ROW_KEY = 'app'
+
+function appearanceInputs(data: SettingsData): unknown[] {
+  const { fontFamily, fontFamilyEn, fontSizeScale, animationLevel, splashBackground, tabStyle, customFonts, dataRoot } = data.general
+  return [data.appearance, data.theme, fontFamily, fontFamilyEn, fontSizeScale, animationLevel, splashBackground, tabStyle, customFonts, dataRoot]
+}
 
 /** 路由表结构校验：只保留 `ext`/`scheme` 两桶的 string→string，限制规模 */
 function normalizeOpenWithRoutes(raw: unknown): OpenWithRoutes {
@@ -203,6 +209,7 @@ export class SettingsStore {
   private data: SettingsData = structuredClone(DEFAULTS)
   private loaded = false
   private pluginLaunchRevision = 0
+  private appearanceInputRevision = 0
   /** 库不可用时的文件回退模式（保持旧行为：全量写 settings.json） */
   private fileFallback = false
   /** 防抖持久化句柄；写路径统一 schedulePersist()，退出前 flushNow() 兜底 */
@@ -246,6 +253,7 @@ export class SettingsStore {
       // 库不可用时继续沿用旧文件内容
       this.data = this.mergeDefaults(raw)
     }
+    this.appearanceInputRevision++
     // Persist removal of legacy hotkey fields before registering the migrated bindings.
     if (Object.values((this.fileFallback ? raw : stored)?.pluginLaunch ?? {})
       .some(config => config && Object.hasOwn(config, 'hotkey'))) this.flushNow()
@@ -307,6 +315,8 @@ export class SettingsStore {
 
   getPluginLaunchRevision(): number { return this.pluginLaunchRevision }
 
+  getAppearanceInputRevision(): number { return this.appearanceInputRevision }
+
   /** 写入/清除已连接账号（githubAuthService 专用；事件由服务侧发布） */
   setProfileUser(user: UserProfile | null): void {
     this.ensureLoaded()
@@ -333,29 +343,35 @@ export class SettingsStore {
   /** Shortcut service only: generic settings updates cannot change native registrations. */
   setPluginShortcuts(bindings: PluginShortcutBinding[]): void {
     this.ensureLoaded()
-    this.commitShortcutSettings({ ...this.data, pluginShortcuts: structuredClone(bindings) })
+    this.commitSettings({ ...this.data, pluginShortcuts: structuredClone(bindings) })
   }
 
   /** Quick's native key and saved selection must commit as one user operation. */
   setQuickHotkeys(config: { enabled: boolean; hotkeys: string[]; activeHotkey: string }): void {
     this.ensureLoaded()
-    this.commitShortcutSettings({ ...this.data, general: {
+    this.commitSettings({ ...this.data, general: {
       ...this.data.general,
       quickLauncher: { ...this.data.general.quickLauncher, ...structuredClone(config) }
     } })
   }
 
+  setPanelHotkey(accelerator: string): void {
+    this.ensureLoaded()
+    this.commitSettings({ ...this.data, general: { ...this.data.general, panelHotkey: accelerator } })
+    sendShellEvent({ type: 'settings-changed', generalKeys: ['panelHotkey'] })
+  }
+
   /** Confirmed shortcut replacement persists both owners in the same durable write. */
   setShortcutConfiguration(bindings: PluginShortcutBinding[], quick?: { enabled: boolean; hotkeys: string[]; activeHotkey: string }): void {
     this.ensureLoaded()
-    this.commitShortcutSettings({ ...this.data, pluginShortcuts: structuredClone(bindings),
+    this.commitSettings({ ...this.data, pluginShortcuts: structuredClone(bindings),
       ...(quick ? { general: { ...this.data.general,
         quickLauncher: { ...this.data.general.quickLauncher, ...structuredClone(quick) }
       } } : {}) })
   }
 
-  private commitShortcutSettings(next: SettingsData): void {
-    // Native registration and persisted configuration form one user operation.
+  private commitSettings(next: SettingsData): void {
+    // Save acknowledgements and the persisted configuration form one user operation.
     // Do not acknowledge a save that a deferred writer could silently lose.
     if (this.fileFallback) {
       const file = anchorPath()
@@ -365,9 +381,10 @@ export class SettingsStore {
       renameSync(tmp, file)
     } else if (!writeSettingsRow(next)) {
       // Falling back to the anchor here would be misleading: the next boot gives
-      // an existing database row priority over that file. Keep the old binding.
-      throw new Error('快捷键设置写入失败，已保留原配置；请检查数据目录是否可写')
+      // an existing database row priority over that file. Keep the old configuration.
+      throw new Error('设置写入失败，已保留原配置；请检查数据目录是否可写')
     }
+    if (!isDeepStrictEqual(appearanceInputs(this.data), appearanceInputs(next))) this.appearanceInputRevision++
     this.data = next
     if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null }
   }
@@ -395,7 +412,7 @@ export class SettingsStore {
   commitAppearanceSettings(appearance: AppearanceSettings): void {
     this.ensureLoaded()
     const next = { ...this.data, appearance: structuredClone(appearance) }
-    this.commitShortcutSettings(next)
+    this.commitSettings(next)
   }
 
   /** Revoke a font and its exact selections in one durable write; keep all other profiles. */
@@ -414,7 +431,7 @@ export class SettingsStore {
     if (matches(general.fontFamilyEn)) general.fontFamilyEn = ''
     appearance.revision++
     appearance.legacy = { ...appearance.legacy, general: this.legacyAppearanceGeneral(general) }
-    this.commitShortcutSettings({ ...this.data, general, appearance })
+    this.commitSettings({ ...this.data, general, appearance })
     sendShellEvent({ type: 'settings-changed', generalKeys: ['customFonts', 'fontFamily', 'fontFamilyEn'] })
   }
 
@@ -435,7 +452,7 @@ export class SettingsStore {
     if (!Object.keys(patch).length) return
     this.ensureLoaded()
     const next = { ...this.data, general: { ...this.data.general, ...patch } }
-    this.commitShortcutSettings(next)
+    this.commitSettings(next)
     sendShellEvent({ type: 'settings-changed', generalKeys: Object.keys(patch) })
   }
 
@@ -478,7 +495,7 @@ export class SettingsStore {
     if (nextTheme.backgroundSource === 'pack') delete nextTheme.background
     else if ('background' in theme) nextTheme.background = structuredClone(theme.background)
     appearance.legacy = { ...appearance.legacy, theme: structuredClone(nextTheme) }
-    this.commitShortcutSettings({ ...this.data, theme: nextTheme, appearance })
+    this.commitSettings({ ...this.data, theme: nextTheme, appearance })
     sendShellEvent({ type: 'theme-changed', mode: this.data.theme.mode })
     return this.getTheme()
   }
@@ -509,6 +526,7 @@ export class SettingsStore {
       } }
     }
     this.ensureLoaded()
+    const previousAppearance = appearanceInputs(this.data)
     const next = this.data
     const prevRoot = this.data.general.dataRoot as string | undefined
     if (partial.theme) next.theme = { ...next.theme, ...partial.theme }
@@ -539,6 +557,7 @@ export class SettingsStore {
     }
     // panels 整体替换：面板布局是主进程独占的完整快照，逐条合并会留下已删面板。
     if (partial.panels) next.panels = structuredClone(partial.panels)
+    if (!isDeepStrictEqual(previousAppearance, appearanceInputs(next))) this.appearanceInputRevision++
     this.schedulePersist()
     if (partial.pluginLaunch) this.pluginLaunchRevision++
     if (partial.general && 'dataRoot' in partial.general) {
@@ -563,13 +582,14 @@ export class SettingsStore {
     ))
   }
 
-  /** 写入单个插件的设置项，自动创建插件设置对象 */
+  /** Commit before publishing the value; a failed write keeps the last confirmed settings. */
   async setPluginSetting(pluginId: string, key: string, value: unknown): Promise<void> {
     if (!isPluginSettingKey(key)) throw new Error('reserved plugin settings key')
     this.ensureLoaded()
-    if (!this.data.plugins[pluginId]) this.data.plugins[pluginId] = {}
-    this.data.plugins[pluginId][key] = value
-    this.schedulePersist()
+    const plugins = { ...this.data.plugins, [pluginId]: {
+      ...this.data.plugins[pluginId], [key]: structuredClone(value)
+    } }
+    this.commitSettings({ ...this.data, plugins })
   }
 
   /** 卸载时移除插件设置与宿主授权，重装同一 ID 必须重新授权。 */
@@ -696,7 +716,7 @@ export class SettingsStore {
     }
   }
 
-  /** 普通偏好防抖持久化；需要确认成功的外观和快捷键设置使用同步提交。 */
+  /** 普通偏好防抖持久化；需要确认成功的外观、快捷键和插件设置使用同步提交。 */
   private schedulePersist(): void {
     if (this.persistTimer) return
     this.persistTimer = setTimeout(() => {

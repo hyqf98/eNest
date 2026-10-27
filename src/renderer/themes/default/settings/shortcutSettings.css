@@ -2,7 +2,7 @@
 .shortcut-settings .s-card { margin: 0; min-width: 0; }
 .shortcut-section-head .hint { margin-bottom: 18px; }
 .shortcut-count { margin-left: 6px; color: var(--text-3); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
-.shortcut-settings button:focus-visible, .shortcut-recorder input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.shortcut-settings button:focus-visible, .shortcut-recorder input:focus-visible { outline: 2px solid transparent; outline-offset: 0; box-shadow: var(--focus-ring, 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent)); }
 .shortcut-settings button:disabled { opacity: .5; cursor: not-allowed; }
 .shortcut-settings .hotkey-card { text-align: left; font: inherit; }
 .shortcut-settings .hotkey-card:disabled:hover { transform: none; }

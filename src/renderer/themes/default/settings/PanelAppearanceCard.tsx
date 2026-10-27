@@ -1,10 +1,11 @@
 /**
- * PanelAppearanceCard — 设置 → 外观 里的面板材质卡（eNest 壳通用外观）
+ * PanelAppearanceFields — 设置 → 外观「主题配置」卡内的自由面板外观分区（eNest 壳通用外观）
  * 职责：调节自由面板的底板不透明度与材质（无 / 毛玻璃 / 系统材质）。
  * 关键约束：
  *  - 这是壳级设置，写入 general.panelAppearance（主题 profile 的字段由主题声明，互不混用）。
- *  - 即时预览：改动先发 preview（本地 DOM），确认后经 setSettings 提交并以宿主持久化为准；
- *    失败时恢复到宿主的已确认值（与主题参数卡同一语义）。
+ *  - 即时预览：改动先更新本地 draft，300ms 防抖后经 setSettings 提交并以宿主持久化为准；
+ *    失败时恢复到宿主的已确认值（与主题参数同一语义）。
+ *  - 只渲染字段：外层卡片、分区标题与统一 footer 由 AppearanceSettingsSection 提供。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEFAULT_PANEL_APPEARANCE, type PanelAppearance, type PanelMaterial } from '@shared/types/panel'
@@ -33,7 +34,19 @@ const MATERIAL_LABELS: Record<PanelMaterial, string> = {
   system: '系统材质'
 }
 
-export function PanelAppearanceCard() {
+export interface PanelAppearanceController {
+  /** 预览用草稿：滑杆与材质按钮立即反映它 */
+  draft: PanelAppearance
+  loading: boolean
+  saving: boolean
+  error?: string
+  update: (next: PanelAppearance) => void
+  reset: () => void
+  retry: () => void
+}
+
+/** 面板外观的读取 / 防抖提交 / 失败回滚；由外观页统一持有，便于合并保存状态。 */
+export function usePanelAppearance(): PanelAppearanceController {
   const [confirmed, setConfirmed] = useState<PanelAppearance>(DEFAULT_PANEL_APPEARANCE)
   const [draft, setDraft] = useState<PanelAppearance>(DEFAULT_PANEL_APPEARANCE)
   const [loading, setLoading] = useState(true)
@@ -66,7 +79,7 @@ export function PanelAppearanceCard() {
    * 预览 + 防抖提交：draft 立刻生效在预览方块上，
    * 300ms 无操作后经 setSettings 提交，失败恢复宿主持久值。
    */
-  const queue = useCallback((next: PanelAppearance) => {
+  const update = useCallback((next: PanelAppearance) => {
     setDraft(next)
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => {
@@ -89,72 +102,69 @@ export function PanelAppearanceCard() {
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
 
+  const reset = useCallback(() => {
+    update(DEFAULT_PANEL_APPEARANCE)
+    notify.info('面板外观已恢复默认')
+  }, [update])
+
+  const retry = useCallback(() => { void refresh(true) }, [refresh])
+
+  return { draft, loading, saving, error, update, reset, retry }
+}
+
+/** 自由面板外观字段（材质 + 底板不透明度），只渲染字段本身，不含外层卡片。 */
+export function PanelAppearanceFields({ state }: { state: PanelAppearanceController }) {
+  const { draft, loading, error, update, retry } = state
+
+  if (loading) return <p className="desc appearance-inline-status" role="status">正在读取设置…</p>
+
   return (
-    <section className="s-card appearance-settings appearance-card" aria-label="面板外观">
-      <div className="appearance-card-head">
-        <div className="appearance-card-head-copy">
-          <h2>自由面板外观</h2>
-          <p className="hint">所有面板共用的底板材质与不透明度；材质由系统提供（毛玻璃 = 桌面级模糊，系统材质 = 更重的浮窗质感）。</p>
+    <div className="appearance-panel-fields">
+      <div className="field">
+        <div>
+          <div className="label">材质</div>
+          <p className="desc">「无」只保留半透明纯色底板，性能开销最小。</p>
+        </div>
+        <div className="appearance-seg-row" role="radiogroup" aria-label="面板材质">
+          {PLATFORM_MATERIALS.map(material => (
+            <Button
+              key={material}
+              variant={draft.material === material ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => update({ ...draft, material })}
+              aria-pressed={draft.material === material}
+            >
+              {MATERIAL_LABELS[material]}
+            </Button>
+          ))}
         </div>
       </div>
-      {loading ? (
-        <p className="desc appearance-inline-status" role="status">正在读取设置…</p>
-      ) : (
-        <>
-          <div className="field">
-            <div>
-              <div className="label">材质</div>
-              <p className="desc">「无」只保留半透明纯色底板，性能开销最小。</p>
-            </div>
-            <div className="appearance-seg-row" role="radiogroup" aria-label="面板材质">
-              {PLATFORM_MATERIALS.map(material => (
-                <Button
-                  key={material}
-                  variant={draft.material === material ? 'primary' : 'ghost'}
-                  size="sm"
-                  onClick={() => queue({ ...draft, material })}
-                  aria-pressed={draft.material === material}
-                >
-                  {MATERIAL_LABELS[material]}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <div className="field">
-            <div>
-              <div className="label">底板不透明度</div>
-              <p className="desc">{Math.round(draft.opacity * 100)}%{draft.material === 'none' ? ' · 值越低越透' : ' · 影响底板色调浓度'}</p>
-            </div>
-            <div className="appearance-opacity-row">
-              <Slider
-                aria-label="面板底板不透明度"
-                value={[Math.round(draft.opacity * 100)]}
-                min={30}
-                max={100}
-                step={1}
-                onValueChange={(value) => {
-                  const percent = Array.isArray(value) ? value[0] : value
-                  queue({ ...draft, opacity: Math.min(1, Math.max(0.3, percent / 100)) })
-                }}
-              />
-              {/* 实时预览：材质 + 浓度组合的小样（opacity 经 CSS 变量驱动底板层，整体不透明） */}
-              <span
-                className={`panel-preview-swatch material-${draft.material}`}
-                style={{ ['--preview-opacity' as never]: String(draft.opacity) }}
-                aria-hidden
-              />
-            </div>
-          </div>
-          {error && <p className="desc appearance-inline-status is-error" role="alert">{error} <Button variant="ghost" size="sm" onClick={() => void refresh(true)}>重试</Button></p>}
-          <div className="appearance-unified-footer">
-            <span className="appearance-save-status" role="status" aria-live="polite">{error || (saving ? '正在保存…' : '调整即时生效，保存后同步所有已开面板。')}</span>
-            <Button variant="ghost" size="sm" onClick={() => {
-              queue(DEFAULT_PANEL_APPEARANCE)
-              notify.info('面板外观已恢复默认')
-            }}>恢复默认</Button>
-          </div>
-        </>
-      )}
-    </section>
+      <div className="field">
+        <div>
+          <div className="label">底板不透明度</div>
+          <p className="desc">{Math.round(draft.opacity * 100)}%{draft.material === 'none' ? ' · 值越低越透' : ' · 影响底板色调浓度'}</p>
+        </div>
+        <div className="appearance-opacity-row">
+          <Slider
+            aria-label="面板底板不透明度"
+            value={[Math.round(draft.opacity * 100)]}
+            min={30}
+            max={100}
+            step={1}
+            onValueChange={(value) => {
+              const percent = Array.isArray(value) ? value[0] : value
+              update({ ...draft, opacity: Math.min(1, Math.max(0.3, percent / 100)) })
+            }}
+          />
+          {/* 实时预览：材质 + 浓度组合的小样（opacity 经 CSS 变量驱动底板层，整体不透明） */}
+          <span
+            className={`panel-preview-swatch material-${draft.material}`}
+            style={{ ['--preview-opacity' as never]: String(draft.opacity) }}
+            aria-hidden
+          />
+        </div>
+      </div>
+      {error && <p className="desc appearance-inline-status is-error" role="alert">{error} <Button variant="ghost" size="sm" onClick={retry}>重试</Button></p>}
+    </div>
   )
 }

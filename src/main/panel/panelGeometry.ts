@@ -54,13 +54,13 @@ function rectsOverlap(a: PanelWidgetRect, b: PanelWidgetRect, gap = 0): boolean 
  * 全部被占满时返回 null，由调用方决定是否扩容面板或拒绝添加。
  */
 export function findFreeSlot(existing: readonly PanelWidgetRect[], panel: PanelSize, size?: Partial<PanelSize>): PanelWidgetRect | null {
-  const width = Math.max(PANEL_WIDGET_MIN_WIDTH, Math.round(size?.width ?? PANEL_WIDGET_DEFAULT_WIDTH))
-  const height = Math.max(PANEL_WIDGET_MIN_HEIGHT, Math.round(size?.height ?? PANEL_WIDGET_DEFAULT_HEIGHT))
-  if (width > panel.width || height > panel.height) return null
+  const width = Math.min(Math.floor(panel.width), Math.max(PANEL_WIDGET_MIN_WIDTH, Math.round(size?.width ?? PANEL_WIDGET_DEFAULT_WIDTH)))
+  const height = Math.min(Math.floor(panel.height), Math.max(PANEL_WIDGET_MIN_HEIGHT, Math.round(size?.height ?? PANEL_WIDGET_DEFAULT_HEIGHT)))
+  if (width < PANEL_WIDGET_MIN_WIDTH || height < PANEL_WIDGET_MIN_HEIGHT) return null
   const lastX = Math.floor((panel.width - width) / GRID) * GRID
   const lastY = Math.floor((panel.height - height) / GRID) * GRID
-  for (let y = GRID; y <= lastY; y += GRID) {
-    for (let x = GRID; x <= lastX; x += GRID) {
+  for (let y = 0; y <= lastY; y += GRID) {
+    for (let x = 0; x <= lastX; x += GRID) {
       const candidate: PanelWidgetRect = { x, y, width, height }
       if (!existing.some(rect => rectsOverlap(candidate, rect, GRID / 2))) return candidate
     }
@@ -123,7 +123,7 @@ function edgesFor(rect: PanelWidgetRect, axis: 'x' | 'y', movable: MovableEdges)
   const out: Array<{ value: number; kind: 'start' | 'center' | 'end' }> = []
   if (movable.start) out.push({ value: start, kind: 'start' })
   if (movable.end) out.push({ value: start + size, kind: 'end' })
-  if (movable.start || movable.end) out.push({ value: start + size / 2, kind: 'center' })
+  if (movable.start && movable.end) out.push({ value: start + size / 2, kind: 'center' })
   return out
 }
 
@@ -148,18 +148,30 @@ export function computeSnap(
 ): { rect: PanelWidgetRect; guides: PanelGuide[] } {
   const threshold = options?.threshold ?? PANEL_SNAP_THRESHOLD
   const movable = options?.movable ?? { x: { start: true, end: true }, y: { start: true, end: true } }
-  const rect: PanelWidgetRect = { ...candidate }
+  const rect = clampRect(candidate, panel)
   const guides: PanelGuide[] = []
 
-  const snapX = snapAxis(edgesFor(rect, 'x', movable.x), axisCandidates(others, panel, 'x'), threshold)
-  if (snapX.position !== null) {
-    rect.x = Math.round(rect.x + snapX.delta)
-    guides.push(guideFor('x', snapX.position, rect, others, panel))
-  }
-  const snapY = snapAxis(edgesFor(rect, 'y', movable.y), axisCandidates(others, panel, 'y'), threshold)
-  if (snapY.position !== null) {
-    rect.y = Math.round(rect.y + snapY.delta)
-    guides.push(guideFor('y', snapY.position, rect, others, panel))
+  for (const axis of ['x', 'y'] as const) {
+    const edges = movable[axis]
+    const snap = snapAxis(edgesFor(rect, axis, edges), axisCandidates(others, panel, axis), threshold)
+    if (snap.position === null) continue
+    const sizeKey = axis === 'x' ? 'width' : 'height'
+    const limit = axis === 'x' ? panel.width : panel.height
+    const minimum = axis === 'x' ? PANEL_WIDGET_MIN_WIDTH : PANEL_WIDGET_MIN_HEIGHT
+    const start = rect[axis], size = rect[sizeKey]
+    const delta = Math.round(snap.delta)
+    if (edges.start && edges.end) {
+      if (start + delta < 0 || start + delta + size > limit) continue
+      rect[axis] = start + delta
+    } else if (edges.start) {
+      if (start + delta < 0 || size - delta < minimum) continue
+      rect[axis] = start + delta
+      rect[sizeKey] = size - delta
+    } else if (edges.end) {
+      if (size + delta < minimum || start + size + delta > limit) continue
+      rect[sizeKey] = size + delta
+    }
+    guides.push(guideFor(axis, snap.position, rect, others, panel))
   }
   return { rect, guides }
 }
@@ -202,19 +214,19 @@ export function applyDrag(
   if (mode === 'move') {
     return clampRect({ ...start, x: start.x + delta.x, y: start.y + delta.y }, panel)
   }
-  let { x, y, width, height } = start
-  const right = start.x + start.width
-  const bottom = start.y + start.height
+  let { x, y, width, height } = clampRect(start, panel)
+  const right = x + width
+  const bottom = y + height
   if (edge?.includes('w')) {
-    x = Math.min(start.x + delta.x, right - PANEL_WIDGET_MIN_WIDTH)
+    x = clamp(x + delta.x, 0, right - PANEL_WIDGET_MIN_WIDTH)
     width = right - x
   }
-  if (edge?.includes('e')) width = Math.max(PANEL_WIDGET_MIN_WIDTH, start.width + delta.x)
+  if (edge?.includes('e')) width = clamp(width + delta.x, PANEL_WIDGET_MIN_WIDTH, panel.width - x)
   if (edge?.includes('n')) {
-    y = Math.min(start.y + delta.y, bottom - PANEL_WIDGET_MIN_HEIGHT)
+    y = clamp(y + delta.y, 0, bottom - PANEL_WIDGET_MIN_HEIGHT)
     height = bottom - y
   }
-  if (edge?.includes('s')) height = Math.max(PANEL_WIDGET_MIN_HEIGHT, start.height + delta.y)
+  if (edge?.includes('s')) height = clamp(height + delta.y, PANEL_WIDGET_MIN_HEIGHT, panel.height - y)
   return clampRect({ x, y, width, height }, panel)
 }
 

@@ -71,14 +71,15 @@ function MediaLayer({ config, paused }: { config: BackgroundConfig; paused: bool
 }
 
 export function AppBackground({ paused: externallyPaused = false }: { paused?: boolean }) {
-  const appearance = useAppearanceStore(state => state.appearance)
+  const appearance = useAppearanceStore(state => state.presentation)
+  const hydrated = useAppearanceStore(state => state.hydrated)
   const reducedMotion = useReducedMotion()
   const covered = useShellStore(state => {
     if (state.view !== 'plugin' || !state.pluginReady) return false
     const tab = state.tabs.find(item => item.id === state.activeTabId)
     return !!tab && state.plugins.find(plugin => plugin.id === tab.pluginId)?.ui?.background !== 'transparent'
   })
-  useFpsGuard(!covered && !externallyPaused && appearance.animation.continuous)
+  useFpsGuard(hydrated && !covered && !externallyPaused && appearance.animation.continuous)
   const [visible, setVisible] = useState(!document.hidden)
   useEffect(() => {
     const sync = () => setVisible(!document.hidden)
@@ -87,10 +88,11 @@ export function AppBackground({ paused: externallyPaused = false }: { paused?: b
   }, [])
   const paused = externallyPaused || covered || !visible || reducedMotion || appearance.animation.effective === 'low' || !appearance.animation.continuous
   const media = appearance.background.media
-  if (externallyPaused || covered || !visible) return null
+  if (!hydrated) return <div className="app-bg" style={{ background: 'var(--bg)' }} aria-hidden />
   if (appearance.background.kind !== undefined || BUILTIN_BACKGROUND_EFFECTS.some(effect => effect.id === appearance.background.effect)) {
     return <DefaultThemeBackground appearance={appearance} paused={externallyPaused || covered || !visible} />
   }
+  if (externallyPaused || covered || !visible) return null
   return <div className="appearance-backdrop" data-texture={appearance.background.texture}
     data-animate={!paused && appearance.background.effect !== 'none'} aria-hidden>
     {media?.type === 'color' && <div className="app-bg-fill" style={{ background: media.value, opacity: media.opacity }} />}

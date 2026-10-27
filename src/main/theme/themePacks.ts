@@ -11,8 +11,9 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import type { BackgroundConfig, ThemePack } from '@shared/types/plugin'
-import type { ThemePackV2 } from '@shared/types/appearance'
+import type { ThemeIdentity, ThemePackV2 } from '@shared/types/appearance'
 import { isPluginAssetPath } from '@shared/pluginContract'
 import { validateBackgroundEffects } from '@shared/backgroundEffects'
 import { validateThemePackV2 } from '@shared/theme/appearance'
@@ -174,13 +175,18 @@ function preparePack(input: unknown, source?: string, fromDisk = false): ThemePa
 export class ThemePackRegistry {
   private packs = new Map<string, ThemePack>()
   private persistTail: Promise<void> = Promise.resolve()
+  private persistedPacks = new Map<string, ThemePack>()
+  private persistedFile = ''
+  private pendingSaves = new WeakMap<ThemePack, { file: string; promise: Promise<void> }>()
+  private revision = 0
 
   async load(): Promise<void> {
+    await this.persistTail.catch(() => {})
     this.packs.clear()
     for (const pack of BUILTIN_THEME_PACKS) this.packs.set(pack.id, structuredClone(pack))
     const file = registryFile()
-    if (!existsSync(file)) return
     try {
+      if (!existsSync(file)) return
       const raw = JSON.parse(await readFile(file, 'utf-8')) as unknown
       const list = Array.isArray(raw) ? raw : []
       for (const item of list) {
@@ -201,8 +207,14 @@ export class ThemePackRegistry {
       }
     } catch {
       // 损坏文件忽略，从空表开始
+    } finally {
+      this.persistedPacks = new Map(this.packs)
+      this.persistedFile = file
+      this.revision++
     }
   }
+
+  getRevision(): number { return this.revision }
 
   list(): ThemePack[] {
     return [...this.packs.values()].map((p) => structuredClone(p))
@@ -211,6 +223,11 @@ export class ThemePackRegistry {
   get(id: string): ThemePack | null {
     const pack = this.packs.get(id)
     return pack ? structuredClone(pack) : null
+  }
+
+  getByIdentity(identity: ThemeIdentity): ThemePack | null {
+    const pack = this.packs.get(identity.id)
+    return pack?.source === identity.source ? structuredClone(pack) : null
   }
 
   /** 当前某来源（插件）已注册的 pack 数量 */
@@ -224,17 +241,14 @@ export class ThemePackRegistry {
 
   /** Plugin entry points bind identity here; enest.builtin belongs only to the host. */
   async registerPlugin(pack: unknown, pluginId: string): Promise<ThemePack | ThemePackV2> {
-    if (!pluginId || pluginId === 'enest.builtin') throw new Error('reserved theme source')
-    if (!isThemePack(pack)) throw new Error('invalid theme pack: require id, name and tokens')
-    return this.register({ ...pack, source: pluginId })
+    return (await this.registerPluginWithStatus(pack, pluginId)).pack
   }
 
-  /** Host-only: trusted definitions come from the compiled bundle, never a caller payload. */
-  async registerBuiltin(id: string): Promise<ThemePackV2> {
-    const pack = BUILTIN_THEME_PACKS.find((candidate) => candidate.id === id)
-    if (!pack) throw new Error('unknown built-in theme')
-    this.packs.set(pack.id, structuredClone(pack))
-    return structuredClone(pack)
+  /** Internal mutation status keeps unchanged registrations off the broadcast path. */
+  async registerPluginWithStatus(pack: unknown, pluginId: string): Promise<{ pack: ThemePack | ThemePackV2; changed: boolean }> {
+    if (!pluginId || pluginId === 'enest.builtin') throw new Error('reserved theme source')
+    if (!isThemePack(pack)) throw new Error('invalid theme pack: require id, name and tokens')
+    return this.savePack(preparePack({ ...pack, source: pluginId }))
   }
 
   /**
@@ -248,10 +262,10 @@ export class ThemePackRegistry {
   async register(pack: ThemePack): Promise<ThemePack>
   async register(pack: unknown): Promise<ThemePack | ThemePackV2>
   async register(pack: unknown): Promise<ThemePack | ThemePackV2> {
-    return this.savePack(preparePack(pack))
+    return (await this.savePack(preparePack(pack))).pack
   }
 
-  private async savePack<T extends ThemePack>(saved: T): Promise<T> {
+  private async savePack<T extends ThemePack>(saved: T): Promise<{ pack: T; changed: boolean }> {
     const existing = this.packs.get(saved.id)
     if (existing && existing.source !== saved.source) {
       throw new Error(
@@ -266,15 +280,34 @@ export class ThemePackRegistry {
       throw new Error(`theme pack limit reached for ${saved.source} (max ${MAX_PACKS_PER_SOURCE})`)
     }
 
+    const file = registryFile()
+    const unchanged = existing !== undefined && isDeepStrictEqual(existing, saved)
+    if (unchanged) {
+      const pending = this.pendingSaves.get(existing)
+      if (pending?.file === file) {
+        await pending.promise
+        return { pack: structuredClone(saved), changed: false }
+      }
+      if (this.persistedFile === file && isDeepStrictEqual(this.persistedPacks.get(saved.id), saved)) {
+        return { pack: structuredClone(saved), changed: false }
+      }
+    }
     this.packs.set(saved.id, saved)
-    await this.persist()
-    return structuredClone(saved)
+    if (!unchanged) this.revision++
+    const pending = { file, promise: this.persist(file) }
+    this.pendingSaves.set(saved, pending)
+    try {
+      await pending.promise
+      return { pack: structuredClone(saved), changed: true }
+    } finally {
+      if (this.pendingSaves.get(saved) === pending) this.pendingSaves.delete(saved)
+    }
   }
 
   async remove(id: string): Promise<boolean> {
     if (this.packs.get(id)?.source === 'enest.builtin') return false
     const removed = this.packs.delete(id)
-    if (removed) await this.persist()
+    if (removed) { this.revision++; await this.persist() }
     return removed
   }
 
@@ -291,18 +324,22 @@ export class ThemePackRegistry {
         removedIds.push(id)
       }
     }
-    if (removedIds.length > 0) await this.persist()
+    if (removedIds.length > 0) { this.revision++; await this.persist() }
     return removedIds
   }
 
-  private persist(): Promise<void> {
+  private persist(file = registryFile()): Promise<void> {
+    // Each acknowledgement belongs to this exact snapshot, not a later optimistic edit.
+    const snapshot = new Map(this.packs)
     const operation = this.persistTail.catch(() => {}).then(async () => {
-      const file = registryFile(), temporary = `${file}.${randomUUID()}.tmp`
+      const temporary = `${file}.${randomUUID()}.tmp`
       await mkdir(dirname(file), { recursive: true })
       try {
-        const extensions = this.list().filter(pack => pack.source !== 'enest.builtin')
+        const extensions = [...snapshot.values()].filter(pack => pack.source !== 'enest.builtin')
         await writeFile(temporary, JSON.stringify(extensions, null, 2), { encoding: 'utf8', flag: 'wx' })
         await rename(temporary, file)
+        this.persistedPacks = snapshot
+        this.persistedFile = file
       } finally { await rm(temporary, { force: true }).catch(() => {}) }
     })
     this.persistTail = operation

@@ -17,7 +17,8 @@ import { bindNativeInstallDrop } from './installDropBridge'
  * 主进程侧另有超时兜底，本地 cap 只防悬挂。
  */
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { QuickInputAction, QuickInputConfig, PluginBlob, PluginAsset, PluginAssetPutInput, PluginAssetPutResult, PluginAssetGetResult, PluginFileSaveResult, ClipboardCapabilities, ClipboardFileInspection } from '@shared/types/plugin-tools'
+import type { QuickInputAction, QuickInputConfig, PluginFileSaveResult, ClipboardCapabilities, ClipboardFileInspection } from '@shared/types/plugin-tools'
+import type { PluginStorageApi, PluginStorageOperation } from '@shared/types/storage'
 import type { QuickEnterInput } from '@shared/types/quick'
 import type { AuxiliaryApi } from '@shared/types/auxiliary'
 import type { FileStreamsApi } from '@shared/types/file-stream'
@@ -28,8 +29,8 @@ import type { PluginToastOptions } from '@shared/types/notification'
 import type { McpCancelMessage, McpDispatchMessage, McpErrorCode, McpRegistrationAck, McpResultMessage, McpToolHandlers } from '@shared/types/mcp'
 import { BEFORE_CLOSE_ACK_LOCAL_CAP_MS, SAVE_REQUEST_ACK_LOCAL_CAP_MS } from '@shared/constants'
 import type { ShellNotice, ShellNoticeDataMap, ShellNoticeTopic, SaveRequestedEvent, SaveRequestedData } from '@shared/types/notice'
+import * as IpcChannels from '@shared/types/ipc'
 import {
-  IpcChannels,
   type PluginCallRequest,
   type PluginCallResult,
   type PluginEventPayload
@@ -44,6 +45,8 @@ import type {
   PluginEnterPayload,
   PluginLifecycleMessage,
   PluginLaunchMode,
+  PluginPathResolveInput,
+  PluginPathResolveResult,
   ScreenBounds,
   ScreenCaptureResult,
   SettingsSectionContribution
@@ -568,31 +571,7 @@ export interface EnestPluginApi {
     cancel(id: string): Promise<DeadlineTaskSnapshot>
     onChange(cb: (event: { taskId: string }) => void): Unsubscribe
   }
-  storage: {
-    blobs: {
-      put(input: { dataUrl: string; name?: string }): Promise<PluginBlob>
-      get(id: string): Promise<{ dataUrl: string; bytes: number } | null>
-      remove(id: string): Promise<boolean>
-    }
-    /** 静态资源（二进制图片）：独立于 KV 与 blobs，可 list、稳定 assetId、get 回 dataUrl */
-    assets: {
-      put(input: PluginAssetPutInput): Promise<PluginAssetPutResult>
-      list(): Promise<PluginAsset[]>
-      get(assetId: string): Promise<PluginAssetGetResult | null>
-      delete(assetId: string): Promise<boolean>
-    }
-    get(key: string): Promise<unknown>
-    set(key: string, value: unknown): Promise<boolean>
-    remove(key: string): Promise<boolean>
-    clear(): Promise<boolean>
-    /** 会话态 KV：主进程内存，插件关闭 / 应用退出即清空，不落盘 */
-    session: {
-      get(key: string): Promise<unknown>
-      set(key: string, value: unknown): Promise<boolean>
-      remove(key: string): Promise<boolean>
-      clear(): Promise<boolean>
-    }
-  }
+  storage: PluginStorageApi
   background: {
     call<T = unknown>(method: string, args?: unknown[], options?: { timeoutMs?: number }): Promise<T>
   }
@@ -711,6 +690,11 @@ export interface EnestPluginApi {
       filename?: string
       content: string
     }): Promise<{ ok: boolean; path: string } | null>
+    /**
+     * 统一路径解析：把 `~/x`、`./x`、裸相对路径与绝对路径归一成绝对路径。
+     * 只做词法归一与存在性探测，不授予读写权限（真实文件访问仍需 localFiles 句柄）。
+     */
+    resolvePath(input: PluginPathResolveInput): Promise<PluginPathResolveResult>
   }
   notify(payload: { title?: string; body?: string }): Promise<boolean>
   /** 插件私有密钥保险库：set→secretRef；无明文 get。基础能力，无需声明或授权；系统加密不可用时保存失败。 */
@@ -743,7 +727,8 @@ export interface EnestPluginApi {
   onOut(cb: (event: PluginOutEvent) => void): Unsubscribe
   /** 即将销毁：可在此 flush 草稿；回调返回 Promise 时 preload 等其 settle 再 ack */
   onBeforeSuspend(cb: () => void | Promise<unknown>): Unsubscribe
-  runtime: { acquireActivity(reason: string): Promise<string>; releaseActivity(token: string): Promise<void> }
+  /** Explicit activity leases: at most 128 per runtime, 4096 globally; released with the owning runtime. */
+  runtime: { acquireActivity(reason?: string): Promise<string>; releaseActivity(token: string): Promise<void> }
   /** Calls the plugin-owned Node backend after explicit backend.node consent. */
   backend: {
     call<T = unknown>(method: string, args?: unknown[], options?: { timeoutMs?: number }): Promise<T>
@@ -909,6 +894,12 @@ const api: EnestPluginApi = {
     onChange: cb => subscribeToolEvent('deadline-task-change', cb)
   },
   storage: {
+    files: {
+      list: options => call('storage.files.list', [options]),
+      get: (id, options) => call('storage.files.get', [id, options]),
+      remove: id => call('storage.files.remove', [id]),
+      export: (id, options) => call('storage.files.export', [id, options])
+    },
     blobs: {
       put: input => call('storage.blobs.put', [input]),
       get: id => call('storage.blobs.get', [id]),
@@ -918,10 +909,13 @@ const api: EnestPluginApi = {
       put: input => call('storage.assets.put', [input]),
       list: () => call('storage.assets.list', []),
       get: assetId => call('storage.assets.get', [assetId]),
+      remove: assetId => call('storage.assets.remove', [assetId]),
       delete: assetId => call('storage.assets.delete', [assetId])
     },
     get: (key: string) => call<unknown>('storage.get', [key]),
     set: (key: string, value: unknown) => call<boolean>('storage.set', [key, value]),
+    flush: () => call('storage.flush'),
+    commit: (operations: PluginStorageOperation[]) => call('storage.commit', [operations]),
     remove: (key: string) => call<boolean>('storage.remove', [key]),
     clear: () => call<boolean>('storage.clear'),
     session: {
@@ -1054,7 +1048,10 @@ const api: EnestPluginApi = {
     openExternal: (url: string) => call<boolean>('shell.openExternal', [url]),
     /** 导出落盘：系统保存对话框 + 写文件 */
     saveTextFile: (payload: { defaultName?: string; filename?: string; content: string }) =>
-      call<{ ok: boolean; path: string } | null>('shell.saveTextFile', [payload])
+      call<{ ok: boolean; path: string } | null>('shell.saveTextFile', [payload]),
+    /** 统一路径解析：`~/x`、`./x`、裸相对与绝对路径归一成绝对路径 */
+    resolvePath: (input: PluginPathResolveInput) =>
+      call<PluginPathResolveResult>('shell.resolvePath', [input])
   },
   notify: (payload: { title?: string; body?: string }) => call<boolean>('notify', [payload]),
   vault: {

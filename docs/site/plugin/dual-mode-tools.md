@@ -88,7 +88,7 @@ eNest 0.2.3 的原生 `window.enest` **没有 `clipboard.history.*`**。clipboar
 
 ## 附件与导出
 
-`storage.blobs.put({dataUrl})/get(id)/remove(id)` 使用插件专属附件目录，支持 PNG/JPEG/WebP 原图（单个 32 MB、每插件 200 MB）。ID 不能跨插件读取；卸载清理附件。每个插件最多两个待保存附件，关闭实例取消在途写入并清理残留。
+图片统一使用 `storage.assets.put/list/get/remove`；`put` 支持互斥的 `{bytes,mime}` 或 `{dataUrl}`，支持 PNG/JPEG/WebP/GIF，单文件32MiB、每插件合计1GiB/10,000项。旧 `storage.blobs.put/get/remove` 是同服务兼容适配，旧附件UUID仍可读删并出现在assets列表，不在启动时全量搬迁。稳定ID必须原样保存，不手拼扩展名；ID不能跨插件读取，关闭实例取消在途操作，卸载清理资源。完整选择与提交语义见[存储标准](storage.md)。
 
 `shell.saveTextFile({defaultName,content})` 和 `shell.saveFile({defaultName,dataUrl})` 使用系统保存对话框，是无需额外声明 `fs.write` 的基础能力，仍需用户选定目标；取消返回 null，成功返回 `{ok:true,path}`。关闭插件后对话框即使晚返回，也不会继续写文件。界面仅在 `result?.ok` 时显示保存成功。
 

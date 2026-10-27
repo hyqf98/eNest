@@ -43,11 +43,11 @@ async function refreshRegistration(state: WatchState, pluginId: string, manifest
   const { pluginRegistry } = await import('@main/plugin/PluginRegistry')
   if (!isCurrent(state, pluginId)) return
   const previous = pluginRegistry.get(pluginId)
-  if (!previous?.dev || previous.devMode === 'prod' || previous.sourcePath !== state.rootPath) return
+  if (!previous?.dev || previous.sourcePath !== state.rootPath) return
   const { prepareDevPluginReload } = await import('@main/dev/DevConsole')
   if (!isCurrent(state, pluginId)) return
   const prepared = await prepareDevPluginReload(previous, () => isCurrent(state, pluginId))
-  if (!isCurrent(state, pluginId) || !prepared || prepared.summary.devMode === 'prod') return
+  if (!isCurrent(state, pluginId) || !prepared) return
   // A forget/re-registration may happen while resolving the entry or starting its server.
   if (!pluginRegistry.get(pluginId)?.dev) return
   pluginRegistry.addDevPlugin(prepared.summary, prepared.manifest)
@@ -176,7 +176,7 @@ export function stopDevWatch(pluginId: string): void {
   stopWatcher(watchers, pluginId)
 }
 
-/** Survives Tab close/hibernate. Only forgetting or selecting prod releases this owner. */
+/** Survives Tab close/hibernate. Only forgetting the development registration releases this owner. */
 export function startDevRegistrationWatch(pluginId: string, sourcePath: string, outputPath?: string): void {
   stopDevWatch(pluginId)
   // Never ignore the watched root itself, even if a malformed output setting resolves to it.

@@ -1,6 +1,6 @@
 # 插件开发概览
 
-> 参考 uTools 插件模型：**清单 + Web 入口 + 受控 API**。eNest 用 Electron 原生多 View 实现隔离与多 Tab。
+eNest 是插件化桌面壳，采用 **清单 + Web 入口 + 受控 API**。业务功能由插件实现，主题控制可替换的呈现，宿主负责原生容器、安全、生命周期与持久化。
 
 ## 插件是什么
 
@@ -32,23 +32,31 @@
 | [目录结构](structure.md) | 插件目录约定与必备文件 |
 | [plugin.json](manifest.md) | 清单字段与完整示例 |
 | [enest API](api.md) | 完整方法参考：UI / 主题 / 设置 / 存储 / 剪贴板 / 通知 / 生命周期 |
+| [数据存储与私有资源](storage.md) | KV 提交回执、统一图片资源、完成文件生命周期、旧数据兼容与安全边界 |
 | [插件本机后端](backend.md) | 通用 backend.call、utility 协议、依赖打包与完整 Node 信任边界 |
+| [MCP 工具贡献](mcp.md) | 声明与处理器、协议调用、权限、取消和当前交付边界 |
 | [自绘设置与窗口边界](settings-and-windows.md) | 私有设置、page 入口、Quick / 桌面适配与宿主保留能力 |
 | [TypeScript 类型](api-types.md) | `window.enest` 接口声明与使用建议 |
 | [UI 集成标准](ui-standard.md) | chrome / 主题变量 / 透明底 / Canvas |
 | [主题 Chrome](chrome.md) | classic / rail / dock 自绘入口、隔离快照与宿主动作边界 |
-| [主题工作区](home.md) | 路由与 ACK、动态设置描述符、隔离桥接及资源协议 |
+| [主题工作区](home.md) | 目录与详情路由、ACK、隔离桥接及公开资源协议 |
 | [权限说明](permissions.md) | 权限键与 API 对照表 |
 | [调试与热更新](debug.md) | 开发者控制台、Vite HMR、DevTools |
-| [生命周期](lifecycle.md) | 状态机、事件时间线、handler 示例 |
-| [错误码](errors.md) | 代码内完整错误字符串与处理 |
+| [生命周期](lifecycle.md) | 页面代次、关闭保存、窗口迁移与后台资源责任 |
+| [自由面板](panels.md) | 桌面组件适配、布局记忆、拖动与多屏边界 |
+| [后台步骤计划](deadline-tasks.md) | 无需页面保活的插件私有步骤调度 |
+| [错误码](errors.md) | 常见错误字符串、失败语义与排查 |
 | [示例插件](examples.md) | 可复制的完整示例 + 仓库样例 |
 | [FAQ](faq.md) | 高频问题 |
 
-?> 建议顺序：**快速开始 → plugin.json → enest API → 生命周期 → 示例**。实际示例见插件仓库 `plugins/`；从 [主题与综合插件](themes.md) 或 [宿主开发](host-development.md) 进入专项。
+?> 建议顺序：**快速开始 → plugin.json → enest API → 生命周期 → 示例**。实际示例见[官方插件源码](https://github.com/hyqf98/eNest_plugin/tree/main/plugins)；从 [主题与综合插件](themes.md) 或 [宿主开发](host-development.md) 进入专项。
+
+## 契约与兼容
+
+本目录是官方插件 API 文档。手写指南解释能力边界和用法，[TypeScript 类型](api-types.md)从真实 preload/shared 契约生成；生成类型中存在某个接口，不代表普通插件、主题、后台和辅助页都获得同一桥。manifest、权限分类与生成类型应随宿主版本配套使用。
+
+新 API 应在调用前检查能力，并对不支持的宿主给出明确升级提示；不能通过任意文件路径、放宽沙箱或假成功回退。版本范围只表示包声明的兼容要求，不替代实际能力检测与目标平台验证。文档中的平台限制和未提供的管理入口也属于接口边界，尤其见[MCP 工具贡献](mcp.md)。
 
 ## 下一步
 
 [快速开始 →](getting-started.md)
-
-- [后台步骤计划](deadline-tasks.md)

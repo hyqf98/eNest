@@ -42,8 +42,8 @@ glibc 与 ELF loader 必须配套，**不随应用覆盖**。发布应在最低�
 在仓库根目录运行下面的多阶段容器验证：构建阶段安装开发依赖，验证阶段对 bundle 运行 Xvfb / portal 测试，最终 runtime 阶段直接复制 bundle 到干净 Debian 基础镜像，**不运行 apt 安装任何库或 CLI**。
 
 ```sh
-node --test native/clipboard/linux-build.test.mjs
-docker build -f native/clipboard/linux-bundle.Dockerfile -t enest-clipboard-bundle-test native/clipboard
+node --test tests/native/clipboard/linux-build.test.mjs
+docker build -f native/clipboard/linux-bundle.Dockerfile -t enest-clipboard-bundle-test .
 printf '%s\n' '{"id":1,"command":"capabilities"}' | docker run --rm -i enest-clipboard-bundle-test
 ```
 
@@ -55,8 +55,8 @@ printf '%s\n' '{"id":1,"command":"capabilities"}' | docker run --rm -i enest-cli
 
 ```sh
 cc -std=c11 -Wall -Wextra -Werror -O2 native/clipboard/linux.c -o /tmp/clipboard-helper $(pkg-config --cflags --libs gio-2.0 json-glib-1.0 x11 xtst)
-xvfb-run -a python3 native/clipboard/linux-smoke.py /tmp/clipboard-helper
-dbus-run-session -- python3 native/clipboard/linux-portal-smoke.py /tmp/clipboard-helper
+xvfb-run -a python3 tests/native/clipboard/linux-smoke.py /tmp/clipboard-helper
+dbus-run-session -- python3 tests/native/clipboard/linux-portal-smoke.py /tmp/clipboard-helper
 ```
 
 已在 Debian 12 ARM64 容器以 `-Wall -Wextra -Werror` 编译，并通过上述两个脚本：Xvfb 验证真实 X selection / INCR 和 XTest 事件、修饰键及失焦拒绝、窗口身份失效、超大请求恢复；私有 D-Bus 假 portal 验证请求形状、URI / FileTransfer FD 读取、文件列表写入、授权撤销，以及取消、拒绝、未开启剪贴板、不支持 clipboard-only 的降级。

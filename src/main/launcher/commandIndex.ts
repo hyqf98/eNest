@@ -124,8 +124,16 @@ export function buildAppCommands(): QuickCommand[] {
   return items
 }
 
+let directoryCache: { plugins: QuickCommand[]; apps: QuickCommand[]; items: QuickCommand[] } | null = null
+
 function nativeDirectory(): QuickCommand[] {
-  return [...NATIVE_ACTIONS, ...buildPluginCommands(), ...buildAppCommands()].slice(0, DIRECTORY_LIMIT)
+  const plugins = buildPluginCommands(), apps = buildAppCommands()
+  if (directoryCache?.plugins === plugins && directoryCache.apps === apps) return directoryCache.items
+  // Command arrays change with registry/alias revisions or the application scan.
+  // The identity store (and its secret) has the same process lifetime as this cache.
+  const items = withStateKeys([...NATIVE_ACTIONS, ...plugins, ...apps].slice(0, DIRECTORY_LIMIT))
+  directoryCache = { plugins, apps, items }
+  return items
 }
 
 /** Identity encoding does not grant launch authority or interpret provider-private state. */
@@ -197,9 +205,9 @@ export async function searchQuickCommands(
       if (item.kind === 'app' && item.path && !item.icon) item.icon = await getAppIconDataUrl(item.path, item.iconName)
       if (item.kind === 'plugin' && item.pluginId) item.icon = await getCatalogPluginIcon(item.pluginId)
     }))
-    return withStateKeys(items)
+    return items
   }
-  return withStateKeys(directory)
+  return directory
 }
 
 /** Revalidate immediately before a native open, including after plugin disable/uninstall. */

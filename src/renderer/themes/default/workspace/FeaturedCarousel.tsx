@@ -1,5 +1,5 @@
 /** 首页产品横幅：空闲时自动切换，悬停与用户操作时暂停阅读计时。 */
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { PluginPresentation } from './pluginPresentation'
 import { useI18n } from '@renderer/hooks/useI18n'
@@ -19,7 +19,7 @@ interface Props {
   mediaVisible?: boolean
 }
 
-export function FeaturedCarousel({ items, onOpen, onDetail, paused = false, continuous = true, mediaVisible = true }: Props) {
+export const FeaturedCarousel = memo(function FeaturedCarousel({ items, onOpen, onDetail, paused = false, continuous = true, mediaVisible = true }: Props) {
   const { locale, t } = useI18n()
   const english = locale === 'en-US'
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -185,4 +185,4 @@ export function FeaturedCarousel({ items, onOpen, onDetail, paused = false, cont
       <span className="sr-only" aria-live={carousel.running ? 'off' : 'polite'} aria-atomic="true">{carousel.announcement}</span>
     </section>
   )
-}
+})

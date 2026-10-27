@@ -54,15 +54,22 @@
   cursor: not-allowed;
 }
 .ui-select-value {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* hint 紧邻 value 之后、caret 之前；value 吃掉剩余空间，短文案从左边开始不留居中空白。 */
 .ui-select-hint {
+  flex: 0 0 auto;
   color: var(--text-3);
   font-size: calc(11px * var(--appearance-font-scale, 1));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 45%;
 }
 .ui-select-caret {
   flex: 0 0 auto;

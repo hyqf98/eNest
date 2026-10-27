@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IpcChannels } from '@shared/types/ipc'
+import * as IpcChannels from '@shared/types/ipc'
 import type { PluginDragFeedback, PluginDropTarget } from '@shared/types/plugin-window'
 import type { PanelCandidate, PanelCommand, PanelDragFeedback, PanelState, PanelSurfaceApi } from '@shared/types/panel'
 

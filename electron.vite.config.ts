@@ -1,9 +1,9 @@
 /**
  * electron.vite.config — 构建配置
- * 别名：@main → src/main，@preload → src/preload，@renderer → src/renderer，@shared → src/shared
+ * 别名：@main → src/main，@preload → src/preload，@renderer → src/renderer，@shared → src/shared，@test → tests
  * 与 tsconfig.node.json / tsconfig.web.json 的 paths 保持一致。
  */
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import { defineConfig } from 'electron-vite'
 import { build as buildVite, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'node:path'
@@ -15,7 +15,8 @@ const sharedAlias = {
   '@main': r('src/main'),
   '@preload': r('src/preload'),
   '@renderer': r('src/renderer'),
-  '@shared': r('src/shared')
+  '@shared': r('src/shared'),
+  '@test': r('tests')
 }
 
 /** 开发态 Vite 端口：避开 5173 等常用端口，减少与其它 vite/工具冲突 */
@@ -27,7 +28,7 @@ function sandboxedPreloads(production: boolean): Plugin {
   return {
     name: 'enest:sandboxed-preloads',
     async generateBundle(_options, bundle) {
-      // Multi-entry Rollup emits shared chunks that sandboxed require cannot load.
+      // Multi-entry bundling emits shared chunks that sandboxed require cannot load.
       for (const [name, file] of Object.entries(bundle)) if (file.type === 'chunk') delete bundle[name]
       for (const name of entries) {
         const watch = (id: string) => this.addWatchFile(id)
@@ -38,14 +39,14 @@ function sandboxedPreloads(production: boolean): Plugin {
           resolve: { alias: sharedAlias },
           plugins: [{
             name: 'enest:watch-sandboxed-preload',
-            moduleParsed(module) { if (!module.isExternal) watch(module.id) }
+            moduleParsed(module) { if (!module.id.startsWith('\0')) watch(module.id) }
           }],
           build: {
             write: false,
-            minify: production ? 'esbuild' : false,
+            minify: production ? 'oxc' : false,
             target: 'node22',
             lib: { entry: r(`src/preload/${name}.ts`), formats: ['cjs'], fileName: () => `${name}.cjs` },
-            rollupOptions: { external: ['electron'], output: { inlineDynamicImports: true } }
+            rolldownOptions: { external: ['electron'], output: { codeSplitting: false } }
           }
         })
         for (const output of Array.isArray(result) ? result : [result]) {
@@ -55,26 +56,6 @@ function sandboxedPreloads(production: boolean): Plugin {
           }
         }
       }
-    }
-  }
-}
-
-/** electron-vite 2's regex mistakes "rejects import" in a string for an import.
- * Prepending shims at a known boundary keeps utility bundles (including worker
- * source strings) valid. No dependency patch or regex-based insertion is needed. */
-function safeMainEsmShims(): Plugin {
-  return {
-    name: 'enest:safe-main-esm-shims',
-    configResolved(config) {
-      Reflect.set(config, 'plugins', config.plugins.filter((plugin) => plugin.name !== 'vite:esm-shim'))
-    },
-    renderChunk(code, _chunk, output) {
-      if (output.format !== 'es') return null
-      return { code: `import { createRequire as __enestCreateRequire } from 'node:module';
-const require = __enestCreateRequire(import.meta.url);
-const __filename = import.meta.filename;
-const __dirname = import.meta.dirname;
-${code}`, map: null }
     }
   }
 }
@@ -90,13 +71,13 @@ export default defineConfig(({ mode }) => {
         githubDeviceFlow: env.ENEST_GITHUB_DEVICE_FLOW === '1',
       }),
     },
-    plugins: [externalizeDepsPlugin(), safeMainEsmShims()],
+    // electron-vite 6 externalizes dependencies and injects AST-positioned ESM shims.
     resolve: {
       alias: sharedAlias
     },
     build: {
-      minify: mode === 'production' ? 'esbuild' : false,
-      rollupOptions: {
+      minify: mode === 'production' ? 'oxc' : false,
+      rolldownOptions: {
         input: {
           index: r('src/main/index.ts'),
           pluginInstallWorker: r('src/main/plugin/pluginInstallWorker.ts')
@@ -105,12 +86,12 @@ export default defineConfig(({ mode }) => {
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin(), sandboxedPreloads(mode === 'production')],
+    plugins: [sandboxedPreloads(mode === 'production')],
     resolve: {
       alias: sharedAlias
     },
     build: {
-      rollupOptions: {
+      rolldownOptions: {
         input: {
           shellPreload: r('src/preload/shellPreload.ts'),
           detachedPluginPreload: r('src/preload/detachedPluginPreload.ts'),
@@ -131,11 +112,12 @@ export default defineConfig(({ mode }) => {
       host: '127.0.0.1'
     },
     build: {
-      // electron-vite 2 defaults renderer minification to false, even in a release build.
-      minify: mode === 'production' ? 'esbuild' : false,
-      rollupOptions: {
+      // The Electron preset disables minification unless explicitly enabled.
+      minify: mode === 'production' ? 'oxc' : false,
+      rolldownOptions: {
         input: {
           index: r('src/renderer/index.html'),
+          quick: r('src/renderer/quick.html'),
           'orb-overlay': r('src/renderer/orb-overlay.html'),
           'install-overlay': r('src/renderer/install-overlay.html'),
           'detached-plugin': r('src/renderer/detached-plugin.html'),

@@ -84,7 +84,7 @@ function bridgeSource(kind: 'quick' | 'settings'): string {
     const message = event.data;
     if (closed || !message || typeof message !== 'object' || message.generation !== generation) return;
     if (message.type === 'state' && message.state && message.state.version === 1) {
-      lastState = copy(message.state);
+      lastState = ${kind === 'quick' ? 'message.state' : 'copy(message.state)'};
       for (const waiter of [...stateWaiters]) waiter.finish();
       notify(stateListeners, lastState);
     } else if (message.type === 'focus' && typeof message.selectAll === 'boolean') {

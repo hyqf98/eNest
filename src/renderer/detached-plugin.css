@@ -1,5 +1,4 @@
 @import './styles/tokens.css';
-@import './styles/pluginArtwork.css';
 
 * { box-sizing: border-box; }
 html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font, system-ui, sans-serif); font-size: var(--font-size-base, 14px); }

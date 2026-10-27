@@ -271,5 +271,6 @@
 }
 
 .color-hex-input:focus {
-  border-color: var(--link);
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring, 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent));
 }

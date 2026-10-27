@@ -5,7 +5,7 @@
  * 功能关闭时释放快捷键，开启时按设置注册。
  */
 import type { HotkeyOwner } from './hotkeyRegistry'
-import { applyHotkeyChanges, getHotkeyOwner, getOwnedHotkeyStatus } from './hotkeyRegistry'
+import { applyHotkeyChanges, getHotkeyOwner, getOwnedHotkey, getOwnedHotkeyStatus, isShortcutCaptureActive } from './hotkeyRegistry'
 import { normalizeUserShortcut } from '@shared/accelerator'
 import type { PanelHotkeyApplyResult } from '@shared/types/panel'
 import { settingsStore } from '@main/settings/SettingsStore'
@@ -43,35 +43,52 @@ export function applyPanelHotkeys(): PanelHotkeyApplyResult {
   }
   const accelerator = readHotkey()
   const result = applyHotkeyChanges([{ owner, registration: { owner, accelerator, onFire: fireCreate } }])
+  const activeHotkey = getOwnedHotkey(owner)?.accelerator ?? ''
   const status = getOwnedHotkeyStatus(owner)
   if (status.status === 'conflict') {
     logWarn('panel', `hotkey ${accelerator} unavailable: ${status.error ?? ''}`)
-    return { ok: false, enabled: true, hotkey: accelerator, error: status.error }
+    return { ok: false, enabled: true, hotkey: activeHotkey, error: status.error }
   }
-  return { ok: result.ok, enabled: true, hotkey: accelerator, error: result.error }
+  return { ok: result.ok, enabled: true, hotkey: activeHotkey, error: result.error }
 }
 
 /**
- * 设置页保存面板快捷键：归一 + 占用检测 + 持久化 + 立即重注册，返回真实注册结果。
+ * 设置页保存面板快捷键：归一 + 占用检测 + 原生注册 + 同步持久化；任一失败保留原配置。
  * 被 eNest 其它功能（Quick / 插件绑定 / 运行时）占用时拒绝并保留原键；
  * 系统/外部应用的占用由 applyPanelHotkeys 的 native 注册失败兜底报告。
  */
 export async function setPanelHotkey(raw: unknown): Promise<PanelHotkeyApplyResult> {
   const enabled = settingsStore.getAll().general.freePanel?.enabled === true
+  const previous = getOwnedHotkey(owner)
+  const retained = (error: string): PanelHotkeyApplyResult => ({
+    ok: false, enabled, hotkey: getOwnedHotkey(owner)?.accelerator ?? readHotkey(), error
+  })
   const accelerator = normalizeUserShortcut(raw, process.platform)
   if (!accelerator) {
-    return { ok: false, enabled, hotkey: readHotkey(), error: '快捷键无效：请使用包含 Ctrl、Alt、Command 或 Super 等修饰键的组合键' }
+    return retained('快捷键无效：请使用包含 Ctrl、Alt、Command 或 Super 等修饰键的组合键')
   }
+  if (isShortcutCaptureActive()) return retained('请先结束快捷键录制')
   const occupied = getHotkeyOwner(accelerator)
   if (occupied && occupied.kind !== 'panel') {
-    return { ok: false, enabled, hotkey: readHotkey(), error: `快捷键 ${accelerator} 已被 eNest 其他功能占用` }
+    return retained(`快捷键 ${accelerator} 已被 eNest 其他功能占用`)
   }
+  const applied = applyHotkeyChanges([{
+    owner, registration: enabled ? { owner, accelerator, onFire: fireCreate } : null
+  }])
+  if (!applied.ok) return retained(applied.error ?? '快捷键注册失败，已保留原设置')
   try {
-    await settingsStore.setAll({ general: { panelHotkey: accelerator } })
+    settingsStore.setPanelHotkey(accelerator)
   } catch (error) {
-    return { ok: false, enabled, hotkey: readHotkey(), error: error instanceof Error ? error.message : '保存快捷键失败' }
+    const restored = applyHotkeyChanges([{ owner, registration: previous ?? null }])
+    let message = error instanceof Error ? error.message : '保存快捷键失败'
+    if (!restored.ok) {
+      const released = applyHotkeyChanges([{ owner, registration: null }])
+      message += `；原快捷键恢复失败：${restored.error ?? '键位已被占用'}`
+      if (!released.ok) message += `；未保存快捷键释放失败：${released.error ?? '未知错误'}`
+    }
+    return retained(message)
   }
-  return applyPanelHotkeys()
+  return { ok: true, enabled, hotkey: enabled ? getOwnedHotkey(owner)?.accelerator ?? '' : accelerator }
 }
 
 export function disposePanelHotkeys(): void {

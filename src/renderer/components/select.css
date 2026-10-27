@@ -1,4 +1,5 @@
-.ui-select-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* 触发器聚焦：柔光环沿 border-radius 贴合；矩形 outline 只在 forced-colors 下退回系统描边。 */
+.ui-select-trigger:focus-visible { outline: 2px solid transparent; outline-offset: 0; border-color: var(--accent); box-shadow: var(--focus-ring, 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent)); }
 .ui-select-pop.ui-select-portal { box-sizing: border-box; right: auto; width: max(var(--radix-select-trigger-width, 180px), 180px); z-index: 1200; padding: 4px; overscroll-behavior: contain; animation: none; box-shadow: var(--shadow-float); }
 .ui-select-portal .ui-select-option { min-height: 36px; height: auto; padding: 8px 10px; line-height: 1.5; }
 .ui-select-portal .ui-select-option > span:first-child { min-width: 0; overflow-wrap: anywhere; }
@@ -11,4 +12,4 @@
 .color-pop.color-pop-portal { box-sizing: border-box; right: auto; z-index: 1200; overflow: auto; box-shadow: var(--shadow-float); }
 .color-pop-portal .react-colorful { width: 100%; }
 .color-pop-portal .color-hex-input { height: 36px; border-radius: 8px; font-size: 13px; }
-.color-pop-portal .color-hex-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.color-pop-portal .color-hex-input:focus-visible { outline: 2px solid transparent; outline-offset: 0; border-color: var(--accent); box-shadow: var(--focus-ring, 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent)); }

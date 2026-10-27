@@ -20,12 +20,14 @@
   word-break: break-all;
 }
 
-/* 插件设置项：slider 行（type=slider）与取值展示 */
+/* 插件设置项：slider 行（type=slider）与取值展示
+   宽度不在此处声明：右列由 settings.css 的 --settings-control-width 控制，
+   slider 行占满右列，滑杆吃掉剩余宽度、读数贴右。 */
 .plugin-slider-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 180px;
+  min-width: 0;
 }
 
 .plugin-slider-row input[type='range'] {

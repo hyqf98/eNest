@@ -15,6 +15,7 @@ release/
 !/build/icon.icns
 !/build/icon.ico
 !/build/icon.png
+!/build/open-with.json
 
 # Electron
 *.dmg

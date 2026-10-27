@@ -3,6 +3,7 @@
  * 加载本地源码目录并直接打开插件 → 启动/停止调试 / 移除；开发中列表与日志。
  * DevTools 与重载走键盘快捷键（插件内/壳内 F12、⌘⌥I、⌘R），不再放按钮；
  * 热更新由壳子自动负责：优先拉起开发服务走框架 HMR，否则监听目录变更自动重载。
+ * 列表标签显示后台自动识别结果（Vite / Next / Nuxt / webpack / 自定义命令 / 静态 HTML / 构建产物）。
  */
 import { useEffect, useRef, useState } from 'react'
 import { useShellStore } from '@renderer/stores/shellStore'
@@ -10,7 +11,6 @@ import { PluginIcon } from '@renderer/components/PluginIcon'
 import { notify } from '@renderer/services/notifyService'
 import { confirmAction } from '@renderer/services/confirmAction'
 import { useI18n } from '@renderer/hooks/useI18n'
-import { Segmented } from '@renderer/components/ui/Segmented'
 
 export function DevConsoleSection() {
   const devLogs = useShellStore((s) => s.devLogs)
@@ -18,15 +18,12 @@ export function DevConsoleSection() {
   const startDebugPlugin = useShellStore((s) => s.startDebugPlugin)
   const stopDebugPlugin = useShellStore((s) => s.stopDebugPlugin)
   const removeDevPlugin = useShellStore((s) => s.removeDevPlugin)
-  const setDevPluginMode = useShellStore((s) => s.setDevPluginMode)
-  const rebuildDevPlugin = useShellStore((s) => s.rebuildDevPlugin)
   const openPlugin = useShellStore((s) => s.openPlugin)
   const plugins = useShellStore((s) => s.plugins)
   const tabs = useShellStore((s) => s.tabs)
   const [dirPath, setDirPath] = useState('')
   const [loading, setLoading] = useState(false)
   const [debuggingId, setDebuggingId] = useState<string | null>(null)
-  const [busyId, setBusyId] = useState<string | null>(null)
   const logRef = useRef<HTMLDivElement>(null)
   const { t } = useI18n()
 
@@ -60,29 +57,6 @@ export function DevConsoleSection() {
     setDebuggingId((cur) => (cur === id ? null : cur))
   }
 
-  /** dev/prod 模式切换；prod 首次进入会自动构建，日志面板可见进度 */
-  const handleModeSwitch = async (id: string, mode: 'dev' | 'prod') => {
-    if (busyId) return
-    setBusyId(id)
-    try {
-      await setDevPluginMode(id, mode)
-    } finally {
-      setBusyId((cur) => (cur === id ? null : cur))
-    }
-  }
-
-  const handleRebuild = async (id: string) => {
-    if (busyId) return
-    setBusyId(id)
-    try {
-      await rebuildDevPlugin(id)
-    } catch (error) {
-      notify.error(error instanceof Error ? error.message : String(error))
-    } finally {
-      setBusyId((cur) => (cur === id ? null : cur))
-    }
-  }
-
   const handleRemove = async (id: string, name: string) => {
     if (!await confirmAction({ title: t('devConsole.remove'), message: t('devConsole.removeConfirm', { name }), confirmLabel: t('devConsole.remove') })) return
     await removeDevPlugin(id)
@@ -97,6 +71,18 @@ export function DevConsoleSection() {
     } catch (error) {
       notify.error(error instanceof Error ? error.message : String(error))
     }
+  }
+
+  /** 自动识别结果标签：开发服务显示「开发服务 · 框架」，离线产物显示「构建产物」，无服务声明显示「静态 HTML」 */
+  const kindLabel = (kind: string | undefined, runningServer: boolean, builtPreview: boolean) => {
+    if (builtPreview) return t('devConsole.kindDist')
+    if (runningServer) {
+      if (kind === 'vite' || kind === 'next' || kind === 'nuxt' || kind === 'webpack' || kind === 'custom') {
+        return `${t('devConsole.kindServer')} · ${t(`devConsole.kind.${kind}`)}`
+      }
+      return t('devConsole.kindServer')
+    }
+    return t('devConsole.kindStatic')
   }
 
   return (
@@ -148,7 +134,7 @@ export function DevConsoleSection() {
             {devPlugins.map((p) => {
               const running = openIds.has(p.id)
               const isSelf = debuggingId === p.id || running
-              const mode = p.devMode ?? 'dev'
+              const server = !!p.devUrl
               return (
                 <div className={`dev-plugin-item${running ? ' running' : ''}`} key={p.id}>
                   <PluginIcon src={p.icon} glyph={p.glyph} size={40} alt={p.name} />
@@ -157,26 +143,15 @@ export function DevConsoleSection() {
                       {p.name}
                       {running ? <span className="dev-run-dot" /> : null}
                       <span className="tag">
-                        {p.devUrl ? t('devConsole.modeDevServer') : p.devSource ? t('devConsole.modeSource') : t('devConsole.modeDist')}
+                        {kindLabel(p.devKind, server, !server && p.devSource === false)}
                       </span>
-                      {p.devCommand ? <code className="dev-command-tag">{p.devCommand}</code> : null}
+                      {server && p.devCommand ? <code className="dev-command-tag">{p.devCommand}</code> : null}
                     </div>
                     <code className="dev-plugin-path">
                       {p.rootPath ?? '—'}
                       {p.devUrl ? ` · ${p.devUrl}` : ''}
                     </code>
                   </div>
-                  <Segmented
-                    className="dev-mode-seg"
-                    value={mode}
-                    ariaLabel={t('devConsole.modeLabel')}
-                    disabled={busyId === p.id}
-                    onChange={(next) => void handleModeSwitch(p.id, next)}
-                    options={[
-                      { value: 'dev', label: t('devConsole.modeDev') },
-                      { value: 'prod', label: t('devConsole.modeProd') },
-                    ]}
-                  />
                   <div className="dev-plugin-actions">
                     {running ? (
                       <>
@@ -205,16 +180,6 @@ export function DevConsoleSection() {
                         {t('devConsole.start')}
                       </button>
                     )}
-                    {mode === 'prod' ? (
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        type="button"
-                        disabled={busyId === p.id}
-                        onClick={() => void handleRebuild(p.id)}
-                      >
-                        {t('devConsole.rebuild')}
-                      </button>
-                    ) : null}
                     <button
                       className="btn btn-danger btn-sm"
                       type="button"

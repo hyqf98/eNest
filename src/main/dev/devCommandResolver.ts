@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { normalizePluginDevUrl } from '@shared/pluginContract'
 import type {
-  DevCommandPlan, DevCommandSpec, DevPackageManager,
+  DevCommandPlan, DevCommandSpec, DevPackageManager, DevPluginKind,
   EnestCommandConfig, EnestDevCommandConfig, EnestPackageConfig, PluginManifest
 } from '@shared/types/plugin'
 
@@ -29,6 +29,8 @@ const LOCKFILE_MANAGERS: ReadonlyArray<readonly [string, DevPackageManager]> = [
 
 interface PackageJsonLike {
   scripts?: Record<string, unknown>
+  dependencies?: Record<string, unknown>
+  devDependencies?: Record<string, unknown>
   enest?: unknown
 }
 
@@ -110,6 +112,34 @@ function hasScript(pkg: PackageJsonLike | null, name: string): boolean {
   return typeof pkg?.scripts?.[name] === 'string'
 }
 
+/** 依赖表里的开发框架指纹：命中即对应工具链；顺序即优先级。 */
+const FRAMEWORK_DEPS: ReadonlyArray<readonly [DevPluginKind, readonly string[]]> = [
+  ['vite', ['vite', '@vitejs/plugin-vue', '@vitejs/plugin-react', 'vitest']],
+  ['next', ['next']],
+  ['nuxt', ['nuxt', 'nuxt3']],
+  ['webpack', ['webpack', 'webpack-cli', 'vue-cli-service', '@angular/cli', 'react-scripts', 'craco']],
+]
+
+/**
+ * 自动识别开发框架：先读 dependencies/devDependencies 的框架指纹，再看启动命令字符串
+ * 里的可执行名（vite/next/nuxt/webpack 及 vue-cli/umi 等经管理脚本调用的工具链）。
+ * 有启动/构建命令但不认识时归 'custom'（自定义命令）。本函数不判断是否静态——调用方
+ * 在没有可用服务（无 devUrl / 走源码静态预览）时自行落 'static'。
+ */
+export function detectDevFramework(pkg: PackageJsonLike | null, start?: DevCommandSpec, build?: DevCommandSpec): DevPluginKind {
+  const deps = { ...pkg?.dependencies, ...pkg?.devDependencies }
+  for (const [kind, names] of FRAMEWORK_DEPS) {
+    if (names.some(name => name in deps)) return kind
+  }
+  const commands = [start, build].flatMap(spec => spec ? [spec.command, spec.kind === 'raw' ? spec.command : ''] : [])
+  const text = commands.join(' ').toLowerCase()
+  if (/\b(vite)\b/.test(text)) return 'vite'
+  if (/\bnext\b/.test(text)) return 'next'
+  if (/\bnuxt\b/.test(text)) return 'nuxt'
+  if (/\b(webpack|vue-cli-service|react-scripts|craco|angular|umi)\b/.test(text)) return 'webpack'
+  return 'custom'
+}
+
 /** raw command 优先（逃生舱）；否则 manager + script，script 未声明时按回退链取 scripts 中真实存在者。 */
 function resolveCommand(
   section: EnestCommandConfig | undefined,
@@ -139,6 +169,7 @@ export function resolveDevCommandPlan(sourcePath: string, manifest?: Pick<Plugin
     ...(devUrl !== undefined ? { devUrl } : {}),
     ...(start ? { start } : {}),
     ...(build ? { build } : {}),
+    framework: detectDevFramework(pkg, start, build),
     output: enest.output ?? 'dist',
   }
 }

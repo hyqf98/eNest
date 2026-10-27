@@ -2,6 +2,8 @@
 .page-settings {
   --settings-control-h: 36px;
   --settings-control-width: 280px;
+  /* 复合行（如字体：下拉 + 两个按钮）需要更宽的右列，仍由变量统一表达，避免散落魔数。 */
+  --settings-control-width-wide: 400px;
   --settings-glass-fill: color-mix(in srgb, var(--surface) 54%, transparent);
   --settings-glass-edge: color-mix(in srgb, var(--surface) 78%, var(--border));
   --settings-glass-highlight: color-mix(in srgb, var(--surface) 88%, transparent);
@@ -74,8 +76,13 @@
 .page-settings .field > :nth-child(2) { justify-self: end; max-width: 100%; }
 .page-settings .field .label { color: var(--text); font-size: calc(13px * var(--appearance-font-scale, 1)); font-weight: 550; line-height: 1.5; }
 .page-settings .field .desc { margin: 4px 0 0; font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.6; }
-.page-settings .field :is(.ui-select, .plugin-setting-input, .plugin-slider-row, .font-size-slider-row) { width: 100%; min-width: 0 !important; max-width: 100%; }
-.page-settings .field > .ui-select .ui-select-trigger { width: 100%; }
+/* 右列控件统一占满右列：宽度只由 --settings-control-width 决定，
+   宿主设置项与插件动态注册的设置项（plugin-setting-*）必须完全对齐。
+   注意 .field > :nth-child(2) 的 justify-self:end 会让表单控件按内容收缩
+   （input 的 size=20、select 的 min-width），所以这里显式 stretch + 100%。
+   switch / 色块 / 按钮 / 分段控件等定尺控件保持自身尺寸，不参与拉伸。 */
+.page-settings .field > :is(.ui-select-trigger, .plugin-setting-select, .plugin-setting-input, .plugin-slider-row, .appearance-slider-row, .font-size-slider-row, textarea) { justify-self: stretch; width: 100%; min-width: 0; max-width: 100%; }
+.page-settings .field > input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='color']):not([type='file']):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset']) { justify-self: stretch; width: 100%; min-width: 0; max-width: 100%; }
 .page-settings .btn,
 .page-settings :is(.account-provider, .account-secondary, .account-pending-actions button, .account-pending-actions a, .account-error button) { box-sizing: border-box; min-height: var(--settings-control-h); height: var(--settings-control-h); padding: 0 14px; border-radius: 9px; font-size: calc(13px * var(--appearance-font-scale, 1)); line-height: 1; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .page-settings .btn { min-width: 72px; }
@@ -86,27 +93,35 @@
 .page-settings :is(.btn-ghost, .account-secondary, .account-pending-actions button, .account-pending-actions a, .account-error button):hover:not(:disabled),
 .page-settings .plugin-settings-card .field > .btn:not(.btn-primary):not(.btn-danger):hover:not(:disabled) { background: var(--surface-3); color: var(--text); border-color: color-mix(in srgb, var(--border-strong) 70%, var(--accent) 30%); }
 .page-settings :is(.btn-ghost, .account-secondary, .account-pending-actions button, .account-pending-actions a, .account-error button):active:not(:disabled) { background: var(--surface-3); border-color: var(--accent); }
-.page-settings :is(.account-secondary, .account-pending-actions button, .account-pending-actions a, .account-error button):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.page-settings :is(.account-secondary, .account-pending-actions button, .account-pending-actions a, .account-error button):focus-visible { outline: 2px solid transparent; outline-offset: 0; box-shadow: var(--focus-ring, 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent)); }
 .page-settings .account-error button { margin-left: 8px; }
-.page-settings :is(.btn, .chip, .ui-select-trigger, .color-swatch-btn, .switch, .font-slot-chip):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* 定尺控件的聚焦环：box-shadow 沿各自圆角贴合。
+   .btn 的静息态在下面被显式压成 box-shadow:none，因此这里必须同时给出聚焦环，
+   不能依赖 shellWidgets 的 .btn:focus-visible（同特异性且更早加载会被覆盖）。 */
+.page-settings :is(.chip, .ui-select-trigger, .color-swatch-btn, .switch, .font-slot-chip):focus-visible { outline: 2px solid transparent; outline-offset: 0; box-shadow: var(--focus-ring, 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent)); }
+.page-settings .btn:focus-visible { outline: 2px solid transparent; outline-offset: 0; box-shadow: var(--focus-ring, 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent)); }
 .page-settings :is(button, input):disabled { cursor: not-allowed; opacity: .5; }
 .page-settings .switch { width: 40px; height: 24px; min-width: 40px; padding: 0; }
 .page-settings .segmented { box-sizing: border-box; height: var(--settings-control-h); padding: 3px; margin: 0; gap: 3px; }
 .page-settings .segmented button { box-sizing: border-box; height: 28px; min-height: 28px; padding: 0 12px; font-size: calc(13px * var(--appearance-font-scale, 1)); display: inline-flex; align-items: center; justify-content: center; }
 .page-settings :is(.chip, .font-slot-chip) { box-sizing: border-box; min-height: var(--settings-control-h); height: var(--settings-control-h); padding: 0 12px; border-radius: 9px; font-size: calc(13px * var(--appearance-font-scale, 1)); }
 .page-settings .ui-select-trigger,
-.page-settings input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='file']) { box-sizing: border-box; height: var(--settings-control-h); min-height: var(--settings-control-h); min-width: 0; max-width: 100%; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 9px; background: var(--surface-2); color: var(--text); font: inherit; font-size: calc(13px * var(--appearance-font-scale, 1)); line-height: 1.5; position: static; }
-.page-settings input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='file']):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); }
+.page-settings input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='file']) { box-sizing: border-box; height: var(--settings-control-h); min-height: var(--settings-control-h); min-width: 0; max-width: 100%; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 9px; background: var(--surface-2); color: var(--text); font: inherit; font-size: calc(13px * var(--appearance-font-scale, 1)); line-height: 1.5; position: static; transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease; }
+/* 鼠标激活：只把边框收紧到强调色，不叠加粗环（此前的矩形 outline 是"加粗很丑"的来源）。 */
+.page-settings :is(.ui-select-trigger, input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='file'])):focus { outline: none; border-color: color-mix(in srgb, var(--accent) 72%, var(--border-strong)); }
+/* 键盘聚焦：边框 + 沿圆角贴合的柔光环；outline 置透明只为 forced-colors 保留可见描边。 */
+.page-settings :is(.ui-select-trigger, input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='file'])):focus-visible { outline: 2px solid transparent; outline-offset: 0; border-color: var(--accent); box-shadow: var(--focus-ring, 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent)); }
 .page-settings input[type='number'] { appearance: textfield; font-variant-numeric: tabular-nums; }
 .page-settings input::-webkit-inner-spin-button,
 .page-settings input::-webkit-outer-spin-button { appearance: none; margin: 0; }
 .page-settings input[type='range'] { appearance: none; width: var(--settings-control-width); min-width: 0; max-width: 100%; height: 4px; margin: 12px 0; padding: 0; border: 0; border-radius: 4px; background: var(--surface-3); cursor: pointer; }
 .page-settings input[type='range']::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border-strong); }
-.page-settings input[type='range']:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+.page-settings input[type='range']:focus-visible { outline: 2px solid transparent; outline-offset: 0; }
+.page-settings input[type='range']:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 1px var(--border-strong), var(--focus-ring, 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent)); }
 .page-settings input[type='checkbox'] { appearance: none; display: grid; place-items: center; width: 16px; height: 16px; padding: 0; margin: 0; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface); }
 .page-settings input[type='checkbox']:checked { background: var(--accent); border-color: var(--accent); }
 .page-settings input[type='checkbox']:checked::after { content: ''; width: 7px; height: 4px; border: solid var(--surface); border-width: 0 0 2px 2px; transform: rotate(-45deg) translateY(-1px); }
-.page-settings input[type='checkbox']:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.page-settings input[type='checkbox']:focus-visible { outline: 2px solid transparent; outline-offset: 0; box-shadow: var(--focus-ring, 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent)); }
 .page-settings .path-actions { width: 100%; max-width: 100%; gap: 8px; }
 .page-settings .path-text { box-sizing: border-box; display: block; height: var(--settings-control-h); line-height: 34px; padding: 0 10px; font-size: calc(12px * var(--appearance-font-scale, 1)); }
 .page-settings .proxy-row { width: 100%; max-width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 88px; gap: 8px; }
@@ -165,7 +180,9 @@
 @media (max-width: 760px) {
   .page-settings .settings-shell { padding: 24px 16px 80px; }
   .page-settings .s-card { padding: 20px; }
-  .page-settings .field { grid-template-columns: minmax(0, 1fr) minmax(0, 240px); gap: 16px; }
+  /* 右列收窄同样走变量，宿主与插件设置项保持一致。 */
+  .page-settings { --settings-control-width: 240px; }
+  .page-settings .field { grid-template-columns: minmax(0, 1fr) minmax(0, var(--settings-control-width)); gap: 16px; }
   .page-settings .dev-plugin-item { flex-wrap: wrap; }
   .page-settings .dev-plugin-actions { width: 100%; justify-content: flex-end; }
 }
@@ -173,7 +190,7 @@
   .page-settings .field { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .page-settings .field > :nth-child(2) { justify-self: start; }
   .page-settings .field:has(> .switch) { grid-template-columns: minmax(0, 1fr) auto; }
-  .page-settings .field :is(.ui-select, .plugin-setting-input, .plugin-slider-row, .font-size-slider-row),
+  .page-settings .field :is(.ui-select, .plugin-setting-input, .plugin-setting-select, .plugin-slider-row, .font-size-slider-row),
   .page-settings .field > input[type='range'] { width: 100%; }
   .page-settings .path-text { flex-basis: auto; }
   .page-settings .bg-effects-heading { flex-wrap: wrap; }
@@ -181,21 +198,166 @@
   .page-settings .account-card { padding: 24px; }
 }
 
-/* —— 打开方式（DefaultAppsSection）—— */
-.s-card h2 .open-with-system-btn {
-  margin-left: 10px;
-  font-weight: 400;
+/* —— 打开方式（DefaultAppsSection）——
+   结构：标题右侧同尺寸图标按钮（+ / 系统默认应用设置）；列表固定最大高度内滚动；
+   每行「类型 + 状态 + 移除」标题行，下面是可多选的关联插件。 */
+.open-with-section { --open-with-list-max-h: 340px; --open-with-icon-size: 32px; }
+.open-with-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+/* 标题与图标按钮同行：卡片默认的 h2 下边距交给 .open-with-head 统一控制 */
+.open-with-section .open-with-head h2 { margin: 0; }
+.open-with-head-actions { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+/* 图标按钮：+ 与系统默认应用设置同尺寸，和 .btn-ghost 同语言但压成方块 */
+.open-with-section .open-with-icon-btn.btn {
+  box-sizing: border-box;
+  width: var(--open-with-icon-size);
+  height: var(--open-with-icon-size);
+  min-width: var(--open-with-icon-size);
+  min-height: var(--open-with-icon-size);
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text-2);
+  box-shadow: none;
+}
+.open-with-section .open-with-icon-btn.btn:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--border-strong) 70%, var(--accent) 30%);
+}
+.open-with-hint { margin: 0 0 12px; color: var(--text-3); font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.5; }
+.open-with-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: var(--open-with-list-max-h);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-inline-end: 4px;
+}
+.open-with-row { margin: 0; padding: 0; }
+.open-with-row-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.open-with-row.is-draft .open-with-row-body {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+}
+.open-with-row-main { display: flex; align-items: flex-start; gap: 12px; flex: 1 1 auto; min-width: 0; }
+.open-with-type-cell { flex: 0 0 auto; min-width: 0; max-width: 46%; }
+.open-with-provider-cell { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-end; }
+.open-with-type-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.open-with-type {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(13px * var(--appearance-font-scale, 1));
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-all;
 }
 .open-with-chip {
-  display: inline-block;
-  margin-left: 8px;
+  flex: 0 0 auto;
   padding: 1px 8px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 500;
-  vertical-align: 1px;
 }
 .open-with-chip--ok { color: var(--ok, #2e9e5b); background: color-mix(in srgb, var(--ok, #2e9e5b) 12%, transparent); }
 .open-with-chip--warn { color: var(--warn, #b8860b); background: color-mix(in srgb, var(--warn, #b8860b) 12%, transparent); }
-.open-with-chip--muted { color: var(--text-dim, #888); background: color-mix(in srgb, var(--text-dim, #888) 12%, transparent); }
-.open-with-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.open-with-chip--muted { color: var(--text-3); background: color-mix(in srgb, var(--text-3) 12%, transparent); }
+/* 移除按钮平时极淡，行内 hover 才显眼（键盘聚焦同样可见） */
+.open-with-section .open-with-remove.btn {
+  color: var(--text-3);
+  border-color: transparent;
+  background: transparent;
+  opacity: 0.45;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+.open-with-section .open-with-row:hover .open-with-remove.btn,
+.open-with-section .open-with-remove.btn:hover:not(:disabled),
+.open-with-section .open-with-remove.btn:focus-visible { opacity: 1; }
+.open-with-section .open-with-remove.btn:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+  background: var(--danger-soft);
+}
+.open-with-row-desc { margin: 4px 0 0; color: var(--text-3); font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.5; }
+.open-with-providers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.open-with-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  flex: 0 0 auto;
+}
+.open-with-provider.is-default { border-color: color-mix(in srgb, var(--accent) 48%, var(--border-strong)); background: var(--accent-soft); }
+.open-with-provider.is-off { opacity: 0.6; }
+.open-with-provider-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  color: var(--text-2);
+}
+.open-with-provider.is-default .open-with-provider-name { color: var(--text); font-weight: 550; }
+.open-with-primary {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+}
+.open-with-provider-note { font-size: 11px; color: var(--text-3); }
+.open-with-section .open-with-default-btn.btn {
+  height: 22px;
+  min-height: 22px;
+  min-width: 0;
+  padding: 0 8px;
+  border-radius: 999px;
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  font-size: calc(11px * var(--appearance-font-scale, 1));
+}
+.open-with-section .open-with-draft-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.open-with-section .open-with-draft-head .open-with-remove.btn { margin-left: auto; }
+.open-with-row.is-draft .open-with-providers { justify-content: flex-start; }
+.open-with-row.is-draft .open-with-draft-actions { padding-top: 4px; }
+.open-with-section .open-with-type-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.open-with-type-affix { color: var(--text-3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.open-with-type-input { flex: 1 1 auto; min-width: 0; }
+.open-with-note { margin: 0; font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.5; }
+.open-with-note.is-error { color: var(--danger); }
+.open-with-draft-actions { display: flex; justify-content: flex-end; gap: 8px; }

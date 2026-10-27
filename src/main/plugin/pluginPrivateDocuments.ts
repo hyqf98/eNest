@@ -1,8 +1,9 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, mkdir, open, readdir, realpath, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { getAppPaths } from '@main/paths/pathsService'
+import { pluginDataDir as root } from './pluginPrivatePaths'
 
 export interface PrivateDocumentOwner {
   readonly pluginId: string
@@ -27,9 +28,6 @@ function key(value: string): string {
   if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) throw new Error('Invalid private storage key')
   return value
 }
-function root(pluginId: string): string {
-  return join(getAppPaths().data, 'plugin-documents', createHash('sha256').update(pluginId).digest('hex'))
-}
 async function directory(owner: PrivateDocumentOwner, kind: 'documents' | 'blobs'): Promise<string> {
   assertOwner(owner)
   const base = root(owner.pluginId), result = join(base, kind)
@@ -42,7 +40,7 @@ async function directory(owner: PrivateDocumentOwner, kind: 'documents' | 'blobs
   }
   const canonical = await realpath(result)
   assertOwner(owner)
-  if (canonical !== join(dataRoot, 'plugin-documents', createHash('sha256').update(owner.pluginId).digest('hex'), kind)) throw new Error('Private storage directory is not canonical')
+  if (canonical !== join(root(owner.pluginId, dataRoot), kind)) throw new Error('Private storage directory is not canonical')
   return result
 }
 async function readBounded(path: string, maximum: number, owner: PrivateDocumentOwner): Promise<Buffer | null> {

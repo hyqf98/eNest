@@ -1,5 +1,5 @@
 /** Legacy module now only owns Quick search preferences; shortcut bindings live separately. */
-import type { PluginLaunchConfig, PluginLaunchMode, PluginLaunchPatch, PluginLaunchSettings } from '@shared/types/plugin'
+import type { PluginLaunchConfig, PluginLaunchPatch, PluginLaunchSettings } from '@shared/types/plugin'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { sendShellEvent } from '@main/window/createShellWindow'
 import {
@@ -9,10 +9,6 @@ import {
 
 export function getPluginLaunchSettings(): PluginLaunchSettings { return settingsStore.getPluginLaunchSettings() }
 export function getPluginLaunch(pluginId: string): PluginLaunchConfig | undefined { return settingsStore.getPluginLaunchConfig(pluginId) }
-export function resolveLaunchMode(pluginId: string): PluginLaunchMode | undefined {
-  const mode = getPluginLaunch(pluginId)?.mode
-  return mode === 'quick' || mode === 'shell' ? mode : undefined
-}
 export function getPluginLaunchAliasRevision(): number { return settingsStore.getPluginLaunchRevision() }
 export function getPluginLaunchAliases(pluginId: string): string[] {
   const aliases = getPluginLaunch(pluginId)?.aliases

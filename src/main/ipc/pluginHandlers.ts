@@ -33,16 +33,20 @@ import type {
   PluginPermission,
   PluginPermissionGrant,
   ScreenBounds,
+  SettingsSectionContribution,
   ThemePack
 } from '@shared/types/plugin'
 import { resolvePluginUi } from '@shared/types/plugin'
 import {
   clearPluginStorage,
+  commitPluginStorage,
+  flushPluginStorage,
   getPluginStorageValue,
   initPluginStorage,
   removePluginStorageValue,
   setPluginStorageValue
 } from '@main/db/pluginStorage'
+import type { PluginStorageOperation } from '@shared/types/storage'
 import { assertPermission } from '@main/plugin/PluginPermissions'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { hideQuickWindow } from '@main/window/createQuickWindow'
@@ -97,7 +101,7 @@ import { vaultSet, vaultHas, vaultRemove } from '@main/vault/secretVault'
 import { assertInteractive, interactionError, interactionErrorCode, isNonInteractive, runHostRpc, trackHostRpc } from '@main/plugin/pluginInteractionPolicy'
 
 /** method → 所需权限映射；null 表示无需权限（settings.get/set 由 Bridge 管控 key 白名单） */
-const runtimeLeases = new Map<string, { release: () => void; unregister: () => void; pluginId: string }>()
+const runtimeLeases = new Map<string, { release: () => void; unregister: () => void; scope: PluginRuntimeScope }>()
 const CLOSE_SAFE = /^(storage\.|files\.stream\.(write|finish|abort)$|auxiliary\.(send|close)$|runtime\.release$|backend\.stop$|net\.socket\.close$)/
 
 const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
@@ -146,6 +150,8 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'storage.set': 'storage.local',
   'storage.remove': 'storage.local',
   'storage.clear': 'storage.local',
+  'storage.flush': 'storage.local',
+  'storage.commit': 'storage.local',
   // 会话态存储：权限复用 storage.local（弱于持久化，无需单独声明）
   'storage.session.get': 'storage.local',
   'storage.session.set': 'storage.local',
@@ -351,18 +357,20 @@ async function dispatch(
     case 'backend.stop': return stopPluginBackend(pluginId)
     case 'runtime.acquire': {
       const scope = getRuntimeScope(pluginId)
-      if (!scope || scope.isClosing) throw new Error('plugin runtime unavailable')
+      if (!scope?.isCurrent() || scope.isClosing || scope.signal.aborted) throw new Error('plugin runtime unavailable')
+      if (args[0] !== undefined && (typeof args[0] !== 'string' || args[0].length > 160)) throw new Error('runtime reason must be a string of at most 160 characters')
+      if (runtimeLeases.size >= 4096 || [...runtimeLeases.values()].filter(lease => lease.scope === scope).length >= 128) throw new Error('runtime activity lease limit reached')
       const token = randomUUID()
       const release = scope.acquireActivity(String(args[0] ?? 'plugin task'))
       const unregister = scope.addDisposer(() => { release(); runtimeLeases.delete(token) })
-      runtimeLeases.set(token, { release, unregister, pluginId })
+      runtimeLeases.set(token, { release, unregister, scope })
       return token
     }
     case 'runtime.release': {
       const token = String(args[0] ?? '')
       const lease = runtimeLeases.get(token)
-      if (lease?.pluginId === pluginId) { lease.release(); lease.unregister(); runtimeLeases.delete(token) }
-      return true
+      if (lease && lease.scope === getRuntimeScope(pluginId)) { lease.release(); lease.unregister(); runtimeLeases.delete(token) }
+      return undefined
     }
 
     case 'ui.openInShell':
@@ -436,21 +444,13 @@ async function dispatch(
       return true
     }
     case 'settings.register': {
-      const section = args[0] as {
-        id: string
-        title: string
-        items: Array<{
-          key: string
-          type: string
-          label: string
-          default?: unknown
-        }>
-      }
+      const section = args[0] as SettingsSectionContribution
       if (!section?.id || !section.title) throw new Error('invalid settings section')
       const items = Array.isArray(section.items) ? section.items.filter(item => isPluginSettingKey(item?.key)) : []
       pluginSettingsBridge.register(pluginId, {
         id: section.id,
         title: section.title,
+        schemaVersion: section.schemaVersion,
         items
       })
       // 用已持久化值覆盖 bridge 中的 default，保证重启后 settings.get 读到上次写入
@@ -479,8 +479,8 @@ async function dispatch(
       if (!pluginSettingsBridge.isWritableKey(pluginId, key)) {
         throw new Error(`unknown settings key: ${key}`)
       }
-      pluginSettingsBridge.set(pluginId, key, value)
       await settingsStore.setPluginSetting(pluginId, key, value)
+      pluginSettingsBridge.set(pluginId, key, value)
       refreshPluginBackgrounds()
       pluginHost.sendEvent(pluginId, { type: 'settings-change', key, value })
       sendShellEvent({ type: 'plugin-settings-changed', pluginId })
@@ -505,6 +505,8 @@ async function dispatch(
       clearPluginStorage(pluginId)
       return true
     }
+    case 'storage.flush': return flushPluginStorage(pluginId)
+    case 'storage.commit': return commitPluginStorage(pluginId, args[0] as PluginStorageOperation[])
     case 'storage.session.get': {
       const key = String(args[0] ?? '')
       return getSessionValue(pluginId, key)
@@ -621,6 +623,11 @@ async function dispatch(
     case 'net.websocket.send': return websocketSend(pluginId, String(args[0]), args[1] as string, args[2] as boolean | undefined)
     case 'net.websocket.close': return websocketClose(pluginId, String(args[0]))
     case 'net.fetch': {
+      const requestScope = getRuntimeScope(pluginId)
+      const assertRequestCurrent = (): void => {
+        if (!requestScope?.isCurrent() || requestScope.isClosing || requestScope.signal.aborted) throw new Error('plugin runtime closed')
+      }
+      assertRequestCurrent()
       const req = (args[0] ?? {}) as {
         url?: string
         method?: string
@@ -648,7 +655,8 @@ async function dispatch(
       const requestHeaders: Record<string, string> = { ...(req.headers ?? {}) }
       if (req.auth && typeof req.auth.secretRef === 'string' && req.auth.secretRef) {
         const { resolveSecret } = await import('@main/vault/secretVault')
-        const secret = resolveSecret(pluginId, req.auth.secretRef.slice(0, 512))
+        const secret = await resolveSecret(pluginId, req.auth.secretRef.slice(0, 512), assertRequestCurrent)
+        assertRequestCurrent()
         if (!secret) throw new Error('vault secret not found; re-enter the credential in plugin settings')
         const header = (req.auth.header ?? 'authorization').toLowerCase()
         const scheme = req.auth.scheme ?? 'bearer'
@@ -663,8 +671,8 @@ async function dispatch(
       }
       const timeoutMs = Math.min(120_000, Math.max(1_000, req.timeoutMs ?? NET_FETCH_DEFAULT_TIMEOUT))
       const controller = new AbortController()
-      const scope = getRuntimeScope(pluginId)
-      if (!scope || scope.signal.aborted) throw new Error('plugin runtime closed')
+      assertRequestCurrent()
+      const scope = requestScope!
       const abort = () => controller.abort()
       scope.signal.addEventListener('abort', abort, { once: true })
       if ((netFetchCounts.get(scope) ?? 0) >= 8) { scope.signal.removeEventListener('abort', abort); throw new Error('network request limit (8) reached') }
@@ -788,9 +796,9 @@ async function dispatch(
     case 'theme.register': {
       const pack = args[0] as ThemePack
       // 来源强制绑定当前插件 id，防伪造他人/内置来源（覆盖保护在 registry 内做）
-      const saved = await themePackRegistry.registerPlugin(pack, pluginId)
-      sendShellEvent({ type: 'theme-packs-changed' })
-      return saved
+      const saved = await themePackRegistry.registerPluginWithStatus(pack, pluginId)
+      if (saved.changed) sendShellEvent({ type: 'theme-packs-changed' })
+      return saved.pack
     }
     case 'theme.getTokens': {
       // 按插件 manifest.ui.preferredColorScheme 解析最终 Token
@@ -839,7 +847,10 @@ async function dispatch(
     case 'vault.set': {
       const key = String(args[0] ?? '')
       const secret = args[1]
-      return vaultSet(pluginId, key, String(secret ?? ''))
+      const scope = getRuntimeScope(pluginId)
+      return vaultSet(pluginId, key, String(secret ?? ''), () => {
+        if (!scope?.isCurrent() || scope.isClosing || scope.signal.aborted) throw new Error('plugin runtime is closing or stale')
+      })
     }
     case 'vault.has': {
       return vaultHas(pluginId, String(args[0] ?? ''))

@@ -4,7 +4,7 @@
 
 ## 工程准备
 
-使用插件仓库的 workspace 工程，或者遵循[标准目录](structure.md)创建 `com.example.notes/`。Node 版本需满足仓库 package.json 和 Vite 的要求。React、Vue、vanilla 只影响前端编译，不改变包格式。
+使用插件仓库的 workspace 工程，或者遵循[标准目录](structure.md)创建 `notes/`，完整插件 ID 为 `com.example.notes`。Node 版本需满足仓库 package.json 和 Vite 的要求。React、Vue、vanilla 只影响前端编译，不改变包格式。
 
 ```json
 {
@@ -21,13 +21,13 @@
 }
 ```
 
-`development.main`（或 `package.json` 的 `enest.dev.url`）端口须与启动脚本一致且全仓唯一；未运行时壳会按插件 `package.json` 解析出的命令（锁文件检测包管理器，缺省 npm）自动拉起（端口被占自动换用空闲端口）。这个便笺只使用本插件私有存储，无需敏感权限。插件可以自行组合页面和业务算法；只有使用文件、网络等敏感宿主能力时，才在 `permissions` 中声明对应项。
+`development.main`（或 `package.json` 的 `enest.dev.url`）端口须与启动脚本一致且全仓唯一；未运行时壳会按插件 `package.json` 解析出的命令（锁文件检测包管理器，缺省 npm）自动拉起（端口被占自动换用空闲端口）。这个便笺只使用本插件私有存储，无需敏感权限。网络、剪贴板等敏感能力须声明对应权限；用户文件选择由宿主原生选择器授权，不因此要求通用文件权限框。详见[权限说明](permissions.md)。
 
 原生 JS + Vite 示例的 `package.json`：
 
 ```json
 {
-  "name": "com.example.notes", "private": true, "version": "0.1.0", "type": "module",
+  "name": "notes", "private": true, "version": "0.1.0", "type": "module",
   "scripts": { "dev": "vite --host 0.0.0.0", "build": "vite build --base ./" },
   "devDependencies": { "vite": "^8.3.4" }
 }
@@ -53,17 +53,20 @@ const status = document.querySelector('#status')
 note.value = await window.enest.storage.get('note') ?? ''
 document.querySelector('#save').addEventListener('click', async () => {
   try {
-    await window.enest.storage.set('note', note.value)
+    if (typeof window.enest.storage.commit !== 'function') {
+      throw new Error('当前 eNest 不支持持久提交回执，请升级宿主后保存')
+    }
+    await window.enest.storage.commit([{ op: 'set', key: 'note', value: note.value }])
     status.textContent = '已保存'
   } catch (error) { status.textContent = error.message }
 })
 ```
 
-本例是 Vite 入口。完全静态预览时把脚本路径改成 `./src/main.js`。主页面不要用内联脚本，不要把未授予权限错误改成原生浏览器 API 回退。
+本例是 Vite 入口。完全静态预览时把脚本路径改成 `./src/main.js`。保存使用显式 `commit`，不能把 `storage.set` 的排队成功误写为已持久保存；失败或回执不确定按[存储标准](storage.md)处理。主页面不要用内联脚本，不要把未授予权限错误改成原生浏览器 API 回退。
 
 ## 开发与发布
 
-执行 `npm run dev`（壳也会按 package.json 自动拉起），在壳开发者页选择源码目录，页面自动打开。Vite HMR 保留当前视图；切换 prod（正式包）模式可验证构建产物。详情见[开发加载](debug.md)。构建需 `base: './'`、`outDir: 'dist'`，并将去掉 development 的 manifest 写入 dist。仓库构建器会完成这些步骤。
+执行 `npm run dev`（壳也会按 package.json 自动拉起），在壳开发者页选择源码目录，页面自动打开。Vite HMR 保留当前视图；开发者控制台只有开发模式，按 `package.json` 自动识别框架或静态 HTML。要验证构建产物，先 `npm run build`，让开发服务离线后重新加载，壳按产物目录预览。详情见[开发加载](debug.md)。构建需 `base: './'`、`outDir: 'dist'`，并将去掉 development 的 manifest 写入 dist。仓库构建器会完成这些步骤。
 
 发布前补真实截图，执行 manifest、产物和包校验，在壳内验证 Quick 与主窗、浅深主题、授权拒绝及重新进入。运行截图放在 `public/assets/market/screenshots/` 并声明到 manifest；不要用设计稿替代实际功能截图。
 

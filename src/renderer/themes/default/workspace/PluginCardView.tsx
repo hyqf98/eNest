@@ -1,5 +1,5 @@
 /** 市场目录卡片：真实插件信息、安装/打开与已安装管理操作。 */
-import { useRef, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import type { PluginPresentation } from './pluginPresentation'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { ICON_STROKE_WIDTH, Trash2Icon } from '@renderer/components/icons'
@@ -15,7 +15,7 @@ export interface PluginCardViewProps {
   onSetEnabled?: (id: string, enabled: boolean) => Promise<void>
 }
 
-export function PluginCardView({ plugin, onOpen, onDetail, onUninstall, onSetEnabled }: PluginCardViewProps) {
+export const PluginCardView = memo(function PluginCardView({ plugin, onOpen, onDetail, onUninstall, onSetEnabled }: PluginCardViewProps) {
   const cardRef = useRef<HTMLElement>(null)
   const { t, locale } = useI18n()
   const [uninstalling, setUninstalling] = useState(false)
@@ -163,4 +163,4 @@ export function PluginCardView({ plugin, onOpen, onDetail, onUninstall, onSetEna
       </div>
     </article>
   )
-}
+})

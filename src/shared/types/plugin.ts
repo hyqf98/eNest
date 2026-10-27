@@ -431,9 +431,9 @@ export interface PluginSummary {
   sourcePath?: string
   /** 开发态插件（开发者控制台加载，未复制到 userData） */
   dev?: boolean
-  /** dev 插件当前选择的模式：dev（HMR/源码）或 prod（构建产物正式形态） */
-  devMode?: 'dev' | 'prod'
-  /** 解析出的启动/构建命令标签（如 `pnpm run dev`），开发者控制台展示 */
+  /** 宿主按源码自动识别的开发形态；不是用户可选开关 */
+  devKind?: DevPluginKind
+  /** 实际连接的开发服务的启动命令标签（如 `pnpm run dev`），仅开发服务生效时展示 */
   devCommand?: string
   /** 已归一的 UI 配置（供壳子 chrome / 主题注入使用） */
   ui: PluginUiConfig
@@ -454,6 +454,12 @@ export interface PluginMarketStatus {
 
 /** 插件本地开发使用的包管理器：package.json enest 段声明，或锁文件自动检测；兜底 npm。 */
 export type DevPackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun'
+
+/**
+ * 宿主自动识别的开发形态，只用于展示与提示，不是可切换的开发模式。
+ * static＝没有开发服务，直接按源码目录静态预览。
+ */
+export type DevPluginKind = 'vite' | 'next' | 'nuxt' | 'webpack' | 'custom' | 'static'
 
 /** package.json `enest` 段的命令声明（dev / build 共用形状）；壳子只解析执行，不预设工具链。 */
 export interface EnestCommandConfig {
@@ -497,16 +503,14 @@ export interface DevCommandPlan {
   devUrl?: string
   start?: DevCommandSpec
   build?: DevCommandSpec
+  /** package.json 依赖/命令推断出的框架；静态判定由调用方在无服务时落 'static'。 */
+  framework: DevPluginKind
   output: string
 }
 
 /** Developer registration. An empty URL explicitly selects static source preview. */
 export interface DevPluginLoadOptions {
   url?: string
-  /** dev（默认）＝开发服务 HMR 或源码静态预览；prod＝构建产物按正式安装路径加载。 */
-  mode?: 'dev' | 'prod'
-  /** 旧字段兼容：'dist' 等价 mode 'prod'。 */
-  preview?: 'source' | 'dist'
   /** 声明的开发服务未运行时自动执行解析出的启动命令并等待就绪；运行时行为，不入 dev.json。 */
   autoStartServer?: boolean
 }
@@ -771,6 +775,29 @@ export interface AppPaths {
   themes: string
   settings: string
   database: string
+}
+
+/** 插件填写的路径基准：home=用户目录，data=该插件持久化目录，cwd=进程工作目录 */
+export type PluginPathBase = 'home' | 'data' | 'cwd'
+
+export interface PluginPathResolveInput {
+  /** 用户输入或插件配置里的路径；支持 `~`、`~/x`、`./x` 与裸相对写法 */
+  input: string
+  /** 相对路径的基准，缺省 home（`./` 与裸相对路径都按此展开） */
+  base?: PluginPathBase
+}
+
+export interface PluginPathResolveResult {
+  /** 归一化后的绝对路径；解析失败为 null */
+  path: string | null
+  /** 输入是否本来就是绝对路径 */
+  absolute: boolean
+  /** 实际使用的基准目录（home / data / cwd 之一对应的绝对路径） */
+  base: string
+  /** 目标是否存在（只读探测，不创建） */
+  exists: boolean
+  /** 失败原因（面向用户，可直接展示） */
+  error?: string
 }
 
 /** 每插件快捷启动配置表（SettingsData.pluginLaunch；键 = pluginId） */

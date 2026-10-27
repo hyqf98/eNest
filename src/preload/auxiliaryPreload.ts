@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IpcChannels } from '@shared/types/ipc'
+import * as IpcChannels from '@shared/types/ipc'
 import type { AuxiliaryPageApi } from '@shared/types/auxiliary'
 
 const api: AuxiliaryPageApi = {

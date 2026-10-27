@@ -2,12 +2,32 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } fr
 import type { NotificationItem, NotificationPosition } from '@shared/types/notification'
 import { safeNotificationLink } from '@shared/notification'
 import { notifyStore } from '@renderer/services/notifyService'
-import { sanitizeNotificationHtml } from '@renderer/services/notificationContent'
+import { notificationPlainText, sanitizeNotificationHtml } from '@renderer/services/notificationContent'
 import { notifyIn, notifyOut, cancelNotifyMotion } from '@renderer/gsap/marketMotion'
 import { MarkdownView } from './MarkdownView'
 import '@renderer/styles/notification.css'
 
 const LABELS = { info: '提示', success: '成功', warn: '注意', error: '错误' }
+
+/** Async clipboard can be denied by policy; the selection path still runs inside the click gesture. */
+async function copyPlainText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch { /* fall through to the legacy selection copy */ }
+  try {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.setAttribute('readonly', '')
+    area.setAttribute('aria-hidden', 'true')
+    area.style.cssText = 'position:fixed;top:0;left:-9999px;opacity:0'
+    document.body.append(area)
+    area.select()
+    const copied = document.execCommand('copy')
+    area.remove()
+    return copied
+  } catch { return false }
+}
 
 /** Shared by the native overlay and browser fallback; each card has its own pauseable clock. */
 export function NotificationCard({ item, onDismiss, visible = true, onOpenLink }: {
@@ -19,9 +39,11 @@ export function NotificationCard({ item, onDismiss, visible = true, onOpenLink }
   const ref = useRef<HTMLDivElement>(null)
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [documentVisible, setDocumentVisible] = useState(!document.hidden)
   const remaining = useRef(item.duration)
   const closing = useRef(false)
+  const copyTimer = useRef(0)
   const html = useMemo(() => item.format === 'html' ? sanitizeNotificationHtml(item.body) : '', [item.body, item.format])
   const dismiss = useCallback(() => {
     if (closing.current) return
@@ -29,12 +51,22 @@ export function NotificationCard({ item, onDismiss, visible = true, onOpenLink }
     if (ref.current) void notifyOut(ref.current).then(() => onDismiss(item.id))
     else onDismiss(item.id)
   }, [item.id, onDismiss])
+  const copy = useCallback(async () => {
+    const title = item.title || LABELS[item.level]
+    const text = notificationPlainText(item.body, item.format)
+    if (!await copyPlainText(text ? `${title}\n${text}` : title)) return
+    // Inline feedback only: pushing a new notification would recurse into this surface.
+    setCopied(true)
+    window.clearTimeout(copyTimer.current)
+    copyTimer.current = window.setTimeout(() => setCopied(false), 1200)
+  }, [item.body, item.format, item.level, item.title])
 
   useEffect(() => {
     const element = ref.current
     if (element) notifyIn(element, item.position)
     return () => { if (element) cancelNotifyMotion(element) }
   }, [item.id, item.position])
+  useEffect(() => () => window.clearTimeout(copyTimer.current), [])
   useEffect(() => {
     const changed = () => setDocumentVisible(!document.hidden)
     document.addEventListener('visibilitychange', changed)
@@ -68,7 +100,18 @@ export function NotificationCard({ item, onDismiss, visible = true, onOpenLink }
       </div>
       {item.duration === 0 && <div className="notify-hint">阅读后可关闭</div>}
     </div>
-    <button className="notify-close" type="button" aria-label="关闭通知" title="关闭通知（Esc）" onClick={dismiss}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="m7 7 10 10m0-10L7 17"/></svg></button>
+    {item.level === 'error'
+      ? <div className="notify-actions">
+        <button className="notify-action" type="button" aria-label={copied ? '已复制' : '复制错误'} title={copied ? '已复制' : '复制错误'} data-copied={copied || undefined} onClick={() => void copy()}>
+          <span className="notify-action-icon" aria-hidden="true">
+            {copied
+              ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+              : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="11" height="11" rx="2.4"/><path d="M15 5.6A1.6 1.6 0 0 0 13.4 4H5.6A1.6 1.6 0 0 0 4 5.6v7.8A1.6 1.6 0 0 0 5.6 15"/></svg>}
+          </span>
+        </button>
+        <button className="notify-close" type="button" aria-label="关闭通知" title="关闭通知（Esc）" onClick={dismiss}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="m7 7 10 10m0-10L7 17"/></svg></button>
+      </div>
+      : <button className="notify-close" type="button" aria-label="关闭通知" title="关闭通知（Esc）" onClick={dismiss}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="m7 7 10 10m0-10L7 17"/></svg></button>}
   </div>
 }
 

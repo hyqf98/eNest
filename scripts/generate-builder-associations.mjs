@@ -10,7 +10,8 @@
  *
  * 为什么不直接改 yml 生成产物：electron-builder 自动发现根目录 yml；本脚本以
  * 「快照 → 片段 → 校验」方式工作，改快照后手工把片段粘回 yml，check 防止两边漂移。
- * 第三方插件的新类型在 macOS 需随壳发版进入候选列表（Windows/Linux 运行时动态注册不受限）。
+ * 第三方插件的新类型在 macOS/Linux 仍需安装包声明；Windows 可运行时注册候选。
+ * Linux 还要求扩展名能解析到 MIME，不应把壳内路由成功当作系统注册完成。
  */
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -30,6 +31,11 @@ function yamlList(items, indent = '  ') {
 
 function buildFragment() {
   const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8'))
+  for (const entry of snapshot.fileAssociations) {
+    if (!/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(entry.mimeType ?? '')) {
+      throw new Error(`Missing or invalid mimeType for .${entry.ext}; Linux desktop registration requires it`)
+    }
+  }
   const lines = ['# —— 由 scripts/generate-builder-associations.mjs 生成（源：build/open-with.json），请勿手改 ——']
   lines.push('# macOS: Info.plist CFBundleURLTypes / CFBundleDocumentTypes；Windows: NSIS 注册；Linux: .desktop MimeType')
   lines.push('protocols:')

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IpcChannels } from '@shared/types/ipc'
+import * as IpcChannels from '@shared/types/ipc'
 import type { NotificationOverlayApi, NotificationOverlayState } from '@shared/types/notification'
 
 const api: NotificationOverlayApi = {

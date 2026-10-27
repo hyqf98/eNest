@@ -6,7 +6,7 @@ import ts from 'typescript'
 
 const sourceExtensions = /\.[cm]?[jt]sx?$/
 const noticeName = /^(?:licen[cs]e|copying|copyright|notice|third[-_ ]party)(?:$|[._ -])/i
-// Main is not scanned: opt-in native harness imports are not shipped runtime dependencies.
+// Bundled main devDependencies are explicit; ordinary runtime dependencies ship with their notices.
 const bundledMainPackages = ['undici']
 
 async function packageDirectory(name, fromDirectory) {
@@ -27,7 +27,7 @@ async function packageDirectory(name, fromDirectory) {
 export async function rendererPackages(sourceDir) {
   const packages = new Set()
   const add = name => {
-    if (/^(?:\.|\/|node:|@(?:renderer|shared|main|preload)\/)/.test(name)) return
+    if (/^(?:\.|\/|node:|@(?:renderer|shared|main|preload|test)\/)/.test(name)) return
     packages.add(name.startsWith('@') ? name.split('/').slice(0, 2).join('/') : name.split('/')[0])
   }
   const visitDirectory = async dir => {

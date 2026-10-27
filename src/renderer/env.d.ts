@@ -6,7 +6,7 @@
  * 供 shellApi 在 Electron / 浏览器 mock 两种环境下安全取用。
  */
 interface Window {
-  /** preload 桥接的 shell 能力；缺失时 shellApi 回退到 mock 实现 */
+  /** preload 桥接的 shell 能力；仅 DEV 浏览器预览可在缺失时使用独立夹具。 */
   enestShell?: import('@renderer/services/shellApi').ShellApi
   enestChrome?: import('@shared/types/themeChrome').ThemeChromeApi
   enestSettings?: import('@shared/types/themeSettings').EnestSettingsApi

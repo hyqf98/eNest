@@ -86,10 +86,6 @@ interface ShellState {
   startDebugPlugin: (pluginId: string) => Promise<void>
   stopDebugPlugin: (pluginId: string) => Promise<void>
   removeDevPlugin: (pluginId: string) => Promise<void>
-  /** dev/prod 模式切换：prod 首次进入自动构建，打开态原地重载 */
-  setDevPluginMode: (pluginId: string, mode: 'dev' | 'prod') => Promise<void>
-  /** prod 模式手动重建：执行解析出的构建命令并重载 */
-  rebuildDevPlugin: (pluginId: string) => Promise<void>
   reloadActivePlugin: () => Promise<void>
   openDevToolsActive: () => Promise<void>
 }
@@ -293,11 +289,9 @@ export const useShellStore = create<ShellState>((set, get) => ({
     }
   },
 
-  /** 开发态卸载：移出 dev 注册表并关闭视图（不删源码目录） */
+  /** 开发态卸载：主进程释放视图/开发服务/监听/后台/定时/路由并移出注册表（不删源码与插件数据） */
   removeDevPlugin: async (pluginId) => {
     try {
-      const tabId = `t-${pluginId}`
-      await shellApi.closePlugin(tabId).catch(() => undefined)
       await shellApi.forgetDevPlugin(pluginId)
       await get().refreshPlugins()
       get().appendLog('info', `[dev] removed ${pluginId}`)
@@ -305,34 +299,6 @@ export const useShellStore = create<ShellState>((set, get) => ({
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       toastStore.getState().push(`移除失败：${msg}`)
-    }
-  },
-
-  /** dev/prod 模式切换：记录持久化 + 打开态原地重载（prod 首次进入自动构建，日志面板可见进度） */
-  setDevPluginMode: async (pluginId, mode) => {
-    try {
-      await shellApi.setDevPluginMode(pluginId, mode)
-      await get().refreshPlugins()
-      get().appendLog('info', `[dev] mode ${mode} ${pluginId}`)
-      toastStore.getState().push(mode === 'prod' ? '已切换到正式包模式，产物就绪后自动加载' : '已切换到开发模式', 'success')
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      get().appendLog('warn', `[dev] mode switch failed: ${msg}`)
-      toastStore.getState().push(`模式切换失败：${msg}`)
-    }
-  },
-
-  /** prod 模式手动重建：执行插件 package.json 解析出的构建命令 */
-  rebuildDevPlugin: async (pluginId) => {
-    try {
-      get().appendLog('info', `[dev] rebuild ${pluginId}`)
-      await shellApi.rebuildDevPlugin(pluginId)
-      await get().refreshPlugins()
-      toastStore.getState().push('重建完成', 'success')
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      get().appendLog('warn', `[dev] rebuild failed: ${msg}`)
-      toastStore.getState().push(`重建失败：${msg}`)
     }
   },
 

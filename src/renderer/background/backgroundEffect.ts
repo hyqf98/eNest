@@ -1,6 +1,7 @@
 import type { AnimationLevel } from '@shared/types/plugin'
 import { parseThemeColor } from '@shared/theme/colors'
 import { BACKGROUND_FRAGMENT_SHADER, BACKGROUND_VERTEX_SHADER } from './shaders'
+import type { BackgroundResource } from './backgroundLifetime'
 
 export type BackgroundEffectPreset = 'fold' | 'aurora' | 'orbit' | 'ripple' | 'tunnel'
 
@@ -33,7 +34,7 @@ const QUALITY = {
 export function startBackgroundEffect(
   canvas: HTMLCanvasElement,
   options: BackgroundEffectOptions,
-): () => void {
+): BackgroundResource {
   const quality = QUALITY[options.level]
   const animate = quality.fps > 0 && !options.reducedMotion
     && (options.launch || (options.level !== 'low' && options.continuous !== false))
@@ -50,6 +51,14 @@ export function startBackgroundEffect(
   let resizeObserver: ResizeObserver | null = null
   let themeObserver: MutationObserver | null = null
   let disposed = false
+  let paused = false
+  let initialized = false
+  let initializing = false
+  let initializationFrame = 0
+  let compilationTimer: ReturnType<typeof setTimeout> | undefined
+  let compilationTimeout: ReturnType<typeof setTimeout> | undefined
+  let compilationDeadline = 0
+  let pollCompilation: (() => void) | undefined
   let frame = 0
   let focused = document.hasFocus()
   let rect = canvas.getBoundingClientRect()
@@ -78,6 +87,10 @@ export function startBackgroundEffect(
     if (disposed) return
     disposed = true
     stop()
+    cancelAnimationFrame(initializationFrame)
+    clearTimeout(compilationTimer)
+    clearTimeout(compilationTimeout)
+    pollCompilation = undefined
     resizeObserver?.disconnect()
     themeObserver?.disconnect()
     document.removeEventListener('visibilitychange', syncActivity)
@@ -112,7 +125,7 @@ export function startBackgroundEffect(
   }
 
   function draw(): void {
-    if (disposed || !gl || !drawable) return
+    if (disposed || paused || document.hidden || !initialized || !gl || !drawable) return
     const reveal = Math.max(0, Math.min(1, (age - 0.12) / revealDuration))
     gl.uniform2f(uniforms.pointer, pointerX, pointerY)
     gl.uniform1f(uniforms.time, elapsed)
@@ -122,7 +135,7 @@ export function startBackgroundEffect(
 
   function tick(now: number): void {
     frame = 0
-    if (disposed || document.hidden || !focused || !drawable) return
+    if (disposed || paused || document.hidden || !focused || !drawable) return
     const interval = 1000 / quality.fps
     if (!lastFrame || now + 0.5 >= nextFrame) {
       // Suspend elapsed time while hidden; a restored window never jumps ahead.
@@ -141,7 +154,7 @@ export function startBackgroundEffect(
 
   function syncActivity(): void {
     if (disposed) return
-    if (document.hidden || !focused || !drawable) {
+    if (paused || document.hidden || !focused || !drawable || !initialized) {
       stop()
       return
     }
@@ -160,7 +173,7 @@ export function startBackgroundEffect(
   }
 
   function onPointerMove(event: PointerEvent): void {
-    if (!drawable || document.hidden || !focused) return
+    if (paused || !drawable || document.hidden || !focused) return
     targetX = Math.max(-0.5, Math.min(0.5, (event.clientX - rect.left) / rect.width - 0.5))
     targetY = Math.max(-0.5, Math.min(0.5, 0.5 - (event.clientY - rect.top) / rect.height))
   }
@@ -209,79 +222,140 @@ export function startBackgroundEffect(
     if (!document.hidden) draw()
   }
 
-  try {
-    gl = canvas.getContext('webgl', {
-      alpha: false,
-      antialias: false,
-      depth: false,
-      stencil: false,
-      preserveDrawingBuffer: false,
-      powerPreference: 'low-power',
-    })
-    if (!gl || gl.isContextLost()) throw new Error('Background WebGL unavailable')
-    maxDimension = Math.min(4096, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number)
-    canvas.addEventListener('webglcontextlost', onContextLost)
-    const compile = (type: number, source: string): WebGLShader => {
-      const shader = gl!.createShader(type)
-      if (!shader) throw new Error('Background shader allocation failed')
-      shaders.push(shader)
-      gl!.shaderSource(shader, source)
-      gl!.compileShader(shader)
-      if (!gl!.getShaderParameter(shader, gl!.COMPILE_STATUS)) {
-        throw new Error(gl!.getShaderInfoLog(shader) ?? 'Background shader compilation failed')
+  function completeInitialization(): void {
+    if (disposed || !gl || !program) return
+    clearTimeout(compilationTimeout)
+    pollCompilation = undefined
+    try {
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error('Background program linking failed')
+      gl.useProgram(program)
+      buffer = gl.createBuffer()
+      if (!buffer) throw new Error('Background buffer allocation failed')
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW)
+      const position = gl.getAttribLocation(program, 'position')
+      if (position < 0) throw new Error('Background vertex attribute unavailable')
+      gl.enableVertexAttribArray(position)
+      gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0)
+      uniforms = Object.fromEntries([
+        'resolution', 'pointer', 'time', 'opening', 'baseColor',
+        'palette0', 'palette1', 'palette2', 'customPalette', 'lightTheme',
+      ].map((key) => [key, gl!.getUniformLocation(program!, key)]))
+      const palette = options.colors?.slice(0, 3).map(parseThemeColor)
+      const validPalette = palette?.length === 3 && palette.every(Boolean)
+      gl.uniform1f(uniforms.customPalette, validPalette ? 1 : 0)
+      if (validPalette) {
+        palette.forEach((color, index) => {
+          gl!.uniform3f(uniforms[`palette${index}`], color![0] / 255, color![1] / 255, color![2] / 255)
+        })
       }
-      return shader
-    }
-    // Constant mode lets the driver prune the four unused material functions.
-    const fragment = BACKGROUND_FRAGMENT_SHADER.replace(
-      'uniform float time,opening;',
-      `uniform float time,opening; const float mode=${PRESETS[options.preset]}.0;`,
-    )
-    const vertexShader = compile(gl.VERTEX_SHADER, BACKGROUND_VERTEX_SHADER)
-    const fragmentShader = compile(gl.FRAGMENT_SHADER, fragment)
-    program = gl.createProgram()
-    if (!program) throw new Error('Background program allocation failed')
-    gl.attachShader(program, vertexShader)
-    gl.attachShader(program, fragmentShader)
-    gl.linkProgram(program)
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      throw new Error(gl.getProgramInfoLog(program) ?? 'Background program linking failed')
-    }
-    gl.useProgram(program)
-    buffer = gl.createBuffer()
-    if (!buffer) throw new Error('Background buffer allocation failed')
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW)
-    const position = gl.getAttribLocation(program, 'position')
-    gl.enableVertexAttribArray(position)
-    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0)
-    uniforms = Object.fromEntries([
-      'resolution', 'pointer', 'time', 'opening', 'baseColor',
-      'palette0', 'palette1', 'palette2', 'customPalette', 'lightTheme',
-    ].map((key) => [key, gl!.getUniformLocation(program!, key)]))
-    const palette = options.colors?.slice(0, 3).map(parseThemeColor)
-    const validPalette = palette?.length === 3 && palette.every(Boolean)
-    gl.uniform1f(uniforms.customPalette, validPalette ? 1 : 0)
-    if (validPalette) {
-      palette.forEach((color, index) => {
-        gl!.uniform3f(uniforms[`palette${index}`], color![0] / 255, color![1] / 255, color![2] / 255)
-      })
-    }
-    refreshTheme()
-    resize()
-    resizeObserver = new ResizeObserver(resize)
-    resizeObserver.observe(canvas)
-    themeObserver = new MutationObserver(refreshTheme)
-    themeObserver.observe(root, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] })
-    document.addEventListener('visibilitychange', syncActivity)
-    window.addEventListener('focus', onFocus)
-    window.addEventListener('blur', onBlur)
-    if (animate && options.level !== 'low') {
-      window.addEventListener('pointermove', onPointerMove, { passive: true })
-      window.addEventListener('pointerout', onPointerOut, { passive: true })
-    }
-  } catch {
-    fail()
+      initialized = true
+      focused = document.hasFocus()
+      refreshTheme()
+      resize()
+      canvas.style.visibility = ''
+      resizeObserver = new ResizeObserver(resize)
+      resizeObserver.observe(canvas)
+      themeObserver = new MutationObserver(refreshTheme)
+      themeObserver.observe(root, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] })
+      document.addEventListener('visibilitychange', syncActivity)
+      window.addEventListener('focus', onFocus)
+      window.addEventListener('blur', onBlur)
+      if (animate && options.level !== 'low') {
+        window.addEventListener('pointermove', onPointerMove, { passive: true })
+        window.addEventListener('pointerout', onPointerOut, { passive: true })
+      }
+    } catch { fail() }
   }
-  return dispose
+
+  function initialize(): void {
+    initializationFrame = 0
+    if (disposed || paused || document.hidden || initializing) return
+    initializing = true
+    try {
+      gl = canvas.getContext('webgl', {
+        alpha: false,
+        antialias: false,
+        depth: false,
+        stencil: false,
+        preserveDrawingBuffer: false,
+        powerPreference: 'low-power',
+      })
+      if (!gl || gl.isContextLost()) throw new Error('Background WebGL unavailable')
+      maxDimension = Math.min(4096, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number)
+      const parallel = gl.getExtension('KHR_parallel_shader_compile')
+      canvas.addEventListener('webglcontextlost', onContextLost)
+      const compile = (type: number, source: string): WebGLShader => {
+        const shader = gl!.createShader(type)
+        if (!shader) throw new Error('Background shader allocation failed')
+        shaders.push(shader)
+        gl!.shaderSource(shader, source)
+        gl!.compileShader(shader)
+        return shader
+      }
+      // Constant mode lets the driver prune the four unused material functions.
+      const fragment = BACKGROUND_FRAGMENT_SHADER.replace(
+        'uniform float time,opening;',
+        `uniform float time,opening; const float mode=${PRESETS[options.preset]}.0;`,
+      )
+      const vertexShader = compile(gl.VERTEX_SHADER, BACKGROUND_VERTEX_SHADER)
+      const fragmentShader = compile(gl.FRAGMENT_SHADER, fragment)
+      program = gl.createProgram()
+      if (!program) throw new Error('Background program allocation failed')
+      gl.attachShader(program, vertexShader)
+      gl.attachShader(program, fragmentShader)
+      gl.linkProgram(program)
+      // Submit both shaders and linking before any status query. Completion polling
+      // avoids waiting on the driver where KHR_parallel_shader_compile is available.
+      if (parallel) {
+        // Hidden surfaces stop polling, but cannot keep an unfinished program
+        // alive beyond the same bounded initialization window.
+        compilationDeadline = performance.now() + 5_000
+        compilationTimeout = setTimeout(fail, 5_000)
+        pollCompilation = () => {
+          compilationTimer = undefined
+          if (disposed || !gl || !program) return
+          if (paused || document.hidden) return
+          if (performance.now() >= compilationDeadline) { fail(); return }
+          if (gl.isContextLost()) { fail(); return }
+          if (gl.getProgramParameter(program, parallel.COMPLETION_STATUS_KHR)) completeInitialization()
+          else compilationTimer = setTimeout(pollCompilation!, 16)
+        }
+        compilationTimer = setTimeout(pollCompilation, 0)
+      } else {
+        // This status read may still block without the extension; static paint has
+        // already happened, and background readiness never gates the Home handshake.
+        completeInitialization()
+      }
+    } catch { fail() }
+  }
+
+  function scheduleInitialization(): void {
+    if (disposed || initializing || initializationFrame || paused || document.hidden) return
+    // A full paint opportunity also lets StrictMode clean up its discarded setup
+    // before it creates a WebGL context.
+    initializationFrame = requestAnimationFrame(() => {
+      initializationFrame = requestAnimationFrame(initialize)
+    })
+  }
+  canvas.style.visibility = 'hidden'
+  scheduleInitialization()
+  return {
+    setPaused(value) {
+      if (disposed) return
+      paused = value
+      if (paused) {
+        cancelAnimationFrame(initializationFrame); initializationFrame = 0
+        clearTimeout(compilationTimer); compilationTimer = undefined
+        stop()
+      } else {
+        scheduleInitialization()
+        if (pollCompilation && compilationTimer === undefined) {
+          compilationTimer = setTimeout(pollCompilation, 0)
+        }
+        syncActivity()
+      }
+    },
+    dispose,
+  }
 }

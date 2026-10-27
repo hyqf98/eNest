@@ -2,9 +2,9 @@
 
 eNest 在普通插件主页面注入 **`window.enest`**，同时暴露别名 **`window.zapi`**（两者是同一个对象）。沙箱后台、辅助页和隔离主题页只获得各自的专用桥，不获得此完整 API。
 
-> **`zapi` 为 `@deprecated` 历史别名**：保留兼容，计划 v2 移除。新代码统一使用 `enest.*`；本地调试需要双名兜底时写 `window.enest`（壳子环境必有）。
+> **`zapi` 为 deprecated 历史别名**：当前保留兼容，新代码统一使用 `enest.*`。普通插件页面使用 `window.enest`；不要将别名当作旧宿主缺失新能力的兜底，也不承诺尚未发布的移除版本。
 
-所有能力调用统一进入主进程，完成 **窗口 / 主 frame / 精确 origin / 运行代次校验 → pluginId 匹配 → 基础能力放行 / 敏感能力授权 → 方法分发** 四步。
+跨进程能力调用进入主进程，完成 **窗口 / 主 frame / 精确 origin / 运行代次校验 → pluginId 匹配 → 基础能力放行 / 敏感能力授权 → 方法分发**。同步读取当前模式、注册本地事件监听等 preload 操作不因此获得新的原生权限。
 
 ```js
 const api = window.enest
@@ -19,6 +19,12 @@ const api = window.enest
 普通插件页面使用 `window.enest`；Workspace 使用专用 `window.enestWorkspace`；V2 主题包声明 `quick: { version: 1, entry }` 的 Quick 页面只获得 **`window.enestQuick`**，不可复用普通插件或壳子 API。
 
 `enestQuick.ready()` 通知首帧就绪；`getState()` 与 `onState(listener)` 获取当次展示快照；`onFocus(listener)` 处理宿主焦点请求；`action(request)` 提交受限查询、过滤、选中、打开、展开、市场入口、隐藏、业务插件返回／固定／聚焦及有界布局请求。`state.read()/state.write(value, expectedRevision)` 提供当前提供者有界 JSON/CAS 私有存储；目录 `stateKey` 与成功启动 `opened` 回执供其实现自己的近期/偏好模型，不接受 stable key 作为启动授权。结果 ID 是短期不透明句柄；真实启动请求、文件路径、全量设置与其它提供者历史不出桥。主题页不能凭自己发送的按键消息伪造用户授权。详细声明、可运行示例、原生几何限制及失败回退见[主题包标准](themes.md#quick-自绘页面-v1)，参数以自动生成的 `EnestQuickApi` 为准。
+
+主题自绘设置页使用 `window.enestSettings` 的 `ready/getState/onState/action`，只获得安全字段描述符与可进入的原生分组；Workspace 没有完整设置读取权。主题导航使用 `window.enestChrome`，不能通过该桥获得普通插件的业务能力。各桥的入口、手势、归属与清理规则见[设置页面](settings-and-windows.md)、[Workspace](home.md)与[Chrome](chrome.md)。
+
+## MCP 工具处理器
+
+普通插件通过 `contributes.mcpTools` 声明工具，在业务初始化后调用一次 `enest.mcp.registerHandlers(handlers)`；处理器键集合须与 manifest 完全一致，不得依赖前台 `onEnter` 才注册。MCP 不授予额外权限，也不替用户触发原生交互。服务默认关闭，当前尚无原生管理区；完整声明、结果、取消、限额与交付边界见 [MCP 工具贡献](mcp.md)。
 
 ## 调用模型
 
@@ -46,7 +52,7 @@ resolve({ ok: true, data })
 
 **能力与授权分开**：私有存储、插件 UI、设置、声明式入口、主题和私有密钥保存是基础能力，无需声明或单项授权。其它敏感能力需要在 manifest 声明，并使用按插件保存的 `allow / ask / deny`（默认 `ask`）；`ask` 时由主进程原生对话框询问，超时拒绝。设置页可随时调整敏感授权，撤权会关闭当前实例并回收资源。插件可以自行实现任意前端业务，权限清单只约束敏感资源访问，见 [权限说明](permissions.md)。
 
-?> **开发模式差异**：API 行为在两种开发模式下一致，但运行约束不同——**dev（开发）模式**连接开发服务时放宽 script CSP 并放行该 origin 的 HMR WebSocket；**prod（正式包）模式**与正式安装完全一致，使用生产 CSP 与标准产物路径。内联脚本、开发态网络假设等宽松行为只有在 prod 模式（或解包 `.enestplugin`）下才能暴露。模式切换与启动命令解析见[开发加载](debug.md)。
+?> **开发态差异**：开发者控制台只有开发模式，壳按 `package.json` 自动识别源码形态（框架 HMR / 静态源码 / 离线产物预览），没有 dev/prod 切换。连接开发服务时放宽 script CSP 并放行该 origin 的 HMR WebSocket；静态源码或按产物目录预览时使用与正式安装一致的生产 CSP 与标准产物路径。开发服务下可用的内联脚本等宽松行为，只有在按产物目录预览（或解包 `.enestplugin`）时才会被生产 CSP 拒绝，从而暴露问题。启动命令解析与自动识别见[开发加载](debug.md)。
 
 ---
 
@@ -86,13 +92,15 @@ resolve({ ok: true, data })
 | `settings` | `register(section)` | 基础能力 | 注册设置分组 |
 | `settings` | `get(key)` | 无 | 读插件设置 |
 | `settings` | `set(key, value)` | 无 | 写插件设置 |
-| `storage` | `get/set/remove/clear` | 基础能力 | 持久化 KV |
+| `storage` | `get/set/remove/clear/flush/commit` | 基础能力 | 持久化 KV；set/remove 入队，flush/commit 返回显式提交回执 |
 | `storage.session` | `get/set/remove/clear` | 基础能力 | 会话态 KV |
-| `storage.blobs` | `put/get/remove` | 基础能力 | 本插件私有图片附件 |
-| `storage.assets` | `put/list/get/delete` | 基础能力 | 本插件私有静态资源（二进制图片）：`put({bytes, mime, name?, assetId?})` 收 ArrayBuffer（png/jpeg/webp/gif，单文件 ≤32MB、每插件 1GB），稳定 `assetId` 幂等覆盖；`list()` 枚举、`get(id)` 回 dataUrl（预览/导出用） |
+| `storage.blobs` | `put/get/remove` | 基础能力 | deprecated 兼容适配，与 assets 使用同一图片服务与配额，旧 ID 继续可用 |
+| `storage.assets` | `put/list/get/remove` | 基础能力 | 推荐图片入口；互斥接收 `{bytes,mime}` 或 `{dataUrl}`，可选 `name/assetId`；单文件32MiB、每插件合计1GiB/10,000项，含旧附件；稳定ID可原样覆盖，`delete`为remove兼容别名，见[存储标准](storage.md) |
+| `storage.files` | `list/get/remove/export` | 基础能力 | 完成私有输出的分页、分块读取、删除和原生确认导出；只接收 ID，不接收路径 |
 | `background` | `call(method, args?, { timeoutMs? }?)` | 按声明事件校验 | 调用本插件沙箱后台的私有方法，不是 Node 后端 |
 | `auxiliary` | `open/send/close/list` | 普通窗口为基础能力；捕获/置顶另验权限 | 包内辅助页；辅助页只有 `enestAux` |
 | `files.stream` | `open/write/finish/abort` | 基础能力 | 当前实例的有界私有输出流，不接受目标路径 |
+| `runtime` | `acquireActivity(reason?)` / `releaseActivity(token)` | 基础能力 | 当前运行代次的显式活动租约；每实例128份、全局4096份，不阻止显式关闭 |
 | `clipboard` | `capabilities()` / `requestPermission()` | 无 / `clipboard.paste` | 查询平台能力 / 请求平台支持的回贴授权 |
 | `clipboard` | `readText()` | `clipboard.read` | 读纯文本 |
 | `clipboard` | `writeText(text, options?)` / `writeFiles(paths)` | `clipboard.write` | 写纯文本 / 文件引用 |
@@ -529,12 +537,13 @@ enest.contribute.onQuickQuery(async ({ reqId, query }) => {
 | **权限** | 基础能力，无需声明或授权 |
 | **参数** | `section: SettingsSectionContribution`，与 `contributes.settings` 复用同一契约；包含 `schemaVersion?`、`items[].shareWithThemes?` |
 | **返回** | `Promise<boolean>` |
-| **错误** | `invalid settings section`（缺 `id` 或 `title`） |
+| **错误** | `invalid settings section`（缺 `id` 或 `title`）；`unsupported settings schema version`（版本既非省略也非字符串 `'1'`） |
 
 ```js
 await enest.settings.register({
   id: 'hello.prefs',
   title: 'Hello 工具',
+  schemaVersion: '1',
   items: [
     { key: 'name', type: 'text', label: '称呼', default: '朋友' },
     { key: 'volume', type: 'number', label: '音量', default: 80 }
@@ -546,7 +555,7 @@ await enest.settings.register({
 |------|------|
 | `section.id` | 分组唯一 id |
 | `section.title` | 设置页分组标题 |
-| `section.schemaVersion` | 可选 schema 版本字符串；省略使用当前版本 |
+| `section.schemaVersion` | 可选；当前只接受省略或字符串 `'1'`。宿主会透传并校验此字段，数字 `1`、空字符串及其它版本均拒绝 |
 | `items[].key` | 设置键，后续 `settings.get/set` 使用 |
 | `items[].type` | 控件类型：`text` / `string` / `switch` / `boolean` / `bool` / `select`（含 `options`）/ `number` / `slider`（含 `min` / `max` / `step`）/ `color`；`page` 为打开本插件设置功能的入口（基础能力）。非法类型渲染层回退 `text` |
 | `items[].label` | 控件标签 |
@@ -576,14 +585,14 @@ const name = await enest.settings.get('name')
 
 ### `settings.set(key, value)`
 
-写入插件设置，同时更新内存桥与持久化存储。**只能写本插件注册过的非 page 设置项**，成功后经 `settings.onChange` 通知；`page` 仅是打开本插件页面的动作入口。
+写入插件设置。**只能写本插件注册过的非 page 设置项**；宿主等待真实持久化成功后才更新内存桥、刷新相关后台并广播 `settings.onChange` 与壳设置变更。写入失败时 Promise reject，不发布成功态，也不覆盖最后一次确认值。调用方应等待成功后确认界面值，或在失败时回滚本地预览；`page` 仅是打开本插件页面的动作入口。
 
 | | |
 |--|--|
 | **权限** | 无 |
 | **参数** | `key: string`，`value: unknown` |
 | **返回** | `Promise<boolean>` |
-| **错误** | `unknown settings key: <key>`（写入未注册的 key） |
+| **错误** | `unknown settings key: <key>`（写入未注册的 key）；宿主保留键或持久化失败同样 reject |
 
 ```js
 await enest.settings.set('name', '世界')
@@ -595,10 +604,12 @@ await enest.settings.set('name', '世界')
 
 两套存储语义对比：
 
+图片、后台文档、输出流、用户文件和密钥的选择、完成语义及兼容规则见[数据存储与私有资源](storage.md)。`storage.clear()` 仅清本插件持久化 KV，不清图片或其它存储域；`storage.set/remove` 的成功是进入有界写队列，需要提交确认时另用 `flush/commit`。
+
 | | `storage.*`（local） | `storage.session.*` |
 |--|----------------------|---------------------|
 | 介质 | SQLite（`~/.eNest` 数据根下 `data/enest.db` 的 `plugin_storage` 表，按 `plugin_id + key` 隔离） | 主进程内存 Map |
-| 写入策略 | 50ms 合并写（脏键批量事务落库）；配额：每插件 1000 键、单值 512KB | 即时内存 |
+| 写入策略 | set/remove 50ms 合并写；flush/commit 显式 FULL 提交；配额：每插件 1000 键、单值 512 KiB | 即时内存 |
 | 生命周期 | 关 Tab **保留**；卸载清理 | 插件关闭 / 应用退出即清空（休眠有快照恢复） |
 | 权限 | 基础能力 | 基础能力 |
 
@@ -607,7 +618,7 @@ await enest.settings.set('name', '世界')
 | | |
 |--|--|
 | **权限** | 基础能力，无需声明或授权 |
-| **参数** | `key: string`；`set` 另需 `value: unknown`（任意 JSON 可序列化值） |
+| **参数** | `key: string`；`set` 另需 `value: unknown`（有限、纯 JSON 值，不接受自定义实例、循环或 `undefined`） |
 | **返回** | `get → Promise<unknown>`；其余 `Promise<boolean>` |
 | **错误** | `storage quota exceeded`（每插件 >1000 键或单值 >512KB） |
 
@@ -620,6 +631,25 @@ await enest.storage.clear()
 
 值经 `JSON` 序列化写入，**不要**存函数、循环引用或超大二进制（单值 >512KB 会触发 `storage quota exceeded`）。
 
+### `storage.flush()` / `storage.commit(operations)`
+
+两者都返回 `Promise<{commitId,committedAt,committedKeys}>`。`flush()` 提交本插件此前已入队的 KV；`commit()` 将本批次与本插件已有待写 KV 放进同一事务，提交成功后才发布本批新值。回执不是 CAS 版本，也不包含图片、完成文件、设置或其它插件的数据。
+
+```ts
+await enest.storage.set('draft', draft)
+const receipt = await enest.storage.flush()
+await enest.storage.commit([
+  { op: 'set', key: 'document', value: document },
+  { op: 'remove', key: 'legacyDocument' }
+])
+```
+
+`commit` 接受 1–100 个唯一键操作，重复键整批拒绝；键最长 1024 UTF-8 字节、单值 512 KiB，本批加已有待写数据合计不超过 8 MiB（含记账开销）。普通写采用 WAL/NORMAL，显式提交采用 SQLite FULL，macOS 加 fullfsync；空 flush 也写提交标记同步此前普通事务。数据库失败保留已接收的待写数据，不自动接收本批失败的新值；回执通信中断不能推断磁盘未变，应读取业务状态后幂等重试。限制及硬件持久性边界见[存储标准](storage.md)。
+
+### `storage.assets` / `storage.files`
+
+图片使用 `assets.put/list/get/remove`；`blobs` 和 `assets.delete` 为兼容入口。`files.stream.finish()` 返回的完成文件 ID 使用 `storage.files.list/get/remove/export` 管理：列表默认 100 条、最多 200 条，读取单块最多 512 KiB，删除释放私有输出配额，导出必须由用户在原生保存框选择目标。详细参数、旧数据兼容和提交不确定性见[存储标准](storage.md)，完整类型见 [API 类型](api-types.md)。
+
 ### `storage.session.get / set / remove / clear`
 
 会话态 KV：适合草稿、临时缓存、轮询状态。
@@ -627,7 +657,7 @@ await enest.storage.clear()
 | | |
 |--|--|
 | **权限** | 基础能力，无需声明或授权 |
-| **参数 / 返回** | 与 local 相同 |
+| **参数 / 返回** | 与 local 相同；载荷配额为每插件8MiB、全局64MiB，不使用local的512KiB单值限制 |
 
 ```js
 await enest.storage.session.set('draft', { text: '未完成…' })
@@ -784,12 +814,12 @@ const shot = await enest.screen.capture({ displayId, bounds: { x, y, width, heig
 
 | 方法 | 返回 / 边界 |
 |---|---|
-| `open({extension})` | `Promise<{streamId}>`；扩展名为1–12位小写字母/数字，不接受路径 |
+| `open({extension})` | `Promise<{streamId}>`；扩展名为1–12位小写字母/数字，`part` 为保留值，不接受路径 |
 | `write(streamId,sequence,bytes)` | `Promise<void>`；`bytes` 为非空 `ArrayBuffer`，序号从0递增，等待 ACK 后继续写 |
-| `finish(streamId)` | `Promise<{id,path,size}>`；同步、关闭并提交私有文件后才成功 |
+| `finish(streamId)` | `Promise<{id,path,size}>`；同步、关闭并提交私有文件后才成功；path 为 deprecated 兼容字段 |
 | `abort(streamId)` | `Promise<boolean>`；丢弃未完成输出 |
 
-每插件最多2流、全局16流；每块512KiB、每流最多16个待写/8MiB排队、单文件1GiB、每插件私有输出4GiB。`path` 是宿主生成的结果，不是下一次任意路径读写授权。撤权/强制销毁会回收窗口、捕获轨和未完成输出；正常关闭只在有界收尾期内尝试保存，超时/磁盘失败不能显示保存成功。卸载清理该插件私有输出，不改写已保存的业务历史。
+每插件最多2流、全局16流；每块512KiB、每流最多16个待写/8MiB排队、单文件1GiB、每插件私有输出4GiB/4096项。`id` 原样交给 `storage.files` 进行列表、分块读取、删除或导出；`path` 不是下一次任意路径读写授权。撤权/强制销毁会回收窗口、捕获轨和未完成输出；正常关闭只在有界收尾期内尝试保存，超时/磁盘失败不能显示保存成功。rename 提交后发生目录同步失败或代次失效时，已发布文件保留并明确报告已提交但完成状态未确认；应先刷新文件列表，不能把 reject 当作文件必定不存在。卸载清理该插件私有输出，不改写已保存的业务历史。详见[私有输出生命周期](storage.md)。
 
 ---
 
@@ -810,7 +840,7 @@ if (bounds) {
 
 此包的 `surfaces.screen.selectRegion()` 返回带 `displayId` 的设备像素矩形或 `null`；选区截图需 `screen.capture`，当前置顶选区页还需 `pin.create`。`surfaces.pin.open/close/list/closeAll` 管理本插件贴图，仅接收图片 dataURL，不提供任意路径读取。
 
-`surfaces.screen.record.start({bounds?,displayId?,withAudio?})` 等待用户在辅助页真实点击开始后返回 `{sessionId}`；`stop(sessionId)` 返回 `{path,size,durationMs}`，`cancel(sessionId)` 丢弃未完成录制。每个 facade 同时只保留一个录制会话，状态与裁剪/编码策略属于插件；输出通过有序 `files.stream` 提交，不再写宿主的业务专用 `recordings/` 服务。
+`surfaces.screen.record.start({bounds?,displayId?,withAudio?})` 等待用户在辅助页真实点击开始后返回 `{sessionId}`；`stop(sessionId)` 返回 `{id,path,size,durationMs}`，其中 `id` 用于 `storage.files`，`path` 仅兼容；`cancel(sessionId)` 丢弃未完成录制。每个 facade 同时只保留一个录制会话，状态与裁剪/编码策略属于插件；输出通过有序 `files.stream` 提交，不再写宿主的业务专用 `recordings/` 服务。
 
 第三方也可用 `auxiliary` 实现自己的交互，不必复制官方业务包。辅助页/后台、主页面和 Node 后端的能力不同，不能交换桥对象来绕过授权，见[窗口边界](settings-and-windows.md)。
 
@@ -830,9 +860,9 @@ if (bounds) {
 
 硬约束（超限直接 reject，见 [错误码](errors.md)）：
 
-- **仅 https**：URL 与每一跳重定向都必须是 `https://`（手动逐跳跟随，最多 5 跳，阻断 http / 内网跳转 SSRF）；manifest 声明 `"net": { "allowInsecure": true }` 时放行明文 `http://`（重定向逐跳仍按此规则校验）
+- **协议限制**：缺省 URL 与每次重定向都必须是 `https://`；manifest 声明 `"net": { "allowInsecure": true }` 时才放行明文 `http://`。宿主有界手动跟随，逐次校验协议；这不是目标 IP/内网隔离策略，不承诺阻断所有内网请求或 SSRF。
 - **GET / POST / PUT / PATCH / DELETE / HEAD**
-- **响应体上限**：非流式 2MB；`stream: true` 流式 32MB（超过 2MB 的部分经 `net.chunk` 事件分片推送，chunk 为 base64）
+- **响应体上限**：非流式 2 MiB；`stream: true` 流式 32 MiB，完整响应体经 `net.chunk` 事件分片推送，不是先返回 2 MiB 再推送余量；普通 chunk 为 base64。
 - **SSE**：`stream: true` 且响应 `content-type: text/event-stream` 时按行转发 `data:` 事件（chunk 为 utf8 文本，`done: true` 终态）
 - **超时**：默认 15s，可传 `timeoutMs` 调整（下限 1s、上限 120s）；超时报 `net.fetch timeout`
 
@@ -1149,7 +1179,7 @@ enest.onNotice((notice) => {
 // 1) 脏标记：编辑置位，落盘清除
 editor.on('change', () => { dirty = true; enest.setDirty(true) })
 async function persist() {
-  await enest.storage.set('draft', editor.value)
+  await enest.storage.commit([{ op: 'set', key: 'draft', value: editor.value }])
   dirty = false
   await enest.setDirty(false)
 }
@@ -1165,12 +1195,36 @@ enest.onSaveRequested(async ({ reason, deadlineMs }) => {
 
 - **保存必须幂等**：`save.requested`、`beforeClose`、休眠 `beforeSuspend` 都可能触发保存，同一数据可能被写多次。
 - 回调返回的 Promise 全部 settle（或超时 `deadlineMs`）后壳继续流程；任一 reject 视为该插件保存未确认，壳仍会继续（有 toast 提示），`beforeClose` 是最后兜底。
-- 休眠中的插件无活动渲染进程，不参与脏检测与保存广播（休眠前已 flush）。
+- 休眠中的插件无活动渲染进程，不参与脏检测与保存广播；插件须在 `beforeSuspend` 中确认自己的持久检查点，不能把宿主内存 session 快照当作磁盘提交。
 
 ### 扩展约定
 
 - topic 命名 `<域>.<节点>`（如 `update.downloaded`）；新 topic 只会追加，不会改语义。
 - 新增关键节点 = 在 `@shared/types/notice` 的 `ShellNoticeDataMap` 加条目 + 本表加行；插件侧遇到未知 topic 忽略即可，无需适配。
+
+---
+
+## runtime — 活动租约
+
+用于确有在途工作的短期活动保护，避免该实例被闲时休眠或 LRU 回收；不是常驻权限，也不是数据持久化回执。
+
+| 方法 | 参数与返回 |
+|---|---|
+| `runtime.acquireActivity(reason?)` | 可省略 `reason`；提供时必须为字符串且 `length <= 160`。返回 `Promise<string>`，值为当前运行代次的不透明 token |
+| `runtime.releaseActivity(token)` | 释放当前代次自己的 token，返回 `Promise<void>`；不存在、重复或其它代次的 token 不产生作用 |
+
+每个运行实例最多128份、全局最多4096份**通过本 API 申请的显式租约**。超额、实例关闭或代次过期时申请 reject；这些限额不表示其它原生资源可以无限创建，它们仍各有预算。应在 `finally` 释放，而不是用永久租约替代真正的后台能力。
+
+```ts
+const token = await enest.runtime.acquireActivity('生成预览')
+try {
+  await generatePreview()
+} finally {
+  await enest.runtime.releaseActivity(token)
+}
+```
+
+租约不阻止用户关闭、撤权、停用、卸载、崩溃回收或应用退出。宿主销毁原代次时自动回收租约；重建实例不能释放旧代次或其它插件的租约。关闭后的旧页面仍受 IPC 生命周期门禁约束，不能凭 token 恢复实例。详细生命周期见[生命周期与资源责任](lifecycle.md)。
 
 ---
 
@@ -1180,7 +1234,7 @@ enest.onSaveRequested(async ({ reason, deadlineMs }) => {
 
 ### `onEnter(cb)`
 
-进入插件：**首次加载完成后** + **每次 Tab 激活** + **休眠唤醒 / crash 重启的重建完成后**。与 `onOut` 成对，可用来 pause / resume；插件可能被销毁重建，初始化逻辑要可重入。
+进入插件：**首次交互打开完成后** + **再次激活** + **休眠唤醒或用户显式重试崩溃页面的重建完成后**。与 `onOut` 配合 pause / resume；插件可能被销毁重建，初始化逻辑要可重入。MCP 隐藏冷启动不发送前台进入事件，因此通用处理器注册不能依赖本回调。
 
 | | |
 |--|--|
@@ -1223,8 +1277,8 @@ enest.onOut(() => {
 | **参数** | `cb: (event: { reason: 'tab-close' \| 'uninstall' \| 'app-quit' }) => void \| Promise<unknown>` |
 | **返回** | `() => void` |
 
-- 回调返回 **Promise** 时，preload 会等它 settle 后再回 ack（关闭流程随之等待）。
-- 纯同步回调 / 无监听器时，preload 延迟一小窗口（约 50ms，给同步 flush 留余量）再 ack。
+- 回调返回 **Promise** 时，preload 会等它 settle 后再回 ack（关闭流程随之等待）；reject 回报保存未确认，不伪造成功。
+- 纯同步回调 / 无监听器时，preload 通过 microtask 确认，不使用固定 50ms 延迟；必要写入必须返回并等待 Promise。
 - 主进程最多等待约 1500ms 超时兜底；超长异步操作请自行拆分。
 
 ```js
@@ -1247,7 +1301,7 @@ enest.onBeforeClose(async ({ reason }) => {
 
 ## 启动方式（launch mode）
 
-插件的渲染容器由打开入口决定：Quick 快捷启动 → `quick`（小窗内嵌），主窗（市场 / 圆轨 / Tab）→ `shell`（主窗 Tab）。用户可为每插件覆盖（`settings.pluginLaunch[id]`）。插件据此在「小窗样式」与「桌面样式」两套入口样式间切换，详见 [UI 集成标准 → 双入口样式](ui-standard.md)。
+插件的初始展示模式由打开入口与宿主中该插件的启动偏好共同决定：`quick` 为小窗模式，`shell` 为桌面模式。该偏好由宿主控制，普通插件不读取全量宿主设置。独立窗口与[自由面板](panels.md)是挂载位置，不增加模式；插件据此调整紧凑与桌面布局，并观察实际内容区尺寸，详见 [UI 集成标准](ui-standard.md)。
 
 ### `getLaunchMode()`
 

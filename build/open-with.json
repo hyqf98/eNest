@@ -1,0 +1,23 @@
+{
+  "$comment": "「打开方式」打包快照：与插件仓官方插件的 contributes.openWith 声明保持同步（scripts/generate-builder-associations.mjs 读取本文件生成 electron-builder 的 protocols/fileAssociations 片段并校验 yml 未漂移）。第三方插件的新类型在 macOS/Linux 仍需安装包声明；Windows 可运行时注册候选。Linux 扩展名还须有 MIME 映射。",
+  "protocols": [
+    { "name": "eNest 打开方式", "schemes": ["enest"] },
+    { "name": "eNest Markdown", "schemes": ["enest-md"] },
+    { "name": "eNest Database", "schemes": ["enest-db"] }
+  ],
+  "fileAssociations": [
+    { "ext": "md", "name": "Markdown 文档", "role": "Editor", "mimeType": "text/markdown" },
+    { "ext": "markdown", "name": "Markdown 文档", "role": "Editor", "mimeType": "text/markdown" },
+    { "ext": "json", "name": "JSON 文件", "role": "Editor", "mimeType": "application/json" },
+    { "ext": "jsonc", "name": "JSONC 文件", "role": "Editor", "mimeType": "application/json" },
+    { "ext": "db", "name": "SQLite 数据库", "role": "Viewer", "mimeType": "application/vnd.sqlite3" },
+    { "ext": "sqlite", "name": "SQLite 数据库", "role": "Viewer", "mimeType": "application/vnd.sqlite3" },
+    { "ext": "png", "name": "PNG 图片", "role": "Viewer", "mimeType": "image/png" },
+    { "ext": "jpg", "name": "JPEG 图片", "role": "Viewer", "mimeType": "image/jpeg" },
+    { "ext": "jpeg", "name": "JPEG 图片", "role": "Viewer", "mimeType": "image/jpeg" },
+    { "ext": "webp", "name": "WebP 图片", "role": "Viewer", "mimeType": "image/webp" },
+    { "ext": "gif", "name": "GIF 图片", "role": "Viewer", "mimeType": "image/gif" },
+    { "ext": "txt", "name": "文本文件", "role": "Viewer", "mimeType": "text/plain" },
+    { "ext": "log", "name": "日志文件", "role": "Viewer", "mimeType": "text/plain" }
+  ]
+}

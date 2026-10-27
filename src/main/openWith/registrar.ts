@@ -43,13 +43,18 @@ export function registrationAvailable(): boolean {
 }
 
 /** 统一 execFile：返回退出码与输出，不抛错（注册/检测失败按状态处理） */
-export function run(cmd: string, args: string[], timeout = 4000): Promise<{ code: number; stdout: string; stderr: string }> {
+export function run(cmd: string, args: string[], timeout = 4000, input?: string): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout, windowsHide: true, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+    const child = execFile(cmd, args, { timeout, windowsHide: true, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
       const rawCode = (error as NodeJS.ErrnoException | null)?.code
       const code = typeof rawCode === 'number' ? rawCode : error ? 1 : 0
       resolve({ code, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') })
     })
+    if (input !== undefined) {
+      // A converter may exit before consuming stdin; its exit status remains authoritative.
+      child.stdin?.on('error', () => {})
+      child.stdin?.end(input)
+    }
   })
 }
 

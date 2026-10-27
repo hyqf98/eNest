@@ -21,6 +21,7 @@ import type { AppPaths } from '@shared/types/plugin'
 
 /** 运行期数据根覆盖（来自 settings.general.dataRoot）；null 表示用默认 ~/.eNest */
 let effectiveRoot: string | null = null
+let pathsGeneration = 0
 
 function resolveConfiguredRoot(root: string): string {
   const input = root.trim()
@@ -43,8 +44,13 @@ export function defaultDataRoot(): string {
 /** 设置 dataRoot 覆盖；传 null/空串恢复默认 */
 export function setAppPathsRoot(root: string | null | undefined): void {
   // Preserve the existing cwd base for legacy relative settings; never relocate them to home.
-  effectiveRoot = root && root.trim() ? resolveConfiguredRoot(root) : null
+  const nextRoot = root && root.trim() ? resolveConfiguredRoot(root) : null
+  if ((nextRoot ?? defaultDataRoot()) !== getAppPathsRoot()) pathsGeneration++
+  effectiveRoot = nextRoot
 }
+
+/** Async persistence must also reject an A -> B -> A data-root switch. */
+export function getAppPathsGeneration(): number { return pathsGeneration }
 
 /** 当前生效的数据根（不含 override 参数时） */
 export function getAppPathsRoot(): string {

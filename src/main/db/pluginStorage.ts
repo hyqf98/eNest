@@ -12,11 +12,13 @@
  * 关键依赖：kvStore（同库连接复用）、pathsService（旧 JSON 位置）。
  */
 import { existsSync, readFileSync, readdirSync, renameSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
-import { kvStore, runInTransaction } from '@main/db/sqliteService'
+import { kvStore, runInDurableTransaction, runInTransaction } from '@main/db/sqliteService'
 import { serializeJson } from '@main/plugin/PluginSessionStore'
 import { pluginStorageDir } from '@main/paths/pathsService'
+import type { PluginStorageCommitReceipt, PluginStorageOperation } from '@shared/types/storage'
 
 /** 旧 JSON 迁移后的完整后缀（保留现场，卸载时一并清理） */
 const MIGRATED_SUFFIX = '.json.migrated'
@@ -31,6 +33,7 @@ const MAX_VALUE_BYTES = 512 * 1024
 const MAX_KEY_BYTES = 1024
 const PLUGIN_DIRTY_BYTES = 8 * 1024 * 1024
 const GLOBAL_DIRTY_BYTES = 64 * 1024 * 1024
+const MAX_COMMIT_OPERATIONS = 100
 
 interface CachedValue { pluginId: string; key: string; json: string; bytes: number }
 const cache = new Map<string, CachedValue>()
@@ -97,7 +100,8 @@ function validateWriteKey(key: string): void {
 }
 
 let flushTimer: NodeJS.Timeout | null = null
-let initialized = false
+let initializedDatabase: DatabaseSync | null = null
+const barrierDatabases = new WeakSet<DatabaseSync>()
 
 /** prepare 语句复用：随库连接创建一次（kvStore 生命周期内只有一份） */
 interface StorageStatements {
@@ -137,11 +141,11 @@ function scheduleFlush(): void {
 }
 
 /** Pending writes stay owned until the whole transaction commits. */
-function flushDirty(): boolean {
-  if (!dirty.size) return true
+function flushDirty(pluginId?: string): boolean {
+  const entries = [...dirty].filter(([key]) => pluginId === undefined || splitComposite(key)[0] === pluginId)
+  if (!entries.length) return true
   const db = kvStore.getDatabase()
   if (!db) { lastFlushError = 'storage backend unavailable'; console.error('[enest] storage backend unavailable; pending writes retained'); return false }
-  const entries = [...dirty]
   try {
     const { upsert, remove } = statementsFor(db)
     runInTransaction(db, () => {
@@ -166,20 +170,26 @@ function flushDirty(): boolean {
  * 由 pluginHandlers 注册前调用一次（重复调用安全，只做一次迁移扫描）。
  */
 export function initPluginStorage(): void {
-  if (initialized) return
-  initialized = true
   const db = kvStore.getDatabase()
-  if (!db) return
+  if (!db || initializedDatabase === db) return
   try {
     db.exec(
       'CREATE TABLE IF NOT EXISTS plugin_storage (' +
         'plugin_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, ' +
         'PRIMARY KEY (plugin_id, key))'
     )
+    ensureBarrierTable(db)
     migrateLegacyJson(db)
+    initializedDatabase = db
   } catch (err) {
     console.error('[enest] plugin_storage init failed', err)
   }
+}
+
+function ensureBarrierTable(db: DatabaseSync): void {
+  if (barrierDatabases.has(db)) return
+  db.exec('CREATE TABLE IF NOT EXISTS plugin_storage_barriers (plugin_id TEXT PRIMARY KEY, commit_id TEXT NOT NULL)')
+  barrierDatabases.add(db)
 }
 
 /** 旧 ~/.eNest/data/plugin-storage/{id}.json 导入库并改名 {id}.json.migrated */
@@ -269,16 +279,103 @@ export function clearPluginStorage(pluginId: string): void {
   const db = kvStore.getDatabase()
   if (!db) throw new Error('storage backend unavailable')
   // Failed deletes leave both dirty data and cached values intact.
-  statementsFor(db).clear.run(pluginId)
+  runInTransaction(db, () => {
+    statementsFor(db).clear.run(pluginId)
+    if (barrierDatabases.has(db)) db.prepare('DELETE FROM plugin_storage_barriers WHERE plugin_id = ?').run(pluginId)
+  })
   for (const [key, item] of cache) if (item.pluginId === pluginId) evict(key)
   for (const key of dirty.keys()) if (splitComposite(key)[0] === pluginId) deleteDirty(key)
+}
+
+function commitEntries(pluginId: string, entries: Map<string, CachedValue | null>): PluginStorageCommitReceipt {
+  const db = kvStore.getDatabase()
+  if (!db) throw new Error('storage backend unavailable; pending writes retained')
+  ensureBarrierTable(db)
+  const { upsert, remove } = statementsFor(db)
+  const commitId = randomUUID()
+  try {
+    runInDurableTransaction(db, () => {
+      for (const [key, value] of entries) {
+        if (value) upsert.run(pluginId, key, value.json)
+        else remove.run(pluginId, key)
+      }
+      // Even an empty flush writes a frame, syncing earlier NORMAL commits too.
+      db.prepare('INSERT INTO plugin_storage_barriers (plugin_id, commit_id) VALUES (?, ?) ON CONFLICT(plugin_id) DO UPDATE SET commit_id = excluded.commit_id').run(pluginId, commitId)
+    })
+  } catch (error) {
+    lastFlushError = String(error)
+    throw new Error('storage commit failed; pending writes retained', { cause: error })
+  }
+  for (const [key, value] of entries) {
+    const id = composite(pluginId, key)
+    deleteDirty(id)
+    evict(id)
+    if (value) remember(value)
+  }
+  if (!dirty.size && flushTimer) { clearTimeout(flushTimer); flushTimer = null }
+  lastFlushError = null
+  return { commitId, committedAt: Date.now(), committedKeys: entries.size }
+}
+
+function pendingEntries(pluginId: string): Map<string, CachedValue | null> {
+  composite(pluginId, '')
+  const entries = new Map<string, CachedValue | null>()
+  for (const [id, value] of dirty) {
+    const [owner, key] = splitComposite(id)
+    if (owner === pluginId) entries.set(key, value)
+  }
+  return entries
+}
+
+/** Flush only this plugin's accepted writes; a fresh marker also covers earlier timed commits. */
+export function flushPluginStorage(pluginId: string): PluginStorageCommitReceipt {
+  return commitEntries(pluginId, pendingEntries(pluginId))
+}
+
+/** Validate the complete batch before publishing any values or changing pending writes. */
+export function commitPluginStorage(pluginId: string, operations: PluginStorageOperation[]): PluginStorageCommitReceipt {
+  if (!Array.isArray(operations) || !operations.length || operations.length > MAX_COMMIT_OPERATIONS) throw new Error('storage commit requires 1 to 100 operations')
+  const entries = pendingEntries(pluginId)
+  const keys = new Set<string>()
+  let bytes = 0
+  for (const [key, value] of entries) bytes += dirtySize(composite(pluginId, key), value)
+  for (const operation of operations) {
+    if (!operation || typeof operation !== 'object' || Array.isArray(operation)
+      || typeof operation.key !== 'string' || !['set', 'remove'].includes(operation.op)) throw new Error('invalid storage commit operation')
+    const key = operation.key
+    composite(pluginId, key)
+    validateWriteKey(key)
+    if (keys.has(key)) throw new Error('storage commit contains duplicate keys')
+    keys.add(key)
+    let value: CachedValue | null
+    if (operation.op === 'remove') {
+      if ('value' in operation) throw new Error('storage remove cannot contain a value')
+      value = null
+    } else {
+      const json = serializeJson(operation.value)
+      const valueBytes = Buffer.byteLength(json)
+      if (valueBytes > MAX_VALUE_BYTES) throw new Error('storage quota exceeded')
+      value = { pluginId, key, json, bytes: valueBytes + Buffer.byteLength(key) }
+    }
+    const id = composite(pluginId, key)
+    bytes += dirtySize(id, value) - (entries.has(key) ? dirtySize(id, entries.get(key)!) : 0)
+    if (bytes > PLUGIN_DIRTY_BYTES) throw new Error('storage commit exceeds 8 MiB including pending writes')
+    entries.set(key, value)
+  }
+  const db = kvStore.getDatabase()
+  if (!db) throw new Error('storage backend unavailable; pending writes retained')
+  const finalKeys = new Set((statementsFor(db).selectKeys.all(pluginId) as { key: string }[]).map(row => row.key))
+  const previousKeyCount = finalKeys.size
+  for (const [key, value] of entries) { if (value) finalKeys.add(key); else finalKeys.delete(key) }
+  if (finalKeys.size > MAX_KEYS_PER_PLUGIN && finalKeys.size > previousKeyCount) throw new Error('storage quota exceeded')
+  return commitEntries(pluginId, entries)
 }
 export function flushAll(): boolean {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null }
   return flushDirty()
 }
 export function releasePluginStorage(pluginId: string): boolean {
-  const saved = flushAll()
+  const saved = flushDirty(pluginId)
   for (const [key, item] of cache) if (item.pluginId === pluginId) evict(key)
   return saved
 }
