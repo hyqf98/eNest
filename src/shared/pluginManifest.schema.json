@@ -382,6 +382,63 @@
       },
       "additionalProperties": false
     },
+    "views": {
+      "type": "object",
+      "description": "入口布局适配声明；缺省 layouts=[quick,shell]、default=shell。入口请求未适配布局时宿主回落 default 视图启动",
+      "properties": {
+        "layouts": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "quick",
+              "shell",
+              "panel"
+            ]
+          },
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 3,
+          "description": "已适配的布局集合；只有显式包含 panel 才出现在组件选择器并允许加入自由面板，未声明不回退兼容视图"
+        },
+        "default": {
+          "enum": [
+            "quick",
+            "shell",
+            "panel"
+          ],
+          "description": "默认视图：未适配入口的回退启动方式；必须属于 layouts，否则安装后归一为 shell/layouts 首项"
+        },
+        "panel": {
+          "type": "object",
+          "description": "panel 布局的几何偏好；仅在 layouts 含 panel 时生效",
+          "properties": {
+            "size": {
+              "type": "object",
+              "description": "组件默认外框尺寸（DIP）：添加组件时的初始尺寸，被宿主最小尺寸（200×140）与面板内容区钳制",
+              "properties": {
+                "width": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "宽（DIP）"
+                },
+                "height": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "高（DIP）"
+                }
+              },
+              "required": [
+                "width",
+                "height"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "market": {
       "type": "object",
       "properties": {

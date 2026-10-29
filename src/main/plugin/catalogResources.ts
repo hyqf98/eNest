@@ -17,7 +17,7 @@ const IMAGE_CDNS = new Set(['user-images.githubusercontent.com', 'camo.githubuse
 
 type ResourceIdentity = { pluginId: string; version: string; kind: 'image' | 'readme' }
 export type CatalogResource = ResourceIdentity & (
-  | { source: 'dev' | 'installed' | 'preview'; rootPath: string; path: string; devSource: boolean }
+  | { source: 'dev' | 'installed'; rootPath: string; path: string; devSource: boolean }
   | { source: 'remote'; url: string }
 )
 export interface CatalogResources {
@@ -58,7 +58,7 @@ export function catalogResourceMime(path: string, kind: CatalogResource['kind'])
 
 /** A local source is selected as a whole; missing slots never borrow another version's media. */
 export function localCatalogResources(
-  manifest: PluginManifest, rootPath: string, source: 'dev' | 'installed' | 'preview', devSource = false
+  manifest: PluginManifest, rootPath: string, source: 'dev' | 'installed', devSource = false
 ): CatalogResources {
   const resource = (path: unknown, kind: CatalogResource['kind']): CatalogResource | undefined =>
     typeof path === 'string' && isPluginAssetPath(path) && path.startsWith('assets/') && catalogResourceMime(path, kind)

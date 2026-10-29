@@ -9,7 +9,7 @@ import { Button } from '@renderer/components/ui/Button'
 import { Segmented } from '@renderer/components/ui/Segmented'
 import { ThemeSelectionCards } from './ThemeSelectionCards'
 import { ThemeSettingsFields } from './ThemeSettingsFields'
-import { PanelAppearanceFields, usePanelAppearance } from './PanelAppearanceCard'
+import { FreePanelFields, usePanelAppearance } from './PanelAppearanceCard'
 import './appearanceSettings.css'
 
 function previewField(appearance: ResolvedAppearance, field: ThemeSettingsField, value: ThemeSettingValue): void {
@@ -218,18 +218,18 @@ export function AppearanceSettingsSection() {
               <Button variant="ghost" size="sm" onClick={reload}>重新读取</Button>
             </div>}
 
-        {/* eNest 壳通用外观：自由面板材质（不随主题 profile 走，写 general.panelAppearance）。 */}
-        <div className="appearance-section appearance-section-panel" role="group" aria-label="自由面板外观">
+        {/* eNest 壳通用：自由面板开关 + 外观（不随主题 profile 走，写 general.freePanel / general.panelAppearance）。 */}
+        <div className="appearance-section appearance-section-panel" role="group" aria-label="自由面板">
           <div className="appearance-section-head">
             <div className="appearance-section-head-row">
-              <h3 className="appearance-section-title">自由面板外观</h3>
+              <h3 className="appearance-section-title">自由面板</h3>
               <div className="appearance-group-tools">
                 <Button variant="ghost" size="sm" disabled={panel.loading} onClick={panel.reset}>恢复默认</Button>
               </div>
             </div>
-            <p className="hint">所有面板共用的底板材质与不透明度；材质由系统提供（毛玻璃 = 桌面级模糊，系统材质 = 更重的浮窗质感）。</p>
+            <p className="hint">把插件固定成桌面小组件；所有面板共用的底板材质与不透明度（材质由系统提供：毛玻璃 = 桌面级模糊，系统材质 = 更重的浮窗质感）。</p>
           </div>
-          <PanelAppearanceFields state={panel} />
+          <FreePanelFields state={panel} />
         </div>
 
         <div className="appearance-section appearance-section-tuning" role="group" aria-label="主题参数">

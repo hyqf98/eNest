@@ -186,12 +186,61 @@ export function resolvePluginUi(ui?: Partial<PluginUiConfig> | null): PluginUiCo
 /**
  * 插件布局模式，与宿主窗口位置分离：
  * - quick：Quick 小窗内嵌，渲染在输入框下方（小窗适配样式）
- * - shell：主窗大窗 Tab（桌面适配样式）
- * 不再有「大小插件」类型区分：同一插件两种入口样式并存，
+ * - shell：主窗大窗 Tab / 独立窗口（桌面适配样式）
+ * - panel：自由面板小组件（组件适配样式）
+ * 不再有「大小插件」类型区分：同一插件多套入口样式并存，
  * 壳子启动时经 URL ?mode= / onEnter 载荷 / getLaunchMode() 传给插件，插件自选渲染样式。
- * 拖出独立窗口保留原模式；收回 Quick / 主窗时才切换为接收位置的模式。
+ * 拖出独立窗口保留原模式；收回 Quick / 主窗 / 面板时切换为接收位置的布局；
+ * 普通启动未适配目标布局时回落 manifest views.default；加入面板必须显式适配 panel。
  */
-export type PluginLaunchMode = 'quick' | 'shell'
+export type PluginLaunchMode = 'quick' | 'shell' | 'panel'
+
+/** 普通启动入口的原生目标；自由面板需用户指定 panelId，不是直接启动目标。 */
+export type PluginLaunchTarget = 'quick' | 'shell'
+
+const ALL_LAUNCH_MODES: readonly PluginLaunchMode[] = ['quick', 'shell', 'panel']
+
+/** plugin.json `views.panel` 段：panel 布局（自由面板小组件）的几何偏好，全部可选。 */
+export interface PluginPanelViewConfig {
+  /** 组件默认外框尺寸（DIP）：添加组件时的初始尺寸；被宿主最小尺寸与面板内容区钳制。 */
+  size?: { width: number; height: number }
+}
+
+/**
+ * plugin.json `views` 段（全部可选，缺省见 DEFAULT_PLUGIN_VIEWS）：
+ * 声明插件适配了哪些布局、未适配入口回落到哪个默认视图。
+ */
+export interface PluginViewsConfig {
+  /** 已适配的布局集合；普通启动未适配时用 default，只有包含 panel 才可加入自由面板。 */
+  layouts: PluginLaunchMode[]
+  /** 默认视图：未适配布局的回退启动方式；归一后必属于 layouts。 */
+  default: PluginLaunchMode
+  /** panel 布局的几何偏好；仅在 layouts 含 panel 时生效，其余字段缺省。 */
+  panel?: PluginPanelViewConfig
+}
+
+/**
+ * views 缺省：历史插件 quick/shell 两种入口全部可用、默认桌面。
+ * panel 需显式声明；未声明的插件不出现在组件选择器，也不能拖入面板。
+ */
+export const DEFAULT_PLUGIN_VIEWS: PluginViewsConfig = { layouts: ['quick', 'shell'], default: 'shell' }
+
+/** 将 manifest.views（可缺省/可残缺）归一为完整 PluginViewsConfig，非法值回退默认 */
+export function resolvePluginViews(views?: Partial<PluginViewsConfig> | null): PluginViewsConfig {
+  const declared = ALL_LAUNCH_MODES.filter(mode => views?.layouts?.includes(mode))
+  const layouts = declared.length > 0 ? declared : DEFAULT_PLUGIN_VIEWS.layouts
+  const requested = views?.default
+  const fallback = requested && layouts.includes(requested) ? requested
+    : layouts.includes('shell') ? 'shell' : layouts[0]
+  // panel 几何偏好只在声明了 panel 布局时生效；尺寸取整，非法值忽略（宿主几何层再钳制）。
+  const size = views?.panel?.size
+  const panel = layouts.includes('panel') && size
+    && Number.isFinite(size.width) && size.width > 0
+    && Number.isFinite(size.height) && size.height > 0
+    ? { size: { width: Math.round(size.width), height: Math.round(size.height) } }
+    : undefined
+  return { layouts, default: fallback, panel }
+}
 
 /**
  * 每插件「快捷启动」用户配置（settings.pluginLaunch[pluginId]）：
@@ -201,8 +250,9 @@ export interface PluginLaunchConfig {
   /**
    * 启动方式覆盖：quick 小窗启动 / shell 大窗启动；
    * 缺省 = 跟随入口（Quick 打开进小窗，主窗打开进大窗）。插件快捷键使用各自的 mode。
+   * panel 不是启动目标（面板由用户自组）；覆盖结果仍受 manifest views 布局回退约束。
    */
-  mode?: PluginLaunchMode
+  mode?: PluginLaunchTarget
   /** @deprecated 只读取旧数据迁移；新绑定保存在 pluginShortcuts。 */
   hotkey?: string
   /** 自定义触发词：并入 Quick 搜索索引，与 manifest features[].cmds 等权 */
@@ -388,6 +438,8 @@ export interface PluginManifest {
   development?: { main?: string }
   /** UI 集成配置；缺省等价 DEFAULT_PLUGIN_UI */
   ui?: Partial<PluginUiConfig>
+  /** 入口布局适配声明；缺省等价 DEFAULT_PLUGIN_VIEWS（quick/shell 可用，默认 shell） */
+  views?: Partial<PluginViewsConfig>
   /** 贡献点声明（插槽化架构）：settings/homeCards/railEntries/themePacks */
   contributes?: PluginContributes
 }
@@ -425,9 +477,9 @@ export interface PluginSummary {
   latestVersion?: string
   rootPath?: string
   devUrl?: string
-  /** Source preview maps assets/* to public/assets/*; false previews built output. */
+  /** 开发者控制台按源码目录加载（静态预览 assets/* → public/assets/*）；构建产物加载为 false */
   devSource?: boolean
-  /** Original source folder, also retained when previewing its dist directory. */
+  /** Original source folder, retained when the dev plugin runs from its dist directory. */
   sourcePath?: string
   /** 开发态插件（开发者控制台加载，未复制到 userData） */
   dev?: boolean
@@ -515,8 +567,8 @@ export interface DevPluginLoadOptions {
   autoStartServer?: boolean
 }
 
-/** 市场安装结果：sample 本地同步安装 / remote 已入队下载 */
-export type MarketInstallMode = 'sample' | 'remote' | 'already'
+/** 市场安装结果：remote 已入队下载 / already 已安装幂等 */
+export type MarketInstallMode = 'remote' | 'already'
 
 export interface MarketInstallResult {
   ok: boolean
@@ -809,7 +861,7 @@ export type PluginLaunchSettings = Record<string, PluginLaunchConfig>
  * aliases 传空数组 = 清除触发词。
  */
 export type PluginLaunchPatch = Omit<Partial<PluginLaunchConfig>, 'mode'> & {
-  mode?: PluginLaunchMode | null
+  mode?: PluginLaunchTarget | null
 }
 
 // —— 插件生命周期（对标 uTools onPluginEnter / onPluginOut）——

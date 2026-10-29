@@ -2,8 +2,7 @@
  * PluginDetailModal — 插件详情弹窗
  * 大图头（图标/名称/作者/版本/分类/安装量）+ 安装/打开/更新、启用/禁用切换、
  * 已安装时卸载与关闭操作 + README Markdown 正文。
- * 安装：本地 sample 优先（shellApi.installMarketPlugin），失败展示错误；
- *       远程资产入队下载，进度经 InstallProgressPanel。
+ * 安装：远程资产入队下载（shellApi.installMarketPlugin），进度经 InstallProgressPanel；错误就地展示。
  * README 经 shellApi.getPluginReadme 异步拉取；专用 motion hook 从点击卡片展开并收回。
  * 使用方：MarketPage（卡片/轮播点击打开）。依赖：MarkdownView、usePluginDetailMotion、shellApi。
  */
@@ -202,7 +201,7 @@ export function PluginDetailModal({ plugin, origin = null, onClose, onInstall }:
     setInstalling(true)
     try {
       const result = await shellApi.installMarketPlugin(plugin.id)
-      if (result.mode === 'sample' || result.mode === 'already') {
+      if (result.mode === 'already') {
         onInstall(plugin.id)
         requestClose()
       } else {

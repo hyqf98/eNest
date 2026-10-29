@@ -1,7 +1,7 @@
 /**
  * PluginRegistry — 插件注册表
  * 职责：扫描 ~/.eNest/plugins（pathsService）下已安装插件，维护安装/开发态插件列表与 manifest，
- * 支持开发态本地预览安装、远程市场下载安装、开发态加载；合并启用/禁用状态。
+ * 支持远程市场下载安装、开发态加载；合并启用/禁用状态。
  * 被 index.ts 扫描初始化，被 PluginHost / shellHandlers / pluginHandlers 查询。
  * 关键依赖：pathsService、PluginInstaller（manifest 解析）、
  * marketClient（远程列表与资产下载）、pluginEnabledStore（启用状态）。
@@ -9,7 +9,6 @@
 import { readdir, rm, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { app } from 'electron'
 import type {
   PluginContributes,
   PluginManifest,
@@ -21,7 +20,7 @@ import type {
 import { resolvePluginUi } from '@shared/types/plugin'
 import { pluginProtocolUrl } from '@shared/constants'
 import { getAppPaths } from '@main/paths/pathsService'
-import { installFromDirectory, installFromFolder, installFromZip, withInstallLock, beginPluginInstall, type InstallResult } from '@main/plugin/PluginInstaller'
+import { installFromDirectory, installFromZip, withInstallLock, beginPluginInstall, type InstallResult } from '@main/plugin/PluginInstaller'
 import {
   downloadPluginPackage,
   fetchRemoteMarket,
@@ -52,8 +51,6 @@ export interface InstalledPlugin {
   rootPath: string
   version: string
   buildRevision?: string
-  /** Metadata-only checkout preview; assets use the source public/ layout. */
-  devSource?: boolean
 }
 
 export interface InstalledPluginDescriptor {
@@ -165,7 +162,6 @@ function withUpdateHint(summary: PluginSummary, remote: MarketPluginSummary | un
 
 export class PluginRegistry {
   private installed = new Map<string, InstalledPlugin>()
-  private localPreviews = new Map<string, InstalledPlugin>()
   private dev = new Map<string, PluginSummary>()
   private devManifests = new Map<string, PluginManifest>()
   /** 远程 eNest_plugin 市场缓存；断网时沿用上次成功结果 */
@@ -228,7 +224,7 @@ export class PluginRegistry {
   }
 
   getBuildRevision(id: string): string {
-    const plugin = this.installed.get(id) ?? this.localPreviews.get(id)
+    const plugin = this.installed.get(id)
     const base = this.dev.has(id)
       ? `dev:${this.dev.get(id)?.rootPath ?? ''}`
       : plugin?.buildRevision ?? `${plugin?.version ?? ''}:${plugin?.rootPath ?? ''}`
@@ -399,6 +395,7 @@ private removeThemePackContributions(pluginId: string): void {
           this.scanRequested++
           continue
         }
+        await this.resolveDuplicateInstallations(next)
         const previous = this.installed
         this.installed = next // one atomic publication: readers never see an empty/partial catalog
         const fingerprint = (items: Map<string, InstalledPlugin>) => JSON.stringify([...items].map(([id, item]) => [id, item.rootPath, item.buildRevision, item.version]).sort())
@@ -420,7 +417,6 @@ private removeThemePackContributions(pluginId: string): void {
         }
         this.warnDuplicateInstallations(next)
       } while (request !== this.scanRequested)
-      await this.scanLocalPreviews()
       void this.refreshRemoteMarket()
     })()
     this.scanInFlight = task
@@ -429,11 +425,10 @@ private removeThemePackContributions(pluginId: string): void {
   }
 
   /**
-   * 通用重复安装诊断（不按插件 ID 特判、绝不自动处理）。
+   * 通用重复安装诊断与裁决（不按插件 ID 特判）。
    * 两个启用插件声明相同的 name + category 时，几乎总是同一插件以两个 id 并存
    * （典型场景：发布者改名后的旧包残留）。它们会争抢相同的 Quick 命令与设置分区，
-   * 因此宿主按重复集合记录一条警告，让情况在日志与开发者控制台可见。
-   * 宿主在此不禁用、不卸载、不重排任何插件。
+   * 宿主按重复集合记录警告；磁盘上属于安装目录的败者会被移除（见 resolveDuplicateInstallations）。
    */
   private warnDuplicateInstallations(items: Map<string, InstalledPlugin>): void {
     const byKey = new Map<string, string[]>()
@@ -456,42 +451,75 @@ private removeThemePackContributions(pluginId: string): void {
     }
   }
 
-  /** Checkout previews publish metadata/assets only; they never start a dev server or backend. */
-  private async scanLocalPreviews(): Promise<void> {
-    if (app.isPackaged) { this.localPreviews.clear(); return }
-    const root = join(app.getAppPath(), 'eNest_plugin', 'plugins')
-    const next = new Map<string, InstalledPlugin>()
-    let ids: string[]
-    try { ids = await readdir(root) } catch { this.localPreviews.clear(); return }
-    for (const id of ids) {
-      if (id.startsWith('.')) continue
-      // A complete build wins; a source-only checkout remains browsable without npm/build.
-      for (const devSource of [false, true]) {
-        const path = devSource ? join(root, id) : join(root, id, 'dist')
-        if (!existsSync(join(path, 'plugin.json'))) continue
+  /**
+   * 同名安装唯一性：安装/升级写盘前的裁决来源（经 Installer 的 lifecycle hook 调用）。
+   * 同 id 已安装属于常规升级替换，返回 null；另一个不同 id 声明了相同 name+category
+   * 时返回那个 id，安装方拒绝并提示先卸载旧版。开发态与禁用态同样参与冲突判定。
+   */
+  findConflictingInstallation(manifest: PluginManifest): string | null {
+    const name = (manifest.name ?? '').trim()
+    if (!name) return null
+    const category = (manifest.category ?? '').trim()
+    for (const [id, item] of this.installed) {
+      if (id === manifest.id) continue
+      if ((item.manifest.name ?? '').trim() !== name || (item.manifest.category ?? '').trim() !== category) continue
+      return id
+    }
+    for (const [id, summary] of this.dev) {
+      if (id === manifest.id) continue
+      if ((summary.name ?? '').trim() !== name) continue
+      const devManifest = this.devManifests.get(id)
+      if ((devManifest?.category ?? summary.category ?? '').toString().trim() !== category) continue
+      return id
+    }
+    return null
+  }
+
+  /**
+   * 启动扫描时的同名残留裁决（不按插件 ID 特判）。
+   * 同名同类目的多个已安装目录只会留下一个：dev 注册的源码态优先，其余按
+   * （版本号，目录名）取最新；败者从扫描结果剔除并删除其 plugins/<id> 安装树。
+   * 只处理纯磁盘安装：dev 源码目录、被禁用但无同名胜者的插件都不动。
+   * 插件私有数据/授权/设置不在安装树内，保留不动——胜者是新 id 时旧 id 的
+   * KV 数据不会跟随（跨 id 迁移属插件自身业务，宿主不做数据搬移）。
+   */
+  private async resolveDuplicateInstallations(next: Map<string, InstalledPlugin>): Promise<void> {
+    const byKey = new Map<string, { id: string; item: InstalledPlugin }[]>()
+    for (const [id, item] of next) {
+      const name = (item.manifest.name ?? '').trim()
+      if (!name) continue
+      const key = `${name}\u0000${(item.manifest.category ?? '').trim()}`
+      const group = byKey.get(key)
+      const entry = { id, item }
+      if (group) group.push(entry)
+      else byKey.set(key, [entry])
+    }
+    for (const group of byKey.values()) {
+      if (group.length < 2) continue
+      const winner = group.reduce((best, entry) => {
+        if (this.dev.has(entry.id) && !this.dev.has(best.id)) return entry
+        if (!this.dev.has(entry.id) && this.dev.has(best.id)) return best
+        const versionOrder = compareVersions(entry.item.version, best.item.version)
+        if (versionOrder !== 0) return versionOrder > 0 ? entry : best
+        return entry.id > best.id ? entry : best
+      })
+      for (const { id, item } of group) {
+        if (id === winner.id) continue
+        next.delete(id)
+        logWarn('registry', `removing duplicate installation ${id}@${item.version}: superseded by ${winner.id}@${winner.item.version} (same name)`)
         try {
-          const manifest = await installFromDirectory(path, { metadataOnly: true, source: devSource })
-          if (manifest.id.split('.').pop() !== id) continue
-          next.set(manifest.id, { manifest, rootPath: path, version: manifest.version, devSource,
-            buildRevision: String((await stat(join(path, 'plugin.json'))).mtimeMs) })
-          break
-        } catch (error) { logWarn('market', `invalid local ${devSource ? 'source' : 'package'} ${id}: ${(error as Error).message}`) }
+          await rm(join(pluginsRoot(), id), { recursive: true, force: true })
+          logInfo('registry', `removed duplicate plugin dir ${id}`)
+        } catch (error) {
+          logWarn('registry', `remove duplicate dir ${id} failed: ${(error as Error).message}（将在下次启动重试）`)
+          // 目录删除失败时仍从注册表剔除；磁盘残留会在下次扫描再次进入裁决
+        }
       }
     }
-    this.localPreviews = next
   }
 
-  /** Resolve only a scanned full identity; a same-suffix plugin is never an installation source. */
-  private resolveLocalPreviewRoot(id: string): string | null {
-    if (app.isPackaged) return null
-    const preview = this.localPreviews.get(id)
-    if (!preview || preview.manifest.id !== id) return null
-    const root = preview.devSource ? join(preview.rootPath, 'dist') : preview.rootPath
-    return existsSync(join(root, 'plugin.json')) ? root : null
-  }
-
-  getAssetRootPath(id: string): string | null { return this.getRootPath(id) ?? this.localPreviews.get(id)?.rootPath ?? null }
-  getAssetManifest(id: string): PluginManifest | null { return this.getManifest(id) ?? this.localPreviews.get(id)?.manifest ?? null }
+  getAssetRootPath(id: string): string | null { return this.getRootPath(id) }
+  getAssetManifest(id: string): PluginManifest | null { return this.getManifest(id) }
 
   /** Select one resource provenance for the entire item; never fall through per missing slot. */
   getCatalogResources(id: string): CatalogResources {
@@ -504,8 +532,6 @@ private removeThemePackContributions(pluginId: string): void {
     }
     const installed = this.installed.get(id)
     if (installed) return localCatalogResources(installed.manifest, installed.rootPath, 'installed')
-    const preview = this.localPreviews.get(id)
-    if (preview) return localCatalogResources(preview.manifest, preview.rootPath, 'preview', preview.devSource === true)
     const remote = this.getRemoteEntry(id)
     return remote ? remoteCatalogResources(remote) : { screenshots: [] }
   }
@@ -562,7 +588,6 @@ private removeThemePackContributions(pluginId: string): void {
     const ids = new Set([
       ...this.remoteMarket.map((entry) => entry.id),
       ...this.installed.keys(),
-      ...this.localPreviews.keys(),
       ...this.dev.keys()
     ])
     return [...ids].flatMap((id) => {
@@ -600,10 +625,6 @@ private removeThemePackContributions(pluginId: string): void {
       const summary = manifestToSummary(installed.manifest, installed.rootPath)
       return withUpdateHint(mergeMarketMetadata(summary, remote), remote)
     }
-    const preview = this.localPreviews.get(id)
-    if (preview) return { ...manifestToSummary(preview.manifest, preview.rootPath), installed: false, rootPath: undefined,
-      devSource: preview.devSource,
-      packageSize: preview.version === remote?.version ? remote.packageSize : undefined }
     if (remote) return remoteToSummary(remote, isEnabledSync(id))
     return null
   }
@@ -650,21 +671,6 @@ private removeThemePackContributions(pluginId: string): void {
     })
     this.changed()
     this.syncContributes(result.manifest, isEnabledSync(result.manifest.id))
-  }
-
-  /** Development checkout installation uses the same validated distribution as a release archive. */
-  async installLocalPreview(id: string): Promise<PluginSummary> {
-    if (app.isPackaged) throw new Error('local preview installation is unavailable in a packaged application')
-    if (this.installed.has(id)) {
-      return this.get(id)!
-    }
-    const src = this.resolveLocalPreviewRoot(id)
-    if (!src) {
-      throw new Error(`local preview build not found for plugin: ${id}`)
-    }
-    await installFromFolder(src, pluginsRoot(), undefined, undefined,
-      (result) => this.publishInstalledBuild(result), { id })
-    return this.get(id)!
   }
 
   /**
@@ -752,9 +758,8 @@ private removeThemePackContributions(pluginId: string): void {
 /**
  * 确保插件已安装：
  * 1. 已安装/开发态 → 直接返回（用 installed/dev map，避免禁用时 summary 缺 rootPath 误判）
- * 2. 开发态已扫描的本地预览产物存在 → 安装
- * 3. 远程市场有资产 → 下载安装（并发去重）
- * 4. 否则抛出明确错误
+ * 2. 远程市场有资产 → 下载安装（并发去重）
+ * 3. 否则抛出明确错误
  */
   async ensureInstalled(id: string): Promise<PluginSummary> {
     // 已在磁盘/开发态：直接返回。禁用插件 openPlugin 已在外层拒绝，此处仍保证 rootPath 语义正确
@@ -767,10 +772,6 @@ private removeThemePackContributions(pluginId: string): void {
     if (inflight) return inflight
 
     const task = (async (): Promise<PluginSummary> => {
-      // Local checkout previews are a development capability, never a packaged-app fallback.
-      if (this.resolveLocalPreviewRoot(id)) {
-        return this.installLocalPreview(id)
-      }
       // 远程下载
       if (this.getRemoteEntry(id)?.assetUrl) {
         logInfo('registry', `ensureInstalled → remote download ${id}`)
@@ -785,7 +786,7 @@ private removeThemePackContributions(pluginId: string): void {
         })
       }
       throw new Error(
-        `plugin not installable: ${id}（无本地预览产物且远程市场无可用资产）`
+        `plugin not installable: ${id}（远程市场无可用资产；本地插件请在开发者控制台加载）`
       )
     })()
 

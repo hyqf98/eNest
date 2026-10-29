@@ -97,13 +97,13 @@ function enterCodeFromQuery(): string | undefined {
 }
 
 /**
- * URL query 中的启动方式（?mode=quick|shell）：插件首个脚本同步读取的初始值。
+ * URL query 中的启动方式（?mode=quick|shell|panel）：插件首个脚本同步读取的初始值。
  * 容器迁移不重载页面、URL 不变，运行时真值以 mode-change 事件更新后的
  * getLaunchMode() 为准。
  */
 function launchModeFromQuery(): PluginLaunchMode | null {
   const mode = getQueryParam('mode')
-  return mode === 'quick' || mode === 'shell' ? mode : null
+  return mode === 'quick' || mode === 'shell' || mode === 'panel' ? mode : null
 }
 
 /** 当前启动方式（mode-change 事件实时更新；缺省按 URL ?mode=，再缺省 shell） */
@@ -282,7 +282,7 @@ export type { PluginToastType } from '@shared/types/notification'
 /** 壳统一通知类型再导出（信封 / topic 映射 / save.requested 事件） */
 export type { ShellNotice, ShellNoticeDataMap, ShellNoticeTopic, SaveRequestedEvent } from '@shared/types/notice'
 
-/** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗） */
+/** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗 / panel 面板组件） */
 export type PluginEnterEvent = PluginEnterPayload & {
   tabId: string
   mode: PluginLaunchMode
@@ -743,11 +743,12 @@ export interface EnestPluginApi {
   getEnterCode(): string | undefined
   /**
    * 当前启动方式：quick = Quick 小窗内嵌（小窗适配样式）/ shell = 主窗大窗
-   * （桌面适配样式）。初始值来自 URL ?mode=，容器迁移（固定到主窗等）时经
-   * mode-change 事件实时更新——插件据此在两套入口样式间切换。
+   * （桌面适配样式）/ panel = 自由面板小组件（组件适配样式）。初始值来自
+   * URL ?mode=，容器迁移（固定到主窗、移入/移出面板等）时经 mode-change
+   * 事件实时更新——插件据此在多套入口样式间切换。
    */
   getLaunchMode(): PluginLaunchMode
-  /** 启动方式变更（quick ↔ shell 迁移，不重载页面）；立即生效后回调 */
+  /** 启动方式变更（quick / shell / panel 间迁移，不重载页面）；立即生效后回调 */
   onModeChange(cb: (mode: PluginLaunchMode) => void): Unsubscribe
 }
 

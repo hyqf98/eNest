@@ -127,7 +127,7 @@ resolve({ ok: true, data })
 | — | `setDirty(dirty)` | 基础能力 | 上报未保存数据标记（更新重启前脏检测与一键保存） |
 | — | `onNotice(topic?, cb)` | 无 | 订阅壳统一通知（ShellNotice 标准信封） |
 | — | `onSaveRequested(cb)` | 无 | 壳请求立即保存数据（回调可返回 Promise） |
-| — | `getLaunchMode()` / `onModeChange(cb)` | 无 | 读 / 订阅启动方式（quick / shell） |
+| — | `getLaunchMode()` / `onModeChange(cb)` | 无 | 读 / 订阅布局模式（quick / shell / panel），不是原生挂载位置 |
 | — | `getPluginId()` / `getEnterCode()` | 无 | 插件身份 |
 
 顶层还保留兼容扁平别名：`enest.setTitle` ≡ `enest.ui.setTitle`（icon / badge / resize 同理）。
@@ -202,7 +202,7 @@ await enest.ui.setBadge('') // 清除
 | **参数** | `size: { width?: number; height?: number }` |
 | **返回** | `Promise<boolean>` |
 
-进入插件后，Quick 外框统一展开为 720 × 545px，顶部输入区 64px，插件内容区为 718 × 480px，仅在显示器工作区不足时缩小。此接口保留参数校验和成功返回，不改变 Quick 或主窗尺寸；manifest 的 `window` 尺寸建议也不会改变 Quick。插件应按实际 viewport 响应式布局，超出部分内部滚动；width / height 必须是正有限数。
+进入插件后，Quick 外框统一展开为 720 × 545px，顶部输入区 64px，插件内容区为 718 × 480px，仅在显示器工作区不足时缩小。此接口保留参数校验和成功返回，不改变 Quick、主窗或自由面板组件尺寸；manifest 的 `window` 尺寸建议也不会改变 Quick。面板组件的 `views.panel.size` 只影响首次添加，后续由用户拉伸与保存布局决定。插件应按实际 viewport 响应式布局，超出部分内部滚动；width / height 必须是正有限数。
 
 ```js
 await enest.ui.resize({ width: 960, height: 640 })
@@ -221,7 +221,7 @@ await enest.ui.resize({ width: 960, height: 640 })
 | **返回** | `Promise<boolean>` |
 | **错误** | `invalid height`（非正数） |
 
-?> 调用成功表示参数已接受，不表示窗口高度改变。Quick 插件态保持固定内容区，主窗尺寸由用户控制。
+?> 调用成功表示参数已接受，不表示窗口高度改变。Quick 插件态保持固定内容区，主窗和面板组件尺寸由用户控制。
 
 ```js
 await enest.ui.setHeight(420)
@@ -743,7 +743,7 @@ await enest.clipboard.writeImage(dataUrl)
 
 ### 剪贴板历史属于插件，不是宿主命名空间
 
-clipboard 1.4.0 的历史模型、去重、置顶、保留、迁移解释与搜索位于插件自己的沙箱后台。它的前台通过 `enest.background.call('history.query', [options])` 等私有 RPC 访问；`history.*` 是该插件自行注册的方法，不是所有插件共有的宿主接口，也不允许跨插件调用。插件的 `createClipboardApi(host)` 只创建本地 facade，不修改或扩充冻结的 `window.enest`。
+clipboard 的历史模型、去重、置顶、保留、迁移解释与搜索位于插件自己的沙箱后台。它的前台通过 `enest.background.call('history.query', [options])` 等私有 RPC 访问；`history.*` 是该插件自行注册的方法，不是所有插件共有的宿主接口，也不允许跨插件调用。插件的 `createClipboardApi(host)` 只创建本地 facade，不修改或扩充冻结的 `window.enest`。
 
 ```js
 // 仅 clipboard 插件自己的前台：方法名由其 background/history.mjs 实现。
@@ -1048,7 +1048,7 @@ const offAction = enest.quickInput.onAction(action => {
 })
 ```
 
-迁移、隐藏、返回全局搜索或实例销毁立即解除接管，旧 generation 的消息无效；重新进入 Quick 需重新 `configure`。`onChange` 收到宿主输入框的实时文本，`onAction` 收到 `next / previous / submit / clear`（方向键、Enter、清空）。完整键盘语义见[双模式工具接口 — 接管顶部输入](dual-mode-tools.md#接管顶部输入)。
+迁移、隐藏、返回全局搜索或实例销毁立即解除接管，旧 generation 的消息无效；重新进入 Quick 需重新 `configure`。`onChange` 收到宿主输入框的实时文本，`onAction` 收到 `next / previous / submit / clear`（方向键、Enter、清空）。完整键盘语义见[多布局工具接口 — 接管顶部输入](dual-mode-tools.md#接管顶部输入)。
 
 ### `quickInput.readContext()`
 
@@ -1066,7 +1066,7 @@ const ctx = await enest.quickInput.readContext()
 if (ctx?.images?.length) importImages(ctx.images.map(image => image.dataUrl))
 ```
 
-文件条目经 `localFiles.read/list({ handleId })` 读取（宿主签发的只读句柄），`path` 仅用于展示。上下文只在 Quick 启动注入的成功实例与当前 runtime 代次内可读；离开 Quick、换代或销毁后返回 null，重复激活不重放旧上下文。字段边界与启动语义见[双模式工具接口 — 输入上下文](dual-mode-tools.md#输入上下文)。
+文件条目经 `localFiles.read/list({ handleId })` 读取（宿主签发的只读句柄），`path` 仅用于展示。上下文只在 Quick 启动注入的成功实例与当前 runtime 代次内可读；离开 Quick、换代或销毁后返回 null，重复激活不重放旧上下文。字段边界与启动语义见[多布局工具接口 — 输入上下文](dual-mode-tools.md#输入上下文)。
 
 ---
 
@@ -1096,7 +1096,7 @@ enest.off('enter', onEnter)
 | `out` | 切到其它 Tab / Quick 退场 | `{ isKill: false }` |
 | `beforeClose` | 即将销毁 | `{ reason }` |
 | `destroy` | 关闭已开始 | `undefined` |
-| `mode-change` | 启动方式变化（quick ↔ shell 容器迁移，如 ⌘Enter 固定到主窗；不重载页面） | `{ mode }` |
+| `mode-change` | 布局值变化（quick / shell / panel；不重载页面，同布局的容器迁移不发送） | `{ mode }` |
 | `theme-change` | 主题变更 | `{ mode, tokens }` |
 | `hotkey` | 插件注册的全局热键被按下 | `{ accelerator }` |
 | `locale-change` | 壳子界面语言变更 | `{ locale }` |
@@ -1238,7 +1238,7 @@ try {
 
 | | |
 |--|--|
-| **参数** | `cb: (event: { tabId: string; code?: string; type?: 'text' \| 'regex' \| 'over' \| 'img' \| 'files'; payload?: unknown; input?: QuickEnterInput; mode?: 'quick' \| 'shell' }) => void` |
+| **参数** | `cb: (event: { tabId: string; code?: string; type?: 'text' \| 'regex' \| 'over' \| 'img' \| 'files'; payload?: unknown; input?: QuickEnterInput; mode: 'quick' \| 'shell' \| 'panel' }) => void` |
 | **返回** | `() => void` — 取消订阅 |
 
 ```js
@@ -1251,7 +1251,7 @@ enest.onEnter(({ tabId, code, type, payload, input, mode }) => {
 })
 ```
 
-`code` / `payload` 来自 `openPlugin` 的进入载荷，对应 `features[].code` 与透传数据；Quick 打开插件时 `payload` 恒为当前输入文本（regex/over 命中为原始文本，provider 结果为 provider 载荷）；`input` 为本次启动携带的粘贴上下文（文本/图片/文件，有界），仅 Quick 启动携带上下文时存在。`mode` 为本次进入的启动方式（quick / shell），与 `getLaunchMode()` 一致。完整交互见[双模式工具接口 — 输入上下文](dual-mode-tools.md#输入上下文)；重复激活不重放旧 `payload`/`input`。挂载期间可用 `enest.quickInput.readContext()` 重取本次上下文。
+`code` / `payload` 来自 `openPlugin` 的进入载荷，对应 `features[].code` 与透传数据；Quick 打开插件时 `payload` 恒为当前输入文本（regex/over 命中为原始文本，provider 结果为 provider 载荷）；`input` 为本次启动携带的粘贴上下文（文本/图片/文件，有界），仅 Quick 启动携带上下文时存在。`mode` 为本次进入的布局（quick / shell / panel），与 `getLaunchMode()` 一致，但不代表当前原生容器。完整交互见[多布局工具接口 — 输入上下文](dual-mode-tools.md#输入上下文)；重复激活不重放旧 `payload`/`input`。实际挂载于 Quick 期间可用 `enest.quickInput.readContext()` 重取本次上下文。
 
 ### `onOut(cb)`
 
@@ -1299,33 +1299,40 @@ enest.onBeforeClose(async ({ reason }) => {
 
 ---
 
-## 启动方式（launch mode）
+## 布局模式（launch mode）
 
-插件的初始展示模式由打开入口与宿主中该插件的启动偏好共同决定：`quick` 为小窗模式，`shell` 为桌面模式。该偏好由宿主控制，普通插件不读取全量宿主设置。独立窗口与[自由面板](panels.md)是挂载位置，不增加模式；插件据此调整紧凑与桌面布局，并观察实际内容区尺寸，详见 [UI 集成标准](ui-standard.md)。
+`PluginLaunchMode` 表示插件的三种呈现布局：quick 紧凑工具、shell 完整工作台、panel 组件摘要。它由打开入口、用户启动偏好与 manifest `views` 共同选择。普通启动请求布局未声明时用 `views.default`，不会把不支持的布局传给插件；加入自由面板则必须显式声明 panel，不走兼容回退。
+
+启动请求目标 `PluginLaunchTarget` 只有 quick/shell。Quick、快捷键与 Workspace 打开经统一启动器解析：最终 quick 布局进入 Quick，其余布局在主窗显示；Workspace 目录、详情和首页搜索显式请求 shell。`views.default` 仅在请求布局未适配时使用，因此默认 panel 不覆盖已适配的 quick/shell 请求；只有请求未适配且最终回退 panel 时，启动器才在主窗呈现组件布局，不自动创建自由面板。宿主普通打开（`ShellOpenPlugin`）不走这套目标重选：请求 shell 并保留主窗位置，即使回退 quick 布局。
+
+用户明确固定到主窗或拖入 Quick 时保留指定位置，再选择 shell/quick 或默认布局。加入自由面板先检查 `views.layouts` 包含 panel，否则不显示候选并拒绝挂载；通过后始终选择 panel。独立窗口保留原布局，因此 mode 不能作为原生位置探测 API。
+
+已有面板组件或独立窗口从普通 Quick 搜索（未指定显式目标）或 `ShellOpenPlugin` 打开时原地聚焦，新载荷正常交付；Workspace 打开、显式设置入口、快捷键目标或原生迁移动作仍可移动实例。不能把所有主窗按钮都视为原地聚焦入口。面板、主窗、独立窗共用业务状态，普通插件不读取宿主完整设置，也不操纵父窗口。入口决策与实际内容区的适配见 [UI 集成标准](ui-standard.md#三种布局与挂载位置) 和 [自由面板](panels.md)。
 
 ### `getLaunchMode()`
 
 | | |
 |--|--|
-| **返回** | `'quick' \| 'shell'` — 当前启动方式 |
+| **返回** | `'quick' \| 'shell' \| 'panel'` — 当前布局模式 |
 | **同步** | 是，不走 IPC（URL 初始值 + 事件实时更新） |
 
 ```js
 const mode = enest.getLaunchMode()
 if (mode === 'quick') renderCompact()
+else if (mode === 'panel') renderWidget()
 else renderFull()
 ```
 
-URL query 中的 `?mode=quick|shell`（与 `?pid` / `?code` 并列）只是**初始值**，首个脚本可同步读取；容器迁移后 URL 不再代表当前值，运行时一律以 `getLaunchMode()` / `onModeChange` 为准。
+URL query 中的 `?mode=quick|shell|panel`（与 `?pid` / `?code` 并列）只是**初始值**，首个脚本可同步读取；容器迁移后 URL 不再代表当前值，运行时一律以 `getLaunchMode()` / `onModeChange` 为准。
 
 ### `onModeChange(cb)`
 
-订阅启动方式变更。quick ↔ shell 容器迁移（⌘Enter 固定到主窗等）**不重载页面**，只推送本事件。
+订阅布局模式变更。容器迁移（⌘Enter 固定到主窗、移入/移出自由面板等）**不重载页面**，仅当最终布局值变化时推送本事件。独立窗口沿用原布局，或主窗承载的 panel 布局移入面板时，迁移可能没有模式事件；尺寸变化另用 `ResizeObserver`，不要靠 onEnter 重建业务。
 
 | | |
 |--|--|
 | **权限** | 无 |
-| **参数** | `cb: (mode: 'quick' \| 'shell') => void` |
+| **参数** | `cb: (mode: 'quick' \| 'shell' \| 'panel') => void` |
 | **返回** | `() => void` — 取消订阅 |
 
 ```js
@@ -1342,7 +1349,7 @@ enest.on('mode-change', ({ mode }) => applyMode(mode))
 
 | 事件 | 数据 |
 |------|------|
-| `mode-change` | `{ mode: 'quick' \| 'shell' }` |
+| `mode-change` | `{ mode: 'quick' \| 'shell' \| 'panel' }` |
 
 ---
 

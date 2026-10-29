@@ -14,7 +14,7 @@ const adapters = {
     let handler;
     export const protocol = { handle: (_scheme, value) => { handler = value } };
     export const session = { fromPartition: () => ({ protocol }) };
-    export const app = { getAppPath: () => globalThis.marketPreviewRoot ?? '/fixture', isPackaged: false };
+    export const app = { getAppPath: () => '/fixture', isPackaged: false };
     export const protocolRequest = (url) => handler(new Request(url));
   `,
   '@main/paths/pathsService': `export const getAppPaths = () => ({ plugins: '/fixture', root: '/fixture' }); export const defaultDataRoot = () => '/fixture'; export const getAppPathsRoot = () => '/fixture';`,
@@ -85,7 +85,7 @@ test('真实市场字段透传，缺失统计不显示零；安装包大小与�
   assert.equal(merged.packageSize, undefined, 'newer remote package size must not describe an installed older version')
 })
 
-test('catalog resources select dev, installed, preview then remote without borrowing missing local slots', () => {
+test('catalog resources select dev, installed then remote without borrowing missing local slots', () => {
   const id = 'com.github.eNest.anything'
   const registry = new api.PluginRegistry()
   registry.remoteMarket = [{ id, version: '2.0.0', icon: 'https://raw.githubusercontent.com/hyqf98/eNest_plugin/main/plugins/anything/public/assets/market/icon.svg',
@@ -93,53 +93,16 @@ test('catalog resources select dev, installed, preview then remote without borro
     screenshots: ['https://raw.githubusercontent.com/hyqf98/eNest_plugin/main/plugins/anything/public/assets/market/screenshots/main.png'] }]
   assert.equal(registry.getCatalogResources(id).icon.source, 'remote')
   const local = version => ({ manifest: { id, name: 'Anything', version, icon: 'assets/market/icon.svg', market: { screenshots: [] } }, version, rootPath: '/fixture/' + version })
-  registry.localPreviews.set(id, local('1.0.0'))
-  assert.equal(registry.getCatalogResources(id).icon.source, 'preview')
-  assert.equal(registry.getCatalogResources(id).readme, undefined)
-  assert.deepEqual(registry.getCatalogResources(id).screenshots, [])
   registry.installed.set(id, local('1.1.0'))
   assert.equal(registry.getCatalogResources(id).icon.source, 'installed')
+  assert.equal(registry.getCatalogResources(id).readme, undefined)
+  assert.deepEqual(registry.getCatalogResources(id).screenshots, [])
   registry.dev.set(id, { id, rootPath: '/fixture/source', devSource: true })
   registry.devManifests.set(id, local('1.2.0').manifest)
   assert.equal(registry.getCatalogResources(id).icon.source, 'dev')
   assert.equal(registry.getCatalogResources(id).icon.devSource, true)
   registry.devManifests.delete(id)
   assert.deepEqual(registry.getCatalogResources(id), { screenshots: [] }, 'an incomplete dev source must not silently borrow installed/remote media')
-})
-
-test('local preview scan matches short directory names but publishes full manifest IDs', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'enest-preview-resources-'))
-  globalThis.marketPreviewRoot = directory
-  const id = 'com.github.eNest.anything'
-  try {
-    for (const [name, pluginId] of [['anything', id], ['wrong-folder', 'com.github.eNest.other']]) {
-      const dist = join(directory, 'eNest_plugin/plugins', name, 'dist')
-      await mkdir(dist, { recursive: true })
-      await writeFile(join(dist, 'plugin.json'), JSON.stringify({ id: pluginId, name, version: '1.0.0', icon: 'assets/market/icon.svg' }))
-    }
-    const registry = new api.PluginRegistry()
-    await registry.scanLocalPreviews()
-    assert.deepEqual([...registry.localPreviews.keys()], [id])
-    assert.equal(registry.get(id).installed, false)
-    assert.equal(registry.getCatalogResources(id).icon.source, 'preview')
-    assert.equal(registry.getCatalogResources('anything').icon, undefined)
-    assert.equal(registry.getCatalogResources('com.github.eNest.other').icon, undefined)
-    const source = join(directory, 'eNest_plugin/plugins/source-only')
-    await mkdir(source, { recursive: true })
-    await writeFile(join(source, 'plugin.json'), JSON.stringify({ id: 'com.github.eNest.source-only', name: 'Source', version: '1.0.0', icon: 'assets/market/icon.svg' }))
-    // A competing source version must not override an existing valid dist.
-    await writeFile(join(directory, 'eNest_plugin/plugins/anything/plugin.json'), JSON.stringify({ id, name: 'Source Anything', version: '2.0.0', icon: 'assets/market/icon.svg' }))
-    await registry.scanLocalPreviews()
-    assert.equal(registry.get(id).version, '1.0.0')
-    assert.equal(registry.getCatalogResources(id).icon.devSource, false)
-    const preview = registry.getCatalogResources('com.github.eNest.source-only').icon
-    assert.equal(preview.rootPath, source)
-    assert.equal(preview.devSource, true)
-    assert.equal(registry.get('com.github.eNest.source-only').devSource, true)
-    assert.equal(registry.getManifest('com.github.eNest.source-only'), null, 'source preview is not runnable')
-    assert.equal(registry.getRootPath('com.github.eNest.source-only'), null)
-    assert.equal(registry.getAssetRootPath('com.github.eNest.source-only'), source)
-  } finally { delete globalThis.marketPreviewRoot; await rm(directory, { recursive: true, force: true }) }
 })
 
 test('生产目录不补造 mock 插件或元数据，离线保留已安装插件和已验证目录', async () => {

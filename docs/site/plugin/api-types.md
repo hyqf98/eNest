@@ -430,11 +430,12 @@ export interface EnestPluginApi {
     getEnterCode(): string | undefined;
     /**
      * 当前启动方式：quick = Quick 小窗内嵌（小窗适配样式）/ shell = 主窗大窗
-     * （桌面适配样式）。初始值来自 URL ?mode=，容器迁移（固定到主窗等）时经
-     * mode-change 事件实时更新——插件据此在两套入口样式间切换。
+     * （桌面适配样式）/ panel = 自由面板小组件（组件适配样式）。初始值来自
+     * URL ?mode=，容器迁移（固定到主窗、移入/移出面板等）时经 mode-change
+     * 事件实时更新——插件据此在多套入口样式间切换。
      */
     getLaunchMode(): PluginLaunchMode;
-    /** 启动方式变更（quick ↔ shell 迁移，不重载页面）；立即生效后回调 */
+    /** 启动方式变更（quick / shell / panel 间迁移，不重载页面）；立即生效后回调 */
     onModeChange(cb: (mode: PluginLaunchMode) => void): Unsubscribe;
 }
 
@@ -553,7 +554,7 @@ export interface OpenWithEnterPayload {
 
 export type Listener = (data: unknown) => void;
 
-/** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗） */
+/** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗 / panel 面板组件） */
 export type PluginEnterEvent = PluginEnterPayload & {
     tabId: string;
     mode: PluginLaunchMode;
@@ -966,12 +967,14 @@ export interface CaptureDisplay {
 /**
  * 插件布局模式，与宿主窗口位置分离：
  * - quick：Quick 小窗内嵌，渲染在输入框下方（小窗适配样式）
- * - shell：主窗大窗 Tab（桌面适配样式）
- * 不再有「大小插件」类型区分：同一插件两种入口样式并存，
+ * - shell：主窗大窗 Tab / 独立窗口（桌面适配样式）
+ * - panel：自由面板小组件（组件适配样式）
+ * 不再有「大小插件」类型区分：同一插件多套入口样式并存，
  * 壳子启动时经 URL ?mode= / onEnter 载荷 / getLaunchMode() 传给插件，插件自选渲染样式。
- * 拖出独立窗口保留原模式；收回 Quick / 主窗时才切换为接收位置的模式。
+ * 拖出独立窗口保留原模式；收回 Quick / 主窗 / 面板时切换为接收位置的布局；
+ * 普通启动未适配目标布局时回落 manifest views.default；加入面板必须显式适配 panel。
  */
-export type PluginLaunchMode = 'quick' | 'shell';
+export type PluginLaunchMode = 'quick' | 'shell' | 'panel';
 
 /** 声明式设置 section（manifest.contributes.settings；持久化，重启即显示） */
 export interface SettingsSectionContribution {

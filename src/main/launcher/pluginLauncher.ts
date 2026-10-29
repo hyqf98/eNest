@@ -1,4 +1,5 @@
-import type { PluginEnterPayload, PluginLaunchMode } from '@shared/types/plugin'
+import type { PluginEnterPayload, PluginLaunchTarget } from '@shared/types/plugin'
+import { resolvePluginLaunchPresentation } from '@shared/pluginPresentation'
 import { capturePasteTarget } from '@main/clipboard/nativeClipboard'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
@@ -11,7 +12,7 @@ import { logWarn } from '@main/logs/logService'
 
 export interface PluginLaunchRequest {
   pluginId: string
-  mode?: PluginLaunchMode
+  mode?: PluginLaunchTarget
   source: 'shortcut' | 'quick' | 'settings' | 'open-with'
   enter?: PluginEnterPayload
 }
@@ -46,8 +47,14 @@ export function launchPlugin(request: PluginLaunchRequest): Promise<PluginLaunch
     return Promise.resolve({ ok: false, error: '无效的启动方式' })
   }
   const configured = settingsStore.getPluginLaunchConfig(pluginId)?.mode
-  const mode: PluginLaunchMode = request.mode ?? (configured === 'shell' ? 'shell' : 'quick')
-  const key = `${request.source}:${pluginId}:${mode}`
+  const requested: PluginLaunchTarget = request.mode ?? (configured === 'shell' ? 'shell' : 'quick')
+  const { target, layoutMode } = resolvePluginLaunchPresentation(pluginRegistry.getManifest(pluginId)?.views, requested)
+  if (layoutMode !== requested) logWarn('plugin-launch', `${pluginId}: layout ${requested} not adapted, falling back to ${layoutMode} in ${target}`)
+  const placement = pluginHost.getPlacement(pluginId)
+  // Ordinary search focuses resident surfaces. Explicit destinations still move the View.
+  const residentSearch = request.source === 'quick' && request.mode === undefined
+    && (placement.kind === 'detached' || placement.kind === 'panel')
+  const key = `${request.source}:${pluginId}:${residentSearch ? 'resident' : target}:${layoutMode}`
   const now = Date.now()
   if (!request.enter && lastRequest?.key === key && lastRequest.revision === intentRevision
     && lastRequest.canReuse()
@@ -59,7 +66,7 @@ export function launchPlugin(request: PluginLaunchRequest): Promise<PluginLaunch
   const revision = ++intentRevision
   const quickRevision = getQuickShowRevision()
   const placementRevision = pluginHost.getPlacementRevision(pluginId)
-  const shellWindow = mode === 'shell' ? getMainWindow() : null
+  const shellWindow = !residentSearch && target === 'shell' ? getMainWindow() : null
   let windowDismissed = false
   let succeeded = false
   let reusableQuickRevision = quickRevision
@@ -67,24 +74,21 @@ export function launchPlugin(request: PluginLaunchRequest): Promise<PluginLaunch
   const dismiss = () => { windowDismissed = true }
   shellWindow?.on?.('hide', dismiss)
   shellWindow?.on?.('closed', dismiss)
-  // Search retains its established independent-window behavior. Explicit bindings
-  // and the settings launch button always honor the chosen destination.
-  const detachedSearch = request.source === 'quick' && pluginHost.getPlacement(pluginId).kind === 'detached'
   const current = () => !windowDismissed && revision === intentRevision && pluginHost.getPlacementRevision(pluginId) === placementRevision
-    && (mode !== 'quick' || detachedSearch || getQuickShowRevision() === quickRevision)
+    && (target !== 'quick' || residentSearch || getQuickShowRevision() === quickRevision)
   const operation = {
     key, at: now, pending: true, revision, promise: Promise.resolve<PluginLaunchResult>({ ok: false }),
     canReuse: () => !windowDismissed && (operation.pending || succeeded)
       && pluginHost.getPlacementRevision(pluginId) === reusablePlacementRevision
-      && (mode !== 'quick' || getQuickShowRevision() === reusableQuickRevision)
-      && (operation.pending || mode !== 'shell' || shellWindow?.isVisible?.() !== false)
+      && (target !== 'quick' || residentSearch || getQuickShowRevision() === reusableQuickRevision)
+      && (operation.pending || target !== 'shell' || residentSearch || shellWindow?.isVisible?.() !== false)
   }
   operation.promise = (async (): Promise<PluginLaunchResult> => {
     try {
-      if (detachedSearch) {
+      if (residentSearch) {
         await pluginHost.openPlugin(pluginId, request.enter, { guard: current })
       } else {
-        if (mode === 'quick') {
+        if (target === 'quick') {
           const prepared = await Promise.all([
             isQuickVisible() ? Promise.resolve() : captureOriginalTarget(quickRevision),
             prepareQuickWindowForPlugin(current)
@@ -93,12 +97,14 @@ export function launchPlugin(request: PluginLaunchRequest): Promise<PluginLaunch
           if (!prepared[1]) throw new Error('快捷小窗暂时无法打开，请重试')
         }
         if (!current()) return { ok: false, cancelled: true }
-        await pluginHost.launchPluginIn(pluginId, mode, request.enter, current)
+        await pluginHost.launchPluginIn(pluginId, target, request.enter, current, layoutMode)
       }
       if (windowDismissed || revision !== intentRevision) return { ok: false, cancelled: true }
-      if (mode === 'shell' || detachedSearch) {
+      if (target === 'shell' || residentSearch) {
         hideQuickWindow('plugin-launch')
-        if (!detachedSearch) {
+        if (residentSearch) {
+          pluginHost.focusPlugin(pluginId)
+        } else {
           const win = getMainWindow()
           if (win && !win.isDestroyed()) {
             if (win.isMinimized()) win.restore()

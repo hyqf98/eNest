@@ -2,7 +2,7 @@
 
 eNest 作为本机 MCP 服务，聚合已安装、已启用的插件工具。插件负责业务处理，壳负责协议传输、鉴权、参数校验、实例生命周期和权限边界；插件不需要自行监听端口或持有 MCP 令牌。
 
-> 服务默认关闭。当前实现包含主进程服务与专用管理 IPC，但原生设置尚未提供 MCP 管理区；插件不能自行启用服务，也不能让用户通过普通主题或插件设置绕过该入口。本文说明现有协议与限制，不代表所有 MCP 客户端、系统密钥库或退出重启场景已经完成目标平台验收。
+> 服务默认关闭。宿主实现包含主进程服务、专用管理 IPC 与设置页「开发者 → MCP 服务」管理区（启用、端口、运行状态、复制连接配置、重置令牌与已注册工具目录）；插件不能自行启用服务，也不能让用户通过普通主题或插件设置绕过该入口。本文说明现有协议与限制，不代表所有 MCP 客户端、系统密钥库或退出重启场景已经完成目标平台验收。
 
 ## 1. 声明工具
 
@@ -131,6 +131,16 @@ Linux 沿用[密钥保险库的安全策略](permissions.md#旧数据与系统�
 
 上述 8 个管理任务不是 HTTP 会话数或插件工具并发数，`getMcpStatus()` 等只读查询也不占该管理队列。外部 MCP 客户端不能直接调用这些管理接口；管理接口的“繁忙”拒绝不等同于第 5 节工具结果中的 `busy` 错误码。工具调用仍遵循第 3 节的会话与执行预算。
 
-启动时读取独立配置，退出时关闭 HTTP/Worker；安装、启停、更新与卸载影响工具目录及运行资格。管理 UI 尚未提供，第三方主题快照也不发布一个可用的 MCP 原生分组，不能靠拼接 section ID 进入。字段细节以自动生成的 [TypeScript 类型](api-types.md) 中 `McpToolDeclaration`、`McpToolResult`、`McpHandlerContext` 为准；宿主扩展管理入口还须遵守[宿主开发标准](host-development.md)的来源、生命周期和原生确认规则。
+启动时读取独立配置，退出时关闭 HTTP/Worker；安装、启停、更新与卸载影响工具目录及运行资格。管理入口在宿主设置页「开发者 → MCP 服务」（启用/端口、状态与会话计数、复制连接配置、重置令牌、工具目录分页与最近调用），由可信壳视图直接调用上述管理接口；第三方主题快照不发布可用的 MCP 原生分组，不能靠拼接 section ID 进入。字段细节以自动生成的 [TypeScript 类型](api-types.md) 中 `McpToolDeclaration`、`McpToolResult`、`McpHandlerContext` 为准；宿主扩展管理入口还须遵守[宿主开发标准](host-development.md)的来源、生命周期和原生确认规则。
+
+## 7. 图像返回实践
+
+需要把画布、预览或任何位图回传给 AI 客户端时，用 `image` 内容块：`{ type: 'image', data: <base64，不含 data URL 前缀>, mimeType: 'image/png' }`，同时附一条 `text` 摘要（尺寸、来源草稿等），让不支持图像的客户端也能理解结果。整条结果受 1 MiB 上限约束（含 JSON 封装），生成端应主动控制体积：
+
+- 按内容包围盒而非固定大画幅合成；提供 `format`（JPEG 远小于 PNG）与最大边长参数，超限时自动降采样重试。
+- base64 前先在离屏 canvas 合成（如 `canvas.toDataURL` 去前缀），不读磁盘路径，也不依赖窗口可见——MCP 冷启动页面是隐藏的，`screen.capture` 一类依赖可见性的能力不可用。
+- 超限不是可重试错误：返回业务失败并说明缩小范围（更少元素、更小尺寸、JPEG）的方法。
+
+官方画板插件 `com.github.eNest.drawboard` 的 `capture` 工具是按上述约束实现的可参考样例：隐藏页离屏合成、按包围盒导出、png/jpeg 与最大边长降采样、超限给出可操作提示。
 
 协议参考：[MCP TypeScript SDK 工具](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/servers/tools.md)、[HTTP 会话管理](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/serving/sessions-state-scaling.md)。

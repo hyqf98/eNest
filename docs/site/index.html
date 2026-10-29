@@ -1,1115 +1,192 @@
 <!doctype html>
-<html lang="zh-CN" data-anim="high">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>eNest — 用插件组合你的桌面工作台</title>
-    <meta
-      name="description"
-      content="eNest 是插件化桌面壳。按需安装工具与主题，在 Quick、主窗口、独立窗口和自由面板中工作，共用动态设置、私有存储与权限管理。"
-    />
-    <meta property="og:title" content="eNest — 你的工具，各就各位" />
-    <meta property="og:description" content="插件提供工具与主题，eNest 负责窗口、生命周期和共用能力。" />
+    <meta name="color-scheme" content="light dark" />
+    <title>eNest — 组合你的工作台</title>
+    <meta name="description" content="eNest 是插件化桌面壳。按需安装工具与主题，用 Quick 搜索打开，在主窗口、独立窗口或自由面板中使用。目前尚无公开发行包。" />
+    <meta property="og:title" content="eNest — 组合你的工作台" />
+    <meta property="og:description" content="按需安装工具与主题，用 Quick 搜索打开，按自己的习惯安排插件窗口。目前尚无公开发行包。" />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="assets/screens/screen-assistant.webp" />
-    <meta name="theme-color" content="#F1F0EC" />
+    <meta property="og:image" content="https://hyqf98.github.io/eNest/assets/screens/native-shell-light.webp?v=27d94c0e7a" />
+    <meta property="og:image:alt" content="eNest 插件化桌面壳的原生主窗口" />
+    <meta name="theme-color" content="#F5F7F4" />
     <link rel="icon" href="assets/icons/enest-icon-256.png" />
-    <script src="assets/theme.js"></script>
+    <script src="assets/theme.js?v=a6305b9b7a"></script>
     <link rel="stylesheet" href="assets/fonts/fonts.css" />
-    <link rel="stylesheet" href="assets/site.css" />
-    <script src="assets/landing.js" defer></script>
+    <link rel="stylesheet" href="assets/site.css?v=2eba8c08c2" />
+    <script src="assets/site.js?v=29dea0c612" defer></script>
+    <script src="assets/landing.js?v=ba8a5bb9f3" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">跳转到内容</a>
     <header class="site-nav">
       <div class="wrap site-nav-inner">
-        <a class="brand" href="./" aria-label="eNest 首页"
-          ><img
-            src="assets/icons/enest-icon-256.png"
-            alt=""
-            width="32"
-            height="32"
-          />eNest</a
-        >
-        <button
-          class="nav-toggle"
-          type="button"
-          aria-expanded="false"
-          aria-controls="site-menu"
-        >
-          菜单 <span aria-hidden="true">＋</span>
-        </button>
-        <nav id="site-menu" class="nav-links" aria-label="主导航">
-          <a href="#features">工作方式</a><a href="#scenarios">使用场景</a
-          ><a href="#catalog">插件</a><a href="plugin/">开发文档</a
-          ><button
-            type="button"
-            class="theme-toggle"
-            data-theme-toggle
-            aria-label="切换深浅主题"
-          >
-            ◐</button
-          ><a class="nav-download" href="download.html"
-            >下载 eNest <span aria-hidden="true">↗</span></a
-          >
+        <a class="brand" href="./" aria-label="eNest 首页"><img src="assets/icons/enest-icon-256.png" alt="" width="34" height="34" /><span>eNest</span></a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-menu">菜单 <span aria-hidden="true">＋</span></button>
+        <nav class="nav-links" id="site-menu" aria-label="主导航">
+          <a href="#features">工作方式</a><a href="#catalog">插件目录</a><a href="plugin/">开发文档 <span class="external-mark" aria-hidden="true">↗</span></a>
+          <span class="nav-divider" aria-hidden="true"></span>
+          <button class="theme-toggle" type="button" data-theme-toggle aria-label="切换深浅主题"><span aria-hidden="true">◐</span></button>
+          <a class="nav-download" href="download.html">获取 eNest <span aria-hidden="true">↗</span></a>
         </nav>
       </div>
     </header>
     <main id="main">
-      <section class="chapter hero" id="intro" data-chapter="assembly">
-        <div class="stage hero-stage">
-          <div class="wrap hero-top">
-            <div>
-              <p class="eyebrow">插件化桌面壳 · 你的工具，各就各位。</p>
-              <h1>
-                把常用工具，<br />放进同一个<span class="accent">工作台。</span>
-              </h1>
-            </div>
-            <div class="hero-aside">
-              <p>
-                工具按需安装，主题自由选择。<br />eNest 管好窗口、设置与生命周期，<br />插件专注完成你的工作。
-              </p>
-              <a class="button primary" href="download.html"
-                >下载 eNest <span aria-hidden="true">↗</span></a
-              ><span class="platform-note">发布目标：macOS · Windows · Linux</span>
+      <section class="hero" id="intro" aria-labelledby="hero-title">
+        <div class="hero-atmosphere" aria-hidden="true"></div>
+        <div class="wrap hero-layout">
+          <div class="hero-copy">
+            <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> eNest · 插件化工作台</p>
+            <h1 id="hero-title">组合你的<br /><span>工作台。</span></h1>
+            <p class="hero-description">工具按需安装，用 Quick 搜索打开。<br />独立窗口和自由面板，按你的习惯摆放。</p>
+            <div class="hero-actions"><a class="button primary" href="download.html">获取 eNest <span aria-hidden="true">↗</span></a><a class="text-link" href="#features">看看怎么用 <span aria-hidden="true">↓</span></a></div>
+            <p class="release-note">目前尚无公开发行包。<a href="download.html">查看发布状态</a></p>
+          </div>
+          <div class="hero-visual">
+            <div class="orbit-scene" data-orbit-scene aria-label="34 个真实插件围绕 eNest 主窗口，选择图标了解插件">
+              <div class="orbit-guide orbit-guide-inner" aria-hidden="true"></div><div class="orbit-guide orbit-guide-middle" aria-hidden="true"></div><div class="orbit-guide orbit-guide-outer" aria-hidden="true"></div>
+              <div class="hero-window"><a class="screenshot" href="assets/screens/native-shell-light.webp?v=27d94c0e7a" data-zoom="assets/screens/native-shell-light.webp?v=27d94c0e7a" data-caption="eNest 主窗口 · 隔离演示环境原生截图" aria-label="放大 eNest 主窗口截图"><img decoding="async" class="theme-light-image" src="assets/screens/native-shell-light.webp?v=27d94c0e7a" alt="eNest 浅色主窗口，展示真实插件目录" width="1200" height="800" fetchpriority="high" /><img decoding="async" class="theme-dark-image" src="assets/screens/native-shell-dark.webp?v=11d13c4d76" alt="eNest 深色主窗口，展示真实插件目录" width="1200" height="800" /><span class="zoom-label">放大看看 <span aria-hidden="true">↗</span></span></a></div>
+              <a class="orbit-icon" href="#plugin-ai-canvas" data-orbit="0" data-index="0" style="left:78.56%;top:44.96%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解AI 画布"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/ai-canvas.svg?v=d2e22f4af0" alt="" width="37" height="37" /></span><span class="orbit-name">AI 画布</span></a>
+              <a class="orbit-icon" href="#plugin-anything" data-orbit="0" data-index="1" style="left:74.89%;top:63.23%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解Anything 文件搜索"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/anything.svg?v=b4f99c589d" alt="" width="37" height="37" /></span><span class="orbit-name">Anything 文件搜索</span></a>
+              <a class="orbit-icon" href="#plugin-batch-rename" data-orbit="0" data-index="2" style="left:59.58%;top:75.31%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解批量重命名"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/batch-rename.svg?v=b6cc6907a8" alt="" width="37" height="37" /></span><span class="orbit-name">批量重命名</span></a>
+              <a class="orbit-icon" href="#plugin-calculator" data-orbit="0" data-index="3" data-mobile="3" style="left:39.78%;top:75.55%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解计算器"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/calculator.svg?v=9f9cc48776" alt="" width="37" height="37" /></span><span class="orbit-name">计算器</span></a>
+              <a class="orbit-icon" href="#plugin-ccswitch" data-orbit="0" data-index="4" style="left:24.77%;top:63.83%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解供应商切换"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/ccswitch.svg?v=6a1dddac2c" alt="" width="37" height="37" /></span><span class="orbit-name">供应商切换</span></a>
+              <a class="orbit-icon" href="#plugin-clipboard" data-orbit="0" data-index="5" data-mobile="6" style="left:21.56%;top:45.64%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解剪贴板"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/clipboard.svg?v=178c53deff" alt="" width="37" height="37" /></span><span class="orbit-name">剪贴板</span></a>
+              <a class="orbit-icon" href="#plugin-codec" data-orbit="0" data-index="6" style="left:31.66%;top:29.49%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解编解码"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/codec.svg?v=14241eed30" alt="" width="37" height="37" /></span><span class="orbit-name">编解码</span></a>
+              <a class="orbit-icon" href="#plugin-codex-pets" data-orbit="0" data-index="7" style="left:50.34%;top:22.94%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解Codex 宠物市场"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/codex-pets.svg?v=0756f6be1e" alt="" width="37" height="37" /></span><span class="orbit-name">Codex 宠物市场</span></a>
+              <a class="orbit-icon" href="#plugin-color-picker" data-orbit="0" data-index="8" style="left:68.86%;top:29.05%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解取色器"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/color-picker.svg?v=941a3063cf" alt="" width="37" height="37" /></span><span class="orbit-name">取色器</span></a>
+              <a class="orbit-icon" href="#plugin-cron" data-orbit="1" data-index="0" style="left:86.00%;top:60.06%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解Cron 工具"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/cron.svg?v=4cd428c9ea" alt="" width="37" height="37" /></span><span class="orbit-name">Cron 工具</span></a>
+              <a class="orbit-icon" href="#plugin-database" data-orbit="1" data-index="1" style="left:73.86%;top:76.64%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解数据库"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/database.svg?v=606bbdd8c0" alt="" width="37" height="37" /></span><span class="orbit-name">数据库</span></a>
+              <a class="orbit-icon" href="#plugin-diff" data-orbit="1" data-index="2" style="left:54.14%;top:84.76%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解文本对比"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/diff.svg?v=e14ead7695" alt="" width="37" height="37" /></span><span class="orbit-name">文本对比</span></a>
+              <a class="orbit-icon" href="#plugin-drawboard" data-orbit="1" data-index="3" data-mobile="5" style="left:33.11%;top:81.85%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解画板"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/drawboard.svg?v=c359912fba" alt="" width="37" height="37" /></span><span class="orbit-name">画板</span></a>
+              <a class="orbit-icon" href="#plugin-dsh" data-orbit="1" data-index="4" style="left:17.44%;top:68.82%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解DSH 驾驶舱"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/dsh.svg?v=9d694bb9de" alt="" width="37" height="37" /></span><span class="orbit-name">DSH 驾驶舱</span></a>
+              <a class="orbit-icon" href="#plugin-hash" data-orbit="1" data-index="5" style="left:12.11%;top:49.82%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解哈希与加密"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/hash.svg?v=bfea3ba91a" alt="" width="37" height="37" /></span><span class="orbit-name">哈希与加密</span></a>
+              <a class="orbit-icon" href="#plugin-image-tools" data-orbit="1" data-index="6" style="left:18.81%;top:30.87%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解图片工具箱"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/image-tools.svg?v=0ccc3c770a" alt="" width="37" height="37" /></span><span class="orbit-name">图片工具箱</span></a>
+              <a class="orbit-icon" href="#plugin-json-tools" data-orbit="1" data-index="7" data-mobile="4" style="left:35.41%;top:18.00%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解JSON 工具"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/json-tools.svg?v=29234a4776" alt="" width="37" height="37" /></span><span class="orbit-name">JSON 工具</span></a>
+              <a class="orbit-icon" href="#plugin-lan-share" data-orbit="1" data-index="8" style="left:56.65%;top:15.29%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解局域网传件"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/lan-share.svg?v=2d206271ad" alt="" width="37" height="37" /></span><span class="orbit-name">局域网传件</span></a>
+              <a class="orbit-icon" href="#plugin-markdown" data-orbit="1" data-index="9" data-mobile="1" style="left:75.77%;top:23.60%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解Markdown 编辑器"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/markdown.svg?v=957716b956" alt="" width="37" height="37" /></span><span class="orbit-name">Markdown 编辑器</span></a>
+              <a class="orbit-icon" href="#plugin-middleware" data-orbit="1" data-index="10" style="left:86.71%;top:40.29%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解中间件控制台"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/middleware.svg?v=6bad78570a" alt="" width="37" height="37" /></span><span class="orbit-name">中间件控制台</span></a>
+              <a class="orbit-icon" href="#plugin-net-kit" data-orbit="2" data-index="0" style="left:82.66%;top:80.01%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解网络调试台"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/net-kit.svg?v=f78350cc46" alt="" width="37" height="37" /></span><span class="orbit-name">网络调试台</span></a>
+              <a class="orbit-icon" href="#plugin-password-kit" data-orbit="2" data-index="1" style="left:64.83%;top:90.48%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解密码工具箱"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/password-kit.svg?v=31f7b3d389" alt="" width="37" height="37" /></span><span class="orbit-name">密码工具箱</span></a>
+              <a class="orbit-icon" href="#plugin-pomodoro" data-orbit="2" data-index="2" data-mobile="2" style="left:44.07%;top:92.93%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解番茄钟"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/pomodoro.svg?v=aecc1f522b" alt="" width="37" height="37" /></span><span class="orbit-name">番茄钟</span></a>
+              <a class="orbit-icon" href="#plugin-regex" data-orbit="2" data-index="3" style="left:24.48%;top:86.87%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解正则工作台"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/regex.svg?v=87d9272a97" alt="" width="37" height="37" /></span><span class="orbit-name">正则工作台</span></a>
+              <a class="orbit-icon" href="#plugin-remote-desktop" data-orbit="2" data-index="4" style="left:9.94%;top:73.52%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解远程桌面"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/remote-desktop.svg?v=d9e4790a0a" alt="" width="37" height="37" /></span><span class="orbit-name">远程桌面</span></a>
+              <a class="orbit-icon" href="#plugin-screen-assistant" data-orbit="2" data-index="5" style="left:3.34%;top:55.50%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解屏幕助手"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/screen-assistant.svg?v=ff6d049997" alt="" width="37" height="37" /></span><span class="orbit-name">屏幕助手</span></a>
+              <a class="orbit-icon" href="#plugin-sketchbook" data-orbit="2" data-index="6" style="left:5.98%;top:36.40%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解素描本"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/sketchbook.svg?v=0af0248d36" alt="" width="37" height="37" /></span><span class="orbit-name">素描本</span></a>
+              <a class="orbit-icon" href="#plugin-ssh" data-orbit="2" data-index="7" style="left:17.34%;top:19.99%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解SSH管理"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/ssh.svg?v=0c93a52f24" alt="" width="37" height="37" /></span><span class="orbit-name">SSH管理</span></a>
+              <a class="orbit-icon" href="#plugin-sticky-notes" data-orbit="2" data-index="8" style="left:35.17%;top:9.52%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解备忘录"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/sticky-notes.svg?v=bd2e8c6b5f" alt="" width="37" height="37" /></span><span class="orbit-name">备忘录</span></a>
+              <a class="orbit-icon" href="#plugin-sysguard" data-orbit="2" data-index="9" style="left:55.93%;top:7.07%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解进程与端口"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/sysguard.svg?v=51fa3bff03" alt="" width="37" height="37" /></span><span class="orbit-name">进程与端口</span></a>
+              <a class="orbit-icon" href="#plugin-timestamp" data-orbit="2" data-index="10" style="left:75.52%;top:13.13%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解时间戳"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/timestamp.svg?v=3299b7b0a4" alt="" width="37" height="37" /></span><span class="orbit-name">时间戳</span></a>
+              <a class="orbit-icon" href="#plugin-todos" data-orbit="2" data-index="11" style="left:90.06%;top:26.48%;--static-x:0px;--static-y:0px;z-index:40" aria-label="了解待办清单"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/todos.svg?v=ddaceebb9f" alt="" width="37" height="37" /></span><span class="orbit-name">待办清单</span></a>
+              <a class="orbit-icon" href="#plugin-translate" data-orbit="2" data-index="12" style="left:96.66%;top:44.50%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解翻译"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/translate.svg?v=c0ebe65b10" alt="" width="37" height="37" /></span><span class="orbit-name">翻译</span></a>
+              <a class="orbit-icon" href="#plugin-unit-convert" data-orbit="2" data-index="13" style="left:94.02%;top:63.60%;--static-x:0px;--static-y:0px;z-index:160" aria-label="了解单位与汇率"><span class="orbit-tile" aria-hidden="true"><img src="assets/plugins/unit-convert.svg?v=ca9c24cda3" alt="" width="37" height="37" /></span><span class="orbit-name">单位与汇率</span></a>
             </div>
           </div>
-          <div class="assembly" aria-label="eNest 插件工作台展示">
-            <div class="desk-shadow"></div>
-            <div class="hero-window">
-              <button
-                class="screenshot"
-                type="button"
-                data-zoom="assets/screens/shell.webp"
-                data-caption="eNest 主窗口：插件市场"
-                aria-label="放大eNest 主窗口：插件市场"
-              >
-                <img
-                  src="assets/screens/shell.webp"
-                  alt="eNest 主窗口：插件市场"
-                  width="1280"
-                  height="720"
-                  fetchpriority="high"
-                /><span class="zoom-label"
-                  >查看大图 <span aria-hidden="true">↗</span></span
-                >
-              </button>
-            </div>
-            <div class="module-field">
-              <a class="module module-0" href="#catalog" aria-label="浏览剪贴板"
-                ><img
-                  src="assets/plugins/clipboard.svg"
-                  width="42"
-                  height="42"
-                  alt=""
-                /><span>剪贴板</span></a
-              >
-              <a
-                class="module module-1"
-                href="#catalog"
-                aria-label="浏览屏幕助手"
-                ><img
-                  src="assets/plugins/screen-assistant.svg"
-                  width="42"
-                  height="42"
-                  alt=""
-                /><span>屏幕助手</span></a
-              >
-              <a class="module module-2" href="#catalog" aria-label="浏览数据库"
-                ><img
-                  src="assets/plugins/database.svg"
-                  width="42"
-                  height="42"
-                  alt=""
-                /><span>数据库</span></a
-              >
-              <a class="module module-3" href="#catalog" aria-label="浏览SSH"
-                ><img
-                  src="assets/plugins/ssh.svg"
-                  width="42"
-                  height="42"
-                  alt=""
-                /><span>SSH</span></a
-              >
-              <a
-                class="module module-4"
-                href="#catalog"
-                aria-label="浏览Markdown"
-                ><img
-                  src="assets/plugins/markdown.svg"
-                  width="42"
-                  height="42"
-                  alt=""
-                /><span>Markdown</span></a
-              >
-              <a class="module module-5" href="#catalog" aria-label="浏览翻译"
-                ><img
-                  src="assets/plugins/translate.svg"
-                  width="42"
-                  height="42"
-                  alt=""
-                /><span>翻译</span></a
-              >
-            </div>
-            <div class="assembly-caption">
-              <span>同一个壳，按需组合。截图为既有版本示例。</span
-              ><a href="#features"
-                >探索工作方式 <span aria-hidden="true">↓</span></a
-              >
+        </div>
+        <div class="wrap hero-footnote"><span>插件化桌面壳</span><span class="hero-footnote-line" aria-hidden="true"></span><span>工具与主题都可以扩展。</span><a href="#features" aria-label="向下探索工作方式">↓</a></div>
+      </section>
+      <section class="quick-section section-space" id="features" aria-labelledby="quick-title">
+        <div class="wrap quick-layout" data-quick-demo>
+          <div class="quick-copy">
+            <p class="eyebrow"><span class="chapter-number">01</span> QUICK · 搜索插件</p><h2 id="quick-title">用 Quick<br />打开插件。</h2><p class="section-copy">输入名称或拼音搜索插件。支持 Quick 视图的插件，可以直接在小窗里使用。</p>
+            <div class="quick-steps" aria-label="Quick 演示步骤">
+              <button type="button" data-quick-step="0" aria-pressed="true"><span class="step-number">01</span><span><strong>呼出 Quick</strong><small>按设置中的快捷键打开搜索窗口。</small></span><span class="step-indicator" aria-hidden="true">↗</span></button>
+              <button type="button" data-quick-step="1" aria-pressed="false"><span class="step-number">02</span><span><strong>搜索番茄钟</strong><small>输入“番茄钟”，查看匹配的插件。</small></span><span class="step-indicator" aria-hidden="true">↗</span></button>
+              <button type="button" data-quick-step="2" aria-pressed="false"><span class="step-number">03</span><span><strong>打开计时小窗</strong><small>选择搜索结果，打开番茄钟。</small></span><span class="step-indicator" aria-hidden="true">↗</span></button>
             </div>
           </div>
+          <div class="quick-visual" id="quick">
+            <div class="scene-topline"><span>以番茄钟为例</span><span class="demo-label">交互演示</span></div>
+            <div class="quick-stage">
+              <figure class="quick-frame is-current" data-quick-frame="0"><a class="screenshot" href="assets/screens/native-quick-empty.webp?v=8475682b1c" data-zoom="assets/screens/native-quick-empty.webp?v=8475682b1c" data-caption="Quick 呼出状态 · 原生截图"><img decoding="async" src="assets/screens/native-quick-empty.webp?v=8475682b1c" alt="刚刚呼出的 eNest Quick 快捷窗口" width="720" height="248" loading="lazy" /><span class="zoom-label">查看原图 ↗</span></a><figcaption>01 / 呼出 Quick</figcaption></figure>
+              <figure class="quick-frame" data-quick-frame="1"><a class="screenshot" href="assets/screens/native-quick-search.webp?v=26e00d6e36" data-zoom="assets/screens/native-quick-search.webp?v=26e00d6e36" data-caption="Quick 搜索番茄钟 · 原生截图"><img decoding="async" src="assets/screens/native-quick-search.webp?v=26e00d6e36" alt="在 Quick 中搜索番茄钟的结果" width="720" height="171" loading="lazy" /><span class="zoom-label">查看原图 ↗</span></a><figcaption>02 / 搜索番茄钟</figcaption></figure>
+              <figure class="quick-frame" data-quick-frame="2"><a class="screenshot" href="assets/screens/native-quick-plugin.webp?v=113167b720" data-zoom="assets/screens/native-quick-plugin.webp?v=113167b720" data-caption="Quick 中打开番茄钟 · 原生截图"><img decoding="async" src="assets/screens/native-quick-plugin.webp?v=113167b720" alt="Quick 小窗中的番茄钟插件" width="720" height="545" loading="lazy" /><span class="zoom-label">查看原图 ↗</span></a><figcaption>03 / 打开番茄钟</figcaption></figure>
+            </div>
+            <div class="scene-bottomline"><span data-quick-status aria-live="polite">演示：呼出 Quick、搜索并打开番茄钟。</span><button class="quiet-button" type="button" data-quick-replay>重播演示 <span aria-hidden="true">↺</span></button></div>
+          </div>
+          <p class="demo-disclaimer">以上为原生截图的网页交互演示，不调用系统快捷键、不读取剪贴板，也不连接本机 eNest。</p>
         </div>
       </section>
-      <section class="chapter forms" id="features" data-chapter="forms">
-        <div class="stage forms-stage wrap">
-          <div class="stage-heading">
-            <div>
-              <p class="eyebrow">随手打开，随心展开</p>
-              <h2>小事快一点。<br />大事，展开做。</h2>
-            </div>
-            <p class="section-copy">
-              同一个插件，跟着你的节奏。<br />自由面板还能把工具留在桌面，记住布局。
-            </p>
+      <section class="panels-section section-space" id="panels" aria-labelledby="panels-title">
+        <div class="wrap">
+          <div class="section-heading panels-heading"><div><p class="eyebrow"><span class="chapter-number">02</span> 自由面板 · 窗口排列</p><h2 id="panels-title">把常用工具<br />放在桌面上。</h2></div><div class="panels-heading-aside"><p class="section-copy">写作时，把计算器和番茄钟放在旁边。<br />拖动把手，试试不同的窗口排列。</p><div class="desktop-layout-controls" aria-label="选择面板排列"><button type="button" data-layout="focus" aria-pressed="true">专注</button><button type="button" data-layout="parallel" aria-pressed="false">并行</button><button class="reset-layout" type="button" data-desktop-reset>复位 <span aria-hidden="true">↺</span></button></div></div></div>
+          <div class="desktop-demo" data-desktop data-layout="focus" data-mobile-panel="overview" aria-label="自由面板排列演示">
+            <div class="desktop-caption"><span>我的工作桌面</span><span>自由面板演示</span></div>
+            <figure class="desktop-panel panel-markdown" data-panel="markdown"><button class="panel-handle" type="button" data-drag-handle disabled aria-label="移动 Markdown 编辑器面板" aria-describedby="drag-help"><span class="handle-grip" aria-hidden="true">⠿</span><span>Markdown 编辑器</span><span class="handle-hint">拖动</span></button><a class="screenshot" href="assets/screens/native-markdown.webp?v=6fe1320ba2" data-zoom="assets/screens/native-markdown.webp?v=6fe1320ba2" data-caption="Markdown 编辑器 · 主窗实拍，网页仅演示排列"><img decoding="async" src="assets/screens/native-markdown.webp?v=6fe1320ba2" alt="Markdown 编辑器的主窗实拍内容，用于网页排列示意" width="1200" height="800" loading="lazy" /><span class="zoom-label">放大 ↗</span></a></figure>
+            <figure class="desktop-panel panel-calculator" data-panel="calculator"><button class="panel-handle" type="button" data-drag-handle disabled aria-label="移动计算器面板" aria-describedby="drag-help"><span class="handle-grip" aria-hidden="true">⠿</span><span>计算器</span><span class="handle-hint">拖动</span></button><a class="screenshot" href="assets/screens/native-panel-calculator.webp?v=3a4b91d0a5" data-zoom="assets/screens/native-panel-calculator.webp?v=3a4b91d0a5" data-caption="计算器 · 真实面板界面"><img decoding="async" src="assets/screens/native-panel-calculator.webp?v=3a4b91d0a5" alt="计算器真实面板界面" width="752" height="674" loading="lazy" /><span class="zoom-label">放大 ↗</span></a></figure>
+            <figure class="desktop-panel panel-pomodoro" data-panel="pomodoro"><button class="panel-handle" type="button" data-drag-handle disabled aria-label="移动番茄钟面板" aria-describedby="drag-help"><span class="handle-grip" aria-hidden="true">⠿</span><span>番茄钟</span><span class="handle-hint">拖动</span></button><a class="screenshot" href="assets/screens/native-panel-pomodoro.webp?v=c488f424f0" data-zoom="assets/screens/native-panel-pomodoro.webp?v=c488f424f0" data-caption="番茄钟 · 插件组件视图"><img decoding="async" src="assets/screens/native-panel-pomodoro.webp?v=c488f424f0" alt="番茄钟插件的专注计时组件" width="240" height="240" loading="lazy" /><span class="zoom-label">放大 ↗</span></a></figure>
+            <p class="desktop-invitation" aria-hidden="true">拖动把手，调整窗口位置。</p>
           </div>
-          <div class="form-layout">
-            <div class="form-steps" aria-label="窗口形态">
-              <a class="form-step is-selected" href="#quick" data-form="0"
-                ><span class="step-mark">↗</span
-                ><span
-                  ><strong>Quick 小窗</strong
-                  ><small>快捷键呼出，搜索插件、应用与命令。</small></span
-                ></a
-              ><a class="form-step" href="#workspace" data-form="1"
-                ><span class="step-mark">▤</span
-                ><span
-                  ><strong>主工作台</strong
-                  ><small>多标签切换，让连续工作有条不紊。</small></span
-                ></a
-              ><a class="form-step" href="#detached" data-form="2"
-                ><span class="step-mark">↗</span
-                ><span
-                  ><strong>独立窗口</strong
-                  ><small>把工具移到手边，按需要置顶。</small></span
-                ></a
-              >
-            </div>
-            <div class="form-visuals">
-              <figure
-                class="form-panel is-current"
-                id="quick"
-                data-form-panel="0"
-              >
-                <button
-                  class="screenshot"
-                  type="button"
-                  data-zoom="assets/screens/quick.webp"
-                  data-caption="Quick 快捷小窗"
-                  aria-label="放大Quick 快捷小窗"
-                >
-                  <img
-                    src="assets/screens/quick.webp"
-                    alt="Quick 快捷小窗"
-                    width="720"
-                    height="249"
-                    loading="lazy"
-                  /><span class="zoom-label"
-                    >查看大图 <span aria-hidden="true">↗</span></span
-                  >
-                </button>
-                <figcaption>支持拼音搜索与内容匹配；粘贴图片在输入框左侧预览。</figcaption>
-              </figure>
-              <figure class="form-panel" id="workspace" data-form-panel="1">
-                <button
-                  class="screenshot"
-                  type="button"
-                  data-zoom="assets/screens/workspace.webp"
-                  data-caption="主工作台中的数据库"
-                  aria-label="放大主工作台中的数据库"
-                >
-                  <img
-                    src="assets/screens/workspace.webp"
-                    alt="主工作台中的数据库"
-                    width="1280"
-                    height="720"
-                    loading="lazy"
-                  /><span class="zoom-label"
-                    >查看大图 <span aria-hidden="true">↗</span></span
-                  >
-                </button>
-                <figcaption>在更完整的空间里，继续工作。</figcaption>
-              </figure>
-              <figure class="form-panel" id="detached" data-form-panel="2">
-                <button
-                  class="screenshot"
-                  type="button"
-                  data-zoom="assets/screens/detached.webp"
-                  data-caption="独立插件窗口"
-                  aria-label="放大独立插件窗口"
-                >
-                  <img
-                    src="assets/screens/detached.webp"
-                    alt="独立插件窗口"
-                    width="1000"
-                    height="640"
-                    loading="lazy"
-                  /><span class="zoom-label"
-                    >查看大图 <span aria-hidden="true">↗</span></span
-                  >
-                </button>
-                <figcaption>独立展开或置顶，按需要安排桌面与屏幕。</figcaption>
-              </figure>
-            </div>
-          </div>
-          <div class="stage-foot">
-            <span>Quick / 主窗口 / 独立窗口 / 自由面板（设置中开启）</span
-            ><a href="#scenarios">找到你的使用场景 ↗</a>
-          </div>
+          <div class="mobile-panel-controls" aria-label="选择展示的面板"><button type="button" data-mobile-panel="overview" aria-pressed="true">概览</button><button type="button" data-mobile-panel="markdown" aria-pressed="false">写作</button><button type="button" data-mobile-panel="calculator" aria-pressed="false">计算</button><button type="button" data-mobile-panel="pomodoro" aria-pressed="false">专注</button></div>
+          <div class="panel-notes"><p id="drag-help"><span aria-hidden="true">↔</span> 拖动窗口上方把手调整位置。键盘聚焦后可用方向键移动，Home 复位。</p><p class="panel-mobile-hint">点按窗口可放大查看 ↗</p><span>真实插件界面 × 生成桌面背景</span></div>
+          <p class="panel-boundary">番茄钟、计算器为面板实拍；Markdown 采用主窗实拍内容，仅作网页排列示意。自由面板默认关闭，可在「设置 → 主题 → 自由面板」开启。各插件按实际兼容视图展示，窗口行为以系统与插件支持为准。</p>
         </div>
       </section>
-      <section
-        class="chapter scenarios"
-        id="scenarios"
-        data-chapter="scenarios"
-      >
-        <div class="stage scenarios-stage">
-          <div class="wrap scene-heading">
-            <p class="eyebrow">为不同的工作，留出位置</p>
-            <div class="scene-tabs" aria-label="使用场景">
-              <a href="#everyday" class="scene-tab is-selected" data-scene="0"
-                >日常效率<span>01</span></a
-              ><a href="#development" class="scene-tab" data-scene="1"
-                >开发工作<span>02</span></a
-              >
-            </div>
+      <section class="work-section section-space" id="scenarios" aria-labelledby="work-title">
+        <div class="wrap">
+          <div class="section-heading"><div><p class="eyebrow"><span class="chapter-number">03</span> 插件使用示例</p><h2 id="work-title">用插件<br />处理日常工作。</h2></div><p class="section-copy">编辑一篇文稿，检查一段 JSON。<br />以下界面使用公开演示内容。</p></div>
+          <div class="work-scenes">
+            <article class="work-story work-story-writing" id="everyday"><div class="work-story-heading"><span class="work-tag">编辑 Markdown 文稿</span><a class="text-link" href="#plugin-markdown">Markdown 编辑器 ↗</a></div><a class="screenshot work-image" id="workspace" href="assets/screens/native-markdown.webp?v=6fe1320ba2" data-zoom="assets/screens/native-markdown.webp?v=6fe1320ba2" data-caption="Markdown 编辑器 · 公开演示文稿的原生截图"><img decoding="async" src="assets/screens/native-markdown.webp?v=6fe1320ba2" alt="Markdown 编辑器展示结构清晰的桌面工作计划" width="1200" height="800" loading="lazy" /><span class="zoom-label">查看实际界面 ↗</span></a><p>编辑 Markdown 并即时渲染排版，也可以打开和保存本地文稿。</p></article>
+            <article class="work-story work-story-code" id="development"><div class="work-story-heading"><span class="work-tag">检查 JSON 数据</span><a class="text-link" href="#plugin-json-tools">JSON 工具 ↗</a></div><a class="screenshot work-image" id="detached" href="assets/screens/native-json.webp?v=c5d3e705d2" data-zoom="assets/screens/native-json.webp?v=c5d3e705d2" data-caption="JSON 工具 · 公开演示数据的原生截图"><img decoding="async" src="assets/screens/native-json.webp?v=c5d3e705d2" alt="JSON 工具展示格式化后的公开演示数据" width="1200" height="800" loading="lazy" /><span class="zoom-label">查看实际界面 ↗</span></a><p>格式化 JSON、查询字段路径，或根据数据生成 TypeScript 类型。</p></article>
           </div>
-          <article
-            class="scene-panel is-current wrap"
-            id="everyday"
-            data-scene-panel="0"
-          >
-            <div class="scene-copy">
-              <h2>灵感接住。<br />琐事<span class="accent">顺手。</span></h2>
-              <p>
-                截下重要的一幕，找回刚才的复制。<br />让那些小操作，跟得上你的想法。
-              </p>
-              <div class="plugin-switches" aria-label="日常插件预览">
-                <button
-                  type="button"
-                  class="is-selected"
-                  data-preview="screen-assistant"
-                  data-title="屏幕助手"
-                  data-description="截图、标注、录屏与贴图，在一个地方完成。"
-                >
-                  <img
-                    src="assets/plugins/screen-assistant.svg"
-                    alt=""
-                    width="28"
-                    height="28"
-                  />屏幕助手
-                </button>
-                <button
-                  type="button"
-                  data-preview="clipboard"
-                  data-title="剪贴板"
-                  data-description="搜索复制历史，收藏常用内容，随时找回来。"
-                >
-                  <img
-                    src="assets/plugins/clipboard.svg"
-                    alt=""
-                    width="28"
-                    height="28"
-                  />剪贴板
-                </button>
-                <button
-                  type="button"
-                  data-preview="translate"
-                  data-title="翻译"
-                  data-description="查一个词，读懂一段话。"
-                >
-                  <img
-                    src="assets/plugins/translate.svg"
-                    alt=""
-                    width="28"
-                    height="28"
-                  />翻译
-                </button>
-                <button
-                  type="button"
-                  data-preview="markdown"
-                  data-title="Markdown 编辑器"
-                  data-description="所见即所得编辑、主题与图床。截图为早期笔记界面，当前功能以插件版本为准。"
-                >
-                  <img
-                    src="assets/plugins/markdown.svg"
-                    alt=""
-                    width="28"
-                    height="28"
-                  />Markdown
-                </button>
-              </div>
-            </div>
-            <div class="scene-media">
-              <button
-                class="screenshot"
-                type="button"
-                data-zoom="assets/screens/screen-assistant.webp"
-                data-caption="屏幕助手"
-                aria-label="放大屏幕助手"
-              >
-                <img
-                  src="assets/screens/screen-assistant.webp"
-                  alt="屏幕助手"
-                  width="1265"
-                  height="791"
-                  loading="lazy"
-                /><span class="zoom-label"
-                  >查看大图 <span aria-hidden="true">↗</span></span
-                >
-              </button>
-              <div class="preview-caption">
-                <strong data-preview-title>屏幕助手</strong
-                ><span data-preview-description
-                  >截图、标注、录屏与贴图，在一个地方完成。</span
-                >
-              </div>
-            </div>
-          </article>
-          <article
-            class="scene-panel wrap"
-            id="development"
-            data-scene-panel="1"
-          >
-            <div class="scene-copy">
-              <h2>
-                从一行查询，<br />到<span class="accent">整个项目。</span>
-              </h2>
-              <p>
-                数据库、服务器和开发工具，各自专注。<br />切换工作，不必切换工作台。
-              </p>
-              <div class="plugin-switches" aria-label="开发插件预览">
-                <button
-                  type="button"
-                  class="is-selected"
-                  data-preview="database"
-                  data-title="数据库"
-                  data-description="从连接、查询到表数据，完整工作区随时展开。"
-                >
-                  <img
-                    src="assets/plugins/database.svg"
-                    alt=""
-                    width="28"
-                    height="28"
-                  />数据库
-                </button>
-                <button
-                  type="button"
-                  data-preview="ssh"
-                  data-title="SSH 管理"
-                  data-description="终端、远程文件与资源管理，围绕连接展开。"
-                >
-                  <img
-                    src="assets/plugins/ssh.svg"
-                    alt=""
-                    width="28"
-                    height="28"
-                  />SSH
-                </button>
-                <button
-                  type="button"
-                  data-preview="middleware"
-                  data-title="中间件控制台"
-                  data-description="在统一入口管理消息中间件连接与调试。"
-                >
-                  <img
-                    src="assets/plugins/middleware.svg"
-                    alt=""
-                    width="28"
-                    height="28"
-                  />中间件
-                </button>
-                <button
-                  type="button"
-                  data-preview="net-kit"
-                  data-title="网络调试台"
-                  data-description="HTTP、WebSocket 与 SSE，让接口调试更顺手。"
-                >
-                  <img
-                    src="assets/plugins/net-kit.svg"
-                    alt=""
-                    width="28"
-                    height="28"
-                  />网络调试
-                </button>
-              </div>
-            </div>
-            <div class="scene-media">
-              <button
-                class="screenshot"
-                type="button"
-                data-zoom="assets/screens/database.webp"
-                data-caption="数据库"
-                aria-label="放大数据库"
-              >
-                <img
-                  src="assets/screens/database.webp"
-                  alt="数据库"
-                  width="1280"
-                  height="800"
-                  loading="lazy"
-                /><span class="zoom-label"
-                  >查看大图 <span aria-hidden="true">↗</span></span
-                >
-              </button>
-              <div class="preview-caption">
-                <strong data-preview-title>数据库</strong
-                ><span data-preview-description
-                  >从连接、查询到表数据，完整工作区随时展开。</span
-                >
-              </div>
-            </div>
-          </article>
+          <div class="work-modes"><span>插件可按支持的视图打开：</span><span>Quick 小窗 <i aria-hidden="true">/</i> 主窗口标签页 <i aria-hidden="true">/</i> 独立窗口 <i aria-hidden="true">/</i> 自由面板</span></div>
         </div>
       </section>
-      <section class="catalog-section wrap" id="catalog">
-        <div class="catalog-heading">
-          <div>
-            <p class="eyebrow">工具箱，继续生长</p>
-            <h2>按需装入。<br />组合成你的日常。</h2>
+      <section class="catalog-section section-space" id="catalog" aria-labelledby="catalog-title">
+        <div class="wrap">
+          <div class="section-heading catalog-heading"><div><p class="eyebrow">工具与主题目录</p><h2 id="catalog-title">按需要，<br /><span class="accent">装上插件。</span></h2></div><p class="section-copy">这里收录了 34 个工具与主题插件。<br />点击插件名称，可以查看源代码。</p></div>
+          <div class="catalog-toolbar"><div class="catalog-filters" aria-label="按插件分类筛选"><button type="button" data-filter="全部" aria-pressed="true">全部 <span>34</span></button><button type="button" data-filter="效率" aria-pressed="false">效率</button><button type="button" data-filter="开发" aria-pressed="false">开发</button><button type="button" data-filter="设计" aria-pressed="false">设计</button><button type="button" data-filter="媒体" aria-pressed="false">媒体</button><button type="button" data-filter="其它" aria-pressed="false">其它</button></div><span class="catalog-count" role="status" aria-live="polite">34 个插件</span></div>
+          <div class="tool-grid">
+            <article class="tool" id="plugin-ai-canvas" data-category="设计" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.ai-canvas" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/ai-canvas.svg?v=d2e22f4af0" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/ai-canvas" target="_blank" rel="noopener noreferrer" aria-label="查看AI 画布的源代码">AI 画布</a></h3><p>把提示词与图像连成工作流。</p><span class="tool-category">设计</span></div></article>
+            <article class="tool" id="plugin-anything" data-category="效率" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.anything" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/anything.svg?v=b4f99c589d" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/anything" target="_blank" rel="noopener noreferrer" aria-label="查看Anything 文件搜索的源代码">Anything 文件搜索</a></h3><p>搜索本机文件，预览文本与图片。</p><span class="tool-category">效率</span></div></article>
+            <article class="tool" id="plugin-batch-rename" data-category="其它" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.batch-rename" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/batch-rename.svg?v=b6cc6907a8" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/batch-rename" target="_blank" rel="noopener noreferrer" aria-label="查看批量重命名的源代码">批量重命名</a></h3><p>先预览，再批量改名。</p><span class="tool-category">其它</span></div></article>
+            <article class="tool" id="plugin-calculator" data-category="效率" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.calculator" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/calculator.svg?v=9f9cc48776" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/calculator" target="_blank" rel="noopener noreferrer" aria-label="查看计算器的源代码">计算器</a></h3><p>科学计算、变量与本地历史记录。</p><span class="tool-category">效率</span></div></article>
+            <article class="tool" id="plugin-ccswitch" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.ccswitch" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/ccswitch.svg?v=6a1dddac2c" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/ccswitch" target="_blank" rel="noopener noreferrer" aria-label="查看供应商切换的源代码">供应商切换</a></h3><p>集中管理 AI CLI 供应商配置。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-clipboard" data-category="效率" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.clipboard" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/clipboard.svg?v=178c53deff" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/clipboard" target="_blank" rel="noopener noreferrer" aria-label="查看剪贴板的源代码">剪贴板</a></h3><p>找回复制过的文本、图片与文件。</p><span class="tool-category">效率</span></div></article>
+            <article class="tool" id="plugin-codec" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.codec" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/codec.svg?v=14241eed30" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/codec" target="_blank" rel="noopener noreferrer" aria-label="查看编解码的源代码">编解码</a></h3><p>在常用编码之间来回转换。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-codex-pets" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.codex-pets" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/codex-pets.svg?v=0756f6be1e" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/codex-pets" target="_blank" rel="noopener noreferrer" aria-label="查看Codex 宠物市场的源代码">Codex 宠物市场</a></h3><p>浏览社区宠物，预览并安装。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-color-picker" data-category="设计" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.color-picker" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/color-picker.svg?v=941a3063cf" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/color-picker" target="_blank" rel="noopener noreferrer" aria-label="查看取色器的源代码">取色器</a></h3><p>留住好颜色，也检查对比度。</p><span class="tool-category">设计</span></div></article>
+            <article class="tool" id="plugin-cron" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.cron" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/cron.svg?v=4cd428c9ea" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/cron" target="_blank" rel="noopener noreferrer" aria-label="查看Cron 工具的源代码">Cron 工具</a></h3><p>编写 Cron 表达式，预览未来执行时间。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-database" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.database" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/database.svg?v=606bbdd8c0" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/database" target="_blank" rel="noopener noreferrer" aria-label="查看数据库的源代码">数据库</a></h3><p>查询、编辑与结构关系，一个工作台。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-diff" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.diff" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/diff.svg?v=e14ead7695" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/diff" target="_blank" rel="noopener noreferrer" aria-label="查看文本对比的源代码">文本对比</a></h3><p>逐行比较文本，定位差异并导出 diff。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-drawboard" data-category="设计" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.drawboard" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/drawboard.svg?v=c359912fba" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/drawboard" target="_blank" rel="noopener noreferrer" aria-label="查看画板的源代码">画板</a></h3><p>随手画，也能认真标注。</p><span class="tool-category">设计</span></div></article>
+            <article class="tool" id="plugin-dsh" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.dsh" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/dsh.svg?v=9d694bb9de" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/dsh" target="_blank" rel="noopener noreferrer" aria-label="查看DSH 驾驶舱的源代码">DSH 驾驶舱</a></h3><p>管理 DeepSeek Harness 会话与环境。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-hash" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.hash" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/hash.svg?v=bfea3ba91a" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/hash" target="_blank" rel="noopener noreferrer" aria-label="查看哈希与加密的源代码">哈希与加密</a></h3><p>哈希校验、加解密与签名。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-image-tools" data-category="媒体" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.image-tools" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/image-tools.svg?v=0ccc3c770a" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/image-tools" target="_blank" rel="noopener noreferrer" aria-label="查看图片工具箱的源代码">图片工具箱</a></h3><p>压缩、裁剪，整理手里的图片。</p><span class="tool-category">媒体</span></div></article>
+            <article class="tool" id="plugin-json-tools" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.json-tools" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/json-tools.svg?v=29234a4776" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/json-tools" target="_blank" rel="noopener noreferrer" aria-label="查看JSON 工具的源代码">JSON 工具</a></h3><p>格式化、查路径，让数据清楚一点。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-lan-share" data-category="其它" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.lan-share" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/lan-share.svg?v=2d206271ad" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/lan-share" target="_blank" rel="noopener noreferrer" aria-label="查看局域网传件的源代码">局域网传件</a></h3><p>同一网络，把文件送到手边。</p><span class="tool-category">其它</span></div></article>
+            <article class="tool" id="plugin-markdown" data-category="效率" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.markdown" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/markdown.svg?v=957716b956" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/markdown" target="_blank" rel="noopener noreferrer" aria-label="查看Markdown 编辑器的源代码">Markdown 编辑器</a></h3><p>编辑 Markdown 文稿，即时渲染排版。</p><span class="tool-category">效率</span></div></article>
+            <article class="tool" id="plugin-middleware" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.middleware" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/middleware.svg?v=6bad78570a" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/middleware" target="_blank" rel="noopener noreferrer" aria-label="查看中间件控制台的源代码">中间件控制台</a></h3><p>连接队列与消息，集中查看。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-net-kit" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.net-kit" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/net-kit.svg?v=f78350cc46" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/net-kit" target="_blank" rel="noopener noreferrer" aria-label="查看网络调试台的源代码">网络调试台</a></h3><p>从 HTTP 到 WebSocket，调试更顺手。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-password-kit" data-category="效率" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.password-kit" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/password-kit.svg?v=31f7b3d389" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/password-kit" target="_blank" rel="noopener noreferrer" aria-label="查看密码工具箱的源代码">密码工具箱</a></h3><p>生成密码、短语与 UUID。</p><span class="tool-category">效率</span></div></article>
+            <article class="tool" id="plugin-pomodoro" data-category="效率" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.pomodoro" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/pomodoro.svg?v=aecc1f522b" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/pomodoro" target="_blank" rel="noopener noreferrer" aria-label="查看番茄钟的源代码">番茄钟</a></h3><p>专注一会儿，再好好休息。</p><span class="tool-category">效率</span></div></article>
+            <article class="tool" id="plugin-regex" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.regex" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/regex.svg?v=87d9272a97" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/regex" target="_blank" rel="noopener noreferrer" aria-label="查看正则工作台的源代码">正则工作台</a></h3><p>实时匹配、分组与替换预览。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-remote-desktop" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.remote-desktop" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/remote-desktop.svg?v=d9e4790a0a" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/remote-desktop" target="_blank" rel="noopener noreferrer" aria-label="查看远程桌面的源代码">远程桌面</a></h3><p>VNC 与 RDP，管理远程会话。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-screen-assistant" data-category="媒体" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.screen-assistant" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/screen-assistant.svg?v=ff6d049997" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/screen-assistant" target="_blank" rel="noopener noreferrer" aria-label="查看屏幕助手的源代码">屏幕助手</a></h3><p>截图、标注、录屏与贴图。</p><span class="tool-category">媒体</span></div></article>
+            <article class="tool" id="plugin-sketchbook" data-category="设计" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.sketchbook" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/sketchbook.svg?v=0af0248d36" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/sketchbook" target="_blank" rel="noopener noreferrer" aria-label="查看素描本的源代码">素描本</a></h3><p>给工作台换上手绘纸面主题。</p><span class="tool-category">设计 · 主题</span></div></article>
+            <article class="tool" id="plugin-ssh" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.ssh" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/ssh.svg?v=0c93a52f24" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/ssh" target="_blank" rel="noopener noreferrer" aria-label="查看SSH管理的源代码">SSH管理</a></h3><p>终端、文件与隧道，一处管理。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-sticky-notes" data-category="效率" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.sticky-notes" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/sticky-notes.svg?v=bd2e8c6b5f" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/sticky-notes" target="_blank" rel="noopener noreferrer" aria-label="查看备忘录的源代码">备忘录</a></h3><p>记下琐事，用标签整理。</p><span class="tool-category">效率</span></div></article>
+            <article class="tool" id="plugin-sysguard" data-category="效率" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.sysguard" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/sysguard.svg?v=51fa3bff03" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/sysguard" target="_blank" rel="noopener noreferrer" aria-label="查看进程与端口的源代码">进程与端口</a></h3><p>查看本机进程、资源与端口。</p><span class="tool-category">效率</span></div></article>
+            <article class="tool" id="plugin-timestamp" data-category="开发" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.timestamp" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/timestamp.svg?v=3299b7b0a4" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/timestamp" target="_blank" rel="noopener noreferrer" aria-label="查看时间戳的源代码">时间戳</a></h3><p>时间戳、时区与日期换算。</p><span class="tool-category">开发</span></div></article>
+            <article class="tool" id="plugin-todos" data-category="效率" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.todos" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/todos.svg?v=ddaceebb9f" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/todos" target="_blank" rel="noopener noreferrer" aria-label="查看待办清单的源代码">待办清单</a></h3><p>设置截止时间、优先级与子任务。</p><span class="tool-category">效率</span></div></article>
+            <article class="tool" id="plugin-translate" data-category="效率" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.translate" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/translate.svg?v=c0ebe65b10" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/translate" target="_blank" rel="noopener noreferrer" aria-label="查看翻译的源代码">翻译</a></h3><p>多引擎翻译，保留常用表达。</p><span class="tool-category">效率</span></div></article>
+            <article class="tool" id="plugin-unit-convert" data-category="效率" tabindex="-1"><span class="legacy-anchor" id="com.github.eNest.unit-convert" aria-hidden="true"></span><img class="tool-icon" src="assets/plugins/unit-convert.svg?v=ca9c24cda3" alt="" width="42" height="42" loading="lazy" /><div class="tool-content"><h3><a href="https://github.com/hyqf98/eNest_plugin/tree/main/plugins/unit-convert" target="_blank" rel="noopener noreferrer" aria-label="查看单位与汇率的源代码">单位与汇率</a></h3><p>常用单位与汇率，放在一起换算。</p><span class="tool-category">效率</span></div></article>
           </div>
-          <div>
-            <p class="section-copy">
-              34 个官方插件，涵盖工具与主题。<br />按需安装；可用版本以插件市场为准。
-            </p>
-            <a class="text-link" href="download.html">在 eNest 中探索插件 ↗</a>
-          </div>
-        </div>
-        <div class="catalog-toolbar">
-          <div class="filters" aria-label="插件分类">
-            <button type="button" data-filter="全部" aria-pressed="true">
-              全部</button
-            ><button type="button" data-filter="效率" aria-pressed="false">
-              效率</button
-            ><button type="button" data-filter="开发" aria-pressed="false">
-              开发</button
-            ><button type="button" data-filter="设计" aria-pressed="false">
-              设计</button
-            ><button type="button" data-filter="媒体" aria-pressed="false">
-              媒体</button
-            ><button type="button" data-filter="其它" aria-pressed="false">
-              其它
-            </button>
-          </div>
-          <span class="catalog-count" aria-live="polite">34 个插件</span>
-        </div>
-        <div class="tool-grid">
-          <article class="tool" data-category="设计" data-plugin-id="com.github.eNest.ai-canvas">
-            <img
-              src="assets/plugins/ai-canvas.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>AI 画布</h3>
-              <p>AI 视觉工作台：手绘风节点画布编排文生图、图生图与提示词模板工作流，OpenAI Images 协议自定义接入，生成图自动入库画廊。</p>
-            </div>
-            <span class="tool-category">设计</span>
-          </article>
-          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.anything">
-            <img
-              src="assets/plugins/anything.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>Anything 文件搜索</h3>
-              <p>全盘文件即时搜索：Spotlight / Everything 引擎，关键词高亮、排序分页、文本与图片预览，打开、定位、移入废纸篓。</p>
-            </div>
-            <span class="tool-category">效率</span>
-          </article>
-          <article class="tool" data-category="其它" data-plugin-id="com.github.eNest.batch-rename">
-            <img
-              src="assets/plugins/batch-rename.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>批量重命名</h3>
-              <p>拖入多文件，查找替换（正则）/ 序号 / 日期 / 大小写 / 插入 / 删除片段 / 扩展名规则链实时预览（diff 高亮 + 冲突检测），确认后批量改名，支持撤销。</p>
-            </div>
-            <span class="tool-category">其它</span>
-          </article>
-          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.calculator">
-            <img
-              src="assets/plugins/calculator.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>计算器</h3>
-              <p>科学计算、变量赋值、Ans 与内存寄存器、百分比双语义、千分位显示、可收藏的本地计算历史。</p>
-            </div>
-            <span class="tool-category">效率</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.ccswitch">
-            <img
-              src="assets/plugins/ccswitch.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>供应商切换</h3>
-              <p>AI CLI 供应商切换台：10 应用配置管理、50+ 预设、切换历史与回退、全量备份、MCP 同步、会话浏览与用量统计（复刻 cc-switch）</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.clipboard">
-            <img
-              src="assets/plugins/clipboard.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>剪贴板</h3>
-              <p>搜索文本、图片与文件历史；快捷回贴，文本变换工具条与暂存片段，批量整理。</p>
-            </div>
-            <span class="tool-category">效率</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.codec">
-            <img
-              src="assets/plugins/codec.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>编解码</h3>
-              <p>Base64、URL、Hex、Unicode、HTML 编解码与 JWT、URL 参数、Data URL 查看；逐行批量、错误定位、文件转 Data URL、最近转换记录。</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.codex-pets">
-            <img
-              src="assets/plugins/codex-pets.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>Codex 宠物市场</h3>
-              <p>浏览 codex-pets.net 社区宠物画廊：搜索、排序、标签筛选与分页；逐帧 sprite 预览与光标跟随动效；一键安装宠物包到本机 Codex（自动检测 ~/.codex），并管理已安装宠物。</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="设计" data-plugin-id="com.github.eNest.color-picker">
-            <img
-              src="assets/plugins/color-picker.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>取色器</h3>
-              <p>屏幕与图片精准取色，HEX/RGB/HSL/OKLCH 一键复制、和谐色生成、WCAG 对比度检查、命名色板与 CSS/JSON 导出。</p>
-            </div>
-            <span class="tool-category">设计</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.cron">
-            <img
-              src="assets/plugins/cron.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>Cron 工具</h3>
-              <p>五/六域可视化构建、中文人性化描述、未来执行预览、预设库与 crontab 导出。</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.database">
-            <img
-              src="assets/plugins/database.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>数据库</h3>
-              <p>多数据库工作台：离线编辑器、查询与结果编辑、结构关系、资源中心和只读数据比较</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.diff">
-            <img
-              src="assets/plugins/diff.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>文本对比</h3>
-              <p>双栏 LCS 行级对比、行内字符细化、差异导航计数、hex 字节对比与 unified diff 导出。</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="设计" data-plugin-id="com.github.eNest.drawboard">
-            <img
-              src="assets/plugins/drawboard.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>画板</h3>
-              <p>手绘风自由画板：压感钢笔、荧光笔、手绘图形与文字、贴图标注，滚轮缩放空格平移，多页草稿自动保存，一键复制与导出 PNG/JPG。</p>
-            </div>
-            <span class="tool-category">设计</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.dsh">
-            <img
-              src="assets/plugins/dsh.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>DSH 驾驶舱</h3>
-              <p>DeepSeek Harness 会话驾驶舱与管理中心：完整 Web UI、快速对话、内核按需在线安装与多版本切换、Profile 环境配置与同步、进程启停和安全备份清理</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.hash">
-            <img
-              src="assets/plugins/hash.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>哈希与加密</h3>
-              <p>多算法同屏哈希（SHA 家族/MD5）、文件哈希进度反馈、校验对比 diff、HMAC、AES-GCM 与 RSA 加解密签名、JWT 解码、hex/base64 输出。</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="媒体" data-plugin-id="com.github.eNest.image-tools">
-            <img
-              src="assets/plugins/image-tools.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>图片工具箱</h3>
-              <p>图片压缩、格式转换、批量缩放、裁剪旋转、文字水印、EXIF 查看、色板提取与贴图预览。</p>
-            </div>
-            <span class="tool-category">媒体</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.json-tools">
-            <img
-              src="assets/plugins/json-tools.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>JSON 工具</h3>
-              <p>无损数字 JSON 格式化、路径查询、TypeScript 类型生成、统计、树浏览与差异比较。</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="其它" data-plugin-id="com.github.eNest.lan-share">
-            <img
-              src="assets/plugins/lan-share.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>局域网传件</h3>
-              <p>同一 Wi-Fi 下把文件发给手机：取件码 + 二维码即扫即下，限时自动关闭，下载实时日志。</p>
-            </div>
-            <span class="tool-category">其它</span>
-          </article>
-          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.markdown">
-            <img
-              src="assets/plugins/markdown.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>Markdown 编辑器</h3>
-              <p>Typora 式所见即所得 Markdown 编辑器：即时渲染、Typora 主题、手绘风 Mermaid、图床上传（PicList/GitHub/自定义脚本）与本地文件工作台。</p>
-            </div>
-            <span class="tool-category">效率</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.middleware">
-            <img
-              src="assets/plugins/middleware.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>中间件控制台</h3>
-              <p>Kafka / RabbitMQ / MQTT / RocketMQ 统一控制台：连接管理、Topic 与队列、消息查询溯源与实时监听、消费组与监控</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.net-kit">
-            <img
-              src="assets/plugins/net-kit.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>网络调试台</h3>
-              <p>HTTP / TCP / WebSocket 调试工作台：流式响应与 SSE、十六进制字节流、编解码策略、断言、curl 导入导出、集合与历史</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.password-kit">
-            <img
-              src="assets/plugins/password-kit.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>密码工具箱</h3>
-              <p>随机密码、密码短语与 PIN 生成，强度检查（熵 + 破解时间估算），UUID v4 批量与本地生成历史。</p>
-            </div>
-            <span class="tool-category">效率</span>
-          </article>
-          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.pomodoro">
-            <img
-              src="assets/plugins/pomodoro.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>番茄钟</h3>
-              <p>专注计时、长短休息与时长预设，结束提示和本地统计。</p>
-            </div>
-            <span class="tool-category">效率</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.regex">
-            <img
-              src="assets/plugins/regex.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>正则工作台</h3>
-              <p>正则实时匹配高亮、捕获分组、替换预览、常用片段库与元字符速查。</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.remote-desktop">
-            <img
-              src="assets/plugins/remote-desktop.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>远程桌面</h3>
-              <p>VNC / RDP 远程桌面：资产管理、SSH 隧道、多会话画布、剪贴板互通与连接诊断</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="媒体" data-plugin-id="com.github.eNest.screen-assistant">
-            <img
-              src="assets/plugins/screen-assistant.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>屏幕助手</h3>
-              <p>截图与原图历史、裁剪箭头文字马赛克标注（含工具快捷键）、区域录屏和贴图管理；粘性半透明工具头，小窗快速操作，桌面展开完整编辑。</p>
-            </div>
-            <span class="tool-category">媒体</span>
-          </article>
-          <article class="tool" data-category="设计" data-plugin-id="com.github.eNest.sketchbook">
-            <img
-              src="assets/plugins/sketchbook.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>素描本</h3>
-              <p>手绘纸面主题：纸灰、灰蓝、鼠尾草三套浅深色板，保留手写字、抖动描边与胶带装订；整页低负载漂移，开屏由宿主统一呈现。</p>
-            </div>
-            <span class="tool-category">设计</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.ssh">
-            <img
-              src="assets/plugins/ssh.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>SSH管理</h3>
-              <p>SSH 工作台：快速连接、终端提示、远程文件、三平台资源与进程端口、服务容器、传输和隧道</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.sticky-notes">
-            <img
-              src="assets/plugins/sticky-notes.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>备忘录</h3>
-              <p>快速记录、Markdown 预览、颜色筛选、标签整理、归档回收与本地备份。</p>
-            </div>
-            <span class="tool-category">效率</span>
-          </article>
-          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.sysguard">
-            <img
-              src="assets/plugins/sysguard.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>进程与端口</h3>
-              <p>本机进程与端口巡检：概览仪表盘（CPU·内存数据卡 + 迷你趋势 + 阈值告警 + Top 进程）、双表联动、搜索、收藏置顶、结束进程危险确认、滚动曲线、刷新频率可调</p>
-            </div>
-            <span class="tool-category">效率</span>
-          </article>
-          <article class="tool" data-category="开发" data-plugin-id="com.github.eNest.timestamp">
-            <img
-              src="assets/plugins/timestamp.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>时间戳</h3>
-              <p>时间戳与时区转换、多时区时钟、格式模板、批量转换、日期加减与时间差。</p>
-            </div>
-            <span class="tool-category">开发</span>
-          </article>
-          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.todos">
-            <img
-              src="assets/plugins/todos.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>待办清单</h3>
-              <p>任务清单、拖拽排序、截止日期、优先级、子任务进度与标签；快捷记录，桌面完整整理。</p>
-            </div>
-            <span class="tool-category">效率</span>
-          </article>
-          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.translate">
-            <img
-              src="assets/plugins/translate.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>翻译</h3>
-              <p>多引擎翻译、原文译文对照即时翻译（防抖）、语言快捷切换、历史与收藏、双语复制导出。</p>
-            </div>
-            <span class="tool-category">效率</span>
-          </article>
-          <article class="tool" data-category="效率" data-plugin-id="com.github.eNest.unit-convert">
-            <img
-              src="assets/plugins/unit-convert.svg"
-              alt=""
-              width="44"
-              height="44"
-              loading="lazy"
-            />
-            <div>
-              <h3>单位与汇率</h3>
-              <p>长度/面积/体积/质量/温度/速度/数据量/时间/压力/能量/进制/汇率同屏联动换算，公式展示与常用单位置顶，人民币大写。</p>
-            </div>
-            <span class="tool-category">效率</span>
-          </article>
-        </div>
-        <p class="catalog-empty" hidden>这个分类还没有插件。</p>
-      </section>
-      <section class="chapter personal" id="personal" data-chapter="personal">
-        <div class="stage personal-stage wrap">
-          <div class="personal-copy">
-            <p class="eyebrow">工作台，也可以很像你</p>
-            <h2>
-              工具各就各位。<br />风格，<span class="accent">自己定。</span>
-            </h2>
-            <p class="section-copy">
-              主题定义配色、字体、背景与动效，也可提供首页、Quick 和设置页。<br />插件设置可汇入壳，或提供自己的页面。
-            </p>
-            <div class="appearance-options" aria-label="外观预览">
-              <button type="button" data-appearance="light" aria-pressed="true">
-                <span class="swatch light"></span>明亮</button
-              ><button
-                type="button"
-                data-appearance="dark"
-                aria-pressed="false"
-              >
-                <span class="swatch dark"></span>深色</button
-              ><button
-                type="button"
-                data-appearance="ambient"
-                aria-pressed="false"
-              >
-                <span class="swatch ambient"></span>氛围
-              </button>
-            </div>
-            <p class="appearance-note">点击切换默认主题的既有界面示例；默认主题随壳提供。</p>
-          </div>
-          <div class="personal-visual" data-appearance-stage="light">
-            <div class="material-back"></div>
-            <button
-              class="screenshot appearance-shot"
-              type="button"
-              data-zoom="assets/screens/shell.webp"
-              data-caption="eNest 默认主题明亮界面示例"
-              aria-label="放大eNest 默认主题明亮界面示例"
-            >
-              <img
-                src="assets/screens/shell.webp"
-                alt="eNest 默认主题明亮界面示例"
-                width="1280"
-                height="720"
-                loading="lazy"
-              /><span class="zoom-label"
-                >查看大图 <span aria-hidden="true">↗</span></span
-              >
-            </button>
-            <div class="material-chip">
-              <img
-                src="assets/icons/enest-icon-256.png"
-                width="36"
-                height="36"
-                alt=""
-              /><span>你的桌面，由你定义。</span>
-            </div>
-          </div>
+          <p class="catalog-empty" hidden>这个分类还没有插件。试试其他分类。</p>
+          <div class="catalog-bottom"><p>目录包含工具与主题，是源码项目的展示；安装版本与可用性以插件市场及实际发布资料为准。</p><a class="text-link" href="plugin/#/getting-started">也来做一个插件 <span aria-hidden="true">↗</span></a></div>
         </div>
       </section>
-      <section class="principles wrap">
-        <h2>用得顺手，<br />也握得住分寸。</h2>
-        <div class="principle">
-          <span class="principle-symbol" aria-hidden="true">⊞</span>
-          <h3>统一存储，按插件隔离。</h3>
-          <p>
-            设置、记录、图片与文件通过宿主私有存储接口管理，同一插件在不同窗口共用数据。前台通过宿主网络接口访问外部服务时，按插件声明的权限授权。
-          </p>
-        </div>
-        <div class="principle">
-          <span class="principle-symbol" aria-hidden="true">⊙</span>
-          <h3>敏感能力，按需授权。</h3>
-          <p>按插件管理网络、剪贴板等敏感权限。前台文件接口仅访问你选择的目标；插件原生后端需要另行授予完整本机信任。</p>
-          <p>
-            <a href="plugin/#/mcp">MCP 工具贡献接口</a>供开发者接入；服务默认关闭，原生管理入口尚未提供。
-          </p>
+      <section class="personal-section section-space" id="personal" aria-labelledby="personal-title">
+        <div class="wrap personal-layout">
+          <div class="personal-copy"><p class="eyebrow">主题与权限</p><h2 id="personal-title">选择外观，<br />管理插件权限。</h2><p class="section-copy">默认主题支持浅色与深色。<br />插件调用敏感能力时，需要你的授权。</p><div class="theme-preview-pair"><figure><a class="screenshot" href="assets/screens/native-shell-light.webp?v=27d94c0e7a" data-zoom="assets/screens/native-shell-light.webp?v=27d94c0e7a" data-caption="默认主题 · 浅色原生截图"><img decoding="async" src="assets/screens/native-shell-light.webp?v=27d94c0e7a" alt="eNest 默认主题浅色主窗口实拍" width="1200" height="800" loading="lazy" /></a><figcaption>默认主题 · 浅色</figcaption></figure><figure><a class="screenshot" href="assets/screens/native-shell-dark.webp?v=11d13c4d76" data-zoom="assets/screens/native-shell-dark.webp?v=11d13c4d76" data-caption="默认主题 · 深色原生截图"><img decoding="async" src="assets/screens/native-shell-dark.webp?v=11d13c4d76" alt="eNest 默认主题深色主窗口实拍" width="1200" height="800" loading="lazy" /></a><figcaption>默认主题 · 深色</figcaption></figure></div><button class="button secondary personal-theme-toggle" type="button" data-theme-toggle>切换网页明暗 <span aria-hidden="true">◐</span></button></div>
+          <div class="personal-details"><article><span class="detail-index">01 / 外观</span><h3>默认主题，也可以换成其他主题。</h3><p>主题可以定义首页、Quick 与窗口呈现。这里的明暗切换只影响网页，不会修改桌面应用的设置。</p><div class="theme-swatches" aria-hidden="true"><span class="swatch-light"></span><span class="swatch-green"></span><span class="swatch-dark"></span></div></article><article><span class="detail-index">02 / 权限</span><h3>敏感能力由宿主授权。</h3><p>网络、剪贴板和系统能力按权限授权；文件选择与敏感操作留在可信宿主界面。带原生后端的插件，需要额外的本机信任。</p><a class="text-link" href="plugin/#/permissions">了解权限边界 ↗</a></article></div>
         </div>
       </section>
-      <section class="closing" id="download">
-        <div class="wrap closing-inner">
-          <div class="closing-mark">
-            <img
-              src="assets/icons/enest-icon-256.png"
-              width="96"
-              height="96"
-              alt=""
-            />
-          </div>
-          <p class="eyebrow">留点空间，给真正想做的事。</p>
-          <h2>下一件事，<br />从这里<span>开始。</span></h2>
-          <div class="closing-actions">
-            <a class="button primary" href="download.html">下载 eNest ↗</a
-            ><a class="button secondary" href="plugin/#/getting-started"
-              >制作你的插件 ↗</a
-            >
-          </div>
-          <p class="platform-note">发行状态与平台附件，以 GitHub Releases 为准。</p>
-        </div>
-      </section>
+      <section class="closing-section" id="download" aria-labelledby="closing-title"><div class="wrap closing-layout"><div><p class="eyebrow">下载与发布</p><h2 id="closing-title">获取 eNest，<br />查看发布状态。</h2></div><div class="closing-actions"><img src="assets/icons/enest-icon-256.png" alt="" width="64" height="64" loading="lazy" /><a class="button primary" href="download.html">获取 eNest <span aria-hidden="true">↗</span></a><p>尚无公开发行包。<br />发布消息与安装附件以 Releases 为准。</p></div></div></section>
     </main>
-    <footer class="site-footer wrap">
-      <a class="brand" href="./"
-        ><img
-          src="assets/icons/enest-icon-256.png"
-          width="28"
-          height="28"
-          alt=""
-        />eNest</a
-      >
-      <p>插件提供工具，eNest 把它们放在一起。</p>
-      <nav aria-label="页脚导航">
-        <a href="download.html">下载</a><a href="plugin/">开发文档</a
-        ><a
-          href="https://github.com/hyqf98/eNest"
-          target="_blank"
-          rel="noopener noreferrer"
-          >GitHub ↗</a
-        >
-      </nav>
-      <span class="copyright">© 2026 eNest</span>
-    </footer>
-    <dialog class="image-dialog" aria-labelledby="image-dialog-title">
-      <div class="dialog-heading">
-        <h2 id="image-dialog-title">界面预览</h2>
-        <button type="button" data-close-dialog aria-label="关闭预览">
-          关闭 ×
-        </button>
-      </div>
-      <img alt="" width="1200" height="800" />
-      <p>既有版本界面 · 演示数据 · 不代表当前全部功能或原生行为验收</p>
-    </dialog>
+    <footer class="site-footer wrap"><a class="brand" href="./"><img src="assets/icons/enest-icon-256.png" alt="" width="28" height="28" /><span>eNest</span></a><p>eNest 是插件化桌面壳。</p><nav aria-label="页脚导航"><a href="download.html">发布状态</a><a href="plugin/">开发文档</a><a href="https://github.com/hyqf98/eNest" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav><small>© 2026 eNest</small></footer>
+    <dialog class="image-dialog" aria-labelledby="image-dialog-title"><div class="image-dialog-header"><h2 id="image-dialog-title">界面预览</h2><button class="quiet-button" type="button" data-close-dialog autofocus>关闭 <span aria-hidden="true">×</span></button></div><img alt="" /></dialog>
   </body>
 </html>

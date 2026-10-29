@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import * as IpcChannels from '@shared/types/ipc'
 import type { PluginDragFeedback, PluginDropTarget } from '@shared/types/plugin-window'
-import type { PanelCandidate, PanelCommand, PanelDragFeedback, PanelState, PanelSurfaceApi } from '@shared/types/panel'
+import type { PanelCandidate, PanelCommand, PanelDragFeedback, PanelPreviewSnapshot, PanelState, PanelSurfaceApi } from '@shared/types/panel'
 
 /**
  * 面板 chrome 桥：状态读取、统一命令入口、拖动反馈、外部拖入落点注册。
@@ -12,7 +12,7 @@ interface PanelCommandResult { ok: boolean; error?: string; state?: PanelState; 
 const api: PanelSurfaceApi = {
   getState: () => ipcRenderer.invoke(IpcChannels.PanelGetState) as Promise<PanelState | null>,
   command: command => ipcRenderer.invoke(IpcChannels.PanelCommand, command) as Promise<PanelCommandResult>,
-  dragTick: () => { ipcRenderer.send(IpcChannels.PanelDragTick) },
+  dragTick: interactionId => { ipcRenderer.send(IpcChannels.PanelDragTick, interactionId) },
   onState: listener => {
     const handle = (_event: Electron.IpcRendererEvent, state: PanelState): void => listener(state)
     ipcRenderer.on(IpcChannels.PanelState, handle)
@@ -22,6 +22,11 @@ const api: PanelSurfaceApi = {
     const handle = (_event: Electron.IpcRendererEvent, feedback: PanelDragFeedback): void => listener(feedback)
     ipcRenderer.on(IpcChannels.PanelDrag, handle)
     return () => { ipcRenderer.removeListener(IpcChannels.PanelDrag, handle) }
+  },
+  onPreview: listener => {
+    const handle = (_event: Electron.IpcRendererEvent, snapshot: PanelPreviewSnapshot): void => listener(snapshot)
+    ipcRenderer.on(IpcChannels.PanelPreview, handle)
+    return () => { ipcRenderer.removeListener(IpcChannels.PanelPreview, handle) }
   },
   /**
    * 声明本面板内容区为插件拖入目标。

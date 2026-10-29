@@ -118,8 +118,7 @@ invalid plugin.json:
 | `invalid plugin.json: not valid JSON` | JSON 语法错误 | 检查逗号、引号、尾逗号 |
 | `invalid plugin.json:` + 上述逐字段列表 | manifest 校验失败（一次收集全部） | 按列表逐条修复 |
 | `plugin not installed: <id>` | 打开未安装插件 | 先安装，或开发者控制台加载本地目录 |
-| `local preview build not found for plugin: <id>` | 开发态未扫描到此完整插件 ID 的发行产物 | 在插件仓库构建 `plugins/<短名>/dist/` 并刷新预览列表；同末段但不同完整 ID 的插件不能代替 |
-| `local preview installation is unavailable in a packaged application` | 正式包调用开发 checkout 安装入口 | 使用市场安装或选择发行包，不依赖本地源码目录 |
+| `plugin not installable: <id>（远程市场无可用资产…）` | 市场条目没有可下载的发行资产 | 插件仓库发布对应 `.enestplugin` Release 资产；本地源码调试走开发者控制台加载，不从市场安装 |
 | `路径不存在: <path>` | 安装源路径为空或不存在 | 核对拖入的文件 / 文件夹 |
 | `不支持的安装包类型: <name>（需要文件夹或 .enestplugin/.zip）` | 扩展名不匹配 | 打成 `.enestplugin` / `.zip`，或直接拖文件夹 |
 | `无法读取安装包: <detail>` | zip 解压 / 读取失败 | 包是否损坏；权限是否足够 |

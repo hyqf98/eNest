@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { BaseWindow, screen, WebContentsView, type WebContents } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
+import { supportsPanelLayout } from '@shared/pluginPresentation'
 import type { PluginDragFeedback, PluginDropTarget, WindowPoint, WindowRect } from '@shared/types/plugin-window'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
@@ -152,6 +153,7 @@ function hitAt(active: DragSession, point: WindowPoint): { hit: Hit | null; insi
   // （registrations 里有非空 targets 才会被推送），落点几何与 index 不依赖它。
   const panelId = getPanelIdForWindow(top)
   if (panelId) {
+    if (!supportsPanelLayout(pluginRegistry.getManifest(active.pluginId)?.views)) return { hit: null, inside: true }
     const panel = getPanelSurfaceBounds(panelId)
     if (panel && pointInRect(point, panel)) {
       return { hit: { kind: 'panel', index: 0, senderId: panel.senderId, panelId }, inside: true, local: { x: point.x - panel.x, y: point.y - panel.y } }
@@ -317,7 +319,7 @@ export async function endPluginWindowDrag(senderId: number, token: string, cance
         const panelId = result.hit.panelId
         if (!panelId) throw new Error('panel target is missing')
         // 落点用面板内容区本地坐标，由 PanelManager 换算成组件矩形。
-        await dropPluginIntoPanel(panelId, active.pluginId, result.local ?? { x: 0, y: 0 })
+        await dropPluginIntoPanel(panelId, active.pluginId, result.local ?? { x: 0, y: 0 }, commitCurrent)
       }
       else if (kind === 'shell' && pluginHost.getPlacement(active.pluginId)?.kind === 'shell') pluginHost.reorderPlugin(active.pluginId, index)
       else await pluginHost.dockPlugin(active.pluginId, kind as 'shell' | 'quick', index, commitCurrent)

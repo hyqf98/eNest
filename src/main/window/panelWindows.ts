@@ -17,18 +17,18 @@ import {
   PANEL_MAX_WIDGETS,
   PANEL_MIN_HEIGHT,
   PANEL_MIN_WIDTH,
-  PANEL_WIDGET_BAR_HEIGHT,
   PANEL_WIDGET_INSET,
   type PanelAppearance,
   type PanelBounds,
   type PanelDragFeedback,
+  type PanelPreviewSnapshot,
   type PanelState,
   type PanelWidgetRect,
   type PanelWidgetState
 } from '@shared/types/panel'
 import { registerTrustedSurface, revokeTrustedSurface } from '@main/ipc/ipcSecurity'
 import { resolvePreload } from '@main/window/createShellWindow'
-import { resolveThemeTokens } from '@main/theme/resolveThemeCss'
+import { appearanceService } from '@main/theme/appearanceService'
 import { raiseTransientViews } from '@main/window/transientViews'
 import { logWarn } from '@main/logs/logService'
 import { toIntegerRect } from '@main/panel/panelGeometry'
@@ -115,13 +115,13 @@ export function getPanelContentSize(id: string): { width: number; height: number
   return { width: Math.max(1, width), height: Math.max(1, height) }
 }
 
-/** 组件矩形 → 插件原生视图矩形（去掉组件条与内缩）。 */
+/** 组件矩形 → 插件原生视图矩形（四周内缩 PANEL_WIDGET_INSET）。 */
 export function widgetViewBounds(rect: PanelWidgetRect): PanelWidgetRect {
   return toIntegerRect({
     x: rect.x + PANEL_WIDGET_INSET,
-    y: rect.y + PANEL_WIDGET_BAR_HEIGHT + PANEL_WIDGET_INSET,
+    y: rect.y + PANEL_WIDGET_INSET,
     width: rect.width - PANEL_WIDGET_INSET * 2,
-    height: rect.height - PANEL_WIDGET_BAR_HEIGHT - PANEL_WIDGET_INSET * 2
+    height: rect.height - PANEL_WIDGET_INSET * 2
   })
 }
 
@@ -207,12 +207,37 @@ export function pushState(record: PanelWindowRecord): void {
   try { wc.send(IpcChannels.PanelState, record.state) } catch { /* chrome 正在销毁 */ }
 }
 
-/** 推送拖动反馈；仅在吸附状态变化时调用，避免逐帧 IPC。 */
+/** 推送变化后的几何与辅助线；静止帧不重复发送。 */
 export function pushDragFeedback(record: PanelWindowRecord, feedback: PanelDragFeedback): void {
   if (record.closing || record.window.isDestroyed()) return
   const wc = record.chrome.webContents
   if (wc.isDestroyed() || !record.ready) return
   try { wc.send(IpcChannels.PanelDrag, feedback) } catch { /* chrome 正在销毁 */ }
+}
+
+export function pushPanelPreview(record: PanelWindowRecord, snapshot: PanelPreviewSnapshot): void {
+  if (record.closing || record.window.isDestroyed()) return
+  const wc = record.chrome.webContents
+  if (wc.isDestroyed() || !record.ready) return
+  try { wc.send(IpcChannels.PanelPreview, snapshot) } catch { /* chrome 正在销毁 */ }
+}
+
+/** One bounded native capture, never a per-frame stream or a plugin-visible capability. */
+export async function capturePanelWidgetPreview(view: View, displayScale: number): Promise<string | null> {
+  if (!(view instanceof WebContentsView) || view.webContents.isDestroyed()) return null
+  const bounds = view.getBounds()
+  if (bounds.width <= 0 || bounds.height <= 0 || bounds.width * bounds.height * displayScale ** 2 > 4_000_000) return null
+  const image = await view.webContents.capturePage(undefined, { stayHidden: true, stayAwake: false })
+  if (image.isEmpty()) return null
+  const size = image.getSize()
+  const ratio = Math.min(1, 512 / Math.max(size.width, size.height))
+  let preview = image.resize({ width: Math.max(1, Math.round(size.width * ratio)), height: Math.max(1, Math.round(size.height * ratio)), quality: 'good' })
+  let bytes = preview.toPNG()
+  if (bytes.length > 192 * 1024) {
+    preview = preview.resize({ width: Math.max(1, Math.round(preview.getSize().width / 2)), quality: 'good' })
+    bytes = preview.toPNG()
+  }
+  return bytes.length <= 192 * 1024 ? `data:image/png;base64,${bytes.toString('base64')}` : null
 }
 
 /** 重排 chrome 与容器。插件视图由 Manager 通过 setPluginViewBounds 单独设置。 */
@@ -225,28 +250,45 @@ export function layoutPanelChrome(record: PanelWindowRecord): void {
   record.state = { ...record.state, width: Math.max(1, width), height: Math.max(1, height) }
 }
 
-/** 更新单个组件的原生视图 bounds（拖动高频路径，只做 setBounds）。 */
+/**
+ * 每个组件原生视图的已应用外观。
+ * layered：是否已强制合成层（macOS 上圆角路径裁切 WebContentsView 依赖它，同 Quick 的 idiom）。
+ */
+const widgetViewState = new WeakMap<View, { radius: number; layered: boolean }>()
+
+/** 更新单个组件的原生视图 bounds（拖动高频路径，只做 setBounds）。
+ *  视图同步裁切组件圆角：插件页面自身的方角背景不会溢出 chrome 的圆角组件框。
+ *  圆角跟随主题 panelRadius（与 CSS --panel-widget-radius 同源），仅变化时重设。 */
 export function setPluginViewBounds(view: View, rect: PanelWidgetRect): void {
-  try { view.setBounds(widgetViewBounds(rect)) } catch { /* view 可能已销毁 */ }
+  try {
+    view.setBounds(widgetViewBounds(rect))
+    const cached = widgetViewState.get(view)
+    if (!cached?.layered) {
+      // Force a compositor layer even though no blur is applied: without a layer,
+      // View border paths do not reliably clip WebContentsView content on macOS.
+      view.setBackgroundBlur(0)
+    }
+    const radius = panelWidgetRadius()
+    if (cached?.radius !== radius) view.setBorderRadius(radius)
+    widgetViewState.set(view, { radius, layered: true })
+  } catch { /* view 可能已销毁 */ }
 }
 
-/** 解析一次主题，同时产出精简 theme 与完整 appearance（chrome 用后者应用 V2 语义）。 */
-function themeSnapshot(): { theme: PanelState['theme']; resolved?: PanelState['resolvedAppearance'] } {
-  const resolved = resolveThemeTokens('auto')
-  return {
-    theme: {
-      mode: resolved.mode,
-      tokens: resolved.tokens,
-      animationLevel: resolved.appearance?.animation.effective ?? 'medium'
-    },
-    resolved: resolved.appearance
-  }
+/** 组件离开面板（回主窗 Tab / 独立窗 / Quick）时撤销圆角裁切，避免普通视图被裁角。 */
+export function releasePluginViewChrome(view: View): void {
+  widgetViewState.delete(view)
+  try { view.setBorderRadius(0) } catch { /* view 可能已销毁 */ }
 }
 
 /** 原生裁切半径跟随主题 panelRadius，与 CSS --appearance-panel-radius 保持同源。 */
 function nativePanelRadius(): number {
-  const radius = resolveThemeTokens('auto').appearance?.components.panelRadius
+  const radius = appearanceService.getAppearance().components.panelRadius
   return typeof radius === 'number' && Number.isFinite(radius) && radius >= 0 ? radius : PANEL_CORNER_RADIUS
+}
+
+/** 组件原生视图圆角 = 面板圆角 - 内缩（与 CSS --panel-widget-radius 同一算法）。 */
+function panelWidgetRadius(): number {
+  return Math.max(0, nativePanelRadius() - PANEL_WIDGET_INSET)
 }
 
 export interface CreatePanelOptions {
@@ -282,11 +324,10 @@ export async function createPanelWindow(options: CreatePanelOptions): Promise<Pa
   })
   chrome.setBackgroundColor('#00000000')
 
-  const snapshot = themeSnapshot()
   const state: PanelState = {
     id: options.id, width: bounds.width, height: bounds.height,
     widgets: options.widgets.slice(0, PANEL_MAX_WIDGETS),
-    appearance: options.appearance, theme: snapshot.theme, resolvedAppearance: snapshot.resolved,
+    appearance: options.appearance, resolvedAppearance: appearanceService.getAppearance(),
     widgetLimit: PANEL_MAX_WIDGETS
   }
   const record: PanelWindowRecord = {
@@ -408,8 +449,7 @@ export function broadcastPanelTheme(): void {
   const radius = nativePanelRadius()
   for (const record of records.values()) {
     if (record.window.isDestroyed()) continue
-    const snapshot = themeSnapshot()
-    record.state = { ...record.state, theme: snapshot.theme, resolvedAppearance: snapshot.resolved }
+    record.state = { ...record.state, resolvedAppearance: appearanceService.getAppearance() }
     // 原生裁切半径与 CSS 同源：主题换了 panelRadius 后容器也要跟着变，否则圆角会割裂。
     try { record.container.setBorderRadius(radius) } catch { /* 容器可能已销毁 */ }
     pushState(record)

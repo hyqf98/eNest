@@ -6,7 +6,7 @@
  *
  * 语义约定：
  * - 所有矩形均为面板内容区内的 DIP 坐标（左上原点），不含窗口边框。
- * - 组件矩形包含宿主绘制的 26px 组件条；插件原生视图在此基础上内缩。
+ * - 组件矩形即插件可视区域（含四周内缩）；无标题条，拖动热区在 chrome 边缘层。
  * - 插件在面板中是「移动」语义：同一 webContents 换父级，不复制实例。
  */
 import type { ResolvedAppearance } from './appearance'
@@ -16,7 +16,7 @@ export type PanelMaterial = 'none' | 'blur' | 'system'
 
 /** 面板外观（壳级设置，不随主题变化）。 */
 export interface PanelAppearance {
-  /** 底板不透明度 0.3–1；材质为 system 时由系统材质主导，此值作为叠加层浓度。 */
+  /** DOM 底板浓度 0–1；0 不会关闭 blur/system 原生材质，完全透明底板需同时设置 material=none。 */
   opacity: number
   material: PanelMaterial
 }
@@ -55,7 +55,7 @@ export interface PersistedPanel {
 }
 
 /** 组件运行状态（不持久化）。 */
-export type PanelWidgetStatus = 'loading' | 'ready' | 'error' | 'hibernated'
+export type PanelWidgetStatus = 'loading' | 'ready' | 'error' | 'hibernated' | 'unsupported'
 
 /** 推给面板 chrome 渲染层的单个组件快照。 */
 export interface PanelWidgetState extends PanelWidgetRect {
@@ -69,13 +69,6 @@ export interface PanelWidgetState extends PanelWidgetRect {
   error?: string
 }
 
-/** 面板外观快照（含解析后的主题 token，chrome 自绘底板与组件条时使用）。 */
-export interface PanelThemeSnapshot {
-  mode: 'light' | 'dark'
-  tokens: Record<string, string>
-  animationLevel: 'low' | 'medium' | 'high'
-}
-
 /** 面板 surface 的完整状态快照。 */
 export interface PanelState {
   id: string
@@ -84,23 +77,22 @@ export interface PanelState {
   height: number
   widgets: PanelWidgetState[]
   appearance: PanelAppearance
-  theme: PanelThemeSnapshot
   /**
    * 完整外观快照（宿主解析结果）：chrome 用 applyAppearanceToDom 应用，
    * 使圆角/字号/动画档/组件材质等 V2 语义与主壳一致（与 notification-overlay 同做法）。
    */
-  resolvedAppearance?: ResolvedAppearance
+  resolvedAppearance: ResolvedAppearance
   /** 组件数量上限，chrome 据此禁用「添加组件」。 */
   widgetLimit: number
 }
 
 /** 面板 chrome → 主进程的命令。 */
 export type PanelCommand =
-  /** 打开组件选择器前拉取可添加的插件列表（已安装、已启用、且不在任何面板）。 */
+  /** 可添加插件：已安装、已启用、显式适配 panel、且不在任何面板。 */
   | { action: 'list-candidates' }
   /** 按 pluginId 添加组件；rect 缺省由宿主落位算法决定。 */
   | { action: 'add-widget'; pluginId: string; rect?: PanelWidgetRect }
-  /** 移除组件（插件回到 shell Tab，不销毁运行时）。 */
+  /** 移除组件：完整关闭插件运行时并删除该组件布局。 */
   | { action: 'remove-widget'; pluginId: string }
   /** 组件崩溃/启动失败后的显式重试（冷启动并重新挂载）。 */
   | { action: 'retry-widget'; pluginId: string }
@@ -111,13 +103,13 @@ export type PanelCommand =
   /** 更新面板外观（全局设置）。 */
   | { action: 'set-appearance'; appearance: Partial<PanelAppearance> }
   /** 组件拖动/缩放开始；主进程据此建立 drag session。 */
-  | { action: 'widget-drag-begin'; pluginId: string; mode: PanelDragMode; edge?: PanelResizeEdge; pointer: PanelPoint }
-  /** 拖动结束；commit = false 表示取消并回到起始矩形。 */
-  | { action: 'widget-drag-end'; cancel?: boolean }
+  | { action: 'widget-drag-begin'; interactionId: number; pluginId: string; mode: PanelDragMode; edge?: PanelResizeEdge; pointer: PanelPoint }
+  /** 拖动结束；cancel = true 表示回到起始矩形。 */
+  | { action: 'widget-drag-end'; interactionId: number; cancel?: boolean }
   /** 整块面板移动/缩放开始（主进程驱动，替代 -webkit-app-region：drag 区不触发 contextmenu）。 */
-  | { action: 'window-drag-begin'; mode: PanelDragMode; edge?: PanelResizeEdge }
+  | { action: 'window-drag-begin'; interactionId: number; mode: PanelDragMode; edge?: PanelResizeEdge; pointer?: PanelPoint }
   /** 面板移动/缩放结束。 */
-  | { action: 'window-drag-end'; cancel?: boolean }
+  | { action: 'window-drag-end'; interactionId: number; cancel?: boolean }
   /** 把组件提到最上层。 */
   | { action: 'raise-widget'; pluginId: string }
   /**
@@ -141,8 +133,12 @@ export interface PanelGuide {
   to: number
 }
 
-/** 主进程 → 面板 chrome 的拖动反馈。只在高频 tick 中按需推送（吸附状态变化时）。 */
+/** 主进程 → 面板 chrome 的拖动反馈；矩形或辅助线变化时推送。 */
 export interface PanelDragFeedback {
+  /** 原始手势所属面板；转发到其它面板时也不改写。 */
+  sourcePanelId: string
+  /** 由来源 chrome 分配的正安全整数，同一页面内跨组件/整窗手势不复用。 */
+  interactionId: number
   active: boolean
   pluginId?: string
   /** 拖动中的实时矩形（吸附后）。 */
@@ -150,14 +146,22 @@ export interface PanelDragFeedback {
   guides?: PanelGuide[]
 }
 
+/** 仅发给可信 chrome 的临时预览；同 revision 的 widgets 为增量，active=false 时全部释放。 */
+export interface PanelPreviewSnapshot {
+  revision: number
+  active: boolean
+  widgets: Array<{ pluginId: string; dataUrl: string }>
+}
+
 /** 面板 chrome 可调用的宿主 API（由 panelPreload 暴露为 window.enestPanel）。 */
 export interface PanelSurfaceApi {
   getState(): Promise<PanelState | null>
   command(command: PanelCommand): Promise<{ ok: boolean; error?: string; state?: PanelState; candidates?: PanelCandidate[] }>
   /** 拖动进行中：由渲染层在指针移动时调用，主进程自行读光标，仅用于保活与节流触发。 */
-  dragTick(): void
+  dragTick(interactionId: number): void
   onState(callback: (state: PanelState) => void): () => void
   onDrag(callback: (feedback: PanelDragFeedback) => void): () => void
+  onPreview(callback: (snapshot: PanelPreviewSnapshot) => void): () => void
   /**
    * 声明本面板内容区为插件拖入目标（Tab / 独立窗口 → 面板）。
    * 传 null 表示撤销。主进程据此推送落点反馈并按松手坐标嵌入组件。
@@ -174,8 +178,6 @@ export interface PanelCandidate {
   icon?: string | null
   glyph?: string
   category?: string
-  /** 已在某个面板中时为该面板 id，用于提示而非重复添加。 */
-  panelId?: string
 }
 
 /** 面板呼出快捷键保存 + 重注册结果（镜像 QuickHotkeyApplyResult 的返回语义，供设置页展示真实注册状态）。 */
@@ -187,8 +189,11 @@ export interface PanelHotkeyApplyResult {
   error?: string
 }
 
-/** 面板尺寸与组件约束（主进程与 chrome 共用，避免两端魔法数字漂移）。 */
-export const PANEL_WIDGET_BAR_HEIGHT = 26
+/**
+ * 面板矩形与组件约束（主进程与 chrome 共用，避免两端魔法数字漂移）。
+ * 组件无标题条：插件原生视图从组件矩形内缩 PANEL_WIDGET_INSET，
+ * 拖动热区由 chrome 在组件四周边缘绘制（panel.css）。
+ */
 /** 组件原生视图四周内缩（同时作为可抓取的缩放热区）。 */
 export const PANEL_WIDGET_INSET = 4
 export const PANEL_WIDGET_MIN_WIDTH = 200

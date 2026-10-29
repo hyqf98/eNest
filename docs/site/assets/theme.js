@@ -9,7 +9,8 @@
   const apply = (value) => {
     root.dataset.theme = value;
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = value === "dark" ? "#20221f" : "#f1f0ec";
+    if (meta) meta.content = value === "dark" ? "#15221d" : "#f5f7f4";
+    document.dispatchEvent(new CustomEvent("site-theme-change", { detail: value }));
   };
   apply(
     stored === "dark" || stored === "light"

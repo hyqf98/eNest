@@ -1,6 +1,14 @@
-# Quick 与桌面工具接口
+# Quick、桌面与组件布局接口
 
-同一个插件使用 `enest.getLaunchMode()` 判断 `quick` 或 `shell`，通过 `onModeChange(mode)` 订阅真实容器变化。迁移沿用同一个 WebContents、文档和业务状态。宽度断点只调整空间，不能代替模式判断。声明式设置与插件自己的管理页面可同时存在。
+同一个插件使用 `enest.getLaunchMode()` 判断 `quick` / `shell` / `panel`，通过 `onModeChange(mode)` 订阅**布局变化**，不是每次容器移动。迁移沿用同一个 WebContents、文档和业务状态。宽度断点只调整空间，不能代替模式判断。manifest `views.layouts` 声明插件适配的布局，普通启动未适配的请求按 `views.default` 回退；未适配的布局不会传给插件。自由面板只接收显式包含 panel 的插件，未适配的不出现在组件选择器，也不能拖入。
+
+启动请求目标只有 quick/shell，panel 不是自动新建窗口的命令。`views.default` 只在请求布局未适配时使用；即使默认 panel，已适配的 quick/shell 请求仍使用请求布局。统一启动器用于 Quick、快捷键与 Workspace 打开：最终布局为 quick 时进入 Quick，其余进入主窗；只有请求未适配且最终回退 panel 时，才在主窗呈现组件布局，不自动创建自由面板。
+
+宿主主窗普通打开（`ShellOpenPlugin`）另走 `openPlugin`：请求 shell 布局，回退 quick/panel 时也留在主窗。Workspace 目录、详情和首页搜索则显式向统一启动器请求 shell，不能与该路径混为一谈。独立窗口保留原布局；显式固定到主窗/拖入 Quick 按接收位置选择已适配布局或默认布局，不因布局回退改换位置。拖入面板必须已声明 panel，不套用完整工作台兼容显示。
+
+已有面板组件或独立窗口从普通 Quick 搜索（未指定显式目标）或 `ShellOpenPlugin` 打开时原地聚焦；Workspace 打开、显式设置入口、快捷键目标和迁移动作仍可移动现有实例。完整决策见 [plugin.json](manifest.md) 与 [UI 集成标准](ui-standard.md)。
+
+业务状态、连接和后台计划应在布局之外共用。panel 是信息摘要与常用操作，不是缩小整张工作台。官方 `plugins/pomodoro` 用同一控制器驱动三布局；可选 widget CSS、透明根与原生材质边界见[自由面板](panels.md)。声明式设置与插件自己的管理页面可同时存在。
 
 ## 接管顶部输入
 
@@ -14,7 +22,7 @@ const offAction = enest.quickInput.onAction(action => {
 await enest.quickInput.configure({ placeholder: '搜索内容…', value: draft })
 ```
 
-仅当前 Quick 插件能够配置输入；主进程绑定插件 ID 与 runtime generation。迁移、隐藏、返回全局搜索或销毁立即解除接管，旧实例的消息无效。重新进入 Quick 时重新 configure。未接入的插件保留全局搜索。中文输入法组合期间，导航与提交不执行。
+仅**实际挂载在 Quick** 的插件能够配置输入，返回 boolean 表示是否生效；`mode === 'quick'` 本身不能证明挂载位置，因为独立窗口可保留 quick 布局。主进程绑定插件 ID 与 runtime generation。迁移、隐藏、返回全局搜索或销毁立即解除接管，旧实例的消息无效。重新进入 Quick 时重新 configure。未接入的插件保留全局搜索。中文输入法组合期间，导航与提交不执行。
 
 `Mod+K` 聚焦顶部输入，`Mod+Enter` 固定到桌面，多行执行使用 `Mod+Shift+Enter`。顶部输入栏和普通工作台中的裸 Esc、返回按钮均直接回到空白全局搜索。终端、编辑器和弹层声明相应 inputContext 后继续自行处理 Esc；输入法组合期间宿主不拦截。长按 Esc 不会在返回后继续隐藏 Quick。插件主动调用 `quickInput.escape()` 仍先清空非空查询，再返回搜索；清空按钮只清空查询。
 
@@ -57,11 +65,11 @@ enest.onEnter(async ({ code, type, payload, input }) => {
 
 主题同步包括 CSS token、`data-theme`、`data-anim`、字体栈和字号比例。用户自定义字体经当前插件同源的 `__enest_fonts/<filename>` 白名单地址流式加载。插件遵守 `prefers-reduced-motion`；低动画档不要播放大幅位移动画。
 
-插件仓库 `packages/plugin-kit` 以版本化 workspace 依赖 `@enest/plugin-kit` 提供适配器，由 Vite 打入 dist；样式导入 `@enest/plugin-kit/style.css`，不要逐插件复制共享源码。
+插件仓库 `packages/plugin-kit` 以版本化 workspace 依赖 `@enest/plugin-kit` 提供适配器，由 Vite 打入 dist；样式导入 `@enest/plugin-kit/style.css`，不要逐插件复制共享源码。kit 的 `mode/onMode` 和根节点 `data-mode` 均支持三个布局；`@enest/plugin-kit/widget.css` 只作用于显式采用 `.pk-widget` 的内容，不强制所有插件变为卡片。
 
 ## 剪贴板
 
-eNest 0.2.3 的原生 `window.enest` **没有 `clipboard.history.*`**。clipboard 1.4.0 的历史、去重、置顶、保留策略、迁移解释和搜索属于插件的 `background/history.mjs`；前台通过通用 `background.call` 访问自己的后台。其 `createClipboardApi(host)` 创建本地 facade，保留该插件 UI 的 `query/list/get/copy/paste/reveal/onChange` 调用形式，但不修改宿主 API，也不把历史服务开放给其它插件。
+eNest 0.2.3 的原生 `window.enest` **没有 `clipboard.history.*`**。clipboard 的历史、去重、置顶、保留策略、迁移解释和搜索属于插件的 `background/history.mjs`；前台通过通用 `background.call` 访问自己的后台。其 `createClipboardApi(host)` 创建本地 facade，保留该插件 UI 的 `query/list/get/copy/paste/reveal/onChange` 调用形式，但不修改宿主 API，也不把历史服务开放给其它插件。
 
 - 该插件的私有 `history.query` 返回 `{items,total,nextCursor}`；`history.get` 按需读取图片，变更通过 `background.event` 中的 `history.changed` 通知。宿主不再发送 `clipboard-history-changed`。
 - 后台用 `enestBackground.host.private` 的文档/blob 保存数据，接收 `clipboard.changed` 原生快照；文件记录保存引用，不复制原件。历史查询、排序和修剪不是宿主工作。

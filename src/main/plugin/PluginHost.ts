@@ -10,15 +10,19 @@ import { raiseTransientViews } from '@main/window/transientViews'
  * createShellWindow（窗口引用与事件推送）、createQuickWindow（quick 容器）、
  * resolveThemeCss（主题 Token 解析）、logService。
  *
- * 布局模式 container = 'shell' | 'quick' 与原生挂载 placements 独立：
+ * 布局模式 layoutMode = 'shell' | 'quick' | 'panel' 与原生挂载 placements 独立：
  * - shell：插件 view 挂主窗 contentView（大窗 Tab，桌面适配样式），bounds 走
  *   getPluginContentBounds；激活语义 = activeTabId（全局唯一）
  * - quick：插件 view 挂 Quick 小窗 contentView（叠在 quick 渲染层之上，渲染在
  *   输入条下方，小窗适配样式），bounds 走 getQuickPluginBounds；
  *   挂载语义 = quickPluginId。两个容器各自的激活互不干扰（可同时各有一个激活插件）
+ * - panel：自由面板小组件（组件适配样式），挂载/迁出经 mountInPanel/unmountFromPanel
+ *   携带 panelId，不走 PluginContainer 迁移入口
  * - detached：单插件独立 BaseWindow，保留原布局和 WebContents/runtime scope；
  *   detach/dock 显式迁移，普通 open 聚焦已独立窗口。回收时才切换目标布局。
- * - placements / containers 保留唤醒和崩溃重试目标；只有布局真正改变才发 mode-change。
+ * - 未适配布局回退：入口请求的布局不在 manifest views.layouts 时按 views.default
+ *   渲染（入口分流在 pluginLauncher，容器内归一在 modeFor）。
+ * - placements / layoutModes 保留唤醒和崩溃重试目标；只有布局真正改变才发 mode-change。
  * - 输入拦截：quick 容器 view 注册 before-input-event，插件态 Esc 回列表、
  *   ⌘/Ctrl+Enter 固定到主窗（插件区域持焦时渲染层收不到键盘事件，必须主进程拦截）
  * - 尺寸自适应：Quick 插件使用固定内容高度，退出恢复常用页高度；
@@ -82,9 +86,11 @@ import type {
   PluginEnterPayload,
   PluginLifecycleMessage,
   PluginLaunchMode,
+  PluginLaunchTarget,
   DetachedWindowSession
 } from '@shared/types/plugin'
 import { resolvePluginUi, type PluginUiConfig } from '@shared/types/plugin'
+import { resolvePluginLayoutMode, supportsPanelLayout } from '@shared/pluginPresentation'
 import {
   getMainWindow,
   getPluginContentBounds,
@@ -158,18 +164,23 @@ import {
   isPluginInAnyPanel, refreshPanelsForPlugin, type PanelPluginHost
 } from '@main/panel/PanelManager'
 import {
-  getPanelContentParent, getPanelWindow, isPanelWindowVisible, setPluginViewBounds
+  getPanelContentParent, getPanelWindow, isPanelWindowVisible, releasePluginViewChrome
 } from '@main/window/panelWindows'
-import type { PanelWidgetRect } from '@shared/types/panel'
 
 /** beforeClose 等待插件 ack 的上限；超时直接销毁，避免挂死关闭流程 */
 const BEFORE_CLOSE_ACK_TIMEOUT = BEFORE_CLOSE_ACK_TIMEOUT_MS
 
-/** SDK-compatible presentation mode; actual native parent lives in placements. */
-export type PluginContainer = PluginLaunchMode
+/**
+ * 可作为迁移/启动目标的容器（placement kind 的无参子集）。
+ * 面板挂载必须携带 panelId，统一走 mountInPanel，不进入此类型；
+ * 布局模式（含 'panel'）见 PluginLaunchMode，entry.layoutMode 存布局模式。
+ */
+export type PluginContainer = PluginLaunchTarget
 
 interface PluginOpenOptions {
   container?: PluginContainer
+  /** Explicit layout for the chosen native container; used by resolved launches and reloads. */
+  layoutMode?: PluginLaunchMode
   guard?: () => boolean
   /** Allocate without loading or stealing focus; directed launch commits separately. */
   deferPresentation?: boolean
@@ -178,7 +189,7 @@ interface PluginOpenOptions {
   /** Set only by trusted shell navigation, never by a plugin capability. */
   trustedUserNavigation?: boolean
   /** Records only this request's new instance, even if native setup later rejects. */
-  preparation?: { entry?: PluginEntry }
+  preparation?: PluginPreparation
 }
 
 interface PluginEntry {
@@ -194,8 +205,8 @@ interface PluginEntry {
   rootPath: string
   /** 已归一的 UI 配置（来自 manifest.ui） */
   ui: PluginUiConfig
-  /** 当前挂载容器；bounds 计算与激活语义按此分流 */
-  container: PluginContainer
+  /** 当前布局模式（quick/shell/panel）；bounds 计算与激活语义按 placements 分流 */
+  layoutMode: PluginLaunchMode
   presentationPending?: boolean
   pendingLoadUrl?: string
   /** 插件经 enest.setDirty 上报的未保存标记；save ack 成功后清除 */
@@ -223,6 +234,18 @@ interface HibernatedInfo {
   hibernatedAt: number
   buildRevision: string
   tabSessionId: string
+}
+
+interface PluginPreparation {
+  entry?: PluginEntry
+  source?: {
+    placement?: PluginPlacement
+    layoutMode?: PluginLaunchMode
+    revision: number
+    state?: PluginLifecycleState
+    hibernated?: HibernatedInfo
+    lazyDetached: boolean
+  }
 }
 
 interface DetachedRestoreOperation {
@@ -258,9 +281,9 @@ export class PluginHost {
   private quickPluginId: string | null = null
   /** quick 隐藏时仍挂载的插件：下次呼出直接恢复；Esc 退场 / 迁出 / 卸载后清除 */
   private lastQuickPluginId: string | null = null
-  /** 插件上次（或期望）所在容器；crash 重启 / 唤醒路径据此回原容器 */
-  private containers = new Map<string, PluginContainer>()
-  /** Container remains the SDK layout mode; placement owns the native parent. */
+  /** 上次布局在运行实例销毁后保留；原生父级独立记录在 placements。 */
+  private layoutModes = new Map<string, PluginLaunchMode>()
+  /** Placement owns the native parent, not the plugin's layout. */
   private placements = new Map<string, PluginPlacement>()
   private placementRevisions = new Map<string, number>()
   private closeRevisions = new Map<string, number>()
@@ -318,11 +341,16 @@ export class PluginHost {
 
   getPlacement(pluginId: string): PluginPlacement {
     const placement = this.placements.get(toPluginId(pluginId))
-    return placement ? { ...placement } : { kind: this.getContainer(toPluginId(pluginId)) }
+    // 无 placement 记录时按上次布局推断挂载点；panel 布局必经 mountInPanel 建立
+    // placement（含 panelId），这里的推断只可能是 quick/shell。
+    return placement ? { ...placement } : { kind: this.getLayoutMode(toPluginId(pluginId)) === 'quick' ? 'quick' : 'shell' }
   }
 
   getPlacementRevision(pluginId: string): number { return this.placementRevisions.get(toPluginId(pluginId)) ?? 0 }
-  getLayoutMode(pluginId: string): PluginLaunchMode { return this.getContainer(toPluginId(pluginId)) }
+  getLayoutMode(pluginId: string): PluginLaunchMode {
+    const id = toPluginId(pluginId)
+    return this.entries.get(id)?.layoutMode ?? this.layoutModes.get(id) ?? 'shell'
+  }
   hasShellTab(pluginId: string): boolean { return this.logicalTabs.has(toPluginId(pluginId)) }
   hasWindowInteraction(pluginId: string): boolean { return this.hasPlacementInteraction(this.getPlacement(toPluginId(pluginId))) }
   private hasPlacementInteraction(placement: PluginPlacement): boolean {
@@ -501,30 +529,46 @@ export class PluginHost {
   /** 把插件挂到面板（移动语义，同 webContents 换父级）。 */
   async mountInPanel(pluginId: string, panelId: string, guard?: () => boolean): Promise<void> {
     pluginId = toPluginId(pluginId)
-    if (guard?.() === false) throw new Error('panel mount cancelled')
-    if (!this.entries.has(pluginId)) {
-      // deferPresentation：先分配运行时但不加载，等原生父级（面板窗口）确认存在后再统一启动，
-      // 避免挂载失败时留下一个已加载却没父级的 renderer。
-      await this.openPlugin(pluginId, undefined, { deferPresentation: true, container: 'shell', guard })
+    const closeRevision = this.closeRevisions.get(pluginId) ?? 0
+    const current = () => guard?.() !== false && (this.closeRevisions.get(pluginId) ?? 0) === closeRevision
+      && !this.shuttingDown && !this.barriers.has(pluginId)
+    const check = () => {
+      if (!current()) throw new Error('panel mount cancelled')
+      if (!isEnabledSync(pluginId)) throw new Error(`plugin disabled: ${pluginId}`)
+      if (!supportsPanelLayout(pluginRegistry.getManifest(pluginId)?.views)) throw new Error('此插件未提供小组件布局，请在主窗使用')
     }
-    if (guard?.() === false) throw new Error('panel mount cancelled')
-    return this.transfer(pluginId, async () => {
-      if (guard?.() === false) throw new Error('panel mount cancelled')
-      const entry = this.entries.get(pluginId)
-      if (!entry || entry.scope.isClosing || this.shuttingDown || this.barriers.has(pluginId)) throw new Error('plugin is unavailable')
-      const current = this.getPlacement(pluginId)
-      if (current.kind === 'panel' && current.panelId === panelId) {
-        this.activatePanelPlugin(pluginId)
-        // deferPresentation 打开的新实例靠这里真正开始加载；已加载的 entry 是 no-op（pendingLoadUrl 已清空）。
-        this.startEntryLoad(entry)
-        return
+    const preparation: PluginPreparation = {}
+    check()
+    try {
+      if (!this.entries.has(pluginId)) {
+        // Allocate without running plugin code; failed or cancelled mounting retires only this preparation.
+        await this.openPlugin(pluginId, undefined, {
+          deferPresentation: true, container: 'shell', preparation,
+          guard: () => current() && supportsPanelLayout(pluginRegistry.getManifest(pluginId)?.views)
+        })
       }
-      if (this.hasWindowInteraction(pluginId)) throw new Error('finish the native dialog before moving this plugin')
-      this.moveEntry(entry, { kind: 'panel', panelId }, entry.container)
-      this.activatePanelPlugin(pluginId)
-      // 面板挂载是呈现终点：必须在此启动加载，否则插件视图永远空白。
-      this.startEntryLoad(entry)
-    })
+      check()
+      await this.transfer(pluginId, async () => {
+        check()
+        const entry = this.entries.get(pluginId)
+        if (!entry || entry.scope.isClosing || entry.view.webContents.isDestroyed()) throw new Error('plugin is unavailable')
+        const placement = this.getPlacement(pluginId)
+        if (placement.kind === 'panel' && placement.panelId === panelId) {
+          this.setLayoutMode(pluginId, this.modeFor(pluginId, 'panel'))
+          refreshPanelsForPlugin(pluginId)
+          this.activatePanelPlugin(pluginId)
+          this.startEntryLoad(entry)
+          return
+        }
+        if (this.hasWindowInteraction(pluginId)) throw new Error('finish the native dialog before moving this plugin')
+        this.moveEntry(entry, { kind: 'panel', panelId }, this.modeFor(pluginId, 'panel'))
+        this.activatePanelPlugin(pluginId)
+        this.startEntryLoad(entry)
+      })
+    } catch (error) {
+      await this.rollbackPreparedPresentation(preparation)
+      throw error
+    }
   }
 
   /** 把插件移出面板：回到 shell Tab 或独立窗口。 */
@@ -542,16 +586,9 @@ export class PluginHost {
       const entry = this.entries.get(pluginId)
       if (!entry || entry.scope.isClosing || this.shuttingDown || this.barriers.has(pluginId)) throw new Error('plugin is unavailable')
       if (this.hasWindowInteraction(pluginId)) throw new Error('finish the native dialog before moving this plugin')
-      this.moveEntry(entry, { kind: 'shell' }, 'shell')
+      this.moveEntry(entry, { kind: 'shell' }, this.modeFor(pluginId, 'shell'))
       this.activatePlugin(pluginId)
     })
-  }
-
-  /** 面板内组件的原生视图 bounds。 */
-  setPanelWidgetBounds(pluginId: string, rect: { x: number; y: number; width: number; height: number }): void {
-    const entry = this.entries.get(pluginId)
-    if (!entry || this.getPlacement(pluginId).kind !== 'panel') return
-    setPluginViewBounds(entry.view, rect)
   }
 
   /**
@@ -605,9 +642,21 @@ export class PluginHost {
   focusPlugin(pluginId: string): boolean {
     const entry = this.entries.get(pluginId)
     if (!entry || entry.view.webContents.isDestroyed()) return false
-    if (this.getPlacement(pluginId).kind === 'detached') {
+    const placement = this.getPlacement(pluginId)
+    if (placement.kind === 'detached') {
       if (!this.isPresented(pluginId)) this.activateDetached(pluginId)
       else { getDetachedWindow(pluginId)?.focus(); entry.view.webContents.focus() }
+      return true
+    }
+    if (placement.kind === 'panel') {
+      const win = getPanelWindow(placement.panelId)
+      if (!win || win.isDestroyed()) return false
+      const presented = this.isPresented(pluginId)
+      if (win.isMinimized()) win.restore()
+      win.show()
+      if (!presented) this.activatePanelPlugin(pluginId)
+      win.focus()
+      if (this.isPanelPlacementVisible(pluginId, placement.panelId)) entry.view.webContents.focus()
       return true
     }
     if (!this.isPresented(pluginId)) return false
@@ -694,7 +743,7 @@ export class PluginHost {
       entries: [...this.entries.values()].map((entry) => ({
         pluginId: entry.pluginId, generation: entry.generation, buildRevision: entry.buildRevision,
         tabSessionId: entry.tabSessionId, wcId: entry.scope.owner.wcId,
-        state: this.getState(entry.pluginId), container: entry.container
+        state: this.getState(entry.pluginId), container: entry.layoutMode
       }))
     }
   }
@@ -790,9 +839,22 @@ export class PluginHost {
     return this.quickPluginId
   }
 
-  /** 插件当前（或上次）所在容器：entry 在取 entry.container，否则取历史记录，缺省 shell */
-  getContainer(pluginId: string): PluginContainer {
-    return this.entries.get(pluginId)?.container ?? this.containers.get(pluginId) ?? 'shell'
+  private setLayoutMode(pluginId: string, mode: PluginLaunchMode): void {
+    this.layoutModes.set(pluginId, mode)
+    const entry = this.entries.get(pluginId)
+    if (!entry || entry.layoutMode === mode) return
+    entry.layoutMode = mode
+    if (mode !== 'quick') clearQuickInput(pluginId)
+    this.sendModeChange(entry, mode)
+  }
+
+  /**
+   * 布局回退：目标容器的布局插件未适配时，回落 manifest views.default
+   * （例：未适配 quick 的插件即使被装入 Quick 容器也按默认视图渲染）。
+   * 面板挂载（mountInPanel）与容器迁移（migrateContainer）统一走此归一。
+   */
+  private modeFor(pluginId: string, kind: 'quick' | 'shell' | 'panel'): PluginLaunchMode {
+    return resolvePluginLayoutMode(pluginRegistry.getManifest(pluginId)?.views, kind)
   }
 
   /** 联动布局：把 quick 容器挂载中的插件 view bounds 对齐当前 quick 窗（尺寸变化时调用） */
@@ -894,7 +956,7 @@ export class PluginHost {
     this.pendingEnter.delete(pluginId)
     this.hibernated.delete(pluginId)
     this.logicalTabs.delete(pluginId)
-    this.containers.delete(pluginId)
+    this.layoutModes.delete(pluginId)
     this.placements.delete(pluginId)
     this.lazyDetached.delete(pluginId)
     this.windowSession.remove(pluginId)
@@ -991,7 +1053,7 @@ export class PluginHost {
       const win = await createDetachedWindow(pluginId, session.mode, session.bounds, undefined, { restored: session, lazy: true })
       if (!current()) { if (getDetachedWindow(pluginId) === win) destroyDetachedWindow(pluginId); return }
       restoredWindowId = win.id
-      this.containers.set(pluginId, session.mode)
+      this.setLayoutMode(pluginId, this.modeFor(pluginId, session.mode))
       this.placements.set(pluginId, { kind: 'detached', windowId: win.id })
       this.lazyDetached.add(pluginId)
       this.detachedVisible.set(pluginId, false)
@@ -1005,7 +1067,7 @@ export class PluginHost {
       if (operation.cancelled || this.shuttingDown || this.barriers.has(pluginId) || !current() && !ownsPreparedWindow) return
       destroyDetachedWindow(pluginId)
       this.placements.delete(pluginId)
-      this.containers.delete(pluginId)
+      this.layoutModes.delete(pluginId)
       this.lazyDetached.delete(pluginId)
       this.detachedVisible.delete(pluginId)
       this.detachedStateSignatures.delete(pluginId)
@@ -1107,7 +1169,7 @@ export class PluginHost {
    * 否则创建独立 partition 的 WebContentsView 并加载入口。
    * enter.code 优先进 URL query，完整载荷在 did-finish-load 后经 plugin:lifecycle 下发。
    * container：quick = 挂 Quick 小窗（mini 插件内嵌）；缺省 shell 主窗 Tab。
-   * 唤醒 / crash 重启路径经 containers 记录回到上次容器。
+   * 唤醒 / crash 重启路径经 placements 与 layoutModes 恢复呈现。
    */
   private async createPlugin(
     pluginId: string,
@@ -1123,17 +1185,26 @@ export class PluginHost {
         return pluginId
       }
       if (opts?.deferPresentation) return pluginId
-      if (this.getPlacement(pluginId).kind === 'detached') { this.activateDetached(pluginId, enter); this.startEntryLoad(existing); return pluginId }
+      if (this.getPlacement(pluginId).kind === 'detached') {
+        if (opts?.layoutMode !== undefined) this.setLayoutMode(pluginId, this.modeFor(pluginId, opts.layoutMode))
+        this.activateDetached(pluginId, enter)
+        this.startEntryLoad(existing)
+        return pluginId
+      }
       // 容器切换（quick ↔ shell）：显式指定即迁移（同 webContents 不重载）。
       // 主窗入口缺省进入 shell；Quick 入口显式指定，避免激活隐藏的小窗。
-      const target: PluginContainer = opts?.container ?? 'shell'
-      if (target !== existing.container) {
-        this.migrateContainer(pluginId, target)
-      }
+      // 面板常驻组件缺省不迁移；撤回适配时普通打开回到主窗。
+      const supportedPanel = this.getPlacement(pluginId).kind === 'panel'
+        && supportsPanelLayout(pluginRegistry.getManifest(pluginId)?.views)
+      const target: PluginContainer | null = opts?.container
+        ?? (supportedPanel ? null : 'shell')
+      if (target !== null) this.migrateContainer(pluginId, target, opts?.layoutMode)
+      else if (opts?.layoutMode !== undefined) this.setLayoutMode(pluginId, this.modeFor(pluginId, opts.layoutMode))
       if (target === 'quick') {
         this.showQuickPlugin(pluginId, enter)
       } else {
         this.activatePlugin(pluginId, enter)
+        if (target === null) this.focusPlugin(pluginId)
       }
       this.startEntryLoad(existing)
       this.enforceAliveLimit()
@@ -1177,12 +1248,21 @@ export class PluginHost {
     const ui = resolvePluginUi(manifest?.ui ?? summary.ui)
 
     // 用户入口默认桌面；Quick 与内部恢复明确传入目标容器。
+    // container 只表达初始挂载点（quick/shell，面板挂载由 mountInPanel 迁移完成）；
+    // mode 是布局模式（含 panel），新呈现按 manifest views 归一，未适配布局回落 default。
     const previousPlacement = this.placements.get(pluginId)
     const detached = previousPlacement?.kind === 'detached'
-    const container: PluginContainer = opts?.backgroundExecution || (detached && !opts?.deferPresentation)
-      ? this.getLayoutMode(pluginId) : opts?.container ?? 'shell'
-    const placement: PluginPlacement = (opts?.deferPresentation || opts?.backgroundExecution) && previousPlacement
-      ? previousPlacement : detached ? previousPlacement : { kind: container }
+    const resumeRequested = Boolean(opts?.backgroundExecution) || (detached && !opts?.deferPresentation)
+    const requested: PluginContainer = opts?.container ?? 'shell'
+    const retainedPlacement = previousPlacement && (previousPlacement.kind !== 'panel' || supportsPanelLayout(manifest?.views))
+      && (opts?.deferPresentation || opts?.backgroundExecution || detached
+      || previousPlacement.kind === 'panel' && opts?.container === undefined) ? previousPlacement : undefined
+    const mode = this.modeFor(pluginId, opts?.layoutMode ?? (retainedPlacement?.kind === 'panel' ? 'panel'
+      : resumeRequested ? this.getLayoutMode(pluginId) : requested))
+    const container: PluginContainer = opts?.layoutMode !== undefined ? requested : resumeRequested
+      ? (mode === 'quick' ? 'quick' : 'shell')
+      : (requested === 'quick' && mode === 'quick' ? 'quick' : 'shell')
+    const placement: PluginPlacement = retainedPlacement ?? { kind: container }
 
     const partition = pluginPartition(pluginId) // 每插件独立 partition，隔离 cookie/storage
     const ses = session.fromPartition(partition)
@@ -1191,8 +1271,13 @@ export class PluginHost {
     await applyProxyToPluginPartition(pluginId)
     if (opts?.guard && !opts.guard()) throw new Error('plugin launch cancelled')
     if (operation?.cancelled || this.shuttingDown || this.barriers.has(pluginId)) throw new Error('plugin opening cancelled')
+    if (opts?.preparation) opts.preparation.source = {
+      placement: this.placements.get(pluginId), layoutMode: this.layoutModes.get(pluginId),
+      revision: this.getPlacementRevision(pluginId), state: this.states.get(pluginId),
+      hibernated: this.hibernated.get(pluginId), lazyDetached: this.lazyDetached.has(pluginId)
+    }
     this.hibernated.delete(pluginId)
-    this.containers.set(pluginId, container)
+    this.setLayoutMode(pluginId, mode)
     this.placements.set(pluginId, placement)
     if (!opts?.deferPresentation && placement.kind === 'shell' && !this.logicalTabs.has(pluginId)) {
       this.logicalTabs.set(pluginId, { title: summary.name, tabSessionId: randomUUID() })
@@ -1226,10 +1311,10 @@ export class PluginHost {
       ? withPid(summary.devUrl, pluginId)
       : withPid(pluginProtocolUrl(pluginId, mainFromManifest), pluginId)
     // code/mode 走 query，便于插件在首个脚本同步读取；payload 体积不定，走 IPC。
-    // mode = 启动方式（quick 小窗 / shell 大窗），插件据此选择渲染哪套入口样式
+    // mode = 启动方式（quick 小窗 / shell 大窗 / panel 面板组件），插件据此选择渲染哪套入口样式
     const url = withMode(
       enter?.code ? withCode(base, enter.code) : base,
-      container
+      mode
     )
 
     this.applyTransition(pluginId, 'open')
@@ -1297,7 +1382,7 @@ export class PluginHost {
       sendShellEvent({ type: 'plugin-ready', pluginId, generation: entry.generation })
       if (summary.dev) sendShellEvent({ type: 'plugin-log', pluginId, level: 'info', message: `启动完成：${summary.devUrl ?? rootPath}` })
       this.publishTabs()
-      // 面板组件条的 loading → ready 文案/可见性依赖此刷新。
+      // 面板组件的 loading → ready 状态角标依赖此刷新。
       refreshPanelsForPlugin(pluginId)
       this.enforceAliveLimit()
 
@@ -1326,7 +1411,7 @@ export class PluginHost {
       partition,
       rootPath,
       ui,
-      container,
+      layoutMode: mode,
       presentationPending: opts?.deferPresentation || opts?.backgroundExecution,
       pendingLoadUrl: url,
       dirty: false,
@@ -1337,17 +1422,20 @@ export class PluginHost {
     this.lazyDetached.delete(pluginId)
     this.byWcId.set(view.webContents.id, pluginId)
 
-    if (detached) {
-      const parent = getDetachedParent(pluginId)
-      if (!parent) { this.entries.delete(pluginId); entry.scope.markClosing(); await this.disposeEntry(entry); throw new Error('detached window no longer exists') }
+    if (placement.kind === 'detached' || placement.kind === 'panel') {
+      const parent = placement.kind === 'detached' ? getDetachedParent(pluginId) : getPanelContentParent(placement.panelId)
+      if (!parent) {
+        // Prepared launches restore their dormant source through the caller's rollback.
+        if (!opts?.preparation) {
+          this.entries.delete(pluginId)
+          entry.scope.markClosing()
+          await this.disposeEntry(entry)
+        }
+        throw new Error(`${placement.kind} window no longer exists`)
+      }
       parent.addChildView(view)
-      view.setBounds(getDetachedPluginBounds(pluginId))
-    } else if (placement.kind === 'panel') {
-      const parent = getPanelContentParent(placement.panelId)
-      if (!parent) { this.entries.delete(pluginId); entry.scope.markClosing(); await this.disposeEntry(entry); throw new Error('panel window no longer exists') }
-      parent.addChildView(view)
-      // 真实矩形由 PanelManager 在 mountInPanel 之后立即设置。
-      view.setBounds({ x: 0, y: 0, width: 0, height: 0 })
+      // 面板真实矩形由 PanelManager 在 mountInPanel 之后立即设置。
+      view.setBounds(placement.kind === 'detached' ? getDetachedPluginBounds(pluginId) : { x: 0, y: 0, width: 0, height: 0 })
     } else if (placement.kind === 'quick') {
       // Quick 小窗懒创建：呼出 mini 插件时确保容器存在再挂载
       if (!getQuickWindow()) ensureQuickWindow()
@@ -1374,6 +1462,7 @@ export class PluginHost {
       this.activateDetached(pluginId, enter)
     } else if (placement.kind === 'panel') {
       this.activatePanelPlugin(pluginId, enter)
+      this.focusPlugin(pluginId)
     } else if (container === 'quick') {
       // quick 挂载即激活语义：立即可见、状态机推进并应用建议尺寸
       this.showQuickPlugin(pluginId)
@@ -1394,7 +1483,7 @@ export class PluginHost {
 
   private startEntryLoad(entry: PluginEntry): void {
     if (!entry.pendingLoadUrl) return
-    const url = withMode(entry.pendingLoadUrl, entry.container)
+    const url = withMode(entry.pendingLoadUrl, entry.layoutMode)
     entry.pendingLoadUrl = undefined
     void entry.view.webContents.loadURL(url).catch((err: Error) => {
       if (this.entries.get(entry.pluginId) !== entry || entry.scope.isClosing) return
@@ -1410,6 +1499,7 @@ export class PluginHost {
    */
   closePlugin(tabId: string, reason: PluginCloseReason = 'tab-close', preserveSession = false, preserveSharedResources = false): Promise<void> {
     const pluginId = toPluginId(tabId)
+    const forgetPanelRecord = !preserveSession && (this.placements.get(pluginId)?.kind === 'panel' || reason === 'uninstall')
     this.retireMcpRuntime(pluginId, `close:${reason}`)
     if (!preserveSession) this.mcpBackgroundPlugins.delete(pluginId)
     if (!preserveSession) this.closeRevisions.set(pluginId, (this.closeRevisions.get(pluginId) ?? 0) + 1)
@@ -1435,6 +1525,7 @@ export class PluginHost {
         sendShellEvent({ type: 'tab-closed', tabId: toTabId(pluginId) })
         this.publishTabs()
       }
+      if (forgetPanelRecord) forgetPanelPlugin(pluginId)
       return pending
     }
     const closeOptions = { preserveSession }
@@ -1475,8 +1566,8 @@ export class PluginHost {
       this.detachedVisible.delete(pluginId)
       this.detachedStateSignatures.delete(pluginId)
       this.panelSuppressed.delete(pluginId)
-      // 插件被直接关闭时，同步摘除面板里的幽灵组件（面板本身不随之关闭）。
-      forgetPanelPlugin(pluginId)
+      // An unsupported saved placeholder does not belong to an independently opened shell runtime.
+      if (forgetPanelRecord) forgetPanelPlugin(pluginId)
     }
     if (this.quickPluginId === pluginId) {
       this.quickPluginId = null
@@ -1519,7 +1610,7 @@ export class PluginHost {
       if (!closeOptions.preserveSession) {
         clearPluginSession(pluginId)
         deleteSessionSnapshot(pluginId)
-        this.containers.delete(pluginId)
+        this.layoutModes.delete(pluginId)
         this.tabPresentation.delete(pluginId)
       }
       this.enterSent.delete(pluginId)
@@ -1686,7 +1777,9 @@ export class PluginHost {
     if (previous) previous.cancelled = true
     const operation = { cancelled: false, promise: Promise.resolve() }
     this.reloading.set(pluginId, operation)
-    const container = this.getContainer(pluginId)
+    const layoutMode = this.getLayoutMode(pluginId)
+    const reloadPlacement = this.getPlacement(pluginId)
+    const panelId = reloadPlacement.kind === 'panel' ? reloadPlacement.panelId : null
     const summary = pluginRegistry.get(pluginId)
     const rootPath = summary?.rootPath
     if (rootPath) invalidatePluginFileCache(rootPath)
@@ -1701,10 +1794,31 @@ export class PluginHost {
     }) : this.closePlugin(pluginId, 'tab-close', true)
     operation.promise = close.then(async () => {
       if (operation.cancelled) return
+      const revision = this.getPlacementRevision(pluginId)
+      const current = () => !operation.cancelled && !this.shuttingDown && !this.barriers.has(pluginId)
+        && this.getPlacementRevision(pluginId) === revision
       await clearCompiledCache(pluginId)
-      if (operation.cancelled) return
+      if (!current()) return
       if (this.reloading.get(pluginId) === operation) this.reloading.delete(pluginId)
-      await this.openPlugin(pluginId, undefined, { container })
+      if (panelId !== null) {
+        // 撤回组件支持时保留布局占位，不预建一个无法挂载的隐藏工作台。
+        if (!supportsPanelLayout(pluginRegistry.getManifest(pluginId)?.views)) {
+          this.placements.delete(pluginId)
+          this.panelSuppressed.delete(pluginId)
+          this.bumpPlacement(pluginId)
+          this.setLayoutMode(pluginId, this.modeFor(pluginId, 'shell'))
+          refreshPanelsForPlugin(pluginId)
+          return
+        }
+        await this.mountInPanel(pluginId, panelId, current)
+      } else {
+        // Reload restores native placement independently from the plugin's adapted layout.
+        await this.openPlugin(pluginId, undefined, {
+          container: reloadPlacement.kind === 'quick' ? 'quick' : 'shell',
+          layoutMode,
+          guard: current
+        })
+      }
     }).finally(() => {
       if (this.reloading.get(pluginId) === operation) this.reloading.delete(pluginId)
     })
@@ -1741,7 +1855,6 @@ export class PluginHost {
     this.suspending.delete(pluginId)
     this.clearHibernateTimer(pluginId)
     this.quickPluginId = pluginId
-    this.containers.set(pluginId, 'quick')
     entry.lastActivatedAt = Date.now()
 
     setQuickContentSize({ height: QUICK_HEIGHT })
@@ -1860,7 +1973,7 @@ export class PluginHost {
     if (target.kind === 'quick') ensureQuickWindow()
     const sourceParent = parent(source), targetParent = parent(target)
     if (!targetParent) throw new Error('target plugin window is unavailable')
-    const oldBounds = entry.view.getBounds(), oldMode = entry.container
+    const oldBounds = entry.view.getBounds()
     const bounds = target.kind === 'detached' ? getDetachedPluginBounds(id)
       // 面板组件的实际矩形由 PanelManager 在挂载后立即设置；这里先给一个安全的占位。
       : target.kind === 'panel' ? { x: 0, y: 0, width: 0, height: 0 }
@@ -1874,6 +1987,9 @@ export class PluginHost {
       try { targetParent.removeChildView(entry.view); sourceParent?.addChildView(entry.view); entry.view.setBounds(oldBounds) } catch { /* renderer/parent may have closed */ }
       throw error
     }
+    // 面板内组件的原生圆角裁切由 PanelManager 随后重设；迁出面板必须立即撤销，
+    // 否则 Tab / 独立窗 / Quick 里的插件内容会被裁掉四角。
+    if (target.kind !== 'panel') releasePluginViewChrome(entry.view)
     this.suspending.delete(id)
     this.clearHibernateTimer(id)
     if (target.kind === 'quick' && this.quickPluginId && this.quickPluginId !== id) {
@@ -1881,8 +1997,9 @@ export class PluginHost {
     }
     this.placements.set(id, target)
     this.bumpPlacement(id)
-    entry.container = mode
-    this.containers.set(id, mode)
+    this.setLayoutMode(id, mode)
+    if (source.kind === 'panel' && target.kind !== 'panel') this.panelSuppressed.delete(id)
+    if (target.kind === 'shell' || target.kind === 'panel') clearQuickInput(id)
     // 迁出 quick（固定到主窗 / 分离）后，呼出不再把它拽回小窗
     if (source.kind === 'quick' && this.lastQuickPluginId === id) this.lastQuickPluginId = null
     if (source.kind === 'quick' && this.quickPluginId === id) {
@@ -1900,9 +2017,9 @@ export class PluginHost {
       raiseOrbRailViews()
     } else this.logicalTabs.delete(id)
     if (target.kind === 'shell' || target.kind === 'detached') this.windowSession.retain(id, this.tabPresentation.get(id)?.title ?? pluginRegistry.get(id)?.name ?? id)
-    // 迁出面板（拖到桌面 / 移回主窗 / 拖进 Quick）：面板侧必须同步摘除组件记录，
-    // 否则 chrome 会留下一个没有原生视图的幽灵组件。
-    if (source.kind === 'panel' && target.kind !== 'panel') forgetPanelPlugin(id)
+    // 正常迁出摘除组件记录；撤回适配后的自动回退保留旧布局占位，供用户显式处理。
+    if (source.kind === 'panel' && target.kind !== 'panel'
+      && supportsPanelLayout(pluginRegistry.getManifest(id)?.views)) forgetPanelPlugin(id)
     if (target.kind === 'detached') {
       const history = getDetachedWindowSession(id)
       if (history) this.windowSession.setDetached(id, history)
@@ -1912,10 +2029,6 @@ export class PluginHost {
       const index = oldTabIds.indexOf(id), next = oldTabIds[index + 1] ?? oldTabIds[index - 1]
       if (next) this.activatePlugin(next)
       else sendShellEvent({ type: 'plugin-active', tabId: null })
-    }
-    if (oldMode !== mode) {
-      if (mode === 'shell') clearQuickInput(id)
-      this.sendModeChange(entry, mode)
     }
     if (source.kind === 'detached' && target.kind !== 'detached') {
       this.detachedVisible.delete(id)
@@ -1928,10 +2041,45 @@ export class PluginHost {
     refreshPanelsForPlugin(id)
   }
 
-  private migrateContainer(pluginId: string, container: PluginContainer): void {
+  private migrateContainer(pluginId: string, container: PluginContainer, layoutMode: PluginLaunchMode = container): void {
     const entry = this.entries.get(pluginId)
-    if (!entry || this.getPlacement(pluginId).kind === container) return
-    this.moveEntry(entry, { kind: container }, container)
+    if (!entry) return
+    const mode = this.modeFor(pluginId, layoutMode)
+    if (this.getPlacement(pluginId).kind === container) {
+      this.setLayoutMode(pluginId, mode)
+      return
+    }
+    // 目标容器布局未适配时按默认视图渲染（入口级回退在 pluginLauncher 已先行分流）。
+    this.moveEntry(entry, { kind: container }, mode)
+  }
+
+  /** Retire only an uncommitted renderer still owned by this preparation, never an adopted runtime. */
+  private async rollbackPreparedPresentation({ entry, source }: PluginPreparation): Promise<void> {
+    if (!entry?.pendingLoadUrl || !entry.presentationPending || !source) return
+    const pluginId = entry.pluginId
+    if (this.entries.get(pluginId) !== entry || this.getPlacementRevision(pluginId) !== source.revision) return
+    this.detachView(entry)
+    this.entries.delete(pluginId)
+    stopDevWatch(pluginId)
+    entry.scope.markClosing()
+    this.pendingEnter.delete(pluginId)
+    const revokedPanel = source.placement?.kind === 'panel'
+      && !supportsPanelLayout(pluginRegistry.getManifest(pluginId)?.views)
+    if (source.placement && !revokedPanel) this.placements.set(pluginId, source.placement)
+    else this.placements.delete(pluginId)
+    const mode = revokedPanel ? this.modeFor(pluginId, 'shell') : source.layoutMode
+    if (mode) this.setLayoutMode(pluginId, mode)
+    else this.layoutModes.delete(pluginId)
+    if (revokedPanel) { this.panelSuppressed.delete(pluginId); this.bumpPlacement(pluginId) }
+    if (source.state) this.states.set(pluginId, source.state)
+    else this.states.delete(pluginId)
+    if (source.hibernated) { this.hibernated.set(pluginId, source.hibernated); releaseSessionMemory(pluginId) }
+    if (source.lazyDetached) this.lazyDetached.add(pluginId)
+    const cleanup = this.disposeEntry(entry).finally(() => { if (this.closing.get(pluginId) === cleanup) this.closing.delete(pluginId) })
+    this.closing.set(pluginId, cleanup)
+    await cleanup.catch(error => logWarn('lifecycle', `cancelled presentation cleanup failed: ${String(error)}`))
+    this.publishTabs()
+    refreshPanelsForPlugin(pluginId)
   }
 
   private transfer(pluginId: string, action: () => Promise<void>): Promise<void> {
@@ -1954,13 +2102,13 @@ export class PluginHost {
       if (this.getPlacement(pluginId).kind === 'detached') { this.activateDetached(pluginId); return }
       const revision = this.getPlacementRevision(pluginId)
       const bounds = entry.view.getBounds()
-      const win = await createDetachedWindow(pluginId, entry.container, bounds, position)
+      const win = await createDetachedWindow(pluginId, entry.layoutMode, bounds, position)
       if (this.entries.get(pluginId) !== entry || entry.scope.isClosing || this.shuttingDown || this.getPlacementRevision(pluginId) !== revision || this.hasWindowInteraction(pluginId) || guard && !guard()) {
         destroyDetachedWindow(pluginId)
         throw new Error('plugin move was cancelled')
       }
       try {
-        this.moveEntry(entry, { kind: 'detached', windowId: win.id }, entry.container)
+        this.moveEntry(entry, { kind: 'detached', windowId: win.id }, entry.layoutMode)
         this.activateDetached(pluginId)
       } catch (error) {
         if (this.getPlacement(pluginId).kind !== 'detached') destroyDetachedWindow(pluginId)
@@ -1969,8 +2117,14 @@ export class PluginHost {
     })
   }
 
-  /** Explicit user launch reuses the runtime, including an independent window, at the requested destination. */
-  launchPluginIn(pluginId: string, target: PluginContainer, enter?: PluginEnterPayload, guard: () => boolean = () => true): Promise<void> {
+  /** Reuse the runtime at a native destination without re-deriving an already resolved layout. */
+  async launchPluginIn(
+    pluginId: string,
+    target: PluginContainer,
+    enter?: PluginEnterPayload,
+    guard: () => boolean = () => true,
+    layoutMode: PluginLaunchMode = target
+  ): Promise<void> {
     pluginId = toPluginId(pluginId)
     const closeRevision = this.closeRevisions.get(pluginId) ?? 0
     const current = () => guard() && (this.closeRevisions.get(pluginId) ?? 0) === closeRevision
@@ -1982,41 +2136,62 @@ export class PluginHost {
         throw new Error('请先完成窗口中的文件选择或系统对话框，再启动插件')
       }
     }
+    check()
+    // Panel reload commits through mountInPanel's transfer; never hold that queue while waiting for it.
+    const reloading = this.reloading.get(pluginId)
+    if (reloading) {
+      await reloading.promise
+      if (reloading.cancelled) throw new Error('plugin launch cancelled')
+    }
+    check()
+    let launchEntry: PluginEntry | undefined
     return this.transfer(pluginId, async () => {
-      check()
+      const checkAvailable = () => {
+        check()
+        if (this.reloading.has(pluginId)) throw new Error('插件正在重新加载，请稍后重试')
+      }
+      checkAvailable()
       const restoring = this.restoringDetached.get(pluginId)
       if (restoring) { await restoring.promise; if (restoring.cancelled) throw new Error('plugin launch cancelled') }
-      const reloading = this.reloading.get(pluginId)
-      if (reloading) await reloading.promise
+      checkAvailable()
       const closing = this.closing.get(pluginId)
       if (closing) await closing
+      checkAvailable()
       const opening = this.opening.get(pluginId)
       if (opening) await opening.promise
-      check()
-      if (target === 'quick' && !await prepareQuickWindowForPlugin(current)) throw new Error('Quick window preparation was cancelled or failed')
-      check()
-      const source = {
-        placement: this.placements.get(pluginId), container: this.containers.get(pluginId),
-        revision: this.getPlacementRevision(pluginId), state: this.states.get(pluginId),
-        hibernated: this.hibernated.get(pluginId), lazyDetached: this.lazyDetached.has(pluginId)
+      checkAvailable()
+      const preparation: PluginPreparation = {}
+      const revision = this.getPlacementRevision(pluginId)
+      const sourceEntry = this.entries.get(pluginId)
+      // Ordinary opens do not use the transfer queue, so retain ownership across every async preparation.
+      const presentationCurrent = () => current() && !this.reloading.has(pluginId)
+        && this.getPlacementRevision(pluginId) === revision
+        && this.entries.get(pluginId) === (sourceEntry ?? preparation.entry)
+      const checkPresentation = () => {
+        checkAvailable()
+        if (!presentationCurrent()) throw new Error('plugin launch cancelled')
       }
-      const preparation: { entry?: PluginEntry } = {}
       try {
+        if (target === 'quick' && !await prepareQuickWindowForPlugin(presentationCurrent)) throw new Error('Quick window preparation was cancelled or failed')
+        checkPresentation()
         if (!this.entries.has(pluginId)) {
-          await this.openPlugin(pluginId, enter, { container: target, deferPresentation: true, guard: current, preparation })
+          await this.openPlugin(pluginId, enter, { container: target, layoutMode, deferPresentation: true, guard: presentationCurrent, preparation })
         }
-        check()
+        checkPresentation()
         const entry = this.entries.get(pluginId)
         if (!entry || entry.scope.isClosing || entry.view.webContents.isDestroyed()) throw new Error('插件尚未就绪，请重试')
+        launchEntry = entry
         const commit = () => {
           // Presentation increments Quick's show revision; all external guards were
           // checked immediately before this synchronous native attachment transaction.
-          if (this.entries.get(pluginId) !== entry || entry.scope.isClosing) throw new Error('plugin launch cancelled')
+          if (this.entries.get(pluginId) !== entry || entry.scope.isClosing
+            || this.getPlacementRevision(pluginId) !== revision || this.reloading.has(pluginId)) throw new Error('plugin launch cancelled')
           this.acceptTrustedNavigation(pluginId)
           const placement = this.getPlacement(pluginId)
+          const mode = this.modeFor(pluginId, layoutMode)
           if (placement.kind !== target || target === 'shell' && !this.logicalTabs.has(pluginId)) {
-            this.moveEntry(entry, { kind: target }, target)
-          }
+            this.moveEntry(entry, { kind: target }, mode)
+          } else this.setLayoutMode(pluginId, mode)
           if (target === 'quick') this.showQuickPlugin(pluginId, enter)
           else this.activatePlugin(pluginId, enter)
           this.startEntryLoad(entry)
@@ -2026,34 +2201,11 @@ export class PluginHost {
         } else commit()
         this.enforceAliveLimit()
       } catch (error) {
-        const prepared = preparation.entry
-        // A failed native presentation must not rewrite a dormant source's mode.
-        // The prepared renderer has not loaded plugin code, so retire it directly
-        // and restore its prior session instead of sending lifecycle save hooks.
-        if (prepared?.pendingLoadUrl && prepared.presentationPending && this.entries.get(pluginId) === prepared
-          && this.getPlacementRevision(pluginId) === source.revision) {
-          this.detachView(prepared)
-          this.entries.delete(pluginId)
-          stopDevWatch(pluginId)
-          prepared.scope.markClosing()
-          this.pendingEnter.delete(pluginId)
-          if (source.placement) this.placements.set(pluginId, source.placement)
-          else this.placements.delete(pluginId)
-          if (source.container) this.containers.set(pluginId, source.container)
-          else this.containers.delete(pluginId)
-          if (source.state) this.states.set(pluginId, source.state)
-          else this.states.delete(pluginId)
-          if (source.hibernated) { this.hibernated.set(pluginId, source.hibernated); releaseSessionMemory(pluginId) }
-          if (source.lazyDetached) this.lazyDetached.add(pluginId)
-          const cleanup = this.disposeEntry(prepared).finally(() => { if (this.closing.get(pluginId) === cleanup) this.closing.delete(pluginId) })
-          this.closing.set(pluginId, cleanup)
-          await cleanup.catch(cause => logWarn('lifecycle', `cancelled launch cleanup failed: ${String(cause)}`))
-          this.publishTabs()
-        }
+        await this.rollbackPreparedPresentation(preparation)
         throw error
       }
     }).finally(() => {
-      if (this.entries.get(pluginId)?.presentationPending) this.pendingEnter.delete(pluginId)
+      if (launchEntry?.presentationPending && this.entries.get(pluginId) === launchEntry) this.pendingEnter.delete(pluginId)
       this.scheduleHibernate(pluginId)
       this.enforceAliveLimit()
     })
@@ -2084,7 +2236,7 @@ export class PluginHost {
         if (this.getPlacement(pluginId).kind !== 'detached') throw new Error('plugin move was cancelled')
         if (this.hasWindowInteraction(pluginId) || this.hasPlacementInteraction({ kind: 'shell' })) throw new Error('finish the native dialog before moving this plugin')
         this.placements.set(pluginId, { kind: 'shell' })
-        this.containers.set(pluginId, 'shell')
+        this.setLayoutMode(pluginId, this.modeFor(pluginId, 'shell'))
         this.bumpPlacement(pluginId)
         this.lazyDetached.delete(pluginId)
         this.detachedVisible.delete(pluginId)
@@ -2348,7 +2500,7 @@ export class PluginHost {
     await Promise.allSettled([...this.transfers.values()])
     await Promise.allSettled([...this.restoringDetached.values()].map(operation => operation.promise))
     this.hibernated.clear()
-    this.containers.clear()
+    this.layoutModes.clear()
     this.placements.clear()
     this.lazyDetached.clear()
     this.mcpBackgroundPlugins.clear()
@@ -2390,7 +2542,7 @@ export class PluginHost {
       event: 'enter',
       tabId: toTabId(pluginId),
       // 启动方式随 enter 下发：插件可据此（或 getLaunchMode）选择入口样式
-      mode: entry.container,
+      mode: entry.layoutMode,
       ...(isFirst || pending
         ? { code: pending?.code, type: pending?.type, payload: pending?.payload, input: pending?.input }
         : {})
@@ -2434,10 +2586,10 @@ export class PluginHost {
   }
 
   /** 启动方式变更事件（quick ↔ shell 迁移后；enest.onModeChange / getLaunchMode 消费） */
-  private sendModeChange(entry: PluginEntry, container: PluginContainer): void {
+  private sendModeChange(entry: PluginEntry, mode: PluginLaunchMode): void {
     try {
       if (entry.view.webContents.isDestroyed()) return
-      const payload: PluginEventPayload = { type: 'mode-change', mode: container }
+      const payload: PluginEventPayload = { type: 'mode-change', mode }
       entry.view.webContents.send(IpcChannels.PluginEvent, payload)
     } catch {
       // webContents 可能正在销毁
@@ -2566,7 +2718,7 @@ export class PluginHost {
     this.states.set(pluginId, 'crash')
     sendShellEvent({ type: 'plugin-error', pluginId, message: reason })
     this.publishTabs()
-    // 面板组件条需要切到「启动失败」态（含重试入口）。
+    // 面板组件需要切到「启动失败」态（含重试入口）。
     refreshPanelsForPlugin(pluginId)
     const cleanup = this.disposeEntry(entry).then(() => {
       this.byWcId.delete(entry.scope.owner.wcId)
@@ -2641,7 +2793,7 @@ function withCode(url: string, code: string): string {
   }
 }
 
-/** 在 URL 查询参数中附加启动方式（mode=quick|shell），供插件首个脚本同步读取 */
+/** 在 URL 查询参数中附加启动方式（mode=quick|shell|panel），供插件首个脚本同步读取 */
 function withMode(url: string, mode: PluginLaunchMode): string {
   try {
     const u = new URL(url)
@@ -2668,7 +2820,7 @@ bindDetachedWindowHost({
 bindPanelPluginHost({
   mountInPanel: (pluginId, panelId, guard) => pluginHost.mountInPanel(pluginId, panelId, guard),
   unmountFromPanel: (pluginId, target, position) => pluginHost.unmountFromPanel(pluginId, target, position),
-  setPanelWidgetBounds: (pluginId, rect: PanelWidgetRect) => pluginHost.setPanelWidgetBounds(pluginId, rect),
+  openInShell: (pluginId, guard) => pluginHost.launchPluginIn(pluginId, 'shell', undefined, guard),
   setPanelWidgetVisibility: (pluginId, visible) => pluginHost.setPanelWidgetVisibility(pluginId, visible),
   closePanelPlugins: pluginIds => pluginHost.closePanelPlugins(pluginIds),
   getPlacement: pluginId => pluginHost.getPlacement(pluginId),
@@ -2714,5 +2866,6 @@ setPluginInstallLifecycleHooks({
     invalidatePluginFileCache(rootPath)
     deleteSessionSnapshot(id)
     await clearCompiledCache(id)
-  }
+  },
+  findConflictingInstallation: manifest => Promise.resolve(pluginRegistry.findConflictingInstallation(manifest))
 })

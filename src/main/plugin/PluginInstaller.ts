@@ -2,7 +2,7 @@
  * PluginInstaller — 插件包安装器
  * 职责：从目录 / .enestplugin(zip) 读取并校验 plugin.json，复制到
  *       {plugins}/{id}/{version}/，通过进度回调上报 0–100。
- * 被 PluginRegistry（scan / installLocalPreview）、DevConsole、installQueue 调用。
+ * 被 PluginRegistry（scan）、DevConsole、installQueue 调用。
  * 校验使用插件仓库同步的 JSON Schema，并补充引擎版本与真实文件布局检查；
  * 校验暂存副本后才原子发布，不接受旧嵌套包格式。
  * 关键依赖：adm-zip（解压）、pathsService 由调用方传入 destRoot、logService。
@@ -41,6 +41,11 @@ export type InstallPublished = (result: InstallResult) => void
 export interface PluginInstallLifecycleHooks {
   beforeReplace?: (pluginId: string, dest: string) => Promise<void | (() => void)>
   afterReplace?: (pluginId: string, dest: string) => Promise<void>
+  /**
+   * 同名冲突裁决（写盘前调用）：另一个不同 id 的已安装插件声明了相同 name+category 时
+   * 返回其 id，安装方据此拒绝。同一插件升级（同 id）不触发。
+   */
+  findConflictingInstallation?: (manifest: PluginManifest) => Promise<string | null>
 }
 let lifecycleHooks: PluginInstallLifecycleHooks = {}
 const installLocks = new Map<string, Promise<unknown>>()
@@ -63,6 +68,21 @@ export async function withInstallLock<T>(id: string, action: () => Promise<T>): 
   const task = (previous ?? Promise.resolve()).catch(() => {}).then(action)
   installLocks.set(id, task)
   try { return await task } finally { if (installLocks.get(id) === task) installLocks.delete(id) }
+}
+
+/**
+ * 同名安装唯一性：同一时刻磁盘上只允许一个插件声明某个 name+category。
+ * 同 id 重装/升级是常规替换，不在此拦；同名不同 id（发布者换 id 后的旧包、
+ * 或手工复制的改名包）会争抢 Quick 命令与设置分区，直接拒绝并指出冲突方。
+ */
+async function assertNoConflictingInstallation(manifest: PluginManifest): Promise<void> {
+  const conflict = await lifecycleHooks.findConflictingInstallation?.(manifest).catch((error: Error) => {
+    logWarn('install', `conflict check failed for ${manifest.id}: ${error.message}`)
+    return null
+  })
+  if (conflict) {
+    throw new Error(`已安装「${manifest.name}」（${conflict}）：同一插件只能保留一个安装，请先卸载旧版再安装`)
+  }
 }
 
 /** id：反向域名（至少两段；首段小写，后续段允许大写如 com.github.eNest.xxx） */
@@ -308,6 +328,7 @@ export async function installFromFolder(
     expectedIdentity.version !== undefined && manifest.version !== expectedIdentity.version)) {
     throw new Error('安装包身份与预期插件不一致')
   }
+  await assertNoConflictingInstallation(manifest)
   return withInstallLock(manifest.id, async () => {
     assertInstallCurrent(manifest.id, operation)
     const version = manifest.version || '0.0.0'

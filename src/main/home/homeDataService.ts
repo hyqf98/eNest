@@ -380,17 +380,6 @@ async function installPlugin(id: string, context: HomeActionContext): Promise<{ 
     return { ok: false, error: 'cancelled' }
   }
   if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
-  try {
-    const installed = await pluginRegistry.installLocalPreview(id)
-    if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
-    sendShellEvent({ type: 'install-result', jobId: `sample-${id}`, name: installed.name, ok: true })
-    sendShellEvent({ type: 'plugins-changed' })
-    void refreshPluginBackgrounds()
-    return { ok: true }
-  } catch (previewError) {
-    logInfo('home', `local preview unavailable ${id}: ${(previewError as Error).message}`)
-  }
-  if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
   const remote = pluginRegistry.getRemoteEntry(id)
   if (!remote?.assetUrl) return { ok: false, error: `plugin not installable: ${id}` }
   const job = enqueueInstallFromUrl(remote.assetUrl, {

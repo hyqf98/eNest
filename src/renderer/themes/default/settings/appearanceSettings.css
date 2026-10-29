@@ -214,10 +214,11 @@
   background: linear-gradient(135deg, #3d5a6a, #12202a 60%, #2a3d4a);
   position: relative; overflow: hidden;
 }
-/* 底板层浓度 = 设置的 opacity；材质再按原生材质的观感在其上衰减。 */
+/* 底板层浓度 = 设置的 opacity；材质观感在真实面板上由原生层衰减，这里同步表达。 */
 .panel-preview-swatch::after {
   content: ''; position: absolute; inset: 0; background: var(--bg, #0e1518);
+  transition: opacity 120ms linear;
 }
 .panel-preview-swatch.material-none::after { opacity: var(--preview-opacity); }
-.panel-preview-swatch.material-blur::after { opacity: calc(var(--preview-opacity) * .55); }
-.panel-preview-swatch.material-system::after { opacity: calc(var(--preview-opacity) * .35); }
+.panel-preview-swatch.material-blur::after { opacity: calc(var(--preview-opacity) * .62); }
+.panel-preview-swatch.material-system::after { opacity: calc(var(--preview-opacity) * .62); }

@@ -273,22 +273,22 @@ node scripts/build-registry.mjs --target=darwin-arm64
 
 | 官方插件 | 迁移后版本 | 最低宿主版本 |
 | --- | --- | --- |
-| 数据库 `com.github.eNest.database` | 1.4.0 | 0.2.2 |
-| 中间件 `com.github.eNest.middleware` | 0.4.0 | 0.2.2 |
-| SSH `com.github.eNest.ssh` | 1.4.0 | 0.2.2 |
-| 远程桌面 `com.github.eNest.remote-desktop` | 1.3.1 | 0.2.2 |
-| AI 配置 `com.github.eNest.ccswitch` | 1.3.0 | 0.2.2 |
-| 桌面宠物 `com.github.eNest.codex-pets` | 1.2.0 | 0.2.2 |
-| 局域网分享 `com.github.eNest.lan-share` | 1.2.0 | 0.2.2 |
-| 番茄钟 `com.github.eNest.pomodoro` | 1.4.0 | 0.2.2 |
-| DSH `com.github.eNest.dsh` | 0.3.1 | 0.2.1 |
+| 数据库 `com.github.eNest.database` | 0.0.1 | 0.2.2 |
+| 中间件 `com.github.eNest.middleware` | 0.0.1 | 0.2.2 |
+| SSH `com.github.eNest.ssh` | 0.0.1 | 0.2.2 |
+| 远程桌面 `com.github.eNest.remote-desktop` | 0.0.1 | 0.2.2 |
+| AI 配置 `com.github.eNest.ccswitch` | 0.0.1 | 0.2.2 |
+| 桌面宠物 `com.github.eNest.codex-pets` | 0.0.1 | 0.2.2 |
+| 局域网分享 `com.github.eNest.lan-share` | 0.0.1 | 0.2.2 |
+| 番茄钟 `com.github.eNest.pomodoro` | 0.0.1 | 0.2.2 |
+| DSH `com.github.eNest.dsh` | 0.0.1 | 0.2.1 |
 
 0.2.2 删除壳里的 `enest.db.*`、`enest.mw.*`、`enest.ssh.*`、`enest.agent.*`、`enest.net.share` 门面、业务事件和 DTO。官方插件内部适配器可以保持原来的业务调用形状，但只能使用 `backend.call`、`backend.event` 和通用宿主控制协议，不可覆盖冻结的 `window.enest`。
 
-远程桌面 1.3.1 也自行承担 RDCleanPath、X.224 与 RDP TLS 协商；壳的 `net.socket.serveWs` 只有字节流桥接，不再嗅探应用协议。远程桌面将私有 RDP 服务与 SSH 能力组合在同一按需后端，不为 RDP 再起一份常驻进程。
+远程桌面也自行承担 RDCleanPath、X.224 与 RDP TLS 协商；壳的 `net.socket.serveWs` 只有字节流桥接，不再嗅探应用协议。远程桌面将私有 RDP 服务与 SSH 能力组合在同一按需后端，不为 RDP 再起一份常驻进程。
 
 数据库、中间件的细分授权由插件解释 action 并请求通用 `permission.authorize`；SSH 只额外请求系统 agent 权限。AI 应用适配/白名单/最小侵入合并/快照/资产 staging、LAN HTTP/Range/分享码/过期/日志均归插件。通用控制接口不提供任意宿主服务透传；获得 `backend.node` 的代码具有完整 Node 信任，不是文件沙箱。新权限不会由旧的 `config.agent.*`、`lan.share` 或旧 SSH 限权授权自动升级。
 
 番茄钟使用[后台步骤计划](deadline-tasks.md)，不启动 Node 进程；其周期、历史编辑、统计以及旧数据解释由插件负责。上述旧插件应同步更新，缺失后端或旧宿主 API 不会回退到壳业务实现。
 
-DSH 0.3.1 的配置/profile、运行时版本管理、下载升级、工作台与子进程业务位于插件仓 `plugins/dsh/backend/`，前端通过通用 `enest.backend.call` 和 `backend.event` 调用，宿主只保留上述可复用控制能力。原有 `runtime/` 路径作为插件的私有附件保留，不再有宿主按 DSH ID 放行或加载的分支。旧 DSH 必须更新到与 eNest 0.2.1 配套的新包；旧 `dsh.*` 专属权限/API 已移除，不会静默映射为 `backend.node` 授权。新版首次启动 Node 后端仍需用户明确同意。0.2.2 中这些兼容门面也已移入各插件。
+DSH 的配置/profile、运行时版本管理、下载升级、工作台与子进程业务位于插件仓 `plugins/dsh/backend/`，前端通过通用 `enest.backend.call` 和 `backend.event` 调用，宿主只保留上述可复用控制能力。原有 `runtime/` 路径作为插件的私有附件保留，不再有宿主按 DSH ID 放行或加载的分支。旧 DSH 必须更新到与 eNest 0.2.1 配套的新包；旧 `dsh.*` 专属权限/API 已移除，不会静默映射为 `backend.node` 授权。新版首次启动 Node 后端仍需用户明确同意。0.2.2 中这些兼容门面也已移入各插件。

@@ -293,10 +293,10 @@ test('catalog search handles await details and never launch, enable or install d
   const registry = {
     list: () => catalog,
     get: id => catalog.find(item => item.id === id) ?? null,
-    installLocalPreview: async id => { state.sampleInstalls.push(id) },
+    getRemoteEntry: () => undefined,
     setPluginEnabled: async (...args) => { state.enabledChanges.push(args) }
   }
-  const api = await load({ registry, sampleInstalls: [], enabledChanges: [] })
+  const api = await load({ registry, enabledChanges: [] })
   const result = await api.searchHome({ query: 'notes', scope: 'market' }, context())
   assert.doesNotMatch(JSON.stringify(result), /rootPath|assetUrl|private/)
   let resolveNavigation, settled = false
@@ -314,7 +314,6 @@ test('catalog search handles await details and never launch, enable or install d
   assert.deepEqual(state.launches, [])
   assert.deepEqual(state.appLaunches, [])
   assert.deepEqual(state.enabledChanges, [])
-  assert.deepEqual(state.sampleInstalls, [])
   assert.deepEqual(state.queue, [])
   assert.deepEqual(state.confirmations, [])
   assert.deepEqual(state.visibility, [])
@@ -525,7 +524,6 @@ test('nested install rejections are caught before their private host message can
   const detail = 'ENOENT /Users/private/archive.zip?token=secret'
   const registry = {
     get: id => ({ id, name: 'Notes', installed: false }),
-    installLocalPreview: async () => { throw new Error(detail) },
     getRemoteEntry: () => { throw new Error(detail) }
   }
   const api = await load({ registry })

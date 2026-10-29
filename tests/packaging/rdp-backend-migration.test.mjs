@@ -132,7 +132,7 @@ test('host socketBridge is protocol agnostic; Remote alone composes RDP and shar
   assert.match(read(backend + 'index.ts'), /'rdp\.open'/)
   for (const path of ['src/runtime.ts', 'src/worker.ts']) assert.doesNotMatch(read('eNest_plugin/packages/ssh-backend/' + path), /remote-desktop|rdpBridge|RDCleanPath/)
   const manifest = JSON.parse(read('eNest_plugin/plugins/remote-desktop/plugin.json'))
-  assert.equal(manifest.version, '1.3.1'); assert.equal(manifest.engines.enest, '>=0.2.2'); assert.ok(manifest.permissions.includes('backend.node'))
+  assert.equal(manifest.version, '0.0.1'); assert.equal(manifest.engines.enest, '>=0.2.2'); assert.ok(manifest.permissions.includes('backend.node'))
 })
 
 test('generic host socket bridge accepts Chromium compression offer and transparently echoes application bytes', async t => {

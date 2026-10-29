@@ -68,6 +68,32 @@ export function findFreeSlot(existing: readonly PanelWidgetRect[], panel: PanelS
   return null
 }
 
+/** Plan growth without moving existing widgets or enlarging a window that still cannot fit the new one. */
+export function findPanelExpansion(
+  existing: readonly PanelWidgetRect[],
+  current: PanelSize,
+  maximum: PanelSize,
+  size?: Partial<PanelSize>
+): { panel: PanelSize; rect: PanelWidgetRect } | null {
+  const limits = [
+    { width: current.width, height: maximum.height },
+    { width: maximum.width, height: current.height },
+    maximum
+  ]
+  const candidates: Array<{ panel: PanelSize; rect: PanelWidgetRect }> = []
+  for (const limit of limits) {
+    if (limit.width < current.width || limit.height < current.height) continue
+    const rect = findFreeSlot(existing, limit, size)
+    if (!rect) continue
+    candidates.push({
+      panel: { width: Math.max(current.width, rect.x + rect.width), height: Math.max(current.height, rect.y + rect.height) },
+      rect
+    })
+  }
+  candidates.sort((a, b) => a.panel.width * a.panel.height - b.panel.width * b.panel.height)
+  return candidates[0] ?? null
+}
+
 /** 按落点推算「拖入即嵌入」的位置：以指针为中心放置，再吸附与钳制。 */
 export function rectAtPointer(point: PanelPoint, others: readonly PanelWidgetRect[], panel: PanelSize, size?: Partial<PanelSize>): PanelWidgetRect {
   const width = Math.max(PANEL_WIDGET_MIN_WIDTH, Math.round(size?.width ?? PANEL_WIDGET_DEFAULT_WIDTH))

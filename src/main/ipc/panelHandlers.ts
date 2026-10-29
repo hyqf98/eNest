@@ -29,6 +29,10 @@ let registered = false
 const DRAG_MODES: readonly PanelDragMode[] = ['move', 'resize']
 const RESIZE_EDGES: readonly PanelResizeEdge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']
 
+function validInteractionId(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
 function validPoint(raw: unknown): { x: number; y: number } | null {
   if (!raw || typeof raw !== 'object') return null
   const point = raw as Record<string, unknown>
@@ -94,26 +98,32 @@ function normalizeCommand(raw: unknown): PanelCommand | null {
       return { action, appearance: out }
     }
     case 'widget-drag-begin': {
+      if (!validInteractionId(input.interactionId)) return null
       if (typeof input.pluginId !== 'string' || !input.pluginId || input.pluginId.length > 200) return null
       if (!DRAG_MODES.includes(input.mode as PanelDragMode)) return null
       const edge = input.edge
       if (edge !== undefined && !RESIZE_EDGES.includes(edge as PanelResizeEdge)) return null
       const pointer = validPoint(input.pointer)
       if (!pointer) return null
-      return { action, pluginId: input.pluginId, mode: input.mode as PanelDragMode, edge: edge as PanelResizeEdge | undefined, pointer }
+      return { action, interactionId: input.interactionId, pluginId: input.pluginId, mode: input.mode as PanelDragMode, edge: edge as PanelResizeEdge | undefined, pointer }
     }
     case 'widget-drag-end':
-      return { action, cancel: input.cancel === true }
+      if (!validInteractionId(input.interactionId)) return null
+      return { action, interactionId: input.interactionId, cancel: input.cancel === true }
     case 'window-drag-begin': {
+      if (!validInteractionId(input.interactionId)) return null
       if (!DRAG_MODES.includes(input.mode as PanelDragMode)) return null
       const edge = input.edge
       if (edge !== undefined && !RESIZE_EDGES.includes(edge as PanelResizeEdge)) return null
       // 移动不需要 edge；缩放必须有 edge，否则拒绝。
       if (input.mode === 'resize' && edge === undefined) return null
-      return { action, mode: input.mode as PanelDragMode, edge: edge as PanelResizeEdge | undefined }
+      const pointer = input.pointer === undefined ? undefined : validPoint(input.pointer)
+      if (input.pointer !== undefined && !pointer) return null
+      return { action, interactionId: input.interactionId, mode: input.mode as PanelDragMode, edge: edge as PanelResizeEdge | undefined, pointer: pointer ?? undefined }
     }
     case 'window-drag-end':
-      return { action, cancel: input.cancel === true }
+      if (!validInteractionId(input.interactionId)) return null
+      return { action, interactionId: input.interactionId, cancel: input.cancel === true }
     case 'overlay-open':
     case 'overlay-close':
       return { action }
@@ -146,10 +156,11 @@ export function registerPanelHandlers(): void {
     return handlePanelCommand(panelId, command)
   })
 
-  onShellIpc(IpcChannels.PanelDragTick, (event) => {
+  onShellIpc(IpcChannels.PanelDragTick, (event, interactionId: unknown) => {
+    if (!validInteractionId(interactionId)) return
     // 同一保活通道服务两种拖动：组件拖动与整块面板移动/缩放。
-    panelDragTick(event.sender.id)
-    panelWindowDragTick(event.sender.id)
+    panelDragTick(event.sender.id, interactionId)
+    panelWindowDragTick(event.sender.id, interactionId)
   })
 
   // —— 壳渲染层 ——

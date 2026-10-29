@@ -55,17 +55,38 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 }
 ```
 
-对象指令的字段由 schema 严格约束（`additionalProperties:false`）：未知 `type`、拼错字段、无效正则、越界数量或非法扩展名都会在安装时被拒。regex/over 与 img/files 互不混用字段。无论命中哪条 `cmds`，只要 Quick 输入框有文本，该文本也会随启动进入 `onEnter`（详见[双模式工具接口](dual-mode-tools.md#输入上下文)），插件据此把内容填入自己的工作区。新增或修改 `plugin.json` 后，需重新安装更新后的插件包、或开发插件刷新重载 manifest 才生效；改仓库源码不会更新已安装的旧包。
+对象指令的字段由 schema 严格约束（`additionalProperties:false`）：未知 `type`、拼错字段、无效正则、越界数量或非法扩展名都会在安装时被拒。regex/over 与 img/files 互不混用字段。无论命中哪条 `cmds`，只要 Quick 输入框有文本，该文本也会随启动进入 `onEnter`（详见[多布局工具接口](dual-mode-tools.md#输入上下文)），插件据此把内容填入自己的工作区。新增或修改 `plugin.json` 后，需重新安装更新后的插件包、或开发插件刷新重载 manifest 才生效；改仓库源码不会更新已安装的旧包。
 
 ## 可选 Node 后端
 
 带后端的插件声明 `"backend": { "entry": "backend/index.cjs" }`，在 `permissions` 中列出 `backend.node`，并设置 `"engines": { "enest": ">=0.2.0" }`。`main` 仍是浏览器页面 `index.html`。后端入口不是 preload，也不会通过页面资源协议暴露。用户授权后运行完整 Node.js 代码，不能按页面沙箱理解其权限边界。源码入口和依赖收集配置放在 `package.json.enestBackend`，协议与示例见[插件本机后端](backend.md)。
 
-## 小窗、主窗和 UI
+## 小窗、主窗、面板与 UI
 
-同一插件支持 `quick` 与 `shell` 两种展示模式，不定义两种包类型。`getLaunchMode()` 读取当前模式，`onModeChange()` 响应模式切换；独立窗口和[自由面板](panels.md)是挂载位置，不增加第三种模式。宽度断点不能代替启动模式，也不能假定每次移动 View 都触发模式变化。
+同一插件支持 `quick` / `shell` / `panel` 三种布局模式，不定义多种包类型。`getLaunchMode()` 读取当前布局，`onModeChange()` 响应布局切换；独立窗口是挂载位置，保留原布局。宽度断点不能代替布局判断，也不能假定每次移动 View 都触发布局变化。
 
-默认 `chrome:none`、`themeAware:true`、`background:opaque`、`preferredColorScheme:auto`。使用宿主主题 token、字体和动画档位。不同容器只调整布局和可见操作，不重复创建业务状态。
+用可选的 `views` 段声明插件适配了哪些布局、未适配入口回落到哪个默认视图：
+
+```json
+{
+  "views": {
+    "layouts": ["quick", "shell", "panel"],
+    "default": "shell",
+    "panel": { "size": { "width": 240, "height": 240 } }
+  }
+}
+```
+
+- `layouts`：已适配的布局集合，缺省 `["quick","shell"]`（历史插件两种入口都可用）。包含 `panel` 是小组件能力开关；未声明时不出现在「添加组件」中，也不能拖入面板。无需增加另一套开关。
+- `default`：回退布局，必须属于 `layouts`，仅在请求布局未适配时使用，不覆盖已适配的 quick/shell/panel 请求。缺省优先 shell，没有 shell 时依次选择已声明的 quick、panel；整段 `views` 缺省时为 shell。例如数据库插件只声明 `layouts: ["shell"]`，首次从 Quick 搜索启动时回退 shell 并打开主窗。只有请求未适配且最终回退 panel 时，统一启动器才在主窗承载 panel 布局，不自动创建面板；声明 `default: "panel"` 不代表每次打开都用 panel。
+- `panel.size`：组件默认外框尺寸（DIP，可选，仅 `layouts` 含 `panel` 时生效）。添加组件（选择器或拖入）按此尺寸落位，代替宿主全局默认 360×280；例如时钟可声明 240×240，资源摘要可声明 320×240。会被宿主最小尺寸（200×140）与面板内容区钳制。组件仍可被用户自由拉伸，恢复布局沿用保存的矩形，不回读该声明。
+- 声明 `panel` 后必须实现专门的简洁组件布局，不能只加配置而缩小完整工作台。实际布局变化才收到 `onModeChange('panel')`，冷启动通过 `getLaunchMode()` 获取初值。主进程在添加、拖入、挂载与恢复时检查能力；未适配的旧布局保留宿主占位，不启动兼容视图，见[自由面板](panels.md)。
+
+`PluginLaunchMode` 是三种布局；启动请求目标 `PluginLaunchTarget` 只有 quick/shell。Quick、快捷键与 Workspace 打开经统一启动器解析：最终 quick 布局进入 Quick，其余进入主窗；Workspace 目录、详情和首页搜索显式请求 shell。宿主普通打开（`ShellOpenPlugin`）则请求 shell 并留在主窗，即使布局回退为 quick。调用 `ui.openInShell()` 保留主窗位置，再选择已适配的 shell 或 default，因此主窗也可能呈现 quick/panel 布局。拖入自由面板则只接受显式支持的 panel，不兼容回退到 shell。独立窗口不是第四种布局；它保留原布局。完整入口决策见[UI 集成标准](ui-standard.md#三种布局与挂载位置)。
+
+已有面板组件或独立窗口从普通 Quick 搜索（未指定显式目标）或宿主 `ShellOpenPlugin` 打开时，宿主聚焦当前位置并交付新载荷。Workspace 打开、明确的设置入口、快捷键目标和原生迁移动作仍可移动现有实例，不能概括为所有主窗入口都原地聚焦。普通插件不能通过声明或模式事件自行创建自由面板。
+
+默认 `chrome:none`、`themeAware:true`、`background:opaque`、`preferredColorScheme:auto`。使用宿主主题 token、字体和动画档位。不同布局只调整呈现，不重复创建业务状态。
 
 ## 打开方式（contributes.openWith）
 

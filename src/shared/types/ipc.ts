@@ -175,7 +175,7 @@ export const ShellLaunchPluginShortcut = 'shell:launch-plugin-shortcut'
 export const ShellBeginShortcutCapture = 'shell:begin-shortcut-capture'
 export const ShellEndShortcutCapture = 'shell:end-shortcut-capture'
 
-/** 从市场安装/更新插件：本地 sample 优先，否则远程 assetUrl 下载入队 */
+/** 从市场安装/更新插件：远程 assetUrl 下载入队；本地源码插件走开发者控制台 */
 export const ShellInstallMarketPlugin = 'shell:install-market-plugin'
 
 /** 应用自动更新（GitHub Release + electron-updater） */
@@ -291,6 +291,8 @@ export const PanelDragTick = 'panel:drag-tick'
 export const PanelState = 'panel:state'
 /** 主进程 → 面板 chrome：拖动反馈（吸附后的矩形与辅助线） */
 export const PanelDrag = 'panel:drag'
+/** 主进程 → 可信面板 chrome：有界组件快照，仅用于临时隐藏原生视图时的预览 */
+export const PanelPreview = 'panel:preview'
 /** 壳渲染层 → 主进程：框选区域并创建面板 */
 export const PanelPickRegion = 'panel:pick-region'
 /** 壳渲染层 → 主进程：列出活动面板（设置页/入口展示） */
@@ -493,6 +495,7 @@ export const IpcChannels = {
   PanelDragTick,
   PanelState,
   PanelDrag,
+  PanelPreview,
   PanelPickRegion,
   PanelList,
   PanelCreate,

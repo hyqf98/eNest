@@ -379,7 +379,7 @@ export function registerShellHandlers(): void {
 
   /**
    * shell:install-market-plugin — 从市场安装/更新插件。
-   * 策略：开发态本地预览产物优先；否则远程 assetUrl 入队下载（进度经 install-progress）。
+   * 策略：远程 assetUrl 入队下载（进度经 install-progress）；本地源码插件走开发者控制台，不在此安装。
    * force=true 时已安装也会走远程更新（需 latestVersion 更高）。
    */
   handleShellIpc(
@@ -397,30 +397,6 @@ export function registerShellHandlers(): void {
           return { ok: true, data: { ok: true, mode: 'already', name: existing.name } }
         }
 
-        // 未安装：先试开发态本地预览产物，失败再远程
-        if (!existing.installed) {
-          try {
-            const summary = await pluginRegistry.installLocalPreview(id)
-            logInfo('ipc', `shell:install-market-plugin ${id} via local preview`)
-            sendShellEvent({
-              type: 'install-result',
-              jobId: `sample-${id}`,
-              name: summary.name,
-              ok: true
-            })
-            sendShellEvent({ type: 'plugins-changed' })
-            // Update generic background declarations after installation.
-            refreshPluginBackgrounds()
-            // Keep the existing IPC result tag for preview clients; this is not bundled plugin content.
-            return { ok: true, data: { ok: true, mode: 'sample', name: summary.name } }
-          } catch (previewError) {
-            logInfo(
-              'ipc',
-              `local preview unavailable ${id}: ${(previewError as Error).message} → try remote`
-            )
-          }
-        }
-
         // 远程下载入队
         const remote = pluginRegistry.getRemoteEntry(id)
         if (!remote?.assetUrl) {
@@ -428,7 +404,7 @@ export function registerShellHandlers(): void {
             ok: false,
             error: force
               ? `no remote asset to update: ${id}`
-              : `plugin not installable: ${id}（无本地预览产物且远程无资产）`
+              : `plugin not installable: ${id}（远程市场无可用资产）`
           }
         }
         const job = enqueueInstallFromUrl(remote.assetUrl, {

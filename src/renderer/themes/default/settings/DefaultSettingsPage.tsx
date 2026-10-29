@@ -31,8 +31,8 @@ import './settings.css'
 
 const ProfileSection = lazy(() => import('./ProfileSection').then(module => ({ default: module.ProfileSection })))
 const AppearanceSettingsSection = lazy(() => import('./AppearanceSettingsSection').then(module => ({ default: module.AppearanceSettingsSection })))
-const FreePanelSection = lazy(() => import('./FreePanelSection').then(module => ({ default: module.FreePanelSection })))
 const DevConsoleSection = lazy(() => import('./DevConsoleSection').then(module => ({ default: module.DevConsoleSection })))
+const McpServiceSection = lazy(() => import('./McpServiceSection').then(module => ({ default: module.McpServiceSection })))
 const QuickSettingsSection = lazy(() => import('./QuickSettingsSection').then(module => ({ default: module.QuickSettingsSection })))
 const PluginMemorySection = lazy(() => import('./PluginMemorySection').then(module => ({ default: module.PluginMemorySection })))
 const DefaultAppsSection = lazy(() => import('./DefaultAppsSection').then(module => ({ default: module.DefaultAppsSection })))
@@ -863,8 +863,6 @@ export function DefaultSettingsPage() {
 
         {settingsTab === 'general' && <TopTabBarSection />}
 
-        {settingsTab === 'general' && <FreePanelSection />}
-
         {settingsTab === 'general' && <DefaultAppsSection />}
 
         {settingsTab === 'general' && <PluginMemorySection />}
@@ -874,6 +872,8 @@ export function DefaultSettingsPage() {
         {settingsTab === 'quick' && <QuickSettingsSection />}
 
         {settingsTab === 'dev' && <DevConsoleSection />}
+
+        {settingsTab === 'dev' && <McpServiceSection />}
 
         {settingsTab.startsWith('p:') &&
           (() => {

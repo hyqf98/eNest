@@ -1,11 +1,11 @@
-import type { PluginLaunchMode } from './plugin'
+import type { PluginLaunchTarget } from './plugin'
 
 /** A user-owned global shortcut. Registering it never starts a plugin. */
 export interface PluginShortcutBinding {
   id: string
   pluginId: string
   accelerator: string
-  mode: PluginLaunchMode
+  mode: PluginLaunchTarget
   enabled: boolean
 }
 

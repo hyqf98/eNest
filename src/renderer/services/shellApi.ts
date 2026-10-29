@@ -71,7 +71,7 @@ export interface ShellApi {
   clearOpenWithDefault?(key: string): Promise<import('@shared/types/openWith').OpenWithActionResult>
   routeOpenWith?(key: string, pluginId: string): Promise<import('@shared/types/openWith').OpenWithActionResult>
   openOpenWithSystemSettings?(): Promise<void>
-  /** 从市场安装/更新：sample 优先，否则远程入队；force 强制走远程更新 */
+  /** 从市场安装/更新：远程 assetUrl 入队下载；force 强制走远程更新 */
   installMarketPlugin?(
     pluginId: string,
     opts?: { force?: boolean }

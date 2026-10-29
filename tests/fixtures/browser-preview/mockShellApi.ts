@@ -364,7 +364,8 @@ export function createMockApi(): ShellApi {
       mockRegistry.install(id)
       emit({ type: 'install-result', jobId: `mock-${id}`, name: existing.name, ok: true })
       emit({ type: 'plugins-changed' })
-      return { ok: true, mode: 'sample', name: existing.name }
+      // Browser preview installs synchronously from its sample registry; report it as completed.
+      return { ok: true, mode: 'already', name: existing.name }
     },
     async getTheme() {
       theme = readMockTheme()

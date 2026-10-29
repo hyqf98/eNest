@@ -28,4 +28,4 @@ off()
 - `notification: { title, body }` 是可选原生通知；开始时申请 `notify`，拒绝只移除通知，不阻止计时。投递时再次校验授权；Tab 关闭后的通知需要持久授权。
 - 老计时数据由宿主按原插件归属、不解释内容地迁入私有 KV；插件负责解释旧格式和迁移。失败保留原文件与重试机会，不阻断通用计时初始化；成功标记在卸载后保留，避免复活已删除的数据，详见[旧数据定向移交](storage.md#旧宿主数据的定向移交)。
 
-基础计划无需 `backend.node`，不会新增 utility process。旧 `enest.focusTimer` 已移除，番茄钟需更新到 1.4.0 或以上。
+基础计划无需 `backend.node`，不会新增 utility process。旧 `enest.focusTimer` 已移除，番茄钟需更新到 0.0.1 或以上。

@@ -2,7 +2,7 @@
   {
     "id": "com.github.eNest.ai-canvas",
     "name": "AI 画布",
-    "description": "AI 视觉工作台：手绘风节点画布编排文生图、图生图与提示词模板工作流，OpenAI Images 协议自定义接入，生成图自动入库画廊。",
+    "description": "AI 视觉工作台：手绘风节点画布编排文生图、图生图与提示词工作流，端口点击即建节点，标准输出协议与变量引用，OpenAI Images 协议自定义接入，生成图自动入库画廊。",
     "category": "设计",
     "slug": "ai-canvas",
     "icon": "assets/plugins/ai-canvas.svg"
@@ -98,7 +98,7 @@
   {
     "id": "com.github.eNest.drawboard",
     "name": "画板",
-    "description": "手绘风自由画板：压感钢笔、荧光笔、手绘图形与文字、贴图标注，滚轮缩放空格平移，多页草稿自动保存，一键复制与导出 PNG/JPG。",
+    "description": "手绘风自由画板：压感钢笔、荧光笔、手绘图形与文字、贴图标注，滚轮缩放空格平移，多页草稿自动保存，一键复制与导出 PNG/JPG；并作为 eNest MCP 工具供 AI 直接绘制草图与回看截图。",
     "category": "设计",
     "slug": "drawboard",
     "icon": "assets/plugins/drawboard.svg"

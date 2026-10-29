@@ -88,6 +88,10 @@ export async function loadDevPlugin(dirPath: string, options: DevPluginLoadOptio
   const revision = ++changeRevision
   const { summary, manifest, outputPath } = await prepareDevPlugin(dirPath, options)
   if ((devChanges.get(manifest.id) ?? 0) > revision) throw new Error('开发插件加载已取消')
+  // 同名唯一性同样约束开发态：另一 id（安装或开发）已声明同名插件时拒绝加载，
+  // 避免 dev 通道绕过安装去重造成 Quick 命令与设置分区冲突。
+  const conflict = pluginRegistry.findConflictingInstallation(manifest)
+  if (conflict) throw new Error(`「${manifest.name}」已由 ${conflict} 注册（安装或开发态）；同一插件只能存在一份，请先移除旧的再加载`)
   const isCurrent = beginDevChange(manifest.id, revision)
   const { pluginHost } = await import('@main/plugin/PluginHost')
   if (!isCurrent()) throw new Error('开发插件加载已取消')

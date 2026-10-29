@@ -42,5 +42,5 @@ test('both native settings write paths use the same gate and DSH links its exist
   const page = manifest.contributes.settings.flatMap(section => section.items).find(item => item.type === 'page')
   assert.equal(page.entry.code, 'manage')
   assert.ok(manifest.features.some(feature => feature.code === page.entry.code))
-  assert.equal(manifest.version, '0.3.1'); assert.equal(manifest.engines.enest, '>=0.2.1')
+  assert.equal(manifest.version, '0.0.1'); assert.equal(manifest.engines.enest, '>=0.2.1')
 })

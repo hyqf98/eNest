@@ -50,6 +50,47 @@
 
 替换素材时应使用对应版本的实际界面，确认没有错误、遮挡和敏感数据，再导出到 `screens/`；同时更新页面尺寸、替代文本和本文件的来源说明。没有相应截图时采用文字说明，不借用其他界面冒充功能截图。
 
+## 本次原生界面素材
+
+`screens/native-*.webp` 采集于 2026-10-29 的 macOS 开发实例（宿主源码版本 `0.2.3`），不是早期浏览器预览素材。采集时临时停止原开发实例，同时使用独立的 `ENEST_TEST_USER_DATA` 与 `ENEST_TEST_DATA_ROOT`。演示目录仅复制本地已构建的计算器、JSON 工具、Markdown 编辑器与番茄钟插件，版本均为 `0.0.1`；没有复制用户数据库、插件记录或私人文件。
+
+原生窗口通过 CUA 的可见界面操作并截图，保存为 WebP。Markdown 文档、JSON 和任务名称是为产品展示现场输入的公开演示内容；权限询问选择「暂不允许」，未读取真实剪贴板、建立连接、登录账号或上传文件。主窗口显示该隔离环境的四个已安装插件，不代表官网目录只有四个插件。
+
+| 文件 | 原生画面与处理 |
+| --- | --- |
+| `screens/native-shell-light.webp` | 默认主题浅色插件市场，1200 × 800；关闭演示环境的背景动效 |
+| `screens/native-shell-dark.webp` | 同一隔离主窗口的深色模式，1200 × 800 |
+| `screens/native-quick-empty.webp` | Quick 全局搜索空输入状态，720 × 248；应用名称来自系统应用目录，不包含使用记录或文件内容 |
+| `screens/native-quick-search.webp` | Quick 输入「番茄钟」后的真实搜索结果，720 × 171 |
+| `screens/native-quick-plugin.webp` | 番茄钟的真实 Quick 布局，720 × 545；任务名称为公开演示文字 |
+| `screens/native-markdown.webp` | Markdown 编辑器内输入的产品演示文档，1200 × 800；未保存为用户文件 |
+| `screens/native-json.webp` | JSON 工具对公开示例执行格式化后的真实结果，1200 × 800 |
+| `screens/native-panel-pomodoro.webp` | 自由面板内的番茄钟专用 `panel` 组件，240 × 240；从原生面板画面裁切，不重绘 UI |
+| `screens/native-panel-calculator.webp` | 自由面板内计算器的真实兼容视图，752 × 674；演示计算 `25 * 4 + 15 = 115`，从原生面板裁切，不重绘 UI |
+
+Quick 由设置页中真实的插件快捷键「立即启动」入口打开，再使用「返回全局搜索」采集搜索状态。截图证明所显示的原生界面状态，不代表系统快捷键、跨平台兼容性、权限、拖动手感、多屏恢复或全部插件已完成验收。自由面板网页场景是原生插件画面与生成壁纸的 HTML 组合演示，不是操作系统桌面截图，也不是无限画布或系统桌面小组件。
+
+自由面板网页场景中的 Markdown 窗口复用 `screens/native-markdown.webp` 的主窗口实拍内容，仅在网页中通过 CSS 裁去顶部 36px 宿主栏；查看原图仍展示完整截图。这只是网页排列示意，不是 Markdown 原生 `panel` 截图。本次没有生成或交付 `native-panel-markdown.webp`，也没有用合成界面补足缺失的原生截图。
+
+采集结束后已停止隔离实例，恢复不带上述隔离环境变量的普通开发实例，并删除临时 PNG、隔离用户数据和演示数据目录；仅保留列出的正式 WebP 资产。
+
+## 生成的背景素材
+
+两张背景使用内置 `image_gen` 生成，共两次调用、无修订。仅生成场景底图，不生成或修改软件窗口、文字、产品标志和插件图标。PNG 输出经 FFmpeg 编码为本地 WebP，均为 1586 × 992。它们是 AI 生成的装饰素材，不是实拍桌面或软件功能证据。
+
+| 文件 | 作用 |
+| --- | --- |
+| `scenes/porcelain-light.webp` | 首屏瓷白空间与柔和光影；左侧和中央留出真实标题、窗口与轨道图标的位置 |
+| `scenes/sage-desktop.webp` | 自由面板演示的浅鼠尾草色抽象壁纸；窗口由网页另行叠加 |
+
+### 首屏背景生成提示词
+
+> Use case: ads-marketing. Asset type: wide product-website background, no foreground product. Create an extremely refined, minimalist porcelain-white architectural light study for a plugin desktop app named eNest. Landscape approximately 16:10. Almost-white porcelain (#F5F7F4), extremely subtle pale sage undertones, a large soft elliptical pool of sunlight and one gently curved pale ceramic surface toward the lower right. Soft physically plausible ambient shadows, restrained spatial depth, no dramatic architecture. Leave the left half and central area airy and quiet for HTML typography and real software window compositing. Editorial product photography quality, matte materials, diffuse daylight. This is only a background plate. Absolutely no text, letters, logos, icons, software UI, screens, devices, furniture, people, or gradients in purple/blue. No visual noise or ornamental objects. The edges should blend toward near-white.
+
+### 自由面板壁纸生成提示词
+
+> Use case: ads-marketing. Asset type: calm desktop wallpaper to support real draggable application windows on a software product website. A beautifully restrained abstract landscape in porcelain white, silvery sage green and light cool gray. Wide landscape 16:10 composition. Broad soft ribbon-like rolling hills flowing diagonally across only the bottom third, subtle matte paper/ceramic surfaces and soft diffuse morning daylight, quiet expansive empty upper and central areas. Apple-quality desktop wallpaper restraint, no shiny plastic, high resolution and clean smooth contours, natural atmospheric depth. Palette predominantly pale sage #DDE7DC and near white #F5F7F4 with touches of muted forest green #9CB5A1. Full-bleed wallpaper image, no frame. Absolutely no people, furniture, objects, screens, devices, UI windows, icons, text, logos, watermarks, purple, blue neon, particles, or busy texture. This is a background only; real captured application windows will be layered by HTML later.
+
 ## 本地字体
 
 - `fonts/manrope-latin.woff2`：Manrope 拉丁字符可变字体，400–800。

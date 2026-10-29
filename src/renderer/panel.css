@@ -1,9 +1,9 @@
 /**
  * panel.css — 自由面板 chrome 样式
  * 约定：
- *  - 底板用 --panel-opacity 控制浓度；data-material 决定是否叠加毛玻璃滤镜。
- *  - 组件条与边框由本层绘制，插件原生视图占据 .panel-widget-body 的位置。
- *  - 拖动相关元素只用 transform/width/height 变化，避免触发布局重算。
+ *  - 底板色调用 --panel-opacity 控制；原生材质由宿主窗口提供。
+ *  - 原生内容暂时隐藏时，用有界快照维持卡片视觉，不能靠 DOM z-index 覆盖原生视图。
+ *  - 拖动直接更新几何，React 不参与逐帧渲染。
  */
 
 html, body, #root {
@@ -23,10 +23,8 @@ html, body, #root {
   /* 圆角跟随主题的 panelRadius（applyAppearanceToDom 写入 --appearance-panel-radius），
      缺省回落 14px；原生容器裁切值在 panelWindows 中取同一默认值。 */
   --panel-radius: var(--appearance-panel-radius, 14px);
-  --panel-widget-radius: calc(var(--panel-radius) - 4px);
+  --panel-widget-radius: max(0px, calc(var(--panel-radius) - 4px));
   --panel-border: color-mix(in srgb, var(--text, #292c2e) 14%, transparent);
-  --panel-widget-bar: color-mix(in srgb, var(--text, #292c2e) 8%, transparent);
-  --panel-widget-bar-active: color-mix(in srgb, var(--text, #292c2e) 14%, transparent);
   --panel-accent: var(--accent, #5b8cff);
 }
 
@@ -36,9 +34,26 @@ html, body, #root {
   height: 100%;
   overflow: hidden;
   border-radius: var(--panel-radius);
+  outline: none;
 }
 
-/* 底板：浓度由 --panel-opacity 控制。
+.panel-root .btn {
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--appearance-control-radius, 8px);
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.panel-root .btn:disabled { opacity: .5; cursor: default; }
+.panel-root .btn:focus-visible,
+.panel-widget-grab:focus-visible { outline: 2px solid var(--panel-accent); outline-offset: -2px; }
+
+/* DOM 底板：浓度由 --panel-opacity 控制（0 时色调与边框退场，原生材质仍独立生效）。
    模糊一律由原生窗口材质（vibrancy / backgroundMaterial）提供，
    CSS backdrop-filter 只能采样同页面像素、看不到桌面，因此这里不再叠加。 */
 .panel-surface {
@@ -46,14 +61,20 @@ html, body, #root {
   inset: 0;
   border-radius: var(--panel-radius);
   background: color-mix(in srgb, var(--bg, #0e1518) calc(var(--panel-opacity) * 100%), transparent);
-  box-shadow: 0 0 0 1px var(--panel-border) inset;
+  /* 边框浓度跟随底板，0 时不再绘制描边。 */
+  --panel-border-opacity: max(
+    calc((var(--panel-opacity) - 0.15) / 0.85 * 14%),
+    0%
+  );
+  border: 1px solid color-mix(in srgb, var(--text, #292c2e) var(--panel-border-opacity), transparent);
   pointer-events: none;
 }
 
-/* 原生材质生效后，DOM 底板只保留很淡的色调校正，避免把毛玻璃压成实色。 */
+/* 原生材质生效后，DOM 底板只保留按不透明度缩放的色调校正（浓度可调、0 即无），
+   避免把毛玻璃压成实色，也让不透明度滑杆在 blur/system 下依然有可见效果。 */
 :root[data-material='blur'] .panel-surface,
 :root[data-material='system'] .panel-surface {
-  background: color-mix(in srgb, var(--bg, #0e1518) calc(var(--panel-opacity) * 38%), transparent);
+  background: color-mix(in srgb, var(--bg, #0e1518) calc(var(--panel-opacity) * 62%), transparent);
 }
 
 /* 空白层：铺满、位于组件之下。
@@ -64,107 +85,110 @@ html, body, #root {
   inset: 0;
   z-index: 0;
   cursor: grab;
+  touch-action: none;
 }
 
 .panel-root.is-window-dragging .panel-blank {
   cursor: grabbing;
 }
 
-/* 面板边缘缩放手柄：与组件手柄同一套主进程驱动；热区贴边、不遮挡内容。 */
+/* 整窗热区位于组件之下，贴边组件的四角必须优先响应组件缩放。 */
 .panel-window-handle {
   position: absolute;
-  z-index: 8;
+  z-index: 1;
+  touch-action: none;
 }
 
 /* 拖动整块面板时轻微高亮，说明「移动的是面板」而非组件。 */
 .panel-root.is-window-dragging .panel-surface {
-  box-shadow: 0 0 0 1px var(--panel-accent) inset;
+  border-color: var(--panel-accent);
 }
 
 .panel-empty {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
+  gap: 12px;
   align-items: center;
   justify-content: center;
   font-size: 12px;
   letter-spacing: 0.02em;
-  color: color-mix(in srgb, var(--text, #292c2e) 38%, transparent);
+  color: var(--text-2, #697477);
   pointer-events: none;
   z-index: 1;
 }
 
-/* —— 组件 —— */
+.panel-empty .btn { pointer-events: auto; }
+.panel-empty small { font-size: 11px; }
 
+/* —— 组件 ——
+
+   组件无标题条：插件原生视图经原生 setBorderRadius 裁切圆角并铺满组件矩形，
+   chrome 只画一圈细描边与四周的拖动/缩放热区，尽量四周简洁。 */
 .panel-widget {
   position: absolute;
   top: 0;
   left: 0;
-  display: flex;
-  flex-direction: column;
   border-radius: var(--panel-widget-radius);
-  box-shadow: 0 0 0 1px var(--panel-border) inset;
+  /* 描边用 inset 阴影：不参与盒模型，组件 DOM 与原生视图坐标保持严格一致。
+     浓度跟随底板不透明度：透明面板不出现实色框。 */
+  --panel-widget-border-opacity: max(
+    calc((var(--panel-opacity) - 0.1) / 0.9 * 14%),
+    0%
+  );
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text, #292c2e) var(--panel-widget-border-opacity), transparent) inset;
   overflow: hidden;
   z-index: 2;
-  will-change: transform, width, height;
 }
 
 .panel-widget.is-dragging {
   z-index: 5;
+  will-change: transform;
 }
 
-.panel-widget-bar {
-  flex: none;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 4px 0 8px;
-  background: var(--panel-widget-bar);
-  cursor: grab;
-}
-
-.panel-widget-bar:active {
-  cursor: grabbing;
-  background: var(--panel-widget-bar-active);
-}
-
-.panel-widget-icon {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  border-radius: 4px;
+.panel-widget-preview {
+  position: absolute;
+  z-index: 1;
   overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
 }
 
-.panel-widget-icon img {
+.panel-widget-preview img { display: block; width: 100%; height: 100%; object-fit: fill; }
+.panel-preview-placeholder {
+  display: grid;
+  place-items: center;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  padding: 16px;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  color: var(--text-2);
+  font-size: 12px;
 }
 
-.panel-widget-glyph {
-  font-size: 11px;
-  line-height: 1;
-  color: var(--panel-accent);
+/* 四周拖动热区：替代原组件条，抓取组件任意边缘即可移动；四角由缩放手柄接管（z-index 更高）。 */
+.panel-widget-grab {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  cursor: grab;
+  border-radius: inherit;
+  touch-action: none;
 }
 
-.panel-widget-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 11px;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: color-mix(in srgb, var(--text, #292c2e) 82%, transparent);
+.panel-widget-grab:active {
+  cursor: grabbing;
 }
 
+/* 组件内状态角标（加载中/失败）：浮在右上角，不挡命中。 */
 .panel-widget-status {
-  flex: none;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 4;
+  pointer-events: none;
   font-size: 10px;
   padding: 1px 5px;
   border-radius: 999px;
@@ -172,52 +196,13 @@ html, body, #root {
   color: color-mix(in srgb, var(--text, #292c2e) 60%, transparent);
 }
 
-.panel-widget-status.is-error {
-  background: color-mix(in srgb, #f5a524 22%, transparent);
-  color: #f5c76b;
-}
-
-.panel-widget-more {
-  flex: none;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: color-mix(in srgb, var(--text, #292c2e) 62%, transparent);
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.panel-widget-more:hover {
-  background: color-mix(in srgb, var(--text, #292c2e) 12%, transparent);
-  color: var(--text, #292c2e);
-}
-
-/* 插件原生视图占据的区域：留空，避免误以为这里能放 DOM。 */
-.panel-widget-body {
-  flex: 1;
-  min-height: 0;
-  margin: 0 4px 4px;
-  border-radius: calc(var(--panel-widget-radius) - 4px);
-  pointer-events: none;
-}
-
-/* —— 缩放手柄 —— */
+/* 四角仅保留透明命中区与缩放光标，不绘制角点。 */
 
 .panel-widget-handle {
   position: absolute;
   z-index: 3;
   background: transparent;
-}
-
-.panel-widget-handle.edge-se {
-  border-bottom-right-radius: var(--panel-widget-radius);
-  background: linear-gradient(135deg, transparent 55%, color-mix(in srgb, var(--text, #292c2e) 26%, transparent) 55%);
+  touch-action: none;
 }
 
 /* —— 拖动跟随框与对齐辅助线 —— */
@@ -227,6 +212,7 @@ html, body, #root {
   top: 0;
   left: 0;
   border: 1px dashed var(--panel-accent);
+  box-sizing: border-box;
   border-radius: var(--panel-widget-radius);
   background: color-mix(in srgb, var(--panel-accent) 8%, transparent);
   pointer-events: none;
@@ -246,65 +232,24 @@ html, body, #root {
   transition: opacity 90ms linear;
 }
 
-/* —— 菜单 —— */
-
-.panel-menu-backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-}
-
-.panel-menu {
-  position: absolute;
-  min-width: 148px;
-  padding: 4px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--bg, #0e1518) 92%, transparent);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.42), 0 0 0 1px var(--panel-border);
-  z-index: 21;
-}
-
-.panel-menu button {
-  display: block;
-  width: 100%;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text, #292c2e);
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.panel-menu button:hover {
-  background: color-mix(in srgb, var(--text, #292c2e) 10%, transparent);
-}
-
-.panel-menu button.is-danger:hover {
-  background: color-mix(in srgb, #f05b5b 24%, transparent);
-  color: #ffd7d7;
-}
-
-.panel-menu hr {
-  margin: 4px 6px;
-  border: 0;
-  border-top: 1px solid var(--panel-border);
-}
+/* The shared Radix menu owns viewport collision and keyboard navigation. */
+.panel-menu-anchor { position: fixed; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; pointer-events: none; }
 
 /* —— 组件选择器 —— */
 
 .panel-picker-backdrop {
   position: absolute;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   background: rgba(0, 0, 0, 0.35);
   z-index: 30;
 }
 
 .panel-picker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 31;
   display: flex;
   flex-direction: column;
   width: min(420px, calc(100% - 32px));
@@ -313,7 +258,12 @@ html, body, #root {
   background: color-mix(in srgb, var(--bg, #0e1518) 96%, transparent);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--panel-border);
   overflow: hidden;
+  outline: none;
+  box-sizing: border-box;
 }
+
+.panel-notice { gap: 16px; padding: 20px; overflow-y: auto; }
+.panel-notice .btn { align-self: flex-end; }
 
 .panel-picker header {
   display: flex;
@@ -352,7 +302,7 @@ html, body, #root {
 }
 
 .panel-picker-hint.is-error {
-  color: #f5c76b;
+  color: var(--danger, #c54f46);
 }
 
 .panel-picker-list {
@@ -362,7 +312,7 @@ html, body, #root {
   overflow: auto;
 }
 
-.panel-picker-list button {
+.panel-picker-list .btn {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -426,19 +376,31 @@ html, body, #root {
   transition: none;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .panel-drag-frame, .panel-guide { transition: none; }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .panel-picker, .panel-widget-preview { background: var(--surface); }
+}
+
 /* —— 组件错误/休眠态的重试入口（此时原生视图已销毁，区域留空可放 DOM）—— */
 .panel-widget-retry {
-  height: 100%;
+  position: absolute;
+  inset: 0;
+  z-index: 4;
   display: flex;
+  flex-wrap: wrap;
+  padding: 16px;
+  box-sizing: border-box;
+  text-align: center;
   align-items: center;
   justify-content: center;
   gap: 8px;
   font-size: 12px;
   color: color-mix(in srgb, var(--text, #292c2e) 62%, transparent);
   background: color-mix(in srgb, var(--bg, #0e1518) 40%, transparent);
-  border-radius: calc(var(--panel-widget-radius) - 4px);
-  /* 父级 .panel-widget-body 为 none（让插件原生视图接管指针）；
-     错误/休眠态没有原生视图，这里必须恢复命中才能点重试。 */
+  border-radius: inherit;
   pointer-events: auto;
 }
 .panel-widget-retry button {
@@ -462,7 +424,7 @@ html, body, #root {
   align-items: center;
   justify-content: center;
   border: 1px dashed var(--panel-accent);
-  border-radius: calc(var(--panel-radius) - 4px);
+  border-radius: var(--panel-widget-radius);
   background: color-mix(in srgb, var(--panel-accent) 10%, transparent);
   color: color-mix(in srgb, var(--text, #292c2e) 72%, transparent);
   font-size: 12px;

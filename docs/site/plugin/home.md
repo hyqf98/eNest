@@ -141,7 +141,7 @@ addEventListener('pagehide', () => { offAppearance(); offCommand() }, { once: tr
 
 生产首页使用 `enest-home://surface/<entry>`。会话仅提供自身入口、脚本、样式与静态资源；拒绝其它 HTML 导航、iframe、后端源码、任意 `file:`、完整 `enest:` 协议与外网连接。入口与资产在读取时重新做 canonical 路径校验，不能用符号链接逃逸资源根。内置首页开发模式仅额外允许宿主指定的精确 loopback 开发 origin 与同源 HMR WebSocket，插件首页不继承这项开发例外。
 
-跨插件公开资源使用宿主给出的 `enest-home://catalog/<pluginId>/icon`、`readme`、`screenshot/<index>`，只能命中当前目录条目对应槽位，不能拼接任意路径读取该插件目录。资源来源按开发实例、已安装包、本地预览、远程市场选择，同一条目的缺失槽位不借用另一版本素材。源码预览将 `assets/` 映射到 `public/assets/`；远程官方市场素材由宿主限时限量读取、校验类型并缓存后供应，不把外部 URL 交给页面，也不放宽页面 CSP。README 相对图片仅可映射到同插件已声明的截图槽位。市场卡片的 `packageSize` 是最终插件包的字节数，缺失不伪造。
+跨插件公开资源使用宿主给出的 `enest-home://catalog/<pluginId>/icon`、`readme`、`screenshot/<index>`，只能命中当前目录条目对应槽位，不能拼接任意路径读取该插件目录。资源来源按开发实例、已安装包、远程市场选择，同一条目的缺失槽位不借用另一版本素材。源码预览将 `assets/` 映射到 `public/assets/`；远程官方市场素材由宿主限时限量读取、校验类型并缓存后供应，不把外部 URL 交给页面，也不放宽页面 CSP。README 相对图片仅可映射到同插件已声明的截图槽位。市场卡片的 `packageSize` 是最终插件包的字节数，缺失不伪造。本地源码插件不进入市场目录，也不从本地 checkout 安装；调试插件一律走开发者控制台加载。
 
 用户明确导入的背景与当前使用字体通过 `enest-home://appearance/media/<opaque-id>`、`font/<opaque-id>` 提供。`snapshot.resources.fonts` 只包含 family 与受控 URL，不返回文件名、本地路径或整个自定义字体列表。主题/profile 全量数据、诊断、凭据和任意宿主设置都不跨首页桥接。
 
