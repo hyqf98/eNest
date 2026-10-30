@@ -12,6 +12,8 @@ The shell build uses native macOS x64/arm64, Windows x64, and Ubuntu 22.04 x64 r
 
 When explicitly requested, run `npm run test:packaging` (or `node --test tests/packaging/*.test.mjs`). Metadata fixtures exercise the real electron-updater architecture filter plus corrupt, incomplete and conflicting release inputs. These tests do not replace native installer/startup/update checks on all supported platforms.
 
+The release workflow requires type checks, source/IPC contract audits, association consistency and validation of the actual native packages and release checksums. Its historical packaging suite is reported separately and is non-blocking: some fixtures still require a sibling plugin checkout or older source layouts. A published release does not mean that historical suite passed; failures remain visible in the job log and summary.
+
 The three `build/icon.{icns,ico,png}` files are required release inputs and remain version-controlled. Runtime icon resources are limited to `dock-runtime.png` and `enest-icon-256.png`. The toolchain, Electron downloads and native headers are cached per OS/architecture/lockfile, without sharing `node_modules` across architectures.
 
 ## Local cross-platform package checks

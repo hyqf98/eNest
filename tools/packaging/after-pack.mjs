@@ -1,6 +1,6 @@
 import { access, copyFile, mkdir, readdir, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname, join, relative } from 'node:path'
+import { dirname, join, normalize, relative } from 'node:path'
 import { extractFile, listPackage } from '@electron/asar'
 import { Arch } from 'builder-util'
 import { verifyPackagedNative } from './native-release.mjs'
@@ -47,7 +47,8 @@ export function verifyShellArchive(archive) {
   verifyShellArchiveEntries(entries)
   for (const entry of entries) {
     const path = entry.replaceAll('\\', '/').replace(/^\//, '')
-    if (/^out\/.*\.(?:[cm]?js|html)$/.test(path)) verifyShellBundleSource(path, extractFile(archive, path).toString('utf8'))
+    // ASAR lookup uses the build platform's path separator, unlike the policy checks.
+    if (/^out\/.*\.(?:[cm]?js|html)$/.test(path)) verifyShellBundleSource(path, extractFile(archive, normalize(path)).toString('utf8'))
   }
 }
 
@@ -77,15 +78,15 @@ export async function verifyElectronResources({ platform, appOutDir, resourcesDi
 }
 
 async function preserveMacElectronLicenses(appOutDir, resourcesDir) {
-  // Electron's ZIP places these outside Electron.app. Keep them inside the final DMG/ZIP app.
+  // Newer builders move ZIP licenses into Resources before this hook runs.
   const require = createRequire(import.meta.url)
   const installedDist = join(dirname(require.resolve('electron/package.json')), 'dist')
   const target = join(resourcesDir, 'licenses/Electron')
   await mkdir(target, { recursive: true })
   for (const [sourceName, targetName] of [['LICENSE', 'LICENSE.electron.txt'], ['LICENSES.chromium.html', 'LICENSES.chromium.html']]) {
     let copied = false
-    for (const root of [appOutDir, installedDist]) {
-      try { await copyFile(join(root, sourceName), join(target, targetName)); copied = true; break }
+    for (const source of [join(resourcesDir, targetName), join(appOutDir, targetName), join(appOutDir, sourceName), join(installedDist, sourceName)]) {
+      try { await copyFile(source, join(target, targetName)); copied = true; break }
       catch (error) { if (error.code !== 'ENOENT') throw error }
     }
     if (!copied) throw new Error(`Electron license missing from downloaded distribution: ${sourceName}`)
