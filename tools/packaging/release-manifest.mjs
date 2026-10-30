@@ -7,6 +7,16 @@ const assetExtension = /\.(?:dmg|zip|exe|AppImage|deb)(?:\.blockmap)?$/
 const platformLabel = { darwin: 'mac', win32: 'win', linux: 'linux' }
 const manifestName = (platform, arch) => `release-manifest-${platform}-${arch}.json`
 
+function matchesReleaseTarget(name, version, platform, arch) {
+  const labels = [arch]
+  // Linux targets use their native packaging names for the same x64 architecture.
+  if (platform === 'linux' && arch === 'x64') {
+    if (/\.AppImage(?:\.blockmap)?$/.test(name)) labels.push('x86_64')
+    if (/\.deb(?:\.blockmap)?$/.test(name)) labels.push('amd64')
+  }
+  return labels.some(label => name.includes(`-${version}-${platformLabel[platform]}-${label}.`))
+}
+
 export async function createReleaseManifest({ directory, platform, arch, version }) {
   if (!supportedTargets.has(`${platform}-${arch}`)) throw new Error(`Unsupported release target: ${platform}-${arch}`)
   const location = join(directory, `.native-payload-${platform}-${arch}.json`), locationInfo = await lstat(location)
@@ -20,9 +30,8 @@ export async function createReleaseManifest({ directory, platform, arch, version
   const payload = await verifyPackagedNative({ platform, arch, appOutDir: local(paths.appOutDir), resourcesDir: local(paths.resourcesDir),
     executable: local(paths.executable), runtimeBinaries: paths.runtimeBinaries.map(local) })
   const assets = []
-  const suffix = `-${platformLabel[platform]}-${arch}.`
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (!entry.name.includes(`-${version}-`) || !entry.name.includes(suffix) || !assetExtension.test(entry.name)) continue
+    if (!matchesReleaseTarget(entry.name, version, platform, arch) || !assetExtension.test(entry.name)) continue
     const path = join(directory, entry.name), info = await lstat(path)
     if (!info.isFile() || info.isSymbolicLink()) throw new Error(`Release asset is not a regular file: ${entry.name}`)
     assets.push({ name: entry.name, bytes: info.size, sha256: await fileSha256(path) })
@@ -56,7 +65,7 @@ export async function verifyReleaseManifest(manifest, directory, { platform, arc
   const recorded = new Set()
   if (!Array.isArray(manifest.assets) || !manifest.assets.length) throw new Error('Empty release asset manifest')
   for (const asset of manifest.assets) {
-    if (typeof asset.name !== 'string' || basename(asset.name) !== asset.name || /[\\\x00-\x1f]/.test(asset.name) || !assetExtension.test(asset.name) || recorded.has(asset.name) || !asset.name.includes(`-${manifest.version}-${platformLabel[platform]}-${arch}.`)) throw new Error('Invalid release asset name')
+    if (typeof asset.name !== 'string' || basename(asset.name) !== asset.name || /[\\\x00-\x1f]/.test(asset.name) || !assetExtension.test(asset.name) || recorded.has(asset.name) || !matchesReleaseTarget(asset.name, manifest.version, platform, arch)) throw new Error('Invalid release asset name')
     recorded.add(asset.name)
     const file = join(directory, asset.name), info = await lstat(file)
     if (!info.isFile() || info.isSymbolicLink() || info.size !== asset.bytes || await fileSha256(file) !== asset.sha256) throw new Error(`Release asset size/sha256 mismatch: ${asset.name}`)

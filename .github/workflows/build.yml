@@ -102,7 +102,7 @@ jobs:
       - name: Historical packaging suite
         id: historical_packaging
         if: matrix.platform == 'linux'
-        continue-on-error: true
+        continue-on-error: ${{ github.ref == 'refs/tags/v0.0.1' }}
         run: npm run test:packaging
 
       - name: Record historical suite failures

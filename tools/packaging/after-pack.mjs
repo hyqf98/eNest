@@ -52,9 +52,9 @@ export function verifyShellArchive(archive) {
   }
 }
 
-async function verifyLocales(directory, extension, expected) {
+async function verifyLocales(directory, extension, expected, optional = []) {
   const actual = (await readdir(directory)).filter(file => file.endsWith(extension)).map(file => file.slice(0, -extension.length)).sort()
-  if (JSON.stringify(actual) !== JSON.stringify([...expected].sort())) throw new Error(`Unexpected Electron locales in ${directory}: ${actual.join(', ')}`)
+  if (JSON.stringify(actual.filter(locale => !optional.includes(locale))) !== JSON.stringify([...expected].sort())) throw new Error(`Unexpected Electron locales in ${directory}: ${actual.join(', ')}`)
 }
 
 export async function verifyElectronResources({ platform, appOutDir, resourcesDir }) {
@@ -66,8 +66,9 @@ export async function verifyElectronResources({ platform, appOutDir, resourcesDi
     await access(join(framework, 'Libraries/libffmpeg.dylib'))
     if (!(await readdir(frameworkResources)).some(file => /^v8_context_snapshot(?:\.[^.]+)?\.bin$/.test(file))) throw new Error('Missing V8 snapshot')
     for (const file of ['LICENSE.electron.txt', 'LICENSES.chromium.html']) await access(join(resourcesDir, 'licenses/Electron', file))
-    await verifyLocales(resourcesDir, '.lproj', ['en', 'zh_CN', 'zh_TW'])
-    await verifyLocales(frameworkResources, '.lproj', ['en', 'zh_CN', 'zh_TW'])
+    // The configured bare "en" also retains its en_GB variant in current builders.
+    await verifyLocales(resourcesDir, '.lproj', ['en', 'zh_CN', 'zh_TW'], ['en_GB'])
+    await verifyLocales(frameworkResources, '.lproj', ['en', 'zh_CN', 'zh_TW'], ['en_GB'])
   } else {
     for (const file of ['icudtl.dat', 'resources.pak', 'chrome_100_percent.pak', 'chrome_200_percent.pak', 'v8_context_snapshot.bin', 'LICENSE.electron.txt', 'LICENSES.chromium.html']) await access(join(appOutDir, file))
     await access(join(appOutDir, platform === 'win32' ? 'ffmpeg.dll' : 'libffmpeg.so'))
