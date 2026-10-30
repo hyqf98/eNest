@@ -25,15 +25,19 @@ jobs:
           - os: macos-15-intel
             platform: mac
             arch: x64
+            targets: dmg zip
           - os: macos-15
             platform: mac
             arch: arm64
+            targets: dmg zip
           - os: windows-latest
             platform: win
             arch: x64
+            targets: nsis zip
           - os: ubuntu-22.04
             platform: linux
             arch: x64
+            targets: AppImage deb
     runs-on: ${{ matrix.os }}
     env:
       electron_config_cache: ${{ github.workspace }}/.cache/electron
@@ -124,7 +128,8 @@ jobs:
         run: npm run audit:source -- --build-output
 
       - name: Package (${{ matrix.platform }}-${{ matrix.arch }})
-        run: npx --no-install electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --config.electronDownload.cache=.cache/electron --publish never
+        # Explicit targets prevent configured target.arch lists from adding another architecture.
+        run: npx --no-install electron-builder --${{ matrix.platform }} ${{ matrix.targets }} --${{ matrix.arch }} --config.electronDownload.cache=.cache/electron --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
