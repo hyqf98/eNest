@@ -6,21 +6,23 @@ import { handleShellIpc, onShellIpc } from '@main/ipc/ipcSecurity'
  * 关键依赖：createQuickWindow、quickHotkey、commandIndex、appScanner、appLauncher、
  * pluginHost、settingsStore、sendShellEvent。
  */
-import { getQuickWindow } from '@main/window/createQuickWindow'
+import type { IpcMainInvokeEvent } from 'electron'
 import { getQuickInputState, handleQuickInput } from '@main/plugin/quickInputService'
 import type { QuickInputMessage } from '@shared/types/plugin-tools'
 import { IpcChannels } from '@shared/types/ipc'
 import type {
   QuickInputContextRequest,
   QuickInputContextResult,
+  QuickEnterInput,
   QuickOpenRequest,
   QuickOpenResult,
   QuickSearchRequest,
   QuickSearchResult
 } from '@shared/types/quick'
-import type { PluginEnterPayload } from '@shared/types/plugin'
-import { launchPlugin } from '@main/launcher/pluginLauncher'
+import { executePluginCommand } from '@main/launcher/pluginLauncher'
 import {
+  getQuickShowRevision,
+  getQuickWindow,
   hideQuickWindow,
   setQuickContentHeight,
   toggleQuickWindow
@@ -31,12 +33,14 @@ import {
   probeHotkey
 } from '@main/hotkey/quickHotkey'
 import { scanApplications } from '@main/launcher/appScanner'
-import { searchQuickCommands, validateQuickOpenTarget, quickOpenedIdentity } from '@main/launcher/commandIndex'
 import {
-  buildQuickEnterInput, forgetQuickEnterInput, listQuickInputContext, readClipboardIntoContext,
-  rememberQuickEnterInput, removeQuickInputContext
+  cancelQuickProviderSession, getLaunchDirectorySnapshot, onLaunchDirectoryChanged,
+  quickOpenedIdentity, resolveQuickOpenCommand, searchQuickCommands, validateQuickOpenTarget
+} from '@main/launcher/commandIndex'
+import {
+  buildQuickEnterInput, getQuickInputEpoch, listQuickInputContext, readClipboardIntoContext, removeQuickInputContext
 } from '@main/launcher/quickInputContext'
-import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
+import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { launchLocalApp } from '@main/launcher/appLauncher'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { settingsStore } from '@main/settings/SettingsStore'
@@ -45,6 +49,66 @@ import { logError, logInfo } from '@main/logs/logService'
 import { consumeQuickThemeGesture, getQuickThemeConfig, getQuickThemeStateOwner } from '@main/theme/quickThemeProtocol'
 import { quickProviderStates } from '@main/theme/quickStateService'
 import type { QuickProviderStateRequest, QuickProviderStateSnapshot } from '@shared/types/quickTheme'
+
+interface QuickSession {
+  id: string
+  window: NonNullable<ReturnType<typeof getQuickWindow>>
+  revision: number
+  controller: AbortController
+  openController?: AbortController
+  openInputEpoch?: number
+  searchRevision: number
+  cancelRevision: number
+  openRevision: number
+  retire: () => void
+}
+
+let quickSession: QuickSession | undefined
+
+function captureQuickSession(event: IpcMainInvokeEvent): QuickSession {
+  const window = getQuickWindow(), contents = event.sender
+  if (!window || window.isDestroyed() || contents.isDestroyed() || window.webContents !== contents) {
+    throw new Error('Quick controller retired')
+  }
+  const revision = getQuickShowRevision()
+  if (quickSession?.window === window && quickSession.revision === revision && !quickSession.controller.signal.aborted) return quickSession
+  quickSession?.retire()
+  const session: QuickSession = {
+    id: `quick:${contents.id}`, window, revision, controller: new AbortController(),
+    searchRevision: 0, cancelRevision: 0, openRevision: 0, retire: () => {}
+  }
+  const navigate = (_event: Electron.Event, _url: string, _inPlace: boolean, mainFrame: boolean) => {
+    if (mainFrame) session.retire()
+  }
+  session.retire = () => {
+    session.controller.abort()
+    session.openController?.abort()
+    if (quickSession === session) {
+      cancelQuickProviderSession(session.id)
+      quickSession = undefined
+    }
+    window.removeListener('hide', session.retire)
+    window.removeListener('closed', session.retire)
+    contents.removeListener('destroyed', session.retire)
+    contents.removeListener('render-process-gone', session.retire)
+    contents.removeListener('did-start-navigation', navigate)
+  }
+  window.on('hide', session.retire)
+  window.on('closed', session.retire)
+  contents.on('destroyed', session.retire)
+  contents.on('render-process-gone', session.retire)
+  contents.on('did-start-navigation', navigate)
+  quickSession = session
+  return session
+}
+
+function isQuickSessionCurrent(session: QuickSession, event: IpcMainInvokeEvent): boolean {
+  return quickSession === session && !session.controller.signal.aborted
+    && getQuickWindow() === session.window && getQuickShowRevision() === session.revision
+    && !session.window.isDestroyed() && !event.sender.isDestroyed()
+    && session.window.webContents === event.sender && event.senderFrame === event.sender.mainFrame
+    && session.window.isVisible()
+}
 
 function focusMainWindow(): void {
   const win = getMainWindow()
@@ -66,43 +130,68 @@ function openedFact(req: QuickOpenRequest): QuickOpenResult['opened'] {
   }
 }
 
-async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
+async function handleOpen(event: IpcMainInvokeEvent, req: QuickOpenRequest): Promise<QuickOpenResult> {
+  let release = () => {}
   try {
+    const session = captureQuickSession(event), revision = ++session.openRevision
+    session.openController?.abort()
+    const operation = new AbortController()
+    session.openController = operation
+    release = () => {
+      if (session.openController === operation) { session.openController = undefined; session.openInputEpoch = undefined }
+    }
+    const cancelRevision = session.cancelRevision
+    const inputEpoch = req?.kind === 'plugin' && req.input ? getQuickInputEpoch() : undefined
+    session.openInputEpoch = inputEpoch
+    const current = () => !operation.signal.aborted && session.openRevision === revision && session.cancelRevision === cancelRevision
+      && (inputEpoch === undefined || inputEpoch === getQuickInputEpoch()) && isQuickSessionCurrent(session, event)
+    if (!current()) return { ok: false, error: 'Quick session retired' }
     if (!await validateQuickOpenTarget(req)) return { ok: false, error: 'Quick target is unavailable' }
+    if (!current()) return { ok: false, error: 'Quick session retired' }
     if (req.kind === 'app') {
       await launchLocalApp(req.path)
-      hideQuickWindow()
+      if (current()) hideQuickWindow()
       return { ok: true, opened: openedFact(req) }
     }
     if (req.kind === 'plugin') {
-      const query = typeof req.query === 'string' ? req.query.trim().slice(0, 4_096) : ''
-      const contextInput = req.input ? await buildQuickEnterInput(req.pluginId, req.input) : undefined
-      const hasPayload = req.payload !== undefined && req.payload !== null
-      // zTools 对齐：任何插件打开都携带当前输入文本；内容匹配/provider 自带载荷优先。
-      const enter: PluginEnterPayload | undefined =
-        req.code || req.type || hasPayload || query || contextInput
-          ? {
-              ...(req.code ? { code: req.code } : {}),
-              ...(req.type ? { type: req.type } : {}),
-              ...(hasPayload ? { payload: req.payload } : query ? { payload: query, type: req.type ?? 'text' } : {}),
-              ...(contextInput ? { input: contextInput } : {})
+      const command = resolveQuickOpenCommand(req, session.id)
+      if (!command) return { ok: false, error: 'Launch entry is no longer available' }
+      const query = typeof req.query === 'string' ? req.query.slice(0, 4_096) : ''
+      let contextInput: QuickEnterInput | undefined
+      let inputScope: PluginRuntimeScope | undefined
+      const activationCurrent = () => current() && (!inputScope || inputScope.isCurrent() && !inputScope.isClosing && getRuntimeScope(req.pluginId) === inputScope)
+      const configured = settingsStore.getPluginLaunchConfig(req.pluginId)?.mode
+      const result = await executePluginCommand(command, {
+        source: 'quick', sessionId: session.id, query, guard: activationCurrent, signal: operation.signal,
+        defaultTarget: req.container === 'quick' || req.container === 'shell' ? req.container : configured === 'shell' ? 'shell' : 'quick',
+        ...(req.container === 'quick' || req.container === 'shell' ? { target: req.container } : {}),
+        ...(req.input ? { prepareInput: async () => {
+          const scope = getRuntimeScope(req.pluginId)
+          const assertCurrent = () => {
+            if (!current() || !scope?.isCurrent() || scope.isClosing || getRuntimeScope(req.pluginId) !== scope) {
+              throw new Error('Quick input owner retired')
             }
-          : undefined
-      const result = await launchPlugin({
-        pluginId: req.pluginId, source: 'quick', enter,
-        mode: req.container === 'quick' || req.container === 'shell' ? req.container : undefined
+          }
+          assertCurrent()
+          inputScope = scope
+          contextInput = await buildQuickEnterInput(req.pluginId, req.input, assertCurrent)
+          return contextInput
+        } } : {})
       })
       if (!result.ok) return { ok: false, error: result.error }
-      if (contextInput) {
-        // Context bytes were consumed by this launch; the plugin reads them back via quickInput.readContext.
-        const scope = getRuntimeScope(req.pluginId)
-        if (scope?.isCurrent() && !scope.isClosing) {
-          rememberQuickEnterInput(req.pluginId, scope.owner.generation, contextInput)
-          scope.addDisposer(() => forgetQuickEnterInput(req.pluginId))
+      const ownsQuick = result.presentation === 'quick' && pluginHost.getQuickPlugin() === req.pluginId
+      if (result.input) {
+        for (const ids of [req.input?.imageIds, req.input?.fileIds]) {
+          for (const id of Array.isArray(ids) ? ids.slice(0, 20) : []) {
+            if (typeof id === 'string' && id.length <= 64) removeQuickInputContext(id)
+          }
         }
-        removeQuickInputContext()
       }
-      return { ok: true, tabId: req.pluginId, opened: openedFact(req) }
+      return {
+        ok: true,
+        ...(ownsQuick ? { tabId: req.pluginId } : {}),
+        opened: openedFact({ kind: 'plugin', pluginId: req.pluginId, code: command.code, entryId: command.entryId })
+      }
     }
     if (req.kind === 'plugin-escape') {
       // 插件态 Esc：回列表（view 隐藏保留进程，走休眠策略）
@@ -149,6 +238,8 @@ async function handleOpen(req: QuickOpenRequest): Promise<QuickOpenResult> {
   } catch (err) {
     logError('quick', `open failed: ${(err as Error).message}`)
     return { ok: false, error: (err as Error).message }
+  } finally {
+    release()
   }
 }
 
@@ -168,22 +259,34 @@ export function registerQuickHandlers(): void {
     return { ok: true }
   })
 
-  handleShellIpc(IpcChannels.QuickSearch, async (_e, payload: QuickSearchRequest) => {
-    const query = String(payload?.query ?? '')
-    const items = await searchQuickCommands(
-      query,
-      payload?.limit ?? 20,
-      payload?.kind === 'app' || payload?.kind === 'plugin' || payload?.kind === 'action' ? payload.kind : undefined,
-      payload?.phase === 'catalog' || payload?.phase === 'static' || payload?.phase === 'enriched' || payload?.phase === 'providers' ? payload.phase : undefined,
-      payload?.ids
-    )
-    const result: QuickSearchResult = { items }
-    return result
+  handleShellIpc(IpcChannels.QuickSearch, async (event, payload: QuickSearchRequest): Promise<QuickSearchResult> => {
+    const session = captureQuickSession(event)
+    if (payload?.phase === 'cancel') {
+      session.searchRevision++
+      session.cancelRevision++
+      session.openController?.abort()
+      cancelQuickProviderSession(session.id)
+      return { items: [] }
+    }
+    const kind = payload?.kind === 'app' || payload?.kind === 'plugin' || payload?.kind === 'action' ? payload.kind : undefined
+    if (payload?.phase !== 'providers' && payload?.phase !== 'enriched') {
+      const snapshot = await getLaunchDirectorySnapshot()
+      // Read-only prewarming can finish across show/hide without caching a false empty directory.
+      return { items: kind ? snapshot.items.filter(item => item.kind === kind) : snapshot.items, directoryRevision: snapshot.revision }
+    }
+    if (!isQuickSessionCurrent(session, event) || pluginHost.getQuickPlugin()) return { items: [] }
+    const revision = payload.phase === 'providers' ? ++session.searchRevision : session.searchRevision
+    const items = await searchQuickCommands(String(payload.query ?? ''), payload.limit ?? 20, kind, payload.phase, payload.ids,
+      { sessionId: session.id, signal: session.controller.signal })
+    return isQuickSessionCurrent(session, event) && revision === session.searchRevision && !pluginHost.getQuickPlugin() ? { items } : { items: [] }
   })
 
-  handleShellIpc(IpcChannels.QuickOpen, (_e, payload: QuickOpenRequest) => {
-    return handleOpen(payload)
+  handleShellIpc(IpcChannels.QuickOpen, (event, payload: QuickOpenRequest) => {
+    return handleOpen(event, payload)
   })
+
+  // Revisions are opaque cache keys; notifications only invalidate a previously read directory.
+  onLaunchDirectoryChanged(() => sendShellEvent({ type: 'launch-directory-changed', revision: 'invalidated' }))
 
   handleShellIpc(IpcChannels.QuickScanApps, async (_e, payload?: { force?: boolean }) => {
     return scanApplications(payload?.force === true)
@@ -239,6 +342,9 @@ export function registerQuickHandlers(): void {
     if (event.sender.id !== getQuickWindow()?.webContents.id) return { ok: false, error: 'Quick context sender rejected' }
     if (!payload || typeof payload !== 'object') return { ok: false, error: 'Invalid context request' }
     try {
+      if ((payload.operation === 'read-clipboard' || payload.operation === 'clear') && quickSession?.openInputEpoch !== undefined) {
+        quickSession.openController?.abort()
+      }
       if (payload.operation === 'read-clipboard') {
         await readClipboardIntoContext()
         return { ok: true, items: listQuickInputContext() }

@@ -83,6 +83,8 @@ export const ShellRestoreTabs = 'shell:restore-tabs'
 export const ShellSyncOrbState = 'shell:sync-orb-state'
 /** 悬浮窗 → 主进程：读取圆轨状态 */
 export const ShellGetOrbState = 'shell:get-orb-state'
+/** Trusted shell/orb action; resolves only a host-issued rail entry id. */
+export const ShellActivateRailContribution = 'shell:activate-rail-contribution'
 /** 主进程 → 悬浮窗：Tab 状态变更推送 */
 export const ShellOrbEvent = 'shell:orb-event'
 /** 悬浮窗/壳子：回首页 */
@@ -250,6 +252,10 @@ export const PluginMcpRegister = 'plugin:mcp-register'
 export const PluginMcpResult = 'plugin:mcp-result'
 export const PluginMcpDispatch = 'plugin:mcp-dispatch'
 export const PluginMcpCancel = 'plugin:mcp-cancel'
+export const PluginActivationRegister = 'plugin:activation-register'
+export const PluginActivationDispatch = 'plugin:activation-dispatch'
+export const PluginActivationResult = 'plugin:activation-result'
+export const PluginActivationCancel = 'plugin:activation-cancel'
 
 /** 壳子 → 主进程：读取 plugin:call 调用跟踪环形缓冲（DevConsole） */
 export const ShellGetPluginTrace = 'shell:get-plugin-trace'
@@ -286,15 +292,13 @@ export const PanelGetState = 'panel:get-state'
 /** 面板 chrome → 主进程：统一命令入口（添加/移除组件、拖动、关闭面板等） */
 export const PanelCommand = 'panel:command'
 /** 面板 chrome → 主进程：拖动进行中的保活与节流触发（主进程自行读光标） */
-export const PanelDragTick = 'panel:drag-tick'
+export const PanelDragHeartbeat = 'panel:drag-heartbeat'
 /** 主进程 → 面板 chrome：状态快照变更 */
 export const PanelState = 'panel:state'
 /** 主进程 → 面板 chrome：拖动反馈（吸附后的矩形与辅助线） */
 export const PanelDrag = 'panel:drag'
 /** 主进程 → 可信面板 chrome：有界组件快照，仅用于临时隐藏原生视图时的预览 */
 export const PanelPreview = 'panel:preview'
-/** 壳渲染层 → 主进程：框选区域并创建面板 */
-export const PanelPickRegion = 'panel:pick-region'
 /** 壳渲染层 → 主进程：列出活动面板（设置页/入口展示） */
 export const PanelList = 'panel:list'
 /** 壳渲染层 → 主进程：新建面板（先框选） */
@@ -359,6 +363,7 @@ export const IpcChannels = {
   ShellRestoreTabs,
   ShellSyncOrbState,
   ShellGetOrbState,
+  ShellActivateRailContribution,
   ShellOrbEvent,
   ShellGoHome,
   ShellSetView,
@@ -481,6 +486,10 @@ export const IpcChannels = {
   PluginMcpResult,
   PluginMcpDispatch,
   PluginMcpCancel,
+  PluginActivationRegister,
+  PluginActivationDispatch,
+  PluginActivationResult,
+  PluginActivationCancel,
   ShellGetPluginTrace,
   PluginLifecycle,
   PluginLifecycleAck,
@@ -492,11 +501,10 @@ export const IpcChannels = {
   QuickShown,
   PanelGetState,
   PanelCommand,
-  PanelDragTick,
+  PanelDragHeartbeat,
   PanelState,
   PanelDrag,
   PanelPreview,
-  PanelPickRegion,
   PanelList,
   PanelCreate,
   PanelClose,
@@ -513,6 +521,7 @@ export type ToastKind = 'info' | 'success' | 'warn' | 'error'
 
 /** shell:event 负载类型 */
 export type ShellEventPayload =
+  | { type: 'launch-directory-changed'; revision: string }
   | { type: 'titlebar-native-hover'; inside: boolean }
   | { type: 'theme-chrome-status'; surface: 'classic'; ready: boolean }
   | { type: 'preview-splash' }
@@ -629,16 +638,16 @@ export interface OrbRailState {
   }>
   /**
    * rail-entries 插槽贡献（插件贡献点，声明式）：orb 模式左侧轨道底部入口。
-   * 点击经 shellApi.openPlugin(pluginId, { code: openCode }) 打开来源插件。
+   * 点击只提交宿主发布的 id，由主进程复核来源并打开插件。
    * 由主进程从贡献表读取，orb-overlay 负责渲染。
    */
   contribEntries?: Array<{
+    /** Opaque source-bound key, not the manifest-local contribution id. */
     id: string
     pluginId: string
     glyph: string
     color: string
     title: string
-    openCode?: string
   }>
 }
 
@@ -710,6 +719,7 @@ export interface UpdateStatePayload {
 
 /** 主进程 → 插件 WebContents（IpcChannels.PluginEvent）负载 */
 export type PluginEventPayload =
+  | { type: 'quick-query-cancel'; reqId: string }
   | AuxiliaryEvent
   | { type: 'deadline-task-change'; taskId: string }
   | { type: 'backend.event'; event: string; data: unknown }

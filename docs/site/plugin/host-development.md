@@ -20,7 +20,7 @@ eNest 是插件化桌面壳，不是内置各类业务工具的应用集合。�
 
 只有需要新的原生资源访问且现有能力无法表达时，才扩展宿主通用接口，同时处理共享类型、preload、主进程分发、权限分类与关闭清理。`src/shared/pluginPermissionPolicy.ts` 是基础/敏感能力分类的单一来源：本插件私有数据、设置、界面、主题和声明式入口直接可用；网络、剪贴板、系统控制和动态 Quick 全局搜索监听等敏感能力需要声明和授权。`fs.read` / `fs.write` 仅接受用户经宿主选择器选定的文件或当前实例持有的句柄，选择目标即授权；拖入路径仍须宿主确认，不能静默访问任意路径。基础能力仍校验归属、参数、配额和运行代次。
 
-SSH、数据库、中间件和 DSH 的协议驱动、业务 DTO 与后端路由在插件仓库，通过 manifest 的 `backend.entry` 和通用 RPC 运行。专注阶段、统计和旧记录解释由番茄插件负责，壳只提供通用 deadline 计时能力，不存在内置驱动回退。历史 `db.*` / `mw.*` 授权名称保留兼容已有清单和授权记录，不等于宿主拥有对应业务处理器。
+SSH、数据库、中间件和 DSH 的协议驱动、业务 DTO 与后端路由在插件仓库，通过 manifest 的 `backend.entry` 和通用 RPC 运行。专注阶段、统计和旧记录解释由番茄插件负责，壳只提供通用 deadline 计时能力，不存在内置驱动回退。`db.*` / `mw.*` / `ssh.agent` 仍由插件后端经通用授权通道使用，同时兼容已有清单和授权记录；这些权限标识不等于宿主拥有对应业务处理器。
 
 旧宿主数据的迁移仍需原生侧验证来源和归属：剪贴板固定 OWNER 防止其他插件领取用户历史，计时旧容器按原 `pluginId` 分区移交；业务解释留在插件中。不能为了清除插件 ID 字面量就移除这些护栏。坏的旧计时数据保留并延后重试，不得阻断所有插件的通用计时服务。
 
@@ -40,6 +40,21 @@ Grid/Flex 的可缩项设置 `min-width:0` / `min-height:0`，控制滚动拥有
 
 ## 扩展公共 API 的完整链路
 
+公共能力按运行表面暴露，不是把所有宿主接口注入每一页：
+
+| 运行表面 | 标准入口 | 公开契约与范围 |
+| --- | --- | --- |
+| 普通插件主页面 | `enest`，兼容别名 `zapi` | `EnestPluginApi`；本插件能力、贡献、事件与生命周期 |
+| 主题 Workspace | `enestWorkspace`，兼容别名 `enestHome` | `EnestWorkspaceApi`；目录、详情、外观与受限动作 |
+| 主题 Quick 页面 | `enestQuick` | `EnestQuickApi`；当前目录快照、查询动作与提供者私有状态 |
+| 主题导航页面 | `enestChrome` | `ThemeChromeApi`；导航状态与受限导航动作 |
+| 主题设置页面 | `enestSettings` | `EnestSettingsApi`；安全字段描述符与已发布的原生设置入口 |
+| 沙箱后台页面 | `enestBackground` | `PluginBackgroundBridge`；本插件后台文档、事件和受限历史移交 |
+| 包内辅助页面 | `enestAux` | `AuxiliaryPageApi`；当前辅助窗口上下文与消息 |
+| 插件 Node 后端 | `process.parentPort` | [后端协议](backend.md)中的业务 RPC、宿主控制请求与关闭消息 |
+
+壳窗口、面板 chrome、安装、通知、模态框和选区覆盖层的桥属于可信内部表面，不是普通插件的可选权限。SDK 能描述某个类型，不代表该页面会得到对应对象。MCP 的工具处理器通过普通插件 API 注册，服务启停、令牌与连接配置仍只在可信设置中管理，不能向主题或插件开放全量管理桥。
+
 1. 先定义共享 DTO、输入边界、资源预算、权限分类和失效语义；不要在 preload、主进程与插件 SDK 各写一份请求类型。
 2. 接通 preload、IPC 分发和真实处理器；声明存在但调用落入 `unknown method` 不算实现。只读接口也必须校验真实调用者，不能信任参数中的插件 ID。
 3. 异步调用绑定运行代次、数据根和资源所有者；授权、原生选择与磁盘操作等待后重新校验。撤权、关闭、禁用和卸载有明确取消与清理路径，旧任务不得向新实例交付结果。
@@ -55,6 +70,7 @@ Grid/Flex 的可缩项设置 `min-width:0` / `min-height:0`，控制滚动拥有
 npm ci
 npm run dev
 npm run typecheck
+npm run audit:contracts
 npm run build
 npm run audit:source -- --build-output
 ```
@@ -68,7 +84,9 @@ node /path/to/eNest_plugin/scripts/sync-developer-docs.mjs --host-root /path/to/
 node /path/to/eNest_plugin/scripts/sync-developer-docs.mjs --host-root /path/to/eNest --check
 ```
 
-`audit:source` 只扫描物理文件、语法树依赖和可选构建产物，不执行应用或测试。浏览器预览样例在 `tests/fixtures/browser-preview/`，图标生成器也只能写入该目录。开发 checkout 的本地预览仅按扫描得到的完整插件 ID 安装，安装器再次核对清单身份；正式包禁止从 checkout 回退安装。
+`audit:contracts` 静态核对 preload 方法、权限映射、主进程分发与 IPC 接收端；`audit:source` 扫描物理文件、语法树依赖和可选构建产物。两者都不执行应用或测试，不能替代原生授权、跨窗口或资源回收验收。公开类型与 SDK 还需通过 typecheck 和生成一致性检查。
+
+浏览器预览样例及页面组合都在 `tests/fixtures/browser-preview/`，图标生成器也只能写入该目录。开发服务通过 `/preview/` 提供独立预览入口，`/preview/?surface=quick` 预览 Quick；正常 `/` 仍是正式壳入口，不导入浏览器市场页。预览入口不在生产构建输入中，原生视图、系统关联、快捷键与性能不能用浏览器样例代替验收。开发源码通过开发注册加载，不作为市场安装失败后的本地源码兜底；安装器只处理明确选定的发行包或已确认的市场来源，并再次核对完整清单身份。
 
 仅在用户明确要求时运行测试。使用临时 `ENEST_TEST_DATA_ROOT` 和独立 `ENEST_TEST_USER_DATA`，不要让测试读取用户真实剪贴板、SSH 密钥、数据库或配置。这两个变量对应的三个原生路径/启动隔离点保留在宿主，也保护打包应用验证。原生 smoke 脚本在 `tests/main/plugin/`、`tests/main/window/`，按各文件开头说明启用；默认跳过不能报告为实测通过。常规主进程测试用 `node --test tests/main/<模块>/<相关.test.mjs>`。
 

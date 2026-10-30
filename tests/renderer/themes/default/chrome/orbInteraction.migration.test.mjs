@@ -197,10 +197,11 @@ function fakeClock() {
   }
 }
 
+const contributionId = `rail:${Buffer.from(JSON.stringify(['plugin-one', 'entry-one'])).toString('base64url')}`
 const hostState = (part = 'rail') => ({ view: 'home', tabStyle: part === 'rail' ? 'orb' : 'classic', activeTabId: null,
   animationLevel: 'low', theme: { mode: 'light', tokens: {} }, profile: null,
   tabs: [{ id: 'tab-one', pluginId: 'plugin-one', title: 'One', color: '#123', glyph: '1' }],
-  contribEntries: [{ id: 'entry-one', pluginId: 'plugin-one', title: 'Entry', color: '#123', glyph: 'E', openCode: 'new' }],
+  contribEntries: [{ id: contributionId, pluginId: 'plugin-one', title: 'Entry', color: '#123', glyph: 'E' }],
 })
 
 async function fixture(t, part = 'rail') {
@@ -234,7 +235,7 @@ async function fixture(t, part = 'rail') {
     setShellView: async view => { calls.push(['view', view]) },
     activatePlugin: async id => { calls.push(['activate', id]) },
     closePlugin: async id => { calls.push(['close', id]) },
-    openPlugin: async id => { calls.push(['open', id]) },
+    activateRailContribution: async id => { calls.push(['contribution', id]) },
   }
   const environment = { window, document, URLSearchParams, Element: SurfaceElement, HTMLElement: SurfaceElement,
     HTMLButtonElement: SurfaceElement, Node: SurfaceElement, Event: SurfaceEvent, FocusEvent: SurfaceEvent,
@@ -278,6 +279,15 @@ function assertExpanded(f, expanded) {
   assert.equal(f.panel.getAttribute('aria-hidden'), String(!expanded))
   assert.equal(f.handle.getAttribute('aria-expanded'), String(expanded))
 }
+
+test('contribution clicks preserve the host-issued opaque id through the default adapter', async t => {
+  const f = await fixture(t)
+  f.handle.click()
+  const entry = f.panel.querySelector('[data-contrib]')
+  assert.equal(entry.dataset.contrib, contributionId)
+  entry.click()
+  assert.deepEqual(f.calls.find(call => call[0] === 'contribution'), ['contribution', contributionId])
+})
 
 test('collapsed rail is inert and every handle click expands through the real default adapter', async t => {
   for (const detail of [1, 0]) {

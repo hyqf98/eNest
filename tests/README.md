@@ -12,13 +12,19 @@ isolated profiles and data roots where required.
 - `main/plugin/*.native-bench.mjs`: opt-in native benchmarks.
 - `main/plugin/realAppPerformance.*.mjs`: opt-in real-application probe.
 - `fixtures/browser-preview/`: browser-only mock API, sample catalog, shortcut
-  fixtures, and generated plugin icons. These are not production catalog data.
+  fixtures, preview page composition, and generated plugin icons. These are not
+  production catalog data. The development server exposes the isolated entry at
+  `/preview/` (`/preview/?surface=quick` for the Quick fixture); ordinary `/`
+  remains the production shell entry and no longer imports preview pages.
 
 The production dependency graph must not include this directory. The sole source
 exception is the lazy dynamic import in `src/renderer/services/shellApi.ts`, in
 the true branch of `import.meta.env.DEV` when no native preload is present. Its
 `@test/fixtures/browser-preview/mockShellApi` dependency is removed from release
 builds. A missing production preload must never silently use fixture data.
+The preview entry is served by a development-only Vite middleware, not included
+in renderer build inputs. Its separate `tsconfig.json` supports static checking
+without adding fixture UI to the production dependency graph.
 
 Test-only observations of private timers, drag state and activity leases are
 injected by the corresponding test build adapters, not exported by production

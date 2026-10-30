@@ -19,7 +19,7 @@ import { raiseTransientViews } from '@main/window/transientViews'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { parseHomeReference } from './homeSecurity'
 import { resolveHomePage, type ResolvedHomePage } from './homeRegistry'
-import { getHomeAppearanceSnapshot } from './homeDataService'
+import { getHomeAppearanceSnapshot, invalidateHomeSearchHandles, suspendHomeSearch } from './homeDataService'
 import { BUILT_IN_HOME_SOURCE } from './homeContract'
 import { createHomeSession, disposeHomeSession, homeEntryUrl } from './homeSessionPolicy'
 import { normalizeWorkspaceRoute } from './workspaceRoute'
@@ -94,6 +94,7 @@ function homeInstallCommand(payload: ShellEventPayload): import('@shared/types/h
   if (payload.type === 'plugins-changed' || payload.type === 'uninstall-result') {
     return { type: 'refresh', reason: 'boot', revision: Date.now() % 2147483647 }
   }
+  if (payload.type === 'plugin-launch-changed' || payload.type === 'launch-directory-changed') return { type: 'searchDirectoryChanged' }
   if (payload.type === 'settings-changed' || payload.type === 'settings-sections') return { type: 'settingsChanged' }
   return null
 }
@@ -532,6 +533,12 @@ export class HomeSurfaceManager {
       : null
   }
 
+  getSearchStateOwner(wcId: number): { source: string; packId: string } | undefined {
+    const runtime = [this.current, this.preparing].find(item => item?.view.webContents.id === wcId)
+    if (!runtime || runtime.retired) return undefined
+    return { source: runtime.reference.source, packId: runtime.reference.source === BUILT_IN_HOME_SOURCE ? 'default' : `home:${runtime.reference.id}` }
+  }
+
   private setViewBackground(view: WebContentsView, appearance: ResolvedAppearance): void {
     const fallback = parseThemeColor(appearance.mode === 'dark' ? '#17191b' : '#f6f6f4')!
     const color = compositeThemeColor(parseThemeColor(appearance.tokens['--bg'] ?? '') ?? fallback, fallback)
@@ -582,6 +589,7 @@ export class HomeSurfaceManager {
     if (changed) current.activityRevision++
     current.visible = nextVisible
     if (changed) {
+      if (!nextVisible) suspendHomeSearch(current.view.webContents.id)
       try { current.view.setVisible(nextVisible) }
       catch { /* retired concurrently */ }
       this.sendCommand(current, { type: 'visibility', visible: nextVisible, revision: current.appearance.revision })
@@ -593,6 +601,7 @@ export class HomeSurfaceManager {
     if (!runtime) return
     if (runtime.retired) return
     runtime.retired = true
+    invalidateHomeSearchHandles(runtime.view.webContents.id)
     this.cancelNavigation(runtime, new Error('Workspace surface is retired'))
     this.failReadyWaiters(runtime, new Error('Home preparation was retired'))
     try { runtime.view.setVisible(false) } catch { /* already retired */ }

@@ -5,6 +5,7 @@ import { ThemeChromeChannels, type ThemeChromeAction, type ThemeChromePart, type
 import type { OrbRailState } from '@shared/types/ipc'
 import type { ThemePackV2 } from '@shared/types/appearance'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { activateRailContribution } from '@main/contrib/railContributions'
 import { getMainWindow, resolvePreload, sendShellEvent } from '@main/window/createShellWindow'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { appearanceService } from './appearanceService'
@@ -187,6 +188,10 @@ export class ThemeChromeSurface {
     const gestureAt = this.gestureAt
     this.gestureAt = -Infinity
     if (now - gestureAt > 1000) throw new Error('A native user gesture is required')
+    if (action.type === 'contribution') {
+      await activateRailContribution(action.id, () => this.interactive())
+      return
+    }
     const { pluginHost } = await import('@main/plugin/PluginHost')
     if (!this.interactive()) throw new Error('Chrome retired during action')
     if (action.type === 'home' || action.type === 'settings') {
@@ -194,12 +199,6 @@ export class ThemeChromeSurface {
       if (!this.interactive()) throw new Error('Chrome retired during navigation')
       if (action.type === 'home') await navigateWorkspace({ page: 'catalog' })
       else openShellSettings()
-      return
-    }
-    if (action.type === 'contribution') {
-      const row = this.options.state().contribEntries?.find(row => row.id === action.id)
-      if (!row || !pluginRegistry.isEnabled(row.pluginId)) throw new Error('Unknown contribution')
-      await pluginHost.openPlugin(row.pluginId, row.openCode ? { code: row.openCode } : undefined)
       return
     }
     if (!['activate', 'close', 'reorder', 'detach'].includes(action.type) || !('tabId' in action) || typeof action.tabId !== 'string' || action.tabId.length > 300) throw new Error('Unsupported chrome action')

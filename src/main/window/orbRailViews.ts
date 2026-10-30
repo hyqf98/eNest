@@ -33,7 +33,7 @@ import {
 } from '@main/window/createShellWindow'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { resolveThemeTokens, type ResolvedThemeCss } from '@main/theme/resolveThemeCss'
-import { listRailEntries } from '@main/contrib/ContributionRegistry'
+import { readRailContributionEntries } from '@main/contrib/railContributions'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { logWarn } from '@main/logs/logService'
 import { selectThemeChrome, ThemeChromeSurface } from '@main/theme/themeChromeSurface'
@@ -347,19 +347,7 @@ export function setOrbRailState(state: OrbRailProjection): void {
  */
 function readRailContribEntries(): OrbRailState['contribEntries'] {
   try {
-    return listRailEntries()
-      .filter((row) => {
-        const summary = pluginRegistry.get(row.source)
-        return Boolean(summary?.installed) && summary?.enabled !== false
-      })
-      .map((row) => ({
-        id: row.id,
-        pluginId: row.source,
-        glyph: String(row.data?.glyph ?? '·').slice(0, 2),
-        color: row.data?.color || '#5b8cff',
-        title: row.data?.title || row.id,
-        openCode: row.data?.openCode
-      }))
+    return readRailContributionEntries()
   } catch {
     return []
   }

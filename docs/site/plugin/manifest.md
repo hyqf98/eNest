@@ -57,9 +57,11 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 
 对象指令的字段由 schema 严格约束（`additionalProperties:false`）：未知 `type`、拼错字段、无效正则、越界数量或非法扩展名都会在安装时被拒。regex/over 与 img/files 互不混用字段。无论命中哪条 `cmds`，只要 Quick 输入框有文本，该文本也会随启动进入 `onEnter`（详见[多布局工具接口](dual-mode-tools.md#输入上下文)），插件据此把内容填入自己的工作区。新增或修改 `plugin.json` 后，需重新安装更新后的插件包、或开发插件刷新重载 manifest 才生效；改仓库源码不会更新已安装的旧包。
 
+文本功能可在同一 feature 增加 `"input": { "type": "text", "trigger": "prefix" }`。默认主题将“精确别名 + 空白 + 非空正文”作为携带参数的功能命中，宿主再次核验后交付 `input.text` 与 `input.query: { raw, trigger }`；命中时旧字符串 payload 同样使用正文。`trigger: "none"` 表示保留全文；只有别名而无正文时不剥离文本。没有声明 input、但同一功能已有不含 exclude 的 over 对象时兼容前缀行为；其它功能不自动启用。此字段不会重写持久目录或实时 provider 的私有 payload。示例、长度边界与排序见[文本触发词与启动参数](themes.md#文本触发词与启动参数)。
+
 ## 可选 Node 后端
 
-带后端的插件声明 `"backend": { "entry": "backend/index.cjs" }`，在 `permissions` 中列出 `backend.node`，并设置 `"engines": { "enest": ">=0.2.0" }`。`main` 仍是浏览器页面 `index.html`。后端入口不是 preload，也不会通过页面资源协议暴露。用户授权后运行完整 Node.js 代码，不能按页面沙箱理解其权限边界。源码入口和依赖收集配置放在 `package.json.enestBackend`，协议与示例见[插件本机后端](backend.md)。
+带后端的插件声明 `"backend": { "entry": "backend/index.cjs" }`，在 `permissions` 中列出 `backend.node`，并设置 `"engines": { "enest": ">=0.0.1" }`。`main` 仍是浏览器页面 `index.html`。后端入口不是 preload，也不会通过页面资源协议暴露。用户授权后运行完整 Node.js 代码，不能按页面沙箱理解其权限边界。源码入口和依赖收集配置放在 `package.json.enestBackend`，协议与示例见[插件本机后端](backend.md)。
 
 ## 小窗、主窗、面板与 UI
 
@@ -110,7 +112,9 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 
 - `extensions` 小写无点扩展名；`mimeTypes` 主要供 Linux（xdg-mime）使用；`schemes` 小写不含 `://`，`enest`、`http`、`https`、`file`、`mailto` 为壳保留，跨插件重复先声明者得。
 - 用户把某类型设为默认后，双击文件 / 点击链接会打开 eNest 并唤起对应插件：`onEnter` 收到 `code: 'open-file' | 'open-url'`，`payload` 为 `{ paths?, handles?, url? }`。**文件读取必须走 `localFiles.read({ handleId })`**（基础能力，无需授权），`handles` 是宿主签发的只读句柄，`paths` 仅作展示，不能绕开句柄自行访问。
+- 文件参数按当前系统的本地路径规则处理，Windows 支持盘符绝对路径与完整 UNC 共享路径（包括由 `file://server/share/...` 转换的路径）；不接受设备命名空间、盘符相对路径或把 URL 当成本地文件名。
 - 平台能力边界：Linux 可通过 `xdg-mime` 程序化设默认，但当前支持的文件类型仍依赖壳安装包的 MIME 声明与宿主 `EXT_MIME` 映射；尚未实现插件安装后的任意扩展名/MIME 动态注册，新类型需要补齐映射与打包声明。Windows 写入 HKCU 候选、切换默认引导到系统设置；macOS 候选来自安装包声明（新类型需随壳发版），默认切换由用户在 Finder/系统设置完成。设置页对每行如实显示「系统默认 / 已注册候选 / 未注册」，不能把壳内路由选择等同于操作系统默认已修改。
+- macOS 运行时读取**当前应用包**的 `Info.plist` 与 bundle ID，并通过 AppKit `NSWorkspace` 和 `UTType` 查询扩展名对应的 UTI、默认处理程序及候选列表，不用源码里的打包快照或 `LSHandlers` 偏好替代系统事实。系统接口或查询结果不可用时显示状态未知；仅有插件声明、内部路由已保存、系统变更请求已提交，都不代表系统候选或默认已生效。URL scheme 也必须先在当前安装包声明，变更后重新查询确认。
 
 ## 综合插件与主题插件
 

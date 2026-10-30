@@ -395,7 +395,6 @@ private removeThemePackContributions(pluginId: string): void {
           this.scanRequested++
           continue
         }
-        await this.resolveDuplicateInstallations(next)
         const previous = this.installed
         this.installed = next // one atomic publication: readers never see an empty/partial catalog
         const fingerprint = (items: Map<string, InstalledPlugin>) => JSON.stringify([...items].map(([id, item]) => [id, item.rootPath, item.buildRevision, item.version]).sort())
@@ -424,12 +423,7 @@ private removeThemePackContributions(pluginId: string): void {
     return task
   }
 
-  /**
-   * 通用重复安装诊断与裁决（不按插件 ID 特判）。
-   * 两个启用插件声明相同的 name + category 时，几乎总是同一插件以两个 id 并存
-   * （典型场景：发布者改名后的旧包残留）。它们会争抢相同的 Quick 命令与设置分区，
-   * 宿主按重复集合记录警告；磁盘上属于安装目录的败者会被移除（见 resolveDuplicateInstallations）。
-   */
+  /** Names are presentation only; collisions never authorize deleting another owner. */
   private warnDuplicateInstallations(items: Map<string, InstalledPlugin>): void {
     const byKey = new Map<string, string[]>()
     for (const [id, item] of items) {
@@ -447,74 +441,7 @@ private removeThemePackContributions(pluginId: string): void {
     if (signature === this.duplicateWarningSignature) return
     this.duplicateWarningSignature = signature
     for (const group of duplicates) {
-      logWarn('registry', `duplicate installation: ${group.join(' / ')} declare the same plugin name; keep only the current one to avoid conflicting entries`)
-    }
-  }
-
-  /**
-   * 同名安装唯一性：安装/升级写盘前的裁决来源（经 Installer 的 lifecycle hook 调用）。
-   * 同 id 已安装属于常规升级替换，返回 null；另一个不同 id 声明了相同 name+category
-   * 时返回那个 id，安装方拒绝并提示先卸载旧版。开发态与禁用态同样参与冲突判定。
-   */
-  findConflictingInstallation(manifest: PluginManifest): string | null {
-    const name = (manifest.name ?? '').trim()
-    if (!name) return null
-    const category = (manifest.category ?? '').trim()
-    for (const [id, item] of this.installed) {
-      if (id === manifest.id) continue
-      if ((item.manifest.name ?? '').trim() !== name || (item.manifest.category ?? '').trim() !== category) continue
-      return id
-    }
-    for (const [id, summary] of this.dev) {
-      if (id === manifest.id) continue
-      if ((summary.name ?? '').trim() !== name) continue
-      const devManifest = this.devManifests.get(id)
-      if ((devManifest?.category ?? summary.category ?? '').toString().trim() !== category) continue
-      return id
-    }
-    return null
-  }
-
-  /**
-   * 启动扫描时的同名残留裁决（不按插件 ID 特判）。
-   * 同名同类目的多个已安装目录只会留下一个：dev 注册的源码态优先，其余按
-   * （版本号，目录名）取最新；败者从扫描结果剔除并删除其 plugins/<id> 安装树。
-   * 只处理纯磁盘安装：dev 源码目录、被禁用但无同名胜者的插件都不动。
-   * 插件私有数据/授权/设置不在安装树内，保留不动——胜者是新 id 时旧 id 的
-   * KV 数据不会跟随（跨 id 迁移属插件自身业务，宿主不做数据搬移）。
-   */
-  private async resolveDuplicateInstallations(next: Map<string, InstalledPlugin>): Promise<void> {
-    const byKey = new Map<string, { id: string; item: InstalledPlugin }[]>()
-    for (const [id, item] of next) {
-      const name = (item.manifest.name ?? '').trim()
-      if (!name) continue
-      const key = `${name}\u0000${(item.manifest.category ?? '').trim()}`
-      const group = byKey.get(key)
-      const entry = { id, item }
-      if (group) group.push(entry)
-      else byKey.set(key, [entry])
-    }
-    for (const group of byKey.values()) {
-      if (group.length < 2) continue
-      const winner = group.reduce((best, entry) => {
-        if (this.dev.has(entry.id) && !this.dev.has(best.id)) return entry
-        if (!this.dev.has(entry.id) && this.dev.has(best.id)) return best
-        const versionOrder = compareVersions(entry.item.version, best.item.version)
-        if (versionOrder !== 0) return versionOrder > 0 ? entry : best
-        return entry.id > best.id ? entry : best
-      })
-      for (const { id, item } of group) {
-        if (id === winner.id) continue
-        next.delete(id)
-        logWarn('registry', `removing duplicate installation ${id}@${item.version}: superseded by ${winner.id}@${winner.item.version} (same name)`)
-        try {
-          await rm(join(pluginsRoot(), id), { recursive: true, force: true })
-          logInfo('registry', `removed duplicate plugin dir ${id}`)
-        } catch (error) {
-          logWarn('registry', `remove duplicate dir ${id} failed: ${(error as Error).message}（将在下次启动重试）`)
-          // 目录删除失败时仍从注册表剔除；磁盘残留会在下次扫描再次进入裁决
-        }
-      }
+      logWarn('registry', `plugin name collision: ${group.join(' / ')}; each plugin identity and installation is retained`)
     }
   }
 

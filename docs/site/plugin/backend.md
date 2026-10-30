@@ -1,6 +1,6 @@
 # 插件本机后端
 
-从 eNest **0.2.0** 起，插件可以在自己的发布包中携带 Node.js 后端。前端继续运行于受隔离的 `WebContentsView`；协议驱动、数据库客户端、计算任务等代码放在插件 `backend/` 中，由宿主按当前插件实例启动 Electron `utilityProcess`。**0.2.1** 增加 `protocolVersion: 1` 的通用后端控制协议，提供实例上下文、活动租约、子进程归属、回环页面端点、代理解析和协作关闭；使用这些能力的插件须声明 `engines.enest: ">=0.2.1"`。
+eNest **0.0.1** 的插件可以在自己的发布包中携带 Node.js 后端。前端继续运行于受隔离的 `WebContentsView`；协议驱动、数据库客户端、计算任务等代码放在插件 `backend/` 中，由宿主按当前插件实例启动 Electron `utilityProcess`。`protocolVersion: 1` 的通用后端控制协议提供实例上下文、活动租约、子进程归属、回环页面端点、代理解析和协作关闭；使用这些能力的插件须声明 `engines.enest: ">=0.0.1"`。
 
 纯浏览器插件无需后端。需要后端的插件必须声明并取得 **`backend.node`** 授权。此权限表示信任插件执行完整 Node.js 代码：后端具有当前用户可用的本机文件、网络和进程能力。utility process 用于隔离生命周期和故障，**不是操作系统沙箱**；Chromium 页面沙箱及细分的前端 API 权限不能限制已授权后端的直接 Node 调用。
 
@@ -10,7 +10,7 @@
 
 ```json
 {
-  "engines": { "enest": ">=0.2.1" },
+  "engines": { "enest": ">=0.0.1" },
   "permissions": ["backend.node"],
   "backend": { "entry": "backend/index.cjs" }
 }
@@ -84,7 +84,7 @@ interface BackendContext {
   appDataPath: string
   packagePath: string
   appExecPath: string
-  pageOrigin: string | null // 0.2.2: authoritative current renderer origin, never supplied by the plugin
+  pageOrigin: string | null // Authoritative current renderer origin, never supplied by the plugin
 }
 ```
 
@@ -154,7 +154,7 @@ port.on('message', ({ data: request }) => {
 | `activity.release` | `{ token }`；幂等释放，关闭期间仍可调用 |
 | `process.track` | `{ pid }`；最多 128 个显式登记子进程；必须是当前后端的真实存活后代，不能登记后端自身或任意 PID |
 | `process.untrack` | `{ pid }`；确认退出或 PID 已复用后才移除，不能通过消息放弃仍存活的自有进程 |
-| `endpoint.allow` | `{ token, url, kind: 'subFrame' \| 'webSocket', pid }`；最多 32 个；仅无凭据、无 fragment、显式端口的 loopback URL。子页面限 `http:`，0.2.2 新增套接字限 `ws:`；主机限 `127.0.0.1` / `localhost`，PID 必须是精确确认的当前后端或其存活后代 |
+| `endpoint.allow` | `{ token, url, kind: 'subFrame' \| 'webSocket', pid }`；最多 32 个；仅无凭据、无 fragment、显式端口的 loopback URL。子页面限 `http:`，套接字限 `ws:`；主机限 `127.0.0.1` / `localhost`，PID 必须是精确确认的当前后端或其存活后代 |
 | `endpoint.revoke` | `{ token }`；幂等撤销，关闭期间仍可调用 |
 | `network.resolveProxy` | `{ url }` → `{ proxy }`；仅无凭据 HTTP(S) URL，最长 8192 字符；返回当前宿主 session 的代理解析结果，不代发网络请求 |
 | `secret.resolve` | `{ ref }` → `string \| null`；只解析本插件保险库引用，明文不能转发页面 |
@@ -205,14 +205,19 @@ port.on('message', ({ data: request }) => {
   "enestBackend": {
     "entry": "backend/index.ts",
     "dependencies": ["ssh2"],
-    "optionalExcluded": ["cpu-features", "nan"]
+    "optionalExcluded": ["cpu-features", "nan"],
+    "packageFilesExcluded": {
+      "ssh2": ["lib/protocol/crypto/build"]
+    }
   }
 }
 ```
 
 `enestBackend.entry` 指向源码入口；`enestBackend.dependencies` 列出需要保留为外部模块的 npm 根依赖，并且每个根依赖必须直接声明在该插件的 `dependencies`。仓库工具将业务 TypeScript 编译到 CJS，按插件仓库 `package-lock.json` 复制生产、必要 peer 和已安装 optional 依赖，保留重复版本的实际目录布局以及运行时资源、许可证。不会把整份工作区 `node_modules` 复制进包。
 
-`optionalExcluded` 只排除确认具有可用回退实现的可选依赖。官方 SSH 排除 `cpu-features`、`nan` 和可选 `sshcrypto` 本地编译产物，使用 Node crypto 的纯 JavaScript 路径；不能用相同方法任意删除其它驱动的 `.node` 文件。
+`optionalExcluded` 只排除确认具有可用回退实现的可选依赖。`packageFilesExcluded` 由插件声明包内可省略的文件或目录：键必须是 `enestBackend.dependencies` 中的 npm 根依赖名，值为该 npm 包根下的精确相对路径数组；目录匹配时只在复制过程中跳过该子树，不修改已安装依赖。禁止绝对路径、`..`、隐藏段、反斜杠、通配符、编码分隔符及 `node_modules` 段；不允许省略包的入口、`package.json` 或许可证/版权告知文件。排除路径的中间段不能是软链接；完整跳过的子树内，非受保护名称的软链接只作为不复制的叶子处理，不读取链接目标，其它待复制内容仍拒绝软链接。不存在的可选编译目录可以保留声明。
+
+SSH 与远程桌面各自在自己的 `package.json` 排除 `cpu-features`、`nan`，并精确排除 `ssh2/lib/protocol/crypto/build` 中的可选 `sshcrypto` 本地编译产物，使用 Node crypto 的纯 JavaScript 路径。通用构建器只执行这些声明，不认识 SSH 包或业务插件 ID；插件维护者须验证回退实现及内部运行依赖，不能用排除配置任意裁剪其它驱动的 `.node` 文件。
 
 原生依赖必须与目标 OS、CPU 架构及运行时 ABI/N-API 匹配。当前数据库插件通过 `platformPackages` 显式声明四个可分发 DuckDB 变体：
 
@@ -239,6 +244,8 @@ port.on('message', ({ data: request }) => {
 npm ci
 node scripts/build-plugin.mjs ssh remote-desktop
 ```
+
+构建与打包入口都接受源码目录短名或精确的完整 manifest ID，例如 `ssh` 与 `com.github.eNest.ssh`；完整 ID 不做前缀剥离、大小写折叠或末段猜测，未知或歧义标识直接报错。两种写法解析到同一源码和产物，归档仍使用 `<短名>@<version>.enestplugin`，不会修改安装、权限或存储身份。
 
 连接 Vite 开发服务器时，前端可以 HMR，后端仍从源码根的 **`dist/backend/index.cjs`** 加载，因此必须先构建。后端修改后在插件目录重新运行构建命令（如 `npm run build`），再关闭/重载插件以创建新进程；Vite HMR 不会替换已经运行的后端。开发者控制台没有 dev/prod 切换：验证完整发布行为时让开发服务离线，壳会按 `enest.output` 产物目录以生产 CSP 预览。不要使用「静态源码」预览直接运行 TypeScript 后端。
 
@@ -271,19 +278,19 @@ node scripts/build-registry.mjs --target=darwin-arm64
 
 发版流程保留通用包/索引，同时上传平台包/索引及各自字节摘要。新壳优先请求本机 `registry-<os>-<arch>.json`，无平台索引时使用 `registry.json`；安装时核验包内目标，拒绝其他 OS/架构的显式目标包。没有目标元数据的旧包按通用包兼容，不据此保证它包含所有原生平台实现。每个平台索引仍校验已声明原生支持范围，不能用通用回退伪装未支持目标。
 
-| 官方插件 | 迁移后版本 | 最低宿主版本 |
+| 官方插件 | 首版配套版本 | 最低宿主版本 |
 | --- | --- | --- |
-| 数据库 `com.github.eNest.database` | 0.0.1 | 0.2.2 |
-| 中间件 `com.github.eNest.middleware` | 0.0.1 | 0.2.2 |
-| SSH `com.github.eNest.ssh` | 0.0.1 | 0.2.2 |
-| 远程桌面 `com.github.eNest.remote-desktop` | 0.0.1 | 0.2.2 |
-| AI 配置 `com.github.eNest.ccswitch` | 0.0.1 | 0.2.2 |
-| 桌面宠物 `com.github.eNest.codex-pets` | 0.0.1 | 0.2.2 |
-| 局域网分享 `com.github.eNest.lan-share` | 0.0.1 | 0.2.2 |
-| 番茄钟 `com.github.eNest.pomodoro` | 0.0.1 | 0.2.2 |
-| DSH `com.github.eNest.dsh` | 0.0.1 | 0.2.1 |
+| 数据库 `com.github.eNest.database` | 0.0.1 | 0.0.1 |
+| 中间件 `com.github.eNest.middleware` | 0.0.1 | 0.0.1 |
+| SSH `com.github.eNest.ssh` | 0.0.1 | 0.0.1 |
+| 远程桌面 `com.github.eNest.remote-desktop` | 0.0.1 | 0.0.1 |
+| AI 配置 `com.github.eNest.ccswitch` | 0.0.1 | 0.0.1 |
+| 桌面宠物 `com.github.eNest.codex-pets` | 0.0.1 | 0.0.1 |
+| 局域网分享 `com.github.eNest.lan-share` | 0.0.1 | 0.0.1 |
+| 番茄钟 `com.github.eNest.pomodoro` | 0.0.1 | 0.0.1 |
+| DSH `com.github.eNest.dsh` | 0.0.1 | 0.0.1 |
 
-0.2.2 删除壳里的 `enest.db.*`、`enest.mw.*`、`enest.ssh.*`、`enest.agent.*`、`enest.net.share` 门面、业务事件和 DTO。官方插件内部适配器可以保持原来的业务调用形状，但只能使用 `backend.call`、`backend.event` 和通用宿主控制协议，不可覆盖冻结的 `window.enest`。
+宿主不提供 `enest.db.*`、`enest.mw.*`、`enest.ssh.*`、`enest.agent.*`、`enest.net.share` 门面、业务事件和 DTO。官方插件内部适配器可以保持原来的业务调用形状，但只能使用 `backend.call`、`backend.event` 和通用宿主控制协议，不可覆盖冻结的 `window.enest`。
 
 远程桌面也自行承担 RDCleanPath、X.224 与 RDP TLS 协商；壳的 `net.socket.serveWs` 只有字节流桥接，不再嗅探应用协议。远程桌面将私有 RDP 服务与 SSH 能力组合在同一按需后端，不为 RDP 再起一份常驻进程。
 
@@ -291,4 +298,4 @@ node scripts/build-registry.mjs --target=darwin-arm64
 
 番茄钟使用[后台步骤计划](deadline-tasks.md)，不启动 Node 进程；其周期、历史编辑、统计以及旧数据解释由插件负责。上述旧插件应同步更新，缺失后端或旧宿主 API 不会回退到壳业务实现。
 
-DSH 的配置/profile、运行时版本管理、下载升级、工作台与子进程业务位于插件仓 `plugins/dsh/backend/`，前端通过通用 `enest.backend.call` 和 `backend.event` 调用，宿主只保留上述可复用控制能力。原有 `runtime/` 路径作为插件的私有附件保留，不再有宿主按 DSH ID 放行或加载的分支。旧 DSH 必须更新到与 eNest 0.2.1 配套的新包；旧 `dsh.*` 专属权限/API 已移除，不会静默映射为 `backend.node` 授权。新版首次启动 Node 后端仍需用户明确同意。0.2.2 中这些兼容门面也已移入各插件。
+DSH 的配置/profile、运行时版本管理、下载升级、工作台与子进程业务位于插件仓 `plugins/dsh/backend/`，前端通过通用 `enest.backend.call` 和 `backend.event` 调用，宿主只保留上述可复用控制能力。原有 `runtime/` 路径作为插件的私有附件保留，不再有宿主按 DSH ID 放行或加载的分支。旧开发包须更新到与 eNest 0.0.1 配套的新包；旧 `dsh.*` 专属权限/API 已移除，不会静默映射为 `backend.node` 授权。新版首次启动 Node 后端仍需用户明确同意，兼容门面由各插件自身提供。

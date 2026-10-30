@@ -6,7 +6,7 @@ import test from 'node:test'
 import ts from 'typescript'
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
-const preloadPath = resolve(root, 'src/preload/pluginPreload.ts')
+const contractPath = resolve(root, 'src/shared/types/pluginApi.ts')
 const sdkPath = resolve(root, 'eNest_plugin/packages/plugin-sdk/index.d.ts')
 
 function compileConsumer(body) {
@@ -36,7 +36,7 @@ ${body}`
 }
 
 test('dynamic settings registration reuses the canonical section contract', () => {
-  const source = ts.createSourceFile(preloadPath, readFileSync(preloadPath, 'utf8'), ts.ScriptTarget.Latest, true)
+  const source = ts.createSourceFile(contractPath, readFileSync(contractPath, 'utf8'), ts.ScriptTarget.Latest, true)
   const api = source.statements.find(node => ts.isInterfaceDeclaration(node) && node.name.text === 'EnestPluginApi')
   assert.ok(api)
   const settings = api.members.find(node => node.name?.getText(source) === 'settings')

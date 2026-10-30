@@ -12,8 +12,8 @@ test('shared confirmation protects real plugin actions, cancels safely and traps
       import React, {useState} from 'react'; import {createRoot} from 'react-dom/client';
       import {ConfirmDialog} from '@renderer/components/ConfirmDialog';
       import {confirmAction} from '@renderer/services/confirmAction';
-      import {PluginCard} from '@renderer/themes/default/workspace/preview/PluginCard';
-      import {PluginDetailModal} from '@renderer/themes/default/workspace/preview/PluginDetailModal';
+      import {PluginCard} from '@test/fixtures/browser-preview/workspace/PluginCard';
+      import {PluginDetailModal} from '@test/fixtures/browser-preview/workspace/PluginDetailModal';
       import {DevConsoleSection} from '@renderer/themes/default/settings/DevConsoleSection';
       import {useShellStore} from '@renderer/stores/shellStore';
       import '@renderer/themes/default/workspace/detail.css';

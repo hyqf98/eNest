@@ -5,6 +5,7 @@ import type { PluginBackgroundBridge, PluginBackgroundHandlers } from '@shared/t
 
 let handlers: PluginBackgroundHandlers | undefined
 let running = 0
+const searches = new Map<number, { cancelled: boolean; callbacks: Set<() => void> }>()
 function bounded(value: unknown): void {
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > BACKGROUND_MESSAGE_LIMIT) throw new Error('Background message budget exceeded')
 }
@@ -13,13 +14,33 @@ function invoke<T>(method: string, args: unknown[] = []): Promise<T> {
   return ipcRenderer.invoke(IpcChannels.PluginBackgroundHost, { method, args }) as Promise<T>
 }
 ipcRenderer.on(IpcChannels.PluginBackgroundRequest, (_event, request: BackgroundRequest) => {
+  if (request?.kind === 'cancel-search') {
+    const search = searches.get(request.id)
+    if (!search || search.cancelled) return
+    search.cancelled = true
+    for (const callback of search.callbacks) { try { callback() } catch { /* Cancellation does not imply settlement. */ } }
+    search.callbacks.clear()
+    return
+  }
   if (!handlers || !request || !Number.isSafeInteger(request.id) || running >= 8) return
   running++
   void (async () => {
     switch (request.kind) {
       case 'event': return handlers!.onEvent?.(request.event, request.data)
       case 'call': return handlers!.call(request.method, request.args)
-      case 'search': return handlers!.search?.(request.query, request.limit) ?? []
+      case 'search': {
+        const state = { cancelled: Date.now() >= (request.deadlineAt ?? Infinity), callbacks: new Set<() => void>() }
+        searches.set(request.id, state)
+        const onCancel = (callback: () => void) => {
+          if (typeof callback !== 'function') throw new TypeError('Cancellation callback required')
+          if (state.cancelled) callback(); else state.callbacks.add(callback)
+          return () => { state.callbacks.delete(callback) }
+        }
+        const isAborted = () => state.cancelled || Date.now() >= (request.deadlineAt ?? Infinity)
+        const signal = { isAborted, throwIfAborted: () => { if (isAborted()) throw new Error('Search cancelled') }, onAbort: onCancel }
+        signal.throwIfAborted()
+        return handlers!.search?.(request.query, request.limit, { requestId: request.id, deadlineAt: request.deadlineAt ?? Date.now() + 750, signal, onCancel }) ?? []
+      }
       default: throw new Error('Unknown background operation')
     }
   })().then(data => {
@@ -30,7 +51,7 @@ ipcRenderer.on(IpcChannels.PluginBackgroundRequest, (_event, request: Background
     ipcRenderer.send(IpcChannels.PluginBackgroundResponse, {
       id: request.id, ok: false, error: error instanceof Error ? error.message.slice(0, 500) : 'Background operation failed'
     } satisfies BackgroundResponse)
-  }).finally(() => { running-- })
+  }).finally(() => { searches.delete(request.id); running-- })
 })
 
 const api: PluginBackgroundBridge = {

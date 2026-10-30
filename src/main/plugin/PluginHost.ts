@@ -1,4 +1,6 @@
 import { raiseTransientViews } from '@main/window/transientViews'
+import { PluginQuickSession } from './pluginQuickSession'
+import { forgetQuickEnterInput, readQuickEnterInput, rememberQuickEnterInput } from '@main/launcher/quickInputContext'
 /**
  * PluginHost — 插件运行时宿主
  * 职责：为每个打开的插件创建独立 WebContentsView / session partition，
@@ -38,8 +40,7 @@ import { raiseTransientViews } from '@main/window/transientViews'
  * 资源策略：
  * - 空闲休眠：background 后 PLUGIN_HIBERNATE_DELAY_MS 无激活 → hibernatePlugin
  *   （saveSessionSnapshot 快照 sessionBag → destroy 通知 → 销毁 view；保留 hibernated 轻量记录）
- *   quick 容器同样适用：Esc 回列表 / 小窗失焦隐藏即退 background 并计时，
- *   被驱逐后再次呼出走 openPlugin 冷启动 + session 快照恢复（自动覆盖）
+ *   Quick 仅在显式退出后参与回收；自动隐藏保留当前会话和输入，不销毁页面状态。
  * - LRU 上限：存活（非 hibernated）entry 数超过 PLUGIN_ALIVE_LIMIT 时，
  *   最久未激活的 background 插件立即休眠（active / quick 挂载中 / dev 白名单除外）
  * - crash：清理原生视图和资源，保留错误 Tab，由用户显式重试
@@ -55,7 +56,8 @@ import { raiseTransientViews } from '@main/window/transientViews'
 import { randomUUID } from 'node:crypto'
 import { configurePluginSession, releasePluginEndpoints } from '@main/plugin/pluginSessionPolicy'
 import { createRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
-import { retireInteractionEpoch, setBackgroundNonInteractive } from '@main/plugin/pluginInteractionPolicy'
+import { retireInteractionEpoch, setBackgroundNonInteractive, setActivationContext, setResidentActivation } from '@main/plugin/pluginInteractionPolicy'
+import type { PluginActivationContext } from '@shared/types/pluginLaunch'
 import { permissionService } from '@main/plugin/PermissionService'
 import { releasePluginStorage } from '@main/db/pluginStorage'
 import { setPluginInstallLifecycleHooks } from '@main/plugin/PluginInstaller'
@@ -186,6 +188,7 @@ interface PluginOpenOptions {
   deferPresentation?: boolean
   /** Load an installed plugin without committing foreground presentation. */
   backgroundExecution?: boolean
+  activationContext?: Exclude<PluginActivationContext, 'view'>
   /** Set only by trusted shell navigation, never by a plugin capability. */
   trustedUserNavigation?: boolean
   /** Records only this request's new instance, even if native setup later rejects. */
@@ -248,6 +251,18 @@ interface PluginPreparation {
   }
 }
 
+interface PluginOpeningOperation {
+  cancelled: boolean
+  preserveDevServer?: boolean
+  promise: Promise<string>
+  entry?: PluginEntry
+}
+
+interface PluginClosingOperation {
+  preserveSession: boolean
+  fullStop?: Promise<PromiseSettledResult<void>[]>
+}
+
 interface DetachedRestoreOperation {
   pluginId: string
   session: DetachedWindowSession
@@ -262,8 +277,8 @@ export class PluginHost {
   private generation = 0
   private shuttingDown = false
   private barriers = new Map<string, number>()
-  private opening = new Map<string, { cancelled: boolean; preserveDevServer?: boolean; promise: Promise<string> }>()
-  private finalClosing = new Map<string, { preserveSession: boolean }>()
+  private opening = new Map<string, PluginOpeningOperation>()
+  private finalClosing = new Map<string, PluginClosingOperation>()
   private closing = new Map<string, Promise<void>>()
   private reloading = new Map<string, { cancelled: boolean; promise: Promise<void> }>()
   private retiringViews = new Map<string, PluginEntry>()
@@ -274,13 +289,13 @@ export class PluginHost {
   private tabRevision = 0
   private entries = new Map<string, PluginEntry>()
   private closingEntries = new Map<string, PluginEntry>()
+  /** Covers resources created before a View exists and retained after its destruction. */
+  private resourceOwners = new Map<string, { closing: boolean }>()
   private byWcId = new Map<number, string>()
   private activeTabId: string | null = null
   private shellVisible = true
-  /** quick 容器当前挂载的 mini 插件 id（挂载即激活语义，无值 = 列表态） */
-  private quickPluginId: string | null = null
-  /** quick 隐藏时仍挂载的插件：下次呼出直接恢复；Esc 退场 / 迁出 / 卸载后清除 */
-  private lastQuickPluginId: string | null = null
+  private quickSession = new PluginQuickSession()
+  private get quickPluginId(): string | null { return this.quickSession.visiblePluginId }
   /** 上次布局在运行实例销毁后保留；原生父级独立记录在 placements。 */
   private layoutModes = new Map<string, PluginLaunchMode>()
   /** Placement owns the native parent, not the plugin's layout. */
@@ -320,6 +335,7 @@ export class PluginHost {
   private killOnHidePlugins = new Set<string>()
   private inputContexts = new Map<string, PluginInputContext>()
   private mcpBackgroundPlugins = new Set<string>()
+  private residentLeases = new Map<string, { scope: PluginRuntimeScope; release(): void }>()
   private mcpRetiredListeners = new Set<(pluginId: string, reason: string) => void>()
 
   constructor() {
@@ -383,7 +399,14 @@ export class PluginHost {
   }
 
   isQuickInputOwner(pluginId: string): boolean {
-    return this.getLayoutMode(pluginId) === 'quick' && (this.quickPluginId === pluginId || this.getPlacement(pluginId).kind === 'detached')
+    return this.getLayoutMode(pluginId) === 'quick' && (this.quickSession.retains(pluginId) || this.getPlacement(pluginId).kind === 'detached')
+  }
+
+  private releaseQuickSession(pluginId = this.quickSession.pluginId): boolean {
+    if (!pluginId || !this.quickSession.release(pluginId)) return false
+    forgetQuickEnterInput(pluginId)
+    if (this.getPlacement(pluginId).kind !== 'detached') clearQuickInput(pluginId)
+    return true
   }
 
   sendSurfaceEvent(pluginId: string, event: ShellEventPayload): void {
@@ -607,9 +630,37 @@ export class PluginHost {
     } catch { /* view 可能已销毁 */ }
   }
 
-  /** 关闭面板内的全部插件（完整 closePlugin 链路，含 beforeClose 与资源回收）。 */
-  async closePanelPlugins(pluginIds: string[]): Promise<void> {
-    await Promise.allSettled(pluginIds.map(pluginId => this.closePlugin(pluginId, 'tab-close')))
+  /** A failed widget owns a retry for its original incarnation, not a future plugin with the same id. */
+  capturePanelPluginClose(pluginId: string, panelId: string): () => Promise<void> {
+    const owner = () => this.entries.get(pluginId) ?? this.closingEntries.get(pluginId) ?? this.retiringViews.get(pluginId)
+    const entry = owner(), opening = this.opening.get(pluginId), resourceOwner = this.ensureResourceOwner(pluginId)
+    let complete = false, pending: Promise<void> | undefined
+    return () => {
+      if (pending) return pending
+      if (complete) return Promise.resolve()
+      const expected = entry ?? opening?.entry, current = owner()
+      const location = this.getPlacement(pluginId)
+      // View cleanup can finish before process-tree cleanup. Join that same resource owner
+      // even when no entry remains; a cold open always creates a different owner first.
+      const retired = this.resourceOwners.get(pluginId) !== resourceOwner || !resourceOwner.closing && (
+        expected && current && current !== expected
+        || !expected?.scope.isClosing && (location.kind !== 'panel' || location.panelId !== panelId)
+      )
+      if (retired) { complete = true; return Promise.resolve() }
+      const operation = this.closePlugin(pluginId, 'tab-close')
+      pending = operation.then(() => { complete = true }).finally(() => { pending = undefined })
+      return pending
+    }
+  }
+
+  private ensureResourceOwner(pluginId: string): { closing: boolean } {
+    let owner = this.resourceOwners.get(pluginId)
+    if (!owner) { owner = { closing: false }; this.resourceOwners.set(pluginId, owner) }
+    return owner
+  }
+
+  private stopAllPluginResources(pluginId: string, operation: PluginClosingOperation): Promise<PromiseSettledResult<void>[]> {
+    return operation.fullStop ??= Promise.allSettled([stopPluginProcesses(pluginId), stopDevServerAndWait(pluginId)])
   }
 
   /** 面板 chrome 展示所需的插件元信息。 */
@@ -665,7 +716,7 @@ export class PluginHost {
   }
 
   focusSearch(pluginId: string): boolean {
-    if (!this.isQuickInputOwner(pluginId)) return false
+    if (!this.isQuickInputOwner(pluginId) || !this.isPluginVisible(pluginId)) return false
     if (this.getPlacement(pluginId).kind === 'detached') {
       getDetachedWindow(pluginId)?.focus()
       getDetachedChrome(pluginId)?.webContents.focus()
@@ -733,7 +784,7 @@ export class PluginHost {
       coldShellTabs: [...this.logicalTabs.keys()].filter(pluginId =>
         this.getPlacement(pluginId).kind === 'shell' && this.getState(pluginId) === 'installed'
         && !this.entries.has(pluginId) && !this.hibernated.has(pluginId) && !this.opening.has(pluginId)
-        && !this.closing.has(pluginId) && !this.finalClosing.has(pluginId) && !this.retiringViews.has(pluginId)
+        && !this.isClosing(pluginId)
         && !this.reloading.has(pluginId) && !this.transfers.has(pluginId)
       ).length,
       lazyDetached: this.lazyDetached.size,
@@ -756,7 +807,8 @@ export class PluginHost {
   }
 
   isClosing(pluginId: string): boolean {
-    return this.closing.has(pluginId) || this.finalClosing.has(pluginId) || this.retiringViews.has(pluginId)
+    return this.resourceOwners.get(pluginId)?.closing === true || this.closing.has(pluginId)
+      || this.finalClosing.has(pluginId) || this.retiringViews.has(pluginId) || this.closingEntries.has(pluginId)
   }
 
   getPluginIdByWebContentsId(wcId: number): string | undefined {
@@ -807,10 +859,77 @@ export class PluginHost {
     } finally { signal?.removeEventListener('abort', release); release() }
   }
 
+  /** User commands and index synchronization reuse the ordinary sandbox, without a Tab or presentation. */
+  async ensureRunningForActivation(pluginId: string, context: Exclude<PluginActivationContext, 'view'>, signal?: AbortSignal): Promise<McpRuntime> {
+    const descriptor = pluginRegistry.getInstalledDescriptors().find(item => item.id === pluginId && item.enabled)
+    if (!descriptor) throw new Error('Plugin is not installed or enabled')
+    const closeRevision = this.closeRevisions.get(pluginId) ?? 0
+    const current = () => !signal?.aborted && !this.shuttingDown && !this.barriers.has(pluginId) && isEnabledSync(pluginId)
+      && (this.closeRevisions.get(pluginId) ?? 0) === closeRevision && pluginRegistry.getBuildRevision(pluginId) === descriptor.buildRevision
+    const release = acquirePluginActivity(pluginId, `activation-start:${randomUUID()}`, 'Plugin activation startup')
+    try {
+      if (!current()) throw new Error('Plugin activation retired')
+      await this.openPlugin(pluginId, undefined, { activationContext: context, guard: current })
+      const runtime = this.getMcpRuntime(pluginId)
+      if (!current() || !runtime) throw new Error('Plugin activation retired during startup')
+      return runtime
+    } finally { release() }
+  }
+
+  setResidentLease(pluginId: string, enabled: boolean): void {
+    const previous = this.residentLeases.get(pluginId)
+    if (!enabled) {
+      if (previous) { this.residentLeases.delete(pluginId); setResidentActivation(previous.scope, false); previous.release() }
+      return
+    }
+    const scope = this.entries.get(pluginId)?.scope
+    if (!scope?.isCurrent() || scope.isClosing) throw new Error('Resident owner is unavailable')
+    if (previous?.scope === scope) return
+    previous?.release()
+    const lease = { scope, release: scope.acquireActivity('declared resident setting') }
+    this.residentLeases.set(pluginId, lease)
+    setResidentActivation(scope, true)
+    scope.addDisposer(() => {
+      if (this.residentLeases.get(pluginId) === lease) this.residentLeases.delete(pluginId)
+      setResidentActivation(scope, false)
+      lease.release()
+    })
+  }
+
+  async closePresentation(tabId: string, preserveSharedResources = false): Promise<void> {
+    const pluginId = toPluginId(tabId), entry = this.entries.get(pluginId)
+    if (!entry || this.residentLeases.get(pluginId)?.scope !== entry.scope) return this.closePlugin(tabId, 'tab-close', false, preserveSharedResources)
+    const wasActive = this.activeTabId === pluginId
+    const next = [...this.logicalTabs.keys()].find(id => id !== pluginId)
+    this.detachView(entry)
+    setActivationContext(entry.scope, 'resident')
+    setBackgroundNonInteractive(entry.scope, true)
+    retireInteractionEpoch(entry.scope)
+    if (this.getState(pluginId) === 'active') this.sendToPlugin(entry.view.webContents, { event: 'out', isKill: false })
+    this.applyTransition(pluginId, 'deactivate')
+    entry.presentationPending = true
+    this.logicalTabs.delete(pluginId)
+    this.windowSession.remove(pluginId)
+    if (this.getPlacement(pluginId).kind === 'detached') destroyDetachedWindow(pluginId)
+    if (this.getPlacement(pluginId).kind === 'panel') forgetPanelPlugin(pluginId)
+    this.placements.set(pluginId, { kind: 'shell' })
+    entry.view.webContents.setBackgroundThrottling(true)
+    this.bumpPlacement(pluginId)
+    if (this.releaseQuickSession(pluginId)) {
+      clearQuickInput(pluginId)
+      setQuickContentSize({ height: QUICK_HOME_HEIGHT })
+      sendShellEvent({ type: 'quick-plugin-mode', mode: null })
+    }
+    if (wasActive) this.activeTabId = null
+    sendShellEvent({ type: 'tab-closed', tabId: toTabId(pluginId) })
+    this.publishTabs()
+    if (wasActive) { if (next) this.activatePlugin(next); else sendShellEvent({ type: 'plugin-active', tabId: null }) }
+  }
+
   private acceptTrustedNavigation(pluginId: string): void {
     this.mcpBackgroundPlugins.delete(pluginId)
     const scope = this.entries.get(pluginId)?.scope
-    if (scope) setBackgroundNonInteractive(scope, false)
+    if (scope) { setActivationContext(scope, 'view'); setBackgroundNonInteractive(scope, false) }
   }
 
   getManifestForWebContents(wcId: number) {
@@ -874,6 +993,9 @@ export class PluginHost {
   /** quick 呼出回常用网格，保留后台插件进程供下次显式打开。 */
   resetQuickSession(): void {
     this.onQuickHidden()
+    const pluginId = this.quickSession.pluginId
+    this.releaseQuickSession()
+    if (pluginId) { clearQuickInput(pluginId); this.pendingEnter.delete(pluginId); this.scheduleHibernate(pluginId) }
     for (const entry of this.entries.values()) {
       if (this.getPlacement(entry.pluginId).kind === 'quick') entry.view.setVisible(false)
     }
@@ -882,29 +1004,24 @@ export class PluginHost {
 
   /**
    * quick 呼出编排：上次隐藏时仍挂载的插件（未 Esc 退场）直接恢复，
-   * 复用 launchPluginIn 的守卫与呈现事务（存活 entry 原样重挂、休眠则唤醒重建）；
+   * 复用 launchPluginIn 的守卫与呈现事务，保留当前运行实例；
    * 不可恢复时回常用网格。返回是否恢复了插件。
    */
   async prepareQuickSummon(guard: () => boolean = () => true): Promise<boolean> {
-    const pid = this.lastQuickPluginId
-    if (pid && !this.shuttingDown && !this.barriers.has(pid)) {
+    if (!guard()) return false
+    const token = this.quickSession.capture(), pid = token?.pluginId
+    if (token && pid && !this.shuttingDown && !this.barriers.has(pid)) {
       const summary = pluginRegistry.get(pid)
-      if (summary?.installed && summary.enabled !== false) {
+      if (summary?.installed && summary.enabled !== false && this.getState(pid) !== 'crash') {
         try {
           await this.launchPluginIn(pid, 'quick', undefined,
-            () => guard() && !this.shuttingDown && !this.barriers.has(pid))
+            () => guard() && this.quickSession.matches(token) && !this.shuttingDown && !this.barriers.has(pid))
           return true
         } catch (error) {
           const message = (error as Error).message
-          // 被更新的呼出取消：保留记忆供下次恢复，且不再重置（新呼出已接管呈现）
-          if (!/cancelled/.test(message)) {
-            logWarn('quick', `restore ${pid} failed: ${message}`)
-            this.lastQuickPluginId = null
-          }
-          if (!guard()) return false
+          if (!guard() || !this.quickSession.matches(token) || /cancelled/.test(message)) return false
+          logWarn('quick', `restore ${pid} failed: ${message}`)
         }
-      } else {
-        this.lastQuickPluginId = null
       }
     }
     this.resetQuickSession()
@@ -912,16 +1029,13 @@ export class PluginHost {
   }
 
   /**
-   * quick 小窗隐藏（失焦/热键收起）时：挂载中的插件退 background + 启动休眠计时。
-   * view 隐藏但保持挂载，不摘除不销毁；再次搜索打开时复用，休眠仍遵循资源策略。
+   * 自动隐藏只改变可见性；当前逻辑会话、接管输入和运行实例保留到显式退出。
    */
   onQuickHidden(): void {
     finishQuickPluginReveal()
-    clearQuickInput()
-    const pid = this.quickPluginId
+    const pid = this.quickSession.hide()
     if (!pid) return
-    this.lastQuickPluginId = pid
-    this.quickPluginId = null
+    this.clearHibernateTimer(pid)
     const entry = this.entries.get(pid)
     if (!entry) return
     entry.view.setVisible(false)
@@ -929,9 +1043,6 @@ export class PluginHost {
       this.sendToPlugin(entry.view.webContents, { event: 'out', isKill: false })
       this.applyTransition(pid, 'deactivate')
     }
-    // 窗口已整体不可见，挂载语义不再阻止休眠：先清 quickPluginId 再计时，
-    // 否则 scheduleHibernate 的 quickPluginId 守卫会让渲染进程常驻直到下次呼出
-    this.scheduleHibernate(pid)
   }
 
   /** 当前生命周期状态（未打开返回 installed） */
@@ -960,12 +1071,9 @@ export class PluginHost {
     this.placements.delete(pluginId)
     this.lazyDetached.delete(pluginId)
     this.windowSession.remove(pluginId)
-    if (this.quickPluginId === pluginId) {
-      this.quickPluginId = null
-    }
-    if (this.lastQuickPluginId === pluginId) {
-      this.lastQuickPluginId = null
-    }
+    this.releaseQuickSession(pluginId)
+    forgetQuickEnterInput(pluginId)
+    clearQuickInput(pluginId)
     this.clearHibernateTimer(pluginId)
   }
 
@@ -1147,13 +1255,17 @@ export class PluginHost {
     if (reloading) return reloading.promise.then(() => this.openPlugin(pluginId, enter, opts))
     const closing = this.closing.get(pluginId)
     if (closing) return closing.then(() => this.openPlugin(pluginId, enter, opts))
-    if (this.retiringViews.has(pluginId)) return Promise.reject(new Error('plugin renderer destruction is still pending'))
+    if (this.resourceOwners.get(pluginId)?.closing || this.retiringViews.has(pluginId) || this.closingEntries.has(pluginId)) {
+      return Promise.reject(new Error('plugin resource cleanup is still pending; retry stopping resources first'))
+    }
     const opening = this.opening.get(pluginId)
     if (opening) {
       if (opening.cancelled) return opening.promise.catch(() => undefined).then(() => this.openPlugin(pluginId, enter, opts))
       return opening.promise.then(() => this.openPlugin(pluginId, enter, opts))
     }
-    const operation = { cancelled: false, promise: Promise.resolve(pluginId) }
+    // Fence the entire cold attempt, including dev resources allocated before the first View.
+    if (!this.entries.has(pluginId)) this.resourceOwners.set(pluginId, { closing: false })
+    const operation: PluginOpeningOperation = { cancelled: false, promise: Promise.resolve(pluginId) }
     this.opening.set(pluginId, operation)
     if (this.lazyDetached.has(pluginId)) this.publishTabs()
     operation.promise = this.createPlugin(pluginId, enter, opts, operation).finally(() => {
@@ -1175,12 +1287,12 @@ export class PluginHost {
     pluginId: string,
     enter?: PluginEnterPayload,
     opts?: PluginOpenOptions,
-    operation?: { cancelled: boolean; preserveDevServer?: boolean }
+    operation?: PluginOpeningOperation
   ): Promise<string> {
     const resumeIdentity = this.hibernated.get(pluginId)
     const existing = this.entries.get(pluginId)
     if (existing) {
-      if (opts?.backgroundExecution) {
+      if (opts?.backgroundExecution || opts?.activationContext) {
         if (existing.presentationPending && existing.pendingLoadUrl) throw new Error('MCP plugin presentation is busy')
         return pluginId
       }
@@ -1215,6 +1327,9 @@ export class PluginHost {
     if (!isEnabledSync(pluginId)) {
       throw new Error(`plugin disabled: ${pluginId}`)
     }
+    const resourceOwner = this.resourceOwners.get(pluginId)
+    const currentOpening = () => !operation?.cancelled && !this.shuttingDown && !this.barriers.has(pluginId)
+      && this.resourceOwners.get(pluginId) === resourceOwner && opts?.guard?.() !== false
 
     // 唤醒休眠插件：先把快照灌回内存 sessionBag，再走全新冷启动。
     // 休眠已释放 resident bag，因此新 renderer 加载前恢复业务快照。
@@ -1224,13 +1339,15 @@ export class PluginHost {
       logInfo('lifecycle', `${pluginId}: waking from hibernation`)
     }
 
-    const summary = opts?.backgroundExecution ? pluginRegistry.get(pluginId) : await pluginRegistry.ensureInstalled(pluginId)
-    if (!summary || opts?.backgroundExecution && (!summary.installed || summary.enabled === false || !summary.rootPath)) {
+    const silent = Boolean(opts?.backgroundExecution || opts?.activationContext)
+    const summary = silent ? pluginRegistry.get(pluginId) : await pluginRegistry.ensureInstalled(pluginId)
+    if (!summary || silent && (!summary.installed || summary.enabled === false || !summary.rootPath)) {
       throw new Error(`MCP plugin is not installed or enabled: ${pluginId}`)
     }
+    if (!currentOpening() || !isEnabledSync(pluginId)) throw new Error('plugin opening cancelled')
     if (summary.dev && summary.devUrl) {
       const devUrl = await resumeDevServer(pluginId)
-      if (operation?.cancelled || this.shuttingDown || this.barriers.has(pluginId)) {
+      if (!currentOpening()) {
         if (!operation?.preserveDevServer) stopDevServer(pluginId)
         throw new Error('plugin opening cancelled')
       }
@@ -1240,7 +1357,7 @@ export class PluginHost {
       }
     }
     if (opts?.guard && !opts.guard()) throw new Error('plugin launch cancelled')
-    if (operation?.cancelled || this.shuttingDown || this.barriers.has(pluginId) || !isEnabledSync(pluginId)) throw new Error('plugin opening cancelled')
+    if (!currentOpening() || !isEnabledSync(pluginId)) throw new Error('plugin opening cancelled')
     const rootPath = summary.rootPath
     if (!rootPath) throw new Error(`plugin not installed: ${pluginId}`)
 
@@ -1252,10 +1369,10 @@ export class PluginHost {
     // mode 是布局模式（含 panel），新呈现按 manifest views 归一，未适配布局回落 default。
     const previousPlacement = this.placements.get(pluginId)
     const detached = previousPlacement?.kind === 'detached'
-    const resumeRequested = Boolean(opts?.backgroundExecution) || (detached && !opts?.deferPresentation)
+    const resumeRequested = silent || (detached && !opts?.deferPresentation)
     const requested: PluginContainer = opts?.container ?? 'shell'
     const retainedPlacement = previousPlacement && (previousPlacement.kind !== 'panel' || supportsPanelLayout(manifest?.views))
-      && (opts?.deferPresentation || opts?.backgroundExecution || detached
+      && (opts?.deferPresentation || silent || detached
       || previousPlacement.kind === 'panel' && opts?.container === undefined) ? previousPlacement : undefined
     const mode = this.modeFor(pluginId, opts?.layoutMode ?? (retainedPlacement?.kind === 'panel' ? 'panel'
       : resumeRequested ? this.getLayoutMode(pluginId) : requested))
@@ -1270,7 +1387,7 @@ export class PluginHost {
     // 新建的插件 session 需继承当前应用代理（直连时 no-op）
     await applyProxyToPluginPartition(pluginId)
     if (opts?.guard && !opts.guard()) throw new Error('plugin launch cancelled')
-    if (operation?.cancelled || this.shuttingDown || this.barriers.has(pluginId)) throw new Error('plugin opening cancelled')
+    if (!currentOpening()) throw new Error('plugin opening cancelled')
     if (opts?.preparation) opts.preparation.source = {
       placement: this.placements.get(pluginId), layoutMode: this.layoutModes.get(pluginId),
       revision: this.getPlacementRevision(pluginId), state: this.states.get(pluginId),
@@ -1279,7 +1396,7 @@ export class PluginHost {
     this.hibernated.delete(pluginId)
     this.setLayoutMode(pluginId, mode)
     this.placements.set(pluginId, placement)
-    if (!opts?.deferPresentation && placement.kind === 'shell' && !this.logicalTabs.has(pluginId)) {
+    if (!opts?.deferPresentation && !opts?.activationContext && placement.kind === 'shell' && !this.logicalTabs.has(pluginId)) {
       this.logicalTabs.set(pluginId, { title: summary.name, tabSessionId: randomUUID() })
     }
     if (!summary.devUrl) {
@@ -1292,6 +1409,7 @@ export class PluginHost {
         partition,
         contextIsolation: true,
         nodeIntegration: false,
+        backgroundThrottling: placement.kind !== 'panel',
         sandbox: true // self-contained CJS preload only exposes the capability bridge
       }
     })
@@ -1312,13 +1430,14 @@ export class PluginHost {
       : withPid(pluginProtocolUrl(pluginId, mainFromManifest), pluginId)
     // code/mode 走 query，便于插件在首个脚本同步读取；payload 体积不定，走 IPC。
     // mode = 启动方式（quick 小窗 / shell 大窗 / panel 面板组件），插件据此选择渲染哪套入口样式
-    const url = withMode(
+    let url = withMode(
       enter?.code ? withCode(base, enter.code) : base,
       mode
     )
+    if (opts?.activationContext) { const target = new URL(url); target.searchParams.set('activation', opts.activationContext); url = target.toString() }
 
     this.applyTransition(pluginId, 'open')
-    if (enter && (enter.code !== undefined || enter.payload !== undefined)) {
+    if (enter && (enter.code !== undefined || enter.payload !== undefined || enter.input !== undefined)) {
       this.pendingEnter.set(pluginId, enter)
     }
 
@@ -1392,6 +1511,7 @@ export class PluginHost {
     const scope = createRuntimeScope({ pluginId, generation, wcId: view.webContents.id })
     if (opts?.backgroundExecution) this.mcpBackgroundPlugins.add(pluginId)
     if (this.mcpBackgroundPlugins.has(pluginId)) setBackgroundNonInteractive(scope, true)
+    if (opts?.activationContext) { setActivationContext(scope, opts.activationContext); setBackgroundNonInteractive(scope, true) }
     scope.onActivityChanged(() => { this.scheduleHibernate(pluginId); this.enforceAliveLimit() })
     scope.addDisposer(() => releasePluginEndpoints(pluginId))
     scope.addDisposer(() => ses.closeAllConnections())
@@ -1399,6 +1519,7 @@ export class PluginHost {
     scope.addDisposer(() => { contributionRegistry.releaseQuickProviders(pluginId) })
     scope.addDisposer(() => releasePluginActivities(pluginId))
     scope.addDisposer(() => { this.inputContexts.delete(pluginId) })
+    scope.addDisposer(() => { if (readQuickEnterInput(pluginId, generation)) forgetQuickEnterInput(pluginId) })
     scope.addDisposer(() => stopPluginProcesses(pluginId, generation))
     scope.addDisposer(() => releaseSockets(pluginId, generation))
     scope.addDisposer(() => releaseLocalFiles(pluginId))
@@ -1412,17 +1533,20 @@ export class PluginHost {
       rootPath,
       ui,
       layoutMode: mode,
-      presentationPending: opts?.deferPresentation || opts?.backgroundExecution,
+      presentationPending: opts?.deferPresentation || silent,
       pendingLoadUrl: url,
       dirty: false,
       lastActivatedAt: Date.now()
     }
     this.entries.set(pluginId, entry)
+    if (operation) operation.entry = entry
     if (opts?.preparation) opts.preparation.entry = entry
     this.lazyDetached.delete(pluginId)
     this.byWcId.set(view.webContents.id, pluginId)
 
-    if (placement.kind === 'detached' || placement.kind === 'panel') {
+    if (opts?.activationContext) {
+      // A silent activation has no native parent until a guarded view launch commits.
+    } else if (placement.kind === 'detached' || placement.kind === 'panel') {
       const parent = placement.kind === 'detached' ? getDetachedParent(pluginId) : getPanelContentParent(placement.panelId)
       if (!parent) {
         // Prepared launches restore their dormant source through the caller's rollback.
@@ -1453,7 +1577,7 @@ export class PluginHost {
 
     raiseTransientViews()
     this.hookNativeTheme()
-    if (opts?.backgroundExecution) {
+    if (silent) {
       // A cold MCP page owns a logical Tab, but never changes the active surface or sends enter.
       this.startEntryLoad(entry)
     } else if (opts?.deferPresentation) {
@@ -1499,6 +1623,12 @@ export class PluginHost {
    */
   closePlugin(tabId: string, reason: PluginCloseReason = 'tab-close', preserveSession = false, preserveSharedResources = false): Promise<void> {
     const pluginId = toPluginId(tabId)
+    const resourceOwner = this.ensureResourceOwner(pluginId)
+    resourceOwner.closing = true
+    const quickWasVisible = this.quickPluginId === pluginId
+    if (!preserveSession) { this.releaseQuickSession(pluginId); clearQuickInput(pluginId); forgetQuickEnterInput(pluginId) }
+    else if (quickWasVisible) this.quickSession.hide()
+    this.setResidentLease(pluginId, false)
     const forgetPanelRecord = !preserveSession && (this.placements.get(pluginId)?.kind === 'panel' || reason === 'uninstall')
     this.retireMcpRuntime(pluginId, `close:${reason}`)
     if (!preserveSession) this.mcpBackgroundPlugins.delete(pluginId)
@@ -1515,6 +1645,7 @@ export class PluginHost {
     const pending = this.closing.get(pluginId)
     const final = this.finalClosing.get(pluginId)
     if (pending && final) {
+      if (!preserveSession && !preserveSharedResources) this.stopAllPluginResources(pluginId, final)
       if (!preserveSession && final.preserveSession) {
         final.preserveSession = false
         this.logicalTabs.delete(pluginId)
@@ -1522,13 +1653,14 @@ export class PluginHost {
         this.placements.delete(pluginId)
         this.detachedVisible.delete(pluginId)
         this.detachedStateSignatures.delete(pluginId)
+        this.panelSuppressed.delete(pluginId)
         sendShellEvent({ type: 'tab-closed', tabId: toTabId(pluginId) })
         this.publishTabs()
       }
       if (forgetPanelRecord) forgetPanelPlugin(pluginId)
       return pending
     }
-    const closeOptions = { preserveSession }
+    const closeOptions: PluginClosingOperation = { preserveSession }
     this.finalClosing.set(pluginId, closeOptions)
     this.suspending.delete(pluginId)
     this.pendingAcks.get(pluginId)?.resolve()
@@ -1540,14 +1672,13 @@ export class PluginHost {
     }
     this.clearHibernateTimer(pluginId)
     permissionService.cancelFor(pluginId)
-    const entry = this.entries.get(pluginId)
+    const entry = this.entries.get(pluginId) ?? this.closingEntries.get(pluginId) ?? this.retiringViews.get(pluginId)
     entry?.scope.markClosing()
     const instanceOnly = preserveSession || preserveSharedResources
-    const stopping = Promise.allSettled([
-      // undefined generation means all owners; a missing ordinary instance must not release Workspace resources.
-      ...(!instanceOnly ? [stopPluginProcesses(pluginId)] : entry ? [stopPluginProcesses(pluginId, entry.generation)] : []),
-      ...(!instanceOnly ? [stopDevServerAndWait(pluginId)] : [])
-    ])
+    // A missing ordinary instance must not release a still-live Workspace's shared resources.
+    const stopping = instanceOnly
+      ? Promise.allSettled(entry ? [stopPluginProcesses(pluginId, entry.generation)] : [])
+      : this.stopAllPluginResources(pluginId, closeOptions)
     const ids = [...this.logicalTabs.keys()]
     const index = ids.indexOf(pluginId)
     const next = ids[index + 1] ?? ids[index - 1]
@@ -1569,8 +1700,7 @@ export class PluginHost {
       // An unsupported saved placeholder does not belong to an independently opened shell runtime.
       if (forgetPanelRecord) forgetPanelPlugin(pluginId)
     }
-    if (this.quickPluginId === pluginId) {
-      this.quickPluginId = null
+    if (quickWasVisible) {
       setQuickContentSize({ height: QUICK_HOME_HEIGHT })
       sendShellEvent({ type: 'quick-plugin-mode', mode: null })
     }
@@ -1579,6 +1709,7 @@ export class PluginHost {
     this.applyTransition(pluginId, 'close', reason)
     if (!preserveSession) sendShellEvent({ type: 'tab-closed', tabId: toTabId(pluginId) })
     this.publishTabs()
+    let cleanupComplete = false
     const operation = Promise.resolve().then(async () => {
       let failure: unknown
       try {
@@ -1604,7 +1735,14 @@ export class PluginHost {
       }
       const rejected = stops.find((result): result is PromiseRejectedResult => result.status === 'rejected')
       if (failure || rejected) throw failure ?? rejected?.reason
-    }).finally(() => {
+      cleanupComplete = true
+    }).finally(async () => {
+      // A final close may upgrade an instance-only close even after its body resolves.
+      // Drain that upgrade before retiring the owner; all later joiners share this promise.
+      const fullStops = closeOptions.fullStop ? await closeOptions.fullStop : undefined
+      const fullFailure = fullStops?.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+      const lateFailure = cleanupComplete && fullFailure
+      if (fullFailure) cleanupComplete = false
       // A native destruction failure keeps its retiring guard, but must not keep
       // closed logical-session payloads or queued UI state alive.
       if (!closeOptions.preserveSession) {
@@ -1619,8 +1757,11 @@ export class PluginHost {
       sendShellEvent({ type: 'plugins-changed' })
       if (this.closing.get(pluginId) === operation) this.closing.delete(pluginId)
       this.finalClosing.delete(pluginId)
-      if (this.closingEntries.get(pluginId) === entry) this.closingEntries.delete(pluginId)
+      if (cleanupComplete && this.closingEntries.get(pluginId) === entry) this.closingEntries.delete(pluginId)
+      else if (!cleanupComplete && entry) this.closingEntries.set(pluginId, entry)
+      if (cleanupComplete && this.resourceOwners.get(pluginId) === resourceOwner) this.resourceOwners.delete(pluginId)
       if (entry) this.byWcId.delete(entry.scope.owner.wcId)
+      if (lateFailure) throw lateFailure.reason
     })
     this.closing.set(pluginId, operation)
     if (wasActive && !preserveSession && !this.shuttingDown) {
@@ -1848,13 +1989,14 @@ export class PluginHost {
     entry.presentationPending = false
 
     // 换插件：旧 quick 插件退场（保留进程，走休眠策略）
-    if (this.quickPluginId && this.quickPluginId !== pluginId) {
-      this.dismissQuickPluginInternal(this.quickPluginId, false)
+    const previous = this.quickSession.pluginId
+    if (previous && previous !== pluginId) {
+      this.dismissQuickPluginInternal(previous, false)
     }
 
     this.suspending.delete(pluginId)
     this.clearHibernateTimer(pluginId)
-    this.quickPluginId = pluginId
+    this.quickSession.show(pluginId)
     entry.lastActivatedAt = Date.now()
 
     setQuickContentSize({ height: QUICK_HEIGHT })
@@ -1877,7 +2019,7 @@ export class PluginHost {
     }
 
     // 新 enter 载荷覆盖 pending（呼出关键词的 code）
-    if (enter && (enter.code !== undefined || enter.payload !== undefined)) {
+    if (enter && (enter.code !== undefined || enter.payload !== undefined || enter.input !== undefined)) {
       this.pendingEnter.set(pluginId, enter)
     }
 
@@ -1908,8 +2050,7 @@ export class PluginHost {
    */
   dismissQuickPlugin(pluginId: string): void {
     clearQuickInput(pluginId)
-    const entry = this.entries.get(pluginId)
-    if (!entry || this.getPlacement(pluginId).kind !== 'quick') return
+    if (this.getPlacement(pluginId).kind !== 'quick') return
     this.dismissQuickPluginInternal(pluginId, true)
   }
 
@@ -1917,21 +2058,18 @@ export class PluginHost {
   private dismissQuickPluginInternal(pluginId: string, notify: boolean): void {
     clearQuickInput(pluginId)
     const entry = this.entries.get(pluginId)
-    if (!entry) return
-    if (this.quickPluginId !== pluginId) return
-    this.quickPluginId = null
-    // 显式退场（Esc / 清空输入 / 打开其它命令）不再恢复；换插件挂载由新挂载方接管
-    if (notify && this.lastQuickPluginId === pluginId) this.lastQuickPluginId = null
+    if (!this.releaseQuickSession(pluginId)) return
+    this.pendingEnter.delete(pluginId)
     finishQuickPluginReveal()
     if (notify) setQuickContentSize({ height: QUICK_HOME_HEIGHT })
 
     try {
-      entry.view.setVisible(false)
+      entry?.view.setVisible(false)
     } catch {
       /* view 可能已销毁 */
     }
     // out + background + 休眠计时（quick 可见期间不得休眠：quickPluginId 恒 null 之后才计时）
-    if (this.getState(pluginId) === 'active') {
+    if (entry && this.getState(pluginId) === 'active') {
       this.sendToPlugin(entry.view.webContents, { event: 'out', isKill: false })
       this.applyTransition(pluginId, 'deactivate')
     }
@@ -1982,9 +2120,10 @@ export class PluginHost {
       sourceParent?.removeChildView(entry.view)
       targetParent.addChildView(entry.view)
       entry.view.setBounds(bounds)
+      entry.view.webContents.setBackgroundThrottling(target.kind !== 'panel')
       raiseTransientViews()
     } catch (error) {
-      try { targetParent.removeChildView(entry.view); sourceParent?.addChildView(entry.view); entry.view.setBounds(oldBounds) } catch { /* renderer/parent may have closed */ }
+      try { targetParent.removeChildView(entry.view); sourceParent?.addChildView(entry.view); entry.view.setBounds(oldBounds); entry.view.webContents.setBackgroundThrottling(source.kind !== 'panel') } catch { /* renderer/parent may have closed */ }
       throw error
     }
     // 面板内组件的原生圆角裁切由 PanelManager 随后重设；迁出面板必须立即撤销，
@@ -1992,25 +2131,24 @@ export class PluginHost {
     if (target.kind !== 'panel') releasePluginViewChrome(entry.view)
     this.suspending.delete(id)
     this.clearHibernateTimer(id)
-    if (target.kind === 'quick' && this.quickPluginId && this.quickPluginId !== id) {
-      this.dismissQuickPluginInternal(this.quickPluginId, false)
+    const previousQuick = this.quickSession.pluginId
+    if (target.kind === 'quick' && previousQuick && previousQuick !== id) {
+      this.dismissQuickPluginInternal(previousQuick, false)
     }
     this.placements.set(id, target)
     this.bumpPlacement(id)
     this.setLayoutMode(id, mode)
     if (source.kind === 'panel' && target.kind !== 'panel') this.panelSuppressed.delete(id)
-    if (target.kind === 'shell' || target.kind === 'panel') clearQuickInput(id)
+    if (target.kind === 'shell' || target.kind === 'panel') { clearQuickInput(id); forgetQuickEnterInput(id) }
     // 迁出 quick（固定到主窗 / 分离）后，呼出不再把它拽回小窗
-    if (source.kind === 'quick' && this.lastQuickPluginId === id) this.lastQuickPluginId = null
-    if (source.kind === 'quick' && this.quickPluginId === id) {
+    if (source.kind === 'quick' && target.kind !== 'quick' && this.releaseQuickSession(id)) {
       finishQuickPluginReveal()
-      this.quickPluginId = null
       setQuickContentSize({ height: QUICK_HOME_HEIGHT })
       sendShellEvent({ type: 'quick-plugin-mode', mode: null })
     }
     // Commit Quick ownership before publishing any other detached snapshots. Their
     // input reads prune abandoned owners, so an intermediate null would lose query state.
-    if (target.kind === 'quick') this.quickPluginId = id
+    if (target.kind === 'quick') this.quickSession.show(id)
     const oldTabIds = [...this.logicalTabs.keys()]
     if (target.kind === 'shell') {
       if (!this.logicalTabs.has(id)) this.logicalTabs.set(id, { title: pluginRegistry.get(id)?.name ?? id, tabSessionId: entry.tabSessionId })
@@ -2045,7 +2183,7 @@ export class PluginHost {
     const entry = this.entries.get(pluginId)
     if (!entry) return
     const mode = this.modeFor(pluginId, layoutMode)
-    if (this.getPlacement(pluginId).kind === container) {
+    if (this.getPlacement(pluginId).kind === container && !(entry.presentationPending && container === 'shell' && !this.logicalTabs.has(pluginId))) {
       this.setLayoutMode(pluginId, mode)
       return
     }
@@ -2490,12 +2628,16 @@ export class PluginHost {
     this.prepareSessionShutdown()
     this.shuttingDown = true
     this.activeTabId = null
-    this.quickPluginId = null
+    this.releaseQuickSession()
     // 清掉全部休眠计时器（含后台插件）
     for (const pluginId of [...this.hibernateTimers.keys()]) {
       this.clearHibernateTimer(pluginId)
     }
-    await Promise.all([...new Set([...this.restoringDetached.keys(), ...this.placements.keys(), ...this.logicalTabs.keys(), ...this.hibernated.keys(), ...this.entries.keys(), ...this.opening.keys(), ...this.closing.keys(), ...this.reloading.keys()])].map((id) => this.closePlugin(id, reason)))
+    const closes = await Promise.allSettled([...new Set([
+      ...this.restoringDetached.keys(), ...this.placements.keys(), ...this.logicalTabs.keys(), ...this.hibernated.keys(),
+      ...this.entries.keys(), ...this.opening.keys(), ...this.closing.keys(), ...this.reloading.keys(),
+      ...this.closingEntries.keys(), ...this.retiringViews.keys(), ...this.resourceOwners.keys()
+    ])].map((id) => this.closePlugin(id, reason)))
     // 休眠记录随退出清空（快照仍在 enest.db，但下次启动不自动恢复休眠 Tab 的进程）
     await Promise.allSettled([...this.transfers.values()])
     await Promise.allSettled([...this.restoringDetached.values()].map(operation => operation.promise))
@@ -2504,6 +2646,8 @@ export class PluginHost {
     this.placements.clear()
     this.lazyDetached.clear()
     this.mcpBackgroundPlugins.clear()
+    const failures = closes.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Plugin resource cleanup incomplete during shutdown')
   }
 
   // —— 内部：状态机 + 事件发送 ——
@@ -2549,6 +2693,10 @@ export class PluginHost {
     }
 
     if (pending) this.pendingEnter.delete(pluginId)
+    if (isFirst || pending) {
+      // Publish before onEnter can synchronously request its context; resume does not replay or clear it.
+      rememberQuickEnterInput(pluginId, entry.generation, this.isQuickInputOwner(pluginId) ? pending?.input : undefined)
+    }
     this.enterSent.add(pluginId)
     this.windowSession.focus(pluginId)
     this.sendToPlugin(entry.view.webContents, message)
@@ -2609,7 +2757,7 @@ export class PluginHost {
   /** 启动（或重置）空闲休眠计时；active/dev/quick 挂载中插件不计时 */
   private scheduleHibernate(pluginId: string, retry = false): void {
     this.clearHibernateTimer(pluginId)
-    if (this.isPresented(pluginId) || this.transfers.has(pluginId)) return
+    if (this.isPresented(pluginId) || this.quickSession.retains(pluginId) || this.transfers.has(pluginId)) return
     if (!this.entries.has(pluginId)) return
     // 「退出即杀」（对齐 uTools「退出到后台立即结束运行」）：不计时，退后台立即休眠
     if (hasPluginActivity(pluginId) || this.entries.get(pluginId)?.scope.activityCount) return
@@ -2640,7 +2788,7 @@ export class PluginHost {
    */
   private hibernatePlugin(pluginId: string): void {
     const entry = this.entries.get(pluginId)
-    if (!entry || this.suspending.has(pluginId) || this.getState(pluginId) !== 'background' || this.isPresented(pluginId) || this.transfers.has(pluginId) || this.isDevPlugin(pluginId) || hasPluginActivity(pluginId) || entry.scope.activityCount) return
+    if (!entry || this.suspending.has(pluginId) || this.getState(pluginId) !== 'background' || this.isPresented(pluginId) || this.quickSession.retains(pluginId) || this.transfers.has(pluginId) || this.isDevPlugin(pluginId) || hasPluginActivity(pluginId) || entry.scope.activityCount) return
     const suspension = Symbol(pluginId)
     this.suspending.set(pluginId, suspension)
     let retry = false
@@ -2651,7 +2799,7 @@ export class PluginHost {
       this.sendToPlugin(entry.view.webContents, { event: 'beforeSuspend', operationId })
       const saved = await ack
       if (!saved) { retry = true; return }
-      if (this.suspending.get(pluginId) !== suspension || this.entries.get(pluginId) !== entry || this.getState(pluginId) !== 'background' || this.isPresented(pluginId) || this.transfers.has(pluginId) || entry.scope.activityCount || hasPluginActivity(pluginId)) return
+      if (this.suspending.get(pluginId) !== suspension || this.entries.get(pluginId) !== entry || this.getState(pluginId) !== 'background' || this.isPresented(pluginId) || this.quickSession.retains(pluginId) || this.transfers.has(pluginId) || entry.scope.activityCount || hasPluginActivity(pluginId)) return
       const revision = getSessionRevision(pluginId)
       if (!saveSessionSnapshot(pluginId, entry) || revision !== getSessionRevision(pluginId)) {
         retry = true
@@ -2687,7 +2835,7 @@ export class PluginHost {
     const candidates = [...this.entries.values()]
       .filter(
         (e) =>
-          !this.isPresented(e.pluginId) && !this.transfers.has(e.pluginId) &&
+          !this.isPresented(e.pluginId) && !this.quickSession.retains(e.pluginId) && !this.transfers.has(e.pluginId) &&
           this.getState(e.pluginId) === 'background' &&
           !hasPluginActivity(e.pluginId) && !e.scope.activityCount &&
           !this.isDevPlugin(e.pluginId)
@@ -2739,12 +2887,14 @@ export class PluginHost {
   }
 
   private async disposeEntry(entry: PluginEntry, deadline = Date.now() + BEFORE_CLOSE_ACK_TIMEOUT): Promise<void> {
+    this.closingEntries.set(entry.pluginId, entry)
     const results = await Promise.allSettled([entry.scope.dispose(deadline), this.teardownView(entry)])
     this.byWcId.delete(entry.scope.owner.wcId)
     if (entry.scope.failures.length) logWarn('lifecycle', `${entry.pluginId}/${entry.generation}: resource cleanup: ${entry.scope.failures.join('; ')}`)
     const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
     if (failed) throw failed.reason
     if (entry.scope.failures.length) throw new Error(`Plugin resource cleanup incomplete: ${entry.scope.failures.join('; ')}`)
+    if (this.closingEntries.get(entry.pluginId) === entry) this.closingEntries.delete(entry.pluginId)
   }
 
   private teardownView(entry: PluginEntry): Promise<void> {
@@ -2822,7 +2972,7 @@ bindPanelPluginHost({
   unmountFromPanel: (pluginId, target, position) => pluginHost.unmountFromPanel(pluginId, target, position),
   openInShell: (pluginId, guard) => pluginHost.launchPluginIn(pluginId, 'shell', undefined, guard),
   setPanelWidgetVisibility: (pluginId, visible) => pluginHost.setPanelWidgetVisibility(pluginId, visible),
-  closePanelPlugins: pluginIds => pluginHost.closePanelPlugins(pluginIds),
+  capturePanelPluginClose: (pluginId, panelId) => pluginHost.capturePanelPluginClose(pluginId, panelId),
   getPlacement: pluginId => pluginHost.getPlacement(pluginId),
   describePanelWidget: pluginId => pluginHost.describePanelWidget(pluginId),
   getPluginView: pluginId => pluginHost.getPluginView(pluginId)
@@ -2842,7 +2992,7 @@ async function clearCompiledCache(pluginId: string): Promise<void> {
 queueMicrotask(() => {
   setQuickPluginRelayout(() => pluginHost.layoutQuickPlugins())
 
-  /** quick 小窗隐藏：挂载插件退 background + 休眠计时（view 留在不可见 contentView） */
+  /** 自动隐藏保留当前 Quick 会话；显式退出后才恢复普通资源策略。 */
   setQuickPluginHiddenHook(() => pluginHost.onQuickHidden())
 
   /**
@@ -2866,6 +3016,5 @@ setPluginInstallLifecycleHooks({
     invalidatePluginFileCache(rootPath)
     deleteSessionSnapshot(id)
     await clearCompiledCache(id)
-  },
-  findConflictingInstallation: manifest => Promise.resolve(pluginRegistry.findConflictingInstallation(manifest))
+  }
 })

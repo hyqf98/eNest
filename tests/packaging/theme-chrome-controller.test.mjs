@@ -34,12 +34,14 @@ function fixture() {
   const chrome = { version: 1, classic: { entry: 'chrome/classic.html' }, rail: { entry: 'chrome/rail.html' }, dock: { entry: 'chrome/dock.html' } }
   const env = { enabled: true, manifest: true, root: '/fixture/theme', build: 1, focused: true, active: true, inset: 0,
     appearance: { theme: { source: 'fixture.theme', id: 'custom', version: '1' }, chrome },
-    pack: { source: 'fixture.theme', chrome }, read: async () => new Uint8Array([60, 62]), changed: 0 }
+    pack: { source: 'fixture.theme', chrome }, read: async () => new Uint8Array([60, 62]), changed: 0,
+    pluginEnabled: true, targetBuild: 1, installedRevision: 0, runtime: undefined, openGate: null, openStarted: null }
+  const railRows = [{ source: 'fixture.plugin', id: 'contrib', data: { id: 'contrib', title: 'New', color: '#123', glyph: '+', openCode: 'new-item' } }]
   const state = { view: 'plugin', tabStyle: 'orb', activeTabId: 't1', animationLevel: 'low',
     theme: { mode: 'dark', tokens: { '--ink': '#123456' }, appearance: { resources: { fonts: ['/private/font'] } } },
     profile: { name: 'Private account', avatar: 'data:image/png;base64,AA' },
     tabs: [{ id: 't1', pluginId: 'fixture.plugin', title: 'One', color: '#123', glyph: '1', icon: 'file:///private/icon.png', badge: '2', lazy: true, crashed: true }],
-    contribEntries: [{ id: 'contrib', pluginId: 'fixture.plugin', title: 'New', color: '#123', glyph: '+', openCode: 'new-item' }] }
+    contribEntries: [] }
   const electron = {
     app: { getAppPath: () => '/fixture/eNest' }, nativeTheme: new EventEmitter(),
     ipcMain: { handle: (name, handler) => handlers.set(name, handler) }, shell: {},
@@ -75,9 +77,12 @@ function fixture() {
     getBounds() { return this.bounds }
   }
   const pluginRegistry = {
-    getAssetRootPath: () => env.root, isEnabled: id => id === 'fixture.theme' ? env.enabled : id === 'fixture.plugin',
-    getManifest: () => env.manifest ? {} : null, getBuildRevision: () => env.build,
-    get: () => ({ installed: true, enabled: env.enabled }),
+    getAssetRootPath: () => env.root,
+    isEnabled: id => id === 'fixture.theme' ? env.enabled : env.pluginEnabled && railRows.some(row => row.source === id),
+    getManifest: id => env.manifest ? { contributes: { railEntries: railRows.filter(row => row.source === id).map(row => row.data) } } : null,
+    getBuildRevision: id => id === 'fixture.theme' ? env.build : env.targetBuild,
+    getInstalledRevision: () => env.installedRevision,
+    get: () => ({ installed: true, enabled: env.pluginEnabled }),
     onInstalledChanged(listener) { pluginWatchers.add(listener); return () => pluginWatchers.delete(listener) },
   }
   const children = []
@@ -90,11 +95,25 @@ function fixture() {
     hasShellTab: id => id === 't1', activatePlugin: id => calls.push(['activate', id]),
     closePlugin: async (id, reason) => { calls.push(['close', id, reason]) },
     detachPlugin: async id => { calls.push(['detach', id]) }, reorderPlugin: (id, index) => calls.push(['reorder', id, index]),
-    openPlugin: async (id, enter) => { calls.push(['open', id, enter]) },
+    openPlugin: async (id, enter, options) => {
+      if (options?.guard && !options.guard()) throw Error('plugin launch cancelled')
+      env.openStarted?.()
+      if (env.openGate) await env.openGate
+      if (options?.guard && !options.guard()) throw Error('plugin launch cancelled')
+      calls.push(['open', id, enter])
+    },
   }
+  const rail = load('src/main/contrib/railContributions.ts', {
+    './ContributionRegistry': { listRailEntries: () => railRows },
+    '@main/plugin/PluginRegistry': { pluginRegistry },
+    '@main/plugin/PluginRuntimeScope': { getRuntimeScope: () => env.runtime },
+    '@main/plugin/PluginHost': { pluginHost },
+  })
+  state.contribEntries = rail.readRailContributionEntries()
   const api = load('src/main/theme/themeChromeSurface.ts', {
     electron, 'node:fs/promises': { realpath: async () => env.root },
     '@shared/types/themeChrome': contract, '@main/plugin/PluginRegistry': { pluginRegistry },
+    '@main/contrib/railContributions': rail,
     '@main/window/createShellWindow': windowService,
     '@main/logs/logService': { logInfo() {}, logWarn() {} }, './appearanceService': { appearanceService: { getAppearance: () => env.appearance } },
     './themePacks': { themePackRegistry: { get: id => id === env.appearance.theme.id ? env.pack : null } },
@@ -123,12 +142,12 @@ function fixture() {
       '@main/ipc/ipcSecurity': security, '@shared/constants': constants, '@shared/types/ipc': ipc,
       '@main/window/createShellWindow': windowService, '@main/settings/SettingsStore': { settingsStore: { getAll: () => ({ general: { animationLevel: 'low' } }) } },
       '@main/theme/resolveThemeCss': { resolveThemeTokens: () => ({ mode: 'light', tokens: {} }) },
-      '@main/contrib/ContributionRegistry': { listRailEntries: () => [] }, '@main/plugin/PluginRegistry': { pluginRegistry },
+      '@main/contrib/railContributions': rail, '@main/plugin/PluginRegistry': { pluginRegistry },
       '@main/logs/logService': { logInfo() {}, logWarn() {} }, '@main/theme/themeChromeSurface': api,
     }, { process: { env: {} }, queueMicrotask })
   }
   return { api, env, state, sessions, views, handlers, timers, calls, failures, shellEvents, make, show, click, event, invoke, dispatch, security,
-    orb, mainWindow, pluginWatchers, electron,
+    orb, mainWindow, pluginWatchers, electron, rail, railRows,
     advance(ms) { clock += ms } }
 }
 
@@ -160,7 +179,7 @@ test('custom renderer stays isolated and never gains trusted shell/window IPC ca
   assert.equal(isolated.options.cache, false)
   assert.match(isolated.partition, /^enest-chrome-/)
   assert.equal(f.security.getTrustedSurfaceRole(wc.id), null)
-  for (const channel of [ipc.IpcChannels.ShellGetSettings, ipc.IpcChannels.ShellOpenPlugin, ipc.IpcChannels.PluginWindowCommand]) {
+  for (const channel of [ipc.IpcChannels.ShellGetSettings, ipc.IpcChannels.ShellOpenPlugin, ipc.IpcChannels.ShellActivateRailContribution, ipc.IpcChannels.PluginWindowCommand]) {
     assert.throws(() => f.security.assertSurfaceSender(f.event(surface), channel), /untrusted surface/)
   }
   let permission = true
@@ -269,7 +288,7 @@ test('host resolves contribution/tab targets and refuses forged targets, invalid
   const f = fixture(), surface = f.make()
   f.show(surface)
   f.click(surface)
-  await f.dispatch(surface, { type: 'contribution', id: 'contrib', pluginId: 'forged', code: 'forged' })
+  await f.dispatch(surface, { type: 'contribution', id: f.state.contribEntries[0].id, pluginId: 'forged', code: 'forged' })
   f.click(surface)
   await f.dispatch(surface, { type: 'detach', tabId: 't1', pluginId: 'forged' })
   f.click(surface)
@@ -277,12 +296,54 @@ test('host resolves contribution/tab targets and refuses forged targets, invalid
   f.click(surface)
   await assert.rejects(f.dispatch(surface, { type: 'reorder', tabId: 't1', index: 99 }), /Invalid tab index/)
   f.click(surface)
-  await assert.rejects(f.dispatch(surface, { type: 'contribution', id: 'other' }), /Unknown contribution/)
+  await assert.rejects(f.dispatch(surface, { type: 'contribution', id: 'other' }), /Unknown or retired rail contribution/)
   f.click(surface)
   const pending = f.dispatch(surface, { type: 'close', tabId: 't1' })
   f.env.enabled = false
   await assert.rejects(pending, /retired during action/)
   assert.deepEqual(clone(f.calls), [['open', 'fixture.plugin', { code: 'new-item' }], ['detach', 'fixture.plugin']])
+})
+
+test('rail ids bind duplicate local ids to their own declaring source and reject raw local ids', async () => {
+  const f = fixture(), surface = f.make()
+  f.railRows.push({ source: 'fixture.other', id: 'contrib', data: { id: 'contrib', glyph: 'O', openCode: 'other-item' } })
+  f.state.contribEntries = f.rail.readRailContributionEntries()
+  const [first, second] = f.state.contribEntries
+  assert.notEqual(first.id, second.id)
+  assert.notEqual(first.id, 'contrib')
+  f.show(surface)
+  for (const entry of [first, second]) {
+    f.click(surface)
+    await f.dispatch(surface, { type: 'contribution', id: entry.id, pluginId: 'forged', code: 'forged' })
+  }
+  assert.deepEqual(clone(f.calls), [['open', 'fixture.plugin', { code: 'new-item' }], ['open', 'fixture.other', { code: 'other-item' }]])
+  f.click(surface)
+  await assert.rejects(f.dispatch(surface, { type: 'contribution', id: 'contrib' }), /Unknown or retired rail contribution/)
+})
+
+test('pending rail launches recheck surface, enabled source, declaration, build and runtime generation', async () => {
+  const changes = [
+    (f, surface) => surface.dispose(),
+    f => { f.env.pluginEnabled = false },
+    f => { f.railRows.length = 0 },
+    f => { f.env.targetBuild++ },
+    f => { f.env.installedRevision++ },
+    f => { f.env.runtime = { isCurrent: () => true, isClosing: false } },
+  ]
+  for (const change of changes) {
+    const f = fixture(), surface = f.make(), started = deferred(), gate = deferred()
+    f.env.runtime = { isCurrent: () => true, isClosing: false }
+    f.env.openStarted = started.resolve
+    f.env.openGate = gate.promise
+    f.show(surface); f.click(surface)
+    const pending = f.dispatch(surface, { type: 'contribution', id: f.state.contribEntries[0].id })
+    await started.promise
+    change(f, surface)
+    gate.resolve()
+    await assert.rejects(pending, /plugin launch cancelled/)
+    assert.deepEqual(f.calls, [])
+    surface.dispose()
+  }
 })
 
 test('dock capability is settings-only; rail expansion is constrained and request-rate limited', async () => {
@@ -339,6 +400,7 @@ test('native rail retains a usable trusted fallback until custom ACK, respects m
   assert.deepEqual(clone(custom.getBounds()), clone(fallback.getBounds()))
   assert.equal(f.security.getTrustedSurfaceRole(custom.webContents.id), null)
   assert.equal(f.security.getTrustedSurfaceRole(fallback.webContents.id), 'orb')
+  assert.doesNotThrow(() => f.security.assertSurfaceSender(f.event({ view: fallback }), ipc.IpcChannels.ShellActivateRailContribution))
   assert.equal(orb.getOrbDragSurface(fallback.webContents.id)?.view, fallback, 'pending fallback retains native drag ownership')
   const resume = orb.suspendOrbRailViews()
   assert.equal(custom.getVisible(), false)
@@ -415,6 +477,7 @@ test('builtin-only classic creates no extra top-tab renderer and style switching
   assert.equal(f.views.length, 1)
   const dock = f.views[0]
   assert.equal(f.security.getTrustedSurfaceRole(dock.webContents.id), 'dock')
+  assert.throws(() => f.security.assertSurfaceSender(f.event({ view: dock }), ipc.IpcChannels.ShellActivateRailContribution), /surface capability/)
   orb.applyOrbRailVisibility('orb', true)
   assert.equal(dock.webContents.isDestroyed(), true)
   assert.equal(f.views.length, 2)

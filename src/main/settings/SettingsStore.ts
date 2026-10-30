@@ -210,6 +210,7 @@ export class SettingsStore {
   private loaded = false
   private pluginLaunchRevision = 0
   private appearanceInputRevision = 0
+  private pluginSettingListeners = new Set<(pluginId: string, key: string) => void>()
   /** 库不可用时的文件回退模式（保持旧行为：全量写 settings.json） */
   private fileFallback = false
   /** 防抖持久化句柄；写路径统一 schedulePersist()，退出前 flushNow() 兜底 */
@@ -582,6 +583,11 @@ export class SettingsStore {
     ))
   }
 
+  onPluginSettingChanged(listener: (pluginId: string, key: string) => void): () => void {
+    this.pluginSettingListeners.add(listener)
+    return () => { this.pluginSettingListeners.delete(listener) }
+  }
+
   /** Commit before publishing the value; a failed write keeps the last confirmed settings. */
   async setPluginSetting(pluginId: string, key: string, value: unknown): Promise<void> {
     if (!isPluginSettingKey(key)) throw new Error('reserved plugin settings key')
@@ -590,6 +596,7 @@ export class SettingsStore {
       ...this.data.plugins[pluginId], [key]: structuredClone(value)
     } }
     this.commitSettings({ ...this.data, plugins })
+    for (const listener of this.pluginSettingListeners) { try { listener(pluginId, key) } catch { /* A subscriber cannot revoke a committed setting. */ } }
   }
 
   /** 卸载时移除插件设置与宿主授权，重装同一 ID 必须重新授权。 */

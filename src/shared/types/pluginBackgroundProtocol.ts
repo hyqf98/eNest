@@ -1,7 +1,8 @@
 export type BackgroundRequest =
   | { id: number; kind: 'event'; event: string; data: unknown }
   | { id: number; kind: 'call'; method: string; args: unknown[] }
-  | { id: number; kind: 'search'; query: string; limit: number }
+  | { id: number; kind: 'search'; query: string; limit: number; deadlineAt?: number }
+  | { id: number; kind: 'cancel-search' }
 
 export interface BackgroundResponse {
   id: number

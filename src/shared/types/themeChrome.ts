@@ -26,6 +26,7 @@ export interface ThemeChromeSnapshot {
   /** Trusted builtin adapter only; custom chrome never receives account data. */
   profile?: { name: string | null; avatar: string | null } | null
   tabs: Array<{ id: string; pluginId: string; title: string; color: string; glyph: string; badge?: string; icon?: string | null; lazy?: boolean; crashed?: boolean }>
+  /** Entry ids are opaque host-issued keys bound to their declaring source, not manifest-local ids. */
   contribEntries: Array<{ id: string; pluginId: string; title: string; glyph: string; color: string }>
 }
 export type ThemeChromeAction =

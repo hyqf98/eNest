@@ -2,6 +2,7 @@ import type { OrbRailState } from '@shared/types/ipc'
 import type { ThemeChromeApi, ThemeChromePart, ThemeChromeSnapshot } from '@shared/types/themeChrome'
 
 interface LocalChromeActions {
+  isCurrent?: () => boolean
   home?: () => void | Promise<void>
   settings?: () => void | Promise<void>
   activate?: (tabId: string) => void | Promise<void>
@@ -12,6 +13,9 @@ interface LocalChromeActions {
 export function createDefaultChromeApi(surface: ThemeChromePart, local: LocalChromeActions = {}): ThemeChromeApi {
   if (window.enestChrome) return window.enestChrome
   const shell = window.enestShell
+  const assertCurrent = (): void => {
+    if (local.isCurrent?.() === false) throw new Error('Chrome adapter retired')
+  }
   let state: OrbRailState = {
     view: 'home', tabStyle: surface === 'rail' ? 'orb' : 'classic', activeTabId: null,
     animationLevel: 'medium', theme: { mode: 'light', tokens: {} }, profile: null, tabs: []
@@ -26,6 +30,7 @@ export function createDefaultChromeApi(surface: ThemeChromePart, local: LocalChr
   const getSnapshot = async (): Promise<ThemeChromeSnapshot> => {
     const events = eventRevision, read = ++readRevision
     const next = await shell?.getOrbState?.()
+    assertCurrent()
     // A late initial read must not replace a newer push (including its contribution targets).
     if (next && events === eventRevision && read === readRevision) state = next
     return snapshot()
@@ -34,13 +39,14 @@ export function createDefaultChromeApi(surface: ThemeChromePart, local: LocalChr
     getSnapshot,
     onSnapshot(listener) {
       return shell?.onOrbEvent?.(payload => {
-        if (payload.type !== 'orb-state') return
+        if (payload.type !== 'orb-state' || local.isCurrent?.() === false) return
         eventRevision++
         state = payload.state
         listener(snapshot())
       }) ?? (() => {})
     },
     async dispatch(action) {
+      assertCurrent()
       switch (action.type) {
         case 'home':
           if (local.home) await local.home()
@@ -62,10 +68,8 @@ export function createDefaultChromeApi(surface: ThemeChromePart, local: LocalChr
           await shell?.setOrbRailExpanded?.(action.expanded)
           return
         case 'contribution': {
-          await getSnapshot()
-          const entry = state.contribEntries?.find(row => row.id === action.id)
-          if (!entry) throw new Error('Unknown chrome contribution')
-          await shell?.openPlugin(entry.pluginId, entry.openCode ? { code: entry.openCode } : undefined)
+          if (!shell?.activateRailContribution) throw new Error('Native rail contribution bridge unavailable')
+          await shell.activateRailContribution(action.id)
           return
         }
         case 'reorder':

@@ -11,15 +11,12 @@
  *    异步入口，不可序列化，插件关闭即失效）。
  * 被 PluginRegistry.scan（manifest 声明入库）、pluginHandlers（contribute.* RPC）、
  *     PluginSettingsBridge（settings 插槽读）调用。
- * 【交接】卸载/禁用插件需主线程调用 unregisterBySource(pluginId)：
- *   - PluginUninstaller 卸载路径补一行 unregisterBySource(id)
- *   - shellHandlers.ShellSetPluginEnabled(false) 补一行 unregisterBySource(id)（禁用）
- *   - enable 时主线程应重放 registerManifestContributes(id, manifest.contributes)
+ * 卸载/禁用由主线程调用 unregisterBySource(pluginId) 撤下贡献；
+ * 重新启用由 PluginRegistry 按当前 manifest 重放声明，来源始终由宿主绑定。
  */
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   ContributionSlot,
-  HomeCardContribution,
   OpenWithContribution,
   PluginContributes,
   QuickProviderContribution,
@@ -145,7 +142,7 @@ export class ContributionRegistry {
   /**
    * manifest.contributes 声明入库（Registry.scan 后调用）。
    * 每次调用先清掉该插件在全部声明式插槽的旧行（版本升级撤掉某插槽 / 同版本重扫幂等），
-   * 再逐条 upsert；同 (slot,id) 后注册覆盖前者 + logWarn（多插件撞 id 时以最新为准）。
+   * 再逐条 upsert；仅同 (source,slot,id) 后注册覆盖前者，不同来源的同名贡献各自保留。
    */
   registerManifestContributes(pluginId: string, contributes?: PluginContributes): void {
     const db = kvStore.getDatabase()
@@ -181,7 +178,7 @@ export class ContributionRegistry {
               )
               continue
             }
-            // 同 (slot,id) 后注册覆盖前者：主键 upsert 天然覆盖（跨插件撞 id 以最新为准）
+            // 主键包含来源；不能把其它插件的同名贡献视为本插件覆盖。
             stmts.upsert.run(pluginId, slot, entry.id, JSON.stringify(raw))
             touched.add(slot)
           }
@@ -320,16 +317,7 @@ export const contributionRegistry = new ContributionRegistry()
 
 // —— 便捷读取（渲染层消费经 IPC，主进程内部直接调用）——
 
-/** 读取 home-cards 插槽（MarketPage 首页「插件扩展」区块） */
-export function listHomeCards(): Array<{
-  source: string
-  id: string
-  data: HomeCardContribution
-}> {
-  return contributionRegistry.listSlot<HomeCardContribution>('home-cards')
-}
-
-/** 读取 rail-entries 插槽（orb 模式左侧轨道；渲染消费见交接说明） */
+/** 读取 rail-entries 插槽，供主进程构造来源绑定的导航快照。 */
 export function listRailEntries(): Array<{
   source: string
   id: string

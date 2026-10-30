@@ -64,7 +64,7 @@ docs/site/
 
 ## 下载与发行
 
-下载只指向 [GitHub Releases](https://github.com/hyqf98/eNest/releases)。目前尚无公开发行版，下载页明确将 macOS、Windows 和 Linux 列为构建目标，而不是已可下载的安装包。
+下载只指向 [GitHub Releases](https://github.com/hyqf98/eNest/releases)。当前源码版本为 0.0.1，正在准备首次公开发行；下载页将 macOS、Windows 和 Linux 列为构建目标，而不是已确认可下载的安装包。
 
 发布新版本后，依据真实发行记录更新状态、平台附件和兼容性说明。不要把 `package.json` 中的开发版本当成已发布版本，不猜测附件 URL、包体大小或最低系统要求；没有对应平台附件时应明确说明。
 

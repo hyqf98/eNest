@@ -12,7 +12,8 @@ const theme = file => read(`src/renderer/themes/default/settings/${file}`)
 const components = ['SettingsTabs', 'ProfileSection', 'AppearanceSettingsSection', 'ThemeSettingsFields',
   'ThemeSettingChoices', 'ThemeSelectionCards', 'QuickSettingsSection', 'PluginShortcutSettings',
   'HotkeyPresetCards', 'ShortcutRecorder', 'ShortcutProbeFeedback', 'DevConsoleSection',
-  'PluginMemorySection', 'PerformanceCaptureSection', 'LanguageSelect']
+  'PluginMemorySection', 'PerformanceCaptureSection', 'LanguageSelect', 'TopTabBarSection',
+  'GeneralSettingsSection', 'PluginSettingsSection']
 
 test('settings components have one physical owner and no retired compatibility entries', () => {
   for (const name of components) {
@@ -23,6 +24,11 @@ test('settings components have one physical owner and no retired compatibility e
     assert.equal(existsSync(join(root, `src/renderer/components/${name}.ts`)), false, name)
     assert.ok(theme(`${name}.ts`).includes(`export ${name === 'shortcutCapture' ? 'class ShortcutCapture' : 'function useShortcutProbe'}`), name)
   }
+  for (const name of ['useGeneralSettings', 'useSettingsUpdates', 'usePluginSettings']) {
+    assert.equal(existsSync(join(root, `src/renderer/hooks/${name}.ts`)), false, name)
+    assert.ok(theme(`${name}.ts`).includes(`export function ${name}`), name)
+  }
+  for (const name of ['Field', 'Card']) assert.ok(theme('SettingsFields.tsx').includes(`export function ${name}`), name)
   assert.equal(existsSync(join(root, 'src/renderer/pages/SettingsPage.tsx')), false)
   assert.equal(existsSync(join(root, 'src/renderer/pages/DevConsolePage.tsx')), false)
   const layout = read('src/renderer/layout/ShellLayout.tsx')
@@ -37,9 +43,15 @@ test('default settings keeps the complete original sections, drafts, failures an
   for (const section of ['ProfileSection', 'AppearanceSettingsSection', 'DevConsoleSection', 'QuickSettingsSection', 'PluginMemorySection']) {
     assert.match(page, new RegExp(`lazy\\(\\(\\) => import\\('\\./${section}'\\)`))
   }
-  for (const behavior of ['setProxy', 'testProxy', 'setSettings', 'updateThemeProfile', 'openUpdateDialog', 'setSettingsTab', 'loadingGeneral', 'saveFailed', 'pluginSections', 'pluginSettings']) assert.ok(page.includes(behavior), behavior)
+  for (const [module, behaviors] of [
+    ['DefaultSettingsPage.tsx', ['setSettingsTab', 'useGeneralSettings()', 'useSettingsUpdates()', 'usePluginSettings()']],
+    ['useGeneralSettings.ts', ['setProxy', 'testProxy', 'setSettings', 'loadingGeneral']],
+    ['TopTabBarSection.tsx', ['updateThemeProfile', 'saveFailed']],
+    ['useSettingsUpdates.ts', ['openUpdateDialog']],
+    ['usePluginSettings.ts', ['pluginSections', 'pluginSettings']],
+  ]) for (const behavior of behaviors) assert.ok(theme(module).includes(behavior), `${module}: ${behavior}`)
   assert.match(page, /settingsTab\.startsWith\('p:'\)/)
-  assert.match(page, /request === requestVersion\.current/)
+  assert.match(theme('TopTabBarSection.tsx'), /request === requestVersion\.current/)
   assert.match(theme('SettingsTabs.tsx'), /ResizeObserver/)
   assert.match(theme('SettingsTabs.tsx'), /is-expanded/)
   assert.match(theme('SettingsTabs.tsx'), /collapsedForActive/)

@@ -120,7 +120,6 @@ class BackgroundRuntime {
   private readyTimer: NodeJS.Timeout
   private idleTimer: NodeJS.Timeout | undefined
   private readonly pending = new Map<number, Pending>()
-  private searchTask: { query: string; promise: Promise<unknown> } | undefined
   private tail: Promise<unknown> = Promise.resolve()
   private nextId = 0
   private queued = 0
@@ -202,41 +201,61 @@ class BackgroundRuntime {
     this.idleTimer.unref()
   }
   request(input: Omit<Extract<BackgroundRequest, { kind: 'call' }>, 'id'> | Omit<Extract<BackgroundRequest, { kind: 'event' }>, 'id'>
-    | Omit<Extract<BackgroundRequest, { kind: 'search' }>, 'id'>, timeoutMs: number): Promise<unknown> {
+    | Omit<Extract<BackgroundRequest, { kind: 'search' }>, 'id'>, timeoutMs: number, signal?: AbortSignal): Promise<unknown> {
     const bytes = size(input)
     if (!this.current()) return Promise.reject(new Error('Background is retired or unauthorized'))
     if (this.queued >= 32 || this.queuedBytes + bytes > MAX_QUEUE_BYTES) return Promise.reject(new Error('Background operation queue is full'))
     this.queued++
     this.queuedBytes += bytes
     if (this.idleTimer) clearTimeout(this.idleTimer)
+    let dispatchedId: number | undefined
+    const cancel = () => {
+      if (dispatchedId !== undefined && this.current() && !this.view.webContents.isDestroyed()) {
+        try { this.view.webContents.send(IpcChannels.PluginBackgroundRequest, { id: dispatchedId, kind: 'cancel-search' } satisfies BackgroundRequest) }
+        catch { /* Retirement may race the cancellation notification. */ }
+      }
+    }
+    signal?.addEventListener('abort', cancel, { once: true })
     const task = this.tail.catch(() => {}).then(async () => {
+      if (signal?.aborted) throw new Error('Background query cancelled before dispatch')
       await this.readyPromise
+      if (signal?.aborted) throw new Error('Background query cancelled before dispatch')
       if (!this.current()) throw new Error('Background is retired or unauthorized')
       return new Promise<unknown>((resolve, reject) => {
         const id = ++this.nextId
+        dispatchedId = id
         const timer = setTimeout(() => { this.dispose('background operation timed out') }, timeoutMs)
         timer.unref()
         this.pending.set(id, { resolve, reject, timer })
         this.view.webContents.send(IpcChannels.PluginBackgroundRequest, { ...input, id } satisfies BackgroundRequest)
       })
-    }).finally(() => { this.queued--; this.queuedBytes -= bytes; this.scheduleIdle() })
+    }).finally(() => { signal?.removeEventListener('abort', cancel); this.queued--; this.queuedBytes -= bytes; this.scheduleIdle() })
     this.tail = task
     return task
   }
-  async search(query: string, limit: number): Promise<unknown> {
-    // A short Quick deadline must not kill a cold migration or a foreground mutation ahead of it.
-    if (this.searchTask && this.searchTask.query !== query) return []
-    if (!this.searchTask) {
-      const promise = this.request({ kind: 'search', query, limit }, 600_000)
-      const task = { query, promise }
-      this.searchTask = task
-      void promise.finally(() => { if (this.searchTask === task) this.searchTask = undefined }).catch(() => {})
-    }
-    const work = this.searchTask.promise
+  async search(query: string, limit: number, signal?: AbortSignal): Promise<unknown> {
+    if (signal?.aborted) return []
+    const controller = new AbortController(), deadlineAt = Date.now() + 750
+    const cancel = () => controller.abort()
+    signal?.addEventListener('abort', cancel, { once: true })
+    // Expiring a query never kills migration or mutation work ahead of its actual ACK.
+    const work = this.request({ kind: 'search', query, limit, deadlineAt }, 600_000, controller.signal)
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => resolve([]), 1500)
+      let settled = false
+      const finish = (value?: unknown, error?: unknown) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', cancel)
+        controller.signal.removeEventListener('abort', abort)
+        if (error) reject(error); else resolve(value)
+      }
+      const abort = () => finish([])
+      const timer = setTimeout(cancel, Math.max(1, deadlineAt - Date.now()))
       timer.unref()
-      void work.then(value => { clearTimeout(timer); resolve(value) }, error => { clearTimeout(timer); reject(error) })
+      controller.signal.addEventListener('abort', abort, { once: true })
+      if (signal?.aborted) cancel()
+      void work.then(value => finish(value), error => finish(undefined, error))
     })
   }
   response(response: BackgroundResponse): void {
@@ -365,16 +384,17 @@ export function callPluginBackground(pluginId: string, method: unknown, args: un
     return result
   })
 }
-export async function searchAll(query: string, limit = 20): Promise<Array<{ pluginId: string; items: PluginBackgroundSearchItem[] }>> {
-  if (typeof query !== 'string' || query.length > 4096 || !query.trim()) return []
+export async function searchAll(query: string, limit = 20, signal?: AbortSignal): Promise<Array<{ pluginId: string; items: PluginBackgroundSearchItem[] }>> {
+  if (signal?.aborted || typeof query !== 'string' || query.length > 4096 || !query.trim()) return []
   const maximum = Math.min(20, Math.max(1, Number.isInteger(limit) ? limit : 20))
   const candidates = pluginRegistry.getInstalledDescriptors().filter(item => item.enabled && item.manifest.background?.quickSearch).slice(0, 8)
   return Promise.all(candidates.map(async item => {
     const config = configuration(item.id)
     if (!config || !authorized(config, true)) return { pluginId: item.id, items: [] }
     try {
-      const result = await runtime(item.id).search(query, maximum)
-      if (!Array.isArray(result) || !authorized(config, true)) return { pluginId: item.id, items: [] }
+      if (signal?.aborted) return { pluginId: item.id, items: [] }
+      const result = await runtime(item.id).search(query, maximum, signal)
+      if (signal?.aborted || !Array.isArray(result) || !authorized(config, true)) return { pluginId: item.id, items: [] }
       return { pluginId: item.id, items: result.slice(0, maximum).filter(value => value && typeof value === 'object'
         && typeof value.id === 'string' && value.id.length <= 256 && typeof value.title === 'string' && value.title.length <= 1000) as PluginBackgroundSearchItem[] }
     } catch { return { pluginId: item.id, items: [] } }

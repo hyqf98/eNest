@@ -12,6 +12,8 @@ export class PluginRuntimeScope {
   private controller = new AbortController()
   private drainController = new AbortController()
   private disposers = new Set<Disposer>()
+  private releasing = new Map<Disposer, Promise<void>>()
+  private releaseErrors = new Map<Disposer, string>()
   private activities = new Map<number, string>()
   private nextActivity = 0
   private completion?: Promise<void>
@@ -45,12 +47,25 @@ export class PluginRuntimeScope {
   }
 
   addDisposer(disposer: Disposer): () => void {
-    if (this.disposed || this.closing) {
-      void Promise.resolve().then(disposer).catch((error) => this.failures.push(String(error)))
-      return () => {}
-    }
     this.disposers.add(disposer)
-    return () => { this.disposers.delete(disposer) }
+    if (this.disposed || this.closing) {
+      void this.release(disposer)
+    }
+    return () => { this.disposers.delete(disposer); this.releaseErrors.delete(disposer) }
+  }
+
+  private release(disposer: Disposer): Promise<void> {
+    const pending = this.releasing.get(disposer)
+    if (pending) return pending
+    this.releaseErrors.delete(disposer)
+    const task = Promise.resolve().then(disposer).then(() => {
+      this.disposers.delete(disposer)
+      this.releaseErrors.delete(disposer)
+    }, error => {
+      if (this.disposers.has(disposer)) this.releaseErrors.set(disposer, String(error))
+    }).finally(() => { this.releasing.delete(disposer) })
+    this.releasing.set(disposer, task)
+    return task
   }
 
   /** Abort resource creation immediately. Persistence remains available during the grace period. */
@@ -63,26 +78,30 @@ export class PluginRuntimeScope {
 
   /** Every release starts even if another release fails; all share an absolute deadline. */
   dispose(deadlineMs = Date.now() + 1500): Promise<void> {
+    if (this.disposed) return Promise.resolve()
     if (this.completion) return this.completion
     this.markClosing()
     this.drainController.abort(new Error('plugin runtime disposal started'))
     const releases = [...this.disposers]
-    this.disposers.clear()
+    this.failures.length = 0
     this.completion = (async () => {
       let timer: ReturnType<typeof setTimeout> | undefined
       await Promise.race([
-        Promise.allSettled(releases.map((release) => Promise.resolve().then(release))).then((results) => {
-          for (const result of results) if (result.status === 'rejected') this.failures.push(String(result.reason))
-        }),
+        Promise.all(releases.map(release => this.release(release))),
         new Promise<void>((resolve) => {
-          timer = setTimeout(() => { this.failures.push('resource disposal deadline exceeded'); resolve() }, Math.max(0, deadlineMs - Date.now()))
+          timer = setTimeout(resolve, Math.max(0, deadlineMs - Date.now()))
         })
       ])
       if (timer) clearTimeout(timer)
+      this.failures.splice(0, this.failures.length, ...this.releaseErrors.values())
+      if (this.releasing.size) this.failures.push('resource disposal deadline exceeded')
+      if (this.disposers.size && !this.failures.length) this.failures.push('resource disposal is incomplete')
+      // Failed and still-running releases retain this incarnation for an explicit retry.
+      if (this.disposers.size || this.releasing.size) return
       this.activities.clear()
       this.disposed = true
       if (scopes.get(this.owner.pluginId) === this) scopes.delete(this.owner.pluginId)
-    })()
+    })().finally(() => { if (!this.disposed) this.completion = undefined })
     return this.completion
   }
 

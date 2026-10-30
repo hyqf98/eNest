@@ -4,10 +4,9 @@
  */
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { TitleBar } from '@renderer/layout/TitleBar'
-import { BottomBar } from '@renderer/layout/BottomBar'
 import { AppBackground } from '@renderer/components/AppBackground'
 import { HomeRecovery } from '@renderer/components/HomeRecovery'
-import { isMockShell, shellApi } from '@renderer/services/shellApi'
+import { shellApi } from '@renderer/services/shellApi'
 import { PluginHostChrome } from '@renderer/pages/PluginHostChrome'
 import { InstallDropHost } from '@renderer/components/InstallDropOverlay'
 import { InstallProgressPanel } from '@renderer/components/InstallProgressPanel'
@@ -20,9 +19,6 @@ import { useAppearanceStore } from '@renderer/hooks/useAppearance'
 import { useI18n } from '@renderer/hooks/useI18n'
 
 const SettingsPage = lazy(() => import('@renderer/components/SettingsSurfaceController').then(module => ({ default: module.SettingsSurfaceController })))
-const MarketPage = import.meta.env.DEV
-  ? lazy(() => import('@renderer/themes/default/workspace/preview/MarketPage').then(module => ({ default: module.MarketPage })))
-  : null
 
 /** 按窗口宽度写入 --shell-scale（0.85–1.1）；标题栏 36px 固定不缩放。 */
 function useShellScale(): void {
@@ -128,7 +124,7 @@ export function ShellLayout() {
   return (
     <div className={`app${tabStyle === 'orb' ? ' tab-orb' : ''}`} data-shell-view={view} data-titlebar-state={collapsed ? 'collapsed' : 'expanded'}
       style={{ '--shell-titlebar-height': `${titlebarHeight}px`, '--titlebar-reveal-height': `${TITLEBAR_REVEAL_HEIGHT}px` } as CSSProperties}>
-      <AppBackground paused={!isMockShell && view === 'home'} />
+      <AppBackground paused={view === 'home'} />
       <div className="app-chrome">
         <TitleBar
           autoHide={autoHide}
@@ -140,12 +136,11 @@ export function ShellLayout() {
         />
         <div className="stage">
           <Suspense fallback={<div className="page" role="status" aria-busy="true"><div className="empty">{t('common.loading')}</div></div>}>
-            {view === 'home' && (isMockShell && MarketPage ? <MarketPage /> : <HomeRecovery />)}
+            {view === 'home' && <HomeRecovery />}
             {/* 设置由原生壳渲染层独占；主题 Workspace 不再提供设置页 */}
             {view === 'settings' && <SettingsPage />}
           </Suspense>
           {view === 'plugin' && <PluginHostChrome />}
-          <BottomBar />
         </div>
       </div>
       {/* 原生 dock / 可选圆轨在内容上方浮动，不挤占内容宽度。可见性只由 App 门禁控制。 */}

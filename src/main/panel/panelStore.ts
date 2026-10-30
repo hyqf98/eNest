@@ -110,14 +110,14 @@ export function cancelScheduledPanels(): void {
   if (timer) { clearTimeout(timer); timer = undefined }
 }
 
-/** 读取壳级面板外观设置（含默认值兜底）。opacity 允许 0 = 完全透明。 */
+/** 读取壳级面板外观设置（含默认值兜底）；opacity=0 且 material=none 时底板完全透明。 */
 export function readPanelAppearance(): PanelAppearance {
   const raw = settingsStore.getAll().general.panelAppearance
   const opacity = raw && isFiniteNumber((raw as PanelAppearance).opacity) ? (raw as PanelAppearance).opacity : DEFAULT_PANEL_APPEARANCE.opacity
   const material = raw && typeof (raw as PanelAppearance).material === 'string' ? (raw as PanelAppearance).material : DEFAULT_PANEL_APPEARANCE.material
   return {
     opacity: Math.min(1, Math.max(0, opacity)),
-    material: material === 'none' || material === 'system' ? material : 'blur'
+    material: material === 'none' || material === 'blur' || material === 'system' ? material : DEFAULT_PANEL_APPEARANCE.material
   }
 }
 

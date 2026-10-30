@@ -6,15 +6,17 @@ import ts from 'typescript'
 const opacityProperty = '--appearance-tab-opacity'
 const identity = { source: 'com.example.theme', id: 'custom' }
 const componentNames = ['TopTabBarSection', 'TopTabBarControls', 'Field', 'Card']
-const source = readFileSync(new URL('../../../src/renderer/themes/default/settings/DefaultSettingsPage.tsx', import.meta.url), 'utf8')
-const ast = ts.createSourceFile('DefaultSettingsPage.tsx', source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TSX)
-const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node) && componentNames.includes(node.name?.text))
+const modules = ['TopTabBarSection.tsx', 'SettingsFields.tsx'].map(name => {
+  const source = readFileSync(new URL(`../../../src/renderer/themes/default/settings/${name}`, import.meta.url), 'utf8')
+  return ts.createSourceFile(name, source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TSX)
+})
+const declarations = modules.flatMap(ast => ast.statements.filter(node => ts.isFunctionDeclaration(node) && componentNames.includes(node.name?.text)))
 assert.equal(declarations.length, componentNames.length, 'the tested settings components must exist')
 
 // Execute the real private components without importing unrelated settings services or import.meta.
 const compiled = ts.transpileModule([
-  ...ast.statements.filter(node => ts.isImportDeclaration(node) && node.importClause).map(node => node.getFullText(ast)),
-  ...declarations.map(node => node.getFullText(ast)),
+  ...modules.flatMap(ast => ast.statements.filter(node => ts.isImportDeclaration(node) && node.importClause && node.moduleSpecifier.text !== './SettingsFields').map(node => node.getFullText(ast))),
+  ...declarations.map(node => node.getFullText(node.getSourceFile()).replace(/\bexport (?=function )/, '')),
   'export { TopTabBarSection, TopTabBarControls }',
 ].join('\n'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },

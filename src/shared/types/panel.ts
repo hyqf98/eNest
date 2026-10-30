@@ -11,7 +11,7 @@
  */
 import type { ResolvedAppearance } from './appearance'
 
-/** 面板材质：无 = 纯色半透明底板；blur = 背板毛玻璃；system = 系统原生材质（macOS vibrancy / Windows acrylic）。 */
+/** 面板材质：none 不启用原生材质；blur = 背板毛玻璃；system = 系统原生材质。 */
 export type PanelMaterial = 'none' | 'blur' | 'system'
 
 /** 面板外观（壳级设置，不随主题变化）。 */
@@ -21,7 +21,7 @@ export interface PanelAppearance {
   material: PanelMaterial
 }
 
-export const DEFAULT_PANEL_APPEARANCE: PanelAppearance = { opacity: 0.78, material: 'blur' }
+export const DEFAULT_PANEL_APPEARANCE: PanelAppearance = { opacity: 0, material: 'none' }
 
 /** 面板矩形；displayId 用于多屏恢复时定位，-1 表示未绑定显示器。 */
 export interface PanelBounds {
@@ -55,7 +55,7 @@ export interface PersistedPanel {
 }
 
 /** 组件运行状态（不持久化）。 */
-export type PanelWidgetStatus = 'loading' | 'ready' | 'error' | 'hibernated' | 'unsupported'
+export type PanelWidgetStatus = 'loading' | 'ready' | 'error' | 'hibernated' | 'unsupported' | 'cleanup-failed'
 
 /** 推给面板 chrome 渲染层的单个组件快照。 */
 export interface PanelWidgetState extends PanelWidgetRect {
@@ -133,7 +133,7 @@ export interface PanelGuide {
   to: number
 }
 
-/** 主进程 → 面板 chrome 的拖动反馈；矩形或辅助线变化时推送。 */
+/** 主进程 → 面板 chrome 的拖动反馈；变化后合并限频推送，不驱动原生几何。 */
 export interface PanelDragFeedback {
   /** 原始手势所属面板；转发到其它面板时也不改写。 */
   sourcePanelId: string
@@ -157,8 +157,8 @@ export interface PanelPreviewSnapshot {
 export interface PanelSurfaceApi {
   getState(): Promise<PanelState | null>
   command(command: PanelCommand): Promise<{ ok: boolean; error?: string; state?: PanelState; candidates?: PanelCandidate[] }>
-  /** 拖动进行中：由渲染层在指针移动时调用，主进程自行读光标，仅用于保活与节流触发。 */
-  dragTick(interactionId: number): void
+  /** 低频证明当前手势仍持有指针；不携带坐标、不触发原生几何帧。 */
+  dragHeartbeat(interactionId: number): void
   onState(callback: (state: PanelState) => void): () => void
   onDrag(callback: (feedback: PanelDragFeedback) => void): () => void
   onPreview(callback: (snapshot: PanelPreviewSnapshot) => void): () => void
@@ -194,7 +194,7 @@ export interface PanelHotkeyApplyResult {
  * 组件无标题条：插件原生视图从组件矩形内缩 PANEL_WIDGET_INSET，
  * 拖动热区由 chrome 在组件四周边缘绘制（panel.css）。
  */
-/** 组件原生视图四周内缩（同时作为可抓取的缩放热区）。 */
+/** 组件原生视图四周的透明操作热区；仅留出拖动/缩放命中范围，不绘制常态外壳。 */
 export const PANEL_WIDGET_INSET = 4
 export const PANEL_WIDGET_MIN_WIDTH = 200
 export const PANEL_WIDGET_MIN_HEIGHT = 140
@@ -206,3 +206,5 @@ export const PANEL_MAX_WIDGETS = 24
 export const PANEL_MAX_PANELS = 8
 /** 吸附阈值（DIP）：距候选线小于该值即吸附。 */
 export const PANEL_SNAP_THRESHOLD = 6
+/** 手势静止时也需续期；主进程有独立超时与原生失焦取消。 */
+export const PANEL_DRAG_HEARTBEAT_INTERVAL_MS = 2000

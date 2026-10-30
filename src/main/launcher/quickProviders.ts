@@ -28,6 +28,7 @@ export interface QuickProviderItem {
 
 /** 单路查询超时：超时丢弃该 provider 的结果，不阻塞整体搜索 */
 const QUERY_TIMEOUT_MS = 500
+let providerOffset = 0
 
 /** 向指定插件的存活 webContents 推送 plugin:event 负载（Host 公开访问器，无反射）；返回是否送达 */
 function sendPluginEvent(pluginId: string, payload: PluginEventPayload): boolean {
@@ -50,6 +51,7 @@ export function resolveQuickQuery(pluginId: string, reqId: string, items: unknow
     hit.finish([])
     return
   }
+  try { if (Buffer.byteLength(JSON.stringify(items)) > 256 * 1024) { hit.finish([]); return } } catch { hit.finish([]); return }
   const list = Array.isArray(items)
     ? (items.filter(
         (x) => x !== null && typeof x === 'object'
@@ -66,10 +68,14 @@ export async function queryQuickProviders(
   query: string,
   signal?: AbortSignal
 ): Promise<Array<{ pluginId: string; providerId: string; items: QuickProviderItem[] }>> {
-  const providers = contributionRegistry.getQuickProviders()
+  const registered = contributionRegistry.getQuickProviders()
+  const offset = registered.length ? providerOffset % registered.length : 0
+  const providers = [...registered.slice(offset), ...registered.slice(0, offset)]
+  providerOffset += Math.min(4, providers.length)
   if (providers.length === 0 || !query.trim() || signal?.aborted) return []
+  const deadline = Date.now() + 750
 
-  const tasks = providers.map(async (provider) => {
+  const queryProvider = async (provider: typeof providers[number]) => {
     const reqId = `${provider.pluginId}:${provider.id}:${randomUUID()}`
     const scope = getRuntimeScope(provider.pluginId)
     if (!scope || scope.signal.aborted || settingsStore.getPermissionGrant(provider.pluginId, 'contribute') === 'deny') {
@@ -77,6 +83,7 @@ export async function queryQuickProviders(
     }
     const items = await new Promise<QuickProviderItem[]>((resolve) => {
       let finished = false
+      const release = scope.acquireActivity('Live launch provider query')
       const finish = (items: QuickProviderItem[]) => {
         if (finished) return
         finished = true
@@ -84,13 +91,17 @@ export async function queryQuickProviders(
         clearTimeout(timer)
         scope.signal.removeEventListener('abort', abort)
         signal?.removeEventListener('abort', abort)
+        release()
         resolve(items)
       }
-      const abort = () => finish([])
+      const abort = () => {
+        try { sendPluginEvent(provider.pluginId, { type: 'quick-query-cancel', reqId }) } catch { /* Owner may already be gone. */ }
+        finish([])
+      }
       const timer = setTimeout(() => {
         logWarn('quick', `provider timeout: ${provider.pluginId}:${provider.id}`)
-        finish([])
-      }, QUERY_TIMEOUT_MS)
+        abort()
+      }, Math.max(1, Math.min(QUERY_TIMEOUT_MS, deadline - Date.now())))
       timer.unref?.()
       scope.signal.addEventListener('abort', abort, { once: true })
       signal?.addEventListener('abort', abort, { once: true })
@@ -99,10 +110,14 @@ export async function queryQuickProviders(
       catch { finish([]) }
     })
     return { pluginId: provider.pluginId, providerId: provider.id, items }
-  })
-
-  const settled = await Promise.all(
-    tasks.map((p) => p.catch(() => ({ pluginId: '', providerId: '', items: [] })))
-  )
-  return settled.filter((r) => r.pluginId !== '')
+  }
+  const results: Array<{ pluginId: string; providerId: string; items: QuickProviderItem[] }> = []
+  let cursor = 0
+  await Promise.all(Array.from({ length: Math.min(4, providers.length) }, async () => {
+    while (cursor < providers.length && !signal?.aborted && Date.now() < deadline) {
+      const provider = providers[cursor++]
+      try { results.push(await queryProvider(provider)) } catch { /* Other sources remain available. */ }
+    }
+  }))
+  return results
 }

@@ -1,10 +1,12 @@
 import { randomBytes } from 'node:crypto'
 import type { ResolvedAppearance } from '@shared/types/appearance'
-import { PLUGIN_PERMISSIONS, type BackgroundConfig } from '@shared/types/plugin'
+import { CONTRIB_SCHEMA_VERSION, PLUGIN_PERMISSIONS, type BackgroundConfig } from '@shared/types/plugin'
 import type {
   HomeAction,
+  HomeActionResponse,
   HomeAppearanceSnapshot,
   HomeCatalog,
+  HomeCatalogCard,
   HomeCatalogItem,
   HomeDetail,
   HomeRuntimeConfig,
@@ -16,14 +18,17 @@ import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import type { CatalogResources } from '@main/plugin/catalogResources'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { enqueueInstallFromUrl } from '@main/plugin/installQueue'
-import { launchPlugin } from '@main/launcher/pluginLauncher'
+import { executePluginCommand, launchPlugin } from '@main/launcher/pluginLauncher'
 import { launchLocalApp } from '@main/launcher/appLauncher'
 import { scanApplications } from '@main/launcher/appScanner'
-import { searchQuickCommands, validateQuickOpenTarget } from '@main/launcher/commandIndex'
+import { cancelQuickProviderSession, getLaunchDirectorySnapshot, onLaunchDirectoryChanged, quickOpenedIdentity, searchQuickCommands, validateQuickOpenTarget } from '@main/launcher/commandIndex'
+import { createSearchInputSession } from '@main/launcher/quickInputContext'
+import { quickProviderStates } from '@main/theme/quickStateService'
+import { IpcChannels } from '@shared/types/ipc'
 import { refreshPluginBackgrounds, stopPluginBackground } from '@main/plugin/pluginBackgroundRuntime'
 import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
 import type { WebContents } from 'electron'
-import type { QuickCommand } from '@shared/types/quick'
+import type { QuickCommand, QuickInputSelection } from '@shared/types/quick'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { uninstallPlugin } from '@main/plugin/PluginUninstaller'
@@ -40,6 +45,7 @@ export interface HomeActionContext {
   wcId: number
   generation: number
   owner: WebContents
+  stateOwner?: { source: string; packId: string }
   isCurrent(): boolean
   setHomeVisible(visible: boolean): void
   navigateWorkspace(route: WorkspaceRoute): Promise<void>
@@ -182,6 +188,34 @@ function publicText(value: string | undefined, maximum: number): string | undefi
   return value.length > maximum || /[\u0000-\u001f\u007f]/.test(value) ? undefined : value
 }
 
+function declaredHomeCards(pluginId: string): Array<{ card: HomeCatalogCard; openCode?: string }> {
+  const summary = pluginRegistry.get(pluginId)
+  if (!summary?.installed || summary.enabled === false) return []
+  const manifest = pluginRegistry.getManifest(pluginId)
+  const declarations = manifest?.id === pluginId ? manifest.contributes?.homeCards : undefined
+  if (!Array.isArray(declarations)) return []
+  const bounded = declarations.slice(0, 16)
+  const counts = new Map<string, number>()
+  for (const entry of bounded) {
+    if (typeof entry?.id === 'string') counts.set(entry.id, (counts.get(entry.id) ?? 0) + 1)
+  }
+  return bounded.flatMap(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)
+      || entry.schemaVersion !== undefined && entry.schemaVersion !== CONTRIB_SCHEMA_VERSION) return []
+    const id = publicText(entry.id, 128), title = publicText(entry.title, 128)
+    if (!id?.trim() || !title?.trim() || counts.get(id) !== 1) return []
+    const openCode = publicText(entry.openCode, 128)
+    if (entry.openCode !== undefined && entry.openCode !== '' && !openCode?.trim()) return []
+    const glyph = publicText(entry.glyph, 8), color = safeColor(entry.color), explain = publicText(entry.explain, 512)
+    return [{ card: {
+      id, title,
+      ...(glyph?.trim() && Array.from(glyph).length <= 2 ? { glyph } : {}),
+      ...(color ? { color } : {}),
+      ...(explain ? { explain } : {})
+    }, ...(openCode ? { openCode } : {}) }]
+  })
+}
+
 function catalogItem(id: string): HomeCatalogItem | null {
   const summary = pluginRegistry.get(id)
   if (!summary) return null
@@ -204,6 +238,7 @@ function catalogItem(id: string): HomeCatalogItem | null {
     installs: publicText(summary.installs, 32),
     packageSize: typeof summary.packageSize === 'number' && Number.isSafeInteger(summary.packageSize) && summary.packageSize > 0 ? summary.packageSize : undefined,
     screenshots: resources.screenshots.map((_resource, index) => homeCatalogResourceUrl(id, 'screenshot', index)),
+    homeCards: declaredHomeCards(id).map(({ card }) => card),
   }
 }
 
@@ -227,8 +262,9 @@ export async function getHomeDetail(id: string): Promise<HomeDetail | null> {
   const item = catalogItem(id)
   if (!summary || !item) return null
   const resources: CatalogResources = pluginRegistry.getCatalogResources(id)
+  const { homeCards: _homeCards, ...detail } = item
   return {
-    ...item,
+    ...detail,
     permissions: summary.permissions?.filter(permission => PLUGIN_PERMISSIONS.includes(permission)).slice(0, 64),
     readmeUrl: resources.readme ? homeCatalogResourceUrl(id, 'readme') : undefined,
     readmeImages: resources.readmeImages ? Object.fromEntries(Object.entries(resources.readmeImages)
@@ -243,9 +279,36 @@ interface SearchFlight {
   expiresAt: number
 }
 
+interface HomeSearchSession {
+  generation: number
+  id: string
+  signature: string
+  directoryRevision: string
+  items: HomeSearchEntry[]
+  catalogHandles: Set<string>
+  catalogEntries: Map<string, { signature: string; item: HomeSearchEntry }>
+  providerHandles: Set<string>
+  queryRevision: number
+  providerEpoch: number
+  opening?: AbortController
+  input: ReturnType<typeof createSearchInputSession>
+}
+const homeSearchSessions = new Map<number, HomeSearchSession>()
+const homePasteGestures = new Map<number, number>()
+function searchSession(context: Pick<HomeActionContext, 'wcId' | 'generation'>): HomeSearchSession {
+  let session = homeSearchSessions.get(context.wcId)
+  if (!session || session.generation !== context.generation) {
+    invalidateHomeSearchHandles(context.wcId)
+    session = { generation: context.generation, id: `workspace:${context.wcId}:${context.generation}`, signature: '', directoryRevision: '', items: [],
+      catalogHandles: new Set(), catalogEntries: new Map(), providerHandles: new Set(), queryRevision: 0, providerEpoch: 0, input: createSearchInputSession() }
+    homeSearchSessions.set(context.wcId, session)
+  }
+  return session
+}
+
 const searchHandles = new Map<string, SearchFlight>()
 const SEARCH_HANDLE_TTL_MS = 120_000
-const SEARCH_HANDLE_LIMIT = 8192
+const SEARCH_HANDLE_LIMIT = 262_144
 
 function pruneSearchHandles(now = Date.now()): void {
   for (const [handle, flight] of searchHandles) {
@@ -260,6 +323,23 @@ export function invalidateHomeSearchHandles(wcId?: number): void {
   for (const [handle, flight] of searchHandles) {
     if (wcId === undefined || flight.wcId === wcId) searchHandles.delete(handle)
   }
+  for (const [id, session] of homeSearchSessions) if (wcId === undefined || id === wcId) {
+    session.opening?.abort(); session.input.clear(); cancelQuickProviderSession(session.id); homeSearchSessions.delete(id); homePasteGestures.delete(id)
+  }
+}
+
+function cancelHomeProviders(session: HomeSearchSession): void {
+  session.providerEpoch++
+  for (const handle of session.providerHandles) searchHandles.delete(handle)
+  session.providerHandles.clear()
+  cancelQuickProviderSession(session.id)
+}
+
+/** Hiding a Workspace retires paste/provider authority, not its immutable name directory. */
+export function suspendHomeSearch(wcId: number): void {
+  const session = homeSearchSessions.get(wcId)
+  if (session) { session.opening?.abort(); cancelHomeProviders(session); session.input.clear() }
+  homePasteGestures.delete(wcId)
 }
 
 function makeSearchHandle(): string {
@@ -277,6 +357,8 @@ function publicSearchItem(item: QuickCommand, handle: string): HomeSearchEntry {
   const enabled = item.kind === 'plugin' ? summary?.enabled !== false : undefined
   return {
     handle,
+    stateKey: item.stateKey,
+    provider: item.group === 'provider',
     kind: item.kind,
     title: publicText(item.title, 256) ?? '',
     // App subtitles are filesystem paths; expose only a neutral type label.
@@ -291,7 +373,8 @@ function publicSearchItem(item: QuickCommand, handle: string): HomeSearchEntry {
     tags: publicTags(summary?.tags),
     aliases: item.aliases?.slice(0, 32).map(alias => publicText(alias, 256)).filter((alias): alias is string => !!alias),
     action: item.action,
-    content: item.content
+    content: item.content,
+    textInput: item.textInput
   }
 }
 
@@ -301,52 +384,68 @@ function publicTags(tags: string[] | undefined): string[] | undefined {
 }
 
 export async function searchHome(
-  request: { query?: unknown; scope?: unknown; limit?: unknown },
+  request: { query?: unknown; scope?: unknown; limit?: unknown; phase?: unknown; knownRevision?: unknown; queryRevision?: unknown },
   context: Pick<HomeActionContext, 'wcId' | 'generation' | 'isCurrent'>
 ): Promise<HomeSearchResult> {
   if (!context.isCurrent()) return { items: [], revision: nextRevision() }
-  if (!request || typeof request !== 'object') request = {}
-  const query = typeof request.query === 'string' ? request.query.slice(0, 4096) : ''
-  const kind = request.scope === 'installed' ? 'plugin'
-    : request.scope === 'app' || request.scope === 'plugin' || request.scope === 'action' ? request.scope : undefined
-  const commands = request.scope === 'market' ? [] : await searchQuickCommands(query, SEARCH_HANDLE_LIMIT, kind, 'catalog')
-  if (!context.isCurrent()) return { items: [], revision: nextRevision() }
-  const now = Date.now()
-  pruneSearchHandles(now)
-  invalidateHomeSearchHandles(context.wcId)
-  const items = commands.filter(command => {
-    if (kind && command.kind !== kind) return false
-    if (command.kind !== 'plugin') return true
-    const summary = pluginRegistry.get(command.pluginId ?? '')
-    return summary?.installed === true && summary.enabled !== false
-  }).slice(0, SEARCH_HANDLE_LIMIT).map(command => {
-    const handle = makeSearchHandle()
-    searchHandles.set(handle, {
-      command,
-      wcId: context.wcId,
-      generation: context.generation,
-      expiresAt: now + SEARCH_HANDLE_TTL_MS
-    })
-    return publicSearchItem(command, handle)
-  })
-  if (request.scope === 'market' || request.scope === 'all' || request.scope === undefined || request.scope === 'plugin' || request.scope === 'installed') {
-    const installedOnly = request.scope === 'plugin' || request.scope === 'installed'
-    // Matching and ranking belong to the selected workspace renderer, not the native directory.
-    const market = catalogItems().filter(item => !installedOnly || item.installed)
-    for (const item of market.slice(0, Math.max(0, SEARCH_HANDLE_LIMIT - items.length))) {
+  const session = searchSession(context)
+  const current = () => context.isCurrent() && homeSearchSessions.get(context.wcId) === session
+  const query = typeof request?.query === 'string' ? request.query.slice(0, 4096) : ''
+  if (request?.phase === 'providers') {
+    const sequence = typeof request.queryRevision === 'number' && Number.isSafeInteger(request.queryRevision) ? request.queryRevision : session.queryRevision + 1
+    if (sequence < session.queryRevision) return { items: [], revision: nextRevision(), queryRevision: sequence }
+    if (sequence > session.queryRevision) session.opening?.abort()
+    session.queryRevision = sequence
+    cancelHomeProviders(session)
+    const providerEpoch = session.providerEpoch
+    const commands = query.trim() ? await searchQuickCommands(query, 100, 'plugin', 'providers', undefined, { sessionId: session.id }) : []
+    if (!current() || sequence !== session.queryRevision || providerEpoch !== session.providerEpoch) return { items: [], revision: nextRevision(), queryRevision: sequence }
+    const items = commands.slice(0, 100).map(command => {
       const handle = makeSearchHandle()
-      searchHandles.set(handle, {
-        command: { kind: 'market', pluginId: item.pluginId },
-        wcId: context.wcId,
-        generation: context.generation,
-        expiresAt: now + SEARCH_HANDLE_TTL_MS
-      })
-      items.push({ ...item, handle, kind: 'market', title: item.name, subtitle: item.description,
-        aliases: [item.name, item.pluginId, item.description, item.category, item.author, ...(item.tags ?? [])].filter((value): value is string => typeof value === 'string') })
+      searchHandles.set(handle, { command, wcId: context.wcId, generation: context.generation, expiresAt: Date.now() + SEARCH_HANDLE_TTL_MS })
+      session.providerHandles.add(handle)
+      return publicSearchItem(command, handle)
+    })
+    return { items, revision: nextRevision(), queryRevision: sequence }
+  }
+  const directory = await getLaunchDirectorySnapshot()
+  if (!current()) return { items: [], revision: nextRevision() }
+  const market = catalogItems()
+  const signature = JSON.stringify([directory.revision, market])
+  if (session.signature !== signature) {
+    const previous = session.catalogEntries, entries: HomeSearchSession['catalogEntries'] = new Map()
+    const publish = (key: string, command: SearchFlight['command'], entry: (handle: string) => HomeSearchEntry, descriptor: unknown = command): HomeSearchEntry => {
+      const signature = JSON.stringify(descriptor), existing = previous.get(key)
+      if (existing?.signature === signature && searchHandles.has(existing.item.handle)) {
+        entries.set(key, existing)
+        return existing.item
+      }
+      const handle = makeSearchHandle()
+      searchHandles.set(handle, { command, wcId: context.wcId, generation: context.generation, expiresAt: Number.POSITIVE_INFINITY })
+      const item = entry(handle)
+      entries.set(key, { signature, item })
+      return item
     }
+    session.items = directory.items.filter(command => {
+      const plugin = command.kind === 'plugin' ? pluginRegistry.get(command.pluginId ?? '') : undefined
+      return command.kind !== 'plugin' || plugin?.installed === true && plugin.enabled !== false
+    })
+      .slice(0, 65_536).map(command => publish(command.id, command, handle => publicSearchItem(command, handle)))
+    for (const item of market.slice(0, 4096)) session.items.push(publish(`market:${item.pluginId}`, { kind: 'market', pluginId: item.pluginId }, handle => ({
+      ...item, handle, kind: 'market', title: item.name, subtitle: item.description,
+      aliases: [item.name, item.pluginId, item.description, item.category, item.author, ...(item.tags ?? [])].filter((value): value is string => typeof value === 'string')
+    }), item))
+    const handles = new Set(session.items.map(item => item.handle))
+    for (const handle of session.catalogHandles) if (!handles.has(handle)) searchHandles.delete(handle)
+    session.catalogHandles = handles
+    session.catalogEntries = entries
+    session.signature = signature
+    session.directoryRevision = randomBytes(16).toString('base64url')
   }
   pruneSearchHandles()
-  return { items, revision: nextRevision() }
+  const directoryRevision = session.directoryRevision
+  return { items: request?.knownRevision === directoryRevision ? [] : session.items, revision: nextRevision(), directoryRevision,
+    unchanged: request?.knownRevision === directoryRevision }
 }
 
 function publicHostResult(result: { ok: boolean; error?: string; cancelled?: boolean }): { ok: boolean; error?: string } {
@@ -391,7 +490,17 @@ async function installPlugin(id: string, context: HomeActionContext): Promise<{ 
   return { ok: true }
 }
 
-async function activateSearchResult(handle: string, context: HomeActionContext, query?: string): Promise<{ ok: boolean; error?: string }> {
+function openedFact(command: QuickCommand): Pick<HomeActionResponse, 'opened'> {
+  try {
+    const stateKey = command.stateKey || (command.kind === 'plugin'
+      ? quickOpenedIdentity({ kind: 'plugin', pluginId: command.pluginId ?? '', code: command.code, entryId: command.entryId })
+      : command.kind === 'app' ? quickOpenedIdentity({ kind: 'app', path: command.path ?? '' })
+        : command.action ? quickOpenedIdentity({ kind: 'action', action: command.action }) : null)
+    return stateKey ? { opened: { stateKey, at: Date.now() } } : {}
+  } catch { return {} }
+}
+
+async function activateSearchResult(handle: string, context: HomeActionContext, query?: string, selection?: QuickInputSelection): Promise<HomeActionResponse> {
   if (typeof handle !== 'string' || handle.length > 512) return { ok: false, error: 'invalid search handle' }
   const flight = searchHandles.get(handle)
   if (!flight || flight.wcId !== context.wcId || flight.generation !== context.generation || flight.expiresAt <= Date.now()) {
@@ -399,7 +508,8 @@ async function activateSearchResult(handle: string, context: HomeActionContext, 
     return { ok: false, error: 'search result expired' }
   }
   if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
-  searchHandles.delete(handle)
+  const session = searchSession(context)
+  if (session.providerHandles.delete(handle)) searchHandles.delete(handle)
   const command = flight.command
   if (command.kind === 'market') {
     if (!pluginRegistry.get(command.pluginId)) return { ok: false, error: 'plugin is no longer available' }
@@ -411,26 +521,33 @@ async function activateSearchResult(handle: string, context: HomeActionContext, 
     if (!await validateQuickOpenTarget({ kind: 'app', path: command.path ?? '' })) return { ok: false, error: 'application is unavailable' }
     if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
     await launchLocalApp(command.path ?? '')
-    return context.isCurrent() ? { ok: true } : { ok: false, error: 'home surface retired' }
+    return { ok: true, ...openedFact(command) }
   }
   if (command.kind === 'plugin') {
     const summary = pluginRegistry.get(command.pluginId ?? '')
     if (!summary?.installed || summary.enabled === false) return { ok: false, error: 'plugin is not installed or enabled' }
-    const result = await launchPlugin({ pluginId: command.pluginId ?? '', source: 'quick', enter: {
-      ...(command.code ? { code: command.code } : {}),
-      ...(command.type ? { type: command.type } : {}),
-      ...(command.content && typeof query === 'string' && query.length <= 4096 ? { type: command.content.type, payload: query } : command.payload !== undefined ? { payload: command.payload } : {})
-    }, mode: 'shell' })
-    if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
-    if (result.ok) context.setHomeVisible(false)
-    return publicHostResult(result)
+    const inputEpoch = session.input.epoch, queryRevision = session.queryRevision
+    session.opening?.abort()
+    const opening = new AbortController()
+    session.opening = opening
+    const guard = () => !opening.signal.aborted && context.isCurrent() && homeSearchSessions.get(context.wcId) === session
+      && inputEpoch === session.input.epoch && queryRevision === session.queryRevision
+    const result = await executePluginCommand(command, {
+      source: 'workspace', defaultTarget: 'shell', sessionId: session.id, signal: opening.signal,
+      query: typeof query === 'string' ? query.slice(0, 4096) : '', guard,
+      prepareInput: selection ? async () => {
+        return session.input.build(command.pluginId ?? '', selection, () => { if (!guard()) throw new Error('Home search retired') })
+      } : undefined
+    }).finally(() => { if (session.opening === opening) session.opening = undefined })
+    if (!result.ok) return publicHostResult(result)
+    if (session.input.epoch === inputEpoch) session.input.clear()
+    // A completed command may stay hidden; the launcher owns presentation changes.
+    return { ok: true, ...openedFact(command) }
   }
   if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
   if (command.action === 'refresh-apps') {
     const result = await scanApplications(true)
-    return context.isCurrent()
-      ? publicHostResult({ ok: result.complete, error: result.errors[0] })
-      : { ok: false, error: 'home surface retired' }
+    return result.complete ? { ok: true, ...openedFact(command) } : publicHostResult({ ok: false, error: result.errors[0] })
   }
   // A native home overlay must not show shell DOM dialogs.
   focusMainWindow()
@@ -440,28 +557,88 @@ async function activateSearchResult(handle: string, context: HomeActionContext, 
   } else if (command.action === 'open-market') {
     await context.navigateWorkspace({ page: 'catalog' })
   } else return { ok: false, error: 'unsupported action' }
-  return { ok: true }
+  return { ok: true, ...openedFact(command) }
 }
 
-export async function runHomeAction(action: HomeAction, context: HomeActionContext): Promise<{ ok: boolean; error?: string }> {
+async function launchHomePlugin(pluginId: string, context: HomeActionContext, cardId?: string): Promise<{ ok: boolean; error?: string }> {
+  const summary = pluginRegistry.get(pluginId)
+  if (!summary?.installed || summary.enabled === false) return { ok: false, error: 'plugin is not installed or enabled' }
+  const manifest = pluginRegistry.getManifest(pluginId)
+  if (!manifest || manifest.id !== pluginId) return { ok: false, error: 'plugin is no longer available' }
+  const buildRevision = pluginRegistry.getBuildRevision(pluginId)
+  const declaration = cardId === undefined ? undefined : declaredHomeCards(pluginId).find(({ card }) => card.id === cardId)
+  if (cardId !== undefined && !declaration) return { ok: false, error: 'home card is no longer available' }
+  const fingerprint = JSON.stringify(declaration)
+  const guard = (): boolean => {
+    if (!context.isCurrent() || pluginRegistry.getBuildRevision(pluginId) !== buildRevision || pluginRegistry.getManifest(pluginId) !== manifest) return false
+    const current = pluginRegistry.get(pluginId)
+    if (!current?.installed || current.enabled === false) return false
+    return cardId === undefined || JSON.stringify(declaredHomeCards(pluginId).find(({ card }) => card.id === cardId)) === fingerprint
+  }
+  const result = await launchPlugin({ pluginId, source: 'settings', mode: 'shell', guard,
+    ...(declaration?.openCode ? { enter: { code: declaration.openCode } } : {}) })
+  if (result.ok) {
+    // Presentation may already hide this Workspace; never hide a replacement surface.
+    if (context.isCurrent() && result.presentation !== 'none' && result.presentation !== 'quick') context.setHomeVisible(false)
+    return publicHostResult(result)
+  }
+  return context.isCurrent() ? publicHostResult(result) : { ok: false, error: 'home surface retired' }
+}
+
+export async function runHomeAction(action: HomeAction, context: HomeActionContext): Promise<HomeActionResponse> {
   if (!action || typeof action !== 'object') return { ok: false, error: 'invalid action' }
   if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
   const pluginId = 'pluginId' in action && typeof action.pluginId === 'string' ? action.pluginId.trim() : ''
   if (pluginId.length > 256) return { ok: false, error: 'invalid plugin id' }
   try {
+    if (action.type === 'searchState') {
+      if (!context.stateOwner) return { ok: false, error: 'home state owner unavailable' }
+      if (action.operation === 'read') return { ok: true, state: quickProviderStates.read(context.stateOwner) }
+      if (action.operation === 'write' && typeof action.expectedRevision === 'number') {
+        return { ok: true, state: quickProviderStates.write(context.stateOwner, action.expectedRevision, action.value) }
+      }
+      return { ok: false, error: 'invalid state operation' }
+    }
+    if (action.type === 'searchInput') {
+      const session = searchSession(context)
+      if (action.operation === 'list') return { ok: true, input: session.input.list() }
+      if (action.operation === 'clear') {
+        session.opening?.abort()
+        return { ok: true, input: session.input.remove(typeof action.id === 'string' ? action.id : undefined) }
+      }
+      if (action.operation !== 'read-clipboard') return { ok: false, error: 'invalid input operation' }
+      const gesture = homePasteGestures.get(context.wcId)
+      homePasteGestures.delete(context.wcId)
+      if (gesture === undefined || performance.now() - gesture > 1000) return { ok: false, error: 'native paste gesture required' }
+      session.opening?.abort()
+      await session.input.readClipboard()
+      if (!context.isCurrent() || homeSearchSessions.get(context.wcId) !== session) return { ok: false, error: 'home surface retired' }
+      return { ok: true, input: session.input.list() }
+    }
+    if (action.type === 'cancelSearch') {
+      const session = searchSession(context)
+      if (!Number.isSafeInteger(action.queryRevision) || action.queryRevision < 0) return { ok: false, error: 'invalid query revision' }
+      if (action.queryRevision >= session.queryRevision) {
+        session.opening?.abort()
+        session.queryRevision = action.queryRevision
+        cancelHomeProviders(session)
+      }
+      return { ok: true }
+    }
     if (action.type === 'navigate') {
       await context.navigateWorkspace(action.route)
       return { ok: true }
     }
-    if (action.type === 'activateSearchResult') return await activateSearchResult(action.handle, context, action.query)
+    if (action.type === 'activateSearchResult') return await activateSearchResult(action.handle, context, action.query, action.input)
+    if (action.type === 'openHomeCard') {
+      if (!pluginId || typeof action.cardId !== 'string' || !action.cardId.trim() || action.cardId.length > 128
+        || Object.keys(action).some(key => !['type', 'pluginId', 'cardId'].includes(key))) return { ok: false, error: 'invalid home card request' }
+      // Never accept a launch code or payload from the theme; declarations remain host-owned.
+      return await launchHomePlugin(pluginId, context, action.cardId)
+    }
     if (action.type === 'openPlugin') {
       if (!pluginId) return { ok: false, error: 'plugin id required' }
-      const summary = pluginRegistry.get(pluginId)
-      if (!summary?.installed || summary.enabled === false) return { ok: false, error: 'plugin is not installed or enabled' }
-      const result = await launchPlugin({ pluginId, source: 'settings', mode: 'shell' })
-      if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
-      if (result.ok) context.setHomeVisible(false)
-      return publicHostResult(result)
+      return await launchHomePlugin(pluginId, context)
     }
     if (action.type === 'installPlugin') {
       if (!pluginId) return { ok: false, error: 'plugin id required' }
@@ -551,6 +728,29 @@ export async function runHomeAction(action: HomeAction, context: HomeActionConte
   }
 }
 
-export function bindHomeContents(contents: WebContents): void {
-  contents.once('destroyed', () => invalidateHomeSearchHandles(contents.id))
+export function bindHomeContents(contents: WebContents, isActive: () => boolean): void {
+  const id = contents.id
+  const eligible = () => !contents.isDestroyed() && isActive() && contents.isFocused() && contents.focusedFrame === contents.mainFrame
+  let mouseDown = 0
+  contents.on('before-input-event', (_event, input) => {
+    const command = input.meta || process.platform !== 'darwin' && input.control
+    if (input.type === 'keyDown' && !input.isAutoRepeat && !input.isComposing && command && input.key.toLowerCase() === 'v' && eligible()) {
+      homePasteGestures.set(id, performance.now())
+    }
+  })
+  contents.on('before-mouse-event', (_event, input) => {
+    if (input.button !== 'left') return
+    if (input.type === 'mouseDown') { homePasteGestures.delete(id); mouseDown = eligible() ? performance.now() : 0 }
+    else if (input.type === 'mouseUp') {
+      if (mouseDown && performance.now() - mouseDown <= 1000 && eligible()) homePasteGestures.set(id, performance.now())
+      mouseDown = 0
+    }
+  })
+  const clearGesture = () => { homePasteGestures.delete(id); mouseDown = 0 }
+  contents.on('blur', clearGesture)
+  contents.on('did-start-navigation', clearGesture)
+  const unsubscribe = onLaunchDirectoryChanged(() => {
+    if (!contents.isDestroyed()) contents.send(IpcChannels.HomeEvent, { command: { type: 'searchDirectoryChanged' } })
+  })
+  contents.once('destroyed', () => { unsubscribe(); invalidateHomeSearchHandles(id) })
 }

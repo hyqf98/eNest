@@ -1,9 +1,20 @@
 import type {
   EnestWorkspaceApi, HomeAction, HomeAppearanceSnapshot, HomeCatalog, HomeCommand,
-  HomeDetail, HomeRuntimeConfig, HomeSearchResult, HomeSearchScope
+  HomeDetail, HomeRuntimeConfig, HomeSearchEntry, HomeSearchResult, HomeSearchScope
 } from '@shared/types/home'
+import type { QuickCommandKind, QuickImageContext } from '@shared/types/quick'
 import type { WorkspaceRoute } from '@shared/types/workspace'
+import { normalizeSearchText } from '@shared/search'
+import { buildQuickInputSelection } from '@renderer/components/quickCatalog'
 import { loadWorkspaceReadme } from '@renderer/services/workspaceReadme'
+import { ACTION_COPY, assembleDefaultQuickResults, matchDefaultQuickMedia, namesOf, rankDefaultQuickHome, type DefaultQuickMatch } from './quick/catalogPolicy'
+import { createNameSearch } from './quick/nameSearchClient'
+import type { QuickNameRow } from './quick/nameSearchTypes'
+import { matchDefaultQuickContent } from './quick/patternMatching'
+import { defaultQuickPreferredKey, emptyDefaultQuickUsage, projectDefaultQuickUsage } from './quick/usagePolicy'
+import { createDefaultQuickUsageSession } from './quick/usageState'
+
+type WorkspaceCommand = HomeSearchEntry & { id: string; kind: QuickCommandKind; lastUsedTs?: number; useCount?: number }
 
 export interface DefaultWorkspaceState {
   appearance?: HomeAppearanceSnapshot
@@ -20,6 +31,8 @@ export interface DefaultWorkspaceState {
   results?: HomeSearchResult
   searching: boolean
   searchError?: string
+  input: QuickImageContext[]
+  inputBusy: boolean
   loading: boolean
   refreshing: boolean
   busy: ReadonlySet<string>
@@ -63,7 +76,7 @@ function persistBasePage(page: 'catalog' | 'installed'): void {
 export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, callbacks: Callbacks = {}) {
   let state: DefaultWorkspaceState = {
     runtimeGeneration: 0, route: { page: 'catalog' }, basePage: readBasePage(), query: '', category: '全部',
-    scope: 'all', searching: false, loading: true, refreshing: false, busy: new Set(), visible: false,
+    scope: 'all', searching: false, input: [], inputBusy: false, loading: true, refreshing: false, busy: new Set(), visible: false,
   }
   const listeners = new Set<() => void>()
   let disposed = false
@@ -75,6 +88,16 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
   let searchTimer: ReturnType<typeof setTimeout> | undefined
   let readmeController: AbortController | undefined
   let searchController: AbortController | undefined
+  let composing = false
+  let inputEpoch = 0, inputReadRevision = 0, pendingInputs = 0, openedSequence = 0
+  let directoryRevision = '', directoryDirty = true, directorySequence = 0
+  let directoryFlight: Promise<void> | undefined
+  let directoryItems: HomeSearchEntry[] = [], nativeItems: WorkspaceCommand[] = [], nameEntries: HomeSearchEntry[] = []
+  let nativeByHandle = new Map<string, WorkspaceCommand>()
+  let nameRows: QuickNameRow[] = [], nameRevision = 0
+  let statePositions = new Map<string, number[]>()
+  let nameClient: ReturnType<typeof createNameSearch> | undefined
+  let usage = emptyDefaultQuickUsage()
   const pendingCommands: HomeCommand[] = []
   let offAppearance: (() => void) | undefined
   let offCommand: (() => void) | undefined
@@ -84,6 +107,23 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     listeners.forEach(listener => listener())
   }
   const message = (zh: string, en: string) => state.config?.locale === 'en-US' ? en : zh
+  const usageSession = createDefaultQuickUsageSession({
+    read: async () => {
+      const result = await bridge.action({ type: 'searchState', operation: 'read' })
+      if (!result.ok || !result.state) throw new Error('Search state unavailable')
+      return result.state
+    },
+    write: async (expectedRevision, value) => {
+      const result = await bridge.action({ type: 'searchState', operation: 'write', expectedRevision, value })
+      if (!result.ok || !result.state) throw new Error('Search state unavailable')
+      return result.state
+    },
+    encodeIdentities: async () => []
+  }, value => {
+    usage = value
+    updateUsageCatalog()
+    if (!disposed && state.visible && (state.query.trim() || state.input.length)) queueSearch(state.query, state.scope, composing)
+  })
   const afterPaint = () => paintBarrier(callbacks.afterPaint)
   const acceptAppearance = (snapshot: HomeAppearanceSnapshot) => {
     if (disposed || !snapshot?.appearance) return false
@@ -135,39 +175,143 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     }
   }
 
+  function updateUsageCatalog() {
+    nativeItems = projectDefaultQuickUsage(directoryItems.filter((item): item is HomeSearchEntry & { kind: QuickCommandKind } =>
+      item.kind === 'app' || item.kind === 'plugin' || item.kind === 'action').map(item => ({ ...item, id: item.handle })), usage, '')
+    nativeByHandle = new Map(nativeItems.map(item => [item.handle, item]))
+  }
+
+  async function loadSearchDirectory(): Promise<void> {
+    if (!directoryDirty || disposed) return
+    if (directoryFlight) return directoryFlight
+    const sequence = ++directorySequence, generation = state.runtimeGeneration
+    const flight = bridge.search({ query: '', phase: 'catalog', knownRevision: directoryRevision || undefined }).then(result => {
+      if (disposed || sequence !== directorySequence || generation !== state.runtimeGeneration) return
+      if (!result.unchanged) {
+        directoryItems = result.items
+        updateUsageCatalog()
+        nameEntries = directoryItems.filter(item => !item.content && !item.provider)
+        nameRows = nameEntries.map(item => ({ key: item.handle, kind: item.kind ?? 'plugin', title: item.title,
+          prefix: item.textInput?.trigger === 'prefix',
+          names: item.kind === 'market' ? [item.title, ...(item.aliases ?? [])] : namesOf({ ...item, id: item.handle, kind: item.kind ?? 'plugin' }) }))
+        statePositions = new Map()
+        nameEntries.forEach((item, index) => { if (item.stateKey) statePositions.set(item.stateKey, [...(statePositions.get(item.stateKey) ?? []), index]) })
+        nameRevision++
+      }
+      directoryRevision = result.directoryRevision ?? ''
+      directoryDirty = false
+    }).finally(() => { if (directoryFlight === flight) directoryFlight = undefined })
+    directoryFlight = flight
+    return flight
+  }
+
+  function invalidateSearchDirectory() {
+    directoryDirty = true; directorySequence++; directoryFlight = undefined
+    if (state.visible) {
+      if (state.query.trim() || state.input.length) queueSearch(state.query, state.scope, composing)
+      else void loadSearchDirectory().catch(() => undefined)
+    }
+  }
+
   async function runSearch(query = state.query) {
-    const sequence = ++searchSequence
-    const scope = state.scope
-    if (!query.trim() || disposed) return
-    const generation = state.runtimeGeneration
+    if (disposed || !state.visible || composing || !query.trim() && !state.input.length) return
+    const sequence = ++searchSequence, scope = state.scope, generation = state.runtimeGeneration
     searchController?.abort()
     const controller = new AbortController()
     searchController = controller
-    const current = () => !disposed && sequence === searchSequence && generation === state.runtimeGeneration && !controller.signal.aborted
+    const current = () => !disposed && state.visible && !composing && sequence === searchSequence && generation === state.runtimeGeneration && !controller.signal.aborted
     patch({ searching: true, searchError: undefined })
     try {
-      // Keep the default dictionary and worker matcher off Workspace's cold path.
-      const [results, { rankDefaultWorkspaceSearch }, { matchDefaultQuickContent }] = await Promise.all([
-        bridge.search({ query: query.trim(), scope, limit: 60 }),
-        import('./quick/workspaceSearchPolicy'),
-        import('./quick/patternMatching'),
-      ])
+      await loadSearchDirectory()
       if (!current()) return
-      patch({ results: { ...results, items: rankDefaultWorkspaceSearch(results.items, query, scope) }, searching: false })
-      const content = await matchDefaultQuickContent(results.items.map(item => ({ id: item.handle, content: item.content })), query, controller.signal)
-      if (!current()) return
-      patch({ results: { ...results, items: rankDefaultWorkspaceSearch(results.items, query, scope, content) }, searching: false })
+      const catalog = nativeItems
+      const filter = scope === 'installed' ? 'plugin' : scope === 'app' || scope === 'plugin' || scope === 'action' ? scope : null
+      const media = matchDefaultQuickMedia(catalog, state.input)
+      let named: Array<DefaultQuickMatch<WorkspaceCommand>> = [], market: HomeSearchEntry[] = [], providers: WorkspaceCommand[] = []
+      let namesReady = !query.trim()
+      let content = new Set<string>()
+      const publish = () => {
+        if (!current() || !namesReady) return
+        const matches = scope === 'market' ? [] : query.trim()
+          ? assembleDefaultQuickResults([...catalog, ...providers], normalizeSearchText(query).length <= 32 || !media.mediaPresent ? named : named.filter(item => item.prefix), filter, 60, content, media.matches, media.mediaPresent)
+          : rankDefaultQuickHome(catalog, filter, 60, media.matches)
+        const represented = new Set(matches.flatMap(item => item.kind === 'plugin' && item.pluginId ? [item.pluginId] : []))
+        const discovery = scope === 'market' ? market : scope === 'all' ? market.filter(item => !item.pluginId || !represented.has(item.pluginId)) : []
+        patch({ results: { items: [...matches, ...discovery].slice(0, 60), revision: sequence, directoryRevision }, searching: false })
+      }
+      const contentWork = scope === 'market' ? Promise.resolve() : matchDefaultQuickContent(catalog, query, controller.signal)
+        .then(matches => { content = matches; publish() })
+      const providerWork = query.trim() && (scope === 'all' || filter === 'plugin')
+        ? bridge.search({ query, scope, phase: 'providers', queryRevision: sequence }).then(result => {
+          if (!current() || result.queryRevision !== sequence) return
+          providers = result.items.filter(item => item.kind === 'plugin').map(item => ({ ...item, id: item.handle, kind: 'plugin' }))
+          publish()
+        }).catch(() => { if (current()) patch({ searchError: message('部分动态搜索来源暂时不可用。', 'Some dynamic search sources are unavailable.') }) })
+        : Promise.resolve()
+      if (query.trim() && nameRows.length) {
+        if (!nameClient || nameClient.disposed) nameClient = createNameSearch()
+        const preferredKey = defaultQuickPreferredKey(usage, query)
+        const hits = await nameClient.search(nameRows, String(nameRevision), query, scope === 'market' ? 'market' : filter,
+          preferredKey ? statePositions.get(preferredKey) ?? [] : [], controller.signal)
+        if (!current()) return
+        for (const hit of hits) {
+          const entry = nameEntries[hit.index]
+          if (!entry) continue
+          if (entry.kind === 'market') market.push(entry)
+          else {
+            const item = nativeByHandle.get(entry.handle)
+            if (item) named.push({ ...item, title: item.action ? ACTION_COPY[item.action].title : item.kind === 'plugin' ? hit.keyword : item.title, group: 'best', ...(hit.prefix ? { prefix: true } : {}) })
+          }
+        }
+      }
+      namesReady = true
+      publish()
+      await Promise.all([contentWork, providerWork])
     } catch {
       if (current()) patch({ searching: false, searchError: message('搜索失败，请重试。', 'Search failed. Please retry.') })
     }
   }
 
-  function queueSearch(query: string, scope = state.scope, composing = false) {
-    searchSequence++
+  function queueSearch(query: string, scope = state.scope, paused = false) {
+    const sequence = ++searchSequence
+    composing = paused
     searchController?.abort()
     clearTimeout(searchTimer)
-    patch({ query, scope, results: undefined, searching: Boolean(query.trim()) && !composing, searchError: undefined })
-    if (query.trim() && !composing) searchTimer = setTimeout(() => void runSearch(query), 80)
+    void bridge.action({ type: 'cancelSearch', queryRevision: sequence }).catch(() => undefined)
+    const requested = Boolean(query.trim() || state.input.length)
+    patch({ query, scope, results: undefined, searching: requested && !paused && state.visible, searchError: undefined })
+    if (requested && !paused && state.visible) searchTimer = setTimeout(() => void runSearch(query), 80)
+  }
+
+  async function changeInput(operation: 'read-clipboard' | 'clear', id?: string) {
+    const epoch = inputEpoch
+    inputReadRevision++
+    pendingInputs++; patch({ inputBusy: true })
+    try {
+      const result = await bridge.action({ type: 'searchInput', operation, ...(id ? { id } : {}) })
+      if (disposed || epoch !== inputEpoch) return
+      if (!result.ok) throw new Error(message('粘贴内容不可用，请重试。', 'Paste context unavailable. Please retry.'))
+      const revision = ++inputReadRevision
+      const latest = await bridge.action({ type: 'searchInput', operation: 'list' })
+      if (disposed || epoch !== inputEpoch || revision !== inputReadRevision) return
+      if (!latest.ok) throw new Error(message('粘贴内容不可用，请重试。', 'Paste context unavailable. Please retry.'))
+      patch({ input: latest.input ?? [] })
+      queueSearch(state.query, state.scope, composing)
+    } catch (error) {
+      if (!disposed && epoch === inputEpoch) patch({ message: error instanceof Error ? error.message : message('无法读取剪贴板。', 'Unable to read the clipboard.') })
+    } finally { if (epoch === inputEpoch) { pendingInputs--; patch({ inputBusy: pendingInputs > 0 }) } }
+  }
+
+  async function openSearchResult(item: HomeSearchEntry) {
+    const query = state.query
+    const contextRevision = inputReadRevision
+    const input = item.kind === 'plugin' ? buildQuickInputSelection(state.input, { content: item.content, group: item.provider ? 'provider' : undefined }, query) : undefined
+    const result = await bridge.action({ type: 'activateSearchResult', handle: item.handle, query, ...(input ? { input } : {}) })
+    if (!result.ok) throw new Error(result.error || message('操作失败或已取消。', 'The action failed or was cancelled.'))
+    if (result.opened) void usageSession.recordOpened({ ...result.opened, sequence: ++openedSequence, query }).catch(() => {
+      patch({ message: message('已打开，但使用记录暂未保存。', 'Opened, but usage history could not be saved.') })
+    })
+    if (item.kind === 'plugin' && contextRevision === inputReadRevision) { inputEpoch++; inputReadRevision++; pendingInputs = 0; patch({ input: [], inputBusy: false }) }
   }
 
   async function refreshCatalog(reason: 'manual' | 'boot' = 'manual') {
@@ -175,7 +319,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     patch({ refreshing: true })
     try {
       const catalog = await bridge.refresh({ reason })
-      if (!disposed && sequence === refreshSequence) acceptCatalog(catalog)
+      if (!disposed && sequence === refreshSequence) { acceptCatalog(catalog); invalidateSearchDirectory() }
     } catch {
       if (!disposed && sequence === refreshSequence) patch({ message: message('刷新失败，本地目录仍可使用。', 'Refresh failed. Your local library is still available.') })
     } finally {
@@ -246,8 +390,21 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
 
   function handleCommand(command: HomeCommand) {
     if (disposed) return
-    if (command.type === 'visibility') { patch({ visible: command.visible }); return }
+    if (command.type === 'visibility') {
+      patch({ visible: command.visible })
+      if (!command.visible) {
+        inputEpoch++; inputReadRevision++; pendingInputs = 0
+        patch({ input: [], inputBusy: false })
+        queueSearch(state.query, state.scope)
+      } else {
+        void usageSession.refresh().catch(() => undefined)
+        if (state.query.trim()) queueSearch(state.query, state.scope)
+        else void loadSearchDirectory().catch(() => undefined)
+      }
+      return
+    }
     if (bootstrapping) { if (pendingCommands.length < 32) pendingCommands.push(command); return }
+    if (command.type === 'searchDirectoryChanged') { invalidateSearchDirectory(); return }
     if (command.type === 'navigate') { void navigateWorkspace(command); return }
     if (command.type === 'openMarket') {
       if (!Number.isSafeInteger(command.generation) || !Number.isFinite(command.revision) ||
@@ -283,6 +440,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     if (appearance.status === 'fulfilled') acceptAppearance(appearance.value)
     if (config.status === 'fulfilled') { patch({ config: config.value }); callbacks.applyConfig?.(config.value) }
     if (catalog.status === 'fulfilled') acceptCatalog(catalog.value)
+    void usageSession.initialize().catch(() => undefined)
     patch({ loading: false })
     if (!state.appearance) { patch({ message: message('外观服务暂时不可用，请从宿主重试。', 'Appearance is unavailable. Retry from the host.') }); return }
     if (config.status === 'rejected' || catalog.status === 'rejected') patch({ message: message('部分数据读取失败，可刷新重试。', 'Some data failed to load. Refresh to retry.') })
@@ -298,6 +456,10 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     navigationSequence++; searchSequence++; detailSequence++; refreshSequence++
     clearTimeout(searchTimer)
     searchController?.abort()
+    inputEpoch++; directorySequence++
+    nameClient?.dispose(); usageSession.dispose()
+    void bridge.action({ type: 'cancelSearch', queryRevision: searchSequence }).catch(() => undefined)
+    void bridge.action({ type: 'searchInput', operation: 'clear' }).catch(() => undefined)
     cancelReadme()
     pendingCommands.length = 0
     offAppearance?.(); offCommand?.(); listeners.clear()
@@ -306,7 +468,8 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
   return {
     getState: () => state,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
-    start, dispose, showDetail, queueSearch, runSearch, refreshCatalog, action, navigate, manage, setBasePage,
+    start, dispose, showDetail, queueSearch, runSearch, refreshCatalog, action, navigate, manage, setBasePage, openSearchResult,
+    pasteInput: () => changeInput('read-clipboard'), clearInput: (id?: string) => changeInput('clear', id),
     setCategory: (category: string) => patch({ category }),
     dismissMessage: () => patch({ message: undefined }),
     reportError: (error: unknown) => patch({ message: error instanceof Error ? error.message : message('操作失败，请重试。', 'Action failed. Please retry.') }),

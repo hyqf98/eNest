@@ -13,14 +13,10 @@ import { randomUUID } from 'node:crypto'
 import {
   PANEL_MAX_PANELS,
   PANEL_MAX_WIDGETS,
-  PANEL_MIN_HEIGHT,
-  PANEL_MIN_WIDTH,
   type PanelAppearance,
   type PanelBounds,
   type PanelCandidate,
   type PanelCommand,
-  type PanelDragMode,
-  type PanelResizeEdge,
   type PanelState,
   type PanelWidgetRect,
   type PanelWidgetState,
@@ -36,6 +32,9 @@ import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { isEnabledSync } from '@main/plugin/pluginEnabledStore'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { appearanceService } from '@main/theme/appearanceService'
+import { closePanelPluginRuntimes, PanelPluginCleanupError, rememberPanelPluginClose, type PanelPluginClose } from '@main/panel/panelClose'
+import { createPanelDragController } from '@main/panel/panelDragController'
+import { showNotification } from '@main/window/notificationOverlay'
 import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
 import {
   bindPanelWindowHost,
@@ -51,20 +50,16 @@ import {
   getPanelWindowRecord,
   layoutPanelChrome,
   markPanelChromeReady,
-  pushDragFeedback,
   pushPanelPreview,
   pushState,
   setPluginViewBounds,
   type PanelWindowHost
 } from '@main/window/panelWindows'
 import {
-  applyDrag,
   clampRect,
-  computeSnap,
   findPanelExpansion,
   findFreeSlot,
   fitWidgetsToPanel,
-  movableEdges,
   rectAtPointer
 } from '@main/panel/panelGeometry'
 import { destroyDetachedWindow, getDetachedWindow } from '@main/window/detachedPluginWindows'
@@ -92,8 +87,8 @@ export interface PanelPluginHost {
    * pointer 事件，拖动会卡死；隐藏后指针始终留在 chrome 内，capture 持续有效。
    */
   setPanelWidgetVisibility(pluginId: string, visible: boolean): void
-  /** 关闭面板内所有插件运行时（完整 closePlugin 链路）。 */
-  closePanelPlugins(pluginIds: string[]): Promise<void>
+  /** Capture an incarnation-bound release; retired/replaced owners resolve without closing a newer session. */
+  capturePanelPluginClose(pluginId: string, panelId: string): PanelPluginClose
   /** 当前插件所处 placement（用于候选过滤与去重）。 */
   getPlacement(pluginId: string): PluginPlacement
   /** 面板内插件的显示状态（标题/图标/错误）。 */
@@ -107,6 +102,9 @@ interface WidgetRecord extends PersistedPanelWidget {
   error?: string
   mounting?: Promise<void>
   removing?: boolean
+  removal?: Promise<void>
+  cleanupFailed?: boolean
+  closeRuntime?: PanelPluginClose
 }
 
 interface PanelRecord {
@@ -120,50 +118,18 @@ interface PanelRecord {
   overlay: boolean
   /** 整块面板正在被主进程驱动移动/缩放：期间抑制插件视图并暂停事件回流的重复持久化。 */
   windowDragging: boolean
-}
-
-interface DragSession {
-  panelId: string
-  interactionId: number
-  pluginId: string
-  mode: PanelDragMode
-  edge?: PanelResizeEdge
-  startRect: PanelWidgetRect
-  startPointer: { x: number; y: number }
-  frame: ReturnType<typeof setTimeout> | null
-  watchdog: ReturnType<typeof setInterval> | null
-  lastInput: number
-  lastGuides: string
-  lastRect: PanelWidgetRect
-  ending: boolean
+  surfaceUnavailable?: boolean
 }
 
 const panels = new Map<string, PanelRecord>()
+const panelCloses = new Map<string, Promise<void>>()
+const cleanupNoticeOwner = {}
 let host: PanelPluginHost | null = null
-let drag: DragSession | null = null
 let shuttingDown = false
 let lifecycleEpoch = 0
 let lifecycleQueue: Promise<void> = Promise.resolve()
 let pendingCloses = 0
 let closingLayout: PersistedPanel[] | null = null
-/** 整块面板的移动/缩放会话（与组件拖动互斥）。 */
-interface WindowDragSession {
-  panelId: string
-  interactionId: number
-  mode: PanelDragMode
-  edge?: PanelResizeEdge
-  /** 起始时窗口的屏幕绝对 bounds。 */
-  startBounds: { x: number; y: number; width: number; height: number }
-  /** 起始时光标的屏幕绝对坐标。 */
-  startPointer: { x: number; y: number }
-  frame: ReturnType<typeof setTimeout> | null
-  watchdog: ReturnType<typeof setInterval> | null
-  lastInput: number
-  ending: boolean
-}
-let windowDrag: WindowDragSession | null = null
-/** 拖动无渲染层输入超过该时长视为 chrome 失联，安全收尾。 */
-const DRAG_IDLE_TIMEOUT_MS = 30_000
 /** 恢复队列：控制开机时并发拉起渲染进程的数量。 */
 interface RestoreJob { record: PanelRecord; widget: WidgetRecord; epoch: number }
 const restoreQueue: RestoreJob[] = []
@@ -184,6 +150,10 @@ let previewWorkers = 0
 const PREVIEW_CONCURRENCY = 2
 const PREVIEW_SESSION_BYTES = 3 * 1024 * 1024
 
+const panelDragController = createPanelDragController({
+  panels, applyWidgetBounds, otherRects, syncPanelVisibility, syncWidgetOrder, persist, publishPanel, onGeometryChanged
+})
+
 export function bindPanelPluginHost(value: PanelPluginHost | null): void {
   host = value
 }
@@ -198,6 +168,50 @@ function mountedPluginIds(record: PanelRecord): string[] {
     const placement = host?.getPlacement(pluginId)
     return placement?.kind === 'panel' && placement.panelId === record.id
   })
+}
+
+function closingPluginIds(record: PanelRecord): string[] {
+  return [...new Set([...mountedPluginIds(record), ...[...record.widgets.values()]
+    .filter(widget => widget.cleanupFailed || widget.closeRuntime).map(widget => widget.pluginId)])]
+}
+
+function captureOwnedPanelPluginCloses(owners: Array<{ record: PanelRecord; pluginId: string }>): Map<string, PanelPluginClose> {
+  const closes = new Map<string, PanelPluginClose>()
+  for (const { record, pluginId } of owners) {
+    const widget = record.widgets.get(pluginId)
+    if (widget) closes.set(pluginId, rememberPanelPluginClose(widget, id => requireHost().capturePanelPluginClose(id, record.id)))
+  }
+  return closes
+}
+
+function closeOwnedPanelPlugins(closes: ReadonlyMap<string, PanelPluginClose>): Promise<void> {
+  return closePanelPluginRuntimes([...closes.keys()], pluginId => closes.get(pluginId)!())
+}
+
+function markCleanupFailures(record: PanelRecord, pluginIds: string[], error: unknown): void {
+  const failed = new Set(error instanceof PanelPluginCleanupError ? error.failures.map(item => item.pluginId) : pluginIds)
+  for (const pluginId of pluginIds) {
+    const widget = record.widgets.get(pluginId)
+    if (!widget) continue
+    if (!failed.has(pluginId)) { record.widgets.delete(pluginId); continue }
+    widget.loading = false
+    widget.removing = false
+    widget.cleanupFailed = true
+    widget.error = '组件资源尚未确认释放，请重试释放或到“设置 → 通用”查看。'
+  }
+}
+
+function reportCleanupFailure(error: unknown, panelId?: string): void {
+  logWarn('panel', `resource cleanup failed: ${String(error)}`)
+  const en = settingsStore.getLocale() === 'en-US'
+  const native = panelId ? getPanelWindowRecord(panelId) : undefined
+  try {
+    showNotification(native?.window ?? getMainWindow(), {
+      title: en ? 'Widget cleanup incomplete' : '组件资源回收未完成', level: 'error', duration: 12000,
+      body: en ? 'Some widget resources could not be confirmed as released. Retry closing the widget or inspect remaining processes in Settings > General.'
+        : '部分组件资源尚未确认释放。请重试关闭组件，或在“设置 → 通用”查看并停止剩余进程。'
+    }, { owner: cleanupNoticeOwner, source: 'eNest' })
+  } catch { /* Cleanup failure still propagates to the caller when its notification surface is gone. */ }
 }
 
 function mountedWidgetView(panelId: string, pluginId: string): View | null {
@@ -257,7 +271,7 @@ function widgetState(widget: WidgetRecord): PanelWidgetState {
     title: described?.title ?? pluginRegistry.get(widget.pluginId)?.name ?? widget.pluginId,
     icon: described?.icon ?? pluginRegistry.get(widget.pluginId)?.icon ?? null,
     glyph: described?.glyph ?? pluginRegistry.get(widget.pluginId)?.glyph,
-    status: unsupported ? 'unsupported' : widget.error ? 'error' : widget.loading ? 'loading' : described?.status ?? 'error',
+    status: widget.cleanupFailed ? 'cleanup-failed' : unsupported ? 'unsupported' : widget.error ? 'error' : widget.loading ? 'loading' : described?.status ?? 'error',
     error: unsupported ? '此插件未提供小组件布局，原布局已保留' : widget.error ?? described?.error ?? (!described && !widget.loading ? '组件尚未启动' : undefined)
   }
 }
@@ -392,206 +406,14 @@ function stopPanelPreview(panelId: string): void {
 function syncPanelVisibility(panelId: string): void {
   const record = panels.get(panelId)
   if (!record) return
-  const hidden = record.overlay || record.windowDragging || (!!drag && drag.panelId === panelId)
+  const hidden = record.overlay || record.windowDragging || panelDragController.isWidgetDragging(panelId)
   if (hidden) startPanelPreview(record)
   else stopPanelPreview(panelId)
   for (const pluginId of mountedPluginIds(record)) host?.setPanelWidgetVisibility(pluginId, !hidden)
 }
 
-function dragTick(session: DragSession): void {
-  if (drag !== session || session.ending) return
-  const record = panels.get(session.panelId)
-  const native = getPanelWindowRecord(session.panelId)
-  const widget = record?.widgets.get(session.pluginId)
-  if (!record || !native || !widget) { endDrag(true); return }
-  const cursor = screen.getCursorScreenPoint()
-  const windowBounds = native.window.getContentBounds()
-  const local = { x: cursor.x - windowBounds.x, y: cursor.y - windowBounds.y }
-  const delta = { x: local.x - session.startPointer.x, y: local.y - session.startPointer.y }
-  const size = { width: windowBounds.width, height: windowBounds.height }
-  const moved = applyDrag(session.startRect, session.mode, session.edge, delta, size)
-  const snapped = computeSnap(moved, otherRects(record, session.pluginId), size, {
-    movable: movableEdges(session.mode, session.edge)
-  })
-  const rect = snapped.rect
-  widget.x = rect.x; widget.y = rect.y; widget.width = rect.width; widget.height = rect.height
-  applyWidgetBounds(session.panelId, widget)
-
-  // 仅在矩形或辅助线集合变化时推送，避免逐帧 IPC。
-  const guideKey = snapped.guides.map(guide => `${guide.axis}:${guide.position}:${guide.from}:${guide.to}`).join('|')
-  const rectChanged = rect.x !== session.lastRect.x || rect.y !== session.lastRect.y
-    || rect.width !== session.lastRect.width || rect.height !== session.lastRect.height
-  if (rectChanged || guideKey !== session.lastGuides) {
-    session.lastRect = rect
-    session.lastGuides = guideKey
-    pushDragFeedback(native, { sourcePanelId: session.panelId, interactionId: session.interactionId, active: true, pluginId: session.pluginId, rect, guides: snapped.guides })
-  }
-  session.frame = null
-}
-
-function scheduleDragTick(session: DragSession): void {
-  if (session.frame || session.ending) return
-  session.frame = setTimeout(() => { session.frame = null; if (drag === session) dragTick(session) }, 0)
-}
-
-/** 渲染层保活触发：把下一帧 tick 排上（主进程自行读光标）；同时刷新存活时间。 */
-export function panelDragTick(senderId: number, interactionId: number): void {
-  const panelId = getPanelForSender(senderId)
-  if (!panelId || !drag || drag.panelId !== panelId || drag.interactionId !== interactionId) return
-  drag.lastInput = Date.now()
-  scheduleDragTick(drag)
-}
-
-function beginDrag(panelId: string, interactionId: number, pluginId: string, mode: PanelDragMode, edge?: PanelResizeEdge, pointer?: { x: number; y: number }): void {
-  const record = panels.get(panelId)
-  const widget = record?.widgets.get(pluginId)
-  const native = getPanelWindowRecord(panelId)
-  if (!record || record.closing || !native || native.window.isDestroyed()) throw new Error('面板已关闭，无法开始拖动')
-  if (!widget || widget.removing) throw new Error('组件不可用，无法开始拖动')
-  if (windowDrag) endWindowDrag(true)
-  if (drag) endDrag(true)
-  const cursor = screen.getCursorScreenPoint()
-  const windowBounds = native.window.getContentBounds()
-  const session: DragSession = {
-    panelId, interactionId, pluginId, mode, edge,
-    startRect: { x: widget.x, y: widget.y, width: widget.width, height: widget.height },
-    startPointer: pointer ?? { x: cursor.x - windowBounds.x, y: cursor.y - windowBounds.y },
-    frame: null, watchdog: null, lastInput: Date.now(),
-    lastGuides: '', lastRect: { x: widget.x, y: widget.y, width: widget.width, height: widget.height },
-    ending: false
-  }
-  drag = session
-  // 拖动期间隐藏本面板**所有**组件的原生视图：任何原生 view 都会在 OS 层截走指针，
-  // 被拖组件经过其它组件时同样会让 chrome 丢失 pointerup 而卡死。
-  // 视觉反馈由 chrome 的组件边框（DOM）+ 跟随框 + 辅助线承担，结束时无条件恢复可见。
-  syncPanelVisibility(panelId)
-  // 看门狗：chrome 失联（卡死/文档被切走）超过阈值时安全收尾，避免组件视图永久隐藏。
-  session.watchdog = setInterval(() => {
-    if (drag !== session || session.ending) return
-    if (Date.now() - session.lastInput > DRAG_IDLE_TIMEOUT_MS || native.window.isDestroyed()) endDrag(true)
-  }, 1000)
-  session.watchdog.unref?.()
-  scheduleDragTick(session)
-}
-
-function endDrag(cancel: boolean): void {
-  const session = drag
-  if (!session) return
-  if (!cancel) dragTick(session)
-  if (drag !== session) return
-  session.ending = true
-  if (session.frame) { clearTimeout(session.frame); session.frame = null }
-  if (session.watchdog) { clearInterval(session.watchdog); session.watchdog = null }
-  drag = null
-  const record = panels.get(session.panelId)
-  const widget = record?.widgets.get(session.pluginId)
-  const native = getPanelWindowRecord(session.panelId)
-  if (record && widget) {
-    if (cancel) {
-      widget.x = session.startRect.x; widget.y = session.startRect.y
-      widget.width = session.startRect.width; widget.height = session.startRect.height
-    }
-    applyWidgetBounds(session.panelId, widget)
-    syncWidgetOrder(record)
-    persist(true)
-    publishPanel(session.panelId)
-  }
-  syncPanelVisibility(session.panelId)
-  if (native) pushDragFeedback(native, { sourcePanelId: session.panelId, interactionId: session.interactionId, active: false, pluginId: session.pluginId })
-}
-
-// —— 整块面板移动 / 缩放 ——
-
-/**
- * 面板窗口移动/缩放：主进程驱动。
- * 不用 -webkit-app-region: drag —— 该区域的右键不会触发 contextmenu，
- * 而面板的「添加组件」入口正是空白处右键，因此这里与组件拖动共用同一套 tick 方案。
- */
-function windowDragTick(session: WindowDragSession): void {
-  if (windowDrag !== session || session.ending) return
-  const native = getPanelWindowRecord(session.panelId)
-  if (!native || native.window.isDestroyed()) { endWindowDrag(true); return }
-  session.frame = null
-  const cursor = screen.getCursorScreenPoint()
-  const dx = cursor.x - session.startPointer.x
-  const dy = cursor.y - session.startPointer.y
-  const start = session.startBounds
-  let next = { ...start }
-  if (session.mode === 'move') {
-    next = { ...start, x: Math.round(start.x + dx), y: Math.round(start.y + dy) }
-  } else {
-    const edge = session.edge ?? 'se'
-    const minW = PANEL_MIN_WIDTH, minH = PANEL_MIN_HEIGHT
-    let right = start.x + start.width, bottom = start.y + start.height
-    if (edge.includes('w')) { next.x = Math.round(Math.min(start.x + dx, right - minW)); next.width = right - next.x }
-    if (edge.includes('e')) next.width = Math.max(minW, Math.round(start.width + dx))
-    if (edge.includes('n')) { next.y = Math.round(Math.min(start.y + dy, bottom - minH)); next.height = bottom - next.y }
-    if (edge.includes('s')) next.height = Math.max(minH, Math.round(start.height + dy))
-  }
-  native.window.setBounds(next)
-}
-
-function scheduleWindowDragTick(session: WindowDragSession): void {
-  if (session.frame || session.ending) return
-  session.frame = setTimeout(() => { if (windowDrag === session) windowDragTick(session) }, 0)
-}
-
-function beginWindowDrag(panelId: string, interactionId: number, mode: PanelDragMode, edge?: PanelResizeEdge, pointer?: { x: number; y: number }): void {
-  const native = getPanelWindowRecord(panelId)
-  const record = panels.get(panelId)
-  if (!native || !record || record.closing || native.window.isDestroyed()) throw new Error('面板已关闭，无法开始拖动')
-  if (windowDrag) endWindowDrag(true)
-  if (drag) endDrag(true)
-  const bounds = native.window.getBounds()
-  const content = native.window.getContentBounds()
-  const cursor = pointer ? { x: content.x + pointer.x, y: content.y + pointer.y } : screen.getCursorScreenPoint()
-  const session: WindowDragSession = {
-    panelId, interactionId, mode, edge,
-    startBounds: { ...bounds },
-    startPointer: cursor,
-    frame: null, watchdog: null, lastInput: Date.now(), ending: false
-  }
-  windowDrag = session
-  record.windowDragging = true
-  // 移动整块面板时插件视图同样会截走指针，必须临时隐藏（与组件拖动一致）。
-  syncPanelVisibility(panelId)
-  session.watchdog = setInterval(() => {
-    if (windowDrag !== session || session.ending) return
-    if (Date.now() - session.lastInput > DRAG_IDLE_TIMEOUT_MS || native.window.isDestroyed()) endWindowDrag(true)
-  }, 1000)
-  session.watchdog.unref?.()
-  scheduleWindowDragTick(session)
-}
-
-function endWindowDrag(cancel: boolean): void {
-  const session = windowDrag
-  if (!session) return
-  if (!cancel) windowDragTick(session)
-  if (windowDrag !== session) return
-  session.ending = true
-  if (session.frame) { clearTimeout(session.frame); session.frame = null }
-  if (session.watchdog) { clearInterval(session.watchdog); session.watchdog = null }
-  windowDrag = null
-  const record = panels.get(session.panelId)
-  const native = getPanelWindowRecord(session.panelId)
-  if (record) record.windowDragging = false
-  if (cancel && native && !native.window.isDestroyed()) native.window.setBounds(session.startBounds)
-  if (native && !native.window.isDestroyed()) {
-    // 落定后同步一次记录（窗口事件在拖动期间被跳过，避免高频持久化）。
-    const bounds = native.window.getBounds()
-    onGeometryChanged(session.panelId, { ...bounds, displayId: screen.getDisplayMatching(bounds).id })
-  }
-  if (record) syncWidgetOrder(record)
-  syncPanelVisibility(session.panelId)
-  if (native) pushDragFeedback(native, { sourcePanelId: session.panelId, interactionId: session.interactionId, active: false })
-}
-
-/** chrome 的整块面板拖动保活（主进程自行读光标）。 */
-export function panelWindowDragTick(senderId: number, interactionId: number): void {
-  const panelId = getPanelForSender(senderId)
-  if (!panelId || !windowDrag || windowDrag.panelId !== panelId || windowDrag.interactionId !== interactionId) return
-  windowDrag.lastInput = Date.now()
-  scheduleWindowDragTick(windowDrag)
+export function panelDragHeartbeat(senderId: number, interactionId: number): void {
+  panelDragController.heartbeat(senderId, interactionId)
 }
 
 // —— 组件操作 ——
@@ -618,7 +440,7 @@ function raiseWidget(panelId: string, pluginId: string): void {
   if (!record || !widget) return
   widget.z = nextZ(record)
   // EndDrag applies the final ordering before restoring native visibility.
-  if (record.windowDragging || drag?.panelId === panelId) return
+  if (record.windowDragging || panelDragController.isWidgetDragging(panelId)) return
   syncWidgetOrder(record)
   publishPanel(panelId)
   persist()
@@ -714,24 +536,32 @@ export async function addWidget(panelId: string, pluginId: string, rect?: PanelW
 }
 
 /** 移除组件与关闭面板沿用同一完整插件关闭链路，不把移除伪装成移回主窗。 */
-export async function removeWidget(panelId: string, pluginId: string): Promise<void> {
+export function removeWidget(panelId: string, pluginId: string): Promise<void> {
   const record = panels.get(panelId)
   const widget = record?.widgets.get(pluginId)
-  if (!record || record.closing || !widget || widget.removing) return
-  if (drag?.panelId === panelId && drag.pluginId === pluginId) endDrag(true)
+  if (widget?.removal) return widget.removal
+  if (!record || record.closing || !widget || widget.removing) return Promise.resolve()
+  if (panelDragController.isWidgetDragging(panelId, pluginId)) panelDragController.cancel(panelId)
   widget.removing = true
+  const closes = captureOwnedPanelPluginCloses([{ record, pluginId }])
+  const operation = Promise.resolve().then(() => removeWidgetNow(record, widget, closes)).finally(() => {
+    if (widget.removal === operation) delete widget.removal
+  })
+  widget.removal = operation
+  return operation
+}
+
+async function removeWidgetNow(record: PanelRecord, widget: WidgetRecord, closes: ReadonlyMap<string, PanelPluginClose>): Promise<void> {
+  const panelId = record.id, pluginId = widget.pluginId
   try {
-    const placement = host?.getPlacement(pluginId)
-    if (placement?.kind === 'panel' && placement.panelId === panelId) {
-      await requireHost().closePanelPlugins([pluginId])
-      if (host?.getPluginView(pluginId)) throw new Error('组件未能关闭，请稍后重试')
-    }
+    await closeOwnedPanelPlugins(closes)
     if (panels.get(panelId) === record && record.widgets.delete(pluginId)) {
       publishPanel(panelId)
       persist(true)
     }
   } catch (error) {
-    widget.removing = false
+    markCleanupFailures(record, [pluginId], error)
+    publishPanel(panelId)
     syncPanelVisibility(panelId)
     throw error
   }
@@ -741,6 +571,7 @@ export async function removeWidget(panelId: string, pluginId: string): Promise<v
 export async function dockWidget(panelId: string, pluginId: string, target: 'shell' | 'detached' = 'shell'): Promise<void> {
   const record = panels.get(panelId)
   if (!record || record.closing || !record.widgets.has(pluginId) || record.widgets.get(pluginId)?.removing) return
+  if (record.widgets.get(pluginId)?.cleanupFailed) throw new Error('请先重试释放尚未回收的组件资源')
   const position = target === 'detached' ? screen.getCursorScreenPoint() : undefined
   try {
     const pluginHost = requireHost()
@@ -800,19 +631,45 @@ function onGeometryChanged(panelId: string, bounds: PanelBounds): void {
  * 关闭面板：先释放面板内插件运行时（完整 closePlugin 链路），再销毁窗口、清持久化。
  * 顺序不可颠倒：插件视图仍挂在面板窗口上时必须先摘除。
  */
-export async function closePanel(panelId: string): Promise<void> {
+export function closePanel(panelId: string): Promise<void> {
+  const existing = panelCloses.get(panelId)
+  if (existing) return existing
   const record = panels.get(panelId)
-  if (!record || record.closing) return
+  if (!record || record.closing) return Promise.resolve()
+  const operation = closePanelNow(record).finally(() => {
+    if (panelCloses.get(panelId) === operation) panelCloses.delete(panelId)
+  })
+  panelCloses.set(panelId, operation)
+  return operation
+}
+
+async function closePanelNow(record: PanelRecord): Promise<void> {
+  const panelId = record.id
   // 先收尾拖动，再标记关闭；关闭中的记录不再进入快照，包括 beforeClose 期间触发的退出。
-  if (drag?.panelId === panelId) endDrag(true)
-  if (windowDrag?.panelId === panelId) endWindowDrag(true)
+  panelDragController.cancel(panelId)
   record.closing = true
   stopPanelPreview(panelId)
-  const pluginIds = mountedPluginIds(record)
+  const closes = captureOwnedPanelPluginCloses(closingPluginIds(record).map(pluginId => ({ record, pluginId })))
+  await Promise.allSettled([...record.widgets.values()].flatMap(widget => widget.removal ? [widget.removal] : []))
+  const pluginIds = [...closes.keys()]
   try {
-    if (pluginIds.length) await requireHost().closePanelPlugins(pluginIds)
+    await closeOwnedPanelPlugins(closes)
   } catch (error) {
-    logWarn('panel', `close plugins failed: ${String(error)}`)
+    if (panels.get(panelId) === record) {
+      if (record.surfaceUnavailable) {
+        destroyPanelWindow(panelId)
+        panels.delete(panelId)
+        persist(true)
+        notifyShell()
+        throw error
+      }
+      record.closing = false
+      markCleanupFailures(record, pluginIds, error)
+      publishPanel(panelId)
+      syncPanelVisibility(panelId)
+      persist(true)
+    }
+    throw error
   }
   destroyPanelWindow(panelId)
   panels.delete(panelId)
@@ -832,28 +689,36 @@ export function closeAllPanels(keepRecords = false): Promise<void> {
 }
 
 async function closeAllPanelsNow(keepRecords: boolean): Promise<void> {
+  // A concurrent individual close keeps its failure available for this aggregate retry.
+  await Promise.allSettled([...panelCloses.values()])
+  for (;;) {
+    const removals = [...panels.values()].flatMap(record => [...record.widgets.values()].flatMap(widget => widget.removal ? [widget.removal] : []))
+    if (!removals.length) break
+    await Promise.allSettled(removals)
+  }
   const ids = [...panels.keys()]
   if (!ids.length) { if (!keepRecords) persist(true); return }
-  endDrag(true)
-  endWindowDrag(true)
+  panelDragController.cancelAll()
   // 必须在关闭插件前快照：closePlugin 会经 forgetPanelPlugin 摘除组件记录，
   // 之后再 snapshot 只能拿到空布局，keepRecords 就失去意义。
   closingLayout = keepRecords ? snapshot() : []
-  // Save before releasing runtimes; shutdown may arrive while their beforeClose handlers are pending.
-  await flushPanels(closingLayout)
-  const pluginIds = ids.flatMap(id => {
-    const record = panels.get(id)
-    return record ? mountedPluginIds(record) : []
-  })
   for (const id of ids) {
     const record = panels.get(id)
     if (record) record.closing = true
     stopPanelPreview(id)
   }
+  const owners = ids.flatMap(id => {
+    const record = panels.get(id)
+    return record ? closingPluginIds(record).map(pluginId => ({ record, pluginId })) : []
+  })
+  const closes = captureOwnedPanelPluginCloses(owners)
+  // Save before releasing runtimes; shutdown may arrive while their beforeClose handlers are pending.
+  await flushPanels(closingLayout)
+  let cleanupError: unknown
   try {
-    if (pluginIds.length) await requireHost().closePanelPlugins(pluginIds)
+    await closeOwnedPanelPlugins(closes)
   } catch (error) {
-    logWarn('panel', `close plugins failed: ${String(error)}`)
+    cleanupError = error
   }
   try {
     destroyAllPanelWindows()
@@ -862,6 +727,10 @@ async function closeAllPanelsNow(keepRecords: boolean): Promise<void> {
     closingLayout = null
   }
   notifyShell()
+  if (cleanupError) {
+    reportCleanupFailure(cleanupError)
+    throw cleanupError
+  }
 }
 
 // —— 创建 ——
@@ -943,8 +812,8 @@ export function refreshPanelsForPlugin(pluginId: string): void {
     const widget = record.widgets.get(pluginId)
     if (!widget) continue
     applyWidgetBounds(record.id, widget)
-    if (!record.windowDragging && drag?.panelId !== record.id) syncWidgetOrder(record)
-    if (record.overlay || record.windowDragging || drag?.panelId === record.id) syncPanelVisibility(record.id)
+    if (!record.windowDragging && !panelDragController.isWidgetDragging(record.id)) syncWidgetOrder(record)
+    if (record.overlay || record.windowDragging || panelDragController.isWidgetDragging(record.id)) syncPanelVisibility(record.id)
     publishPanel(record.id)
   }
 }
@@ -952,6 +821,8 @@ export function refreshPanelsForPlugin(pluginId: string): void {
 /** 插件被其它途径关闭/移出时，从面板记录里摘除（避免幽灵组件）。 */
 export function forgetPlugin(pluginId: string): void {
   for (const record of panels.values()) {
+    // The caller commits removal only after the complete close result, not after View detachment.
+    if (record.closing || record.widgets.get(pluginId)?.removing) continue
     if (!record.widgets.delete(pluginId)) continue
     previewSessions.get(record.id)?.attempted.delete(pluginId)
     for (let index = previewQueue.length - 1; index >= 0; index--) {
@@ -1079,6 +950,7 @@ async function restoreWidget({ record, widget, epoch }: RestoreJob): Promise<voi
 }
 
 function mountWidget(record: PanelRecord, widget: WidgetRecord, epoch: number, guard?: () => boolean): Promise<void> {
+  if (widget.cleanupFailed) return Promise.reject(new Error('请先重试释放尚未回收的组件资源'))
   if (widget.mounting) return widget.mounting
   const current = (): boolean => isCurrentRecord(record, epoch)
     && !widget.removing && record.widgets.get(widget.pluginId) === widget && !!getPanelWindowRecord(record.id)
@@ -1095,8 +967,8 @@ function mountWidget(record: PanelRecord, widget: WidgetRecord, epoch: number, g
       if (!current()) throw new Error('panel mount cancelled')
       widget.loading = false
       applyWidgetBounds(record.id, widget)
-      if (!record.windowDragging && drag?.panelId !== record.id) syncWidgetOrder(record)
-      if (record.overlay || record.windowDragging || drag?.panelId === record.id) syncPanelVisibility(record.id)
+      if (!record.windowDragging && !panelDragController.isWidgetDragging(record.id)) syncWidgetOrder(record)
+      if (record.overlay || record.windowDragging || panelDragController.isWidgetDragging(record.id)) syncPanelVisibility(record.id)
       publishPanel(record.id)
     } catch (error) {
       if (current()) {
@@ -1153,8 +1025,7 @@ export async function syncFreePanelSetting(enabled: boolean): Promise<void> {
 /** 退出路径：取消待写、立即落盘。 */
 export function preparePanelShutdown(): void {
   if (shuttingDown) return
-  endDrag(true)
-  endWindowDrag(true)
+  panelDragController.cancelAll()
   cancelScheduledPanels()
   shuttingDown = true
   lifecycleEpoch += 1
@@ -1169,8 +1040,7 @@ export function preparePanelShutdown(): void {
 
 /** 退出清理：销毁窗口（插件已由 PluginHost.destroyAll 释放）。 */
 export function disposePanels(): void {
-  endDrag(true)
-  endWindowDrag(true)
+  panelDragController.cancelAll()
   for (const panelId of previewSessions.keys()) stopPanelPreview(panelId)
   destroyAllPanelWindows()
   panels.clear()
@@ -1184,7 +1054,12 @@ export function markPanelReady(panelId: string): void {
 export function registerPanelWindowHost(): void {
   const windowHost: PanelWindowHost = {
     geometryChanged: (id, bounds) => onGeometryChanged(id, bounds),
-    closeRequested: (id) => { void closePanel(id) }
+    interactionCancelled: id => panelDragController.cancel(id),
+    closeRequested: (id, unavailable) => {
+      const record = panels.get(id)
+      if (record && unavailable) record.surfaceUnavailable = true
+      void closePanel(id).catch(error => reportCleanupFailure(error, id))
+    }
   }
   bindPanelWindowHost(windowHost)
 }
@@ -1224,18 +1099,16 @@ export async function handlePanelCommand(
         return { ok: true, state: getPanelState(panelId) ?? undefined }
       }
       case 'widget-drag-begin':
-        beginDrag(panelId, command.interactionId, command.pluginId, command.mode, command.edge, command.pointer)
+        panelDragController.beginWidget(panelId, command.interactionId, command.pluginId, command.mode, command.edge, command.pointer)
         return { ok: true }
       case 'widget-drag-end':
-        if (drag?.panelId !== panelId || drag.interactionId !== command.interactionId) return { ok: true }
-        endDrag(command.cancel === true)
+        panelDragController.endWidget(panelId, command.interactionId, command.cancel === true)
         return { ok: true, state: getPanelState(panelId) ?? undefined }
       case 'window-drag-begin':
-        beginWindowDrag(panelId, command.interactionId, command.mode, command.edge, command.pointer)
+        panelDragController.beginWindow(panelId, command.interactionId, command.mode, command.edge, command.pointer)
         return { ok: true }
       case 'window-drag-end':
-        if (windowDrag?.panelId !== panelId || windowDrag.interactionId !== command.interactionId) return { ok: true }
-        endWindowDrag(command.cancel === true)
+        panelDragController.endWindow(panelId, command.interactionId, command.cancel === true)
         return { ok: true, state: getPanelState(panelId) ?? undefined }
       case 'raise-widget':
         raiseWidget(panelId, command.pluginId)

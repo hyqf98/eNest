@@ -5,7 +5,7 @@ import { build } from 'esbuild'
 
 const output = await build({
   absWorkingDir: fileURLToPath(new URL('../../../', import.meta.url)),
-  entryPoints: ['src/renderer/themes/default/quick/legacyHomeSearchModel.ts'],
+  entryPoints: ['tests/fixtures/browser-preview/workspace/legacyHomeSearchModel.ts'],
   tsconfig: 'tsconfig.web.json', bundle: true, write: false, platform: 'browser', format: 'esm',
 })
 const model = await import(`data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString('base64')}`)

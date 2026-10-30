@@ -53,7 +53,18 @@ export interface PluginBackgroundHost {
 export interface PluginBackgroundHandlers {
   onEvent?(event: string, data: unknown): void | Promise<void>
   call(method: string, args: unknown[]): unknown | Promise<unknown>
-  search?(query: string, limit: number): PluginBackgroundSearchItem[] | Promise<PluginBackgroundSearchItem[]>
+  search?(query: string, limit: number, context: PluginBackgroundSearchContext): PluginBackgroundSearchItem[] | Promise<PluginBackgroundSearchItem[]>
+}
+
+export interface PluginBackgroundSearchContext {
+  requestId: number
+  deadlineAt: number
+  signal: {
+    isAborted(): boolean
+    throwIfAborted(): void
+    onAbort(callback: () => void): () => void
+  }
+  onCancel(callback: () => void): () => void
 }
 
 export interface PluginBackgroundBridge {

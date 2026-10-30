@@ -1,7 +1,6 @@
 /** Native Quick controller. Providers own rendering, matching, ranking and result layout. */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { QuickCommand, QuickCommandKind, QuickImageContext, QuickInputContextRequest, QuickOpenRequest, QuickPluginModeInfo } from '@shared/types/quick'
-import type { QuickInputState } from '@shared/types/plugin-tools'
 import type { QuickProviderStateRequest, QuickThemeAction, QuickThemeActionResult, QuickThemeConfig, QuickThemeItem, QuickThemeOpenedReceipt, QuickThemeSnapshot } from '@shared/types/quickTheme'
 import { QUICK_BAR_AREA_H, QUICK_CORNER_RADIUS } from '@shared/constants'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
@@ -10,6 +9,7 @@ import { bindPluginDragSource, bindPluginDropTarget } from '@renderer/services/p
 import type { DefaultQuickSurfaceHandle } from '@renderer/themes/default/quick/DefaultQuickSurface'
 import type { DefaultQuickStateClient } from '@renderer/themes/default/quick/usageState'
 import { QuickThemeSurface, type QuickThemeSurfaceHandle } from './QuickThemeSurface'
+import { QuickPluginInputSession, type QuickPluginInputUpdate } from './quickPluginInputSession'
 import { buildQuickInputSelection, projectQuickThemeResults, publicQuickCatalog, quickRequestFromRecord, safeQuickIcon, updateQuickCatalog, type QuickCatalogRecord } from './quickCatalog'
 import '@renderer/styles/plugin-window-drag.css'
 import './quickHost.css'
@@ -62,16 +62,16 @@ export function QuickLauncherApp() {
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
   const [shown, setShown] = useState(0)
+  const [visible, setVisible] = useState(() => !document.hidden)
   const [pluginMode, setPluginMode] = useState<QuickPluginModeInfo | null>(null)
   const modeRef = useRef(pluginMode)
-  const [pluginInput, setPluginInput] = useState<QuickInputState | null>(null)
-  const inputRef = useRef(pluginInput)
+  const [inputSession] = useState(() => new QuickPluginInputSession())
+  const [pluginInput, setPluginInput] = useState(() => inputSession.snapshot)
   const [inputContext, setInputContext] = useState<QuickImageContext[]>([])
   const contextRef = useRef(inputContext)
   contextRef.current = inputContext
   const contextEpoch = useRef(0)
   const contextReadRevision = useRef(0)
-  const inputRevision = useRef(0)
   const queryRevision = useRef(0)
   const searchSequence = useRef(0)
   const catalogFetchRevision = useRef(0)
@@ -81,7 +81,6 @@ export function QuickLauncherApp() {
   const iconRequests = useRef(new Set<string>())
   const iconController = useRef<AbortController | null>(null)
   const openingRef = useRef(false)
-  const pendingQuery = useRef<string | null>(null)
   const escaping = useRef<Promise<boolean> | null>(null)
   const snapshotRevision = useRef(0)
   const [bounds, setBounds] = useState({ width: innerWidth, height: innerHeight, inputHeight: QUICK_BAR_AREA_H })
@@ -112,12 +111,13 @@ export function QuickLauncherApp() {
   const invalidate = useCallback(() => {
     queryRevision.current++
     searchSequence.current++
-    catalogNonce.current = crypto.randomUUID()
-    const next = { revision: current.current.directory.revision + 1,
-      records: cachedRecords(updateQuickCatalog(nativeCatalog.current?.commands ?? [], catalogNonce.current)) }
+    void shellApi.quickSearch?.('', 0, undefined, 'cancel').catch(() => undefined)
+    const previous = current.current.directory
+    const records = previous.records.filter(record => record.command.group !== 'provider')
+    const next = records.length === previous.records.length ? previous : { revision: previous.revision + 1, records }
     // Retire authority synchronously, before another queued theme action can run.
     current.current = { directory: next, items: [], selectedId: null }
-    setDirectory(next)
+    if (next !== previous) setDirectory(next)
     setItems([]); setSelectedId(null); setExpanded(false); setHiddenCount(0); setEmptyMarket(false)
     setCatalogLoading(!nativeCatalog.current); setProvidersLoading(false); setError(null)
   }, [])
@@ -186,6 +186,15 @@ export function QuickLauncherApp() {
   }, [refreshContext])
 
   useEffect(() => {
+    const sync = () => {
+      setVisible(!document.hidden)
+      if (document.hidden) { invalidate(); resetContext() }
+    }
+    document.addEventListener('visibilitychange', sync)
+    return () => document.removeEventListener('visibilitychange', sync)
+  }, [invalidate, resetContext])
+
+  useEffect(() => {
     let disposed = false
     void shellApi.quickGetTheme?.().then(config => {
       if (disposed) return
@@ -216,7 +225,7 @@ export function QuickLauncherApp() {
     const revision = ++catalogFetchRevision.current
     setCatalogLoading(!nativeCatalog.current)
     if (!catalogFlight.current || catalogFlight.current.refresh !== refresh) {
-      const promise = Promise.resolve(shellApi.quickSearch?.('', 8_192, undefined, 'catalog'))
+      const promise = Promise.resolve(shellApi.quickSearch?.('', 65_536, undefined, 'catalog'))
         .then(result => (result?.items ?? []).filter(command => command.group !== 'provider'))
       const flight = { refresh, promise }
       catalogFlight.current = flight
@@ -228,9 +237,9 @@ export function QuickLauncherApp() {
       if (nativeCatalog.current?.signature === signature) return
       nativeCatalog.current = { commands, signature }
       const providers = current.current.directory.records.filter(record => record.command.group === 'provider').map(record => record.command)
-      catalogNonce.current = crypto.randomUUID()
+      if (!catalogNonce.current) catalogNonce.current = crypto.randomUUID()
       const next = { revision: current.current.directory.revision + 1,
-        records: cachedRecords(updateQuickCatalog([...commands, ...providers], catalogNonce.current)) }
+        records: cachedRecords(updateQuickCatalog([...commands, ...providers], catalogNonce.current, current.current.directory.records)) }
       current.current = { directory: next, items: [], selectedId: null }
       setDirectory(next); setItems([]); setSelectedId(null)
     }).catch(() => {
@@ -241,7 +250,7 @@ export function QuickLauncherApp() {
 
   useEffect(() => {
     const sequence = ++searchSequence.current
-    if (pluginMode || composing || !query.trim() || filter && filter !== 'plugin') { setProvidersLoading(false); return }
+    if (!visible || pluginMode || composing || !query.trim() || filter && filter !== 'plugin') { setProvidersLoading(false); return }
     setProvidersLoading(true)
     const timer = setTimeout(async () => {
       try {
@@ -258,20 +267,22 @@ export function QuickLauncherApp() {
         if (sequence === searchSequence.current) setError('部分搜索来源暂时不可用，请重试。')
       } finally { if (sequence === searchSequence.current) setProvidersLoading(false) }
     }, 80)
-    return () => { clearTimeout(timer); searchSequence.current++ }
-  }, [query, filter, pluginMode, composing, refresh, shown, themeConfig?.key])
+    return () => { clearTimeout(timer); searchSequence.current++; void shellApi.quickSearch?.('', 0, undefined, 'cancel').catch(() => undefined) }
+  }, [query, filter, pluginMode, composing, refresh, shown, themeConfig?.key, visible])
 
   const execute = useCallback(async (request: QuickOpenRequest): Promise<boolean> => {
     if (openingRef.current) return false
+    const inputEpoch = contextEpoch.current, inputRevision = contextReadRevision.current
     const owner = themeReadyRef.current ? themeKey.current : undefined
     const defaultPolicy = !themeReadyRef.current || !customSearchRef.current
     openingRef.current = true; setOpening(true); setError(null)
     try {
       const result = await shellApi.quickOpen?.(request)
       if (!result?.ok) { setError('无法打开，请稍后重试。'); return false }
+      if (request.kind === 'plugin' && request.input && inputEpoch === contextEpoch.current && inputRevision === contextReadRevision.current) {
+        resetContext()
+      }
       if (result.opened) {
-        // 带粘贴上下文启动成功即视为已消费，本地镜像清空（主进程同步移除字节）。
-        if (request.kind === 'plugin' && request.input) resetContext()
         const receipt = { ...result.opened, sequence: ++openedSequence.current, query: 'query' in request ? request.query ?? '' : '' }
         if (defaultPolicy) defaultView.current?.recordOpened(receipt)
         if (owner && owner === themeKey.current && themeReadyRef.current) setProviderOpened({ owner, receipt })
@@ -291,58 +302,67 @@ export function QuickLauncherApp() {
         const result = await shellApi.quickOpen?.({ kind: 'plugin-escape', pluginId: mode.pluginId })
         if (!result?.ok) throw new Error('escape failed')
         return true
-      } catch { pendingQuery.current = null; setError('无法返回搜索，请重试。'); return false }
+      } catch { setError('无法返回搜索，请重试。'); return false }
       finally { escaping.current = null }
     })()
     return escaping.current
   }, [])
 
-  const changeQuery = useCallback((value: string) => {
-    const input = inputRef.current
-    if (input && modeRef.current?.pluginId === input.pluginId) {
-      input.value = value; setQuery(value)
-      void shellApi.quickInput?.({ pluginId: input.pluginId, generation: input.generation, type: 'change', value })
-      return
-    }
-    invalidate(); setQuery(value)
-    if (modeRef.current) { pendingQuery.current = value; void escapePlugin() }
-  }, [escapePlugin, invalidate])
+  const applyPluginInput = useCallback((update: QuickPluginInputUpdate) => {
+    if (!update.accepted) return
+    const snapshot = inputSession.snapshot
+    setPluginInput(snapshot); setQuery(snapshot.value)
+    if (update.message) void shellApi.quickInput?.(update.message).catch(() => undefined)
+  }, [inputSession])
+
+  const restorePluginInput = useCallback((pluginId: string | null) => {
+    const revision = inputSession.restore(pluginId)
+    applyPluginInput({ accepted: true })
+    if (!pluginId) return
+    void Promise.resolve(shellApi.quickInput?.()).then(state => {
+      if (state !== null && (typeof state !== 'object' || !state)) throw new Error('Invalid Quick input snapshot')
+      applyPluginInput(inputSession.receive(state, revision))
+    }).catch(() => {
+      if (!inputSession.fail(revision)) return
+      applyPluginInput({ accepted: true }); setError('无法恢复插件输入，请重试。')
+    })
+  }, [applyPluginInput, inputSession])
+
+  const changeQuery = useCallback((value: string): boolean => {
+    const result = inputSession.change(value)
+    if (result.target === 'ignored') return false
+    if (result.target === 'plugin') applyPluginInput({ accepted: true, message: result.message })
+    else { invalidate(); setQuery(value) }
+    return true
+  }, [applyPluginInput, inputSession, invalidate])
 
   useEffect(() => {
     const offEvent = shellApi.onEvent?.(event => {
       if (event.type === 'quick-plugin-mode') {
-        const revision = ++inputRevision.current
-        inputRef.current = null; setPluginInput(null)
         modeRef.current = event.mode; setPluginMode(event.mode)
-        setQuery(event.mode ? '' : pendingQuery.current ?? ''); pendingQuery.current = null
+        restorePluginInput(event.mode?.pluginId ?? null)
         setFilter(null); invalidate(); setOpening(false)
         requestAnimationFrame(() => focus())
-        if (event.mode) void shellApi.quickInput?.().then(state => {
-          if (revision !== inputRevision.current || !state || typeof state !== 'object' || modeRef.current?.pluginId !== state.pluginId) return
-          inputRef.current = state; setPluginInput(state); setQuery(state.value)
-        }).catch(() => undefined)
       } else if (event.type === 'quick-input') {
-        if (event.state && event.state.pluginId !== modeRef.current?.pluginId) return
-        inputRevision.current++; inputRef.current = event.state; setPluginInput(event.state)
-        if (event.state) setQuery(event.state.value)
+        applyPluginInput(inputSession.receive(event.state))
       } else if (event.type === 'plugin-ready' && modeRef.current?.pluginId === event.pluginId) {
         setPluginMode(mode => mode ? { ...mode, loading: false } : mode)
       } else if (event.type === 'plugin-error' && modeRef.current?.pluginId === event.pluginId) {
         setPluginMode(mode => mode ? { ...mode, loading: false } : mode); setError('插件暂时无法启动，请重试。')
       } else if (event.type === 'quick-focus-search') focus(true)
-      else if (event.type === 'plugins-changed' || event.type === 'plugin-launch-changed') {
+      else if (event.type === 'plugins-changed' || event.type === 'plugin-launch-changed' || event.type === 'launch-directory-changed') {
         refreshSources(true)
       }
     })
     const offShown = shellApi.onQuickShown?.(() => {
-      setQuery(inputRef.current?.value ?? ''); setFilter(null); invalidate(); setShown(value => value + 1)
+      setQuery(inputSession.snapshot.value); setFilter(null); invalidate(); setShown(value => value + 1)
       // 主进程在隐藏时清空上下文，呼出后镜像必须与宿主对齐。
       resetContext()
       void refreshContext().catch(() => undefined)
       requestAnimationFrame(() => focus())
     })
-    return () => { contextEpoch.current++; contextReadRevision.current++; offEvent?.(); offShown?.() }
-  }, [focus, invalidate, refreshContext, refreshSources, resetContext])
+    return () => { inputSession.restore(null); contextEpoch.current++; contextReadRevision.current++; offEvent?.(); offShown?.() }
+  }, [applyPluginInput, focus, inputSession, invalidate, refreshContext, refreshSources, resetContext, restorePluginInput])
 
   const catalog = useMemo(() => publicQuickCatalog(directory.records), [directory.records])
   useEffect(() => {
@@ -405,12 +425,12 @@ export function QuickLauncherApp() {
 
   const keyAction = useCallback(async (input: ThemeKey, trusted: boolean): Promise<QuickThemeActionResult> => {
     if (composingRef.current) return { ok: false }
-    const epoch = queryRevision.current, inputEpoch = inputRevision.current, provider = themeKey.current, modeBefore = modeRef.current?.pluginId
+    const epoch = queryRevision.current, inputEpoch = inputSession.revision, provider = themeKey.current, modeBefore = modeRef.current?.pluginId
     const authorizeCurrent = async () => await authorized(trusted) && epoch === queryRevision.current
-      && inputEpoch === inputRevision.current && provider === themeKey.current && modeBefore === modeRef.current?.pluginId
+      && inputEpoch === inputSession.revision && provider === themeKey.current && modeBefore === modeRef.current?.pluginId
     if (input.key === 'Escape') {
       if (!trusted) return { ok: false }
-      if (modeRef.current) { pendingQuery.current = null; return { ok: await escapePlugin() } }
+      if (modeRef.current) return { ok: await escapePlugin() }
       if (query) changeQuery('')
       else if (filter) { invalidate(); setFilter(null) }
       else if (contextRef.current.length) {
@@ -427,7 +447,7 @@ export function QuickLauncherApp() {
         if (!await authorizeCurrent()) return { ok: false }
         return { ok: await execute({ kind: 'plugin-pin', pluginId: mode.pluginId }) }
       }
-      const plugin = inputRef.current
+      const plugin = inputSession.activeInput
       if (plugin && ['ArrowDown', 'ArrowUp', 'Enter'].includes(input.key)) {
         if (input.key === 'Enter' && !await authorizeCurrent()) return { ok: false }
         await shellApi.quickInput?.({ pluginId: plugin.pluginId, generation: plugin.generation, type: 'action',
@@ -444,7 +464,7 @@ export function QuickLauncherApp() {
     if (input.key !== 'Enter' || input.alt || input.shift || !await authorizeCurrent()) return { ok: false }
     if (current.current.selectedId) return { ok: await openHandle(current.current.selectedId, input.meta || input.ctrl ? 'shell' : undefined) }
     return emptyMarket ? { ok: await execute({ kind: 'action', action: 'open-market', query }) } : { ok: false }
-  }, [authorized, changeQuery, emptyMarket, escapePlugin, execute, filter, focus, invalidate, mutateContext, openHandle, query, resetContext])
+  }, [authorized, changeQuery, emptyMarket, escapePlugin, execute, filter, focus, inputSession, invalidate, mutateContext, openHandle, query, resetContext])
   useEffect(() => shellApi.onQuickThemeKey?.(input => { if (themeReadyRef.current) void keyAction({ type: 'key', ...input }, true) }), [keyAction])
 
   const action = useCallback(async (request: QuickThemeAction, trusted = false): Promise<QuickThemeActionResult> => {
@@ -460,7 +480,7 @@ export function QuickLauncherApp() {
         return { ok: true, state: { revision: result.revision, value: result.value } }
       } catch { return { ok: false, error: '无法读写主题的私有状态，请重试。' } }
     }
-    if (request.type === 'query') { if (request.query !== query) changeQuery(request.query.slice(0, 4_096)); return { ok: true } }
+    if (request.type === 'query') return { ok: request.query === query || changeQuery(request.query.slice(0, 4_096)) }
     if (request.type === 'composition') {
       if (composingRef.current !== request.active) searchSequence.current++
       composingRef.current = request.active; setComposing(request.active); return { ok: true }
@@ -492,7 +512,10 @@ export function QuickLauncherApp() {
       return mutateContext({ operation: 'clear', ...(request.id ? { id: request.id } : {}) })
     }
     if (request.type === 'key') return keyAction(request, trusted)
-    if (request.type === 'retry') { refreshSources(); return { ok: true } }
+    if (request.type === 'retry') {
+      if (modeRef.current) restorePluginInput(modeRef.current.pluginId)
+      refreshSources(); return { ok: true }
+    }
     const before = queryRevision.current, modeBefore = modeRef.current?.pluginId, providerBefore = themeKey.current
     if (!await authorized(trusted)) return { ok: false, error: '请通过点击或按键执行此操作。' }
     if (queryRevision.current !== before || modeRef.current?.pluginId !== modeBefore || themeKey.current !== providerBefore) return { ok: false }
@@ -504,7 +527,7 @@ export function QuickLauncherApp() {
     if (request.type === 'hide') { shellApi.quickHide?.(); return { ok: true } }
     const mode = modeRef.current
     if (!mode) return { ok: false }
-    if (request.type === 'plugin-back') { pendingQuery.current = null; return { ok: await escapePlugin() } }
+    if (request.type === 'plugin-back') return { ok: await escapePlugin() }
     if (request.type === 'plugin-pin') return { ok: await execute({ kind: 'plugin-pin', pluginId: mode.pluginId }) }
     if (request.type === 'plugin-focus') { await shellApi.quickOpen?.({ kind: 'plugin-tab', pluginId: mode.pluginId }); return { ok: true } }
     if (request.type === 'plugin-detach') {
@@ -513,7 +536,7 @@ export function QuickLauncherApp() {
       return { ok: result?.ok === true }
     }
     return { ok: false }
-  }, [authorized, catalog, changeQuery, escapePlugin, execute, filter, invalidate, keyAction, mutateContext, openHandle, pasteFromClipboard, query, refreshSources, resetContext, themeConfig])
+  }, [authorized, catalog, changeQuery, escapePlugin, execute, filter, invalidate, keyAction, mutateContext, openHandle, pasteFromClipboard, query, refreshSources, resetContext, restorePluginInput, themeConfig])
 
   const snapshot = useMemo<QuickThemeSnapshot>(() => ({
     version: 1, revision: ++snapshotRevision.current, query, filter, searching: Boolean(query.trim()), loading, busy: opening, composing,
@@ -521,7 +544,9 @@ export function QuickLauncherApp() {
     opened: providerOpened && providerOpened.owner === themeConfig?.key ? providerOpened.receipt : null,
     selectedId, expanded, hiddenCount, emptyMarket,
     plugin: pluginMode ? { title: pluginMode.title, loading: pluginMode.loading === true,
-      placeholder: pluginInput?.placeholder?.slice(0, 256) || '搜索其它应用或插件…', acceptsInput: Boolean(pluginInput) } : null,
+      placeholder: pluginInput.input?.placeholder?.slice(0, 256) || (pluginInput.status === 'hydrating' ? '正在恢复插件输入…'
+        : pluginInput.status === 'ready' ? '输入内容…' : '按 Esc 或返回按钮回到搜索'),
+      acceptsInput: pluginInput.status === 'hydrating' || pluginInput.status === 'ready' } : null,
     input: inputContext.length ? { items: inputContext, hasText: Boolean(query.trim()) } : null,
     appearance: themeConfig?.appearance ?? { mode: appearance.mode, tokens: appearance.tokens, fonts: appearance.fonts,
       components: appearance.components, animation: appearance.animation.effective, resources: { fonts: [] } }, bounds
@@ -532,7 +557,7 @@ export function QuickLauncherApp() {
     style={{ '--quick-bar-h': `${QUICK_BAR_AREA_H}px`, '--quick-radius': `${QUICK_CORNER_RADIUS}px` } as CSSProperties}>
     <div className="quick-default-provider" hidden={themeReady}>
       <Suspense fallback={<div role="status" aria-label="正在加载快捷启动" />}>
-        <DefaultQuickSurface ref={defaultView} snapshot={snapshot} active={!themeReady} searchActive={!themeReady || !customSearch}
+        <DefaultQuickSurface ref={defaultView} snapshot={snapshot} active={visible && !themeReady} searchActive={!themeReady || !customSearch}
           retryRevision={refresh} privateState={defaultPrivateState} onAction={request => action(request, true)} />
       </Suspense>
     </div>

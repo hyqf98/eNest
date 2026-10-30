@@ -25,6 +25,7 @@ export const chromeAssetResponse=(request,status,body)=>new Response(body,{statu
 export const readChromeAsset=async()=>{state.readCount++;if(state.readGate)await state.readGate;return Buffer.from('<!doctype html><title>fixture</title>')};
 export const ipcMain={handle:(name,handler)=>state.handlers.set(name,handler)};
 export const pluginHost={hasShellTab:()=>true};
+export const activateRailContribution=async()=>{throw new Error('No rail contributions in session-lifecycle fixture')};
 export const navigateWorkspace=async()=>{};export const openShellSettings=()=>{};
 export const session={fromPartition:key=>{if(!state.sessions.has(key)){const value=new EventEmitter();Object.assign(value,{key,request:null,handler:null,cleared:[],setPermissionRequestHandler(fn){this.permissionRequest=fn},setPermissionCheckHandler(fn){this.permissionCheck=fn},clearStorageData(options){this.cleared.push(options);return Promise.resolve()}});value.webRequest={onBeforeRequest:fn=>{value.request=fn}};value.protocol={handle:(_scheme,fn)=>{value.handler=fn},unhandle:()=>{value.handler=null}};state.sessions.set(key,value)}return state.sessions.get(key)}};
 export class WebContentsView{constructor(options){const contents=new EventEmitter();Object.assign(contents,{id:state.views.length+1,session:options.webPreferences.session,mainFrame:{url:'',detached:false},destroyed:false,isDestroyed(){return this.destroyed},setWebRTCIPHandlingPolicy(){},setWindowOpenHandler(){},send(){},loadURL(url){this.mainFrame.url=url;return Promise.resolve()},close(){if(this.destroyed)return;this.destroyed=true;this.emit('destroyed')}});this.webContents=contents;state.views.push(this)}setBackgroundColor(){}setVisible(value){this.visible=value}getVisible(){return this.visible}}
@@ -33,7 +34,7 @@ export class WebContentsView{constructor(options){const contents=new EventEmitte
 async function fixture() {
   const mocks = new Set(['fixture', 'electron', 'node:fs/promises', '@shared/types/themeChrome', '@main/plugin/PluginRegistry',
     '@main/window/createShellWindow', '@main/logs/logService', './appearanceService', './themePacks', './themeChromeAssets',
-    '@main/plugin/PluginHost', '@main/ipc/shellHandlers'])
+    '@main/plugin/PluginHost', '@main/ipc/shellHandlers', '@main/contrib/railContributions'])
   const result = await build({
     stdin: { contents: `export * from './src/main/theme/themeChromeSurface.ts';export {state} from 'fixture';`, resolveDir: process.cwd() },
     bundle: true, write: false, format: 'esm', platform: 'node',

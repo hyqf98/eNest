@@ -14,5 +14,6 @@ export function useQuickUsage(client: DefaultQuickStateClient) {
   const recordOpened = useCallback((opened: DefaultQuickOpened) => {
     void session.current?.recordOpened(opened).catch(error => console.warn('[default-quick] Unable to persist usage state', error))
   }, [])
-  return { usage, recordOpened }
+  const refreshUsage = useCallback(() => { void session.current?.refresh().catch(error => console.warn('[default-quick] Unable to refresh usage state', error)) }, [])
+  return { usage, recordOpened, refreshUsage }
 }

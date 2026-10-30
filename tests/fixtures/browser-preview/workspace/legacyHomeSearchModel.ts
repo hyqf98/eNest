@@ -1,8 +1,8 @@
 import type { PluginSummary } from '@shared/types/plugin'
 import type { QuickCommand, QuickCommandKind, QuickOpenRequest, QuickSearchPhase, QuickSearchResult } from '@shared/types/quick'
 import { matchesSearchTerms, normalizeSearchText } from '@shared/search'
-import { rankDefaultQuickCatalog } from './searchPolicy'
-import { matchDefaultQuickContent } from './patternMatching'
+import { rankDefaultQuickCatalog } from '@renderer/themes/default/quick/searchPolicy'
+import { matchDefaultQuickContent } from '@renderer/themes/default/quick/patternMatching'
 
 export type HomeSearchScope = 'all' | 'app' | 'plugin' | 'market' | 'action'
 export type HomeSearchEntry = { id: string; kind: 'command'; command: QuickCommand } | { id: string; kind: 'market'; plugin: PluginSummary }

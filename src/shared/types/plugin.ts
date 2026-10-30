@@ -132,10 +132,20 @@ export type PluginFeatureCommand = string
   | { type: 'img'; label: string; extensions?: string[] }
   | { type: 'files'; label: string; extensions?: string[]; minCount?: number; maxCount?: number; allowDirectory?: boolean }
 
+/** Text input semantics are independent of feature activation and window placement. */
+export interface PluginFeatureInput {
+  type: 'text'
+  /** prefix consumes an exact declared alias followed by whitespace and nonempty text. */
+  trigger: 'prefix' | 'none'
+}
+
 export interface PluginFeature {
   code: string
   explain?: string
   cmds: PluginFeatureCommand[]
+  /** Omitted: an unrestricted over declaration enables compatible prefix input; other names stay unchanged. */
+  input?: PluginFeatureInput
+  activation?: import('./pluginLaunch').PluginFeatureActivation
 }
 
 /** 插件宿主 Chrome 模式：default 标准条 / minimal 细条 / none 无条（全幅内容） */
@@ -347,7 +357,7 @@ export interface OpenWithContribution {
   schemaVersion?: string
 }
 
-/** 左侧轨道入口贡献（orb 模式；本期仅数据层，渲染消费见交接说明） */
+/** 左侧轨道入口贡献；宿主向导航快照发布来源绑定的入口 ID。 */
 export interface RailEntryContribution {
   id: string
   /** 单字符 glyph（圆点图标内容） */
@@ -424,6 +434,7 @@ export interface PluginManifest {
   backend?: { entry: string }
   /** Sandboxed, event-driven plugin page; no Node or shell API is exposed. */
   background?: import('./pluginBackground').PluginBackgroundManifest
+  activation?: import('./pluginLaunch').PluginActivationDeclaration
   engines?: { enest?: string }
   /**
    * 网络能力声明（可选）：

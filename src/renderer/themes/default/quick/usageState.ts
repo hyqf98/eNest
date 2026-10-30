@@ -18,13 +18,15 @@ export interface DefaultQuickStateClient {
 
 /** Serializes this provider's model updates without putting usage policy in the native controller. */
 export function createDefaultQuickUsageSession(client: DefaultQuickStateClient, changed: (usage: DefaultQuickUsage) => void) {
-  let disposed = false, pending = 0
+  let disposed = false, pending = 0, published = false
   let current = { revision: 0, usage: emptyDefaultQuickUsage() }
   let loaded: Promise<void> | undefined
   let tail = Promise.resolve()
   const seen = new Set<number>()
 
   const publish = (snapshot: DefaultQuickStateSnapshot) => {
+    if (published && snapshot.revision <= current.revision) return
+    published = true
     current = { revision: snapshot.revision, usage: readDefaultQuickUsage(snapshot.value) }
     if (!disposed) changed(current.usage)
   }
@@ -45,6 +47,11 @@ export function createDefaultQuickUsageSession(client: DefaultQuickStateClient, 
 
   return {
     initialize,
+    refresh(): Promise<void> {
+      const task = tail.catch(() => undefined).then(async () => { if (!disposed) { await initialize(); await read() } })
+      tail = task
+      return task
+    },
     recordOpened(opened: DefaultQuickOpened): Promise<void> {
       if (disposed || !Number.isSafeInteger(opened.sequence) || opened.sequence <= 0 || seen.has(opened.sequence)) return Promise.resolve()
       if (pending >= 64) return Promise.reject(new Error('Default Quick usage update queue is full'))

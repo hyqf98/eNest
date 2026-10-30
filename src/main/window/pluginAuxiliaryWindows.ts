@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { BrowserWindow, ipcMain, session, webContents, type Session, type IpcMainInvokeEvent } from 'electron'
+import { BrowserWindow, ipcMain, screen, session, webContents, type Session, type IpcMainInvokeEvent } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
-import type { AuxiliaryContext, AuxiliaryEvent, AuxiliaryOpen } from '@shared/types/auxiliary'
+import type { AuxiliaryContext, AuxiliaryEvent, AuxiliaryOpen, AuxiliaryUpdate, AuxiliaryWindowState } from '@shared/types/auxiliary'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
@@ -10,7 +10,7 @@ import { registerPluginProtocolForSession } from '@main/plugin/pluginProtocol'
 import { permissionService } from '@main/plugin/PermissionService'
 import { captureDisplaySource, resolveCaptureDisplay } from '@main/screen/screenService'
 import { resolvePreload } from '@main/window/createShellWindow'
-import { assertInteractive, assertInteractionEpoch, getInteractionEpoch, isNonInteractive } from '@main/plugin/pluginInteractionPolicy'
+import { assertInteractive, assertInteractionEpoch, getInteractionEpoch, isNonInteractive, isResidentActivation, grantAuxiliaryInteraction } from '@main/plugin/pluginInteractionPolicy'
 
 interface Surface {
   id: string
@@ -30,6 +30,10 @@ interface Surface {
   display: AuxiliaryContext['display']
   capture?: { displayId: number; withAudio: boolean }
   topmost: boolean
+  placement: 'window' | 'display'
+  interaction: 'capture' | 'passthrough'
+  detachDisplay?: () => void
+  geometryTimer?: ReturnType<typeof setTimeout>
   capturing: boolean
   captureUsed: boolean
   release: () => void
@@ -93,6 +97,8 @@ function close(surface: Surface): void {
   if (surface.closed) return
   surface.closed = true
   if (surface.timer) clearTimeout(surface.timer)
+  if (surface.geometryTimer) clearTimeout(surface.geometryTimer)
+  surface.detachDisplay?.()
   surface.initial = undefined
   surfaces.delete(surface.id)
   const win = surface.win
@@ -130,6 +136,36 @@ function fromEvent(event: IpcMainInvokeEvent): Surface {
     || event.senderFrame !== event.sender.mainFrame || event.senderFrame?.url !== surface.url) throw new Error('Retired or foreign auxiliary sender')
   return surface
 }
+function windowState(surface: Surface): AuxiliaryWindowState {
+  return { bounds: surface.win!.getBounds(), display: surface.display, interaction: surface.interaction }
+}
+function publishGeometry(surface: Surface): void {
+  clearTimeout(surface.geometryTimer)
+  surface.geometryTimer = setTimeout(() => {
+    if (!current(surface) || !surface.win || surface.win.isDestroyed()) return
+    const state = windowState(surface)
+    publish(surface, { type: 'auxiliary.changed', windowId: surface.id, state })
+    surface.win.webContents.send(IpcChannels.AuxiliaryMessage, { type: 'enest:surface-changed', state })
+  }, 80)
+  surface.geometryTimer.unref?.()
+}
+function setInteraction(surface: Surface, interaction: 'capture' | 'passthrough'): void {
+  const win = surface.win!
+  const passive = interaction === 'passthrough'
+  surface.interaction = interaction
+  win.setIgnoreMouseEvents(passive)
+  win.setFocusable(!passive)
+  if (passive && win.isFocused()) win.blur()
+}
+function boundedWindowBounds(surface: Surface, requested: AuxiliaryUpdate['bounds']): Electron.Rectangle {
+  const previous = surface.win!.getBounds()
+  const area = screen.getDisplayMatching(previous).workArea
+  const number = (value: number | undefined, fallback: number): number => typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : fallback
+  const width = Math.max(80, Math.min(area.width, number(requested?.width, previous.width)))
+  const height = Math.max(60, Math.min(area.height, number(requested?.height, previous.height)))
+  return { width, height, x: Math.max(area.x, Math.min(area.x + area.width - width, number(requested?.x, previous.x))),
+    y: Math.max(area.y, Math.min(area.y + area.height - height, number(requested?.y, previous.y))) }
+}
 export function registerAuxiliaryHandlers(): void {
   if (registered) return
   registered = true
@@ -153,7 +189,10 @@ export function registerAuxiliaryHandlers(): void {
 }
 export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen): Promise<{ windowId: string }> {
   const scope = requireOwner(pluginId)
-  assertInteractive(scope)
+  const passiveRestore = () => isResidentActivation(scope) && input?.focus === false && !input?.capture
+    && (input?.placement !== 'display' || input?.interaction === 'passthrough')
+  const assertOpen = (): void => { if (!passiveRestore()) assertInteractive(scope) }
+  assertOpen()
   const interactionEpoch = getInteractionEpoch(scope)
   const summary = pluginRegistry.get(pluginId), root = pluginRegistry.getRootPath(pluginId)
   if (!root || !summary || !input || typeof input.entry !== 'string' || !/^assets\/.+\.html$/.test(input.entry) || input.entry.length > 512) throw new Error('Auxiliary entry must be a local plugin HTML asset')
@@ -165,7 +204,13 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
   if (input.capture && (!pluginRegistry.getManifest(pluginId)?.permissions?.includes('screen.record') || !permissionService.isGranted(pluginId, 'screen.record'))) throw new Error('permission denied: screen.record')
   if (input.capture && !pluginHost.isPluginVisible(pluginId)) throw new Error('Capture requires a visible plugin')
   if (!input.capture && input.alwaysOnTop === true && (!pluginRegistry.getManifest(pluginId)?.permissions?.includes('pin.create') || !permissionService.isGranted(pluginId, 'pin.create'))) throw new Error('permission denied: pin.create')
-  const display = resolveCaptureDisplay(input.capture?.displayId ?? input.displayId)
+  if (input.interaction !== undefined && !['capture', 'passthrough'].includes(input.interaction)) throw new Error('Invalid auxiliary interaction')
+  if (input.capture && input.interaction === 'passthrough') throw new Error('Capture surfaces must be interactive')
+  const parent = input.parentWindowId ? owned(pluginId, input.parentWindowId) : undefined
+  if (parent && (!parent.win || parent.win.isDestroyed() || parent.capture)) throw new Error('Auxiliary parent unavailable')
+  const display = resolveCaptureDisplay(input.capture
+    ? input.capture.displayId ?? input.displayId
+    : input.displayId ?? parent?.display.id ?? screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id)
   const id = randomUUID()
   let slot = 0
   while (ownSlots.has(slot)) slot++
@@ -174,7 +219,8 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
     scope, revision: pluginRegistry.getBuildRevision(pluginId), interactionEpoch, closed: false, initial: input.data, initialBytes, contextRead: false,
     display: { id: display.id, ...display.bounds, scaleFactor: display.scaleFactor },
     ...(input.capture ? { capture: { displayId: display.id, withAudio: input.capture.withAudio === true } } : {}),
-    topmost: input.alwaysOnTop === true, capturing: false, captureUsed: false, release: () => {}, requestStart: 0, requests: 0, messageBytes: 0 }
+    topmost: input.alwaysOnTop === true, placement: input.placement === 'display' ? 'display' : 'window',
+    interaction: input.interaction ?? 'capture', capturing: false, captureUsed: false, release: () => {}, requestStart: 0, requests: 0, messageBytes: 0 }
   surfaces.set(id, surface)
   const releaseActivity = scope.acquireActivity('auxiliary window')
   const abort = (): void => close(surface)
@@ -185,8 +231,9 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
   try {
     if (!await resolvePluginFile(root, input.entry, summary.devSource === true)) throw new Error('Auxiliary entry not found or unsafe')
     if (!current(surface)) throw new Error('Auxiliary owner changed')
-    assertInteractionEpoch(scope, interactionEpoch)
-    assertInteractive(scope)
+    if (!passiveRestore()) assertInteractionEpoch(scope, interactionEpoch)
+    assertOpen()
+    if (parent && !current(parent)) throw new Error('Auxiliary parent retired')
     if (!surface.capture && surface.topmost && !permissionService.isGranted(pluginId, 'pin.create')) throw new Error('permission denied: pin.create')
     const isolated = session.fromPartition(`enest-auxiliary-${createHash('sha256').update(pluginId).digest('hex')}-${slot}`, { cache: false })
     surface.session = isolated
@@ -231,14 +278,45 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
       title: String(input.title ?? '').slice(0, 200), frame: false, transparent: input.transparent === true,
       resizable: !fullscreen && input.resizable === true, movable: !fullscreen && input.movable !== false,
       fullscreenable: false, skipTaskbar: true, alwaysOnTop: input.alwaysOnTop === true, hasShadow: false, show: false,
+      ...(parent?.win ? { parent: parent.win } : {}),
       webPreferences: { session: isolated, preload: resolvePreload('auxiliaryPreload.js'), sandbox: true, contextIsolation: true,
         nodeIntegration: false, webSecurity: true, backgroundThrottling: !surface.capture, spellcheck: false, navigateOnDragDrop: false }
     })
     surface.win = win
+    setInteraction(surface, surface.interaction)
     surface.wcId = win.webContents.id
     senders.set(win.webContents.id, surface)
+    const grantInput = (): void => {
+      if (!current(surface) || !win.isVisible() || surface.interaction === 'passthrough') return
+      try { grantAuxiliaryInteraction(scope) } catch { /* A concurrent noninteractive lease never inherits a gesture. */ }
+    }
+    win.webContents.on('before-mouse-event', (_event, mouse) => { if (mouse.type === 'mouseDown') grantInput() })
+    win.webContents.on('before-input-event', (_event, key) => {
+      if (key.type !== 'keyDown' || key.isAutoRepeat) return
+      grantInput()
+      // Full-display overlays must release the desktop even if their renderer is busy.
+      if (key.key === 'Escape' && surface.placement === 'display' && !surface.capture && current(surface)) {
+        setInteraction(surface, 'passthrough')
+        publishGeometry(surface)
+      }
+    })
     if (input.alwaysOnTop) win.setAlwaysOnTop(true, 'screen-saver')
     if (process.platform === 'darwin') win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    win.on('move', () => publishGeometry(surface))
+    win.on('resize', () => publishGeometry(surface))
+    const displayChanged = (): void => {
+      if (!current(surface) || win.isDestroyed()) return
+      const nextDisplay = screen.getAllDisplays().find(item => item.id === surface.display.id) ?? screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+      if (surface.capture) { close(surface); return }
+      // A changed screen must never leave a stale full-screen mouse interceptor behind.
+      if (surface.placement === 'display') setInteraction(surface, 'passthrough')
+      surface.display = { id: nextDisplay.id, ...nextDisplay.bounds, scaleFactor: nextDisplay.scaleFactor }
+      win.setBounds(surface.placement === 'display' ? nextDisplay.bounds : boundedWindowBounds(surface, {}))
+      publishGeometry(surface)
+    }
+    screen.on('display-removed', displayChanged)
+    screen.on('display-metrics-changed', displayChanged)
+    surface.detachDisplay = () => { screen.removeListener('display-removed', displayChanged); screen.removeListener('display-metrics-changed', displayChanged) }
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
     win.webContents.on('will-attach-webview', event => event.preventDefault())
@@ -252,25 +330,45 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
     surface.timer.unref?.()
     await win.loadURL(surface.url)
     if (!current(surface)) throw new Error('Auxiliary window closed during loading')
-    assertInteractionEpoch(scope, interactionEpoch)
-    assertInteractive(scope)
+    if (!passiveRestore()) assertInteractionEpoch(scope, interactionEpoch)
+    assertOpen()
     if (surface.capture ? !permissionService.isGranted(pluginId, 'screen.record') : surface.topmost && !permissionService.isGranted(pluginId, 'pin.create')) throw new Error('Auxiliary permission was revoked')
     clearTimeout(surface.timer); surface.timer = undefined
     if (surface.capture && !surface.captureUsed) {
       surface.timer = setTimeout(() => close(surface), 120_000)
       surface.timer.unref?.()
     }
-    if (input.visible !== false || surface.capture) { win.show(); win.focus() }
+    if (input.visible !== false || surface.capture) {
+      if (input.focus === false || surface.interaction === 'passthrough') win.showInactive()
+      else { win.show(); win.focus() }
+    }
     return { windowId: id }
   } catch (error) { close(surface); throw error }
 }
-export function sendAuxiliaryMessage(pluginId: string, id: string, data: unknown, options?: { visible?: boolean }): void {
+export function sendAuxiliaryMessage(pluginId: string, id: string, data: unknown, options?: AuxiliaryUpdate): void {
   const surface = owned(pluginId, id)
-  if (options?.visible === true) assertInteractive(surface.scope)
+  if (options?.interaction !== undefined && !['capture', 'passthrough'].includes(options.interaction)) throw new Error('Invalid auxiliary interaction')
+  if (options?.visible === true || options?.focus === true || options?.interaction === 'capture' || options?.bounds) assertInteractive(surface.scope)
+  if (options?.interaction && surface.capture) throw new Error('Capture interaction cannot change')
   rate(surface, auxiliaryPayloadBytes(data, MAX_MESSAGE))
+  if (options?.interaction) setInteraction(surface, options.interaction)
+  if (options?.bounds) {
+    if (surface.placement === 'display') throw new Error('Display surface bounds are host controlled')
+    surface.win!.setBounds(boundedWindowBounds(surface, options.bounds))
+  }
   surface.win!.webContents.send(IpcChannels.AuxiliaryMessage, data)
   if (options?.visible === false) surface.win!.hide()
-  else if (options?.visible === true && !surface.scope.isClosing) { surface.win!.show(); surface.win!.focus() }
+  else if ((options?.visible === true || options?.focus === true) && !surface.scope.isClosing) {
+    if (options?.focus === false || surface.interaction === 'passthrough') surface.win!.showInactive()
+    else { surface.win!.show(); surface.win!.focus() }
+  }
+  if (options?.interaction || options?.bounds) publishGeometry(surface)
+}
+/** Only an already-visible, current auxiliary of this owner may anchor native dialogs. */
+export function getAuxiliaryDialogParent(pluginId: string): BrowserWindow | undefined {
+  const candidates = [...surfaces.values()].filter(surface => surface.scope === getRuntimeScope(pluginId) && current(surface)
+    && surface.win && !surface.win.isDestroyed() && surface.win.isVisible() && surface.interaction !== 'passthrough')
+  return (candidates.find(surface => surface.win!.isFocused()) ?? candidates.at(-1))?.win
 }
 export function closeAuxiliaryWindow(pluginId: string, id: string): boolean {
   const surface = surfaces.get(id)

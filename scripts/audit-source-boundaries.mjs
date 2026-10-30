@@ -15,7 +15,7 @@ const isolationSites = new Map([
   ['src/main/paths/pathsService.ts', 'ENEST_TEST_DATA_ROOT'],
   ['src/main/paths/migrate.ts', 'ENEST_TEST_DATA_ROOT']
 ])
-const testPath = /(?:^|\/)(?:__tests__|__mocks__|tests?|fixtures?|mocks?)(?:\/|$)|(?:^|[./_-])(?:test|spec|fixture|smoke|probe|native-bench)(?:[./_-]|$)|(?:^|\/)(?:mock|fixture)[A-Z]|(?:Mock|Fixture)(?:\.|$)/
+const testPath = /(?:^|\/)(?:__tests__|__mocks__|tests?|fixtures?|mocks?|browser-preview|preview)(?:\/|$)|(?:^|[./_-])(?:test|spec|fixture|smoke|probe|native-bench)(?:[./_-]|$)|(?:^|\/)(?:mock|fixture)[A-Z]|(?:Mock|Fixture)(?:\.|$)/
 const testDependency = /^(?:node:)?(?:test|assert)(?:\/|$)|^(?:@playwright\/test|playwright(?:-core)?|vitest|@vitest\/[^/]+|jest|@jest\/[^/]+|mocha)(?:\/|$)/
 const pluginDriver = /^(?:ssh2|mysql2?|pg|mongodb|redis|ioredis|mssql|oracledb)(?:\/|$)/
 const scriptExtension = /\.(?:[cm]?[jt]sx?)$/
@@ -113,7 +113,7 @@ if (process.argv.includes('--build-output')) {
     for (const path of artifacts) {
       const file = sourceKey(path)
       const content = readFileSync(path, 'utf8')
-      const leaked = /@test\/|tests\/fixtures\/|mockShellApi|mockPluginIcon|BUILTIN_PLUGIN_ICON_SVGS|enest\.installed\.v1|enest\.disabled\.v1|node:test|@playwright\/test|playwright-core/.exec(content)
+      const leaked = /@test\/|tests\/fixtures\/|BrowserPreviewApp|enest-browser-preview-fixture|mockShellApi|mockPluginIcon|BUILTIN_PLUGIN_ICON_SVGS|enest\.installed\.v1|enest\.disabled\.v1|node:test|@playwright\/test|playwright-core/.exec(content)
       if (leaked) failures.push(`${file}: verification marker in production output (${leaked[0]})`)
       if (/^out\/preload\/.*\.cjs$/.test(file)) {
         for (const match of content.matchAll(/require\(["']([^"']+)["']\)/g)) {

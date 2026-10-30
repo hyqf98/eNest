@@ -1,6 +1,6 @@
 # 后台步骤计划
 
-eNest 0.2.2 的 `enest.deadlineTasks` 提供插件私有的持久化步骤调度，不实现番茄钟、专注/休息、周期预设、统计或历史编辑。以上业务由番茄钟插件自己的代码实现。
+`enest.deadlineTasks` 提供插件私有的持久化步骤调度，不实现番茄钟、专注/休息、周期预设、统计或历史编辑。以上业务由番茄钟插件自己的代码实现。
 
 ```js
 await enest.deadlineTasks.start({

@@ -95,16 +95,21 @@ import { captureScreen, listCaptureDisplays } from '@main/screen/screenService'
 import { openAuxiliaryWindow, sendAuxiliaryMessage, closeAuxiliaryWindow, listAuxiliaryWindows, revokeAuxiliaryCapture, revokeAuxiliaryTopmost } from '@main/window/pluginAuxiliaryWindows'
 import { openFileStream, writeFileStream, finishFileStream, abortFileStream } from '@main/plugin/pluginFileStreams'
 import { writeClipboardText, writeClipboardImage, writeClipboardFiles } from '@main/clipboard/clipboardNativeEvents'
-import type { AuxiliaryOpen } from '@shared/types/auxiliary'
+import type { AuxiliaryOpen, AuxiliaryUpdate } from '@shared/types/auxiliary'
 import type { FileStreamOpen } from '@shared/types/file-stream'
 import { vaultSet, vaultHas, vaultRemove } from '@main/vault/secretVault'
-import { assertInteractive, interactionError, interactionErrorCode, isNonInteractive, runHostRpc, trackHostRpc } from '@main/plugin/pluginInteractionPolicy'
+import { assertInteractive, getHostInteractionSignal, interactionError, interactionErrorCode, isNonInteractive, isIndexSyncActivation, runHostRpc, trackHostRpc } from '@main/plugin/pluginInteractionPolicy'
+import { getLaunchIndexState, replaceLaunchIndex, markLaunchIndexDirty } from '@main/launcher/launchIndex'
+import { registerPluginActivationHandlers } from '@main/launcher/pluginActivation'
 
 /** method → 所需权限映射；null 表示无需权限（settings.get/set 由 Bridge 管控 key 白名单） */
 const runtimeLeases = new Map<string, { release: () => void; unregister: () => void; scope: PluginRuntimeScope }>()
 const CLOSE_SAFE = /^(storage\.|files\.stream\.(write|finish|abort)$|auxiliary\.(send|close)$|runtime\.release$|backend\.stop$|net\.socket\.close$)/
 
 const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
+  'contribute.replaceLaunchIndex': null,
+  'contribute.launchIndexState': null,
+  'contribute.markLaunchIndexDirty': null,
   'backend.call': 'backend.node',
   'backend.stop': null,
   'background.call': null,
@@ -304,7 +309,8 @@ async function ensureRuntimeGrant(
     perm === 'screen.capture' || perm === 'screen.record'
       ? checkScreenCapture().hint
       : undefined
-  return permissionService.request(pluginId, perm, summary, osHint)
+  const scope = getRuntimeScope(pluginId)
+  return permissionService.request(pluginId, perm, summary, osHint, scope ? getHostInteractionSignal(scope) : undefined)
 }
 
 function argStr(args: unknown[], objKey: string, pos: number): string {
@@ -336,6 +342,9 @@ async function dispatch(
     return dispatchPluginTool(pluginId, method, args)
   }
   switch (method) {
+    case 'contribute.replaceLaunchIndex': return replaceLaunchIndex(pluginId, args[0])
+    case 'contribute.launchIndexState': return getLaunchIndexState(pluginId)
+    case 'contribute.markLaunchIndexDirty': return markLaunchIndexDirty(pluginId)
     case 'background.call': {
       const scope = getRuntimeScope(pluginId)
       for (const permission of requiredBackgroundPermissions(pluginId)) {
@@ -346,7 +355,7 @@ async function dispatch(
       return callPluginBackground(pluginId, args[0], args[1], args[2])
     }
     case 'auxiliary.open': return openAuxiliaryWindow(pluginId, args[0] as AuxiliaryOpen)
-    case 'auxiliary.send': return sendAuxiliaryMessage(pluginId, String(args[0] ?? ''), args[1], args[2] as { visible?: boolean } | undefined)
+    case 'auxiliary.send': return sendAuxiliaryMessage(pluginId, String(args[0] ?? ''), args[1], args[2] as AuxiliaryUpdate | undefined)
     case 'auxiliary.close': return closeAuxiliaryWindow(pluginId, String(args[0] ?? ''))
     case 'auxiliary.list': return listAuxiliaryWindows(pluginId)
     case 'files.stream.open': return openFileStream(pluginId, args[0] as FileStreamOpen)
@@ -821,6 +830,11 @@ async function dispatch(
     }
     case 'contribute.registerQuickProvider': {
       const meta = (args[0] ?? {}) as { id?: string; explain?: string; schemaVersion?: string }
+      if (typeof meta.id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(meta.id)
+        || meta.explain !== undefined && (typeof meta.explain !== 'string' || meta.explain.length > 512)) throw new Error('Invalid Quick provider metadata')
+      const providers = contributionRegistry.getQuickProviders()
+      if (!providers.some(item => item.pluginId === pluginId && item.id === meta.id)
+        && (providers.length >= 64 || providers.filter(item => item.pluginId === pluginId).length >= 8)) throw new Error('Quick provider registration budget exceeded')
       const result = contributionRegistry.registerQuickProvider(pluginId, {
         id: String(meta?.id ?? ''),
         explain: typeof meta?.explain === 'string' ? meta.explain : undefined,
@@ -871,6 +885,7 @@ export function registerPluginHandlers(): void {
   bindPluginTools()
   // storage.local 底座：建表 + 一次性迁移旧 plugin-storage/*.json（幂等）
   initPluginStorage()
+  registerPluginActivationHandlers()
   ipcMain.handle(IpcChannels.PluginHomeRegister, async (event, contribution: unknown) => {
     const senderId = event.sender.id
     const source = pluginHost.getPluginIdByWebContentsId(senderId)
@@ -880,6 +895,7 @@ export function registerPluginHandlers(): void {
     const scope = getRuntimeScope(source)
     const allowed = (): boolean => scope?.owner.wcId === senderId && scope.isCurrent() && !scope.isClosing && !event.sender.isDestroyed()
     if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
+    if (isIndexSyncActivation(scope!)) return { ok: false, error: 'Index synchronization may only read local plugin data' }
     try {
       const result = await registerDeclaredHomeContribution(source, contribution)
       return allowed() ? result : { ok: false, error: 'plugin runtime is closing or stale' }
@@ -910,6 +926,8 @@ export function registerPluginHandlers(): void {
         if (!request || typeof request !== 'object' || typeof request.method !== 'string' || (request.args !== undefined && !Array.isArray(request.args))) return { ok: false, error: 'invalid plugin request' }
         const { method, args = [] } = request
         const scope = getRuntimeScope(hostPluginId)
+        if (scope && isIndexSyncActivation(scope) && !['storage.get', 'storage.session.get', 'settings.get', 'theme.getTokens', 'theme.getAppearance',
+          'i18n.getLocale', 'contribute.launchIndexState', 'runtime.release'].includes(method)) return { ok: false, error: 'Index synchronization may only read local plugin data' }
         const allowed = () => scope?.owner.wcId === senderId && scope.isCurrent() && (!scope.isClosing || CLOSE_SAFE.test(method))
         if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
         return await runHostRpc(scope!, async (): Promise<PluginCallResult> => {

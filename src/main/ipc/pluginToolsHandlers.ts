@@ -75,9 +75,9 @@ export async function dispatchPluginTool(pluginId: string, method: string, args:
     case 'quickInput.release': clearQuickInput(pluginId); return true
     case 'quickInput.escape': assertInteractive(pluginId); return escapeQuickInput(pluginId)
     case 'quickInput.readContext': {
-      // 仅返回本实例当前 runtime 代次最近一次 Quick 打开注入的输入上下文。
+      // Auto-hide retains ownership; an explicit exit must not expose a previous search.
       const scope = getRuntimeScope(pluginId)
-      if (!scope?.isCurrent() || scope.isClosing) return null
+      if (!scope?.isCurrent() || scope.isClosing || !pluginHost.isQuickInputOwner(pluginId)) return null
       return readQuickEnterInput(pluginId, scope.owner.generation)
     }
     case 'ui.openSettings': {

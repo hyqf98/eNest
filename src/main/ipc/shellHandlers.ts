@@ -1,5 +1,6 @@
 import { getAccountState, loginAccount, cancelAccountLogin, logoutAccount } from '@main/auth/accountAuthService'
-import { getTrustedSurfaceRole, handleShellIpc, onShellIpc } from '@main/ipc/ipcSecurity'
+import { assertSurfaceSender, getTrustedSurfaceRole, handleShellIpc, onShellIpc } from '@main/ipc/ipcSecurity'
+import { activateRailContribution } from '@main/contrib/railContributions'
 import { registerShortcutHandlers } from '@main/ipc/shortcutHandlers'
 /**
  * shellHandlers — 壳子 IPC 处理器
@@ -27,6 +28,8 @@ import { logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, getAppPathsRoot } from '@main/paths/pathsService'
 import { openLocalPath } from '@main/paths/openLocalPath'
 import { pluginHost } from '@main/plugin/PluginHost'
+import { launchPlugin } from '@main/launcher/pluginLauncher'
+import { setResidentSettingFromUser } from '@main/launcher/pluginActivation'
 import { trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 import { broadcastNotice } from '@main/plugin/shellNotices'
 import { associationService } from '@main/openWith/associationService'
@@ -91,6 +94,7 @@ import {
 } from '@main/window/createShellWindow'
 import {
   applyOrbRailVisibility,
+  getOrbDragSurface,
   getOrbRailState,
   layoutOrbRailViews,
   setOrbAnimationLevel,
@@ -192,7 +196,17 @@ export function registerShellHandlers(): void {
     IpcChannels.ShellOpenPlugin,
     async (_e, pluginId: string, enter?: { code?: string; payload?: unknown }) => {
       try {
-        const tabId = await pluginHost.openPlugin(pluginId, enter, { trustedUserNavigation: true })
+        const manifest = pluginRegistry.getManifest(pluginId)
+        const featureActivation = manifest?.features?.find(feature => feature.code === enter?.code)?.activation
+        const activation = manifest?.activation || featureActivation
+        const placement = pluginHost.getPlacement(pluginId)
+        const focusResident = !featureActivation && (placement.kind === 'detached' || placement.kind === 'panel')
+        let tabId: string
+        if (activation && !focusResident) {
+          const result = await launchPlugin({ pluginId, source: 'settings', mode: 'shell', enter })
+          if (!result.ok) return { ok: false, error: result.error || 'Plugin launch was cancelled' }
+          tabId = toTabId(pluginId)
+        } else tabId = await pluginHost.openPlugin(pluginId, enter, { trustedUserNavigation: true })
         logInfo('plugin', `open ${pluginId} tab=${tabId}${enter?.code ? ` code=${enter.code}` : ''}`)
         return { ok: true, data: tabId }
       } catch (err) {
@@ -211,7 +225,7 @@ export function registerShellHandlers(): void {
         return { ok: false, error: settingsStore.getAll().general.locale === 'en-US'
           ? 'Switch themes before releasing this workspace plugin' : '请先切换主题，再释放正在使用的首页插件' }
       }
-      await pluginHost.closePlugin(tabId, 'tab-close', false, hasWorkspace)
+      await pluginHost.closePresentation(tabId, hasWorkspace)
       await refreshPluginMemoryAfterClose()
       return { ok: true }
     } catch (error) {
@@ -280,6 +294,20 @@ export function registerShellHandlers(): void {
   })
 
   handleShellIpc(IpcChannels.ShellGetOrbState, () => getOrbRailState())
+
+  handleShellIpc(IpcChannels.ShellActivateRailContribution, async (event, id: unknown) => {
+    const role = getTrustedSurfaceRole(event.sender.id)
+    const frame = event.senderFrame
+    const current = (): boolean => {
+      try {
+        assertSurfaceSender(event, IpcChannels.ShellActivateRailContribution)
+        if (event.senderFrame !== frame || event.sender.mainFrame !== frame || getTrustedSurfaceRole(event.sender.id) !== role) return false
+        return role === 'orb' ? !!getOrbDragSurface(event.sender.id)
+          : role === 'shell' && event.sender === getShellWebContents()
+      } catch { return false }
+    }
+    await activateRailContribution(id, current)
+  })
 
   handleShellIpc(IpcChannels.ShellGoHome, async () => {
     await navigateWorkspace({ page: 'catalog' })
@@ -664,17 +692,19 @@ export function registerShellHandlers(): void {
   /** 设置页插件分组：写入单项，同步 Bridge 与 settings.json */
   handleShellIpc(
     IpcChannels.ShellSetPluginSetting,
-    async (_e, pluginId: string, key: string, value: unknown) => {
+    async (event, pluginId: string, key: string, value: unknown) => {
       const id = String(pluginId ?? '')
       const k = String(key ?? '')
       if (!id || !k) return { ok: false, error: 'pluginId and key required' }
       if (!pluginSettingsBridge.isWritableKey(id, k)) return { ok: false, error: 'Unknown or read-only plugin settings key' }
-      await settingsStore.setPluginSetting(id, k, value)
-      pluginSettingsBridge.set(id, k, value)
-      refreshPluginBackgrounds()
-      pluginHost.sendEvent(id, { type: 'settings-change', key: k, value })
-      sendShellEvent({ type: 'plugin-settings-changed', pluginId: id })
-      return { ok: true }
+      try {
+        if (!await setResidentSettingFromUser(event, id, k, value)) await settingsStore.setPluginSetting(id, k, value)
+        pluginSettingsBridge.set(id, k, value)
+        refreshPluginBackgrounds()
+        pluginHost.sendEvent(id, { type: 'settings-change', key: k, value })
+        sendShellEvent({ type: 'plugin-settings-changed', pluginId: id })
+        return { ok: true }
+      } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) } }
     }
   )
 

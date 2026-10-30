@@ -2,7 +2,7 @@
  * panelHandlers — 自由面板 IPC
  * 职责：入参校验 + 功能开关前置守卫 + 转发到 PanelManager。
  * 关键约束：
- *  - 面板 chrome 的 role = 'panel'，只放行 PanelGetState / PanelCommand / PanelDragTick（见 ipcSecurity）。
+ *  - 面板 chrome 的 role = 'panel'，只放行 PanelGetState / PanelCommand / PanelDragHeartbeat（见 ipcSecurity）。
  *  - 壳渲染层的 role = 'shell'，只放行新建/关闭/列表三个通道。
  *  - 所有面板命令在功能未开启时一律拒绝。
  */
@@ -20,8 +20,7 @@ import {
   handlePanelCommand,
   listPanels,
   markPanelReady,
-  panelDragTick,
-  panelWindowDragTick
+  panelDragHeartbeat
 } from '@main/panel/PanelManager'
 
 let registered = false
@@ -156,11 +155,9 @@ export function registerPanelHandlers(): void {
     return handlePanelCommand(panelId, command)
   })
 
-  onShellIpc(IpcChannels.PanelDragTick, (event, interactionId: unknown) => {
+  onShellIpc(IpcChannels.PanelDragHeartbeat, (event, interactionId: unknown) => {
     if (!validInteractionId(interactionId)) return
-    // 同一保活通道服务两种拖动：组件拖动与整块面板移动/缩放。
-    panelDragTick(event.sender.id, interactionId)
-    panelWindowDragTick(event.sender.id, interactionId)
+    panelDragHeartbeat(event.sender.id, interactionId)
   })
 
   // —— 壳渲染层 ——
@@ -189,11 +186,5 @@ export function registerPanelHandlers(): void {
   handleShellIpc(IpcChannels.PanelSetHotkey, async (_event, accelerator: unknown) => {
     assertFreePanelEnabled()
     return setPanelHotkey(accelerator)
-  })
-
-  // pick-region 与 create 同义：保留独立通道便于将来「只框选不创建」的场景。
-  handleShellIpc(IpcChannels.PanelPickRegion, async () => {
-    assertFreePanelEnabled()
-    return selectRegion()
   })
 }

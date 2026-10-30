@@ -63,14 +63,20 @@ export interface QuickInputSelection {
  */
 export interface QuickEnterInput {
   text?: string
+  /** Host-derived search text; raw and text are bounded to 4096 UTF-16 code units. */
+  query?: { raw: string; trigger?: string }
   images?: Array<{ dataUrl: string; width: number; height: number }>
   files?: Array<{ handleId: string; path: string; name: string; size: number; kind: 'file' | 'directory' }>
 }
 
-export type QuickSearchPhase = 'catalog' | 'static' | 'enriched' | 'providers'
+export type QuickSearchPhase = 'catalog' | 'static' | 'enriched' | 'providers' | 'cancel'
 
 /** 命令面板可执行项 */
 export interface QuickCommand {
+  entryId?: string
+  buildRevision?: string
+  indexRevision?: number
+  providerToken?: string
   kind: QuickCommandKind
   /** 列表稳定 id */
   id: string
@@ -99,6 +105,8 @@ export interface QuickCommand {
   /** 内容匹配或动态 provider 的进入载荷。 */
   payload?: unknown
   content?: QuickContentMatch
+  /** Safe, declarative text-input semantics; never a theme-supplied launch payload. */
+  textInput?: import('./plugin').PluginFeatureInput
 }
 
 export interface QuickSearchRequest {
@@ -114,6 +122,7 @@ export interface QuickSearchRequest {
 
 export interface QuickSearchResult {
   items: QuickCommand[]
+  directoryRevision?: string
 }
 
 /** 打开目标容器（= 启动方式）：quick = Quick 小窗内嵌 / shell = 主窗大窗 Tab */
@@ -130,7 +139,7 @@ export type QuickOpenContainer = 'quick' | 'shell'
  */
 export type QuickOpenRequest =
   | { kind: 'app'; path: string; query?: string }
-  | { kind: 'plugin'; pluginId: string; code?: string; container?: QuickOpenContainer; type?: QuickContentType; payload?: unknown; query?: string; input?: QuickInputSelection }
+  | { kind: 'plugin'; pluginId: string; code?: string; entryId?: string; buildRevision?: string; indexRevision?: number; providerToken?: string; container?: QuickOpenContainer; type?: QuickContentType; payload?: unknown; query?: string; input?: QuickInputSelection }
   | { kind: 'action'; action: QuickActionId; query?: string }
   | { kind: 'plugin-escape'; pluginId: string }
   | { kind: 'plugin-pin'; pluginId: string }

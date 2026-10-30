@@ -264,6 +264,7 @@ export function FreePanelFields({ state }: { state: PanelAppearanceController })
 /** 自由面板外观字段（材质 + 底板不透明度），只渲染字段本身，不含外层卡片。 */
 function PanelAppearanceFields({ state }: { state: PanelAppearanceController }) {
   const { draft, loading, error, update, retry } = state
+  const transparent = draft.opacity === 0 && draft.material === 'none'
 
   if (loading) return <p className="desc appearance-inline-status" role="status">正在读取设置…</p>
 
@@ -271,8 +272,17 @@ function PanelAppearanceFields({ state }: { state: PanelAppearanceController }) 
     <div className="appearance-panel-fields">
       <div className="field">
         <div>
+          <div className="label">透明底板</div>
+          <p className="desc">默认只显示组件自身的外观。透明区域仍可拖动和右键，不会点击穿透。</p>
+        </div>
+        <Button variant="ghost" size="sm" onClick={() => update({ opacity: 0, material: 'none' })} disabled={transparent}>
+          {transparent ? '已透明' : '设为透明'}
+        </Button>
+      </div>
+      <div className="field">
+        <div>
           <div className="label">材质</div>
-          <p className="desc">「无」只保留半透明纯色底板，性能开销最小。</p>
+          <p className="desc">仅作用于整块面板底板，不改动组件自身的背景。「无」关闭原生材质，仍可调整底板浓度。</p>
         </div>
         <div className="appearance-seg-row" role="radiogroup" aria-label="面板材质">
           {PLATFORM_MATERIALS.map(material => (
@@ -291,7 +301,7 @@ function PanelAppearanceFields({ state }: { state: PanelAppearanceController }) 
       <div className="field">
         <div>
           <div className="label">底板不透明度</div>
-          <p className="desc">{Math.round(draft.opacity * 100)}% · 调整底板色调与描边；完全透明底板需同时选择「无」材质，透明区域仍接收鼠标。</p>
+          <p className="desc">{Math.round(draft.opacity * 100)}% · 调整底板色调与描边。毛玻璃和系统材质在 0% 时仍保留，可用「设为透明」一并关闭。</p>
         </div>
         <div className="appearance-opacity-row">
           <Slider

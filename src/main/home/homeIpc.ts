@@ -20,7 +20,7 @@ import { normalizeWorkspaceRoute } from './workspaceRoute'
 class HomeStateError extends Error {}
 
 export function registerHomeIpc(manager: HomeSurfaceManager): void {
-  manager.onContents(bindHomeContents)
+  manager.onContents(contents => bindHomeContents(contents, () => manager.isContentsActive(contents.id)))
   const handle = (channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void => {
     ipcMain.handle(channel, async (event, ...args) => {
       assertSurfaceSender(event, channel)
@@ -41,6 +41,7 @@ export function registerHomeIpc(manager: HomeSurfaceManager): void {
       wcId,
       generation: generation ?? -1,
       owner: event.sender,
+      stateOwner: manager.getSearchStateOwner(wcId),
       isCurrent,
       setHomeVisible: visible => manager.setVisible(visible),
       navigateWorkspace: async route => {
@@ -77,7 +78,7 @@ export function registerHomeIpc(manager: HomeSurfaceManager): void {
   handle(IpcChannels.HomeGetCatalog, event => readCurrent(event, () => getHomeCatalog('boot')))
   handle(IpcChannels.HomeGetDetail, (event, id) => readCurrent(event, () => getHomeDetail(id)))
   handle(IpcChannels.HomeSearch, async (event, request) => {
-    const context = contextFor(event)
+    const context = contextFor(event, request?.phase === 'providers')
     assertCurrent(context)
     const result = await searchHome(request, context)
     assertCurrent(context)
@@ -85,10 +86,12 @@ export function registerHomeIpc(manager: HomeSurfaceManager): void {
   })
   handle(IpcChannels.HomeRefresh, (event, request) => readCurrent(event, () => getHomeCatalog(request?.reason === 'boot' ? 'boot' : 'manual')))
   handle(IpcChannels.HomeAction, async (event, action: HomeAction) => {
-    if (!manager.isContentsActive(event.sender.id) || getTrustedSurfaceRole(event.sender.id) !== 'home') {
+    const passive = action?.type === 'searchState' || action?.type === 'cancelSearch'
+      || action?.type === 'searchInput' && action.operation !== 'read-clipboard'
+    if ((!passive && !manager.isContentsActive(event.sender.id)) || getTrustedSurfaceRole(event.sender.id) !== 'home') {
       throw new HomeStateError('Home surface is not active')
     }
-    const context = contextFor(event, true)
+    const context = contextFor(event, !passive)
     assertCurrent(context)
     return runHomeAction(action, context)
   })

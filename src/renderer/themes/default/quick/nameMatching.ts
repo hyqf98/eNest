@@ -40,14 +40,19 @@ function continuousScore(text: string, query: string): number {
   return 2000 + Math.max(0, 1000 - position * 10) + coverage
 }
 
-/** Continuous name/pinyin matching; descriptions and arbitrary subsequences are excluded. */
-export function scoreQuickName(index: QuickNameIndex, query: string): number {
+/** Continuous name/pinyin matching with all-term token fallback, never arbitrary subsequences. */
+export function scoreQuickName(index: QuickNameIndex, query: string, queryTerms?: readonly string[]): number {
   const compactQuery = query.replace(/\s+/g, '')
-  return Math.max(
+  const continuous = Math.max(
     continuousScore(index.text, query),
     continuousScore(index.compact, compactQuery) * 0.98,
     continuousScore(index.pinyin, compactQuery) * 0.75,
     continuousScore(index.initials, compactQuery) * 0.7,
     index.acronym.length > 1 ? continuousScore(index.acronym, compactQuery) * 0.7 : 0
   )
+  const terms = queryTerms ?? query.split(/\s+/).filter(Boolean)
+  if (terms.length < 2 || terms.length > 16) return continuous
+  const scores = terms.map(term => Math.max(continuousScore(index.text, term), continuousScore(index.pinyin, term) * 0.75,
+    continuousScore(index.initials, term) * 0.7))
+  return Math.max(continuous, scores.every(score => score > 0) ? scores.reduce((sum, score) => sum + score, 0) / scores.length * 0.6 : 0)
 }

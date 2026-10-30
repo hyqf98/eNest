@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogOverlay, DialogTitle } 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@renderer/components/ui/DropdownMenu'
 import { applyAppearanceToDom } from '@renderer/services/appearanceDom'
 import {
+  PANEL_DRAG_HEARTBEAT_INTERVAL_MS,
   PANEL_WIDGET_INSET,
   type PanelCandidate,
   type PanelCommand,
@@ -78,7 +79,6 @@ function PanelApp(): React.JSX.Element {
   const widgetRefs = useRef(new Map<string, HTMLDivElement>())
   const gesture = useRef<Gesture | null>(null)
   const gestureVersion = useRef(0)
-  const tickFrame = useRef<number | null>(null)
   const pickerRequest = useRef(0)
   const mounted = useRef(true)
 
@@ -107,8 +107,6 @@ function PanelApp(): React.JSX.Element {
     const current = gesture.current
     if (!current) return
     gesture.current = null
-    if (tickFrame.current !== null) cancelAnimationFrame(tickFrame.current)
-    tickFrame.current = null
     try { current.element.releasePointerCapture(current.pointerId) } catch { /* capture already lost */ }
     if (!current.started) return
     if (mounted.current) setDragging(null)
@@ -154,11 +152,6 @@ function PanelApp(): React.JSX.Element {
         }
       })
     }
-    if (tickFrame.current !== null) return
-    tickFrame.current = requestAnimationFrame(() => {
-      tickFrame.current = null
-      if (gesture.current?.started) api?.dragTick(gesture.current.interactionId)
-    })
   }, [command, finishGesture])
 
   useEffect(() => {
@@ -266,10 +259,14 @@ function PanelApp(): React.JSX.Element {
 
   useEffect(() => {
     if (!dragging) return
-    // Keep a deliberately stationary held drag alive; blur/lost capture still cancel immediately.
-    const timer = setInterval(() => { if (gesture.current?.started) api?.dragTick(gesture.current.interactionId) }, 5000)
+    const timer = setInterval(() => {
+      const current = gesture.current
+      if (!current?.started) return
+      if (!current.element.hasPointerCapture(current.pointerId)) { finishGesture(true); return }
+      api?.dragHeartbeat(current.interactionId)
+    }, PANEL_DRAG_HEARTBEAT_INTERVAL_MS)
     return () => clearInterval(timer)
-  }, [dragging])
+  }, [dragging, finishGesture])
 
   const showMenu = (x: number, y: number, pluginId?: string) => {
     finishGesture(true)
@@ -349,6 +346,10 @@ function PanelApp(): React.JSX.Element {
           {(widget.status === 'error' || widget.status === 'hibernated') && <div className="panel-widget-retry" style={{ inset: PANEL_WIDGET_INSET }} data-no-drag>
             <span>{widget.status === 'error' ? widget.error ?? '启动失败' : '已休眠'}</span>
             <Button onClick={() => void runCommand({ action: 'retry-widget', pluginId: widget.pluginId })}>重试</Button>
+          </div>}
+          {widget.status === 'cleanup-failed' && <div className="panel-widget-retry" style={{ inset: PANEL_WIDGET_INSET }} data-no-drag>
+            <span>{widget.error ?? '部分组件资源尚未确认释放。'}</span>
+            <Button onClick={() => void runCommand({ action: 'remove-widget', pluginId: widget.pluginId })}>重试释放</Button>
           </div>}
           {widget.status === 'unsupported' && <div className="panel-widget-retry" style={{ inset: PANEL_WIDGET_INSET }} data-no-drag>
             <span>{widget.title}：{widget.error}</span>

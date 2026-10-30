@@ -12,6 +12,7 @@ import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { pluginSettingsBridge } from '@main/settings/PluginSettingsBridge'
 import { pluginHost } from '@main/plugin/PluginHost'
+import { setResidentSettingFromUser } from '@main/launcher/pluginActivation'
 import { refreshPluginBackgrounds } from '@main/plugin/pluginBackgroundRuntime'
 import { openNativeModal } from '@main/window/modalSurface'
 import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
@@ -32,7 +33,7 @@ type FieldTarget = { type: 'general'; key: 'locale' | 'closeBehavior' | 'notifyP
   | { type: 'appearance'; source: string; themeId: string; key: string }
   | { type: 'plugin'; pluginId: string; key: string; label: string; name: string }
 interface Grant extends Selection { key: string; root: string; fields: Map<string, { descriptor: ThemeSettingsFieldDescriptor; target: FieldTarget }> }
-interface InputPolicy { contents: WebContents; key: string | null; bounds: { x: number; y: number; width: number; height: number } | null; gestureAt: number; busy: boolean; active: boolean; activationEpoch: number }
+interface InputPolicy { contents: WebContents; key: string | null; bounds: { x: number; y: number; width: number; height: number } | null; gestureAt: number; busy: boolean; active: boolean; activationEpoch: number; mutation?: AbortController }
 let grant: Grant | null = null, revision = 0, registered = false, watching = false
 const sessions = new WeakSet<Session>()
 const policies = new Map<number, InputPolicy>()
@@ -40,6 +41,7 @@ function retireGrant(): void {
   if (!grant) return
   grant = null
   for (const policy of policies.values()) {
+    policy.mutation?.abort()
     policy.gestureAt = 0
     policy.activationEpoch++
     policy.active = false
@@ -216,6 +218,7 @@ export function registerThemeSettingsPolicy(contents: WebContents): void {
   const retireInput = (): void => { policy.gestureAt = 0; downAt = 0 }
   contents.on('blur', retireInput)
   contents.on('did-start-navigation', retireInput)
+  contents.on('did-start-navigation', () => policy.mutation?.abort())
   const restrictFrame = (event: Electron.Event<Electron.WebContentsWillFrameNavigateEventParams>): void => {
     if (!event.isMainFrame && (!event.frame || event.frame.parent?.frameTreeNodeId !== contents.mainFrame.frameTreeNodeId || !parseUrl(event.url, true))) event.preventDefault()
   }
@@ -223,7 +226,7 @@ export function registerThemeSettingsPolicy(contents: WebContents): void {
   contents.on('will-redirect', restrictFrame)
   // External links use the trusted document's explicit shell API, never a popup from a child frame.
   contents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  contents.once('destroyed', () => { retireInput(); policies.delete(contents.id) })
+  contents.once('destroyed', () => { policy.mutation?.abort(); retireInput(); policies.delete(contents.id) })
 }
 export function registerThemeSettingsHandlers(): void {
   if (registered) return
@@ -234,6 +237,7 @@ export function registerThemeSettingsHandlers(): void {
     const policy = policies.get(event.sender.id), bounds = input?.bounds as InputPolicy['bounds']
     if (!policy) return false
     if (input?.active !== true && typeof input?.key === 'string' && policy.key !== input.key) return false
+    policy.mutation?.abort()
     policy.gestureAt = 0
     policy.activationEpoch++
     if (input?.active !== true || typeof input.key !== 'string' || !live(input.key) || !bounds || ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) || bounds.width <= 0 || bounds.height <= 0) {
@@ -256,6 +260,7 @@ export function registerThemeSettingsHandlers(): void {
     const field = current.fields.get(action.fieldId)
     if (!field || !validValue(field.descriptor, action.value)) return { ok: false, error: 'Invalid settings value' }
     policy.busy = true
+    let mutation: AbortController | undefined
     try {
       const target = field.target
       if (target.type === 'plugin') {
@@ -268,7 +273,20 @@ export function registerThemeSettingsHandlers(): void {
         snapshot(key)
         const latest = current.fields.get(action.fieldId)
         if (!latest || JSON.stringify(latest) !== fingerprint || !validValue(latest.descriptor, action.value) || !pluginSettingsBridge.isWritableKey(target.pluginId, target.key)) return { ok: false, error: 'settings changed during confirmation' }
-        await settingsStore.setPluginSetting(target.pluginId, target.key, action.value)
+        mutation = new AbortController()
+        policy.mutation = mutation
+        const stillConfirmed = () => {
+          if (event.sender.isDestroyed() || policies.get(event.sender.id) !== policy || live(key) !== current || !policy.active || policy.key !== key
+            || policy.activationEpoch !== epoch || !pluginRegistry.isEnabled(target.pluginId) || pluginRegistry.getBuildRevision(target.pluginId) !== build) return false
+          snapshot(key)
+          const candidate = current.fields.get(action.fieldId)
+          return !!candidate && JSON.stringify(candidate) === fingerprint && validValue(candidate.descriptor, action.value)
+            && pluginSettingsBridge.isWritableKey(target.pluginId, target.key)
+        }
+        if (!await setResidentSettingFromUser(event, target.pluginId, target.key, action.value, { guard: stillConfirmed, signal: mutation.signal })) {
+          if (!stillConfirmed()) return { ok: false, error: 'settings changed before commit' }
+          await settingsStore.setPluginSetting(target.pluginId, target.key, action.value)
+        }
         pluginSettingsBridge.set(target.pluginId, target.key, action.value)
         refreshPluginBackgrounds()
         pluginHost.sendEvent(target.pluginId, { type: 'settings-change', key: target.key, value: action.value })
@@ -288,6 +306,6 @@ export function registerThemeSettingsHandlers(): void {
       }
       return { ok: true }
     } catch { return { ok: false, error: 'Could not apply settings' } }
-    finally { policy.busy = false }
+    finally { if (policy.mutation === mutation) policy.mutation = undefined; policy.busy = false }
   })
 }

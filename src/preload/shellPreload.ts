@@ -128,6 +128,7 @@ export interface EnestShellApi {
   /** 同步圆轨状态到悬浮窗 */
   syncOrbState(state: OrbRailSyncRequest): Promise<void>
   getOrbState(): Promise<OrbRailState>
+  activateRailContribution(id: string): Promise<void>
   /** 卸载插件：关 Tab → 清 storage → 删文件 → 重扫；结果经 uninstall-result 事件 */
   uninstallPlugin(pluginId: string): Promise<void>
   /** 启用/禁用已安装插件（持久化）；成功返回更新后的 summary */
@@ -353,6 +354,8 @@ const api: EnestShellApi = {
 
   getOrbState: () =>
     ipcRenderer.invoke(IpcChannels.ShellGetOrbState) as Promise<OrbRailState>,
+
+  activateRailContribution: id => ipcRenderer.invoke(IpcChannels.ShellActivateRailContribution, id),
 
   uninstallPlugin: (pluginId: string) =>
     expectOk(ipcRenderer.invoke(IpcChannels.ShellUninstallPlugin, pluginId)),

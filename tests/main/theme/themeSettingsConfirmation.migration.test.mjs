@@ -41,6 +41,7 @@ function frame(script, kind = 'settings') {
       const request = sent.findLast(message => message.type === 'action')
       port.onmessage?.({ data: { type: 'action-result', generation, id: request.id, result } })
     },
+    receive(message) { port.onmessage?.({ data: { ...message, generation } }) },
     close() { events.get('pagehide')() },
   }
 }
@@ -91,4 +92,34 @@ test('host-settled settings requests remain bounded and Quick retains its existi
   await quick.advance(10_001)
   assert.match((await result).error, /Quick action timed out/)
   quick.close()
+})
+
+test('focus subscriptions are generated only for Quick while Settings retains its state channel', async () => {
+  const { SETTINGS_THEME_BRIDGE_SOURCE, QUICK_THEME_BRIDGE_SOURCE } = await source()
+  assert.doesNotMatch(SETTINGS_THEME_BRIDGE_SOURCE, /focusListeners|onFocus|message\.type === 'focus'/)
+  const settings = frame(SETTINGS_THEME_BRIDGE_SOURCE)
+  const quick = frame(QUICK_THEME_BRIDGE_SOURCE, 'quick')
+  try {
+    assert.deepEqual(Object.keys(settings.api).sort(), ['action', 'getState', 'onState', 'ready'])
+    const states = [], focuses = []
+    const offState = settings.api.onState(state => states.push(state))
+    const pendingState = settings.api.getState()
+    settings.receive({ type: 'focus', selectAll: true })
+    assert.equal(states.length, 0)
+    settings.receive({ type: 'state', state: { version: 1, revision: 4 } })
+    assert.deepEqual(await pendingState, { version: 1, revision: 4 })
+    assert.equal(states.length, 1)
+    offState()
+
+    const offFocus = quick.api.onFocus(request => focuses.push(request))
+    quick.receive({ type: 'focus', selectAll: true })
+    quick.receive({ type: 'focus', selectAll: false })
+    assert.deepEqual(focuses, [{ selectAll: true }, { selectAll: false }])
+    offFocus()
+    quick.receive({ type: 'focus', selectAll: true })
+    assert.equal(focuses.length, 2)
+  } finally {
+    settings.close()
+    quick.close()
+  }
 })

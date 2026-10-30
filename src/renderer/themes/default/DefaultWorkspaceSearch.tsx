@@ -3,6 +3,7 @@ import type { HomeSearchEntry, HomeSearchScope } from '@shared/types/home'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { SearchBox } from '@renderer/themes/default/workspace/SearchBox'
 import { PluginIcon } from '@renderer/components/PluginIcon'
+import { SearchIcon } from '@renderer/components/icons'
 import type { DefaultWorkspaceController, DefaultWorkspaceState } from './WorkspaceController'
 import '@renderer/themes/default/workspace/homeSearch.css'
 
@@ -12,7 +13,7 @@ const SCOPES: { id: HomeSearchScope; zh: string; en: string }[] = [
   { id: 'market', zh: '插件市场', en: 'Marketplace' }, { id: 'action', zh: '快捷操作', en: 'Actions' },
 ]
 
-/** Original Home search presentation with opaque, one-use host result handles. */
+/** Workspace owns its selection and paste UI; launch authority stays in native handles. */
 export function DefaultWorkspaceSearch({ state, controller, onDetailOrigin }: {
   state: DefaultWorkspaceState
   controller: DefaultWorkspaceController
@@ -31,11 +32,12 @@ export function DefaultWorkspaceSearch({ state, controller, onDetailOrigin }: {
   const entries = state.results?.items ?? []
   const selectedIndex = Math.max(0, entries.findIndex(item => item.handle === selectedHandle))
   const selected = entries[selectedIndex]
-  const searching = Boolean(state.query.trim())
+  const searching = Boolean(state.query.trim() || state.input.length)
   const loading = state.searching
-  useEffect(() => { setSelectedHandle(undefined); setOpenError('') }, [state.query, state.scope])
+  useEffect(() => { setSelectedHandle(undefined); setOpenError('') }, [state.query, state.scope, state.input])
 
   const browseAll = () => {
+    if (state.input.length) void controller.clearInput()
     controller.queueSearch('', 'all')
     controller.setCategory('全部')
     void controller.navigate({ page: 'catalog' })
@@ -54,15 +56,17 @@ export function DefaultWorkspaceSearch({ state, controller, onDetailOrigin }: {
     setOpening(item.handle)
     setOpenError('')
     if (item.kind === 'market') onDetailOrigin(origin ?? resultsRef.current?.querySelector<HTMLElement>(`[data-home-result-index="${selectedIndex}"]`) ?? null)
-    try { await controller.action({ type: 'activateSearchResult', handle: item.handle, query: state.query }) }
+    try { await controller.openSearchResult(item) }
     catch (error) {
-      // Handles are one-use even on failure: retries obtain a fresh host result.
       setOpenError(error instanceof Error ? error.message : english ? 'Unable to open this result.' : '暂时无法打开。')
       void controller.runSearch()
     } finally { openingRef.current = false; setOpening(undefined) }
   }
   const onKeyDown = (event: KeyboardEvent) => {
     if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return
+    if (event.key === 'Backspace' && event.target === inputRef.current && !state.query && state.input.length) {
+      event.preventDefault(); void controller.clearInput(state.input[state.input.length - 1].id); return
+    }
     if (event.key === 'Escape') { event.preventDefault(); browseAll(); inputRef.current?.focus(); return }
     if (!searching || event.altKey || event.shiftKey || ((event.metaKey || event.ctrlKey) && event.key !== 'Enter')) return
     if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && entries.length && !loading) {
@@ -90,9 +94,22 @@ export function DefaultWorkspaceSearch({ state, controller, onDetailOrigin }: {
       <h1 className="sr-only">{english ? 'Search eNest' : '搜索 eNest'}</h1>
       <SearchBox value={state.query} inputRef={inputRef} onChange={query => controller.queueSearch(query, state.scope, composing.current)}
         placeholder={english ? 'Search apps, plugins, marketplace and actions…' : '搜索应用、插件、市场与快捷操作…'}
+        leading={<>{state.input.length > 0 && <span className="home-search-input-chips" role="list" aria-label={english ? 'Paste context' : '粘贴内容'}>
+          {state.input.slice(0, 4).map(item => <span key={item.id} className="home-search-input-chip" role="listitem" title={item.name ?? (english ? 'Image' : '图片')}>
+            <img src={item.thumbnail} alt="" draggable={false} />
+            <button type="button" aria-label={`${english ? 'Remove' : '移除'} ${item.name ?? (english ? 'image' : '图片')}`} onClick={() => { void controller.clearInput(item.id); inputRef.current?.focus() }}>×</button>
+          </span>)}
+          {state.input.length > 4 && <span className="home-search-input-more">+{state.input.length - 4}</span>}
+        </span>}<SearchIcon size={19} /></>}
+        accessory={state.inputBusy ? <span className="home-search-input-status" role="status">{english ? 'Reading…' : '读取中…'}</span> : undefined}
         inputProps={{ role: 'combobox', 'aria-expanded': searching, 'aria-controls': searching ? listId : undefined,
           'aria-activedescendant': searching && selected && !loading ? `${listId}-${selectedIndex}` : undefined,
           'aria-autocomplete': 'list', onKeyDown,
+          onPaste: event => {
+            const carriesMedia = Array.from(event.clipboardData.items).some(item => item.kind === 'file') || event.clipboardData.types.includes('Files')
+            if (!carriesMedia) return
+            event.preventDefault(); void controller.pasteInput()
+          },
           onCompositionStart: () => { composing.current = true; controller.queueSearch(state.query, state.scope, true) },
           onCompositionEnd: event => { composing.current = false; controller.queueSearch(event.currentTarget.value, state.scope) } }} />
     </header>

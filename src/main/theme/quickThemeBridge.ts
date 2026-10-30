@@ -21,10 +21,13 @@ function bridgeSource(kind: 'quick' | 'settings'): string {
   let lastState = null;
   let sequence = 0;
   const stateListeners = new Set();
-  const focusListeners = new Set();
+  ${kind === 'quick' ? 'const focusListeners = new Set();' : ''}
   const stateWaiters = new Set();
   const pending = new Map();
   const copy = value => structuredClone(value);
+  ${kind === 'quick' ? `const catalogRows = new Map();
+  let catalogOrder = [], catalog = Object.freeze([]);
+  const snapshotCopy = copy;` : 'const snapshotCopy = copy;'}
   ${kind === 'quick' ? `const privateSnapshot = state => {
     try {
       if (!state || !Number.isSafeInteger(state.revision) || state.revision < 0 || !Object.hasOwn(state, 'value')) return null;
@@ -68,7 +71,7 @@ function bridgeSource(kind: 'quick' | 'settings'): string {
   };
   const notify = (listeners, value) => {
     for (const listener of [...listeners]) {
-      try { listener(copy(value)); } catch { /* A theme listener does not own the channel. */ }
+      try { listener(value && value.version === 1 && Array.isArray(value.catalog) ? snapshotCopy(value) : copy(value)); } catch { /* A theme listener does not own the channel. */ }
     }
   };
   const close = () => {
@@ -78,18 +81,31 @@ function bridgeSource(kind: 'quick' | 'settings'): string {
     if (port) { port.onmessage = null; port.onmessageerror = null; port.close(); }
     for (const request of [...pending.values()]) request.finish({ ok: false, error: '${label} surface closed' });
     for (const waiter of [...stateWaiters]) waiter.fail();
-    stateListeners.clear(); focusListeners.clear(); lastState = null;
+    stateListeners.clear(); ${kind === 'quick' ? 'focusListeners.clear(); ' : ''}lastState = null;
   };
   const receive = event => {
     const message = event.data;
     if (closed || !message || typeof message !== 'object' || message.generation !== generation) return;
     if (message.type === 'state' && message.state && message.state.version === 1) {
-      lastState = ${kind === 'quick' ? 'message.state' : 'copy(message.state)'};
+      ${kind === 'quick' ? `const delta = message.catalogDelta;
+      if (delta) {
+        if (delta.reset) catalogRows.clear();
+        for (const id of delta.remove || []) catalogRows.delete(id);
+        for (const item of delta.upsert || []) {
+          if (item.aliases) Object.freeze(item.aliases);
+          if (item.content) { if (item.content.extensions) Object.freeze(item.content.extensions); Object.freeze(item.content); }
+            if (item.textInput) Object.freeze(item.textInput);
+          catalogRows.set(item.id, Object.freeze(item));
+        }
+        if (delta.order) catalogOrder = delta.order;
+        catalog = Object.freeze(catalogOrder.flatMap(id => catalogRows.has(id) ? [catalogRows.get(id)] : []));
+      }
+      lastState = { ...message.state, catalog };` : 'lastState = copy(message.state);'}
       for (const waiter of [...stateWaiters]) waiter.finish();
       notify(stateListeners, lastState);
-    } else if (message.type === 'focus' && typeof message.selectAll === 'boolean') {
+    }${kind === 'quick' ? ` else if (message.type === 'focus' && typeof message.selectAll === 'boolean') {
       notify(focusListeners, { selectAll: message.selectAll });
-    } else if (message.type === 'action-result' && typeof message.id === 'string') {
+    }` : ''} else if (message.type === 'action-result' && typeof message.id === 'string') {
       const result = message.result;
       if (result && typeof result.ok === 'boolean') pending.get(message.id)?.finish({
         ok: result.ok, ...(typeof result.error === 'string' ? { error: result.error.slice(0, 512) } : {})${kind === 'quick' ? `,
@@ -118,11 +134,11 @@ function bridgeSource(kind: 'quick' | 'settings'): string {
     ready() { if (!closed) { readyRequested = true; flush(); } },
     getState() {
       if (closed) return Promise.reject(new Error('${label} surface closed'));
-      if (lastState) return Promise.resolve(copy(lastState));
+      if (lastState) return Promise.resolve(snapshotCopy(lastState));
       if (stateWaiters.size >= 64) return Promise.reject(new Error('Too many state requests'));
       return new Promise((resolve, reject) => {
         const waiter = {
-          finish() { clearTimeout(timer); stateWaiters.delete(waiter); resolve(copy(lastState)); },
+          finish() { clearTimeout(timer); stateWaiters.delete(waiter); resolve(snapshotCopy(lastState)); },
           fail() { clearTimeout(timer); stateWaiters.delete(waiter); reject(new Error('${label} state unavailable')); }
         };
         const timer = setTimeout(() => waiter.fail(), 10000);
@@ -130,7 +146,7 @@ function bridgeSource(kind: 'quick' | 'settings'): string {
       });
     },
     onState(listener) { return subscribe(stateListeners, listener); },
-    onFocus(listener) { return subscribe(focusListeners, listener); },
+    ${kind === 'quick' ? 'onFocus(listener) { return subscribe(focusListeners, listener); },' : ''}
     ${kind === 'quick' ? `state: Object.freeze({
       async read() {
         const result = await api.action({ type: 'state-read' });

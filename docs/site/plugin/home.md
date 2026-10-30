@@ -51,12 +51,43 @@ if (!result.ok) console.error(result.error)
 | `getConfig()` | 语言、目录排序及缓存状态；不包含完整设置 |
 | `getCatalog()` | 立即读取本地与缓存市场目录，不发起网络请求 |
 | `getDetail(pluginId)` | 公开详情、权限名称、包大小及受限 README/截图引用 |
-| `search({ query, scope, limit })` | 返回安全目录项、公开图标、匹配声明及短期受控句柄；不执行默认主题的匹配/排序，不返回应用路径或命令 payload，提供者自行处理检索策略 |
+| `search({ query, phase: 'catalog', knownRevision? })` | 读取安全启动目录与市场描述符；同 revision 返回 `unchanged: true`，不重复传目录。静态声明、用户别名与持久插件索引读取不唤醒业务 UI |
+| `search({ query, phase: 'providers', queryRevision })` | 请求当前搜索会话的动态来源；只允许活动首页，结果与取消按表面隔离，不取消 Quick 的查询 |
 | `refresh({ reason })` | `boot` 仅缓存读取；显式 `manual` 才等待宿主市场刷新 |
 | `action(request)` | 请求受控启动、安装、更新、启停、卸载、设置及刷新 |
-| `onCommand(cb)` | 订阅 navigate、settingsChanged、可见性、刷新及安装命令 |
+| `onCommand(cb)` | 订阅 navigate、settingsChanged、searchDirectoryChanged、可见性、刷新及安装命令 |
 
-`action` 支持 `navigate`、`activateSearchResult`、`openPlugin`、`openMarket`、`openSettings`、`refreshApps`、`installPlugin`、`updatePlugin`、`setPluginEnabled`、`uninstallPlugin`、`refreshCatalog`、`setHomeVisible`。启动搜索结果提交 `handle`，内容匹配结果可附带最多 4096 字符的 `query`，不能提供磁盘路径或任意启动 payload；句柄一次性使用、两分钟到期，绑定当前首页所有者与代次，销毁后全部撤销。`openPlugin` 仅打开当前已安装且启用的插件，不能通过启动接口绕过安装确认。
+`action` 支持 `navigate`、`activateSearchResult`、`searchInput`、`searchState`、`cancelSearch`、`openPlugin`、`openHomeCard`、`openMarket`、`openSettings`、`refreshApps`、`installPlugin`、`updatePlugin`、`setPluginEnabled`、`uninstallPlugin`、`refreshCatalog`、`setHomeVisible`。启动搜索结果提交 `handle`，可附带最多 4096 字符的 `query` 和本表面的不透明 `input` 选择，不能提供磁盘路径、图片字节或任意启动 payload。静态句柄随目录缓存复用，仅变更/删除的条目重签或撤销；动态来源句柄只用于本查询、一次性使用、最多两分钟到期。全部句柄绑定首页 WebContents 与运行代次，销毁后全部撤销，执行前重新校验来源构建、条目版本和插件启用状态。`openPlugin` 仅打开当前已安装且启用的插件，不能通过启动接口绕过安装确认。
+
+### 默认首页与 Quick 搜索
+
+默认主题的两个入口共用名称/拼音/多关键词 Worker、内容表达式 Worker、图片/文件匹配及排序规则。目录在 revision 变化时更新，Worker 只接收名称索引的增量；输入每个字符不会重新向主进程索要整份目录或重新签发全部句柄。名称与动态来源并行，动态来源失败不移除已完成的本地结果。市场发现仍是首页额外能力，普通目录分类/已安装筛选仍在当前页完成。
+
+两个表面的查询、IME 状态、取消信号、输入附件与可执行句柄相互独立。`cancelSearch` 接收单调递增的 `queryRevision`，撤销该首页的动态查询与尚未完成的激活；取消不等于撤销已经发生的业务副作用。首页隐藏时清理自己的附件和动态授权，保留可复用的静态目录，不清空 Quick 的输入。
+
+`searchInput` 支持 `read-clipboard`、`list`、`clear`（可带单项 `id`）。读取必须发生在当前活动首页真实原生粘贴/鼠标手势后，不能用 DOM 合成事件授权。主题只接收有界缩略图和文件展示信息。默认输入框将预览放在文字左侧，空文本 Backspace 移除最后一项；普通文字粘贴仍由输入框处理。启动时宿主在目标实例就绪后验证所选 ID、重新核对文件路径并签发只读句柄，图片/文件与普通文本按同一 [输入上下文](dual-mode-tools.md#输入上下文) 契约交付。
+
+`searchState` 的 `read/write` 只访问当前首页来源自己的有界 JSON/CAS 私有状态，不开放宿主设置或其它主题历史。内置默认首页与内置默认 Quick 共用默认主题的最近使用/短查询偏好模型，第三方首页使用独立来源命名空间。成功执行后 `action` 的 `opened` 返回 `{ stateKey, at }`，页面据此记录使用；失败、取消、查看市场详情不计数。持久状态写入失败不能把已成功执行的插件报告成启动失败。
+
+首页搜索未声明目标时保持主窗口默认目标；`feature.activation` 的显式 `view.target` 或 `command` 结果按统一启动契约处理。显式 Quick 进入已有原生 Quick 容器，不在首页内部再嵌套一层业务插件；命令型功能等待真实 handler 完成回执，不用打开空白页伪装执行。
+
+### 声明式首页卡片
+
+插件的 `contributes.homeCards` 通过目录项的 `homeCards` 发布，不要求先打开插件。只有当前已安装、已启用的来源可发布卡片；宿主检查当前 manifest 的前 16 条声明，忽略无效版本、非法文案及其中 ID 重复的卡片。公开 DTO 仅包含 `id/title/glyph?/color?/explain?`，不包含 `openCode`、任意 manifest 字段或资源路径：ID、标题和宿主持有的启动 code 最长 128 字符，说明最长 512 字符，均拒绝控制字符；glyph 最多两个 Unicode 码点，颜色只接受六位十六进制色值。非法可选展示字段不会发布。
+
+默认主题在插件市场「全部」分类、无搜索词时沿用「插件扩展」卡片区；第三方工作区可以自行安排这些安全描述符。点击卡片只发送来源插件和卡片 ID：
+
+```js
+await workspace.action({
+  type: 'openHomeCard',
+  pluginId: item.pluginId,
+  cardId: card.id
+})
+```
+
+宿主重新确认插件安装与启用状态，精确匹配当前 manifest 中仍可发布的卡片，再用声明的 `openCode` 经统一启动器打开来源插件。不同插件的同名卡片按 `pluginId/cardId` 区分；主题不能自报 code、payload 或其它目标。卡片已撤下、插件已停用、来源过期或启动失败时返回失败，不隐藏首页，页面应显示错误而非伪造已打开。该动作默认请求主窗布局；声明的 feature 激活语义优先于入口默认值，并始终复用已有实例，不能借此创建第二个业务实例。
+
+异步准备与原生提交前仍复核来源代次、插件构建版本和 manifest/card 声明；等待期间失效的请求不得提交到新实例。成功提交本身可以正常隐藏来源首页，不会因此被误判为失败，也不会隐藏随后接替的工作区。
 
 ## 路由与确认协议
 
@@ -139,7 +170,7 @@ addEventListener('pagehide', () => { offAppearance(); offCommand() }, { once: tr
 
 ## 资源和权限隔离
 
-生产首页使用 `enest-home://surface/<entry>`。会话仅提供自身入口、脚本、样式与静态资源；拒绝其它 HTML 导航、iframe、后端源码、任意 `file:`、完整 `enest:` 协议与外网连接。入口与资产在读取时重新做 canonical 路径校验，不能用符号链接逃逸资源根。内置首页开发模式仅额外允许宿主指定的精确 loopback 开发 origin 与同源 HMR WebSocket，插件首页不继承这项开发例外。
+生产首页使用 `enest-home://surface/<entry>`。会话仅提供自身入口、脚本、样式与静态资源；拒绝其它 HTML 导航、iframe、后端源码、任意 `file:`、完整 `enest:` 协议与外网连接。内置首页仅允许同源静态搜索 Worker，不允许 blob Worker 或动态代码执行；第三方首页保留禁止 Worker 的 CSP。入口与资产在读取时重新做 canonical 路径校验，不能用符号链接逃逸资源根。内置首页开发模式仅额外允许宿主指定的精确 loopback 开发 origin 与同源 HMR WebSocket，插件首页不继承这项开发例外。
 
 跨插件公开资源使用宿主给出的 `enest-home://catalog/<pluginId>/icon`、`readme`、`screenshot/<index>`，只能命中当前目录条目对应槽位，不能拼接任意路径读取该插件目录。资源来源按开发实例、已安装包、远程市场选择，同一条目的缺失槽位不借用另一版本素材。源码预览将 `assets/` 映射到 `public/assets/`；远程官方市场素材由宿主限时限量读取、校验类型并缓存后供应，不把外部 URL 交给页面，也不放宽页面 CSP。README 相对图片仅可映射到同插件已声明的截图槽位。市场卡片的 `packageSize` 是最终插件包的字节数，缺失不伪造。本地源码插件不进入市场目录，也不从本地 checkout 安装；调试插件一律走开发者控制台加载。
 

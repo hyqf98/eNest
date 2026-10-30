@@ -6,6 +6,7 @@ const ASYNC_METHODS = [
   'startPerformanceCapture', 'getPerformanceCaptureState', 'stopPerformanceCapture', 'exportPerformanceCapture',
   'restoreTabs', 'openPlugin', 'closePlugin', 'stopPluginResources', 'activatePlugin', 'hidePlugins',
   'setPluginInset', 'setPluginTopInset', 'goHome', 'setShellView', 'setOrbRailExpanded', 'syncOrbState', 'getOrbState',
+  'activateRailContribution',
   'uninstallPlugin', 'setPluginEnabled', 'getPluginShortcuts', 'savePluginShortcut', 'removePluginShortcut',
   'probePluginShortcut', 'launchPluginShortcut', 'beginShortcutCapture', 'endShortcutCapture', 'setPluginLaunch',
   'getOpenWithList', 'setOpenWithDefault', 'clearOpenWithDefault', 'routeOpenWith', 'openOpenWithSystemSettings',

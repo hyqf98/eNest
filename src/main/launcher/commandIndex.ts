@@ -3,6 +3,7 @@ import type { QuickCommand, QuickCommandKind, QuickContentMatch, QuickContentTyp
 import type { PluginManifest } from '@shared/types/plugin'
 import { pluginProtocolUrl } from '@shared/constants'
 import { parsePluginCommandPattern } from '@shared/pluginCommands'
+import { resolvePluginFeatureInput } from '@shared/pluginTextInput'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { getPluginLaunchAliases, getPluginLaunchAliasRevision } from '@main/hotkey/pluginLaunchHotkeys'
 import { searchAll } from '@main/plugin/pluginBackgroundRuntime'
@@ -10,9 +11,11 @@ import { quickProviderStates } from '@main/theme/quickStateService'
 import { getCachedApps, scanApplications } from './appScanner'
 import { getAppIconDataUrl } from './appLauncher'
 import { queryQuickProviders, type QuickProviderItem } from './quickProviders'
+import { randomUUID } from 'node:crypto'
+import { getLaunchIndexRevision, initializeLaunchIndex, launchIndexEntries, onLaunchIndexChanged, resolveLaunchIndexEntry } from './launchIndex'
 import { getCatalogPluginIcon } from './catalogIcons'
 
-const DIRECTORY_LIMIT = 8_192
+const DIRECTORY_LIMIT = 65_536
 const ACTION_IDS = ['open-market', 'open-settings', 'refresh-apps'] as const
 const NATIVE_ACTIONS: QuickCommand[] = ACTION_IDS.map(action => ({
   kind: 'action', id: `action:${action}`, action, title: action, subtitle: '', aliases: [], type: 'text'
@@ -85,24 +88,27 @@ export function buildPluginCommands(): QuickCommand[] {
     const features = manifest.features ?? [], userAliases = getPluginLaunchAliases(pluginId)
     if (!features.length) {
       items.push({ kind: 'plugin', id: `plugin:${pluginId}:`, title: manifest.name,
-        subtitle: manifest.description || '', pluginId, icon, aliases: [...userAliases, manifest.name, manifest.id], type: 'text' })
+        subtitle: manifest.description || '', pluginId, icon, aliases: [...userAliases, manifest.name, manifest.id], type: 'text', buildRevision: pluginRegistry.getBuildRevision(pluginId) })
       continue
     }
     const primary = features.find(feature => feature.cmds?.some(command => typeof command === 'string' && command.trim())) ?? features[0]
     for (const feature of features) {
+      if (!feature.cmds?.length && feature.activation) continue
       const names = (feature.cmds ?? []).filter((command): command is string => typeof command === 'string' && Boolean(command.trim()))
       const base: QuickCommand = {
         kind: 'plugin', id: `plugin:${pluginId}:${feature.code}`, title: names[0] || manifest.name,
         subtitle: feature.explain ? `${manifest.name} · ${feature.explain}` : manifest.name,
-        pluginId, code: feature.code, icon, type: 'text',
-        aliases: [...names, ...(feature === primary ? [...userAliases, manifest.name, manifest.id] : [])]
+        pluginId, code: feature.code, icon, type: 'text', buildRevision: pluginRegistry.getBuildRevision(pluginId),
+        aliases: [...names, ...(feature === primary ? [...userAliases, manifest.name, manifest.id] : [])],
+        textInput: resolvePluginFeatureInput(feature)
       }
       items.push(base)
       for (const [index, command] of (feature.cmds ?? []).entries()) {
         if (typeof command !== 'object' || command === null) continue
         const content = contentDeclaration(command as ContentDeclaration)
         if (content) items.push({ ...base, id: `${base.id}:content:${index}`, title: command.label,
-          aliases: [], type: content.type, content })
+          aliases: [], type: content.type, content,
+          textInput: content.type === 'regex' || content.type === 'over' ? { type: 'text', trigger: 'none' } : undefined })
       }
     }
   }
@@ -124,28 +130,39 @@ export function buildAppCommands(): QuickCommand[] {
   return items
 }
 
-let directoryCache: { plugins: QuickCommand[]; apps: QuickCommand[]; items: QuickCommand[] } | null = null
+let directoryCache: { plugins: QuickCommand[]; apps: QuickCommand[]; indexRevision: number; items: QuickCommand[] } | null = null
+let directoryRevision = 0
 
 function nativeDirectory(): QuickCommand[] {
   const plugins = buildPluginCommands(), apps = buildAppCommands()
-  if (directoryCache?.plugins === plugins && directoryCache.apps === apps) return directoryCache.items
+  const indexRevision = getLaunchIndexRevision()
+  if (directoryCache?.plugins === plugins && directoryCache.apps === apps && directoryCache.indexRevision === indexRevision) return directoryCache.items
   // Command arrays change with registry/alias revisions or the application scan.
   // The identity store (and its secret) has the same process lifetime as this cache.
-  const items = withStateKeys([...NATIVE_ACTIONS, ...plugins, ...apps].slice(0, DIRECTORY_LIMIT))
-  directoryCache = { plugins, apps, items }
+  const indexed: QuickCommand[] = launchIndexEntries().map(({ pluginId, buildRevision, indexRevision, entry }) => ({
+    kind: 'plugin', id: `entry:${pluginId}:${entry.id}`, pluginId, entryId: entry.id, code: entry.code,
+    title: entry.title, subtitle: entry.subtitle ?? '', aliases: entry.aliases, payload: entry.payload,
+    icon: pluginProtocolUrl(pluginId, pluginRegistry.getManifest(pluginId)!.icon), type: 'text', buildRevision, indexRevision
+  }))
+  const directory = [...NATIVE_ACTIONS, ...plugins, ...apps, ...indexed]
+  if (directory.length > DIRECTORY_LIMIT) throw new Error('Launch directory exceeds the host resource budget')
+  const items = withStateKeys(directory)
+  directoryCache = { plugins, apps, indexRevision, items }
+  directoryRevision++
   return items
 }
 
 /** Identity encoding does not grant launch authority or interpret provider-private state. */
 function launchIdentity(item: QuickCommand | QuickOpenRequest): string {
   if (item.kind === 'app') return `app:${item.path}`
-  if (item.kind === 'plugin') return `plugin:${item.pluginId}:${item.code ?? ''}`
+  if (item.kind === 'plugin') return item.entryId ? JSON.stringify(['plugin-entry', item.pluginId, item.code ?? '', item.entryId]) : `plugin:${item.pluginId}:${item.code ?? ''}`
   if (item.kind === 'action') return `action:${item.action}`
   return ''
 }
 
 function withStateKeys(items: QuickCommand[]): QuickCommand[] {
-  const keys = quickProviderStates.encodeIdentities(items.map(launchIdentity))
+  const keys: string[] = []
+  for (let start = 0; start < items.length; start += 8192) keys.push(...quickProviderStates.encodeIdentities(items.slice(start, start + 8192).map(launchIdentity)))
   return items.map((item, index) => ({ ...item, stateKey: keys[index] }))
 }
 
@@ -164,36 +181,108 @@ function providerCommands(results: ProviderResult[]): QuickCommand[] {
     for (const item of result.items.slice(0, 100)) {
       const title = typeof item?.title === 'string' ? item.title.trim().slice(0, 256) : ''
       if (!title) continue
+      let payload: unknown
+      if (item.payload !== undefined) {
+        try {
+          const encoded = JSON.stringify(item.payload)
+          if (encoded === undefined || Buffer.byteLength(encoded) > 4096) continue
+          payload = JSON.parse(encoded)
+        } catch { continue }
+      }
       const id = `provider:${result.pluginId}:${result.providerId}:${String(item.id ?? title).slice(0, 256)}`
       if (seen.has(id)) continue
       seen.add(id)
       items.push({ kind: 'plugin', id, title, subtitle: String(item.subtitle ?? item.explain ?? '').slice(0, 512),
-        pluginId: result.pluginId, code: typeof item.code === 'string' ? item.code : undefined,
-        payload: item.payload, aliases: [], icon: manifest ? pluginProtocolUrl(result.pluginId, manifest.icon) : undefined,
+        pluginId: result.pluginId, code: typeof item.code === 'string' ? item.code.slice(0, 256) : undefined,
+        payload, aliases: [title], buildRevision: pluginRegistry.getBuildRevision(result.pluginId), icon: manifest ? pluginProtocolUrl(result.pluginId, manifest.icon) : undefined,
         group: 'provider', type: 'text' })
     }
   }
   return items
 }
 
-let providerSearch: AbortController | null = null
+const providerSearches = new Map<string, AbortController>()
+const providerTokens = new Map<string, { sessionId: string; command: QuickCommand; expiresAt: number }>()
+export interface QuickProviderSearchContext { sessionId: string; signal?: AbortSignal }
+export function cancelQuickProviderSession(sessionId: string): void {
+  providerSearches.get(sessionId)?.abort()
+  providerSearches.delete(sessionId)
+  for (const [token, value] of providerTokens) if (value.sessionId === sessionId) providerTokens.delete(token)
+}
+function signedProviderCommands(commands: QuickCommand[], sessionId: string): QuickCommand[] {
+  const now = Date.now()
+  for (const [token, value] of providerTokens) if (value.expiresAt <= now) providerTokens.delete(token)
+  return commands.map(command => {
+    while (providerTokens.size >= 2048) providerTokens.delete(providerTokens.keys().next().value!)
+    const providerToken = randomUUID(), signed = { ...command, providerToken }
+    providerTokens.set(providerToken, { sessionId, command: signed, expiresAt: now + 120_000 })
+    return signed
+  })
+}
+
+export async function getLaunchDirectorySnapshot(): Promise<{ revision: string; items: QuickCommand[] }> {
+  initializeLaunchIndex()
+  if (!getCachedApps()) await scanApplications(false)
+  const items = nativeDirectory()
+  return { revision: String(directoryRevision), items }
+}
+export function onLaunchDirectoryChanged(listener: () => void): () => void {
+  const index = onLaunchIndexChanged(listener), registry = pluginRegistry.onInstalledChanged(listener)
+  return () => { index(); registry() }
+}
+
+/** Resolve a trusted surface's current handle again; caller-supplied private payloads have no authority. */
+export function resolveQuickOpenCommand(request: QuickOpenRequest, sessionId = 'legacy-quick'): QuickCommand | null {
+  if (request.kind !== 'plugin' || !pluginRegistry.isEnabled(request.pluginId)) return null
+  if (request.providerToken) {
+    const value = providerTokens.get(request.providerToken)
+    return value && value.sessionId === sessionId && value.expiresAt > Date.now() && value.command.pluginId === request.pluginId
+      && value.command.buildRevision === pluginRegistry.getBuildRevision(request.pluginId) ? value.command : null
+  }
+  if (request.entryId) {
+    const entry = resolveLaunchIndexEntry(request.pluginId, request.entryId, request.buildRevision, request.indexRevision)
+    return entry ? { kind: 'plugin', id: `entry:${request.pluginId}:${entry.id}`, pluginId: request.pluginId, entryId: entry.id,
+      code: entry.code, title: entry.title, subtitle: entry.subtitle ?? '', aliases: entry.aliases, payload: entry.payload,
+      type: 'text', buildRevision: request.buildRevision, indexRevision: request.indexRevision } : null
+  }
+  if (request.buildRevision && request.buildRevision !== pluginRegistry.getBuildRevision(request.pluginId)) return null
+  const command = buildPluginCommands().find(item => item.pluginId === request.pluginId && item.code === request.code && (!request.type || item.type === request.type))
+  return command ? { ...command, ...(request.query ? { payload: request.query.slice(0, 4096) } : {}) } : null
+}
 
 /** Compatibility name for existing bridges. No query matching, ranking or recommendations run in main. */
 export async function searchQuickCommands(
-  query: string, limit = 20, kind?: QuickCommandKind, phase?: QuickSearchPhase, ids?: string[]
+  query: string, limit = 20, kind?: QuickCommandKind, phase?: QuickSearchPhase, ids?: string[], context?: QuickProviderSearchContext
 ): Promise<QuickCommand[]> {
   if (phase === 'providers') {
-    providerSearch?.abort()
-    const controller = new AbortController()
-    providerSearch = controller
+    const sessionId = context?.sessionId ?? 'legacy-quick'
+    if (!sessionId || sessionId.length > 256) return []
+    cancelQuickProviderSession(sessionId)
     const text = String(query ?? '').slice(0, 4_096)
     if (!text.trim() || kind && kind !== 'plugin') return []
-    const settled = await Promise.allSettled([queryQuickProviders(text, controller.signal), searchAll(text, 20)])
-    if (controller.signal.aborted) return []
-    const live = settled[0].status === 'fulfilled' ? settled[0].value : []
-    const background = settled[1].status === 'fulfilled' ? settled[1].value.map(result => ({ ...result, providerId: 'background' })) : []
-    const cap = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 20
-    return withStateKeys(providerCommands([...live, ...background]).slice(0, cap))
+    const controller = new AbortController()
+    providerSearches.set(sessionId, controller)
+    const abort = () => controller.abort()
+    context?.signal?.addEventListener('abort', abort, { once: true })
+    if (context?.signal?.aborted) abort()
+    try {
+      const work = Promise.allSettled([queryQuickProviders(text, controller.signal), searchAll(text, 20, controller.signal)])
+      let onAbort = () => {}
+      const cancelled = new Promise<null>(resolve => {
+        onAbort = () => resolve(null)
+        if (controller.signal.aborted) onAbort()
+        else controller.signal.addEventListener('abort', onAbort, { once: true })
+      })
+      const settled = await Promise.race([work, cancelled]).finally(() => controller.signal.removeEventListener('abort', onAbort))
+      if (!settled || controller.signal.aborted) return []
+      const live = settled[0].status === 'fulfilled' ? settled[0].value : []
+      const background = settled[1].status === 'fulfilled' ? settled[1].value.map(result => ({ ...result, providerId: 'background' })) : []
+      const cap = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 20
+      return withStateKeys(signedProviderCommands(providerCommands([...live, ...background]).slice(0, cap), sessionId))
+    } finally {
+      context?.signal?.removeEventListener('abort', abort)
+      if (providerSearches.get(sessionId) === controller) providerSearches.delete(sessionId)
+    }
   }
   if (!getCachedApps() && (!kind || kind === 'app')) await scanApplications(false)
   const directory = nativeDirectory().filter(item => !kind || item.kind === kind)

@@ -49,6 +49,8 @@ export interface ShellApi {
   setOrbRailExpanded?(expanded: boolean): Promise<void>
   syncOrbState?(state: OrbRailSyncRequest): Promise<void>
   getOrbState?(): Promise<OrbRailState>
+  /** Resolve a host-issued contribution id; unavailable in browser-only previews. */
+  activateRailContribution?(id: string): Promise<void>
   /** 卸载插件：关 Tab → 清 storage → 删文件 → 重扫；结果经 uninstall-result 事件 */
   uninstallPlugin?(pluginId: string): Promise<void>
   /** 启用/禁用已安装插件（持久化）；成功返回更新后的 summary */

@@ -11,7 +11,7 @@ import type {
   HomeEventData,
   HomeReadyPayload,
   HomeRuntimeConfig,
-  HomeSearchScope,
+  HomeSearchRequest,
   HomeSearchResult
 } from '@shared/types/home'
 import type { WorkspaceNavigationAck } from '@shared/types/workspace'
@@ -35,7 +35,7 @@ const api: EnestHomeApi = {
   getDetail(id: string): Promise<HomeDetail | null> {
     return ipcRenderer.invoke(IpcChannels.HomeGetDetail, id)
   },
-  search(request: { query: string; scope?: HomeSearchScope; limit?: number }): Promise<HomeSearchResult> {
+  search(request: HomeSearchRequest): Promise<HomeSearchResult> {
     return ipcRenderer.invoke(IpcChannels.HomeSearch, request)
   },
   refresh(request: { reason?: 'manual' | 'boot' } = {}): Promise<HomeCatalog> {

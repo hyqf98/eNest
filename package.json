@@ -1,6 +1,6 @@
 {
   "name": "enest",
-  "version": "0.2.3",
+  "version": "0.0.1",
   "description": "eNest — 插件化桌面壳子",
   "desktopName": "com.github.eNest.shell.desktop",
   "main": "./out/main/index.js",
@@ -28,6 +28,7 @@
     "postbuild": "node tools/packaging/collect-bundled-licenses.mjs",
     "associations:check": "node scripts/generate-builder-associations.mjs check",
     "audit:source": "node scripts/audit-source-boundaries.mjs",
+    "audit:contracts": "node scripts/audit-plugin-contracts.mjs",
     "test:packaging": "node --test tests/packaging/*.test.mjs"
   },
   "dependencies": {

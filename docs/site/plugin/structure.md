@@ -1,6 +1,6 @@
 # 工程与发布格式
 
-eNest 插件以浏览器前端为入口。HTML/JavaScript、Vue、React 使用同一份 manifest 和同一种发布包；从 0.2.0 起，可选的插件自有 Node 后端通过 `backend.node` 授权后运行于独立 utility process。框架与后端编译由插件工具链完成，详见[插件本机后端](backend.md)。
+eNest 插件以浏览器前端为入口。HTML/JavaScript、Vue、React 使用同一份 manifest 和同一种发布包；可选的插件自有 Node 后端通过 `backend.node` 授权后运行于独立 utility process。框架与后端编译由插件工具链完成，详见[插件本机后端](backend.md)。
 
 ```text
 plugins/notes/

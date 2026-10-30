@@ -16,7 +16,7 @@ export interface ThemeSettingsFieldDescriptor {
   /** Editing another plugin's preferences always requires a native confirmation. */
   confirmation?: boolean
 }
-export type NativeSettingsSection = 'general' | 'theme' | 'dev' | 'mcp' | `p:${string}`
+export type NativeSettingsSection = 'general' | 'theme' | 'dev' | `p:${string}`
 export interface ThemeSettingsSnapshot {
   version: 1
   revision: number

@@ -12,7 +12,7 @@ interface PanelCommandResult { ok: boolean; error?: string; state?: PanelState; 
 const api: PanelSurfaceApi = {
   getState: () => ipcRenderer.invoke(IpcChannels.PanelGetState) as Promise<PanelState | null>,
   command: command => ipcRenderer.invoke(IpcChannels.PanelCommand, command) as Promise<PanelCommandResult>,
-  dragTick: interactionId => { ipcRenderer.send(IpcChannels.PanelDragTick, interactionId) },
+  dragHeartbeat: interactionId => { ipcRenderer.send(IpcChannels.PanelDragHeartbeat, interactionId) },
   onState: listener => {
     const handle = (_event: Electron.IpcRendererEvent, state: PanelState): void => listener(state)
     ipcRenderer.on(IpcChannels.PanelState, handle)

@@ -90,7 +90,7 @@ function itemStaggerMs(index: number): number {
   return lv === 'high' ? Math.round(base * 1.2) : base
 }
 
-const chrome = createDefaultChromeApi(PART)
+const chrome = createDefaultChromeApi(PART, { isCurrent: () => !disposed })
 const rootEl = document.getElementById('orb-root')
 if (!rootEl) throw new Error('#orb-root missing')
 const root: HTMLElement = rootEl

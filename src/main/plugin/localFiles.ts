@@ -8,6 +8,7 @@ import type { LocalFileHandle, LocalFilePickOptions } from '@shared/types/local-
 import type { ClipboardFileInspection } from '@shared/types/plugin-tools'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { acquireQuickInteraction } from '@main/window/createQuickWindow'
+import { getAuxiliaryDialogParent } from '@main/window/pluginAuxiliaryWindows'
 import { acquirePluginActivity } from '@main/plugin/activityRegistry'
 import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { assertInteractive, assertInteractionEpoch, getInteractionEpoch, trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
@@ -170,7 +171,8 @@ export async function pickLocalFiles(pluginId: string, options: LocalFilePickOpt
   control.signal?.addEventListener('abort', abort, { once: true })
   try {
     assertOwner()
-    const parent = pluginHost.getContainerWindow(pluginId)
+    const container = pluginHost.getContainerWindow(pluginId)
+    const parent = getAuxiliaryDialogParent(pluginId) ?? (container?.isVisible() ? container : undefined)
     assertInteractive(pluginId)
     const nativeResult = trackNativeInteraction(parent ? dialog.showOpenDialog(parent, { properties, title: options.access === 'write' ? '选择允许插件修改的文件或目录' : '选择允许插件读取的文件或目录' }) : dialog.showOpenDialog({ properties, title: options.access === 'write' ? '选择允许插件修改的文件或目录' : '选择允许插件读取的文件或目录' }))
     const result = await waitForPicker(nativeResult, control.signal)
@@ -202,7 +204,9 @@ export async function pickLocalSaveFile(pluginId: string, options: { defaultName
   if (suggestedName !== undefined && (!suggestedName || suggestedName === '.' || suggestedName === '..')) {
     throw new Error('invalid default file name')
   }
-  const assertOwner = pickerGuard(pluginId, control), parent = pluginHost.getContainerWindow(pluginId)
+  const assertOwner = pickerGuard(pluginId, control)
+  const container = pluginHost.getContainerWindow(pluginId)
+  const parent = getAuxiliaryDialogParent(pluginId) ?? (container?.isVisible() ? container : undefined)
   assertOwner()
   const releaseWindow = pluginHost.acquireWindowInteraction(pluginId)
   const releaseActivity = acquirePluginActivity(pluginId, `picker:${randomUUID()}`, '选择文件保存位置')

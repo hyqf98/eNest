@@ -56,8 +56,18 @@ export function collectPluginFeatureIssues(features: unknown): string[] {
     else if (codes.has(feature.code)) issues.push(`${featurePath}.code 重复`)
     else codes.add(feature.code)
     if (feature.explain !== undefined && typeof feature.explain !== 'string') issues.push(`${featurePath}.explain 必须是字符串`)
-    if (!Array.isArray(feature.cmds) || feature.cmds.length === 0) {
-      issues.push(`${featurePath}.cmds 必须是非空数组`)
+    if (feature.input !== undefined && (!isRecord(feature.input) || feature.input.type !== 'text'
+      || !['prefix', 'none'].includes(String(feature.input.trigger))
+      || Object.keys(feature.input).some(key => !['type', 'trigger'].includes(key)))) {
+      issues.push(`${featurePath}.input 必须是 { type: 'text', trigger: 'prefix' | 'none' }`)
+    }
+    if (feature.activation !== undefined && (!isRecord(feature.activation)
+      || !['view', 'command'].includes(String(feature.activation.type))
+      || feature.activation.target !== undefined && (feature.activation.type !== 'view' || !['quick', 'shell'].includes(String(feature.activation.target))))) {
+      issues.push(`${featurePath}.activation 必须是 view 或 command 声明`)
+    }
+    if (!Array.isArray(feature.cmds) || feature.cmds.length === 0 && feature.activation === undefined) {
+      issues.push(`${featurePath}.cmds 必须是数组；仅显式 activation 功能可不声明触发词`)
       return
     }
     feature.cmds.forEach((command, commandIndex) => {
@@ -113,5 +123,27 @@ export function collectPluginFeatureIssues(features: unknown): string[] {
       }
     })
   })
+  return issues
+}
+
+/** Resident state must bind a plugin-owned boolean field to an executable command. */
+export function collectPluginActivationIssues(manifest: unknown): string[] {
+  if (!isRecord(manifest) || manifest.activation === undefined) return []
+  const declaration = manifest.activation
+  if (!isRecord(declaration)) return ['activation 必须是对象']
+  const issues: string[] = []
+  if (Object.keys(declaration).some(key => !['indexSync', 'resident'].includes(key))) issues.push('activation 含未知字段')
+  if (declaration.indexSync !== undefined && typeof declaration.indexSync !== 'boolean') issues.push('activation.indexSync 必须是布尔值')
+  if (declaration.resident === undefined) return issues
+  const resident = declaration.resident
+  if (!isRecord(resident) || !isNonemptyString(resident.code) || !isNonemptyString(resident.setting)) return [...issues, 'activation.resident 必须声明 code 与 setting']
+  const contributions = isRecord(manifest.contributes) ? manifest.contributes : {}
+  const fields = Array.isArray(contributions.settings) ? contributions.settings.flatMap(section => isRecord(section) && Array.isArray(section.items) ? section.items : []) : []
+  const field = fields.find(item => isRecord(item) && item.key === resident.setting)
+  if (!isRecord(field) || !['switch', 'boolean', 'bool'].includes(String(field.type))
+    || field.default !== undefined && typeof field.default !== 'boolean'
+    || ['permissionGrants', '__proto__', 'prototype', 'constructor'].includes(resident.setting)) issues.push('activation.resident.setting 必须绑定本插件已声明的布尔设置')
+  const feature = Array.isArray(manifest.features) ? manifest.features.find(item => isRecord(item) && item.code === resident.code) : undefined
+  if (!isRecord(feature) || !isRecord(feature.activation) || feature.activation.type !== 'command') issues.push('activation.resident.code 必须绑定 activation.type=command 的功能')
   return issues
 }

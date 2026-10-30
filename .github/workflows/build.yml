@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: ${{ matrix.platform }}-${{ matrix.arch }}
@@ -48,6 +52,23 @@ jobs:
 
       - name: Verify native build architecture
         run: node -e "if (process.arch !== '${{ matrix.arch }}') throw new Error('Runner architecture mismatch')"
+
+      - name: Verify package and release versions
+        shell: bash
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          node <<'NODE'
+          const pkg = require('./package.json')
+          const lock = require('./package-lock.json')
+          if (lock.version !== pkg.version || lock.packages?.['']?.version !== pkg.version) {
+            throw new Error('Package and lockfile versions differ')
+          }
+          const ref = process.env.RELEASE_REF
+          if (ref.startsWith('refs/tags/') && ref !== `refs/tags/v${pkg.version}`) {
+            throw new Error(`Release tag ${ref} does not match package version ${pkg.version}`)
+          }
+          NODE
 
       - name: Cache Electron and packaging tools
         uses: actions/cache@v4
@@ -148,6 +169,25 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+      - name: Verify release tag still points to this build
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          node <<'NODE'
+          const { execFileSync } = require('node:child_process')
+          const ref = process.env.RELEASE_REF
+          const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+          const output = execFileSync('git', ['ls-remote', '--exit-code', 'origin', ref, `${ref}^{}`], { encoding: 'utf8' })
+          const refs = new Map(output.trim().split(/\r?\n/).map(line => {
+            const [sha, name] = line.split(/\s+/)
+            return [name, sha]
+          }))
+          if ((refs.get(`${ref}^{}`) || refs.get(ref)) !== head) {
+            throw new Error('Release tag moved; refuse to publish stale build artifacts')
+          }
+          console.log(`Publishing ${ref} from ${head}`)
+          NODE
       - name: Create / update published release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

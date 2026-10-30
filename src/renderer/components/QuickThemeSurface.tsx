@@ -4,6 +4,7 @@ import type {
   QuickThemeAction,
   QuickThemeActionResult,
   QuickThemeConfig,
+  QuickThemeCatalogItem,
   QuickThemeSnapshot
 } from '@shared/types/quickTheme'
 import { readQuickStateSnapshot, readQuickStateValue } from './quickStateValidation'
@@ -22,7 +23,7 @@ export interface QuickThemeSurfaceHandle {
 }
 
 type HostMessage =
-  | { type: 'state'; state: QuickThemeSnapshot }
+  | { type: 'state'; state: Omit<QuickThemeSnapshot, 'catalog'>; catalogDelta?: { reset?: boolean; upsert: QuickThemeCatalogItem[]; remove: string[]; order?: string[] } }
   | { type: 'focus'; selectAll: boolean }
   | { type: 'action-result'; id: string; result: QuickThemeActionResult }
 
@@ -344,8 +345,22 @@ const QuickThemeFrame = forwardRef<QuickThemeSurfaceHandle, QuickThemeSurfacePro
       clearTimeout(stateTimer); stateTimer = undefined
       const state = latestRef.current.snapshot
       if (disposed || !port || state === published) return
+      const previous = published
+      const { catalog, ...smallState } = state
+      let catalogDelta: Extract<HostMessage, { type: 'state' }>['catalogDelta']
+      if (!previous || previous.catalog !== catalog) {
+        const known = new Map(previous?.catalog.map(item => [item.id, item]) ?? [])
+        const ids = new Set(catalog.map(item => item.id))
+        const upsert = catalog.filter(item => {
+          const old = known.get(item.id)
+          return old !== item && (!old || JSON.stringify(old) !== JSON.stringify(item))
+        })
+        const remove = [...known.keys()].filter(id => !ids.has(id))
+        const changedOrder = !previous || previous.catalog.length !== catalog.length || catalog.some((item, i) => item.id !== previous.catalog[i].id)
+        catalogDelta = { reset: !previous, upsert, remove, ...(changedOrder ? { order: catalog.map(item => item.id) } : {}) }
+      }
       published = state
-      send({ type: 'state', state })
+      send({ type: 'state', state: smallState, ...(catalogDelta ? { catalogDelta } : {}) })
     }
     const bridge: ThemeBridge = {
       publishState(force = false) {

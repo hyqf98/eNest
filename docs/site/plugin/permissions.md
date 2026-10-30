@@ -18,9 +18,9 @@
 
 `storage.assets/files/flush/commit`、`background.call`、后台的私有文档/blob、普通 `auxiliary` 窗口和 `files.stream` 私有输出不新增权限枚举。它们仍绑定本插件、当前运行代次、入口及配额；后台声明的原生事件、捕获或置顶行为另受对应敏感权限控制，不能用基础容器绕过授权。私有输出导出仍须原生保存确认，资源 ID 和兼容 `path` 字段都不授予裸路径访问。
 
-0.2.2 不再提供 AI 配置、LAN、数据库、中间件和 SSH 专用宿主 API。它们由明确声明并获得 `backend.node` 授权的插件后端实现；旧的受限业务授权不能升级为完整 Node 信任。
+宿主不提供 AI 配置、LAN、数据库、中间件和 SSH 专用 API。它们由明确声明并获得 `backend.node` 授权的插件后端实现；旧的受限业务授权不能升级为完整 Node 信任。
 
-0.2.3 进一步把剪贴板历史迁至 clipboard 插件沙箱后台，选区、录制与贴图迁至插件仓 `@enest/native-surfaces`。`clipboard.history`、`screen.record`、`pin.create` 是保留的敏感权限名，不表示宿主仍提供同名历史 CRUD、录制会话或贴图业务 API。
+剪贴板历史由 clipboard 插件沙箱后台管理，选区、录制与贴图由插件仓 `@enest/native-surfaces` 提供。`clipboard.history`、`screen.record`、`pin.create` 是保留的敏感权限名，不表示宿主仍提供同名历史 CRUD、录制会话或贴图业务 API。
 
 新插件的 `permissions` 只需列出敏感项，纯离线工具可以省略该字段或使用空数组。已有包里声明上述基础能力仍可加载，但这些声明不会产生授权开关；旧版本为基础能力保存的拒绝值不再生效。插件启停仍由用户控制，基础能力不会赋予 Node、任意文件或网络权限。
 
@@ -94,7 +94,7 @@ Linux 当前仅接受已识别的 `gnome_libsecret`、`kwallet`、`kwallet5`、`
 
 主题读取、语言读取、身份读取和纯事件订阅同样无需额外权限。普通声明式入口直接可用；动态 Quick provider 会读取全局搜索文本，因此保留 `contribute` 授权，两类贡献点都由宿主绑定来源。官方插件可通过通用后端控制请求已声明的细分授权。壳不解释 SQL、SSH 或中间件 action；对本机后端的完整 Node 信任仍必须单独明确声明。
 
-DSH 从 0.0.1 起要求 eNest `>=0.2.1`，业务实现迁入插件自己的后端，通过通用后端协议运行；旧 `dsh.connect`、`dsh.chat`、`dsh.admin` 专属权限与调用通道已移除。旧包须升级配套版本，旧授权不能转换成或隐含 `backend.node`。升级后新增的完整 Node 信任仍须用户明确授权，不可静默兼容放行。
+DSH 0.0.1 要求 eNest `>=0.0.1`，业务实现在插件自己的后端，通过通用后端协议运行；旧 `dsh.connect`、`dsh.chat`、`dsh.admin` 专属权限与调用通道已移除。旧开发包须更新到配套版本，旧授权不能转换成或隐含 `backend.node`。新增的完整 Node 信任仍须用户明确授权，不可静默兼容放行。
 
 ### 剪贴板观察与沙箱后台
 
@@ -145,9 +145,9 @@ const destination = await enest.localFiles.pickSave({ defaultName: 'export.csv' 
 
 浏览器原生敏感权限、设备权限、下载、任意导航及直接外联默认拒绝。远程 HTTP 请求用 `enest.net.fetch`，WebSocket 用 `enest.net.websocket`。只有本插件明确配置的开发 origin（含同源 HMR）和宿主签发的实际连接桥可以直连。其它 localhost 端口和其它插件资源不获放行。
 
-**后端边界**：从 0.2.0 起，普通插件可以声明 `backend.entry` 并在获得 `backend.node` 授权后运行独立 Node utility process。页面仍保持上述隔离，但 Node 后端具有完整本机执行能力，细分的前端文件/网络权限不会构成它的操作系统沙箱。宿主验证包内入口、授权和实例归属，并在撤权时终止后端。
+**后端边界**：普通插件可以声明 `backend.entry` 并在获得 `backend.node` 授权后运行独立 Node utility process。页面仍保持上述隔离，但 Node 后端具有完整本机执行能力，细分的前端文件/网络权限不会构成它的操作系统沙箱。宿主验证包内入口、授权和实例归属，并在撤权时终止后端。
 
-0.2.1 的 `protocolVersion: 1` 控制协议只提供当前实例的活动租约、已验证后代进程登记、回环子页面端点、代理解析和有界关闭，不提供任意宿主 IPC。资源绑定 `pluginId + generation + wcId`；子进程核验真实父子链与启动时间，端点限定显式 HTTP 回环端口，控制请求及活动/进程/端点数量均有预算。它们用于占用统计、正常空闲休眠协调和回收，不减少 `backend.node` 的完整本机信任。具体消息、参数和预算见[本机后端](backend.md)。
+`protocolVersion: 1` 控制协议只提供当前实例的活动租约、已验证后代进程登记、回环子页面端点、代理解析和有界关闭，不提供任意宿主 IPC。资源绑定 `pluginId + generation + wcId`；子进程核验真实父子链与启动时间，端点限定显式 HTTP 回环端口，控制请求及活动/进程/端点数量均有预算。它们用于占用统计、正常空闲休眠协调和回收，不减少 `backend.node` 的完整本机信任。具体消息、参数和预算见[本机后端](backend.md)。
 
 任何声明后端的插件都可携带私有 `runtime/` 附件；不再为 DSH ID 单独豁免。附件与 `backend/` 一样不由页面资源协议提供，且禁止符号链接及非普通文件。宿主不会因为附件存在而自动执行它；插件后端负责自己的运行时业务，仍受当前实例关闭/撤权回收流程管理。
 

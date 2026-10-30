@@ -11,7 +11,7 @@
  */
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { posix, win32 } from 'node:path'
+import { isAbsoluteLocalUserPath, resolveLocalUserPath } from '@main/paths/userPath'
 import type { PluginPathBase, PluginPathResolveInput, PluginPathResolveResult } from '@shared/types/plugin'
 import { pluginDataDir } from './pluginPrivatePaths'
 
@@ -21,58 +21,24 @@ function baseDir(base: PluginPathBase, pluginId: string): string {
   return homedir()
 }
 
-function fullyQualifiedWindowsPath(value: string): boolean {
-  return /^[a-z]:[\\/]/i.test(value) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+(?:[\\/]|$)/.test(value)
-}
-
 /**
  * 解析插件填写的本地路径。
  * 失败时不抛错，返回 `{ path: null, error }`，让插件可以直接把 error 展示给用户。
  */
 export function resolvePluginPath(pluginId: string, input: PluginPathResolveInput): PluginPathResolveResult {
   const base = baseDir(input?.base ?? 'home', pluginId)
-  const raw = typeof input?.input === 'string' ? input.input.trim() : ''
+  const raw = typeof input?.input === 'string' ? input.input : ''
   const fail = (error: string): PluginPathResolveResult => ({ path: null, absolute: false, base, exists: false, error })
-
-  if (!raw) return fail('路径不能为空')
-  if (raw.includes('\0')) return fail('路径不能包含空字符')
-
-  const windows = process.platform === 'win32'
-  const paths = windows ? win32 : posix
-
-  // 设备命名空间（\\?\ 与 //?/）与其它用户的 ~user 一律拒绝：它们不是用户能直接理解的目录。
-  if (/^[\\/]{2}[?.][\\/]/.test(raw)) return fail('不支持设备命名空间路径')
-  if (raw.startsWith('~') && raw !== '~' && !raw.startsWith('~/') && !(windows && raw.startsWith('~\\'))) {
-    return fail('仅支持当前用户的 ~ 或 ~/ 路径')
-  }
-  // 网址 / SSH 远端：这类输入不属于本地路径。
-  const withoutTilde = raw.startsWith('~') ? raw.slice(1) : raw
-  if (!raw.startsWith('~') && (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) || /^[^/\\\s]+@[^/\\\s]+:/.test(raw))) {
-    return fail('这里需要本地路径，不能使用网址或 SSH 远端路径')
-  }
-  if (!windows && /^\\\\/.test(raw)) return fail('当前系统不支持 Windows UNC 路径')
-  if (windows && /^[\\/]{2}/.test(raw) && !fullyQualifiedWindowsPath(raw)) return fail('UNC 路径需要服务器和共享目录')
-
-  const absolute = raw.startsWith('~')
-    || (windows ? fullyQualifiedWindowsPath(raw) : posix.isAbsolute(raw))
-  if (windows && /^[a-z]:/i.test(raw) && !/^[a-z]:[\\/]/i.test(raw)) {
-    return fail('请使用包含盘符的绝对路径，例如 C:\\目录')
-  }
-  if (windows && !absolute && /^[a-z]:/i.test(raw)) return fail('请使用包含盘符的绝对路径，例如 C:\\目录')
-  if (!windows && /^[a-z]:/i.test(withoutTilde)) return fail('当前系统不支持 Windows 盘符路径')
+  if (input?.base !== undefined && !['home', 'data', 'cwd'].includes(input.base)) return fail('无效的路径基准目录')
 
   let resolved: string
   try {
-    if (raw.startsWith('~')) {
-      const home = homedir()
-      if (!home || home.includes('\0')) return fail('当前用户目录不可用')
-      resolved = paths.resolve(paths.join(home, raw.slice(2)))
-    } else resolved = paths.resolve(base, raw)
-  } catch {
-    return fail('路径无法解析')
+    resolved = resolveLocalUserPath(raw, { baseDir: base })
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : '路径无法解析')
   }
 
   let exists = false
   try { exists = existsSync(resolved) } catch { exists = false }
-  return { path: resolved, absolute, base, exists }
+  return { path: resolved, absolute: raw.startsWith('~') || isAbsoluteLocalUserPath(raw), base, exists }
 }

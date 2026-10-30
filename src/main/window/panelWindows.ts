@@ -55,7 +55,9 @@ export interface PanelWindowHost {
   /** 窗口几何变化（用户拖动/缩放面板窗口）。 */
   geometryChanged(id: string, bounds: PanelBounds): void
   /** 窗口被用户关闭（Cmd+W / 关闭按钮）。 */
-  closeRequested(id: string): void
+  closeRequested(id: string, surfaceUnavailable?: boolean): void
+  /** Native focus loss cancels only gestures; resident widgets remain visible and running. */
+  interactionCancelled(id: string): void
 }
 
 const records = new Map<string, PanelWindowRecord>()
@@ -319,7 +321,7 @@ export async function createPanelWindow(options: CreatePanelOptions): Promise<Pa
   const chrome = new WebContentsView({
     webPreferences: {
       preload: resolvePreload('panelPreload.js'), partition: SHELL_PARTITION,
-      contextIsolation: true, nodeIntegration: false, sandbox: true
+      contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false
     }
   })
   chrome.setBackgroundColor('#00000000')
@@ -362,6 +364,7 @@ export async function createPanelWindow(options: CreatePanelOptions): Promise<Pa
     if (!record.closing) host?.geometryChanged(record.id, geometry())
   }
   const onMove = (): void => { if (!record.closing) host?.geometryChanged(record.id, geometry()) }
+  const onInactive = (): void => { if (!record.closing) host?.interactionCancelled(record.id) }
   const onClose = (event: Electron.Event): void => {
     if (record.closing) return
     event.preventDefault()
@@ -373,15 +376,19 @@ export async function createPanelWindow(options: CreatePanelOptions): Promise<Pa
     if (!record.chrome.webContents.isDestroyed()) record.chrome.webContents.close({ waitForBeforeUnload: false })
     // 异常兜底：窗口被 destroy()/渲染进程崩溃绕过 close 事件时，插件运行时仍挂在
     // 这个已消失的父级上。正常路径（record.closing = true）由 closePanel 释放，这里不重复。
-    if (!record.closing) host?.closeRequested(record.id)
+    if (!record.closing) host?.closeRequested(record.id, true)
   }
   win.on('resize', onResize)
   win.on('move', onMove)
+  win.on('blur', onInactive)
+  win.on('hide', onInactive)
   win.on('close', onClose)
   win.once('closed', onClosed)
   record.removeListeners = () => {
     win.removeListener('resize', onResize)
     win.removeListener('move', onMove)
+    win.removeListener('blur', onInactive)
+    win.removeListener('hide', onInactive)
     win.removeListener('close', onClose)
   }
   const releaseNative = acquireNativeListeners()
@@ -390,7 +397,7 @@ export async function createPanelWindow(options: CreatePanelOptions): Promise<Pa
 
   chrome.webContents.once('render-process-gone', () => {
     logWarn('panel', `chrome renderer gone: ${options.id}`)
-    host?.closeRequested(record.id)
+    host?.closeRequested(record.id, true)
   })
 
   try {

@@ -310,11 +310,81 @@
                 }
               ]
             },
-            "minItems": 1,
+            "minItems": 0,
             "description": "文本触发关键词、regex/over 文本内容匹配、img/files 粘贴上下文指令；maxLength 不得小于 minLength，正则语法由安装器补充校验"
+          },
+          "input": {
+            "type": "object",
+            "required": [
+              "type",
+              "trigger"
+            ],
+            "properties": {
+              "type": {
+                "const": "text"
+              },
+              "trigger": {
+                "enum": [
+                  "prefix",
+                  "none"
+                ],
+                "description": "prefix 消费精确触发词后的空白与正文；none 保留完整输入。省略 input 时，同功能无 exclude 的 over 声明兼容启用 prefix；普通名称、regex、媒体指令不隐式启用。"
+              }
+            },
+            "additionalProperties": false
+          },
+          "activation": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "view"
+                  },
+                  "target": {
+                    "enum": [
+                      "quick",
+                      "shell"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "command"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "activation"
+              ]
+            },
+            "else": {
+              "properties": {
+                "cmds": {
+                  "minItems": 1
+                }
+              }
+            }
+          }
+        ]
       }
     },
     "window": {
@@ -588,7 +658,7 @@
         },
         "homeCards": {
           "type": "array",
-          "description": "首页卡片：市场页（首页）「插件扩展」区块",
+          "description": "首页卡片：已安装且启用的来源发布到 Workspace 目录；点击时由宿主按 pluginId/cardId 解析当前声明的 openCode。",
           "items": {
             "type": "object",
             "required": [
@@ -626,7 +696,7 @@
         },
         "railEntries": {
           "type": "array",
-          "description": "左侧轨道入口（orb 模式）：数据层已下发，渲染消费见工程文档交接说明",
+          "description": "导航轨道入口：宿主发布来源绑定的不透明入口 ID，主题提交该快照 ID，由宿主解析当前来源与 openCode。",
           "items": {
             "type": "object",
             "required": [
@@ -818,6 +888,43 @@
         }
       },
       "additionalProperties": false
+    },
+    "activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "indexSync": {
+          "type": "boolean"
+        },
+        "resident": {
+          "type": "object",
+          "required": [
+            "setting",
+            "code"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "setting": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+              "maxLength": 128,
+              "not": {
+                "enum": [
+                  "permissionGrants",
+                  "__proto__",
+                  "prototype",
+                  "constructor"
+                ]
+              }
+            },
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        }
+      }
     }
   },
   "additionalProperties": false,

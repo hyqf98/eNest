@@ -1,6 +1,6 @@
 # Theme Chrome V1
 
-eNest 0.2.1 adds optional theme-owned renderers for classic tabs, the floating rail and the settings dock. A renderer supplies HTML/CSS/JavaScript; the host owns native windows, content bounds, focus, modal/startup gates, process lifetime and permission checks.
+eNest supports optional theme-owned renderers for classic tabs, the floating rail and the settings dock. A renderer supplies HTML/CSS/JavaScript; the host owns native windows, content bounds, focus, modal/startup gates, process lifetime and permission checks.
 
 Declare entries in a V2 theme pack:
 
@@ -35,7 +35,7 @@ window.addEventListener('pagehide', unsubscribe, { once: true });
 
 `ready()` acknowledges a usable first frame. The host keeps the default rail/dock during preparation and restores defaults on crash, load failure or a five-second readiness timeout. Classic tabs retain an inline fallback. Native traffic controls and a narrow move region cannot be covered by the custom classic surface.
 
-Snapshots include surface (`classic`, `rail`, `dock`), view, tab style, active tab, tab title/glyph/color/badge/lazy/crashed flags, animation level, theme color tokens and registered rail contribution IDs. Custom renderers do **not** receive account/profile data, settings, credentials, command lines, filesystem paths or arbitrary plugin resource URLs. Optional `profile` and full `theme.appearance` in the TypeScript contract are internal compatibility fields for the trusted built-in adapter, not custom grants.
+Snapshots include surface (`classic`, `rail`, `dock`), view, tab style, active tab, tab title/glyph/color/badge/lazy/crashed flags, animation level, theme color tokens and registered rail contribution IDs. `contribEntries[].id` is an opaque host-issued key bound to the declaring plugin, not the local `contributes.railEntries[].id` in its manifest. Different plugins may reuse the same local ID. Use the ID from the current snapshot unchanged; do not construct, parse or persist it. Ordinary tab IDs keep their existing meaning. Custom renderers do **not** receive account/profile data, settings, credentials, command lines, filesystem paths or arbitrary plugin resource URLs. Optional `profile` and full `theme.appearance` in the TypeScript contract are internal compatibility fields for the trusted built-in adapter, not custom grants.
 
 ## Actions
 
@@ -50,8 +50,8 @@ await api.dispatch({ type: 'contribution', id: contributionId });
 await api.dispatch({ type: 'expand', expanded: true });
 ```
 
-All navigation/lifecycle actions require a recent native click or Enter/Space gesture on the visible, focused surface; synthetic DOM clicks do not grant authority. Tab IDs must belong to current shell tabs. Contribution IDs resolve through the host registry, never a caller-supplied plugin ID or feature code. `expand` is a bounded rail-only geometry hint; `dock` can only open settings. The host limits actions to 60 per second. Custom drag visuals can dispatch a validated reorder/detach action, but the private `enestWindows` drag bridge is not exposed.
+All navigation/lifecycle actions require a recent native click or Enter/Space gesture on the visible, focused surface; synthetic DOM clicks do not grant authority. Tab IDs must belong to current shell tabs. Contribution actions submit only the snapshot ID: the host rereads the installed, enabled source's current declaration and obtains its feature code internally, never from a caller-supplied plugin ID or code. Both default and custom chrome use that resolver. Pending opens recheck the originating surface, catalog revision, source build and any existing runtime generation before native presentation; a retired view or changed contribution cancels the pending launch. Cancellation does not undo an action that has already committed. `expand` is a bounded rail-only geometry hint; `dock` can only open settings. The host limits custom actions to 60 per second. Custom drag visuals can dispatch a validated reorder/detach action, but the private `enestWindows` drag bridge is not exposed.
 
-The default visual code lives in `src/renderer/themes/default/chrome/`. Its classic implementation stays in the existing shell renderer to avoid creating a process merely to draw tabs; its rail/dock uses the same snapshot/action shape through a trusted adapter. The source-built default package declares these implementations. This does not install a second default theme plugin or grant third-party code trusted-shell access.
+The default visual code lives in `src/renderer/themes/default/chrome/`. Its classic implementation stays in the existing shell renderer to avoid creating a process merely to draw tabs; its rail/dock uses the same snapshot/action shape through a trusted adapter. The adapter's narrow native contribution command is available only to trusted shell/orb surfaces, not ordinary plugins, Quick, the settings dock or third-party chrome. Missing native support fails explicitly rather than reopening a renderer-selected target. The source-built default package declares these implementations. This does not install a second default theme plugin or grant third-party code trusted-shell access.
 
 For plugin-owned settings pages and small-window/desktop content, use the existing private settings, `contributes.settings` page entry, launch-mode and UI contracts. Global security, installer, proxy, updates, account secrets and performance diagnostics remain host-owned; a theme never receives a writable copy of all settings.

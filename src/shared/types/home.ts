@@ -43,6 +43,15 @@ export type HomePageRegistrationResult =
   | { ok: true; contribution: HomePageContribution }
   | { ok: false; error: string }
 
+/** Public presentation only; the host resolves the current declaration's launch code. */
+export interface HomeCatalogCard {
+  id: string
+  title: string
+  glyph?: string
+  color?: string
+  explain?: string
+}
+
 export interface HomeCatalogItem {
   pluginId: string
   name: string
@@ -61,6 +70,8 @@ export interface HomeCatalogItem {
   packageSize?: number
   installs?: string
   latestVersion?: string
+  /** At most 16 validated cards from this installed, enabled plugin. */
+  homeCards?: HomeCatalogCard[]
 }
 
 export interface HomeCatalog {
@@ -70,6 +81,8 @@ export interface HomeCatalog {
 
 export interface HomeSearchEntry {
   handle: string
+  stateKey?: string
+  provider?: boolean
   kind?: 'app' | 'plugin' | 'market' | 'action'
   title: string
   subtitle?: string
@@ -84,6 +97,7 @@ export interface HomeSearchEntry {
   aliases?: string[]
   action?: import('./quick').QuickActionId
   content?: import('./quick').QuickContentMatch
+  textInput?: import('./plugin').PluginFeatureInput
 }
 
 export interface HomeDetail {
@@ -112,6 +126,18 @@ export interface HomeDetail {
 export interface HomeSearchResult {
   items: HomeSearchEntry[]
   revision: number
+  directoryRevision?: string
+  unchanged?: boolean
+  queryRevision?: number
+}
+
+export interface HomeSearchRequest {
+  query: string
+  scope?: HomeSearchScope
+  limit?: number
+  phase?: 'catalog' | 'providers'
+  knownRevision?: string
+  queryRevision?: number
 }
 
 export type HomeSearchScope = 'all' | 'installed' | 'market' | 'action' | 'app' | 'plugin'
@@ -124,7 +150,7 @@ export interface EnestHomeApi {
   getConfig(): Promise<HomeRuntimeConfig>
   getCatalog(): Promise<HomeCatalog>
   getDetail(id: string): Promise<HomeDetail | null>
-  search(request: { query: string; scope?: HomeSearchScope; limit?: number }): Promise<HomeSearchResult>
+  search(request: HomeSearchRequest): Promise<HomeSearchResult>
   refresh(request?: { reason?: 'manual' | 'boot' }): Promise<HomeCatalog>
   action(request: HomeAction): Promise<HomeActionResponse>
   onAppearance(listener: (payload: HomeAppearanceSnapshot) => void): () => void
@@ -141,8 +167,12 @@ export interface HomeRuntimeConfig {
 
 export type HomeAction =
   | { type: 'navigate'; route: WorkspaceRoute }
-  | { type: 'activateSearchResult'; handle: string; query?: string }
+  | { type: 'activateSearchResult'; handle: string; query?: string; input?: import('./quick').QuickInputSelection }
+  | { type: 'searchInput'; operation: 'read-clipboard' | 'list' | 'clear'; id?: string }
+  | { type: 'searchState'; operation: 'read' | 'write'; expectedRevision?: number; value?: unknown }
+  | { type: 'cancelSearch'; queryRevision: number }
   | { type: 'openPlugin'; pluginId: string }
+  | { type: 'openHomeCard'; pluginId: string; cardId: string }
   | { type: 'openMarket'; pluginId?: string }
   | { type: 'openSettings' }
   | { type: 'refreshApps' }
@@ -156,6 +186,9 @@ export type HomeAction =
 export interface HomeActionResponse {
   ok: boolean
   error?: string
+  input?: import('./quick').QuickImageContext[]
+  state?: import('./quickTheme').QuickStateSnapshot
+  opened?: { stateKey: string; at: number }
 }
 
 export interface HomeReadyPayload {
@@ -169,6 +202,7 @@ export type EnestWorkspaceApi = EnestHomeApi
 
 export type HomeCommand =
   | { type: 'settingsChanged' }
+  | { type: 'searchDirectoryChanged' }
   | { type: 'navigate'; route: WorkspaceRoute; requestId: string; generation: number; revision: number }
   | { type: 'visibility'; visible: boolean; revision: number }
   | { type: 'refresh'; reason: 'manual' | 'boot'; revision: number }

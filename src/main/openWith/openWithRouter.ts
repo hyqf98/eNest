@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { app } from 'electron'
 import { launchPlugin } from '@main/launcher/pluginLauncher'
 import { logInfo, logWarn } from '@main/logs/logService'
+import { isAbsoluteLocalUserPath, resolveLocalUserPath } from '@main/paths/userPath'
 import { grantLocalFile } from '@main/plugin/localFiles'
 import { getShellWebContents, sendShellEvent } from '@main/window/createShellWindow'
 import { openNativeModal } from '@main/window/modalSurface'
@@ -220,14 +221,14 @@ function schemeOf(url: string): string | null {
 }
 
 function normalizeFileArg(raw: string): string | null {
-  if (typeof raw !== 'string' || !raw.trim()) return null
-  if (!/^[a-zA-Z]:[\\/]|^\//.test(raw)) return null
+  if (typeof raw !== 'string' || !raw.trim() || !isAbsoluteLocalUserPath(raw)) return null
   try {
-    if (!existsSync(raw) || !statSync(raw).isFile()) return null
+    const path = resolveLocalUserPath(raw, { baseDir: process.cwd() })
+    if (!existsSync(path) || !statSync(path).isFile()) return null
+    return path
   } catch {
     return null
   }
-  return raw
 }
 
 function safeFileUrlToPath(url: string): string | null {

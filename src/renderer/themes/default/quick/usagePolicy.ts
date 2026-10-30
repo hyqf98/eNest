@@ -1,5 +1,5 @@
 import { normalizeSearchText } from '@shared/search'
-import type { QuickThemeCatalogItem, QuickThemeOpenedReceipt } from '@shared/types/quickTheme'
+import type { QuickThemeOpenedReceipt } from '@shared/types/quickTheme'
 
 export interface DefaultQuickUsage {
   version: 1
@@ -86,12 +86,27 @@ export function recordDefaultQuickOpened(current: DefaultQuickUsage, opened: Def
     : current.queryPreferences }
 }
 
-export function projectDefaultQuickUsage<T extends QuickThemeCatalogItem>(catalog: T[], usage: DefaultQuickUsage, query: string) {
-  const recent = new Map(usage.recent.map(entry => [entry.stateKey, entry]))
+export function defaultQuickPreferredKey(usage: DefaultQuickUsage, query: string): string | undefined {
   const normalized = normalizedQuery(query)
-  const preferred = normalized ? usage.queryPreferences.find(entry => entry.query === normalized)?.stateKey : undefined
+  return normalized ? usage.queryPreferences.find(entry => entry.query === normalized)?.stateKey : undefined
+}
+
+type UsageProjection<T> = T & { lastUsedTs?: number; useCount?: number; preferred: boolean }
+const projections = new WeakMap<DefaultQuickUsage, {
+  recent: Map<string, DefaultQuickUsage['recent'][number]>
+  items: WeakMap<object, { preferred?: string; item: object }>
+}>()
+
+export function projectDefaultQuickUsage<T extends { stateKey?: string }>(catalog: T[], usage: DefaultQuickUsage, query: string): Array<UsageProjection<T>> {
+  let cache = projections.get(usage)
+  if (!cache) { cache = { recent: new Map(usage.recent.map(entry => [entry.stateKey, entry])), items: new WeakMap() }; projections.set(usage, cache) }
+  const preferred = defaultQuickPreferredKey(usage, query)
   return catalog.map(item => {
-    const used = item.stateKey ? recent.get(item.stateKey) : undefined
-    return { ...item, lastUsedTs: used?.ts, useCount: used?.count, preferred: Boolean(item.stateKey && item.stateKey === preferred) }
+    const previous = cache.items.get(item)
+    if (previous && previous.preferred === preferred) return previous.item as UsageProjection<T>
+    const used = item.stateKey ? cache.recent.get(item.stateKey) : undefined
+    const projected = { ...item, lastUsedTs: used?.ts, useCount: used?.count, preferred: Boolean(item.stateKey && item.stateKey === preferred) }
+    cache.items.set(item, { preferred, item: projected })
+    return projected
   })
 }

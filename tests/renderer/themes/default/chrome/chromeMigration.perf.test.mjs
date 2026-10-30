@@ -106,7 +106,7 @@ test('native orb entry resolves theme-owned JS/CSS and keeps restricted chrome a
   assert.match(orb, /chrome\.onSnapshot\(/)
   assert.match(orb, /chrome\.ready\(/)
   const adapter = read('src/renderer/themes/default/chrome/api.ts')
-  for (const action of ['getOrbState', 'onOrbEvent', 'setOrbRailExpanded', 'goHome', 'activatePlugin', 'closePlugin', 'openPlugin', 'setShellView']) {
+  for (const action of ['getOrbState', 'onOrbEvent', 'setOrbRailExpanded', 'goHome', 'activatePlugin', 'closePlugin', 'activateRailContribution', 'setShellView']) {
     assert.ok(adapter.includes(action), action)
   }
   assert.match(orb, /bindPluginDragSource/)
@@ -131,11 +131,12 @@ test('restricted chrome bridge takes priority without inspecting privileged buil
   assert.deepEqual(actions, ['home', 'ready', 'off'])
 })
 
+const contributionId = `rail:${Buffer.from(JSON.stringify(['p1', 'entry'])).toString('base64url')}`
 const legacyState = (overrides = {}) => ({ view: 'home', tabStyle: 'orb', activeTabId: null, animationLevel: 'low',
   theme: { mode: 'dark', tokens: { '--ink': '#fff' }, appearance: { font: { family: 'Example' } } },
   profile: { name: 'Account', avatar: 'data:image/png;base64,AA' },
   tabs: [{ id: 't1', pluginId: 'p1', title: 'One', glyph: '1', color: '#123', lazy: true }],
-  contribEntries: [{ id: 'entry', pluginId: 'p1', title: 'Entry', glyph: 'E', color: '#123', openCode: 'new' }], ...overrides })
+  contribEntries: [{ id: contributionId, pluginId: 'p1', title: 'Entry', glyph: 'E', color: '#123' }], ...overrides })
 
 test('trusted adapter preserves appearance/profile and never replaces a newer push with a stale initial read', async () => {
   let listener, resolveRead, unsubscribed = 0
@@ -161,26 +162,43 @@ test('trusted adapter preserves appearance/profile and never replaces a newer pu
   assert.equal(listener, undefined)
 })
 
-test('trusted adapter dispatches same actions and resolves contributions only from current host state', async () => {
+test('trusted adapter forwards contribution ids to the narrow native resolver instead of choosing a plugin/code', async () => {
   const calls = []
   let state = legacyState()
   const shell = { getOrbState: async () => state, goHome: async () => calls.push(['home']),
     setShellView: async view => calls.push(['view', view]), activatePlugin: async id => calls.push(['activate', id]),
     closePlugin: async id => calls.push(['close', id]), setOrbRailExpanded: async expanded => calls.push(['expand', expanded]),
-    openPlugin: async (id, enter) => calls.push(['open', id, enter]) }
+    openPlugin: async () => { throw Error('Renderer must not choose the rail launch target') },
+    activateRailContribution: async (...args) => {
+      assert.equal(args.length, 1)
+      if (!state.contribEntries.some(entry => entry.id === args[0])) throw Error('Unknown or retired rail contribution')
+      calls.push(['contribution', args[0]])
+    } }
   const windows = { command: async command => { calls.push(['windows', command]); return { ok: true } } }
   const api = loadApi({ enestShell: shell, enestWindows: windows }).createDefaultChromeApi('rail')
   for (const action of [{ type: 'home' }, { type: 'settings' }, { type: 'activate', tabId: 't1' },
-    { type: 'close', tabId: 't1' }, { type: 'expand', expanded: true }, { type: 'contribution', id: 'entry' },
+    { type: 'close', tabId: 't1' }, { type: 'expand', expanded: true }, { type: 'contribution', id: contributionId, pluginId: 'other', code: 'untrusted' },
     { type: 'detach', tabId: 't1' }, { type: 'reorder', tabId: 't1', index: 0 }]) await api.dispatch(action)
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [['home'], ['view', 'settings'], ['activate', 't1'], ['close', 't1'], ['expand', true],
-    ['open', 'p1', { code: 'new' }], ['windows', { action: 'detach', pluginId: 'p1' }],
+    ['contribution', contributionId], ['windows', { action: 'detach', pluginId: 'p1' }],
     ['windows', { action: 'dock', pluginId: 'p1', target: 'shell', index: 0 }]])
   state = legacyState({ contribEntries: [] })
-  await assert.rejects(api.dispatch({ type: 'contribution', id: 'entry', pluginId: 'other', code: 'untrusted' }), /Unknown chrome contribution/)
+  await assert.rejects(api.dispatch({ type: 'contribution', id: contributionId, pluginId: 'other', code: 'untrusted' }), /Unknown or retired rail contribution/)
   await assert.rejects(api.dispatch({ type: 'detach', tabId: 'other' }), /Unknown chrome tab/)
   await assert.rejects(api.dispatch({ type: 'reorder', tabId: 't1', index: 99 }), /Invalid chrome tab index/)
   assert.equal(calls.length, 8)
+})
+
+test('retired adapters and missing native rail support fail closed without generic openPlugin fallback', async () => {
+  let current = true, calls = 0
+  const api = loadApi({ enestShell: { activateRailContribution: async () => { calls++ } } })
+    .createDefaultChromeApi('rail', { isCurrent: () => current })
+  current = false
+  await assert.rejects(api.dispatch({ type: 'contribution', id: contributionId }), /Chrome adapter retired/)
+  assert.equal(calls, 0)
+  const unavailable = loadApi({ enestShell: { openPlugin: () => { calls++ } } }).createDefaultChromeApi('rail')
+  await assert.rejects(unavailable.dispatch({ type: 'contribution', id: contributionId }), /Native rail contribution bridge unavailable/)
+  assert.equal(calls, 0)
 })
 
 test('inline classic adapter retains store action and notification behavior without shell IPC duplication', async () => {

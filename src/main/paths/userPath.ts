@@ -12,6 +12,12 @@ function fullyQualifiedWindowsPath(value: string): boolean {
   return /^[a-z]:[\\/]/i.test(value) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+(?:[\\/]|$)/.test(value)
 }
 
+/** Unlike win32.isAbsolute, a root-relative path still needs an explicit drive. */
+export function isAbsoluteLocalUserPath(value: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (typeof value !== 'string' || value.includes('\0') || /^[\\/]{2}[?.][\\/]/.test(value)) return false
+  return platform === 'win32' ? fullyQualifiedWindowsPath(value) : posix.isAbsolute(value)
+}
+
 /**
  * Resolve a local, user-entered filesystem path, without invoking a shell.
  * Only ~ and ~/ expand to the current user's home (~\\ also works on Windows).
@@ -24,7 +30,7 @@ export function resolveLocalUserPath(input: string, options: LocalUserPathOption
   if (input.includes('\0')) throw new Error('本地路径不能包含空字符')
   const windows = (options.platform ?? process.platform) === 'win32'
   const paths = windows ? win32 : posix
-  const validBase = windows ? fullyQualifiedWindowsPath(options.baseDir) : posix.isAbsolute(options.baseDir)
+  const validBase = isAbsoluteLocalUserPath(options.baseDir, options.platform ?? process.platform)
   if (!validBase || options.baseDir.includes('\0')) throw new Error('本地路径需要明确的绝对基准目录')
   if (/^[\\/]{2}[?.][\\/]/.test(input)) throw new Error('不支持设备命名空间路径')
 
@@ -34,7 +40,7 @@ export function resolveLocalUserPath(input: string, options: LocalUserPathOption
       throw new Error('仅支持当前用户的 ~ 或 ~/ 路径')
     }
     const home = options.homeDir ?? homedir()
-    if (!(windows ? fullyQualifiedWindowsPath(home) : posix.isAbsolute(home)) || home.includes('\0')) {
+    if (!isAbsoluteLocalUserPath(home, options.platform ?? process.platform)) {
       throw new Error('当前用户目录不是有效的绝对路径')
     }
     // join keeps ~/ anchored at home even if the user repeats a separator.

@@ -4,7 +4,7 @@
 
 启动请求目标只有 quick/shell，panel 不是自动新建窗口的命令。`views.default` 只在请求布局未适配时使用；即使默认 panel，已适配的 quick/shell 请求仍使用请求布局。统一启动器用于 Quick、快捷键与 Workspace 打开：最终布局为 quick 时进入 Quick，其余进入主窗；只有请求未适配且最终回退 panel 时，才在主窗呈现组件布局，不自动创建自由面板。
 
-宿主主窗普通打开（`ShellOpenPlugin`）另走 `openPlugin`：请求 shell 布局，回退 quick/panel 时也留在主窗。Workspace 目录、详情和首页搜索则显式向统一启动器请求 shell，不能与该路径混为一谈。独立窗口保留原布局；显式固定到主窗/拖入 Quick 按接收位置选择已适配布局或默认布局，不因布局回退改换位置。拖入面板必须已声明 panel，不套用完整工作台兼容显示。
+未声明激活协议的旧插件从宿主主窗普通打开（`ShellOpenPlugin`）仍走 `openPlugin`：请求 shell 布局，回退 quick/panel 时也留在主窗。声明 `activation` 的冷启动/主窗打开经统一启动器完成命令或视图准备，避免把轻量索引后台直接显示为空白页；已有独立窗口/面板的普通无 feature 打开仍原地聚焦。Workspace 目录、详情和首页搜索默认向统一启动器请求 shell；feature 显式 `activation: { type: 'view', target: 'quick' | 'shell' }` 或命令返回的目标优先于入口默认目标。独立窗口保留原布局；显式固定到主窗/拖入 Quick 按接收位置选择已适配布局或默认布局，不因布局回退改换位置。拖入面板必须已声明 panel，不套用完整工作台兼容显示。
 
 已有面板组件或独立窗口从普通 Quick 搜索（未指定显式目标）或 `ShellOpenPlugin` 打开时原地聚焦；Workspace 打开、显式设置入口、快捷键目标和迁移动作仍可移动现有实例。完整决策见 [plugin.json](manifest.md) 与 [UI 集成标准](ui-standard.md)。
 
@@ -22,19 +22,19 @@ const offAction = enest.quickInput.onAction(action => {
 await enest.quickInput.configure({ placeholder: '搜索内容…', value: draft })
 ```
 
-仅**实际挂载在 Quick** 的插件能够配置输入，返回 boolean 表示是否生效；`mode === 'quick'` 本身不能证明挂载位置，因为独立窗口可保留 quick 布局。主进程绑定插件 ID 与 runtime generation。迁移、隐藏、返回全局搜索或销毁立即解除接管，旧实例的消息无效。重新进入 Quick 时重新 configure。未接入的插件保留全局搜索。中文输入法组合期间，导航与提交不执行。
+仅**拥有当前 Quick 会话或 quick 布局独立窗口**的插件能够配置对应顶部输入，返回 boolean 表示是否生效；`mode === 'quick'` 本身不授予其它窗口的输入权。主进程绑定插件 ID 与 runtime generation。Quick 自动隐藏保留会话、实例与接管值，重新呼出不退出插件；Esc/返回、显式关闭或销毁结束会话，迁入主窗/面板解除接管。旧实例的消息无效。未接入顶部输入的插件仍保留插件页面，使用 Esc/返回才能回全局搜索；恢复期间不因异步输入状态尚未返回而退出。中文输入法组合期间，导航与提交不执行。
 
 `Mod+K` 聚焦顶部输入，`Mod+Enter` 固定到桌面，多行执行使用 `Mod+Shift+Enter`。顶部输入栏和普通工作台中的裸 Esc、返回按钮均直接回到空白全局搜索。终端、编辑器和弹层声明相应 inputContext 后继续自行处理 Esc；输入法组合期间宿主不拦截。长按 Esc 不会在返回后继续隐藏 Quick。插件主动调用 `quickInput.escape()` 仍先清空非空查询，再返回搜索；清空按钮只清空查询。
 
 ## 输入上下文
 
-Quick 小窗的输入框支持粘贴图片与文件（uTools/zTools 的内容上下文模型）。粘贴后输入框左侧出现有界缩略图，悬停显示删除按钮，空输入框 Backspace 移除最后一项，Esc 先清上下文再退出。图片与文件字节由宿主按会话保管（最多 8 张图 / 单张 12 MB / 合计 32 MB，最多 20 个文件），Quick 隐藏、退场或成功启动即清空，不跨呼出保留，主题表面只见缩略图。
+Quick 与默认 Workspace 搜索输入框都支持粘贴图片与文件（uTools/zTools 的内容上下文模型）。粘贴后输入框左侧出现有界缩略图，空输入框 Backspace 移除最后一项；Quick 的 Esc 清空查询/上下文后退出，Workspace 的 Esc 返回目录并清理附件。图片与文件字节由宿主按独立表面会话保管（最多 8 张图 / 单张 12 MB / 合计 32 MB，最多 20 个文件，单次展示最多 12 项）。隐藏、退场或成功消费后清理，不把一个表面的附件带到另一个表面；主题只见缩略图，不见图片原始字节或真实路径。真实粘贴手势、会话代次与异步读取顺序均由宿主核验。
 
-搜索时携带图片/文件上下文会命中插件 `features[].cmds` 中声明的 `img`/`files` 指令（详见 [plugin.json](manifest.md)）；纯名称或别名打开插件时，当前输入文本同样随启动交付，等价 uTools「选择处理器后带入内容」。插件在 `onEnter` 中接收：
+搜索时携带图片/文件上下文会命中插件 `features[].cmds` 中声明的 `img`/`files` 指令（详见 [plugin.json](manifest.md)）；纯名称或别名打开插件时，当前输入文本同样随启动交付，等价 uTools「选择处理器后带入内容」。宿主在目标 runtime 就绪后才组装文件句柄，并在异步授权与启动提交前重新核验；准备期间清除附件、修改查询或关闭来源会取消旧请求。视图功能在 `onEnter` 中接收，命令型 feature 的激活 handler 接收相同 `input`：
 
 ```js
 enest.onEnter(async ({ code, type, payload, input }) => {
-  // 1) 文本：payload 始终是当前原始输入字符串（含 regex/over 命中），保持旧插件兼容。
+  // 1) 优先使用标准正文；未匹配声明式前缀时 payload 保持原语义。
   const text = input?.text ?? (typeof payload === 'string' ? payload : '')
   // 2) 图片：宿主校验过的 data URL，可直接作为 <img src>。
   for (const image of input?.images ?? []) loadCanvas(image.dataUrl)
@@ -53,7 +53,9 @@ enest.onEnter(async ({ code, type, payload, input }) => {
 | `input.files[]` | `{ handleId, path, name, size, kind: 'file'\|'directory' }`；`handleId` 是本实例的只读 `localFiles` 句柄，`path` 仅用于展示，插件读取一律经 `localFiles.read/list({handleId})` |
 | `type` | 命中的内容指令类型：`text`/`regex`/`over`/`img`/`files` |
 
-已被注入的上下文可在插件仍挂载于 Quick 期间通过 `enest.quickInput.readContext()` 重新读取（返回同形状 `QuickEnterInput`，无则为 null）；离开 Quick、换代或实例销毁后失效。重复激活（无新载荷的 enter）不会重放旧 input。
+文本功能声明 `features[].input: { type: 'text', trigger: 'prefix' }` 后，`fy Hello world` 这样的精确别名加空白查询会命中功能，正文进入 `input.text`，`input.query` 保留 `{ raw, trigger }`；命中前缀时旧字符串 payload 同样使用正文。`trigger: 'none'` 保留全文；不含 exclude 的旧 over 功能兼容前缀输入，索引/provider 的私有 payload 不变。主题只负责识别和排序，主进程重新解析可信声明，不接受主题伪造正文元数据。详见[文本触发词与启动参数](themes.md#文本触发词与启动参数)。
+
+已被注入的上下文可在当前 Quick 会话通过 `enest.quickInput.readContext()` 重新读取（返回同形状 `QuickEnterInput`，无则为 null）。搜索框尚未消费的粘贴队列与已交付插件的上下文是两份不同生命周期：前者隐藏时清理，后者自动隐藏后仍可读取；Esc/返回、迁出 Quick、换代或实例销毁后失效。重复激活（无新载荷的 enter）不会重放旧 input，无输入的新会话也不能读到上一会话的内容。
 
 该链路由当前宿主源码引入。更早打包的旧宿主按旧 `plugin-manifest.schema.json` 校验，`features.items.additionalProperties:false` 会直接拒绝包含 `img`/`files` 指令的包（fail-fast），属预期；新宿主接受并执行完整链路。官方参考实现见插件仓 `plugins/image-tools`（粘贴图片 → 压缩）。
 
@@ -69,7 +71,7 @@ enest.onEnter(async ({ code, type, payload, input }) => {
 
 ## 剪贴板
 
-eNest 0.2.3 的原生 `window.enest` **没有 `clipboard.history.*`**。clipboard 的历史、去重、置顶、保留策略、迁移解释和搜索属于插件的 `background/history.mjs`；前台通过通用 `background.call` 访问自己的后台。其 `createClipboardApi(host)` 创建本地 facade，保留该插件 UI 的 `query/list/get/copy/paste/reveal/onChange` 调用形式，但不修改宿主 API，也不把历史服务开放给其它插件。
+原生 `window.enest` **没有 `clipboard.history.*`**。clipboard 的历史、去重、置顶、保留策略、迁移解释和搜索属于插件的 `background/history.mjs`；前台通过通用 `background.call` 访问自己的后台。其 `createClipboardApi(host)` 创建本地 facade，保留该插件 UI 的 `query/list/get/copy/paste/reveal/onChange` 调用形式，但不修改宿主 API，也不把历史服务开放给其它插件。
 
 - 该插件的私有 `history.query` 返回 `{items,total,nextCursor}`；`history.get` 按需读取图片，变更通过 `background.event` 中的 `history.changed` 通知。宿主不再发送 `clipboard-history-changed`。
 - 后台用 `enestBackground.host.private` 的文档/blob 保存数据，接收 `clipboard.changed` 原生快照；文件记录保存引用，不复制原件。历史查询、排序和修剪不是宿主工作。
@@ -111,6 +113,6 @@ eNest 0.2.3 的原生 `window.enest` **没有 `clipboard.history.*`**。clipboar
 
 ## 插件业务与系统巡检
 
-AI CLI 十个应用的适配、白名单、最小侵入合并、快照、资产 staging 和会话读取位于插件仓 `@enest/agent-config-backend`，由 CCSwitch 和 Codex Pets 自己打包。0.2.2 已移除宿主 `agent.*`，插件通过通用 `backend.call` 与 `dialog.confirm` 执行；首次使用需要明确的完整 Node 信任，不继承旧 config.agent 权限。
+AI CLI 十个应用的适配、白名单、最小侵入合并、快照、资产 staging 和会话读取位于插件仓 `@enest/agent-config-backend`，由 CCSwitch 和 Codex Pets 自己打包。宿主不提供 `agent.*`，插件通过通用 `backend.call` 与 `dialog.confirm` 执行；首次使用需要明确的完整 Node 信任，不继承旧 config.agent 权限。
 
 `sys.processes()` / `sys.ports()` 提供 1s 采样缓存的进程与监听端口视图；`sys.kill` 使用 sys.control 并由宿主确认 PID，插件的 confirmed 参数不构成授权，宿主拒绝结束自身与 PID 1。详见 [enest API](api.md)。

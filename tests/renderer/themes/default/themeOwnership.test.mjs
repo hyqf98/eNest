@@ -8,21 +8,29 @@ import { transformSync } from 'esbuild'
 import postcss from 'postcss'
 import ts from 'typescript'
 
-const theme = dirname(fileURLToPath(import.meta.url))
-const renderer = resolve(theme, '../..')
+const root = fileURLToPath(new URL('../../../../', import.meta.url))
+const renderer = join(root, 'src/renderer')
+const theme = join(renderer, 'themes/default')
+const browserPreview = join(root, 'tests/fixtures/browser-preview')
 const read = path => readFileSync(join(renderer, path), 'utf8')
+const readPreview = path => readFileSync(join(browserPreview, path), 'utf8')
 const moved = new Map([
   ...['FeaturedCarousel', 'MarketCategoryView', 'PluginCardView', 'PluginDetailView', 'ProductVisual', 'PluginScreenshotGallery', 'CategoryChips', 'SegmentTabs', 'SearchBox'].map(name => [`components/${name}.tsx`, `themes/default/workspace/${name}.tsx`]),
   ['components/usePluginDetailMotion.ts', 'themes/default/workspace/usePluginDetailMotion.ts'],
   ['components/pluginPresentation.ts', 'themes/default/workspace/pluginPresentation.ts'],
   ['hooks/useProductCarousel.ts', 'themes/default/workspace/useProductCarousel.ts'],
-  ...['PluginCard', 'MarketCategorySection', 'PluginDetailModal', 'HomeSearch'].map(name => [`components/${name}.tsx`, `themes/default/workspace/preview/${name}.tsx`]),
-  ['pages/MarketPage.tsx', 'themes/default/workspace/preview/MarketPage.tsx'],
   ['components/PaperSplash.tsx', 'themes/default/PaperSplash.tsx'],
   ...['splashMotion', 'logoAssembly'].map(name => [`gsap/${name}.ts`, `themes/default/motion/${name}.ts`]),
   ...['detail', 'market', 'featured', 'productVisual', 'categoryChips', 'homeSearch'].map(name => [`styles/${name}.css`, `themes/default/workspace/${name}.css`]),
   ['styles/splash.css', 'themes/default/splash.css'],
 ])
+const previewComponents = ['PluginCard', 'MarketCategorySection', 'PluginDetailModal', 'HomeSearch', 'MarketPage']
+const fixtureMoved = new Map([
+  ...previewComponents.map(name => [`${name === 'MarketPage' ? 'pages' : 'components'}/${name}.tsx`, `workspace/${name}.tsx`]),
+  ['layout/BottomBar.tsx', 'workspace/BottomBar.tsx'],
+  ['themes/default/quick/legacyHomeSearchModel.ts', 'workspace/legacyHomeSearchModel.ts'],
+])
+const retiredPreview = previewComponents.map(name => `themes/default/workspace/preview/${name}.tsx`)
 
 function files(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
@@ -36,7 +44,9 @@ function resolveSource(specifier, source) {
     ? join(renderer, specifier.slice('@renderer/'.length))
     : specifier.startsWith('@shared/')
       ? resolve(renderer, '../shared', specifier.slice('@shared/'.length))
-      : specifier.startsWith('.') ? resolve(dirname(source), specifier) : undefined
+      : specifier.startsWith('@test/')
+        ? join(root, 'tests', specifier.slice('@test/'.length))
+        : specifier.startsWith('.') ? resolve(dirname(source), specifier) : undefined
   if (!candidate) return undefined
   return [candidate, ...['.ts', '.tsx', '.css', '.json', '/index.ts', '/index.tsx'].map(extension => candidate + extension)].find(existsSync)
 }
@@ -93,52 +103,70 @@ const orderedCss = new Map([
 ])
 
 test('default-theme presentation and launch implementations have one physical owner', () => {
-  assert.equal(moved.size, 27)
+  assert.equal(moved.size, 22)
   for (const [previous, current] of moved) {
     assert.equal(existsSync(join(renderer, previous)), false, previous)
     assert.equal(existsSync(join(renderer, current)), true, current)
   }
+  assert.equal(fixtureMoved.size, 7)
+  for (const [previous, current] of fixtureMoved) {
+    assert.equal(existsSync(join(renderer, previous)), false, previous)
+    assert.equal(existsSync(join(browserPreview, current)), true, current)
+  }
+  for (const previous of retiredPreview) assert.equal(existsSync(join(renderer, previous)), false, previous)
   assert.equal(existsSync(join(renderer, 'gsap/ambientFlow.ts')), false)
 })
 
 test('relocated real TypeScript modules compile and resolve their local contract imports', () => {
-  const modules = [...moved.values(), 'themes/default/motion/workspaceMotion.ts'].filter(path => /\.tsx?$/.test(path))
-  assert.equal(modules.length, 21)
-  for (const path of modules) {
-    const filename = join(renderer, path)
-    const source = read(path)
+  const modules = [
+    ...[...moved.values(), 'themes/default/motion/workspaceMotion.ts'].map(path => join(renderer, path)),
+    ...[...fixtureMoved.values()].map(path => join(browserPreview, path)),
+  ].filter(path => /\.tsx?$/.test(path))
+  assert.equal(modules.length, 23)
+  for (const filename of modules) {
+    const source = readFileSync(filename, 'utf8')
     const compiled = ts.transpileModule(source, {
       fileName: filename,
       reportDiagnostics: true,
       compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
     })
-    assert.deepEqual((compiled.diagnostics ?? []).filter(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error), [], path)
+    assert.deepEqual((compiled.diagnostics ?? []).filter(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error), [], filename)
     const syntax = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true)
     for (const statement of syntax.statements) {
       if ((!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) || !statement.moduleSpecifier) continue
       const specifier = statement.moduleSpecifier.text
-      if (/^(?:@renderer\/|@shared\/|\.)/.test(specifier)) assert.ok(resolveSource(specifier, filename), `${path}: ${specifier}`)
-      assert.equal(specifier.startsWith('../'), false, `${path}: use aliases across directories`)
+      if (/^(?:@renderer\/|@shared\/|@test\/|\.)/.test(specifier)) assert.ok(resolveSource(specifier, filename), `${filename}: ${specifier}`)
+      assert.equal(specifier.startsWith('../'), false, `${filename}: use aliases across directories`)
     }
   }
 })
 
-test('restricted Workspace presentation does not import the trusted preview adapter', () => {
-  const modules = files(join(theme, 'workspace')).filter(path => /\.tsx?$/.test(path) && !path.includes('/preview/'))
+test('restricted Workspace and native shell do not import the browser-only preview entry', () => {
+  const modules = files(join(theme, 'workspace')).filter(path => /\.tsx?$/.test(path))
   for (const path of [...modules, join(theme, 'DefaultWorkspace.tsx')]) {
     const source = readFileSync(path, 'utf8')
-    assert.doesNotMatch(source, /@renderer\/(?:services\/shellApi|themes\/default\/workspace\/preview\/)/, path)
+    assert.doesNotMatch(source, /@renderer\/(?:services\/shellApi|themes\/default\/workspace\/preview\/)|@test\//, path)
   }
   const shell = read('layout/ShellLayout.tsx')
-  assert.match(shell, /const MarketPage = import\.meta\.env\.DEV\s*\? lazy\(/)
-  assert.match(shell, /isMockShell && MarketPage \? <MarketPage \/> : <HomeRecovery \/>/)
+  assert.match(shell, /view === 'home' && <HomeRecovery \/>/)
+  assert.doesNotMatch(shell, /MarketPage|BottomBar|workspace\/preview|@test\//)
   assert.match(read('services/shellApi.ts'), /import\.meta\.env\.DEV/)
   const compile = development => transformSync(shell, {
     loader: 'tsx', format: 'esm', minify: true, treeShaking: true,
     define: { 'import.meta.env.DEV': String(development) },
   }).code
-  assert.doesNotMatch(compile(false), /workspace\/preview\/MarketPage/)
-  assert.match(compile(true), /workspace\/preview\/MarketPage/)
+  for (const development of [false, true]) assert.doesNotMatch(compile(development), /browser-preview|workspace\/preview|BottomBar/)
+  const preview = readPreview('BrowserPreviewApp.tsx')
+  assert.match(preview, /@test\/fixtures\/browser-preview\/workspace\/MarketPage/)
+  assert.match(preview, /@test\/fixtures\/browser-preview\/workspace\/BottomBar/)
+  assert.match(preview, /view === 'home' && <MarketPage \/>/)
+  assert.match(preview, /<BottomBar \/>/)
+  assert.match(readPreview('main.tsx'), /!import\.meta\.env\.DEV \|\| !isMockShell/)
+  assert.match(readPreview('main.tsx'), /from '\.\/BrowserPreviewApp'/)
+  assert.match(readPreview('index.html'), /src="\.\/main\.tsx"/)
+  const config = readFileSync(join(root, 'electron.vite.config.ts'), 'utf8')
+  assert.match(config, /name: 'enest:browser-preview',\s*apply: 'serve'/)
+  assert.match(config, /transformIndexHtml\('\/preview\/index\.html'/)
 })
 
 test('generic motion budgets remain shared while Workspace and Tab choreography belong to the theme', () => {
@@ -197,7 +225,7 @@ test('CSS fragments retain cascade order and separate shared foundations from de
 })
 
 test('production renderer references do not target the retired implementation paths', () => {
-  const retired = [...moved.keys()].map(path => `@renderer/${path.replace(/\.(?:tsx?|mjs)$/, '')}`)
+  const retired = [...moved.keys(), ...fixtureMoved.keys(), ...retiredPreview].map(path => `@renderer/${path.replace(/\.(?:tsx?|mjs)$/, '')}`)
   for (const path of files(renderer).filter(path => ['.ts', '.tsx', '.css'].includes(extname(path)))) {
     const source = readFileSync(path, 'utf8')
     for (const alias of retired) {

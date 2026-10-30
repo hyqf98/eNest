@@ -19,7 +19,7 @@ html, body, #root {
 }
 
 :root {
-  --panel-opacity: 0.78;
+  --panel-opacity: 0;
   /* 圆角跟随主题的 panelRadius（applyAppearanceToDom 写入 --appearance-panel-radius），
      缺省回落 14px；原生容器裁切值在 panelWindows 中取同一默认值。 */
   --panel-radius: var(--appearance-panel-radius, 14px);
@@ -124,20 +124,15 @@ html, body, #root {
 
 /* —— 组件 ——
 
-   组件无标题条：插件原生视图经原生 setBorderRadius 裁切圆角并铺满组件矩形，
-   chrome 只画一圈细描边与四周的拖动/缩放热区，尽量四周简洁。 */
+   组件无标题条：插件原生视图经原生 setBorderRadius 裁切圆角，
+   chrome 只保留透明操作热区；拖动和键盘聚焦时才显示操作提示。 */
 .panel-widget {
   position: absolute;
   top: 0;
   left: 0;
   border-radius: var(--panel-widget-radius);
-  /* 描边用 inset 阴影：不参与盒模型，组件 DOM 与原生视图坐标保持严格一致。
-     浓度跟随底板不透明度：透明面板不出现实色框。 */
-  --panel-widget-border-opacity: max(
-    calc((var(--panel-opacity) - 0.1) / 0.9 * 14%),
-    0%
-  );
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text, #292c2e) var(--panel-widget-border-opacity), transparent) inset;
+  background: transparent;
+  box-shadow: none;
   overflow: hidden;
   z-index: 2;
 }

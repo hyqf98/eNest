@@ -5,20 +5,24 @@ export type PluginInteractionErrorCode = 'needs-consent' | 'permission-denied' |
 
 interface Policy {
   background: boolean
+  activation?: 'command' | 'index-sync' | 'resident'
+  resident: boolean
+  interactiveUntil: number
   leases: Set<symbol>
+  activations: Map<symbol, AbortSignal | undefined>
   epoch: number
   hostRpcs: number
   idle: Set<() => void>
 }
 
 const policies = new WeakMap<PluginRuntimeScope, Policy>()
-const rpcContext = new AsyncLocalStorage<ReadonlyMap<PluginRuntimeScope, number>>()
+const rpcContext = new AsyncLocalStorage<ReadonlyMap<PluginRuntimeScope, { epoch: number; interactiveUntil: number; signal?: AbortSignal }>>()
 let nativeInteractions = 0
 
 function policy(scope: PluginRuntimeScope): Policy {
   let value = policies.get(scope)
   if (!value) {
-    value = { background: false, leases: new Set(), epoch: 0, hostRpcs: 0, idle: new Set() }
+    value = { background: false, resident: false, interactiveUntil: 0, leases: new Set(), activations: new Map(), epoch: 0, hostRpcs: 0, idle: new Set() }
     policies.set(scope, value)
   }
   return value
@@ -43,21 +47,67 @@ export function interactionErrorCode(error: unknown): PluginInteractionErrorCode
 export function acquireNonInteractive(scope: PluginRuntimeScope, _reason: string): () => void {
   resolveScope(scope)
   const value = policy(scope), token = Symbol('noninteractive')
+  if (value.activations.size) throw Object.assign(new Error('Plugin activation is busy'), { code: 'busy' })
+  // An idle index-only runtime may be reused for MCP, but never its running handler.
+  if (value.activation === 'index-sync') value.activation = 'command'
   value.leases.add(token)
   value.epoch++
   return () => { if (value.leases.delete(token)) value.epoch++ }
 }
 
+/** Kept through cancellation until the plugin's actual handler ACK or runtime retirement. */
+export function acquireActivation(scope: PluginRuntimeScope, signal?: AbortSignal): () => void {
+  resolveScope(scope)
+  const value = policy(scope), token = Symbol('activation')
+  if (value.leases.size || value.activations.size) throw new Error('Plugin activation is busy')
+  value.activations.set(token, signal)
+  return () => { value.activations.delete(token) }
+}
+
 export function setBackgroundNonInteractive(scope: PluginRuntimeScope, enabled: boolean): void {
   const value = policy(scope)
+  if (enabled) value.interactiveUntil = 0
   if (value.background !== enabled) { value.background = enabled; value.epoch++ }
+}
+
+/** Internal activation policy; neither plugins nor theme pages can grant this context. */
+export function setActivationContext(scope: PluginRuntimeScope, context: 'command' | 'index-sync' | 'resident' | 'view'): void {
+  const value = policy(scope)
+  const next = context === 'view' ? undefined : context
+  if (value.activation !== next) { value.activation = next; value.epoch++ }
+}
+
+export function isIndexSyncActivation(scope: PluginRuntimeScope): boolean { return policy(scope).activation === 'index-sync' }
+export function hasNonInteractiveLease(scope: PluginRuntimeScope): boolean { return policy(scope).leases.size > 0 }
+
+export function setResidentActivation(scope: PluginRuntimeScope, enabled: boolean): void {
+  const value = policy(scope)
+  if (value.resident !== enabled) { value.resident = enabled; value.epoch++ }
+}
+
+/** Restoration may create only a passive, non-capturing surface; MCP leases still win. */
+export function isResidentActivation(scope: PluginRuntimeScope): boolean {
+  const value = policy(scope)
+  return scope.isCurrent() && !scope.isClosing && value.resident && !value.leases.size
+}
+
+/** Only a trusted native input receiver or a validated user command may call this. */
+export function grantAuxiliaryInteraction(scope: PluginRuntimeScope, durationMs = 2000): () => void {
+  resolveScope(scope)
+  const value = policy(scope)
+  if (value.leases.size || value.activation === 'index-sync') throw interactionError('interaction-required', 'Background execution cannot claim a user gesture')
+  const until = Date.now() + Math.max(100, Math.min(60_000, durationMs))
+  value.interactiveUntil = until
+  return () => { if (value.interactiveUntil === until) value.interactiveUntil = 0 }
 }
 
 export function isNonInteractive(owner: PluginRuntimeScope | string): boolean {
   const scope = typeof owner === 'string' ? getRuntimeScope(owner) : owner
   if (!scope) return false
   const value = policy(scope)
-  return value.background || value.leases.size > 0
+  const captured = rpcContext.getStore()?.get(scope)
+  const held = captured?.epoch === value.epoch && Date.now() < captured.interactiveUntil
+  return value.leases.size > 0 || value.background && Date.now() >= value.interactiveUntil && !held
 }
 
 export function getInteractionEpoch(scope: PluginRuntimeScope): number { return policy(scope).epoch }
@@ -73,7 +123,7 @@ export function assertInteractionEpoch(scope: PluginRuntimeScope, epoch: number)
 
 export function assertInteractive(owner: PluginRuntimeScope | string): void {
   const scope = resolveScope(owner)
-  assertInteractionEpoch(scope, rpcContext.getStore()?.get(scope) ?? getInteractionEpoch(scope))
+  assertInteractionEpoch(scope, rpcContext.getStore()?.get(scope)?.epoch ?? getInteractionEpoch(scope))
 }
 
 export function trackHostRpc(scope: PluginRuntimeScope): () => void {
@@ -94,12 +144,16 @@ export function trackHostRpc(scope: PluginRuntimeScope): () => void {
 export async function runHostRpc<T>(scope: PluginRuntimeScope, action: () => T | Promise<T>): Promise<T> {
   const release = trackHostRpc(scope)
   const context = new Map(rpcContext.getStore())
-  if (!context.has(scope)) context.set(scope, getInteractionEpoch(scope))
+  if (!context.has(scope)) context.set(scope, { epoch: getInteractionEpoch(scope), interactiveUntil: isNonInteractive(scope) ? 0 : Date.now() + 120_000,
+    signal: policy(scope).activations.values().next().value })
   try { return await rpcContext.run(context, action) }
   finally { release() }
 }
 
 export function getHostRpcCount(scope: PluginRuntimeScope): number { return policy(scope).hostRpcs }
+
+/** Native consent inherits the exact originating activation, not a later job on the same scope. */
+export function getHostInteractionSignal(scope: PluginRuntimeScope): AbortSignal | undefined { return rpcContext.getStore()?.get(scope)?.signal }
 
 export function whenHostRpcIdle(scope: PluginRuntimeScope): Promise<void> {
   const value = policy(scope)

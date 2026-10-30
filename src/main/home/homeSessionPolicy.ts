@@ -39,6 +39,11 @@ const RESOURCE_LIMIT_BYTES = 16 * 1024 * 1024
 const HOME_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' enest-home: data:; media-src enest-home://appearance; font-src 'self' enest-home://appearance; connect-src 'self' enest-home://catalog enest-home://appearance; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 const cleanups = new WeakMap<Session, () => void>()
 
+function homeCsp(page: ResolvedHomePage): string {
+  // Bundled search workers read only same-origin static assets; untrusted homes keep the stricter policy.
+  return page.contribution.source === BUILT_IN_HOME_SOURCE ? HOME_CSP.replace("worker-src 'none'", "worker-src 'self'") : HOME_CSP
+}
+
 function relativeEntry(page: ResolvedHomePage): string {
   const entry = relative(page.rootPath, page.entryPath).split('\\').join('/')
   if (!entry || entry.startsWith('../') || entry.startsWith('/') || !isInsideDirectory(page.rootPath, page.entryPath)) {
@@ -140,7 +145,7 @@ export async function serveHomeResource(page: ResolvedHomePage, request: Request
         if (!current || catalogResourceKey(current) !== catalogResourceKey(slot)) return new Response('retired', { status: 404 })
         return publicHeaders(new Response(request.method === 'HEAD' ? null : resource.body, { headers: {
           'Content-Type': resource.mime, 'Content-Length': String(resource.body.byteLength),
-          'Content-Security-Policy': HOME_CSP, 'Cache-Control': 'no-store'
+          'Content-Security-Policy': homeCsp(page), 'Cache-Control': 'no-store'
         } }), page)
       } catch { return new Response('not found', { status: 404 }) }
     }
@@ -161,7 +166,7 @@ export async function serveHomeResource(page: ResolvedHomePage, request: Request
     const source = page.contribution.source
     const devSource = source !== BUILT_IN_HOME_SOURCE && pluginRegistry.get(source)?.devSource === true
     const response = await pluginFileResponse(request, file.path, {
-      mime, csp: HOME_CSP, root: file.root, dev: devSource,
+      mime, csp: homeCsp(page), root: file.root, dev: devSource,
       revision: source === BUILT_IN_HOME_SOURCE ? undefined : pluginRegistry.getBuildRevision(source),
     })
     return publicHeaders(response, page)

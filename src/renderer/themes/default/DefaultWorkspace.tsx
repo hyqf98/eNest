@@ -8,6 +8,7 @@ import { SegmentTabs } from '@renderer/themes/default/workspace/SegmentTabs'
 import { FeaturedCarousel } from '@renderer/themes/default/workspace/FeaturedCarousel'
 import { MarketCategoryView } from '@renderer/themes/default/workspace/MarketCategoryView'
 import { PluginCardView } from '@renderer/themes/default/workspace/PluginCardView'
+import { HomeCardsView } from '@renderer/themes/default/workspace/HomeCardsView'
 import { PluginDetailView } from '@renderer/themes/default/workspace/PluginDetailView'
 import { usePluginDetailMotion } from '@renderer/themes/default/workspace/usePluginDetailMotion'
 import { RotateCwIcon } from '@renderer/components/icons'
@@ -142,7 +143,7 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
     return stableItems
   }, [state.catalog])
   const seg = state.basePage === 'installed' ? 'installed' : 'browse'
-  const searching = Boolean(state.query.trim())
+  const searching = Boolean(state.query.trim() || state.input.length)
   const categoryKeys = useMemo(() => {
     const keys = new Set(plugins.map(plugin => plugin.category))
     return ['全部', ...Object.keys(CATEGORY_I18N).filter(key => keys.has(key)), ...Array.from(keys).filter(key => !CATEGORY_I18N[key])]
@@ -151,6 +152,7 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
   const detailOpen = state.route.page === 'detail'
   const detail = detailOpen ? state.detail : undefined
   const handleOpen = useCallback((pluginId: string) => { void controller.action({ type: 'openPlugin', pluginId }).catch(controller.reportError) }, [controller])
+  const handleHomeCard = useCallback((pluginId: string, cardId: string) => controller.action({ type: 'openHomeCard', pluginId, cardId }), [controller])
   const handleDetail = useCallback((pluginId: string, origin?: HTMLElement | null) => {
     originRef.current = origin ?? null
     void controller.navigate({ page: 'detail', pluginId })
@@ -195,6 +197,8 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
         {!searching && <DefaultWorkspaceCatalog plugins={plugins} categoryKeys={categoryKeys} category={state.category} seg={seg}
           loading={state.loading} visible={state.visible} detailOpen={detailOpen} continuous={state.appearance.appearance.animation.continuous}
           gridRef={gridRef} controller={controller} onOpen={handleOpen} onDetail={handleDetail} />}
+        {!searching && !state.loading && seg === 'browse' && state.category === '全部' && state.catalog &&
+          <HomeCardsView items={state.catalog.items} onOpen={handleHomeCard} onError={controller.reportError} />}
       </div>
       {detail && <DefaultWorkspaceDetail key={detail.pluginId} state={state} controller={controller} origin={originRef.current} />}
     </section>

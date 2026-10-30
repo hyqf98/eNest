@@ -24,7 +24,7 @@ const api = window.enest
 
 ## MCP 工具处理器
 
-普通插件通过 `contributes.mcpTools` 声明工具，在业务初始化后调用一次 `enest.mcp.registerHandlers(handlers)`；处理器键集合须与 manifest 完全一致，不得依赖前台 `onEnter` 才注册。MCP 不授予额外权限，也不替用户触发原生交互。服务默认关闭，当前尚无原生管理区；完整声明、结果、取消、限额与交付边界见 [MCP 工具贡献](mcp.md)。
+普通插件通过 `contributes.mcpTools` 声明工具，在业务初始化后调用一次 `enest.mcp.registerHandlers(handlers)`；处理器键集合须与 manifest 完全一致，不得依赖前台 `onEnter` 才注册。MCP 不授予额外权限，也不替用户触发原生交互。服务默认关闭，管理入口位于可信宿主设置页「开发者 → MCP 服务」；普通插件与隔离主题页不获得管理接口，第三方主题快照不发布 MCP 原生分组。完整声明、结果、取消、限额与目标平台验收边界见 [MCP 工具贡献](mcp.md)。
 
 ## 调用模型
 
@@ -60,24 +60,30 @@ resolve({ ok: true, data })
 
 插件自绘设置、`page` 入口与 Quick / 桌面原生容器的职责划分见[自绘设置与窗口边界](settings-and-windows.md)。普通插件不获得全量壳设置或原生窗口管理 API。
 
-从 0.2.2 起，AI 配置、局域网分享、数据库、中间件和 SSH 使用插件自己的适配器及 `enest.backend.call`；壳不再暴露 `agent`、`net.share`、`db`、`mw`、`ssh` 专用 API。番茄钟周期/统计位于插件，通用后台计划用 `deadlineTasks`。升级旧插件包后再使用新壳，见[本机后端与迁移](backend.md)。
+AI 配置、局域网分享、数据库、中间件和 SSH 使用插件自己的适配器及 `enest.backend.call`；壳不提供 `agent`、`net.share`、`db`、`mw`、`ssh` 专用 API。番茄钟周期/统计位于插件，通用后台计划用 `deadlineTasks`。旧开发包须更新到配套版本，见[本机后端与迁移](backend.md)。
 
-从 0.2.3 起，剪贴板历史属于 clipboard 插件的沙箱后台；选区、录制和贴图属于插件仓的 `@enest/native-surfaces`。原生 `window.enest` 不再提供 `clipboard.history.*`、`screen.selectRegion`、`screen.record.*` 或 `pin.*`。宿主保留剪贴板原生读写/观察、`screen.capture/displays`、通用 `background`、`auxiliary` 与私有 `files.stream`；兼容权限名仍然有效，但不是同名业务 API。
+剪贴板历史属于 clipboard 插件的沙箱后台；选区、录制和贴图属于插件仓的 `@enest/native-surfaces`。原生 `window.enest` 不提供 `clipboard.history.*`、`screen.selectRegion`、`screen.record.*` 或 `pin.*`。宿主保留剪贴板原生读写/观察、`screen.capture/displays`、通用 `background`、`auxiliary` 与私有 `files.stream`；兼容权限名仍然有效，但不是同名业务 API。
 
 | 命名空间 | 方法 | 权限 | 说明 |
 |---------|------|------|------|
-| `backend` | `call(method, args?)` | `backend.node` | 调用本插件的 Node 后端；事件经 backend.event 接收，见[后端协议与预算](backend.md) |
+| `backend` | `call(method, args?, { timeoutMs? }?)` | `backend.node` | 调用本插件的 Node 后端；事件经 backend.event 接收，见[后端协议与预算](backend.md) |
+| `backend` | `stop()` | 基础能力 | 终止本实例的后端与在途请求；确认回收后才可重建，不控制其它插件 |
+| `mcp` | `registerHandlers(handlers)` | 基础能力，须匹配 manifest 声明 | 注册当前普通插件页面的工具处理器，不启用服务、不授予管理权，见[MCP 工具贡献](mcp.md) |
 | `ui` | `setTitle(title)` | 基础能力 | 设置 Tab 标题 |
 | `ui` | `setIcon(icon)` | 基础能力 | 设置 Tab 图标 |
 | `ui` | `setBadge(badge)` | 基础能力 | 设置角标 |
 | `ui` | `resize(size)` | 基础能力 | 兼容尺寸建议，保持容器尺寸 |
 | `ui` | `setHeight(height)` | 基础能力 | 兼容高度建议，保持容器尺寸 |
+| `ui` | `openInShell()` | 基础能力 | 将本插件现有 View 移到主窗，不新建实例或重载，见[布局与位置](settings-and-windows.md#布局模式与原生位置) |
+| `ui` | `openSettings()` | 基础能力 | 打开可信宿主设置并定位本插件，不返回全量设置 |
+| `ui` | `setInputContext(context)` | 基础能力 | 声明编辑器、终端或弹层的输入归属，避免 Quick 抢占按键 |
+| `ui` | `focus()` / `focusSearch()` | 基础能力 | 聚焦当前插件，或返回 Quick 全局搜索；不创建新实例 |
 | `ui` | `dismissQuick()` | 基础能力 | 提交即收起 Quick 小窗（仅 quick 挂载者生效） |
 | `ui` | `toast({ title?, body?, format?, position?, level?, duration? })` | 基础能力 | 当前原生容器内的安全富文本通知 |
 | `ui` | `getThemeTokens()` | 无 | 读主题变量（别名） |
 | `ui` | `onThemeChange(cb)` | 无 | 订阅主题变更 |
-| 基础能力 | `getTokens()` | 无 | 读当前主题变量 |
-| 基础能力 | `register(pack)` | 基础能力 | 注册主题包（≤8 个/插件） |
+| `theme` | `getTokens()` | 无 | 读当前主题变量 |
+| `theme` | `register(pack)` | 基础能力 | 注册主题包（≤8 个/插件） |
 | `theme` | `getAppearance()` / `onAppearanceChange(cb)` | 基础能力 | 读取、订阅带 revision 的统一外观；订阅先于初始读取 |
 | `home` | `register(contribution)` | 基础能力 | 确认本插件当前 manifest 的精确首页声明；来源由宿主绑定，不激活主题或首页，见[完整首页](home.md) |
 | `hotkey` | `register(acc, opts?)` | `hotkey` | 注册全局热键 |
@@ -85,6 +91,9 @@ resolve({ ok: true, data })
 | `hotkey` | `onHotkey(cb)` | 无 | 订阅热键触发 |
 | `i18n` | `getLocale()` | 无 | 读壳子语言 |
 | `i18n` | `onLocaleChange(cb)` | 无 | 订阅语言变更 |
+| `launch` | `getContext()` / `registerHandlers(handlers)` | 基础能力 | 区分 view/command/index-sync/resident；登记实际完成后才 ACK 的启动处理器 |
+| `contribute` | `replaceLaunchIndex(entries)` | 基础能力，需声明 `activation.indexSync` | 原子替换本插件的持久化可搜索条目；不接收全局查询 |
+| `contribute` | `launchIndexState()` / `markLaunchIndexDirty()` | 基础能力，写入仍验当前实例 | 读取 revision/dirty；业务持久化前标脏，避免崩溃后保留旧目录 |
 | `contribute` | `registerQuickProvider(meta)` | `contribute` | 注册会接收全局搜索文本的动态 Quick provider |
 | `contribute` | `unregisterQuickProvider(id)` | `contribute` | 注销 provider |
 | `contribute` | `onQuickQuery(cb)` | 无 | 订阅 Quick 搜索查询（门禁在 `registerQuickProvider`，纯订阅不校验） |
@@ -92,6 +101,7 @@ resolve({ ok: true, data })
 | `settings` | `register(section)` | 基础能力 | 注册设置分组 |
 | `settings` | `get(key)` | 无 | 读插件设置 |
 | `settings` | `set(key, value)` | 无 | 写插件设置 |
+| `settings` | `onChange(cb)` | 无（纯订阅） | 订阅本插件设置的已确认变更，返回取消订阅函数 |
 | `storage` | `get/set/remove/clear/flush/commit` | 基础能力 | 持久化 KV；set/remove 入队，flush/commit 返回显式提交回执 |
 | `storage.session` | `get/set/remove/clear` | 基础能力 | 会话态 KV |
 | `storage.blobs` | `put/get/remove` | 基础能力 | deprecated 兼容适配，与 assets 使用同一图片服务与配额，旧 ID 继续可用 |
@@ -111,11 +121,19 @@ resolve({ ok: true, data })
 | `screen` | `capture({ displayId?, bounds? })` | `screen.capture` | 截图 |
 | `screen` | `displays()` | 基础能力 | 显示器几何、缩放与主屏标记，不读取屏幕内容 |
 | `net` | `fetch({ url, method?, headers?, body?, bodyBase64?, auth?, timeoutMs?, stream? })` | `net.fetch` | 受控 HTTP(S) / 流式 / SSE；`bodyBase64` 为二进制请求体（≤8MB，multipart 上传等）；`auth.secretRef` 由主进程从本插件 vault 解引用注入鉴权头（默认 `Authorization: Bearer`，可改 header/scheme），密钥不回到页面 |
+| `net.websocket` | `connect/send/close` | `net.socket` | 走宿主代理的受控 WebSocket，连接绑定当前实例，见[文件句柄与 WebSocket](#文件句柄与-websocket-新接口) |
+| `net.websocket` | `onMessage(cb)` / `onClose(cb)` | 无（纯订阅） | 订阅本插件连接的消息与关闭事件；二进制消息以 base64 传输 |
 | `net.socket` | `connect/send/close/list` / `serveWs(socketId)` | `net.socket` | 出站 TCP + 本地 ws 桥 |
 | `net` | `onNetData(cb)` / `onNetClose(cb)` / `onChunk(cb)` | 无（纯订阅） | `net.data` / `net.close` / `net.chunk` 事件 |
+| `fs` | `rename(input)` / `renameBatch(input)` | `fs.rename` | 仅可写句柄对应文件的同目录改名；批量操作需宿主确认，见[权限](permissions.md) |
+| `localFiles` | `pick(options?)` / `pickSave(options?)` | 基础能力，用户选择目标即授权 | 获取当前实例的文件或目录句柄；保存位置由原生选择器确定，见[系统文件](permissions.md#系统文件句柄不是路径) |
+| `localFiles` | `fromDrop(files)` | 基础能力，须原生确认 | 将本机拖入文件交由用户确认后签发句柄，不将路径字符串当作授权 |
+| `localFiles` | `read(input)` / `list(input)` / `reveal(handleId)` | 基础能力，仍校验句柄用途与代次 | 读取已选文件、列出授权目录或在文件管理器定位；不支持任意路径访问 |
+| `localFiles` | `prepareDrag(input)` / `startDrag(exportId)` / `endDrag()` | 基础能力，仍校验当前实例 | 为已授权句柄准备并启动系统拖出，结束后回收拖出状态 |
 | `sys` | `processes()` / `ports()` / `kill(pid, opts)` | `sys.inspect` / `sys.control` | 本机进程 / 端口 / 结束确认 |
 | `shell` | `openExternal(url)` | `shell.openExternal` | 系统浏览器打开 |
 | `shell` | `saveFile(payload)` / `saveTextFile(payload)` | 基础能力 | 用户经原生对话框选定保存位置后写入 |
+| `shell` | `resolvePath(input)` | 基础能力 | 本地路径词法归一与存在性探测；不读取文件内容、不授予读写能力 |
 | `deadlineTasks` | `start/get/pause/resume/skip/cancel/onChange` | 基础能力 | 插件自定义持久化步骤计划；不含业务周期/统计；通知单独校验 `notify` |
 | `quickInput` | `configure({placeholder?,value?})` / `release()` / `escape()` / `readContext()` / `onChange(cb)` / `onAction(cb)` | 基础能力 | 当前 Quick 插件接管小窗顶部输入；readContext 读取本次进入携带的文本/图片/文件上下文 |
 | `vault` | `set(key, secret)` | 基础能力 | 存密钥，返回引用 |
@@ -123,7 +141,7 @@ resolve({ ok: true, data })
 | `vault` | `remove(keyOrRef)` | 基础能力 | 删除密钥 |
 | — | `notify({ title?, body? })` | `notify` | 系统通知 |
 | — | `on(event, cb)` / `off(event, cb)` | 无 | 通用事件 |
-| — | `onEnter / onOut / onBeforeClose / onDestroy` | 无 | 生命周期 |
+| — | `onEnter / onOut / onBeforeSuspend / onBeforeClose / onDestroy` | 无 | 生命周期；关闭或休眠前的保存回调可返回 Promise，见[生命周期](lifecycle.md) |
 | — | `setDirty(dirty)` | 基础能力 | 上报未保存数据标记（更新重启前脏检测与一键保存） |
 | — | `onNotice(topic?, cb)` | 无 | 订阅壳统一通知（ShellNotice 标准信封） |
 | — | `onSaveRequested(cb)` | 无 | 壳请求立即保存数据（回调可返回 Promise） |
@@ -439,7 +457,7 @@ enest.hotkey.onHotkey(({ accelerator }) => {
 })
 ```
 
-插件运行时热键与「每插件启动热键」（`settings.pluginLaunch[id].hotkey`，设置 UI 在插件详情「快捷启动」区）共用全局热键空间：启动键保存前经 `shell:probe-launch-hotkey` 归属探测，插件启动键 / 运行时键冲突可经用户确认「接管」，Quick 当前生效键不可接管。
+插件运行时热键与用户配置的插件启动快捷键、Quick 快捷键共用全局热键空间。用户启动绑定统一保存在 `pluginShortcuts`，可为同一插件分别绑定小窗口 / 主窗口入口，在宿主「设置 → 快捷键」中管理；旧 `pluginLaunch[id].hotkey` 仅用于数据迁移。可信宿主在保存前探测归属并在提交时再次核验：其它用户启动绑定或 Quick 快捷键可经用户确认接管，原绑定会停用并保留配置；插件运行时键、系统及其它应用占用不能直接覆盖。插件的 `hotkey.register()` 不提供接管能力，冲突时应提示用户修改组合键或先在原归属处解除绑定。
 
 ### `hotkey.unregister(accelerator)` / `hotkey.onHotkey(cb)`
 
@@ -473,9 +491,94 @@ const off = enest.i18n.onLocaleChange(({ locale }) => switchDict(locale))
 
 ---
 
-## contribute — 贡献点（Quick 搜索 provider）
+## launch — 功能启动、持久目录与常驻
 
-贡献点机制的运行时入口：插件注册 Quick 搜索 provider 后，壳子搜索时把查询推给插件，插件回传结果项。**需在 `permissions` 声明 `contribute`。**
+功能执行与页面布局是两回事。`features[].activation` 可以声明 `{ "type": "view", "target": "shell" }` 或 `{ "type": "command" }`；`target` 只有 `quick/shell`，省略时沿用入口与用户启动偏好。未声明 activation 的旧功能仍是页面入口。只有显式声明 activation 的功能可以使用空 `cmds`：此类功能本身不进入静态搜索目录，可由持久条目引用其 `code`。
+
+```json
+{
+  "activation": { "indexSync": true },
+  "features": [
+    { "code": "main", "cmds": ["连接管理"], "activation": { "type": "view" } },
+    { "code": "connect", "cmds": [], "activation": { "type": "view", "target": "shell" } }
+  ]
+}
+```
+
+### `launch.getContext()` / `launch.registerHandlers(handlers)`
+
+`getContext()` 同步返回 `view | command | index-sync | resident`。它是初始化提示，不是授权凭证，也不表示窗口位置。入口应尽早登记处理器，不能等到 `onEnter` 才登记；每个页面代次只登记一次，Promise 只在宿主确认当前实例后完成。
+
+- `command(request)` 执行业务动作，返回 `{ type: 'done' }` 或 `{ type: 'view', target: 'quick' | 'shell' }`。`done` 不创建主插件 Tab；返回 `view` 后仍须完成页面准备，才由宿主呈现同一实例。
+- `prepareView(request)` 安装 `onEnter` 等监听器并等待延迟加载完成。宿主等真实 Promise 完成后才发送进入载荷，不用固定延时猜测 UI 已就绪；已初始化时应幂等返回。
+- `indexSync(request)` 读取已落盘的本插件数据并返回完整条目数组。不要导入业务 UI、Monaco、连接驱动或后端模块。
+
+```js
+let viewReady
+const prepareView = () => viewReady ??= import('./view.js').then(module => module.initialize())
+await enest.launch.registerHandlers({
+  prepareView,
+  async indexSync(request) {
+    request.signal.throwIfAborted()
+    const rows = await enest.storage.get('connections') ?? []
+    request.signal.throwIfAborted()
+    return rows.map(row => ({ id: row.id, code: 'connect', title: row.name,
+      subtitle: row.group, aliases: row.aliases, payload: { connectionId: row.id } }))
+  }
+})
+if (enest.launch.getContext() === 'view') await prepareView()
+```
+
+`request` 带 `code/type/payload/input`、`requestId/reason/entryId?/enabled?/deadlineAt` 与取消接口。`signal` 是可跨 Electron 隔离桥的函数集合 `isAborted()/throwIfAborted()/onAbort(cb)`，**不是 DOM AbortSignal**；`onCancel(cb)` 是等价订阅并返回解除函数。需要网络取消时由插件创建本地 AbortController 并关联该回调。关闭、替换、查询会话失效或超时会发出取消；取消不代表副作用已撤销，处理器应清理临时资源后实际结束。宿主不把“页面已加载”当命令成功，也不把取消后的迟到 ACK 当新任务的结果。
+
+每插件同时最多一个 activation，全局最多四个；登记就绪和 index-sync 的等待上限为15秒，command/prepareView 为60秒。启动只复用已安装、已启用的当前构建，不自动安装插件。Quick 发起的无界面命令在真实成功 ACK 后收起搜索窗，原生授权/辅助窗口接管焦点期间不会被自动失焦当作用户取消；用户明确关闭仍可取消。
+
+### 持久可搜索目录
+
+`replaceLaunchIndex(entries)` 返回 `{ revision }`；`launchIndexState()` 返回 `{ revision, dirty }`；`markLaunchIndexDirty()` 返回 `Promise<void>`。条目字段为 `{ id, code, title, subtitle?, aliases?, payload? }`，来源由当前插件身份绑定，`code` 必须已在 manifest 声明。`title/subtitle/aliases` 是可公开搜索文本，`payload` 只放小型业务引用 ID，不能存密码、令牌、连接密钥或整份连接配置；主题只收到安全展示信息与短期不透明启动句柄，不获得私有 payload。
+
+源级快照原子替换并递增 revision，不追加重复条目。每源最多12,000条/4MiB，全局最多30,000条/16MiB；`id` 最长160字符、`code/title` 256、`subtitle` 512，最多32个别名，每项256字符；payload 为最多4KiB、深度8、节点256的纯 JSON。完整目录另有65,536项上限，超限明确拒绝，不静默只取前100项。
+
+保存、改名和删除使用同一串行流水线：**先标脏，再可靠提交业务数据，最后发布新快照**。不要在提交之后才标脏，否则进程在两步之间退出会留下不可辨识的旧索引。
+
+```js
+await enest.contribute.markLaunchIndexDirty()
+await enest.storage.commit([{ op: 'set', key: 'connections', value: nextRows }])
+try {
+  await enest.contribute.replaceLaunchIndex(toLaunchEntries(nextRows))
+} catch (error) {
+  // 数据已保存；目录仍为 dirty，应提示索引待恢复并允许重试，不能误报保存未发生。
+  showIndexRecoveryWarning(error)
+}
+```
+
+dirty、构建不匹配、已禁用或已卸载的来源不参与目录查询，旧句柄不能继续执行；再次发布会恢复该来源。主窗与 Quick 的本地匹配读取已缓存目录，不因每次按键唤醒插件或访问插件后台。启动及来源变化时，宿主在独立、低并发的后台队列补建 dirty 索引，不在查询调用里回填。补建只用于冷启动或已有专用隐藏 `index-sync` 实例，并限制为本插件本地只读 API；它不允许后端、网络、设置/存储写入或原生辅助窗口。运行中的业务 UI 不会突然被全局切成只读，应在保存后主动发布；失败保持 dirty，关闭后或下次冷启动再补建。
+
+### 声明式常驻与关闭展示
+
+常驻绑定属于插件声明，不由宿主识别插件 ID：
+
+```json
+{
+  "activation": { "resident": { "setting": "floatingTools", "code": "desktop-tools" } },
+  "features": [{ "code": "desktop-tools", "cmds": ["桌面工具"], "activation": { "type": "command" } }],
+  "contributes": { "settings": [{ "id": "tools", "title": "工具", "items": [
+    { "key": "floatingTools", "type": "switch", "label": "桌面浮动工具", "default": false }
+  ] }] }
+}
+```
+
+`resident.setting` 必须绑定本插件已声明的布尔设置，`code` 必须绑定 command 功能。宿主根据已持久化值发送 `resident-restore` 或 `resident-setting`，`request.enabled` 是目标状态；处理器需幂等打开/关闭自己的资源并返回 `done`，不能要求自动展示主页面。自动恢复不获得新授权、不自动弹选择器、不聚焦主窗口；只有已获权限的被动辅助表面可以恢复。
+
+宿主贡献设置中的常驻开关，以及经原生确认的主题公开字段，走宿主设置事务：先以可信交互资格执行 `resident-setting` 并等到 `done`，再持久化目标布尔值。授权拒绝、来源销毁、页面代次/构建变化或当前值被其它入口修改时不提交；落盘失败会尝试用旧状态补偿，补偿未确认会明确报错。主题写入在授权和执行之后仍复核原字段 fingerprint、公开资格与设置页 activationEpoch，不能把一次确认移给新页面或新字段。
+
+插件自绘设置页首次启用需要原生授权的能力时，也应先在用户操作链内打开/确认能力，成功后再持久化 `true`；关闭则先完成资源关闭再写 `false`。普通 `enest.settings.set()` 不走可信宿主设置事务，其提交成功只表示设置落盘，不代表后续异步恢复成功，也不能让后台插件伪造用户手势。
+
+常驻开启时，关闭 Tab/插件主展示只移除展示并保留同一业务实例与辅助窗口；隐藏实例撤销主页面交互资格，文件选择等敏感交互需来自真实辅助窗口输入或新的可信启动动作。明确停止、禁用、卸载、替换或退出仍执行完整回收。手动停止后不会因无关设置刷新立即重启；相关设置再次改变或新构建启用才重新协调。未启用常驻的插件维持原有完整关闭语义。
+
+## contribute — 实时搜索 provider
+
+仅无法预先索引的实时结果使用 provider。插件注册后，主窗或 Quick 的独立查询会话把文本推给插件；本地目录先返回，实时结果不能阻塞它。**需在 `permissions` 声明 `contribute`**，因为该机制会收到全局查询文本；发布自己的持久目录不需要此权限。
 
 声明式贡献（`plugin.json` 的 `contributes` 段：settings / homeCards / railEntries / themePacks）不走本命名空间，由壳子扫描 manifest 时入库——见 [plugin.json](manifest.md)。
 
@@ -486,6 +589,8 @@ const off = enest.i18n.onLocaleChange(({ locale }) => switchDict(locale))
 | **权限** | `contribute`（接收 Quick 全局搜索文本） |
 | **参数** | `meta: { id: string; explain?: string; schemaVersion?: string }` |
 | **返回** | `Promise<{ ok: true } \| { ok: false; error?: string }>` — 失败不 reject |
+
+`id` 为1–64位字母数字、点、下划线或短横线（首位必须字母数字）；每插件最多8个 provider，全局最多64个。只查询已存活且有权接收文本的运行时 provider，不为本地名称搜索启动它们。
 
 ### `contribute.unregisterQuickProvider(providerId)`
 
@@ -507,8 +612,10 @@ const off = enest.i18n.onLocaleChange(({ locale }) => switchDict(locale))
 | | |
 |--|--|
 | **权限** | `contribute`（接收 Quick 全局搜索文本） |
-| **参数** | `reqId: string`；`items: Array<{ id?; title?; subtitle?; explain?; code? }>` |
+| **参数** | `reqId: string`；`items: Array<{ id?; title?; subtitle?; explain?; code?; payload? }>` |
 | **返回** | `Promise<boolean>` |
+
+每路最多100项、256KiB响应，单项私有 payload 最多4KiB。宿主最多并发查询4路并限制整批时间；超时、来源撤销或该会话开始新查询会发送 `enest.on('quick-query-cancel', ({reqId}) => ...)`。插件应按 reqId 取消自己的 IO；主窗和 Quick 不共用一个全局 AbortController，不能因一个窗口继续输入而取消另一个窗口。迟到结果被丢弃，结果启动能力绑定原查询会话、来源与构建，不能把旧 payload 改写后重新执行。
 
 ```js
 await enest.contribute.registerQuickProvider({ id: 'search', explain: '搜索我的笔记' })
@@ -769,7 +876,7 @@ manifest 的 `background` 声明包内生产 HTML、原生事件、可选的布�
 }
 ```
 
-后台只有 `window.enestBackground`，没有普通插件 `enest`、Node、任意网络或路径访问。外部脚本调用 `register({onEvent?,call,search?})` 注册一次；`onEvent(event,data)` 接收已授权的原生快照，`call(method,args)` 执行本插件方法，`search(query,limit)` 返回本插件搜索结果。`clipboard.changed` 的数据是带 `revision/capturedAt/type` 的文本、图片或文件引用快照，不是历史记录；宿主只有一个共享的有界原生观察器，不执行历史策略。
+后台只有 `window.enestBackground`，没有普通插件 `enest`、Node、任意网络或路径访问。外部脚本调用 `register({onEvent?,call,search?})` 注册一次；`onEvent(event,data)` 接收已授权的原生快照，`call(method,args)` 执行本插件方法，`search(query,limit,context)` 返回本插件搜索结果。旧的二参数处理器仍兼容；第三参数含 `requestId/deadlineAt` 与函数式 `signal/onCancel`，用于终止过期查询。查询会话取消或750ms展示期限到达后不再接收该结果，未派发的查询跳过；已派发处理器实际结束前不假释放串行队列，也不会为了搜索期限强杀前面尚在迁移/写入的后台任务。`clipboard.changed` 的数据是带 `revision/capturedAt/type` 的文本、图片或文件引用快照，不是历史记录；宿主只有一个共享的有界原生观察器，不执行历史策略。
 
 `enestBackground.host.private` 提供 `readDocument/writeDocument/getBlob/putBlob/removeBlob`，文档原子替换且数据只属于当前插件。`host.settings.get()` 只读本插件设置；`host.emit(event,data)` 只发到本插件存活前台的 `background.event`。`host.legacy` 仅提供宿主预定的一次性旧数据迁移源，不接受任意文件路径。业务必须等持久化完成再返回，串行化并发修改由插件实现。
 
@@ -806,7 +913,15 @@ const shot = await enest.screen.capture({ displayId, bounds: { x, y, width, heig
 
 ## auxiliary / files.stream — 通用原生容器与私有输出
 
-普通插件用 `auxiliary.open({entry,data?,...})` 打开本插件 `assets/` 内的 HTML，返回 `{windowId}`；`send(windowId,data,{visible?}?)` 传消息或请求显示/隐藏，`close(windowId)` 关闭，`list()` 返回当前实例的 `{windowId,entry}[]`。几何、显示器和样式选项见自动生成的 `AuxiliaryOpen`。辅助页只有 `enestAux.getContext/onMessage/post/close`，`getContext()` 仅可消费一次；它不能调用主页面的剪贴板、设置、文件或完整 `enest`。前台通过 `auxiliary.message` / `auxiliary.closed` 接收带 `windowId` 的事件。
+普通插件用 `auxiliary.open({entry,data?,...})` 打开本插件 `assets/` 内的 HTML，返回 `{windowId}`；`send(windowId,data,options?)` 传消息或更新窗口，`close(windowId)` 关闭，`list()` 返回当前实例的 `{windowId,entry}[]`。几何、显示器和样式选项见自动生成的 `AuxiliaryOpen` / `AuxiliaryUpdate`。辅助页只有 `enestAux.getContext/onMessage/post/close`，`getContext()` 仅可消费一次；它不能调用主页面的剪贴板、设置、文件或完整 `enest`。前台通过 `auxiliary.message` / `auxiliary.closed` / `auxiliary.changed` 接收带 `windowId` 的事件。
+
+`focus:false` 以不抢焦方式显示；`interaction:'passthrough'` 由原生窗口将鼠标穿透给其他应用，不能用 CSS `pointer-events` 替代。显式切换到 `capture` 或请求聚焦仍需当前交互资格。`parentWindowId` 仅接受本实例的现存非捕获辅助窗口，可让工具栏保持在画布之上。`placement:'display'` 的尺寸只由宿主管理，普通窗口可通过 `send` 的 `bounds` 更新到可见工作区。非捕获窗口默认选择光标所在屏幕，子窗口跟随父窗口的屏幕；录制保留默认主屏行为。
+
+窗口移动、缩放和屏幕变化后，主页面收到 `auxiliary.changed`（`state.bounds/display/interaction`），辅助页收到 `onMessage` 的 `{type:'enest:surface-changed',state}`。非录制全屏辅助页收到 Esc 时，宿主直接恢复鼠标穿透，不依赖页面响应。移除或重排屏幕时，全屏辅助页也先恢复鼠标穿透并校正位置；捕获窗口关闭。插件应同步取消未完成的指针操作，并保留可关闭的工具栏。
+
+声明 `activation.resident` 的插件可恢复已授权的非捕获辅助窗口，但必须 `focus:false`；全屏页还必须鼠标穿透，不能在开机恢复时自动接管桌面。辅助页真实原生点击/按键提供短时、绑定当前实例的交互资格；MCP 和索引回填不会继承该资格。文件选择/保存对话框优先附着本插件可见的辅助窗口，不为弹出对话框而拉起主窗口。停止、禁用、卸载、升级与退出回收整个实例的所有辅助窗口。
+
+开发模式的辅助入口同样只能读取 `public/assets/` 下的实际本地资产，不能直接加载 JSX、Vite 服务器或扩大主桥权限。需要编译的辅助界面由插件自己的开发配置生成；正式分发仍放在 `assets/`。
 
 普通辅助窗口是基础 UI 能力；非捕获窗口的 `alwaysOnTop:true` 仍需兼容权限 `pin.create`，不是宿主贴图 API。`capture:{displayId?,withAudio?}` 需 `screen.record` 与系统许可，且主插件可见；只允许当前辅助页主 frame 在真实原生点击后请求一次指定显示器的 `getDisplayMedia`。不允许页面自报捕获 ID、合成激活、摄像头或麦克风权限；音频选项是平台支持时的系统 loopback，不保证每个平台可用。每插件最多8个辅助窗口、全局24个；窗口、代次、消息、Session 与活动租约由宿主有界管理。
 
@@ -939,6 +1054,19 @@ ws.binaryType = 'arraybuffer'
 
 ## shell — 系统能力
 
+### `shell.resolvePath({ input, base? })`
+
+宿主与插件共用同一套本地路径词法规则。`base` 为 `home`（默认，当前用户目录）、`data`（本插件私有数据目录）或 `cwd`（宿主工作目录）。相对路径、`.`、`..` 按选定基准解析；`~` / `~/` 展开当前用户目录，Windows 另支持 `~\\`、完整盘符和 UNC 网络共享路径。Windows 的 `\\folder` 是相对于基准盘符的根路径，不是完整绝对路径；`C:folder` 这种盘符相对路径被拒绝。macOS 不把 Windows 盘符或 UNC 当成本地路径。
+
+返回 `{ path, absolute, base, exists, error? }`；失败时 `path: null`，`absolute` 表示原输入是否为完整绝对路径或 `~` 路径，`exists` 只是当前时刻的存在性探测。保留合法文件名中的空格；拒绝空输入、空字符、`~otheruser`、URL/协议（包括 `mailto:`、`file:`、`ssh:`）、SSH 远端和设备命名空间。
+
+```js
+const resolved = await enest.shell.resolvePath({ input: '~/Documents', base: 'home' })
+if (!resolved.path) showError(resolved.error)
+```
+
+解析不创建目录、不读取文件内容，也不签发访问权限。实际读写继续使用用户选定的文件句柄；`exists: true` 不代表当前插件有权读写。系统“打开方式”收到的 `file:` URL 由可信宿主入口转换，不由此 API 接受任意协议。
+
 ### 打开方式（宿主统一能力，非插件 API）
 
 「设为默认打开软件」不暴露给插件：系统关联的写入目标只能是 eNest 本体（插件是壳内视图），注册、状态检测与「类型→插件」路由统一由壳主进程负责。插件只经 [manifest `contributes.openWith`](manifest.md#打开方式contributesopenwith) 声明能处理的类型/scheme；命中后以 `onEnter`（`code: 'open-file' | 'open-url'`）收到 `{ paths?, handles?, url? }`，文件读取走 `localFiles.read` 只读句柄。管理界面在壳设置 → 通用 → 打开方式。
@@ -1032,7 +1160,7 @@ await enest.notify({ title: '备份完成', body: '已写入 128 个文件' })
 
 ### `quickInput.configure(config)` / `release()` / `escape()`
 
-仅当前挂载于 Quick 小窗的插件可接管顶部输入框。
+当前 Quick 逻辑会话的插件，以及保留 quick 布局的独立窗口，可接管各自顶部输入框；布局值本身不授予其它窗口的输入权。
 
 | | |
 |--|--|
@@ -1048,7 +1176,7 @@ const offAction = enest.quickInput.onAction(action => {
 })
 ```
 
-迁移、隐藏、返回全局搜索或实例销毁立即解除接管，旧 generation 的消息无效；重新进入 Quick 需重新 `configure`。`onChange` 收到宿主输入框的实时文本，`onAction` 收到 `next / previous / submit / clear`（方向键、Enter、清空）。完整键盘语义见[多布局工具接口 — 接管顶部输入](dual-mode-tools.md#接管顶部输入)。
+Quick 自动隐藏只改变可见性，不退出已进入的插件，也不清除其接管值；再次呼出复用同一实例，恢复期间不把临时未就绪的输入状态当成退出请求。Esc/返回、显式关闭、禁用或卸载结束会话；迁入主窗或面板解除顶部接管，迁入 quick 布局独立窗口可保留字段值。旧 generation 的消息无效。未配置顶部输入的插件不会因用户在顶栏打字而退出，返回全局搜索须使用 Esc/返回。`onChange` 收到宿主输入框的实时文本，`onAction` 收到 `next / previous / submit / clear`（方向键、Enter、清空）。完整键盘语义见[多布局工具接口 — 接管顶部输入](dual-mode-tools.md#接管顶部输入)。
 
 ### `quickInput.readContext()`
 
@@ -1058,15 +1186,15 @@ const offAction = enest.quickInput.onAction(action => {
 |--|--|
 | **权限** | 基础能力，无需声明或授权 |
 | **参数** | 无 |
-| **返回** | `Promise<QuickEnterInput \| null>` — `{ text?, images?: Array<{ dataUrl, width, height }>, files?: Array<{ handleId, path, name, size, kind }> }`；无上下文或实例已换代返回 null |
+| **返回** | `Promise<QuickEnterInput \| null>` — `{ text?, query?: { raw, trigger? }, images?: Array<{ dataUrl, width, height }>, files?: Array<{ handleId, path, name, size, kind }> }`；无上下文、会话已结束或实例已换代返回 null |
 
 ```js
-// onEnter 已交付同一对象；输入框清空后重开插件、或需要按当前上下文继续处理时再读取。
+// onEnter 已交付同一对象；在同一逻辑会话内需要继续处理时重读。
 const ctx = await enest.quickInput.readContext()
 if (ctx?.images?.length) importImages(ctx.images.map(image => image.dataUrl))
 ```
 
-文件条目经 `localFiles.read/list({ handleId })` 读取（宿主签发的只读句柄），`path` 仅用于展示。上下文只在 Quick 启动注入的成功实例与当前 runtime 代次内可读；离开 Quick、换代或销毁后返回 null，重复激活不重放旧上下文。字段边界与启动语义见[多布局工具接口 — 输入上下文](dual-mode-tools.md#输入上下文)。
+文件条目经 `localFiles.read/list({ handleId })` 读取（宿主签发的只读句柄），`path` 仅用于展示。上下文在宿主发送 `onEnter` 前登记，只在实际拥有顶部输入资格的当前实例内可读。Quick 自动隐藏保留本次上下文；Esc/返回、迁出 Quick、换代或销毁后失效，无输入的新会话不能读取上一会话的正文或附件。重复激活不重放旧上下文。字段边界与启动语义见[多布局工具接口 — 输入上下文](dual-mode-tools.md#输入上下文)。
 
 ---
 
@@ -1101,11 +1229,13 @@ enest.off('enter', onEnter)
 | `hotkey` | 插件注册的全局热键被按下 | `{ accelerator }` |
 | `locale-change` | 壳子界面语言变更 | `{ locale }` |
 | `quick-query` | Quick 搜索查询（已注册 provider 的插件） | `{ reqId, query }` |
+| `quick-query-cancel` | 当前查询超时或其会话被取消 | `{ reqId }` |
 | `backend.event` | 本插件后端命名事件 | `{ event, data }` |
 | `deadline-task-change` | 本插件计划状态提交 | `{ taskId }` |
 | `background.event` | 本插件沙箱后台主动发布；具体事件名由插件定义 | `{ event, data }` |
 | `auxiliary.message` | 本插件当前辅助页发送消息 | `{ windowId, data }` |
 | `auxiliary.closed` | 本插件辅助页关闭 | `{ windowId }` |
+| `auxiliary.changed` | 本插件辅助窗口几何或鼠标模式改变 | `{ windowId, state }` |
 | `shell-notice` | 壳统一通知（任何关键节点；见下方「壳通知」） | `ShellNotice` 信封 |
 | `save-requested` | 壳请求立即保存（更新重启 / 退出前；建议用 `onSaveRequested`） | `{ reason, deadlineMs, operationId }` |
 
@@ -1126,7 +1256,7 @@ enest.off('enter', onEnter)
   "ts": "2026-10-14T09:30:00.000Z", // 事件产生时间（ISO 8601）
   "source": "shell",             // 来源恒为 'shell'（预留给未来非壳来源）
   "topic": "update.available",   // 通知主题，点分命名空间 <域>.<节点>
-  "data": { "currentVersion": "0.1.0", "latestVersion": "0.2.0" }
+  "data": { "currentVersion": "0.0.1", "latestVersion": "0.0.2" } // 示例版本，不代表发行状态
 }
 ```
 
@@ -1251,7 +1381,9 @@ enest.onEnter(({ tabId, code, type, payload, input, mode }) => {
 })
 ```
 
-`code` / `payload` 来自 `openPlugin` 的进入载荷，对应 `features[].code` 与透传数据；Quick 打开插件时 `payload` 恒为当前输入文本（regex/over 命中为原始文本，provider 结果为 provider 载荷）；`input` 为本次启动携带的粘贴上下文（文本/图片/文件，有界），仅 Quick 启动携带上下文时存在。`mode` 为本次进入的布局（quick / shell / panel），与 `getLaunchMode()` 一致，但不代表当前原生容器。完整交互见[多布局工具接口 — 输入上下文](dual-mode-tools.md#输入上下文)；重复激活不重放旧 `payload`/`input`。实际挂载于 Quick 期间可用 `enest.quickInput.readContext()` 重取本次上下文。
+`code` / `payload` 来自宿主重新核验后的进入载荷，对应 `features[].code`；普通文本/regex/over 入口传当前输入文本，持久目录条目与实时 provider 传来源私有引用 payload。`input` 为本次启动的文本、查询来源与附件上下文（有界）；主窗与 Quick 的已确认启动都可携带，图片/文件权限仍绑定当前插件实例。`mode` 为本次进入的布局（quick / shell / panel），与 `getLaunchMode()` 一致，但不代表当前原生容器。command 功能不是先 `onEnter` 再假装执行，见 launch 契约。完整交互见[多布局工具接口 — 输入上下文](dual-mode-tools.md#输入上下文)；重复激活不重放旧 `payload`/`input`。实际拥有 Quick 输入资格期间可用 `enest.quickInput.readContext()` 重取本次上下文。
+
+文本功能可声明 `features[].input: { type: 'text', trigger: 'prefix' }`。默认主题识别“精确功能别名 + 空白 + 非空正文”，宿主重新核验后将正文放入 `input.text`，原始查询和命中的别名放入 `input.query.raw/trigger`；同次启动的字符串 `payload` 也使用正文，兼容旧文本插件。例：`fy Hello world` 交付 `payload: 'Hello world'`、`input: { text: 'Hello world', query: { raw: 'fy Hello world', trigger: 'fy' } }`。未命中前缀不剥离输入；`trigger: 'none'` 明确保留全文。未声明 input 但同一功能有不含 exclude 的 `over` 时兼容前缀输入；普通名称或仅 regex/media 功能不会隐式启用。正文/原查询最多 4096 个 UTF-16 码元，持久索引与实时 provider 的私有 payload 不被改写。完整声明与排序见[主题包规范 — 文本触发词与启动参数](themes.md#文本触发词与启动参数)。
 
 ### `onOut(cb)`
 
@@ -1303,11 +1435,13 @@ enest.onBeforeClose(async ({ reason }) => {
 
 `PluginLaunchMode` 表示插件的三种呈现布局：quick 紧凑工具、shell 完整工作台、panel 组件摘要。它由打开入口、用户启动偏好与 manifest `views` 共同选择。普通启动请求布局未声明时用 `views.default`，不会把不支持的布局传给插件；加入自由面板则必须显式声明 panel，不走兼容回退。
 
-启动请求目标 `PluginLaunchTarget` 只有 quick/shell。Quick、快捷键与 Workspace 打开经统一启动器解析：最终 quick 布局进入 Quick，其余布局在主窗显示；Workspace 目录、详情和首页搜索显式请求 shell。`views.default` 仅在请求布局未适配时使用，因此默认 panel 不覆盖已适配的 quick/shell 请求；只有请求未适配且最终回退 panel 时，启动器才在主窗呈现组件布局，不自动创建自由面板。宿主普通打开（`ShellOpenPlugin`）不走这套目标重选：请求 shell 并保留主窗位置，即使回退 quick 布局。
+启动请求目标 `PluginLaunchTarget` 只有 quick/shell。Quick、快捷键与 Workspace 经统一启动器解析；功能显式 view target 或 command 返回的 target 先于入口缺省值，未声明时 Workspace 请求 shell，普通 Quick 沿用用户启动偏好。最终 quick 布局进入 Quick，其余布局在主窗显示；`views.default` 仅在请求布局未适配时使用，不覆盖已适配的 quick/shell 请求。回退 panel 仅在主窗呈现组件布局，不自动创建自由面板。
+
+宿主普通打开（`ShellOpenPlugin`）保留旧插件兼容路径：未采用 activation 的页面仍请求 shell 并保留主窗位置，即使布局回退 quick。采用 activation 的新入口先经 command/prepareView ACK，再按功能目标与布局呈现；只有没有功能级 activation 且实例已在面板/独立窗时，沿用原地聚焦，不重复引导已存在的业务 UI。
 
 用户明确固定到主窗或拖入 Quick 时保留指定位置，再选择 shell/quick 或默认布局。加入自由面板先检查 `views.layouts` 包含 panel，否则不显示候选并拒绝挂载；通过后始终选择 panel。独立窗口保留原布局，因此 mode 不能作为原生位置探测 API。
 
-已有面板组件或独立窗口从普通 Quick 搜索（未指定显式目标）或 `ShellOpenPlugin` 打开时原地聚焦，新载荷正常交付；Workspace 打开、显式设置入口、快捷键目标或原生迁移动作仍可移动实例。不能把所有主窗按钮都视为原地聚焦入口。面板、主窗、独立窗共用业务状态，普通插件不读取宿主完整设置，也不操纵父窗口。入口决策与实际内容区的适配见 [UI 集成标准](ui-standard.md#三种布局与挂载位置) 和 [自由面板](panels.md)。
+已有面板组件或独立窗口从普通 Quick 搜索（未指定显式目标，功能也未指定 target）或宿主兼容聚焦路径打开时原地聚焦，新载荷正常交付；Workspace、功能显式目标、设置入口、快捷键目标或原生迁移动作仍可移动实例。不能把所有主窗按钮都视为原地聚焦入口。面板、主窗、独立窗共用业务状态，普通插件不读取宿主完整设置，也不操纵父窗口。入口决策与实际内容区的适配见 [UI 集成标准](ui-standard.md#三种布局与挂载位置) 和 [自由面板](panels.md)。
 
 ### `getLaunchMode()`
 

@@ -30,7 +30,7 @@ const adapters = {
   '@main/theme/appearanceResources': `import {state} from 'fixture'; export const publicAppearanceFonts=()=>state.fonts??[]; export const publicAppearanceMedia=media=>media;`,
   '@main/window/modalSurface': `import {state} from 'fixture'; export const openNativeModal=async(owner,request)=>{state.confirmations.push({owner,request});return state.confirm?await state.confirm():true};`,
   '@main/plugin/installQueue': `import {state} from 'fixture'; export const enqueueInstallFromUrl=(url,meta)=>{state.queue.push({url,meta});return {id:'job-1'}};`,
-  '@main/launcher/pluginLauncher': `import {state} from 'fixture'; export const launchPlugin=async request=>{state.launches.push(request);return state.launchResult??{ok:state.launchOk && Boolean(request.pluginId)}};`,
+  '@main/launcher/pluginLauncher': `import {state} from 'fixture'; export const launchPlugin=async request=>{state.launchRequests.push(request);if(state.launchWait)await state.launchWait;if(request.guard&&!request.guard())return {ok:false,cancelled:true};state.launches.push(request);state.onLaunch?.();return state.launchResult??{ok:state.launchOk && Boolean(request.pluginId)}};`,
   '@main/launcher/appLauncher': `import {state} from 'fixture'; export const launchLocalApp=async path=>{state.appLaunches.push(path);if(state.appLaunchError)throw state.appLaunchError};`,
   '@main/launcher/appScanner': `import {state} from 'fixture'; export const scanApplications=async force=>{state.appScans.push(force);return state.scanResult??{complete:true,errors:[]}};`,
   '@main/launcher/commandIndex': `import {state} from 'fixture'; export const searchQuickCommands=async(query,limit,recent,kind)=>{state.searches.push({query,limit,kind});if(state.searchWait)await state.searchWait;return state.commands};`,
@@ -41,13 +41,19 @@ const adapters = {
 async function load(initial = {}) {
   for (const key of Object.keys(state)) delete state[key]
   Object.assign(state, {
-    queue: [], launches: [], appLaunches: [], appScans: [], searches: [], shellEvents: [],
+    queue: [], launches: [], launchRequests: [], appLaunches: [], appScans: [], searches: [], shellEvents: [],
     commands: [], searchHandles: {}, visibility: [], workspaceNavigations: [], launchOk: true,
     confirmations: [], blocks: [], releases: [], closed: [], uninstalls: [], cancelledTasks: [], hotkeys: [], clearedLaunch: [], logs: [],
     registry: { get: () => null, list: () => [], getRemoteMarket: () => [], getAssetManifest: () => null }, window: null
   }, initial)
   state.registry.list ??= () => []
   state.registry.getAssetManifest ??= () => null
+  const manifests = new Map()
+  state.registry.getManifest ??= id => {
+    if (!manifests.has(id)) manifests.set(id, { id, ...state.registry.getAssetManifest(id) })
+    return manifests.get(id)
+  }
+  state.registry.getBuildRevision ??= () => 'fixture-build'
   globalThis.homeFixtureState = state
   const source = `export * from '@main/home/homeDataService'; export const nonce=${Math.random()};`
   const bundle = await build({
@@ -531,4 +537,103 @@ test('nested install rejections are caught before their private host message can
   assert.deepEqual(result, { ok: false, error: 'home operation failed' })
   assert.doesNotMatch(JSON.stringify(result), /Users|private|secret|ENOENT/)
   assert.ok(state.logs.some(args => args.join(' ').includes(detail)))
+})
+
+function homeCardRegistry(cards) {
+  const summary = { id: 'notes', name: 'Notes', installed: true, enabled: true }
+  const manifests = { notes: { id: 'notes', contributes: { homeCards: cards } } }
+  const revision = { value: 'build-1' }
+  return {
+    summary, manifests, revision,
+    registry: {
+      list: () => [summary],
+      get: id => id === summary.id ? summary : null,
+      getManifest: id => manifests[id] ?? null,
+      getBuildRevision: () => revision.value,
+      getCatalogResources: () => ({ screenshots: [] })
+    }
+  }
+}
+
+test('home cards publish bounded presentation fields without manifest payloads or launch codes', async () => {
+  const fixture = homeCardRegistry([
+    { id: 'main', title: 'Notes', glyph: 'N', color: '#123456', explain: 'Open notes', openCode: 'private-code', path: '/private', payload: { secret: true } },
+    { id: 'future', title: 'Future', schemaVersion: '2' },
+    { id: 'control', title: 'Bad\nTitle' },
+    { id: 'long', title: 'x'.repeat(129) },
+    { id: 'duplicate', title: 'First' },
+    { id: 'duplicate', title: 'Second' },
+    { id: 'optional', title: 'Optional', glyph: 'LONG', color: 'url(file:///private)', explain: 'Bad\nText' }
+  ])
+  const api = await load({ registry: fixture.registry })
+  const catalog = await api.getHomeCatalog()
+  assert.deepEqual(catalog.items[0].homeCards, [
+    { id: 'main', title: 'Notes', glyph: 'N', color: '#123456', explain: 'Open notes' },
+    { id: 'optional', title: 'Optional' }
+  ])
+  assert.doesNotMatch(JSON.stringify(catalog), /private|openCode|payload|file:/)
+  assert.equal('homeCards' in await api.getHomeDetail('notes'), false)
+  fixture.manifests.notes.contributes.homeCards = Array.from({ length: 20 }, (_, index) => ({ id: `card-${index}`, title: `Card ${index}` }))
+  assert.equal((await api.getHomeCatalog()).items[0].homeCards.length, 16)
+  fixture.summary.enabled = false
+  assert.deepEqual((await api.getHomeCatalog()).items[0].homeCards, [])
+  fixture.summary.enabled = true
+  fixture.summary.installed = false
+  assert.deepEqual((await api.getHomeCatalog()).items[0].homeCards, [])
+})
+
+test('home card actions resolve the current source declaration and reject renderer-selected launch data', async () => {
+  const fixture = homeCardRegistry([{ id: 'same-id', title: 'Notes', openCode: 'notes-entry' }])
+  const other = { id: 'other', name: 'Other', installed: true, enabled: true }
+  fixture.manifests.other = { id: 'other', contributes: { homeCards: [{ id: 'same-id', title: 'Other', openCode: 'other-entry' }] } }
+  fixture.registry.get = id => id === 'notes' ? fixture.summary : id === 'other' ? other : null
+  const api = await load({ registry: fixture.registry })
+  const action = { type: 'openHomeCard', pluginId: 'other', cardId: 'same-id' }
+  assert.deepEqual(await api.runHomeAction(action, context()), { ok: true })
+  assert.equal(state.launches[0].pluginId, 'other')
+  assert.deepEqual(state.launches[0].enter, { code: 'other-entry' })
+  assert.equal(state.launches[0].mode, 'shell')
+  for (const extra of [{ openCode: 'attacker' }, { code: 'attacker' }, { payload: {} }]) {
+    assert.equal((await api.runHomeAction({ ...action, ...extra }, context())).ok, false)
+  }
+  fixture.manifests.other.contributes.homeCards = []
+  assert.equal((await api.runHomeAction(action, context())).ok, false)
+  assert.equal(state.launches.length, 1)
+})
+
+test('pending home card launches retire with their source, manifest, build or declaration', async () => {
+  for (const mutation of ['source', 'disabled', 'manifest', 'build', 'card-code', 'removed']) {
+    const fixture = homeCardRegistry([{ id: 'main', title: 'Notes', openCode: 'original' }])
+    let current = true, release
+    const launchWait = new Promise(resolve => { release = resolve })
+    const api = await load({ registry: fixture.registry, launchWait })
+    const result = api.runHomeAction({ type: 'openHomeCard', pluginId: 'notes', cardId: 'main' }, context(() => current))
+    assert.equal(state.launchRequests.length, 1)
+    if (mutation === 'source') current = false
+    else if (mutation === 'disabled') fixture.summary.enabled = false
+    else if (mutation === 'manifest') fixture.manifests.notes = { ...fixture.manifests.notes }
+    else if (mutation === 'build') fixture.revision.value = 'build-2'
+    else if (mutation === 'card-code') fixture.manifests.notes.contributes.homeCards[0].openCode = 'changed'
+    else fixture.manifests.notes.contributes.homeCards = []
+    release()
+    assert.equal((await result).ok, false, mutation)
+    assert.deepEqual(state.launches, [], mutation)
+    assert.deepEqual(state.visibility, [], mutation)
+  }
+})
+
+test('a committed home launch may deactivate its source without hiding a replacement workspace', async () => {
+  const fixture = homeCardRegistry([{ id: 'main', title: 'Notes' }])
+  let current = true
+  const api = await load({ registry: fixture.registry, onLaunch: () => { current = false } })
+  assert.deepEqual(await api.runHomeAction({ type: 'openHomeCard', pluginId: 'notes', cardId: 'main' }, context(() => current)), { ok: true })
+  assert.deepEqual(state.visibility, [])
+  current = true
+  state.onLaunch = null
+  state.launchResult = { ok: false, error: '/private/launch-error' }
+  assert.equal((await api.runHomeAction({ type: 'openHomeCard', pluginId: 'notes', cardId: 'main' }, context())).ok, false)
+  assert.deepEqual(state.visibility, [])
+  state.launchResult = { ok: true }
+  assert.deepEqual(await api.runHomeAction({ type: 'openPlugin', pluginId: 'notes' }, context()), { ok: true })
+  assert.equal(typeof state.launchRequests.at(-1).guard, 'function')
 })

@@ -2,18 +2,20 @@ import type { QuickActionId, QuickCommandKind, QuickContentMatch, QuickImageCont
 
 export interface DefaultSearchEntry {
   id: string
+  stateKey?: string
   kind: QuickCommandKind
   title: string
   aliases?: string[]
   action?: QuickActionId
   content?: QuickContentMatch
+  textInput?: import('@shared/types/plugin').PluginFeatureInput
   provider?: boolean
   lastUsedTs?: number
   useCount?: number
   preferred?: boolean
 }
 
-export type DefaultQuickMatch<T> = T & { title: string; group: 'best' | 'match' | 'recommendation' | 'provider' }
+export type DefaultQuickMatch<T> = T & { title: string; group: 'best' | 'match' | 'recommendation' | 'provider'; prefix?: boolean }
 
 /** These names, discovery rules and weights are default-theme policy, never host search behavior. */
 export const ACTION_COPY: Record<QuickActionId, { title: string; aliases: string[] }> = {

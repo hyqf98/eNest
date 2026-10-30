@@ -44,6 +44,7 @@ const dockChannels = new Set<string>([IpcChannels.ShellGetOrbState, IpcChannels.
 const orbChannels = new Set<string>([
   ...windowChannels,
   IpcChannels.ShellGetOrbState, IpcChannels.ShellSetOrbRailExpanded,
+  IpcChannels.ShellActivateRailContribution,
   IpcChannels.ShellActivatePlugin, IpcChannels.ShellOpenPlugin, IpcChannels.ShellClosePlugin,
   IpcChannels.ShellGoHome, IpcChannels.ShellSetView, IpcChannels.WindowMinimize,
   IpcChannels.WindowMaximize, IpcChannels.WindowClose
@@ -52,7 +53,7 @@ const orbChannels = new Set<string>([
 const panelChannels = new Set<string>([
   IpcChannels.PanelGetState,
   IpcChannels.PanelCommand,
-  IpcChannels.PanelDragTick,
+  IpcChannels.PanelDragHeartbeat,
   // 面板可作为「拖入目标」：注册自身内容区落点并接收拖拽反馈（Tab / 独立窗口 → 面板）。
   IpcChannels.PluginDragTargets
 ])

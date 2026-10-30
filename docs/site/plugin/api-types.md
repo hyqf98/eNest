@@ -11,6 +11,7 @@
 ```ts
 /** Generated from the eNest preload and shared API types. Do not edit. */
 export interface EnestPluginApi {
+    launch: PluginLaunchApi;
     /** Register exactly the manifest-declared tools after business initialization. */
     mcp: {
         registerHandlers(handlers: McpToolHandlers): Promise<void>;
@@ -127,6 +128,12 @@ export interface EnestPluginApi {
      * 需声明 contribute 并取得授权：注册后会接收 Quick 全局搜索文本。
      */
     contribute: {
+        /** Atomically replace this plugin's durable search directory; no global query access. */
+        replaceLaunchIndex(entries: PluginLaunchIndexEntry[]): Promise<{
+            revision: number;
+        }>;
+        launchIndexState(): Promise<PluginLaunchIndexState>;
+        markLaunchIndexDirty(): Promise<void>;
         /**
          * 注册 Quick 搜索 provider：注册后壳子搜索时推送 quick-query 事件，
          * 插件在 onQuickQuery 回调中计算结果并 respondQuickQuery 回传（500ms 超时丢弃）。
@@ -447,11 +454,7 @@ export interface EnestHomeApi {
     getConfig(): Promise<HomeRuntimeConfig>;
     getCatalog(): Promise<HomeCatalog>;
     getDetail(id: string): Promise<HomeDetail | null>;
-    search(request: {
-        query: string;
-        scope?: HomeSearchScope;
-        limit?: number;
-    }): Promise<HomeSearchResult>;
+    search(request: HomeSearchRequest): Promise<HomeSearchResult>;
     refresh(request?: {
         reason?: 'manual' | 'boot';
     }): Promise<HomeCatalog>;
@@ -552,159 +555,6 @@ export interface OpenWithEnterPayload {
     url?: string;
 }
 
-export type Listener = (data: unknown) => void;
-
-/** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗 / panel 面板组件） */
-export type PluginEnterEvent = PluginEnterPayload & {
-    tabId: string;
-    mode: PluginLaunchMode;
-};
-
-/** out 事件载荷；isKill 恒为 false（杀死走 beforeClose/destroy） */
-export type PluginOutEvent = {
-    isKill: false;
-};
-
-/** beforeClose 事件载荷 */
-export type PluginBeforeCloseEvent = {
-    reason: PluginCloseReason;
-};
-
-/** 主题变量集合（壳子解析后的 CSS 自定义属性值） */
-export type PluginThemeTokens = Record<string, string>;
-
-/** 主题变更事件（enest.ui.onThemeChange） */
-export type PluginThemeChangeEvent = {
-    mode: 'light' | 'dark';
-    tokens: PluginThemeTokens;
-};
-
-/** 热键触发事件（enest.hotkey.register 的回调 / enest.on('hotkey')） */
-export type PluginHotkeyEvent = {
-    accelerator: string;
-};
-
-/** 语言变更事件（enest.i18n.onLocaleChange） */
-export type PluginLocaleChangeEvent = {
-    locale: AppLocale;
-};
-
-/** Quick 搜索查询事件（enest.contribute.onQuickQuery） */
-export type PluginQuickQueryEvent = {
-    reqId: string;
-    query: string;
-};
-
-/** Quick provider 回传项（enest.contribute.respondQuickQuery 的 items 元素） */
-export type PluginQuickQueryItem = {
-    id?: string;
-    title?: string;
-    subtitle?: string;
-    explain?: string;
-    code?: string;
-    /** 选择此业务结果时随 onEnter 传回；应为可通过 IPC 克隆的数据。 */
-    payload?: unknown;
-};
-
-/** Quick provider 注册元数据 */
-export type PluginQuickProviderMeta = {
-    id: string;
-    explain?: string;
-    schemaVersion?: string;
-};
-
-/** hotkey.register 结果：ok=false 时 error 携带冲突/失败原因 */
-export type PluginHotkeyRegisterResult = {
-    ok: boolean;
-    error?: string;
-};
-
-/** net.socket 数据事件（enest.net.onNetData / enest.on('net.data')） */
-export type NetDataEvent = {
-    socketId: string;
-    /** base64 编码的分片（64KB / 20ms 双阈值节流合并） */
-    chunk: string;
-};
-
-/** net.socket 关闭事件（enest.net.onNetClose / enest.on('net.close')） */
-export type NetCloseEvent = {
-    socketId: string;
-    reason: string;
-};
-
-/** net.fetch 流式分片事件（enest.net.onChunk / enest.on('net.chunk')） */
-export type NetChunkEvent = {
-    reqId: string;
-    /** base64（流式响应）或 utf8 文本（SSE data: 行） */
-    chunk: string;
-    done?: boolean;
-    error?: string;
-};
-
-/** net.socket.connect 返回 */
-export type NetSocketHandle = {
-    socketId: string;
-};
-
-/** net.socket.serveWs 返回：插件页内 new WebSocket(url) 直连 */
-export type NetWsEndpoint = {
-    url: string;
-    /** 一次性 token（已含在 url query；单独暴露便于自定义拼装） */
-    token: string;
-    port: number;
-};
-
-/** net.socket.list 条目 */
-export type NetSocketListItem = {
-    socketId: string;
-    host: string;
-    port: number;
-    tls: boolean;
-    sessionId?: string;
-    status: string;
-    openedAt: number;
-    rxBytes: number;
-    txBytes: number;
-    ws?: {
-        port: number;
-        url: string;
-    } | null;
-};
-
-/** net.fetch 返回（stream:true 时 body 为空、分片走 net.chunk） */
-export type NetFetchResult = {
-    status: number;
-    headers: Record<string, string>;
-    body: string;
-    streamed?: boolean;
-    reqId?: string;
-};
-
-/** sys.processes 条目 */
-export type SysProcessInfo = {
-    pid: number;
-    pcpu: number;
-    pmem: number;
-    /** 常驻内存（KB） */
-    rss: number;
-    user: string;
-    command: string;
-};
-
-/** sys.ports 条目 */
-export type SysPortInfo = {
-    command: string;
-    pid: number;
-    user: string;
-    protocol: string;
-    /** 监听地址（IPv4/IPv6 原样） */
-    address: string;
-    port: number;
-    name: string;
-};
-
-export type Unsubscribe = () => void;
-
 /** V1 fields remain present as a compatibility view for older consumers. */
 export interface ThemePackV2 extends ThemePack {
     schemaVersion: 2;
@@ -764,9 +614,7 @@ export interface AuxiliaryApi {
     open(options: AuxiliaryOpen): Promise<{
         windowId: string;
     }>;
-    send(windowId: string, data: unknown, options?: {
-        visible?: boolean;
-    }): Promise<void>;
+    send(windowId: string, data: unknown, options?: AuxiliaryUpdate): Promise<void>;
     close(windowId: string): Promise<boolean>;
     list(): Promise<Array<{
         windowId: string;
@@ -1024,6 +872,180 @@ export interface PluginPathResolveResult {
     error?: string;
 }
 
+export type Listener = (data: unknown) => void;
+
+/** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗 / panel 面板组件） */
+export type PluginEnterEvent = PluginEnterPayload & {
+    tabId: string;
+    mode: PluginLaunchMode;
+};
+
+/** out 事件载荷；isKill 恒为 false（杀死走 beforeClose/destroy） */
+export type PluginOutEvent = {
+    isKill: false;
+};
+
+/** beforeClose 事件载荷 */
+export type PluginBeforeCloseEvent = {
+    reason: PluginCloseReason;
+};
+
+/** 主题变量集合（壳子解析后的 CSS 自定义属性值） */
+export type PluginThemeTokens = Record<string, string>;
+
+/** 主题变更事件（enest.ui.onThemeChange） */
+export type PluginThemeChangeEvent = {
+    mode: 'light' | 'dark';
+    tokens: PluginThemeTokens;
+};
+
+/** 热键触发事件（enest.hotkey.register 的回调 / enest.on('hotkey')） */
+export type PluginHotkeyEvent = {
+    accelerator: string;
+};
+
+/** 语言变更事件（enest.i18n.onLocaleChange） */
+export type PluginLocaleChangeEvent = {
+    locale: AppLocale;
+};
+
+/** Quick 搜索查询事件（enest.contribute.onQuickQuery） */
+export type PluginQuickQueryEvent = {
+    reqId: string;
+    query: string;
+};
+
+/** Quick provider 回传项（enest.contribute.respondQuickQuery 的 items 元素） */
+export type PluginQuickQueryItem = {
+    id?: string;
+    title?: string;
+    subtitle?: string;
+    explain?: string;
+    code?: string;
+    /** 选择此业务结果时随 onEnter 传回；应为可通过 IPC 克隆的数据。 */
+    payload?: unknown;
+};
+
+/** Quick provider 注册元数据 */
+export type PluginQuickProviderMeta = {
+    id: string;
+    explain?: string;
+    schemaVersion?: string;
+};
+
+/** hotkey.register 结果：ok=false 时 error 携带冲突/失败原因 */
+export type PluginHotkeyRegisterResult = {
+    ok: boolean;
+    error?: string;
+};
+
+/** net.socket 数据事件（enest.net.onNetData / enest.on('net.data')） */
+export type NetDataEvent = {
+    socketId: string;
+    /** base64 编码的分片（64KB / 20ms 双阈值节流合并） */
+    chunk: string;
+};
+
+/** net.socket 关闭事件（enest.net.onNetClose / enest.on('net.close')） */
+export type NetCloseEvent = {
+    socketId: string;
+    reason: string;
+};
+
+/** net.fetch 流式分片事件（enest.net.onChunk / enest.on('net.chunk')） */
+export type NetChunkEvent = {
+    reqId: string;
+    /** base64（流式响应）或 utf8 文本（SSE data: 行） */
+    chunk: string;
+    done?: boolean;
+    error?: string;
+};
+
+/** net.socket.connect 返回 */
+export type NetSocketHandle = {
+    socketId: string;
+};
+
+/** net.socket.serveWs 返回：插件页内 new WebSocket(url) 直连 */
+export type NetWsEndpoint = {
+    url: string;
+    /** 一次性 token（已含在 url query；单独暴露便于自定义拼装） */
+    token: string;
+    port: number;
+};
+
+/** net.socket.list 条目 */
+export type NetSocketListItem = {
+    socketId: string;
+    host: string;
+    port: number;
+    tls: boolean;
+    sessionId?: string;
+    status: string;
+    openedAt: number;
+    rxBytes: number;
+    txBytes: number;
+    ws?: {
+        port: number;
+        url: string;
+    } | null;
+};
+
+/** net.fetch 返回（stream:true 时 body 为空、分片走 net.chunk） */
+export type NetFetchResult = {
+    status: number;
+    headers: Record<string, string>;
+    body: string;
+    streamed?: boolean;
+    reqId?: string;
+};
+
+/** sys.processes 条目 */
+export type SysProcessInfo = {
+    pid: number;
+    pcpu: number;
+    pmem: number;
+    /** 常驻内存（KB） */
+    rss: number;
+    user: string;
+    command: string;
+};
+
+/** sys.ports 条目 */
+export type SysPortInfo = {
+    command: string;
+    pid: number;
+    user: string;
+    protocol: string;
+    /** 监听地址（IPv4/IPv6 原样） */
+    address: string;
+    port: number;
+    name: string;
+};
+
+export type Unsubscribe = () => void;
+
+/** Public searchable text and a private, small business reference; never credentials. */
+export interface PluginLaunchIndexEntry {
+    id: string;
+    code: string;
+    title: string;
+    subtitle?: string;
+    aliases?: string[];
+    payload?: unknown;
+}
+
+export interface PluginLaunchIndexState {
+    revision: number;
+    dirty: boolean;
+}
+
+export interface PluginLaunchApi {
+    getContext(): PluginActivationContext;
+    /** One registration per document. Resolves only after the host acknowledges this incarnation. */
+    registerHandlers(handlers: PluginActivationHandlers): Promise<void>;
+}
+
 /**
  * Bounded enter input handed to a plugin with the launch.
  * Images carry full data URLs (host-validated budgets); files carry a host-minted
@@ -1031,6 +1053,11 @@ export interface PluginPathResolveResult {
  */
 export interface QuickEnterInput {
     text?: string;
+    /** Host-derived search text; raw and text are bounded to 4096 UTF-16 code units. */
+    query?: {
+        raw: string;
+        trigger?: string;
+    };
     images?: Array<{
         dataUrl: string;
         width: number;
@@ -1108,9 +1135,19 @@ export interface HomeDetail {
 export interface HomeSearchResult {
     items: HomeSearchEntry[];
     revision: number;
+    directoryRevision?: string;
+    unchanged?: boolean;
+    queryRevision?: number;
 }
 
-export type HomeSearchScope = 'all' | 'installed' | 'market' | 'action' | 'app' | 'plugin';
+export interface HomeSearchRequest {
+    query: string;
+    scope?: HomeSearchScope;
+    limit?: number;
+    phase?: 'catalog' | 'providers';
+    knownRevision?: string;
+    queryRevision?: number;
+}
 
 export interface HomeRuntimeConfig {
     locale: 'zh-CN' | 'en-US';
@@ -1127,9 +1164,26 @@ export type HomeAction = {
     type: 'activateSearchResult';
     handle: string;
     query?: string;
+    input?: QuickInputSelection;
+} | {
+    type: 'searchInput';
+    operation: 'read-clipboard' | 'list' | 'clear';
+    id?: string;
+} | {
+    type: 'searchState';
+    operation: 'read' | 'write';
+    expectedRevision?: number;
+    value?: unknown;
+} | {
+    type: 'cancelSearch';
+    queryRevision: number;
 } | {
     type: 'openPlugin';
     pluginId: string;
+} | {
+    type: 'openHomeCard';
+    pluginId: string;
+    cardId: string;
 } | {
     type: 'openMarket';
     pluginId?: string;
@@ -1161,6 +1215,12 @@ export type HomeAction = {
 export interface HomeActionResponse {
     ok: boolean;
     error?: string;
+    input?: QuickImageContext[];
+    state?: QuickStateSnapshot;
+    opened?: {
+        stateKey: string;
+        at: number;
+    };
 }
 
 export interface HomeReadyPayload {
@@ -1171,6 +1231,8 @@ export interface HomeReadyPayload {
 
 export type HomeCommand = {
     type: 'settingsChanged';
+} | {
+    type: 'searchDirectoryChanged';
 } | {
     type: 'navigate';
     route: WorkspaceRoute;
@@ -1353,6 +1415,7 @@ export interface ThemeChromeSnapshot {
         lazy?: boolean;
         crashed?: boolean;
     }>;
+    /** Entry ids are opaque host-issued keys bound to their declaring source, not manifest-local ids. */
     contribEntries: Array<{
         id: string;
         pluginId: string;
@@ -1452,7 +1515,7 @@ export interface PluginBackgroundHost {
 export interface PluginBackgroundHandlers {
     onEvent?(event: string, data: unknown): void | Promise<void>;
     call(method: string, args: unknown[]): unknown | Promise<unknown>;
-    search?(query: string, limit: number): PluginBackgroundSearchItem[] | Promise<PluginBackgroundSearchItem[]>;
+    search?(query: string, limit: number, context: PluginBackgroundSearchContext): PluginBackgroundSearchItem[] | Promise<PluginBackgroundSearchItem[]>;
 }
 
 export interface AuxiliaryContext {
@@ -1482,21 +1545,6 @@ export interface McpToolAnnotations {
     idempotentHint?: boolean;
     openWorldHint?: boolean;
 }
-
-// —— 插件生命周期（对标 uTools onPluginEnter / onPluginOut）——
-/**
- * openPlugin 可选进入载荷：code 对应 feature 指令，payload 为任意透传数据；
- * input 为 Quick 粘贴上下文（文本/图片/文件），由宿主按会话预算签发。
- */
-export interface PluginEnterPayload {
-    code?: string;
-    type?: 'text' | 'regex' | 'over' | 'img' | 'files';
-    payload?: unknown;
-    input?: QuickEnterInput;
-}
-
-/** 关闭原因：用户关 Tab / 卸载插件 / 应用退出 */
-export type PluginCloseReason = 'tab-close' | 'uninstall' | 'app-quit';
 
 export type AppearanceColorMode = 'light' | 'dark';
 
@@ -1664,9 +1712,27 @@ export interface AuxiliaryOpen {
     resizable?: boolean;
     movable?: boolean;
     alwaysOnTop?: boolean;
+    /** Default true. Passive restored surfaces must not steal desktop focus. */
+    focus?: boolean;
+    /** Native mouse routing; CSS pointer-events cannot pass clicks to other apps. */
+    interaction?: 'capture' | 'passthrough';
+    /** A live auxiliary window of this same runtime, never another plugin's window. */
+    parentWindowId?: string;
     capture?: {
         displayId?: number;
         withAudio?: boolean;
+    };
+}
+
+export interface AuxiliaryUpdate {
+    visible?: boolean;
+    focus?: boolean;
+    interaction?: 'capture' | 'passthrough';
+    bounds?: {
+        x?: number;
+        y?: number;
+        width?: number;
+        height?: number;
     };
 }
 
@@ -1828,6 +1894,30 @@ export interface ThemePackV2Input extends Omit<ThemePackV2, 'source' | 'mode'> {
 /** 插件填写的路径基准：home=用户目录，data=该插件持久化目录，cwd=进程工作目录 */
 export type PluginPathBase = 'home' | 'data' | 'cwd';
 
+// —— 插件生命周期（对标 uTools onPluginEnter / onPluginOut）——
+/**
+ * openPlugin 可选进入载荷：code 对应 feature 指令，payload 为任意透传数据；
+ * input 为 Quick 粘贴上下文（文本/图片/文件），由宿主按会话预算签发。
+ */
+export interface PluginEnterPayload {
+    code?: string;
+    type?: 'text' | 'regex' | 'over' | 'img' | 'files';
+    payload?: unknown;
+    input?: QuickEnterInput;
+}
+
+/** 关闭原因：用户关 Tab / 卸载插件 / 应用退出 */
+export type PluginCloseReason = 'tab-close' | 'uninstall' | 'app-quit';
+
+export type PluginActivationContext = 'view' | 'command' | 'index-sync' | 'resident';
+
+export interface PluginActivationHandlers {
+    command?(request: PluginActivationRequest): PluginCommandOutcome | Promise<PluginCommandOutcome>;
+    indexSync?(request: PluginActivationRequest): PluginLaunchIndexEntry[] | Promise<PluginLaunchIndexEntry[]>;
+    /** Install view listeners and finish lazy business initialization before enter is sent. */
+    prepareView?(request: PluginActivationRequest): void | Promise<void>;
+}
+
 export interface PluginStoredFilesApi {
     /** UUID-ordered pages, default 100 and at most 200 entries. Pass nextCursor back unchanged. */
     list(options?: PluginStoredFileListOptions): Promise<PluginStoredFilePage>;
@@ -1944,6 +2034,8 @@ export interface HomeCatalogItem {
     packageSize?: number;
     installs?: string;
     latestVersion?: string;
+    /** At most 16 validated cards from this installed, enabled plugin. */
+    homeCards?: HomeCatalogCard[];
 }
 
 /** 宿主能力标识；基础能力直接可用，敏感能力需在 manifest 声明并取得用户授权。 */
@@ -1951,6 +2043,8 @@ export type PluginPermission = 'backend.node' | 'clipboard.read' | 'clipboard.wr
 
 export interface HomeSearchEntry {
     handle: string;
+    stateKey?: string;
+    provider?: boolean;
     kind?: 'app' | 'plugin' | 'market' | 'action';
     title: string;
     subtitle?: string;
@@ -1965,6 +2059,20 @@ export interface HomeSearchEntry {
     aliases?: string[];
     action?: QuickActionId;
     content?: QuickContentMatch;
+    textInput?: PluginFeatureInput;
+}
+
+export type HomeSearchScope = 'all' | 'installed' | 'market' | 'action' | 'app' | 'plugin';
+
+/**
+ * Opaque selection of host-held paste-context entries sent with an open request.
+ * Only ids the host published in this session resolve; paths and bytes never travel from renderers.
+ */
+export interface QuickInputSelection {
+    imageIds?: string[];
+    fileIds?: string[];
+    /** Host echo of the current query for the enter input; bounded and re-sliced in main. */
+    text?: string;
 }
 
 export type WorkspaceRoute = {
@@ -1973,22 +2081,6 @@ export type WorkspaceRoute = {
     page: 'detail';
     pluginId: string;
 };
-
-/**
- * Host-owned workspace navigation targets.
- *
- * The catalog is one surface: its internal views (marketplace / installed, category
- * filters, search scope) belong to the Home provider, not to the host route. Only real
- * navigations the host must be able to replay after a crash or provider switch live here.
- */
-export type WorkspacePage = 'catalog' | 'detail';
-
-/**
- * shared/types/quick — 快捷启动（Quick Launcher）跨进程类型
- * 职责：定义命令项、本地应用、热键配置与搜索/打开请求体。
- * 被 main/hotkey、main/launcher、quickHandlers、preload、Quick 渲染层共同引用。
- */
-export type QuickCommandKind = 'app' | 'plugin' | 'action';
 
 /**
  * Host-held paste-context entry projected into renderers and themes.
@@ -2005,6 +2097,22 @@ export interface QuickImageContext {
     /** Bounded PNG data URL for preview (≤64 KiB). */
     thumbnail: string;
 }
+
+/**
+ * Host-owned workspace navigation targets.
+ *
+ * The catalog is one surface: its internal views (marketplace / installed, category
+ * filters, search scope) belong to the Home provider, not to the host route. Only real
+ * navigations the host must be able to replay after a crash or provider switch live here.
+ */
+export type WorkspacePage = 'catalog' | 'detail';
+
+/**
+ * shared/types/quick — 快捷启动（Quick Launcher）跨进程类型
+ * 职责：定义命令项、本地应用、热键配置与搜索/打开请求体。
+ * 被 main/hotkey、main/launcher、quickHandlers、preload、Quick 渲染层共同引用。
+ */
+export type QuickCommandKind = 'app' | 'plugin' | 'action';
 
 export interface QuickThemeAppearance {
     mode: AppearanceColorMode;
@@ -2046,6 +2154,7 @@ export interface QuickThemeCatalogItem extends Omit<QuickThemeItem, 'group'> {
     stateKey: string;
     aliases: string[];
     content?: QuickContentMatch;
+    textInput?: PluginFeatureInput;
     provider?: boolean;
 }
 
@@ -2073,7 +2182,7 @@ export interface ThemeSettingsFieldDescriptor {
     confirmation?: boolean;
 }
 
-export type NativeSettingsSection = 'general' | 'theme' | 'dev' | 'mcp' | `p:${string}`;
+export type NativeSettingsSection = 'general' | 'theme' | 'dev' | `p:${string}`;
 
 export type ThemeSettingsValue = string | number | boolean | null;
 
@@ -2094,6 +2203,17 @@ export interface PluginBackgroundSearchItem {
     subtitle?: string;
     code?: string;
     payload?: unknown;
+}
+
+export interface PluginBackgroundSearchContext {
+    requestId: number;
+    deadlineAt: number;
+    signal: {
+        isAborted(): boolean;
+        throwIfAborted(): void;
+        onAbort(callback: () => void): () => void;
+    };
+    onCancel(callback: () => void): () => void;
 }
 
 export interface ThemeSettingsField {
@@ -2171,6 +2291,23 @@ export interface BackgroundEffectBase {
     logoStyle?: BackgroundEffectPreset;
 }
 
+export interface PluginActivationRequest extends PluginEnterPayload {
+    requestId: string;
+    reason: PluginActivationReason;
+    entryId?: string;
+    enabled?: boolean;
+    deadlineAt: number;
+    signal: PluginActivationSignal;
+    onCancel(callback: () => void): () => void;
+}
+
+export type PluginCommandOutcome = {
+    type: 'done';
+} | {
+    type: 'view';
+    target: PluginLaunchTarget;
+};
+
 export interface PluginStoredFileListOptions {
     cursor?: string;
     limit?: number;
@@ -2236,6 +2373,22 @@ export interface PluginAssetGetResult {
 export interface PluginBlob {
     id: string;
     bytes: number;
+}
+
+/** Public presentation only; the host resolves the current declaration's launch code. */
+export interface HomeCatalogCard {
+    id: string;
+    title: string;
+    glyph?: string;
+    color?: string;
+    explain?: string;
+}
+
+/** Text input semantics are independent of feature activation and window placement. */
+export interface PluginFeatureInput {
+    type: 'text';
+    /** prefix consumes an exact declared alias followed by whitespace and nonempty text. */
+    trigger: 'prefix' | 'none';
 }
 
 export type QuickActionId = 'open-market' | 'open-settings' | 'refresh-apps';
@@ -2330,6 +2483,18 @@ export type McpContentBlock = ({
 }) & {
     annotations?: McpContentAnnotations;
 };
+
+export type PluginActivationReason = 'quick' | 'workspace' | 'shortcut' | 'settings' | 'open-with' | 'index-sync' | 'resident-restore' | 'resident-setting';
+
+/** Function-based cancellation survives Electron's isolated contextBridge. */
+export interface PluginActivationSignal {
+    isAborted(): boolean;
+    throwIfAborted(): void;
+    onAbort(callback: () => void): () => void;
+}
+
+/** 普通启动入口的原生目标；自由面板需用户指定 panelId，不是直接启动目标。 */
+export type PluginLaunchTarget = 'quick' | 'shell';
 
 export interface PluginStoredFile {
     id: string;

@@ -5,8 +5,8 @@
  * 「类型 → 插件」路由的声明者。各平台能力差异如实建模为 caps：
  *  - Linux：文件类型与 scheme 都可程序化设默认（xdg-mime / xdg-settings）；
  *  - Windows：scheme 可设默认；文件类型只能写 HKCU 候选，切换默认受 UserChoice 保护；
- *  - macOS：scheme 由打包期 CFBundleURLTypes 决定；文件类型默认不允许第三方程序设置，
- *    只能注册候选（Info.plist）并引导用户在 Finder/系统设置完成。
+ *  - macOS：scheme 由当前安装包 CFBundleURLTypes 决定；文件类型候选来自 Info.plist，
+ *    本应用引导用户在 Finder 完成默认选择；状态经 LaunchServices 查询，失败保持未知。
  * 开发态（app.isPackaged=false）没有稳定的 bundle/desktop/registry 目标，注册一律跳过。
  */
 import { execFile } from 'node:child_process'

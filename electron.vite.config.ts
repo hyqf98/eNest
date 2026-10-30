@@ -6,6 +6,7 @@
 import { defineConfig } from 'electron-vite'
 import { build as buildVite, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 const r = (...p: string[]) => resolve(process.cwd(), ...p)
@@ -21,6 +22,28 @@ const sharedAlias = {
 
 /** 开发态 Vite 端口：避开 5173 等常用端口，减少与其它 vite/工具冲突 */
 const DEV_RENDERER_PORT = 27319
+
+/** A development-only entry, never an input of the production renderer build. */
+function browserPreview(): Plugin {
+  return {
+    name: 'enest:browser-preview',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use(async (request, response, next) => {
+        if (!/^\/preview(?:\/|\/index\.html)?(?:\?|$)/.test(request.url ?? '')) return next()
+        try {
+          const entry = '/@fs/' + r('tests/fixtures/browser-preview/main.tsx').replace(/\\/g, '/')
+          const source = await readFile(r('tests/fixtures/browser-preview/index.html'), 'utf8')
+          const html = await server.transformIndexHtml('/preview/index.html', source.replace('./main.tsx', entry), request.url)
+          response.statusCode = 200
+          response.setHeader('Content-Type', 'text/html; charset=utf-8')
+          response.setHeader('Cache-Control', 'no-store')
+          response.end(html)
+        } catch (error) { next(error) }
+      })
+    }
+  }
+}
 
 /** Sandboxed windows only support a self-contained CommonJS preload. */
 function sandboxedPreloads(production: boolean): Plugin {
@@ -101,7 +124,7 @@ export default defineConfig(({ mode }) => {
     }
   },
   renderer: {
-    plugins: [react()],
+    plugins: [react(), browserPreview()],
     resolve: {
       alias: sharedAlias
     },

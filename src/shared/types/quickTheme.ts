@@ -49,6 +49,7 @@ export interface QuickThemeCatalogItem extends Omit<QuickThemeItem, 'group'> {
   stateKey: string
   aliases: string[]
   content?: QuickContentMatch
+  textInput?: import('./plugin').PluginFeatureInput
   provider?: boolean
 }
 export interface QuickThemeSnapshot {

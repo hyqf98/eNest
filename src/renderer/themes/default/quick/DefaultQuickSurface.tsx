@@ -17,7 +17,7 @@ import { getQuickSearchResults } from './searchResults'
 import { assembleDefaultQuickResults, matchDefaultQuickMedia, rankDefaultQuickHome } from './catalogPolicy'
 import { useQuickNameSearch } from './useQuickNameSearch'
 import { useQuickContentMatches } from './useQuickContentMatches'
-import { projectDefaultQuickUsage, type DefaultQuickOpened } from './usagePolicy'
+import { defaultQuickPreferredKey, projectDefaultQuickUsage, type DefaultQuickOpened } from './usagePolicy'
 import type { DefaultQuickStateClient } from './usageState'
 import { useQuickUsage } from './useQuickUsage'
 import './quick.css'
@@ -73,7 +73,8 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   const actionRef = useRef(onAction)
   actionRef.current = onAction
   const dispatch = useCallback((action: QuickThemeAction) => actionRef.current(action), [])
-  const { usage, recordOpened } = useQuickUsage(privateState)
+  const { usage, recordOpened, refreshUsage } = useQuickUsage(privateState)
+  useEffect(() => { if (searchActive) refreshUsage() }, [searchActive, snapshot.shown, refreshUsage])
   const [categoriesOpen, setCategoriesOpen] = useState(false)
   const [columns, setColumns] = useState(QUICK_GRID_COLUMNS)
   const composing = useRef(false)
@@ -92,16 +93,16 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   useEffect(() => { setCategoriesOpen(false) }, [snapshot.shown, Boolean(plugin)])
   useLayoutEffect(() => { if (panelRef.current) panelRef.current.scrollTop = 0 }, [snapshot.queryRevision])
 
-  const usageCatalog = useMemo(() => projectDefaultQuickUsage(snapshot.catalog, usage, query), [snapshot.catalog, usage, query])
+  const usageCatalog = useMemo(() => projectDefaultQuickUsage(snapshot.catalog, usage, ''), [snapshot.catalog, usage])
   const policyEnabled = searchActive && !plugin
-  const names = useQuickNameSearch(usageCatalog, query, kind, policyEnabled, snapshot.composing, retryRevision)
+  const names = useQuickNameSearch(usageCatalog, query, kind, policyEnabled, snapshot.composing, retryRevision, defaultQuickPreferredKey(usage, query))
   const content = useQuickContentMatches(snapshot.catalog, query, policyEnabled && !snapshot.composing, retryRevision)
   const policyPending = names.pending
   const displayError = snapshot.error || (hasQuery ? names.error : null)
   const ranked = useMemo(() => {
     const limit = searching || media.mediaPresent ? 60 : QUICK_GRID_COLUMNS * QUICK_HOME_ROWS
     if (!hasQuery) return rankDefaultQuickHome(usageCatalog, kind, limit, media.matches)
-    const named = normalizeSearchText(query).length <= 32 || !media.mediaPresent ? names.matches : []
+    const named = normalizeSearchText(query).length <= 32 || !media.mediaPresent ? names.matches : names.matches.filter(item => item.prefix)
     return assembleDefaultQuickResults(usageCatalog, named, kind, limit, content.matches, media.matches, media.mediaPresent)
   }, [usageCatalog, query, kind, searching, content.matches, media, hasQuery, names.matches])
   const allGroups = useMemo(() => showResults ? groupQuickCommands(ranked, searching || kind === 'action', QUICK_GRID_COLUMNS * QUICK_HOME_ROWS) : [], [ranked, searching, kind, showResults])
@@ -276,7 +277,7 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
               </QuickAccessMenu>
             </span>
           </>}
-          inputProps={{ role: 'combobox', 'aria-expanded': showResults, 'aria-controls': showResults ? 'quick-results' : undefined, 'aria-activedescendant': showResults && selected && !snapshot.busy ? `quick-item-${index}` : undefined,
+          inputProps={{ role: 'combobox', readOnly: Boolean(plugin && !plugin.acceptsInput), 'aria-expanded': showResults, 'aria-controls': showResults ? 'quick-results' : undefined, 'aria-activedescendant': showResults && selected && !snapshot.busy ? `quick-item-${index}` : undefined,
             onPaste: event => onPaste(event),
             onCompositionStart: () => { composing.current = true; void dispatch({ type: 'composition', active: true }) },
             onCompositionEnd: () => { composing.current = false; void dispatch({ type: 'composition', active: false }) } }} />

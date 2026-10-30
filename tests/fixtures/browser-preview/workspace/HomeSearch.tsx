@@ -5,7 +5,7 @@ import { useI18n } from '@renderer/hooks/useI18n'
 import { shellApi } from '@renderer/services/shellApi'
 import { SearchBox } from '@renderer/themes/default/workspace/SearchBox'
 import { PluginIcon } from '@renderer/components/PluginIcon'
-import { homeSearchEntries, homeSearchOpenRequest, searchHomeCommands, type HomeSearchEntry, type HomeSearchScope } from '@renderer/themes/default/quick/legacyHomeSearchModel'
+import { homeSearchEntries, homeSearchOpenRequest, searchHomeCommands, type HomeSearchEntry, type HomeSearchScope } from './legacyHomeSearchModel'
 import '@renderer/themes/default/workspace/homeSearch.css'
 
 interface Props {
