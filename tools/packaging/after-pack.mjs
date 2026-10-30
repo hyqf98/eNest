@@ -66,9 +66,12 @@ export async function verifyElectronResources({ platform, appOutDir, resourcesDi
     await access(join(framework, 'Libraries/libffmpeg.dylib'))
     if (!(await readdir(frameworkResources)).some(file => /^v8_context_snapshot(?:\.[^.]+)?\.bin$/.test(file))) throw new Error('Missing V8 snapshot')
     for (const file of ['LICENSE.electron.txt', 'LICENSES.chromium.html']) await access(join(resourcesDir, 'licenses/Electron', file))
-    // The configured bare "en" also retains its en_GB variant in current builders.
-    await verifyLocales(resourcesDir, '.lproj', ['en', 'zh_CN', 'zh_TW'], ['en_GB'])
-    await verifyLocales(frameworkResources, '.lproj', ['en', 'zh_CN', 'zh_TW'], ['en_GB'])
+    const baseLocales = ['en', 'zh_CN', 'zh_TW']
+    // Chromium adds grammatical-gender resources; these never replace required base locales.
+    const genderVariants = [...baseLocales, 'en_GB'].flatMap(locale =>
+      ['FEMININE', 'MASCULINE', 'NEUTER'].map(suffix => `${locale}_${suffix}`))
+    await verifyLocales(resourcesDir, '.lproj', baseLocales, ['en_GB'])
+    await verifyLocales(frameworkResources, '.lproj', baseLocales, ['en_GB', ...genderVariants])
   } else {
     for (const file of ['icudtl.dat', 'resources.pak', 'chrome_100_percent.pak', 'chrome_200_percent.pak', 'v8_context_snapshot.bin', 'LICENSE.electron.txt', 'LICENSES.chromium.html']) await access(join(appOutDir, file))
     await access(join(appOutDir, platform === 'win32' ? 'ffmpeg.dll' : 'libffmpeg.so'))
