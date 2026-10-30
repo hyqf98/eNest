@@ -88,6 +88,14 @@
     "icon": "assets/plugins/database.svg"
   },
   {
+    "id": "com.github.eNest.dev-env",
+    "name": "开发环境管理",
+    "description": "统一管理本机构建环境：Node/Python/UV/Conda/Java/Maven/Gradle/Go/Rust 自动探测、依赖管理、缓存清理、磁盘占用分析与路径迁移，并接管 Homebrew 与 winget/scoop/choco 包管理。",
+    "category": "开发",
+    "slug": "dev-env",
+    "icon": "assets/plugins/dev-env.svg"
+  },
+  {
     "id": "com.github.eNest.diff",
     "name": "文本对比",
     "description": "双栏 LCS 行级对比、行内字符细化、差异导航计数、hex 字节对比与 unified diff 导出。",
@@ -110,6 +118,14 @@
     "category": "开发",
     "slug": "dsh",
     "icon": "assets/plugins/dsh.svg"
+  },
+  {
+    "id": "com.github.eNest.env-vars",
+    "name": "环境变量管理",
+    "description": "跨平台环境变量管理：macOS 与 Windows 用户/系统变量分区查看、编辑、写入与删除，PATH 专用编辑器，写入前自动备份。",
+    "category": "开发",
+    "slug": "env-vars",
+    "icon": "assets/plugins/env-vars.svg"
   },
   {
     "id": "com.github.eNest.hash",
@@ -166,6 +182,14 @@
     "category": "开发",
     "slug": "net-kit",
     "icon": "assets/plugins/net-kit.svg"
+  },
+  {
+    "id": "com.github.eNest.password-book",
+    "name": "密码本",
+    "description": "本地密码本：网站账号密码加密存储，支持分类、搜索、密码强度提示与自动过期提醒，并可通过 MCP 工具让 AI 助手安全读取与写入。",
+    "category": "效率",
+    "slug": "password-book",
+    "icon": "assets/plugins/password-book.svg"
   },
   {
     "id": "com.github.eNest.password-kit",

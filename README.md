@@ -4,7 +4,7 @@ eNest 是一个开源的桌面插件工具箱。用 Quick 搜索插件和本机�
 
 工具按需安装，界面可以换主题。翻译、Markdown、JSON、数据库等具体功能由插件提供，eNest 负责安装、窗口、快捷键、权限和数据存储。
 
-[产品官网](https://hyqf98.github.io/eNest/) · [插件开发文档](https://hyqf98.github.io/eNest/plugin/) · [GitHub Releases](https://github.com/hyqf98/eNest/releases) · [反馈问题](https://github.com/hyqf98/eNest/issues)
+[产品官网](https://hyqf98.github.io/eNest/) · [插件开发文档](https://hyqf98.github.io/eNest/plugin/) · [v0.0.1 下载](https://github.com/hyqf98/eNest/releases/tag/v0.0.1) · [反馈问题](https://github.com/hyqf98/eNest/issues)
 
 ![eNest 主窗口中的插件目录](assets/readme/workspace.jpg)
 
@@ -18,7 +18,7 @@ eNest 是一个开源的桌面插件工具箱。用 Quick 搜索插件和本机�
 
 Quick 呼出键默认开启，可以在「设置 → 快捷键 → Quick 呼出键」调整。默认候选是 `Alt/Option + Space` 和 `Ctrl + Space`，只启用当前注册成功的一组；被系统或其他软件占用时，可以换一组。
 
-呼出后输入应用名、插件名或触发词，选中结果并按回车。默认主题支持拼音检索；插件也可以把自己的功能入口放进搜索结果。宿主提供前缀文本输入接口，例如可把 `fy hello` 中的 `hello` 交给翻译入口，具体填入和执行行为需要插件适配。
+呼出后输入应用名、插件名或触发词，选中结果并按回车。默认主题支持拼音检索；插件也可以把自己的功能入口放进搜索结果。宿主提供前缀文本输入接口，具体填入和执行行为需要插件适配。当前翻译插件接收前缀文本仍有时序问题，内容可能未保留；可先打开插件，再手动输入。
 
 进入插件后，切换到其他软件会收起 Quick，再次呼出仍停留在该插件。按 Esc 或点击返回按钮回到搜索；终端、编辑器和弹层可以自行处理 Esc。插件是否接管顶部输入框、如何处理传入内容，由插件决定。
 
@@ -46,9 +46,18 @@ Quick 呼出键默认开启，可以在「设置 → 快捷键 → Quick 呼出�
 
 ## 安装与运行
 
-当前源码版本为 **0.0.1**，正在准备首次公开发行。安装包发布前可从源码运行；实际可下载的附件和版本说明以 [GitHub Releases](https://github.com/hyqf98/eNest/releases) 为准。
+**[eNest v0.0.1](https://github.com/hyqf98/eNest/releases/tag/v0.0.1) 已发布。** 按系统和处理器架构选择安装包；GitHub 自动生成的 Source code 压缩包是源码，不是桌面安装包。
 
-构建目标是 macOS arm64/x64、Windows x64 和 Linux x64。各平台的可用安装包、系统要求及限制，以对应 Release 的附件和说明为准。
+| 系统与架构 | 下载 |
+| --- | --- |
+| macOS · Apple Silicon（arm64） | [DMG](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-mac-arm64.dmg) · [ZIP](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-mac-arm64.zip) |
+| macOS · Intel（x64） | [DMG](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-mac-x64.dmg) · [ZIP](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-mac-x64.zip) |
+| Windows · x64 | [EXE 安装向导](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-win-x64.exe) · [ZIP](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-win-x64.zip) |
+| Linux · x64 | [AppImage](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-linux-x86_64.AppImage) · [deb](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-linux-amd64.deb) |
+
+本次 macOS 包没有 Apple Developer ID 签名，也未完成苹果公证；Windows 包未配置开发者代码签名。系统可能提示未知开发者或阻止打开。安装前请核对来源与发布清单中的 SHA-256，不要关闭系统的全局安全检查。
+
+这些平台已有安装附件，但不代表所有功能均已完成跨平台运行验收；系统快捷键、默认打开方式等仍受操作系统和安装方式影响。已知限制见 [v0.0.1 发布说明](https://github.com/hyqf98/eNest/releases/tag/v0.0.1)。
 
 ### 从源码启动
 
