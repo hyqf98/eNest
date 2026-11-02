@@ -134,6 +134,15 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Prune blockmaps the updater never downloads
+        # electron-updater 只按更新格式拉增量数据：mac 走 zip、win 走 NSIS exe、linux 走 AppImage。
+        # dmg 与 Windows 便携 zip 只是分发件，其 blockmap 无任何消费者，不入清单与资产。
+        if: matrix.platform != 'linux'
+        shell: bash
+        run: |
+          if [ '${{ matrix.platform }}' = mac ]; then rm -f release/*.dmg.blockmap; fi
+          if [ '${{ matrix.platform }}' = win ]; then rm -f release/*.zip.blockmap; fi
+
       - name: Record artifact sizes, SHA-256 and verified native architectures
         shell: bash
         run: |

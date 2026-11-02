@@ -100,9 +100,10 @@ export async function assembleRelease(inputDirectory, outputDirectory, { require
       if (file.size != null && (await stat(asset.source)).size !== file.size) throw new Error(`Update size mismatch: ${file.url}`)
     }
   }
+  // 更新格式的 blockmap 才是必查项；dmg/便携 zip 的 blockmap 在构建阶段已被修剪。
   for (const [job, extensions] of [
-    ['enest-mac-x64', ['.zip', '.dmg', '.zip.blockmap', '.dmg.blockmap']],
-    ['enest-mac-arm64', ['.zip', '.dmg', '.zip.blockmap', '.dmg.blockmap']],
+    ['enest-mac-x64', ['.zip', '.dmg', '.zip.blockmap']],
+    ['enest-mac-arm64', ['.zip', '.dmg', '.zip.blockmap']],
     ['enest-win-x64', ['.exe', '.exe.blockmap']], ['enest-linux-x64', ['.AppImage', '.deb']]
   ]) {
     for (const ext of extensions) {
@@ -118,12 +119,16 @@ export async function assembleRelease(inputDirectory, outputDirectory, { require
   await mkdir(output, { recursive: true })
   if ((await readdir(output)).length) throw new Error('Release output directory must be empty')
   for (const [name, { source }] of assets) await copyFile(source, join(output, name))
-  for (const report of manifests) await copyFile(report.source, join(output, report.name))
+  // 四份平台清单在此前逐一复验后合并为一份审计附件；运行时无消费者，不再按平台平铺发布。
+  await writeFile(join(output, 'release-manifest.json'), JSON.stringify({
+    schemaVersion: 1, version, generatedAt: new Date().toISOString(),
+    platforms: manifests.map(report => report.manifest)
+  }, null, 2) + '\n')
   for (const item of metadata.filter(item => item.name !== 'latest-mac.yml')) {
     await writeFile(join(output, item.name), yaml.dump(item.info, { lineWidth: -1, noRefs: true }))
   }
   await writeFile(join(output, 'latest-mac.yml'), yaml.dump(mac, { lineWidth: -1, noRefs: true }))
-  return { version, assets: assets.size, metadata: 3, macFiles: mac.files.map(file => file.url) }
+  return { version, assets: assets.size, metadata: 3, manifests: manifests.length, macFiles: mac.files.map(file => file.url) }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

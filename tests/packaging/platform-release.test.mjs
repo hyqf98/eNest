@@ -148,7 +148,7 @@ test('release assembly requires all target manifests and verifies every final as
     const directory = join(root, 'build', job), platform = job.includes('-mac-') ? 'darwin' : job.includes('-win-') ? 'win32' : 'linux', arch = job.endsWith('arm64') ? 'arm64' : 'x64'
     await mkdir(directory, { recursive: true }); await packagedFixture(directory, platform, arch)
     const label = platform === 'darwin' ? 'mac' : platform === 'win32' ? 'win' : 'linux'
-    const extensions = platform === 'darwin' ? ['zip', 'dmg', 'zip.blockmap', 'dmg.blockmap'] : platform === 'win32' ? ['exe', 'exe.blockmap', 'zip'] : ['AppImage', 'deb']
+    const extensions = platform === 'darwin' ? ['zip', 'dmg', 'zip.blockmap'] : platform === 'win32' ? ['exe', 'exe.blockmap', 'zip'] : ['AppImage', 'deb']
     const files = []
     for (const extension of extensions) {
       const name = `eNest-0.2.1-${label}-${arch}.${extension}`, path = join(directory, name)
@@ -163,7 +163,12 @@ test('release assembly requires all target manifests and verifies every final as
   }
   const result = await assembleRelease(input, output, { requireManifests: true })
   assert.equal(result.version, '0.2.1')
-  assert.equal((await readdir(output)).filter(name => name.startsWith('release-manifest')).length, 4)
+  assert.equal(result.manifests, 4)
+  assert.equal((await readdir(output)).filter(name => name.startsWith('release-manifest')).length, 1)
+  const merged = JSON.parse(await readFile(join(output, 'release-manifest.json'), 'utf8'))
+  assert.equal(merged.version, '0.2.1')
+  assert.deepEqual(merged.platforms.map(item => `${item.platform}-${item.arch}`).sort(),
+    ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'])
   const file = join(input, 'enest-win-x64', 'eNest-0.2.1-win-x64.zip')
   await writeFile(file, 'tampered')
   await assert.rejects(assembleRelease(input, join(root, 'rejected'), { requireManifests: true }), /size\/sha256 mismatch/)
