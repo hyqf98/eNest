@@ -102,6 +102,36 @@
   margin: 1.4em 0;
 }
 
+.markdown-body .md-table-wrap {
+  margin: 0 0 1em;
+  overflow-x: auto;
+}
+
+.markdown-body .md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.markdown-body .md-table th,
+.markdown-body .md-table td {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-body .md-table thead th {
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.markdown-body .md-table tbody tr:nth-child(odd) {
+  background: color-mix(in srgb, var(--surface-2) 45%, transparent);
+}
+
 .markdown-body strong {
   color: var(--text);
   font-weight: 650;

@@ -1,6 +1,6 @@
 /**
  * MarkdownView — 零依赖轻量 Markdown 渲染组件
- * 支持：一至三级标题、粗体/斜体、行内码、围栏代码块、无序/有序列表、链接、分隔线、段落。
+ * 支持：一至三级标题、粗体/斜体、行内码、围栏代码块、无序/有序列表、GFM 表格、链接、分隔线、段落。
  * 安全策略：不注入原始 HTML；行内标记只解析转义后的文本节点，链接协议白名单。
  * 使用方：PluginDetailModal 的 README 正文。
  */
@@ -20,6 +20,19 @@ interface Props {
 
 /** 链接协议白名单，拦截 javascript: 等危险协议 */
 const SAFE_LINK = /^(https?:\/\/|mailto:)/i
+
+/** 拆分一行 GFM 表格行（| a | b |）为单元格文本；非表格行返回 null */
+function splitTableRow(line: string): string[] | null {
+  const text = line.trim()
+  if (!text.startsWith('|') || !text.endsWith('|')) return null
+  return text.slice(1, -1).split('|').map(cell => cell.trim())
+}
+
+/** GFM 分隔行（| --- | :---: |）→ 每列对齐方式；非分隔行返回 null */
+function tableAlignments(cells: string[] | null): ('left' | 'center' | 'right')[] | null {
+  if (!cells || !cells.length || !cells.every(cell => /^:?-{3,}:?$/.test(cell))) return null
+  return cells.map(cell => cell.startsWith(':') && cell.endsWith(':') ? 'center' : cell.endsWith(':') ? 'right' : 'left')
+}
 
 /** Images may only resolve within the same package's market assets. No remote tracking pixels. */
 export function resolveMarkdownImage(raw: string, baseUrl?: string, imageMap?: Record<string, string>): string | undefined {
@@ -161,6 +174,40 @@ function parseMarkdown(source: string, baseUrl?: string, imageMap?: Record<strin
       continue
     }
 
+    // GFM 表格：表头行 + 对齐分隔行 + 至少零行数据
+    const headerCells = splitTableRow(line)
+    const alignments = tableAlignments(headerCells ? splitTableRow(lines[i + 1] ?? '') : null)
+    if (headerCells && alignments) {
+      i += 2
+      const bodyRows: string[][] = []
+      while (i < lines.length) {
+        const rowCells = splitTableRow(lines[i])
+        if (!rowCells) break
+        bodyRows.push(rowCells)
+        i += 1
+      }
+      const columns = headerCells.length
+      const cell = (text: string, col: number) => ({
+        children: parseInline(text, `td${key}-${col}`, baseUrl, imageMap, omitImages, disableLinks),
+        style: col < alignments.length && alignments[col] !== 'left' ? { textAlign: alignments[col] as 'center' | 'right' } : undefined
+      })
+      push(
+        <div className="md-table-wrap">
+          <table className="md-table">
+            <thead>
+              <tr>{headerCells.map((text, col) => <th key={`th${col}`} {...cell(text, col)} scope="col" />)}</tr>
+            </thead>
+            <tbody>
+              {bodyRows.map((row, r) => (
+                <tr key={`tr${key}-${r}`}>{row.map((text, col) => <td key={`td${col}`} {...cell(text, col)} />)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+      continue
+    }
+
     // 无序列表
     if (/^\s*[-*+]\s+/.test(line)) {
       const items: ReactNode[] = []
@@ -194,7 +241,8 @@ function parseMarkdown(source: string, baseUrl?: string, imageMap?: Record<strin
       !/^(-{3,}|\*{3,})\s*$/.test(lines[i].trim()) &&
       !/^#{1,3}\s+/.test(lines[i]) &&
       !/^\s*[-*+]\s+/.test(lines[i]) &&
-      !/^\s*\d+\.\s+/.test(lines[i])
+      !/^\s*\d+\.\s+/.test(lines[i]) &&
+      !splitTableRow(lines[i])
     ) {
       para.push(lines[i].trim())
       i += 1
