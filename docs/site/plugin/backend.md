@@ -208,14 +208,17 @@ port.on('message', ({ data: request }) => {
     "optionalExcluded": ["cpu-features", "nan"],
     "packageFilesExcluded": {
       "ssh2": ["lib/protocol/crypto/build"]
-    }
+    },
+    "runtimeExcluded": ["typescript"]
   }
 }
 ```
 
 `enestBackend.entry` 指向源码入口；`enestBackend.dependencies` 列出需要保留为外部模块的 npm 根依赖，并且每个根依赖必须直接声明在该插件的 `dependencies`。仓库工具将业务 TypeScript 编译到 CJS，按插件仓库 `package-lock.json` 复制生产、必要 peer 和已安装 optional 依赖，保留重复版本的实际目录布局以及运行时资源、许可证。不会把整份工作区 `node_modules` 复制进包。
 
-`optionalExcluded` 只排除确认具有可用回退实现的可选依赖。`packageFilesExcluded` 由插件声明包内可省略的文件或目录：键必须是 `enestBackend.dependencies` 中的 npm 根依赖名，值为该 npm 包根下的精确相对路径数组；目录匹配时只在复制过程中跳过该子树，不修改已安装依赖。禁止绝对路径、`..`、隐藏段、反斜杠、通配符、编码分隔符及 `node_modules` 段；不允许省略包的入口、`package.json` 或许可证/版权告知文件。排除路径的中间段不能是软链接；完整跳过的子树内，非受保护名称的软链接只作为不复制的叶子处理，不读取链接目标，其它待复制内容仍拒绝软链接。不存在的可选编译目录可以保留声明。
+`optionalExcluded` 只排除确认具有可用回退实现的可选依赖。`packageFilesExcluded` 由插件声明包内可省略的文件或目录：键是该插件后端依赖图中的一个 npm 包名（根依赖或传递依赖均可），值为该 npm 包根下的精确相对路径数组；目录匹配时只在复制过程中跳过该子树，不修改已安装依赖。禁止绝对路径、`..`、隐藏段、反斜杠、通配符、编码分隔符及 `node_modules` 段；不允许省略包的入口、`package.json` 或许可证/版权告知文件。排除路径的中间段不能是软链接；完整跳过的子树内，非受保护名称的软链接只作为不复制的叶子处理，不读取链接目标，其它待复制内容仍拒绝软链接。不存在的可选编译目录可以保留声明。构建期会先解析锁定的完整依赖图，键不在图内即失败。
+
+`runtimeExcluded` 是作者对"该依赖在运行时不会被 `require`"的显式声明：命中的包连同其整棵子树都不复制，并在 `dependency-inventory.json` 的 `runtimeExcluded` 中记录名称、版本和路径供发布审计。约束是严格的：名称必须是合法 npm 包名、不能重复、不能与 `optionalExcluded` 或 `platformPackages` 冲突，且必须能在锁定依赖图中解析到；直接声明为根依赖的包永远不能列入，因为它们是 esbuild 的 external，后端会直接 `import`。它只影响复制，不改变依赖解析：若仍有被打包的包在运行时真的 `require` 它，失败发生在运行期，因此作者必须核对实际引用（例如只在 `package.json` 里声明而源码从未 `require`，或只被 browser 构建使用）。
 
 SSH 与远程桌面各自在自己的 `package.json` 排除 `cpu-features`、`nan`，并精确排除 `ssh2/lib/protocol/crypto/build` 中的可选 `sshcrypto` 本地编译产物，使用 Node crypto 的纯 JavaScript 路径。通用构建器只执行这些声明，不认识 SSH 包或业务插件 ID；插件维护者须验证回退实现及内部运行依赖，不能用排除配置任意裁剪其它驱动的 `.node` 文件。
 
@@ -232,7 +235,7 @@ SSH 与远程桌面各自在自己的 `package.json` 排除 `cpu-features`、`na
 }
 ```
 
-该字段属于 `enestBackend`。构建工具从锁文件查找精确版本与摘要；缺少的变体从锁定的 npm 源获取并校验完整性，不运行下载包的安装脚本。`universal` 包携带全部已声明变体；显式平台包只保留匹配的原生依赖和运行所需依赖闭包。不能按文件体积任意删除运行依赖，例如数据库的 `@tdengine/websocket` 直接依赖 `typescript`，它不是可直接移除的开发附件。包内存在某个平台变体不代表已完成该平台运行验收；每个平台仍需验证驱动加载和实际功能。
+该字段属于 `enestBackend`。构建工具从锁文件查找精确版本与摘要；缺少的变体从锁定的 npm 源获取并校验完整性，不运行下载包的安装脚本。`universal` 包携带全部已声明变体；显式平台包只保留匹配的原生依赖和运行所需依赖闭包。不能按文件体积任意删除运行依赖，必须先证明运行时不会 `require` 它；数据库的 `@tdengine/websocket` 就是反例——它只在 `package.json` 里声明 `typescript`、`moment-timezone`，源码从不 `require`，因此可以用 `runtimeExcluded` 声明（两者合计约 23 MB）；而 `websocket` 是真实依赖，不能被排除。包内存在某个平台变体不代表已完成该平台运行验收；每个平台仍需验证驱动加载和实际功能。
 
 后端源码可使用 Node 内置模块和插件自己的 workspace 包；`@backend` 指向当前插件的 `backend/`。构建禁止导入 `electron` 或 `@main`、`@preload`、`@renderer`、`@shared` 宿主模块。公共类型应来自 SDK 或插件自身契约，不通过复制宿主运行时来恢复旧驱动。
 

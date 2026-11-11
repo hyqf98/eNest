@@ -218,6 +218,16 @@ export function stopPluginMemoryMonitor(): void {
   if (timer) clearTimeout(timer)
   timer = undefined; history.clear(); trackedDescendants.clear()
 }
+
+/**
+ * Follow the persisted switch instead of sampling forever. A disabled monitor costs
+ * nothing per interval; the sampler keeps running while enabled so the UI stays live
+ * and the preference survives restarts without a settings read on the hot path.
+ */
+export function applyPluginMemoryMonitorSetting(): void {
+  if (preferences().enabled) startPluginMemoryMonitor()
+  else stopPluginMemoryMonitor()
+}
 export async function refreshPluginMemoryAfterClose(): Promise<void> {
   if (flight) await flight
   if (active) await sample()
@@ -231,9 +241,15 @@ export async function getPluginMemorySnapshot(force = false): Promise<PluginMemo
 
 /** Explicit bounded recording may sample even with alerts disabled, without changing preferences. */
 export async function getPluginMemoryDiagnosticSnapshot(): Promise<PluginMemorySnapshot> {
-  if (!active) throw new Error('plugin memory sampler is not running')
-  if (flight) await flight
-  // Share a just-completed monitor/UI sample instead of running a second OS helper back-to-back.
-  if (!snapshot.sampledAt || snapshot.error || Date.now() - snapshot.sampledAt > 1000) await sample(true)
-  return structuredClone(snapshot)
+  // A user-started recording must work even when the passive monitor switch is off.
+  const loopWasActive = active
+  if (!loopWasActive) { active = true; epoch++ }
+  try {
+    if (flight) await flight
+    // Share a just-completed monitor/UI sample instead of running a second OS helper back-to-back.
+    if (!snapshot.sampledAt || snapshot.error || Date.now() - snapshot.sampledAt > 1000) await sample(true)
+    return structuredClone(snapshot)
+  } finally {
+    if (!loopWasActive) { active = false; epoch++ }
+  }
 }

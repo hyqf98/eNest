@@ -5,6 +5,12 @@
   margin-top: 22px;
 }
 
+/* 单 section 插件不渲染 section 标题（与卡片头插件名重复），此时卡片头 h2 的下边距
+   已经足够，再叠 22px 会多出一段空档。首个 section 不再另加间距。 */
+.plugin-settings-card .plugin-settings-section:first-of-type {
+  margin-top: 0;
+}
+
 .plugin-settings-card .plugin-settings-section > .label {
   margin: 0 0 6px;
   color: var(--text-3);

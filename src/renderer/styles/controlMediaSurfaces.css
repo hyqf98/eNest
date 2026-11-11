@@ -31,5 +31,9 @@
 }
 
 /* Atmosphere is visible on the surfaces themselves, including pages that have
-   opaque cards. Accent/selected controls retain their original theme styling. */
-:root.has-bg-media.has-bg-atmosphere .titlebar { --titlebar-paint: var(--atmosphere-chrome); }
+   opaque cards. Accent/selected controls retain their original theme styling.
+   --atmosphere-chrome 本身是不透明渐变，直接用于标题栏会让它永远盖住页面背景；
+   这里退回可调浓度的 --bg 混合，氛围色仍由 backdrop-filter 透过下层表现。 */
+:root.has-bg-media.has-bg-atmosphere .titlebar {
+  --titlebar-paint: color-mix(in srgb, var(--bg) calc(var(--appearance-tab-opacity, 1) * 100%), transparent);
+}

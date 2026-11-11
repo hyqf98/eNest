@@ -21,12 +21,20 @@ body {
   /* 外观快照写 --font-size-base（缺省 14px）；与 --shell-scale 窗口密度独立 */
   font-size: var(--font-size-base, 14px);
   color: var(--text);
-  /* 启动期与 Splash 同色，避免首帧白闪 */
-  background: #011517;
+  /* 启动期防白闪：跟随系统深浅色，主题水合后立即交给 --bg。
+     写死深色会让浅色主题在首帧闪黑，也会在圆角外露出深色。 */
+  background: #f6f6f4;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   user-select: none;
   border-radius: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  html,
+  body {
+    background: #17191b;
+  }
 }
 
 /* 主题水合后再交给 tokens 的 --bg */

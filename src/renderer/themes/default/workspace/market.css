@@ -339,6 +339,7 @@
 }
 .card-catalog-meta > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-catalog-meta > span + span { margin-left: 9px; padding-left: 9px; border-left: 1px solid var(--border-strong); }
+.card-size-meta { display: inline-flex; align-items: center; gap: 4px; }
 .card-switch-slot { display: grid; place-items: center; width: 34px; }
 .card-switch-slot:empty { display: none; }
 .card-actions:has(.card-switch) { grid-template-columns: minmax(0, 1fr) 34px auto; }

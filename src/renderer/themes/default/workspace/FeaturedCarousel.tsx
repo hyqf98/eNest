@@ -134,10 +134,10 @@ export const FeaturedCarousel = memo(function FeaturedCarousel({ items, onOpen, 
                   )}
                   <div className="product-stats">
                     <span>v{plugin.version}</span>
-                    <span title={t('plugin.packageSize', { size: packageSize ?? t('plugin.unknownSize') })}>
+                    <span className="product-size-meta" title={t('plugin.packageSize', { size: packageSize ?? t('plugin.unknownSize') })}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                         strokeWidth={ICON_STROKE_WIDTH} strokeLinecap="round" strokeLinejoin="round"
-                        aria-hidden="true" focusable="false" style={{ verticalAlign: 'text-bottom', marginRight: 4 }}>
+                        aria-hidden="true" focusable="false">
                         <path d="M12 3 3 7.5v9L12 21l9-4.5v-9L12 3Z" />
                         <path d="m3 7.5 9 4.5 9-4.5M12 12v9M7.5 5.25l9 4.5" />
                       </svg>

@@ -144,7 +144,19 @@ body {
   align-items: flex-start;
   gap: 0;
   margin-left: -6px;
-  padding: 8px 10px;
+  /* 占满 zone 宽度：面板宽度按内容收缩时，overflow-x:hidden 的裁切边界会落在
+     圆球悬停放大 + 右移 + 外圈之外，把悬停外圈切掉。撑满后裁切边界让到视图右缘。 */
+  width: 100%;
+  /* 不被 flex 压缩：zone 内还有把手占位，压缩会让右缘提前，重新切到悬停外圈。 */
+  flex: 0 0 auto;
+  /*
+   * overflow 同时裁纵向。圆球投影 0 6px 16px 向上扩散约 10px，首项阴影会被切出硬边。
+   * 上下 padding 加到 20px 让出阴影空间，再用同等负 margin 抵回，
+   * 圆球位置和间距保持原样。右内边距归零：padding 会把横向裁切边界往里推，
+   * 更早切掉 high 档悬停外圈（放大 1.18 + 右移 6px + 外圈 5px）。
+   */
+  padding: 20px 0 20px 10px;
+  margin: -12px 0 -12px -6px;
   box-sizing: border-box;
   max-height: calc(100vh - 12px);
   overflow-y: auto;
@@ -489,6 +501,43 @@ body {
   transform: scale(1.16);
 }
 :root[data-anim] .orb-dock .orb-face:active { transform: scale(var(--orb-press-scale)); }
+
+/*
+ * 收起（退场）统一用无过冲的 ease-out，覆盖各档位的入场曲线。
+ * 入场那条 cubic-bezier(0.22, 1.25~1.4, …) 带弹性回弹，用在退场上会让圆球先被"弹"
+ * 一下再缩没，观感突兀；退场需要单调收敛，且时长随档位递进以保持"丝滑"。
+ * 放在档位规则之后 + 提高特异性，确保不被上面的 :root[data-anim] 覆盖。
+ */
+:root[data-anim] .orb-rail:not(.expanded) .orb-panel {
+  transition:
+    opacity 0.22s cubic-bezier(0.33, 0, 0.2, 1),
+    transform 0.32s cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+:root[data-anim] .orb-rail:not(.expanded) .orb-item {
+  transition:
+    opacity 0.2s cubic-bezier(0.33, 0, 0.2, 1),
+    transform 0.3s cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+:root[data-anim="high"] .orb-rail:not(.expanded) .orb-panel {
+  transition:
+    opacity 0.26s cubic-bezier(0.33, 0, 0.2, 1),
+    transform 0.4s cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+:root[data-anim="high"] .orb-rail:not(.expanded) .orb-item {
+  transition:
+    opacity 0.24s cubic-bezier(0.33, 0, 0.2, 1),
+    transform 0.38s cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+/* 把手淡入/淡出同样是退场语义，跟着走 ease-out，避免回弹。 */
+:root[data-anim] .orb-rail:not(.expanded) .orb-handle {
+  transition:
+    opacity 0.22s cubic-bezier(0.33, 0, 0.2, 1),
+    transform 0.3s cubic-bezier(0.33, 0, 0.2, 1);
+}
 
 /* Drag owns transforms through GSAP. This outranks every intensity tier so CSS
  * cannot add a second transform interpolation behind pointer-driven movement. */

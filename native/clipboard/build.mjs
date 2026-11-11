@@ -4,10 +4,12 @@ import { dirname, resolve, join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { buildLinuxHelper } from './linux-build.mjs'
 import { buildProcessMemoryHelper } from '../process-memory/build.mjs'
+import { buildOpenWithHelper } from '../open-with/build.mjs'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const dir = join(root, 'native/bin')
 await mkdir(dir, { recursive: true })
 await buildProcessMemoryHelper({ root, outputDir: dir })
+await buildOpenWithHelper({ root, outputDir: dir })
 // The Windows helper is portable source, including when producing Windows packages on macOS.
 await cp(join(root, 'native/clipboard/windows.ps1'), join(dir, 'clipboard-helper.ps1'))
 if (process.platform === 'darwin') {

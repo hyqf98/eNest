@@ -72,8 +72,8 @@ export function TabStrip() {
         </button>
         {tabs.map((tab) => {
           const active = tab.id === activeTabId && view === 'plugin'
-          // 惰性恢复占位 / 崩溃态附加样式
-          const stateClass = tab.lazy ? ' lazy' : tab.crashed ? ' crashed' : ''
+          // 崩溃态附加样式；惰性会话占位与普通 Tab 视觉一致，只靠 title 提示点击加载。
+          const stateClass = tab.crashed ? ' crashed' : ''
           const hint = tab.lazy
             ? `${tab.title} — 点击加载（上次会话，未启动）`
             : tab.crashed
@@ -103,7 +103,6 @@ export function TabStrip() {
               )}
               <span>{tab.title}</span>
               {tab.badge && <span className="tab-badge" aria-label={`角标 ${tab.badge}`}>{tab.badge}</span>}
-              {tab.lazy && <span className="lazy-hint">点击加载</span>}
               {tab.crashed && (
                 <span className="retry" aria-hidden="true">
                   <RotateCwIcon size={10} strokeWidth={2.2} />

@@ -27,8 +27,9 @@ function previewField(appearance: ResolvedAppearance, field: ThemeSettingsField,
 }
 
 /**
- * 设置 → 外观的唯一一张卡：主题配置（深浅模式与全部已安装主题）
- * → 自由面板外观（壳级 general.panelAppearance）→ 主题参数（当前主题声明的字段）→ 统一 footer。
+ * 设置 → 外观：两张卡。
+ * 1) 主题配置：深浅模式、已安装主题、自由面板外观（壳级 general.panelAppearance）。
+ * 2) 主题参数：当前主题动态声明的字段，切换主题后内容随之更换。
  */
 export function AppearanceSettingsSection() {
   const appearance = useAppearanceStore(useShallow(({ appearance, profile, packs, customFonts, hydrated }) => ({ appearance, profile, packs, customFonts, hydrated })))
@@ -194,8 +195,8 @@ export function AppearanceSettingsSection() {
 
   return (
     <div className="appearance-settings-stack">
-      {/* 一张卡承载三段：主题选择 / 自由面板外观（壳级）/ 主题参数（当前主题声明）。两个语义 class 保留为分区锚点。 */}
-      <section className="s-card appearance-settings appearance-card appearance-card-switch appearance-card-tuning" aria-busy={Boolean(switching)} aria-label="主题配置">
+      {/* 主题配置卡：主题选择 + 自由面板外观（壳级 general.panelAppearance）。 */}
+      <section className="s-card appearance-settings appearance-card appearance-card-switch" aria-busy={Boolean(switching)} aria-label="主题配置">
         <div className="appearance-card-head">
           <div className="appearance-card-head-copy">
             <h2>主题配置</h2>
@@ -232,11 +233,20 @@ export function AppearanceSettingsSection() {
           <FreePanelFields state={panel} />
         </div>
 
-        <div className="appearance-section appearance-section-tuning" role="group" aria-label="主题参数">
-          <div className="appearance-section-head">
-            <h3 className="appearance-section-title">主题参数</h3>
+        <div className="appearance-unified-footer">
+          <span className="appearance-save-status" role="status" aria-live="polite">{error || (saving || panel.saving ? '正在保存…' : '调整即时预览，保存后同步所有窗口与已开面板。')}</span>
+        </div>
+      </section>
+
+      {/* 主题参数是当前主题动态声明的字段，与壳级主题配置分开成卡，切换主题时内容随之变化。 */}
+      <section className="s-card appearance-settings appearance-card appearance-card-tuning" aria-busy={Boolean(switching)} aria-label="主题参数">
+        <div className="appearance-card-head">
+          <div className="appearance-card-head-copy">
+            <h2>主题参数</h2>
             <p className="hint">{activePack ? `以下参数来自「${activePack.name}」，切换主题后会换成新主题支持的设置。` : '当前没有可调整的主题参数。'}</p>
           </div>
+        </div>
+        <div className="appearance-section appearance-section-tuning" role="group" aria-label="主题参数">
           {appearance.appearance.diagnostics.some(item => item.code === 'home.recovery') && <div className="appearance-recovery" role="status"><p>主题或配套首页暂不可用，已安全回退到默认主题；原主题的调整仍保留。</p><Button variant="ghost" size="sm" disabled={retrying} onClick={async () => {
             await flush()
             setRetrying(true)
@@ -252,9 +262,8 @@ export function AppearanceSettingsSection() {
             : <p className="desc appearance-inline-status" role="status">{error ?? '正在读取主题…'}</p>}
           {appearance.appearance.animation.requested !== appearance.appearance.animation.effective && <p className="desc appearance-inline-status">当前已按无障碍或运行性能限制减少动态效果；你保存的动画强度未改变。</p>}
         </div>
-
         <div className="appearance-unified-footer">
-          <span className="appearance-save-status" role="status" aria-live="polite">{error || (saving || panel.saving ? '正在保存…' : '调整即时预览，保存后同步所有窗口与已开面板。')}</span>
+          <span className="appearance-save-status" role="status" aria-live="polite">{saving ? '正在保存…' : '调整即时预览，保存后同步所有窗口与已开面板。'}</span>
           {activePack && <Button variant="ghost" size="sm" onClick={async () => { await flush(); try { await useAppearanceStore.getState().updateThemeProfile({ theme: appearance.profile.identity, reset: true }) } catch { setError('恢复默认失败，请重试。') } }}>恢复本主题默认</Button>}
         </div>
       </section>

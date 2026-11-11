@@ -4,7 +4,7 @@ import type { FocusEvent, KeyboardEvent, MouseEvent, PointerEvent } from 'react'
 import gsap from 'gsap'
 import type { PluginPresentation } from '@renderer/themes/default/workspace/pluginPresentation'
 import { d, ease } from '@renderer/gsap/marketMotion'
-import { useAnimationLevel, useReducedMotion } from '@renderer/hooks/useAnimationLevel'
+import { useReducedMotion } from '@renderer/hooks/useAnimationLevel'
 
 export const PRODUCT_DWELL_MS = 6500
 
@@ -37,7 +37,6 @@ export function useProductCarousel(items: PluginPresentation[], paused: boolean,
   const [cycle, setCycle] = useState(0)
   const [announcement, setAnnouncement] = useState('')
   const reducedMotion = useReducedMotion()
-  const { level } = useAnimationLevel()
   const itemIds = items.map((item) => item.id).join('|')
   const suspended = paused || !visible || !documentVisible
   const suspendedRef = useRef(suspended)
@@ -281,8 +280,9 @@ export function useProductCarousel(items: PluginPresentation[], paused: boolean,
     if (reducedMotion) select(indexRef.current, true)
   }, [reducedMotion, select])
 
-  // Automatic motion is optional; low/blur must not freeze a manual selection.
-  const running = continuous && level !== 'low' && hasWindowFocus && items.length > 1 && !reducedMotion && !suspended && !hovered && !focused && !moving && !dragging && !touching
+  // 自动阅读与动效强度解耦：低档仍然轮播并显示进度，只是切换不走位移补间。
+  // 减少动态效果、失焦、悬停等用户意图仍然暂停计时。
+  const running = continuous && hasWindowFocus && items.length > 1 && !reducedMotion && !suspended && !hovered && !focused && !moving && !dragging && !touching
   useEffect(() => {
     if (!running) return
     const timer = setTimeout(() => select(indexRef.current + 1, true), PRODUCT_DWELL_MS)

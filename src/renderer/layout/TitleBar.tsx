@@ -2,6 +2,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { TabStrip } from '@renderer/themes/default/chrome/TabStrip'
+import { PluginIcon } from '@renderer/components/PluginIcon'
 import { shellApi } from '@renderer/services/shellApi'
 import { useAnimationLevel, useReducedMotion } from '@renderer/hooks/useAnimationLevel'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
@@ -25,9 +26,13 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
   const defaultTabsRef = useRef<HTMLDivElement>(null)
   const [customClassicReady, setCustomClassicReady] = useState(false)
   const tabStyle = useAppearanceStore((state) => state.appearance.layout.tabStyle)
-  const activePluginTitle = useShellStore((state) => state.view === 'plugin'
-    ? state.tabs.find(tab => tab.id === state.activeTabId)?.title ?? ''
-    : '')
+  const activeTab = useShellStore((state) => state.view === 'plugin'
+    ? state.tabs.find(tab => tab.id === state.activeTabId)
+    : undefined)
+  const activePluginTitle = activeTab?.title ?? ''
+  const activePluginIcon = activeTab?.icon ?? null
+  const activePluginGlyph = activeTab?.glyph ?? ''
+  const activePluginColor = activeTab?.color
   const { level } = useAnimationLevel()
   const reducedMotion = useReducedMotion()
   const callbacks = useRef({ onReveal, onCollapse, onMotionStart, onMotionComplete })
@@ -157,6 +162,21 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
         </> : <div ref={defaultTabsRef} className={`titlebar-default-tabs${customClassicReady ? ' is-replaced' : ''}`}
           aria-hidden={customClassicReady || undefined}>
           <TabStrip />
+          {/* classic 模式由壳统一显示当前插件，插件自身不再画顶栏标题行。 */}
+          {activePluginTitle && (
+            <span className="titlebar-plugin-label" title={activePluginTitle}>
+              <PluginIcon
+                className="titlebar-plugin-label-icon"
+                src={activePluginIcon ?? undefined}
+                glyph={activePluginGlyph}
+                slot="tab"
+                size={16}
+                alt=""
+                style={activePluginColor ? { background: activePluginColor } : undefined}
+              />
+              <span className="titlebar-plugin-label-text">{activePluginTitle}</span>
+            </span>
+          )}
         </div>}
       </header>
       {autoHide && (

@@ -6,6 +6,8 @@
   gap: 2px;
   height: 100%;
   min-width: 0;
+  /* 撑满标题栏剩余宽度，让右侧的插件标识贴住窗口右缘。 */
+  flex: 1 1 auto;
   overflow: visible;
   -webkit-app-region: drag;
   padding: 0 4px;
@@ -122,19 +124,9 @@
   color: var(--text);
 }
 
-/* 休眠占位保持静态，避免回收 renderer 后仍由壳持续绘制。 */
+/* 休眠占位与普通 Tab 视觉一致，只保留 title 提示；避免出现额外标签样式。 */
 .tab.lazy {
-  opacity: 0.62;
-}
-
-.tab.lazy .lazy-hint {
-  font-size: calc(10px * var(--appearance-font-scale, 1));
-  color: var(--text-3);
-  border: 1px dashed color-mix(in srgb, var(--border) 90%, transparent);
-  border-radius: 4px;
-  padding: 0 4px;
-  line-height: 16px;
-  flex-shrink: 0;
+  opacity: 1;
 }
 
 /* 崩溃 Tab：红色小点 + 重试图标 */

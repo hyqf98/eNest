@@ -88,9 +88,9 @@ Linux 当前仅接受已识别的 `gnome_libsecret`、`kwallet`、`kwallet5`、`
 | `notify` | 操作系统通知 |
 | `hotkey` | 注册影响其它应用的全局热键 |
 | `contribute` | 注册动态 Quick provider，接收全局搜索文本并提供结果；普通声明式入口无需此权限 |
-| `ssh.agent` | 官方 SSH 后端请求的细分授权；其解释与 socket 约束位于插件，不在壳的协议处理器 |
-| `db.connect` / `db.query` / `db.schema` | 数据库插件通过通用 `permission.authorize` 请求的细分授权 |
-| `mw.connect` / `mw.query` / `mw.admin` | 中间件插件通过通用 `permission.authorize` 请求的细分授权；action 解释位于插件 |
+| `sys.sshAgent` | 使用本机 SSH Agent 认证；其解释与 socket 约束位于插件，不在壳的协议处理器 |
+| `net.database` / `net.database.query` / `net.database.schema` | 连接数据库 / 执行查询 / 读取结构的细分授权，经通用 `permission.authorize` 请求 |
+| `net.messaging` / `net.messaging.read` / `net.messaging.admin` | 连接 / 浏览 / 管理消息中间件的细分授权，经通用 `permission.authorize` 请求；action 解释位于插件 |
 
 主题读取、语言读取、身份读取和纯事件订阅同样无需额外权限。普通声明式入口直接可用；动态 Quick provider 会读取全局搜索文本，因此保留 `contribute` 授权，两类贡献点都由宿主绑定来源。官方插件可通过通用后端控制请求已声明的细分授权。壳不解释 SQL、SSH 或中间件 action；对本机后端的完整 Node 信任仍必须单独明确声明。
 

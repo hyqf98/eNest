@@ -1,4 +1,9 @@
 import * as SelectPrimitive from '@radix-ui/react-select'
+// 弹层定位规则（.ui-select-pop.ui-select-portal 的宽度与 right:auto）必须由本组件
+// 自己引入，不能依赖 ColorPickerField 顺带加载：插件设置页没有 color 字段时那份
+// CSS 从不加载，弹层会退回 formWidgets.css 的 position:absolute + left/right:0，
+// 在 Radix 的零宽 popper 容器里塌成一条窄条。
+import '../select.css'
 
 export interface SelectOption<T extends string> {
   value: T

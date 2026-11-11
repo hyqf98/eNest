@@ -11,7 +11,7 @@ import { registerShortcutHandlers } from '@main/ipc/shortcutHandlers'
  * themePacks、createShellWindow、DevConsole。
  */
 import { getPluginDiagnostics } from '@main/plugin/pluginDiagnostics'
-import { getPluginMemorySnapshot, refreshPluginMemoryAfterClose } from '@main/plugin/pluginMemoryMonitor'
+import { getPluginMemorySnapshot, refreshPluginMemoryAfterClose, applyPluginMemoryMonitorSetting } from '@main/plugin/pluginMemoryMonitor'
 import { startPerformanceCapture, getPerformanceCaptureState, stopPerformanceCapture, exportPerformanceCapture } from '@main/plugin/pluginPerformanceCapture'
 import { showNotification } from '@main/window/notificationOverlay'
 import { copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
@@ -638,6 +638,8 @@ export function registerShellHandlers(): void {
       pluginHost.broadcastTheme()
       broadcastNotice('appearance.changed', { kind: 'font' })
     }
+    // 插件内存监控开关：立即按新值启停采样循环，避免关闭后仍在后台空跑。
+    if (generalPatch && 'pluginMemoryMonitor' in generalPatch) applyPluginMemoryMonitorSetting()
     // 自由面板开关/快捷键变更：重注册热键；开启时恢复布局，关闭时释放面板内插件（保留布局记录）。
     if (generalPatch && ('freePanel' in generalPatch || 'panelHotkey' in generalPatch)) {
       const enabled = settingsStore.getAll().general.freePanel?.enabled === true

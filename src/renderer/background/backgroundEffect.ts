@@ -60,7 +60,10 @@ export function startBackgroundEffect(
   let compilationDeadline = 0
   let pollCompilation: (() => void) | undefined
   let frame = 0
-  let focused = document.hasFocus()
+  // 开屏揭示是有限时长的入场动画，窗口此时可能尚未获焦；把它当作前台处理，
+  // 否则 tick/syncActivity 的 focused 门禁会让背景一帧都不画，只剩 CSS 静态底。
+  const launchReveal = options.launch === true
+  let focused = launchReveal || document.hasFocus()
   let rect = canvas.getBoundingClientRect()
   let width = 1
   let height = 1
@@ -168,6 +171,8 @@ export function startBackgroundEffect(
   }
 
   function onBlur(): void {
+    // 开屏揭示是有限时长的一次性入场，不受窗口焦点影响。
+    if (launchReveal) return
     focused = false
     stop()
   }
@@ -250,7 +255,8 @@ export function startBackgroundEffect(
         })
       }
       initialized = true
-      focused = document.hasFocus()
+      // 开屏揭示期间窗口可能尚未获焦，保持前台语义，否则首帧后又会停住。
+      focused = launchReveal || document.hasFocus()
       refreshTheme()
       resize()
       canvas.style.visibility = ''
