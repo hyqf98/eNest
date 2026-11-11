@@ -36,7 +36,7 @@ import {
 import { destroyQuickWindow } from '@main/window/createQuickWindow'
 import { showMainWindowOnActivate } from '@main/window/mainWindowActivation'
 import { pluginHost } from '@main/plugin/PluginHost'
-import { startPluginMemoryMonitor, stopPluginMemoryMonitor } from '@main/plugin/pluginMemoryMonitor'
+import { applyPluginMemoryMonitorSetting, startPluginMemoryMonitor, stopPluginMemoryMonitor } from '@main/plugin/pluginMemoryMonitor'
 import { broadcastNotice } from '@main/plugin/shellNotices'
 import { refreshProfileOnBoot } from '@main/auth/githubAuthService'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
@@ -396,7 +396,8 @@ void app.whenReady().then(async () => {
     })
     logInfo('main', 'ipc ok')
     void mcpService.initialize().catch(error => logWarn('mcp', `initialization failed: ${String(error)}`))
-    startPluginMemoryMonitor()
+    // 监控开关已持久化：启动即按上次状态生效，关闭时不再空跑采样循环。
+    applyPluginMemoryMonitorSetting()
     void prewarmHomeSurface().catch(error => logWarn('home', `startup prepare failed: ${String(error)}`))
 
     // 快捷启动：注册全局热键 + 后台扫描；小窗懒创建（首次呼出时）

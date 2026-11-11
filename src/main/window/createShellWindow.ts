@@ -21,9 +21,29 @@ import { IpcChannels, type ShellEventPayload } from '@shared/types/ipc'
 import { readMainWindowState, trackMainWindowState } from '@main/window/mainWindowState'
 import { devShortcutAction, toggleDevTools } from '@main/dev/devShortcuts'
 import { registerThemeSettingsPolicy } from '@main/theme/themeSettingsSurface'
+import { resolveThemeTokens } from '@main/theme/resolveThemeCss'
 
 let mainWindow: BaseWindow | null = null
 let shellView: WebContentsView | null = null
+
+/**
+ * 主窗口底色必须跟随主题：DOM 自带圆角，圆角外露出的就是窗口 background。
+ * 固定深色会让浅色主题的四个角出现黑边。
+ */
+function resolveWindowBackgroundColor(): string {
+  const { appearance, tokens } = resolveThemeTokens('auto')
+  const bg = appearance?.tokens['--bg'] ?? tokens['--bg']
+  // 只接受纯色；渐变/图片交给 DOM 层，窗口退回该模式的表面色。
+  if (typeof bg === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(bg.trim())) return bg.trim()
+  return appearance?.mode === 'dark' ? '#182126' : '#f6f8fa'
+}
+
+/** 主题/外观变更时同步窗口底色，避免圆角外露出上一套主题的颜色。 */
+export function syncShellWindowBackground(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  try { mainWindow.setBackgroundColor(resolveWindowBackgroundColor()) }
+  catch { /* 窗口正在销毁时忽略 */ }
+}
 
 /** All isolated worlds load independently bundled CommonJS preloads. */
 export function resolvePreload(name: string): string {
@@ -103,7 +123,7 @@ export function createShellWindow(): BaseWindow {
     frame: false,
     roundedCorners: true,
     hasShadow: true,
-    backgroundColor: '#011517',
+    backgroundColor: resolveWindowBackgroundColor(),
     ...(windowIcon ? { icon: windowIcon } : {}),
     title: APP_NAME
   })
@@ -276,6 +296,7 @@ export function sendShellEvent(payload: ShellEventPayload): void {
     try { detachedAppearanceSink?.() } catch { /* independent chrome may be retiring */ }
     try { notificationAppearanceSink?.() } catch { /* notifications may be retiring */ }
     try { panelAppearanceSink?.() } catch { /* panel chrome may be retiring */ }
+    syncShellWindowBackground()
   }
   const wc = getShellWebContents()
   if (wc && !wc.isDestroyed()) wc.send(IpcChannels.ShellEvent, payload)

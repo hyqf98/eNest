@@ -110,8 +110,10 @@ export function ThemeSettingChoices({ label, presentation, options, value, palet
   const gradientCards = options.every(option => option.preview?.kind === 'swatch' || (option.preview === undefined && Boolean(paletteById(option.value, palettes))))
   const gridClass = gradientCards ? 'theme-gradient-grid' : 'bg-effect-grid'
   const cardClass = gradientCards ? 'theme-gradient-card' : 'bg-effect-card'
+  // 列数取能整除选项数的一行布局，避免末行只剩一两个卡片、右侧留大片空白。
+  const columns = choiceColumns(options.length)
   return <div className={gridClass} role="group" aria-label={label}
-    style={{ '--theme-choice-columns': Math.min(options.length || 1, Math.max(4, Math.ceil(options.length / 2))) } as CSSProperties}>
+    style={{ '--theme-choice-columns': columns } as CSSProperties}>
     {options.map((option, index) => (
       <Button key={index} disabled={disabled} className={cardClass + (option.value === value ? ' active' : '')} aria-pressed={option.value === value} onClick={() => onChange(option.value)}>
         <OptionThumbnail option={option} palettes={palettes} gradientCards={gradientCards} />
@@ -119,4 +121,17 @@ export function ThemeSettingChoices({ label, presentation, options, value, palet
       </Button>
     ))}
   </div>
+}
+
+/**
+ * 卡片列数：优先让末行排满，其次保持 4 列上限。
+ * 5 项 → 5 列一行；6 项 → 3 列两行；7 项 → 4+3；8 项 → 4 列两行。
+ */
+function choiceColumns(count: number): number {
+  if (count <= 1) return 1
+  if (count <= 5) return count
+  for (let columns = 5; columns >= 3; columns--) {
+    if (count % columns === 0) return columns
+  }
+  return 4
 }

@@ -1,5 +1,5 @@
 /**
- * DefaultAppsSection — 设置 → 通用里的「打开方式」管理
+ * DefaultAppsSection — 设置 → 通用里的「默认打开方式」管理
  *
  * 呈现：一张映射列表，每行是「类型（.ext / scheme://）→ 关联插件」。
  *  - 关联插件就是声明了该类型的插件（manifest.contributes.openWith），同一类型可关联多个；
@@ -73,7 +73,7 @@ function shapeErrorOf(kind: OpenWithKind, value: string): string | null {
     return OPEN_WITH_EXT_RE.test(value) ? null : '扩展名只能包含小写字母和数字（1–10 位，不含点）'
   }
   if ((RESERVED_OPEN_WITH_SCHEMES as readonly string[]).includes(value)) {
-    return `${value}:// 由系统保留，不能作为插件的打开方式`
+    return `${value}:// 由系统保留，不能作为插件的默认打开方式`
   }
   return OPEN_WITH_SCHEME_RE.test(value) ? null : '协议名需以小写字母开头，可含数字、+、-、.'
 }
@@ -183,7 +183,7 @@ function MappedRow({ row, packaged, selected, busy, onToggle, onSetDefault, onRe
 
   return (
     <li className="open-with-row">
-      <div className="open-with-row-body" role="group" aria-label={`${label} 的打开方式`}>
+      <div className="open-with-row-body" role="group" aria-label={`${label} 的默认打开方式`}>
         <div className="open-with-row-main">
           <div className="open-with-type-cell">
             <div className="open-with-type-line">
@@ -209,7 +209,7 @@ function MappedRow({ row, packaged, selected, busy, onToggle, onSetDefault, onRe
         <Button
           variant="ghost"
           className="open-with-icon-btn open-with-remove"
-          aria-label={`移除 ${label} 的打开方式`}
+          aria-label={`移除 ${label} 的默认打开方式`}
           title="移除"
           disabled={busy}
           onClick={onRemove}
@@ -223,7 +223,7 @@ function MappedRow({ row, packaged, selected, busy, onToggle, onSetDefault, onRe
 
 /**
  * 草稿行：选类型 → 勾选关联插件 → 指定默认 → 保存。
- * 类型来源：已声明但还没有打开方式的类型（下拉），或自定义输入（扩展名 / 协议名）。
+ * 类型来源：已声明但还没有默认打开方式的类型（下拉），或自定义输入（扩展名 / 协议名）。
  */
 function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
   rows: OpenWithRow[]
@@ -281,7 +281,7 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
     if (shape) return shape
     if (!matched) return '没有插件声明该类型，安装对应插件后再来关联'
     if (!matched.providers.some(provider => provider.enabled)) return '声明该类型的插件均已停用，启用后再来关联'
-    if (routedKeys.has(matched.key)) return '该类型已有打开方式，请先移除原映射'
+    if (routedKeys.has(matched.key)) return '该类型已有默认打开方式，请先移除原映射'
     return null
   })()
   const canSave = !!matched && !validationError && selected.length > 0 && !saving && !busy
@@ -334,7 +334,7 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
 
   return (
     <li className="open-with-row is-draft" ref={rowRef}>
-      <div className="open-with-row-body" role="group" aria-label="新增打开方式">
+      <div className="open-with-row-body" role="group" aria-label="新增默认打开方式">
         <div className="open-with-draft-head">
           <Select
             value={choice}
@@ -435,7 +435,7 @@ export function DefaultAppsSection() {
 
   const refresh = useCallback(async (): Promise<OpenWithListResult | null> => {
     if (!shellApi.getOpenWithList) {
-      setError('当前宿主未提供打开方式接口')
+      setError('当前宿主未提供默认打开方式接口')
       setLoading(false)
       return null
     }
@@ -445,7 +445,7 @@ export function DefaultAppsSection() {
       setError(null)
       return list
     } catch (err) {
-      setError(err instanceof Error ? err.message : '读取打开方式失败')
+      setError(err instanceof Error ? err.message : '读取默认打开方式失败')
       return null
     } finally {
       setLoading(false)
@@ -488,7 +488,7 @@ export function DefaultAppsSection() {
     key: OpenWithKey,
     pluginId: string
   ): Promise<{ ok: boolean; error?: string; hint?: string }> => {
-    if (!shellApi.setOpenWithDefault) return { ok: false, error: '当前宿主未提供打开方式接口' }
+    if (!shellApi.setOpenWithDefault) return { ok: false, error: '当前宿主未提供默认打开方式接口' }
     let result
     try {
       result = await shellApi.setOpenWithDefault(key, pluginId)
@@ -528,7 +528,7 @@ export function DefaultAppsSection() {
     try {
       const result = await shellApi.clearOpenWithDefault(key)
       if (!result.ok) notify.error(result.error ?? '移除失败')
-      else notify.success(`已移除 ${label} 的打开方式`)
+      else notify.success(`已移除 ${label} 的默认打开方式`)
       await refresh()
     } catch (err) {
       notify.error(err instanceof Error ? err.message : '移除失败')
@@ -561,7 +561,7 @@ export function DefaultAppsSection() {
       const outcome = await applyDefault(key, pluginId)
       if (!outcome.ok) return { ok: false, error: outcome.error }
       if (outcome.hint) notify.info(outcome.hint)
-      else notify.success('已添加打开方式')
+      else notify.success('已添加默认打开方式')
       closeDraft(draftId)
       return { ok: true }
     } finally {
@@ -573,15 +573,15 @@ export function DefaultAppsSection() {
   const isEmpty = !mappedRows.length && !drafts.length
 
   return (
-    <section className="s-card open-with-section" aria-label="打开方式">
+    <section className="s-card open-with-section" aria-label="默认打开方式">
       <div className="open-with-head">
-        <h2>打开方式</h2>
+        <h2>默认打开方式</h2>
         <span className="open-with-head-actions">
           <Button
             variant="ghost"
             className="open-with-icon-btn"
-            aria-label="新增打开方式"
-            title="新增打开方式"
+            aria-label="新增默认打开方式"
+            title="新增默认打开方式"
             disabled={loading || !data}
             onClick={addDraft}
           >
@@ -602,10 +602,10 @@ export function DefaultAppsSection() {
       {loading ? (
         <p className="desc" role="status">正在读取…</p>
       ) : !data ? (
-        <p className="desc" role="alert">{error ?? '打开方式不可用'}</p>
+        <p className="desc" role="alert">{error ?? '默认打开方式不可用'}</p>
       ) : isEmpty ? (
         <p className="desc">
-          还没有打开方式。点右上角 + 添加：选择插件已声明的类型，或自定义输入扩展名 / 协议名，再挑选关联插件。
+          还没有默认打开方式。点右上角 + 添加：选择插件已声明的类型，或自定义输入扩展名 / 协议名，再挑选关联插件。
           {declaredCount
             ? `当前有 ${declaredCount} 个类型可由插件处理。`
             : '安装并启用 markdown / database 等插件后，这里会出现可关联的类型。'}

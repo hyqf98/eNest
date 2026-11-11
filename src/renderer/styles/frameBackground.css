@@ -14,5 +14,6 @@
 }
 
 :root.has-bg-media .titlebar {
-  --titlebar-paint: color-mix(in srgb, var(--bg) 78%, transparent);
+  /* 与基础规则同源：不透明度直接控制 --bg 的混合比例，媒体背景才能透出到标题栏。 */
+  --titlebar-paint: color-mix(in srgb, var(--bg) calc(var(--appearance-tab-opacity, 1) * 100%), transparent);
 }

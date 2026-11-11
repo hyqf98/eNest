@@ -1,16 +1,42 @@
+<div align="center">
+
+<img src="assets/icons/enest-icon-256.png" width="112" alt="eNest" />
+
+<br />
+
 # eNest
 
-eNest 是一个开源的桌面插件工具箱。用 Quick 搜索插件和本机应用，在小窗口里处理临时任务；需要长时间使用的工具，可以留在主窗口标签页里，也可以拆成独立窗口。
+**插件化桌面工具箱** — 一个壳，装下所有临时活儿
 
-工具按需安装，界面可以换主题。翻译、Markdown、JSON、数据库等具体功能由插件提供，eNest 负责安装、窗口、快捷键、权限和数据存储。
+按一下 Quick 就出来，用完就走；要长时间用的工具留在标签页或拆成独立窗口。
 
-[产品官网](https://hyqf98.github.io/eNest/) · [插件开发文档](https://hyqf98.github.io/eNest/plugin/) · [v0.0.1 下载](https://github.com/hyqf98/eNest/releases/tag/v0.0.1) · [反馈问题](https://github.com/hyqf98/eNest/issues)
+[![Build](https://github.com/hyqf98/eNest/actions/workflows/build.yml/badge.svg)](https://github.com/hyqf98/eNest/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/hyqf98/eNest?color=2ec4a6)](https://github.com/hyqf98/eNest/releases)
+[![Plugins](https://img.shields.io/badge/plugins-37-2ec4a6)](https://github.com/hyqf98/eNest_plugin)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-555)](https://github.com/hyqf98/eNest/releases)
+
+[官网](https://hyqf98.github.io/eNest/) · [下载](https://github.com/hyqf98/eNest/releases) · [插件仓库](https://github.com/hyqf98/eNest_plugin) · [开发文档](https://hyqf98.github.io/eNest/plugin/) · [反馈](https://github.com/hyqf98/eNest/issues)
+
+</div>
 
 ![eNest 主窗口中的插件目录](assets/readme/workspace.jpg)
 
-截图来自 macOS 开发实例，使用独立演示数据；界面可能随开发更新。
+<div align="center"><sub>截图来自 macOS 开发实例，使用独立演示数据；界面可能随开发更新。</sub></div>
 
 <!-- workspace.jpg: native Electron JPEG capture, 2026-10-30, source 0.2.3, five existing demo plugin builds. -->
+
+## 这是什么
+
+eNest 是一个开源的桌面插件工具箱。宿主只负责那些通用的事——窗口、标签页、快捷键、权限、安装更新、数据存储；翻译、Markdown、JSON、数据库、SSH 这些具体功能全部由插件提供。
+
+所以它不像一个装了很多工具的大软件，更像一个能长出工具的壳：装什么由你决定，界面还能换主题。
+
+<div align="center">
+
+[怎么用](#怎么用) · [安装](#安装与运行) · [开发插件](#开发自己的插件) · [数据与权限](#数据与权限) · [仓库结构](#仓库结构)
+
+</div>
 
 ## 怎么用
 

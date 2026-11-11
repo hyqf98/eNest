@@ -1,5 +1,5 @@
 .appearance-settings { min-width: 0; }
-/* 主题页只有一张卡：主题配置（主题选择 → 自由面板外观 → 主题参数 → footer），分区靠小节标题与发丝线分隔 */
+/* 主题页两张卡：主题配置（主题选择 + 自由面板外观）与主题参数（当前主题动态字段），间距由 stack 统一 */
 .appearance-settings-stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 /* 卡间距交给 stack 的 gap，抵消设置页通用 .s-card 的下外边距 */
 .appearance-settings-stack > .s-card.appearance-card { margin-bottom: 0; }
@@ -17,6 +17,8 @@
 /* 卡标题 16 > 分区标题 15 > 分区内分组标题 13 > 字段说明 12，合并成一张卡后层级仍然清楚 */
 .appearance-section { min-width: 0; }
 .appearance-section-head { padding-top: 20px; margin: 26px 0 16px; border-top: 1px solid var(--border-strong); }
+/* 独立成卡后主题参数不再需要卡内发丝线分隔 */
+.appearance-card-tuning .appearance-section-head { padding-top: 0; margin-top: 0; border-top: 0; }
 .appearance-section-head-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; }
 .appearance-section-title { margin: 0; color: var(--text); font-size: calc(15px * var(--appearance-font-scale, 1)); font-weight: 600; line-height: 1.45; letter-spacing: -.005em; }
 .appearance-section-head .hint,
@@ -114,11 +116,16 @@
 /* 字号比例：滑杆与上面三个下拉同宽，读数带单位后也保持单行 */
 .page-settings .appearance-field-slider .appearance-slider-row { max-width: none; justify-content: stretch; }
 .page-settings .appearance-field-slider .appearance-slider-row .ui-slider { flex: 1 1 auto; }
-/* 数值微调块：相邻滑杆合并为两列紧凑排版，省掉一整行大滑杆的纵向占用 */
-.appearance-slider-cluster { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(228px, 100%), 1fr)); gap: 4px 22px; margin: 0 0 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--appearance-control-radius, 10px); background: var(--surface-2); }
-.appearance-slider-cluster .appearance-slider-row { display: grid; grid-template-columns: minmax(64px, auto) minmax(0, 1fr) 34px; align-items: center; justify-content: stretch; gap: 10px; width: 100%; min-height: 32px; }
-.appearance-slider-cluster .appearance-slider-label { color: var(--text-2); font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.5; white-space: nowrap; }
-.appearance-slider-cluster .appearance-slider-row output { width: auto; color: var(--text); font-size: calc(12px * var(--appearance-font-scale, 1)); }
+/* 数值微调块：相邻滑杆合并为紧凑排版，省掉一整行大滑杆的纵向占用。
+   固定两列而非 auto-fit：auto-fit 在奇数个字段时会留出半行空白，且各列宽度随
+   minmax 浮动导致滑杆左右端不齐。固定列 + 统一 label 列宽保证纵向对齐。 */
+.appearance-slider-cluster { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 22px; margin: 0 0 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--appearance-control-radius, 10px); background: var(--surface-2); }
+/* 奇数个字段时最后一个跨满整行，避免右侧空出半格。 */
+.appearance-slider-cluster > .appearance-slider-row:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.appearance-slider-cluster .appearance-slider-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) 44px; align-items: center; justify-content: stretch; gap: 10px; width: 100%; min-height: 32px; }
+.appearance-slider-cluster .appearance-slider-label { color: var(--text-2); font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 读数右对齐 + 等宽数字，滑杆末端与数值列始终成一条竖线。 */
+.appearance-slider-cluster .appearance-slider-row output { width: auto; color: var(--text); font-size: calc(12px * var(--appearance-font-scale, 1)); text-align: right; font-variant-numeric: tabular-nums; }
 .appearance-color-control { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }
 .appearance-color-control code { font: calc(12px * var(--appearance-font-scale, 1))/1.6 var(--font-mono); color: var(--text-2); overflow-wrap: anywhere; }
 /* 色板网格：token/颜色字段横排，取代逐行 field */

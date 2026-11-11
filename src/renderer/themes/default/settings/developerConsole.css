@@ -193,6 +193,77 @@
 
 /* ========== MCP Service Section（设置 → 开发者） ========== */
 
+/* 卡头：标题 + 说明在左，启用开关与运行状态在右（开关紧跟标题，启动后才展开端口/地址） */
+.mcp-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  min-width: 0;
+  margin-bottom: 14px;
+}
+
+.mcp-card-head-copy { min-width: 0; flex: 1 1 auto; }
+.page-settings .s-card .mcp-card-head h2 { margin: 0; }
+.mcp-card-head .hint,
+.page-settings .s-card .mcp-card-head .hint { margin: 6px 0 0; max-width: 58ch; }
+
+.mcp-card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+/* 服务启动后展示的地址/端口块 */
+.mcp-endpoint {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--appearance-control-radius, 10px);
+  background: var(--surface-2);
+}
+
+.mcp-endpoint-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.mcp-endpoint-label {
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  color: var(--text-3);
+  min-width: 56px;
+  flex: 0 0 auto;
+}
+
+.mcp-endpoint-value {
+  font-family: var(--mono);
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  color: var(--text);
+  word-break: break-all;
+  min-width: 0;
+}
+
+/* 工具目录并入服务卡，用发丝线与上方运行信息分隔 */
+.mcp-tools-block {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.mcp-tools-title {
+  margin: 0;
+  font-size: calc(15px * var(--appearance-font-scale, 1));
+  font-weight: 600;
+  color: var(--text);
+}
+
 .mcp-row {
   display: flex;
   align-items: center;

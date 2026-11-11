@@ -23,10 +23,28 @@ const PART: Part = new URLSearchParams(window.location.search).get('part') === '
 
 /** 鼠标离开后收起缓冲（hover intent），不随动画档位缩放 */
 const COLLAPSE_DELAY_MS = 260
-/** 收起 CSS 动画播完后再缩窄视图，避免圆球被右缘裁切（item 淡出 ~260ms 已不可见） */
+/**
+ * 收起 CSS 动画播完后再缩窄原生视图：视图缩窄是不可动画的硬切换，早于过渡结束
+ * 就会把还在淡出的圆球直接切掉，看起来像"突然收回"。
+ * 时长从元素实际 computed style 读取，避免按档位硬编码落后于 CSS 改动。
+ */
 function narrowDelayMs(): number {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return 0
-  return currentAnimLevel() === 'high' ? 380 : currentAnimLevel() === 'low' ? 180 : 280
+  const nodes = [document.getElementById('orb-panel'), document.querySelector('.orb-item')]
+  let longest = 0
+  for (const node of nodes) {
+    if (!(node instanceof HTMLElement)) continue
+    const style = getComputedStyle(node)
+    const durations = style.transitionDuration.split(',').map(parseFloat)
+    const delays = style.transitionDelay.split(',').map(parseFloat)
+    const count = Math.max(durations.length, delays.length)
+    for (let i = 0; i < count; i++) {
+      const total = (durations[i % durations.length] || 0) + (delays[i % delays.length] || 0)
+      if (total > longest) longest = total
+    }
+  }
+  // 40ms 缓冲覆盖一帧合成与 setBounds 的往返。
+  return longest ? Math.round(longest * 1000) + 40 : 320
 }
 /** 展开错落 delay 基准：40 + i * 38（medium） */
 const STAGGER_BASE_MS = 40

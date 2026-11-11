@@ -133,6 +133,12 @@ export function PluginSettingsSection({ pluginId: id, title, sections, values, o
     }
     return <PluginSettingInput item={item} raw={raw} onCommit={value => handlePluginSetting(id, item.key, value)} />
   }
+  /**
+   * 卡片头已经是插件名。插件只声明一个 section 时，它的标题对着同一张卡片再写一遍
+   * 名字（23 个官方插件全部如此，措辞偶有出入但语义重复），渲染出来就是两行同名
+   * 标题。单 section 一律不显示；多 section 才逐段显示，用于区分分组。
+   */
+  const showSectionTitle = sections.length > 1
   return (
     <Card key={id} title={title} className="plugin-settings-card">
       {sections.length === 0 ? (
@@ -140,7 +146,7 @@ export function PluginSettingsSection({ pluginId: id, title, sections, values, o
       ) : (
         sections.map((section) => (
           <div key={section.id} className="plugin-settings-section">
-            {section.title ? <h3 className="label">{section.title}</h3> : null}
+            {showSectionTitle && section.title ? <h3 className="label">{section.title}</h3> : null}
             {section.items.map((item) => (
               <Field key={item.key} label={item.label}>
                 {renderValue(item)}

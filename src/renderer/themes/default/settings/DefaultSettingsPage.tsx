@@ -1,5 +1,5 @@
 /** Default-theme settings navigation; tab state and subscriptions share the page lifetime. */
-import { lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect, useMemo } from 'react'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { SettingsTabs } from './SettingsTabs'
@@ -27,10 +27,22 @@ export function DefaultSettingsPage() {
   const { t, locale } = useI18n()
   const installed = plugins.filter((p) => p.installed)
 
-  /** Installed plugins keep their own settings entry, including before their first launch. */
-  const settingsPlugins = installed
+  const general = useGeneralSettings()
+  const { pluginSections, pluginSettings, handlePluginSetting } = usePluginSettings()
+  const updates = useSettingsUpdates()
 
-  /** Only an uninstalled plugin should lose its settings entry. */
+  /**
+   * Only plugins that actually contribute settings get a tab: a manifest
+   * `contributes.settings` declaration or a runtime `settings.register` section.
+   * Installed-but-silent plugins no longer add an empty settings entry.
+   */
+  const pluginsWithSettings = useMemo(() => new Set(pluginSections.map(section => section.pluginId)), [pluginSections])
+  const settingsPlugins = useMemo(
+    () => installed.filter(plugin => (plugin.contributes?.settings?.length ?? 0) > 0 || pluginsWithSettings.has(plugin.id)),
+    [installed, pluginsWithSettings],
+  )
+
+  /** Drop the tab when the plugin is uninstalled or stops contributing settings. */
   useEffect(() => {
     if (
       settingsTab.startsWith('p:') &&
@@ -39,10 +51,6 @@ export function DefaultSettingsPage() {
       setSettingsTab('general')
     }
   }, [settingsTab, settingsPlugins, setSettingsTab])
-
-  const general = useGeneralSettings()
-  const { pluginSections, pluginSettings, handlePluginSetting } = usePluginSettings()
-  const updates = useSettingsUpdates()
 
   const TABS = [
     { id: 'general', label: t('settings.tabs.general') },

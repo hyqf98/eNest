@@ -63,9 +63,11 @@ export function getDarwinBundleAssociations(): Promise<BundleAssociations | null
 
 // NSWorkspace returns Objective-C objects, unlike the opaque CF refs returned by old LS APIs.
 // Preferences are not authoritative: LaunchServices also resolves UTI and installed-app defaults.
+// UTType is resolved through NSClassFromString: ObjC.import('UniformTypeIdentifiers') fails on
+// recent macOS, which silently disabled every association query.
 const QUERY_SOURCE = String.raw`
 ObjC.import('AppKit');
-ObjC.import('UniformTypeIdentifiers');
+var UTType = $.NSClassFromString('UTType');
 function nil(value) {
   return value === null || value === undefined || (typeof value.isNil === 'function' && value.isNil());
 }

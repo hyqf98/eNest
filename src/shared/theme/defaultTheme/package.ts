@@ -15,7 +15,7 @@ const fonts = {
 }
 const components = { controlRadius: 10, cardRadius: 18, panelRadius: 24, borderWidth: 1 }
 const background = {
-  media: null, effect: 'tunnel', texture: 'none', intensity: 1, speed: 1, direction: 0,
+  media: null, effect: 'orbit', texture: 'none', intensity: 1, speed: 1, direction: 0,
   warmth: 0.5, grain: 0.12, scale: 1, wash: 0.35,
   kind: 'none' as const, palette: 'theme' as const, color: '#bd542b', opacity: 0.85, fit: 'cover' as const,
 }
@@ -64,7 +64,7 @@ const pack: ThemePackV2 = {
           { key: 'media', label: '背景图片或视频', type: 'media', default: null, binding: { target: 'background', key: 'media' } },
           { key: 'backgroundOpacity', label: '氛围 / 媒体不透明度', type: 'slider', default: 0.85, min: 0, max: 1, step: 0.01, binding: { target: 'background', key: 'opacity' } },
           { key: 'backgroundFit', label: '媒体填充方式', type: 'select', default: 'cover', help: '仅控制图片和视频，不改变氛围配色与背景动效。', options: [{ label: '填满', value: 'cover' }, { label: '完整显示', value: 'contain' }], binding: { target: 'background', key: 'fit' } },
-          { key: 'backgroundEffect', label: '背景动效', type: 'select', default: 'tunnel', options: [{ label: '关闭', value: 'none' }, { label: '空间折叠', value: 'fold' }, { label: '极光绸缎', value: 'aurora' }, { label: '引力光环', value: 'orbit' }, { label: '液态波纹', value: 'ripple' }, { label: '光域隧道', value: 'tunnel' }], binding: { target: 'background', key: 'effect' } },
+          { key: 'backgroundEffect', label: '背景动效', type: 'select', default: 'orbit', options: [{ label: '关闭', value: 'none' }, { label: '空间折叠', value: 'fold' }, { label: '极光绸缎', value: 'aurora' }, { label: '引力光环', value: 'orbit' }, { label: '液态波纹', value: 'ripple' }], binding: { target: 'background', key: 'effect' } },
           { key: 'splashType', label: '启动画面', type: 'select', default: 'brand', options: [
             { label: '品牌色', value: 'brand', description: '墨绿底色配浅鼠尾草色标志，与当前主题配色无关，深色界面下也不会变成深底。' },
             { label: '主题色', value: 'none', description: '跟随当前主题的页面背景与强调色，切换深浅模式或修改配色后一起变化。' },
@@ -95,6 +95,8 @@ const pack: ThemePackV2 = {
       },
       {
         id: 'layout', title: '布局与动画', fields: [
+          // 标签页样式/自动隐藏/标题栏不透明度由「设置 → 通用」渲染，但字段仍在此声明：
+          // TopTabBarSection 只认 schema 里的 binding，删掉会让通用页控件消失。
           { key: 'tabStyle', label: '标签页样式', type: 'select', default: 'classic', options: [{ label: '顶部标签', value: 'classic' }, { label: '左侧圆轨', value: 'orb' }], binding: { target: 'layout', key: 'tabStyle' } },
           { key: 'tabAutoHide', label: '标题栏自动隐藏', type: 'switch', default: false, help: '指针离开后整条标题栏收起，移到窗口顶部即展开', binding: { target: 'layout', key: 'tabAutoHide' }, visibleWhen: { field: 'tabStyle', equals: 'classic' } },
           { key: 'tabOpacity', label: '标题栏背景不透明度', type: 'slider', default: 1, min: 0, max: 1, step: 0.05, binding: { target: 'layout', key: 'tabOpacity' }, visibleWhen: { field: 'tabStyle', equals: 'classic' } },
@@ -102,7 +104,7 @@ const pack: ThemePackV2 = {
           { key: 'density', label: '内容密度', type: 'slider', default: 1, min: 0.8, max: 1.2, step: 0.01, binding: { target: 'layout', key: 'density' } },
           { key: 'gap', label: '内容间距', type: 'slider', default: 16, min: 0, max: 32, step: 1, binding: { target: 'layout', key: 'gap' } },
           { key: 'columns', label: '目录列数', type: 'slider', default: 3, min: 1, max: 6, step: 1, binding: { target: 'layout', key: 'columns' } },
-          { key: 'motion', label: '动画强度', type: 'select', default: 'medium', help: '低档停用过渡与轮播动效，高档启用全部动画', options: [{ label: '低', value: 'low' }, { label: '中', value: 'medium' }, { label: '高', value: 'high' }], binding: { target: 'animation', key: 'level' } },
+          { key: 'motion', label: '动画强度', type: 'select', default: 'medium', help: '低档减少过渡与轮播动效，高档启用完整动画', options: [{ label: '低', value: 'low' }, { label: '中', value: 'medium' }, { label: '高', value: 'high' }], binding: { target: 'animation', key: 'level' } },
         ],
       },
       {

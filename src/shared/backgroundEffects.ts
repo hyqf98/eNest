@@ -8,7 +8,7 @@ export type ResolvedBackgroundEffect = BackgroundEffectDefinition & {
   source?: string
 }
 
-export const DEFAULT_BACKGROUND_EFFECT: BackgroundEffectPreset = 'tunnel'
+export const DEFAULT_BACKGROUND_EFFECT: BackgroundEffectPreset = 'orbit'
 export const MAX_BACKGROUND_EFFECTS_PER_PACK = 8
 
 /** Resolve the same background source for the shell, launch/Quick and detached chrome. */
@@ -24,7 +24,6 @@ export const BUILTIN_BACKGROUND_EFFECTS: readonly ResolvedBackgroundEffect[] = [
   { id: 'aurora', name: '极光绸缎', nameEn: 'Aurora Silk', description: '青绿与淡金的绸带缓缓交叠', renderer: 'preset', preset: 'aurora', logoStyle: 'aurora' },
   { id: 'orbit', name: '引力光环', nameEn: 'Gravity Orbit', description: '冷白光沿橙金色引力盘环绕', renderer: 'preset', preset: 'orbit', logoStyle: 'orbit' },
   { id: 'ripple', name: '液态波纹', nameEn: 'Liquid Ripple', description: '光线随液态表面缓缓起伏', renderer: 'preset', preset: 'ripple', logoStyle: 'ripple' },
-  { id: 'tunnel', name: '光域隧道', nameEn: 'Light Tunnel', description: '六边形光框展开纵深空间', renderer: 'preset', preset: 'tunnel', logoStyle: 'tunnel' },
 ]
 
 const PRESETS = new Set<string>(['fold', 'aurora', 'orbit', 'ripple', 'tunnel'])

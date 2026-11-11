@@ -153,92 +153,103 @@ export function McpServiceSection() {
   return (
     <>
       <div className="s-card">
-        <h2>{t('mcp.title')}</h2>
-        <p className="hint">{t('mcp.subtitle')}</p>
-
-        <div className="mcp-row">
-          <span className="mcp-row-label">{t('mcp.enable')}</span>
-          <Switch
-            checked={status?.configuration.enabled ?? false}
-            onCheckedChange={handleToggle}
-            disabled={busy || !status}
-            aria-label={t('mcp.enable')}
-          />
-          {stateMeta ? (
-            <span className={`mcp-state ${stateMeta.cls}`}>
-              {en ? stateMeta.en : stateMeta.zh}
-              {status && status.state !== 'disabled' ? ` · ${status.endpoint}` : ''}
-            </span>
-          ) : <span className="desc">…</span>}
+        <div className="mcp-card-head">
+          <div className="mcp-card-head-copy">
+            <h2>{t('mcp.title')}</h2>
+            <p className="hint">{t('mcp.subtitle')}</p>
+          </div>
+          <div className="mcp-card-head-actions">
+            <Switch
+              checked={status?.configuration.enabled ?? false}
+              onCheckedChange={handleToggle}
+              disabled={busy || !status}
+              aria-label={t('mcp.enable')}
+              title={t('mcp.enable')}
+            />
+            {stateMeta ? (
+              <span className={`mcp-state ${stateMeta.cls}`}>{en ? stateMeta.en : stateMeta.zh}</span>
+            ) : <span className="desc">…</span>}
+          </div>
         </div>
 
-        <div className="mcp-row">
-          <span className="mcp-row-label">{t('mcp.port')}</span>
-          <Input
-            className="mcp-port-input"
-            value={portDraft}
-            inputMode="numeric"
-            aria-label={t('mcp.port')}
-            disabled={busy || !status}
-            onChange={(e) => setPortDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 5))}
-            onBlur={handleApplyPort}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleApplyPort() }}
-          />
-          <span className="desc">{t('mcp.portHint')}</span>
-        </div>
+        {/* 端口与地址只在服务启动后展示；未启用时不暴露空地址。 */}
+        {running ? (
+          <>
+            <div className="mcp-endpoint" role="group" aria-label={t('mcp.endpoint')}>
+              <div className="mcp-endpoint-row">
+                <span className="mcp-endpoint-label">{t('mcp.endpoint')}</span>
+                <code className="mcp-endpoint-value">{status.endpoint}</code>
+              </div>
+              <div className="mcp-endpoint-row">
+                <span className="mcp-endpoint-label">{t('mcp.port')}</span>
+                <Input
+                  className="mcp-port-input"
+                  value={portDraft}
+                  inputMode="numeric"
+                  aria-label={t('mcp.port')}
+                  disabled={busy}
+                  onChange={(e) => setPortDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 5))}
+                  onBlur={handleApplyPort}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleApplyPort() }}
+                />
+                <span className="desc">{t('mcp.portHint')}</span>
+              </div>
+              <div className="mcp-endpoint-row mcp-counters">
+                <span className="desc">{t('mcp.sessions')}: {status.sessionCount}</span>
+                <span className="desc">{t('mcp.activeCalls')}: {status.activeCalls}</span>
+              </div>
+            </div>
+
+            <div className="mcp-actions">
+              <Button variant="primary" size="sm" disabled={busy} onClick={() => void handleCopyConnection()}>
+                {t('mcp.copyConnection')}
+              </Button>
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void handleRotateToken()}>
+                {t('mcp.rotateToken')}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => { void refresh(); void loadTools() }}>
+                {t('mcp.refresh')}
+              </Button>
+            </div>
+          </>
+        ) : null}
 
         {status?.state === 'error' && status.error ? (
           <p className="mcp-error">{status.error}</p>
         ) : null}
         {!status && loadError ? <p className="mcp-error">{loadError}</p> : null}
 
-        {status && status.state !== 'disabled' ? (
-          <div className="mcp-row mcp-counters">
-            <span className="desc">{t('mcp.sessions')}: {status.sessionCount}</span>
-            <span className="desc">{t('mcp.activeCalls')}: {status.activeCalls}</span>
+        {/* 已注册工具并入本卡：服务未启动时给出启用提示，启动后直接列出可用工具。 */}
+        <div className="mcp-tools-block">
+          <div className="dev-card-head">
+            <h3 className="mcp-tools-title">{t('mcp.toolsTitle')}</h3>
+            <span className="tag">{tools.length}</span>
           </div>
-        ) : null}
-
-        <div className="mcp-actions">
-          <Button variant="ghost" size="sm" disabled={!running || busy} onClick={() => void handleCopyConnection()}>
-            {t('mcp.copyConnection')}
-          </Button>
-          <Button variant="ghost" size="sm" disabled={busy || !status?.configuration.enabled} onClick={() => void handleRotateToken()}>
-            {t('mcp.rotateToken')}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => { void refresh(); void loadTools() }}>
-            {t('mcp.refresh')}
-          </Button>
-        </div>
-      </div>
-
-      <div className="s-card">
-        <div className="dev-card-head">
-          <h2 style={{ margin: 0 }}>{t('mcp.toolsTitle')}</h2>
-          <span className="tag">{tools.length}</span>
-        </div>
-        <p className="hint">{t('mcp.toolsHint')}</p>
-        {!isMockShell && tools.length === 0 && !toolsLoading ? (
-          <p className="desc">{t('mcp.toolsEmpty')}</p>
-        ) : null}
-        {tools.length > 0 ? (
-          <div className="mcp-tool-list">
-            {tools.map((tool) => (
-              <div className="mcp-tool-item" key={`${tool.pluginId}/${tool.id}`}>
-                <div className="mcp-tool-name">
-                  <code>{tool.pluginId} · {tool.id}</code>
-                  {tool.title ? <span className="desc">{tool.title}</span> : null}
+          <p className="hint">{t('mcp.toolsHint')}</p>
+          {!running ? (
+            <p className="desc">{t('mcp.toolsNeedsService')}</p>
+          ) : !isMockShell && tools.length === 0 && !toolsLoading ? (
+            <p className="desc">{t('mcp.toolsEmpty')}</p>
+          ) : null}
+          {running && tools.length > 0 ? (
+            <div className="mcp-tool-list">
+              {tools.map((tool) => (
+                <div className="mcp-tool-item" key={`${tool.pluginId}/${tool.id}`}>
+                  <div className="mcp-tool-name">
+                    <code>{tool.pluginId} · {tool.id}</code>
+                    {tool.title ? <span className="desc">{tool.title}</span> : null}
+                  </div>
+                  {tool.description ? <p className="mcp-tool-desc">{tool.description}</p> : null}
                 </div>
-                {tool.description ? <p className="mcp-tool-desc">{tool.description}</p> : null}
-              </div>
-            ))}
-          </div>
-        ) : null}
-        {toolsNextCursor ? (
-          <Button variant="ghost" size="sm" disabled={toolsLoading} onClick={() => void loadTools(toolsNextCursor)}>
-            {t('mcp.toolsMore')}
-          </Button>
-        ) : null}
+              ))}
+            </div>
+          ) : null}
+          {running && toolsNextCursor ? (
+            <Button variant="ghost" size="sm" disabled={toolsLoading} onClick={() => void loadTools(toolsNextCursor)}>
+              {t('mcp.toolsMore')}
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {status && status.recentCalls.length > 0 ? (

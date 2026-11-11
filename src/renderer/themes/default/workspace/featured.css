@@ -199,6 +199,8 @@
   border-left: 1px solid var(--border-strong);
 }
 
+.product-size-meta { display: inline-flex; align-items: center; gap: 4px; }
+
 .product-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .product-tag { color: var(--text-2); font-size: 12px; }
 

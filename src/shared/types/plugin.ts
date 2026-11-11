@@ -28,18 +28,18 @@ export type PluginPermission =
   | 'hotkey'
   | 'contribute'
   | 'vault.write'
-  | 'db.connect'
-  | 'db.query'
-  | 'db.schema'
-  | 'mw.connect'
-  | 'mw.query'
-  | 'mw.admin'
+  | 'net.database'
+  | 'net.database.query'
+  | 'net.database.schema'
+  | 'net.messaging'
+  | 'net.messaging.read'
+  | 'net.messaging.admin'
   | 'net.socket'
   | 'fs.rename'
   | 'fs.read'
   | 'fs.write'
   | 'sys.control'
-  | 'ssh.agent'
+  | 'sys.sshAgent'
   | 'sys.inspect'
   | 'theme'
 
@@ -74,18 +74,18 @@ export const PLUGIN_PERMISSIONS: readonly PluginPermission[] = [
   'hotkey',
   'contribute',
   'vault.write',
-  'db.connect',
-  'db.query',
-  'db.schema',
-  'mw.connect',
-  'mw.query',
-  'mw.admin',
+  'net.database',
+  'net.database.query',
+  'net.database.schema',
+  'net.messaging',
+  'net.messaging.read',
+  'net.messaging.admin',
   'net.socket',
   'fs.rename',
   'fs.read',
   'fs.write',
   'sys.control',
-  'ssh.agent',
+  'sys.sshAgent',
   'sys.inspect',
   'theme'
 ]

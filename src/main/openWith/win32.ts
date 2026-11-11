@@ -9,10 +9,15 @@
  *  - 状态检测：读 FileExts\<ext>\UserChoice 的 ProgId；读不到再看候选键。
  */
 import { app, shell } from 'electron'
+import { basename } from 'node:path'
 import type { OpenWithStatus } from '@shared/types/openWith'
 import { registrationAvailable, run, type OpenWithRegistrar } from './registrar'
 
-const APPLICATIONS_KEY = 'HKCU\\Software\\Classes\\Applications\\eNest.exe'
+/** Executable name comes from the installed build, never a hard-coded product name. */
+function applicationsKey(): string {
+  const exe = basename(app.getPath('exe')) || 'eNest.exe'
+  return `HKCU\\Software\\Classes\\Applications\\${exe}`
+}
 
 function progId(ext: string): string {
   return `eNest.${ext}`
@@ -36,8 +41,8 @@ async function registerFileCandidate(ext: string): Promise<void> {
   await regAddDefault(`HKCU\\Software\\Classes\\${id}\\shell\\open\\command`, `"${exe}" "%1"`)
   await regAddValue(`HKCU\\Software\\Classes\\.${ext}\\OpenWithProgids`, id, '', 'REG_NONE')
   // 让「打开方式」列表出现 eNest
-  await regAddDefault(`${APPLICATIONS_KEY}\\shell\\open\\command`, `"${exe}" "%1"`)
-  await regAddValue(`${APPLICATIONS_KEY}\\SupportedTypes`, `.${ext}`, '', 'REG_NONE')
+  await regAddDefault(`${applicationsKey()}\\shell\\open\\command`, `"${exe}" "%1"`)
+  await regAddValue(`${applicationsKey()}\\SupportedTypes`, `.${ext}`, '', 'REG_NONE')
 }
 
 export const win32Registrar: OpenWithRegistrar = {
