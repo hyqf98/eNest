@@ -8,7 +8,8 @@ import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { getPluginLaunchAliases, getPluginLaunchAliasRevision } from '@main/hotkey/pluginLaunchHotkeys'
 import { searchAll } from '@main/plugin/pluginBackgroundRuntime'
 import { quickProviderStates } from '@main/theme/quickStateService'
-import { getCachedApps, scanApplications } from './appScanner'
+import { logWarn } from '@main/logs/logService'
+import { getCachedApps, onApplicationsChanged, scanApplications } from './appScanner'
 import { getAppIconDataUrl } from './appLauncher'
 import { queryQuickProviders, type QuickProviderItem } from './quickProviders'
 import { randomUUID } from 'node:crypto'
@@ -117,12 +118,12 @@ export function buildPluginCommands(): QuickCommand[] {
   return items
 }
 
-let appCache: { source: ReturnType<typeof getCachedApps>; items: QuickCommand[] } | null = null
+let appCache: { source: NonNullable<ReturnType<typeof getCachedApps>>['apps']; items: QuickCommand[] } | null = null
 export function buildAppCommands(): QuickCommand[] {
-  const source = getCachedApps()
+  const source = getCachedApps()?.apps
   if (!source) return []
   if (appCache?.source === source) return appCache.items
-  const items: QuickCommand[] = source.apps.map(app => ({
+  const items: QuickCommand[] = source.map(app => ({
     kind: 'app', id: `app:${app.path}`, title: app.name, subtitle: '', path: app.path,
     icon: app.icon, iconName: app.iconName, aliases: [...new Set([app.name, app.alias].filter((name): name is string => Boolean(name)))], type: 'text'
   }))
@@ -227,8 +228,21 @@ export async function getLaunchDirectorySnapshot(): Promise<{ revision: string; 
   return { revision: String(directoryRevision), items }
 }
 export function onLaunchDirectoryChanged(listener: () => void): () => void {
-  const index = onLaunchIndexChanged(listener), registry = pluginRegistry.onInstalledChanged(listener)
-  return () => { index(); registry() }
+  let pending = false, disposed = false
+  const notify = (): void => {
+    if (pending || disposed) return
+    pending = true
+    // A registry change can also rebuild the launch index in the same turn.
+    // Publish one invalidation after that cascade; source revisions advance immediately.
+    queueMicrotask(() => {
+      pending = false
+      if (disposed) return
+      try { listener() } catch (error) { logWarn('quick', `directory listener failed: ${String(error)}`) }
+    })
+  }
+  const index = onLaunchIndexChanged(notify), registry = pluginRegistry.onInstalledChanged(notify)
+  const applications = onApplicationsChanged(notify)
+  return () => { disposed = true; index(); registry(); applications() }
 }
 
 /** Resolve a trusted surface's current handle again; caller-supplied private payloads have no authority. */

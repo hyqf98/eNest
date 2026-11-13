@@ -8,6 +8,7 @@ import { getPluginOwnedProcesses } from '@main/plugin/pluginOwnedProcesses'
 import { getMainWindow } from '@main/window/createShellWindow'
 import { logInfo } from '@main/logs/logService'
 import { PerformanceCaptureRecorder } from '@main/plugin/performanceCaptureRecorder'
+import { startMainEventLoopCapture } from '@main/plugin/performanceCaptureEventLoop'
 import { trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 import type { PerformanceCaptureExportResult, PerformanceCaptureProcess, PerformanceCaptureSample } from '@shared/types/performanceCapture'
 
@@ -86,6 +87,7 @@ async function collect(sequence: number, startedMono: number, previous: Performa
 
 const recorder = new PerformanceCaptureRecorder({
   collect,
+  observeEventLoop: startMainEventLoopCapture,
   metadata: () => ({ platform: process.platform, arch: process.arch, osRelease: release(), appVersion: app.getVersion(), electronVersion: process.versions.electron,
     chromiumVersion: process.versions.chrome, nodeVersion: process.versions.node, logicalCpuCount: cpus().length, totalMemoryBytes: totalmem() }),
   log: message => logInfo('performance-capture', message)

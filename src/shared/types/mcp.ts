@@ -72,6 +72,11 @@ export interface McpRegisterRequest {
 
 export interface McpRegistrationAck {
   registrationId: string
+  /**
+   * 旧文档在重载/关闭前发出的迟到注册：宿主代次已换，注册未生效。
+   * 前端按"静默放弃"处理——这不是错误，下一次加载会重新注册。
+   */
+  retired?: boolean
 }
 
 export interface McpDispatchMessage {

@@ -9,7 +9,7 @@
  *  - 只渲染分区内容；外层卡片、标题与统一 footer 由 AppearanceSettingsSection 提供。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { DEFAULT_PANEL_APPEARANCE, type PanelAppearance, type PanelMaterial } from '@shared/types/panel'
+import { DEFAULT_PANEL_APPEARANCE, type PanelAppearance, type PanelBounds, type PanelMaterial } from '@shared/types/panel'
 import { IS_MAC } from '@shared/platform'
 import { shellApi } from '@renderer/services/shellApi'
 import { notify } from '@renderer/services/notifyService'
@@ -148,7 +148,8 @@ export function FreePanelFields({ state }: { state: PanelAppearanceController })
   const { loading, error, retry } = state
   const [enabled, setEnabled] = useState(false)
   const [hotkey, setHotkey] = useState('')
-  const [panelCount, setPanelCount] = useState(0)
+  /** 面板实况：数量、首个面板的宽高比与组件数，用于预览图。 */
+  const [panels, setPanels] = useState<Array<{ id: string; bounds: PanelBounds; widgetCount: number }>>([])
   const [busy, setBusy] = useState(false)
 
   const refreshSwitch = useCallback(async () => {
@@ -159,8 +160,7 @@ export function FreePanelFields({ state }: { state: PanelAppearanceController })
       // 主进程未配置时回平台默认；general.panelHotkey 存归一后的 accelerator。
       if (typeof general.panelHotkey === 'string' && general.panelHotkey) setHotkey(general.panelHotkey)
       else setHotkey(IS_MAC ? 'Command+Shift+P' : 'Ctrl+Shift+P')
-      const panels = shellApi.listPanels ? await shellApi.listPanels() : []
-      setPanelCount(panels.length)
+      setPanels(shellApi.listPanels ? await shellApi.listPanels() : [])
     } catch {
       /* 读取失败保持当前值 */
     }
@@ -236,11 +236,11 @@ export function FreePanelFields({ state }: { state: PanelAppearanceController })
       </div>
       {enabled && (
         <>
-          <PanelAppearanceFields state={state} />
+          <PanelAppearanceFields state={state} panels={panels} />
           <div className="field">
             <div>
               <div className="label">新建面板</div>
-              <p className="desc">当前活动面板：{panelCount} 个；快捷键可呼出全屏框选。</p>
+              <p className="desc">当前活动面板：{panels.length} 个；快捷键可呼出全屏框选。</p>
             </div>
             <Button variant="primary" size="sm" onClick={() => void create()} disabled={busy}>
               框选并新建
@@ -261,8 +261,8 @@ export function FreePanelFields({ state }: { state: PanelAppearanceController })
   )
 }
 
-/** 自由面板外观字段（材质 + 底板不透明度），只渲染字段本身，不含外层卡片。 */
-function PanelAppearanceFields({ state }: { state: PanelAppearanceController }) {
+/** 自由面板外观字段（材质 + 底板不透明度 + 面板缩略预览），只渲染字段本身，不含外层卡片。 */
+function PanelAppearanceFields({ state, panels }: { state: PanelAppearanceController; panels: Array<{ id: string; bounds: PanelBounds; widgetCount: number }> }) {
   const { draft, loading, error, update, retry } = state
   const transparent = draft.opacity === 0 && draft.material === 'none'
 
@@ -270,6 +270,14 @@ function PanelAppearanceFields({ state }: { state: PanelAppearanceController }) 
 
   return (
     <div className="appearance-panel-fields">
+      {/* 面板缩略预览：按真实面板的宽高比与组件数绘制，底板浓度/材质跟随上面的控件实时变化。 */}
+      <div className="field appearance-field-panel-preview">
+        <div>
+          <div className="label">面板预览</div>
+          <p className="desc">按当前面板的宽高比与组件数示意；底色浓度与材质跟随上方控件实时变化。</p>
+        </div>
+        <PanelPreview appearance={draft} panels={panels} />
+      </div>
       <div className="field">
         <div>
           <div className="label">透明底板</div>
@@ -315,14 +323,66 @@ function PanelAppearanceFields({ state }: { state: PanelAppearanceController }) 
               update({ ...draft, opacity: Math.min(1, Math.max(0, percent / 100)) })
             }}
           />
-          <span
-            className={`panel-preview-swatch material-${draft.material}`}
-            style={{ ['--preview-opacity' as never]: String(draft.opacity) }}
-            aria-hidden
-          />
         </div>
       </div>
       {error && <p className="desc appearance-inline-status is-error" role="alert">{error} <Button variant="ghost" size="sm" onClick={retry}>重试</Button></p>}
+    </div>
+  )
+}
+
+/** 没有面板时用的示意尺寸：接近默认落位的小组件底板。 */
+const PREVIEW_FALLBACK = { width: 720, height: 420, widgetCount: 3 }
+
+/**
+ * PanelPreview —— 面板缩略图
+ *
+ * 按真实面板的宽高比与组件数示意底板观感：底层是模拟桌面（CSS 无法采样真实桌面），
+ * 其上叠底板层，浓度 = 设置的 opacity；材质影响底板层的不透明度与模糊，与真实面板
+ * 上「毛玻璃/系统材质衰减底板」的观感保持一致。组件只是轮廓块，帮助判断间距与疏密。
+ */
+function PanelPreview({ appearance, panels }: {
+  appearance: PanelAppearance
+  panels: Array<{ id: string; bounds: PanelBounds; widgetCount: number }>
+}) {
+  const source = panels.length
+    ? panels.reduce((widest, panel) => panel.bounds.width * panel.bounds.height > widest.bounds.width * widest.bounds.height ? panel : widest)
+    : null
+  const width = source?.bounds.width ?? PREVIEW_FALLBACK.width
+  const height = source?.bounds.height ?? PREVIEW_FALLBACK.height
+  const widgetCount = source?.widgetCount ?? PREVIEW_FALLBACK.widgetCount
+  // 缩略图里超过 4 个组件就只画 4 个 + "+N"：再密就看不出疏密了。
+  const MAX_CELLS = 4
+  const shown = Math.min(widgetCount, MAX_CELLS)
+  const overflow = Math.max(0, widgetCount - MAX_CELLS)
+  const cells = Array.from({ length: shown }, (_, index) => index)
+  // 组件按两列除以行数均分可用高度，永远不撑破底板（用 aspect-ratio 会在窄高面板里溢出裁切）。
+  const rows = Math.max(1, Math.ceil(shown / 2))
+
+  return (
+    <div className="panel-preview" aria-hidden>
+      <div
+        className="panel-preview-frame"
+        style={{ aspectRatio: `${width} / ${height}` }}
+        data-material={appearance.material}
+      >
+        <div className="panel-preview-desktop" />
+        <div className="panel-preview-base" style={{ ['--preview-opacity' as never]: String(appearance.opacity) }} />
+        {shown === 0
+          ? <div className="panel-preview-widgets"><span className="panel-preview-empty">空面板</span></div>
+          : <div className="panel-preview-widgets" style={{ ['--preview-rows' as never]: String(rows) }}>
+              {cells.map(index => (
+                <span key={index} className="panel-preview-widget">
+                  <i aria-hidden />
+                  <b aria-hidden />
+                  <b aria-hidden />
+                </span>
+              ))}
+              {overflow > 0 && <span className="panel-preview-more">+{overflow}</span>}
+            </div>}
+      </div>
+      <p className="panel-preview-caption">
+        {source ? `${width} × ${height} · ${widgetCount} 个组件` : '还没有面板，按默认尺寸示意'}
+      </p>
     </div>
   )
 }

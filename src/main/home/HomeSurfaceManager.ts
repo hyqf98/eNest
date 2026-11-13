@@ -1,6 +1,4 @@
 import { WebContentsView } from 'electron'
-import { TITLEBAR_HEIGHT } from '@shared/constants'
-import { getPluginTopInset } from '@main/window/createShellWindow'
 import { IpcChannels } from '@shared/types/ipc'
 import type { ResolvedAppearance } from '@shared/types/appearance'
 import { DEFAULT_THEME_IDENTITY } from '@shared/theme/defaultTheme/package'
@@ -17,6 +15,7 @@ import { getMainWindow, getShellBounds, resolvePreload, sendShellEvent, setHomeE
 import { raiseOrbRailViews } from '@main/window/orbRailViews'
 import { raiseTransientViews } from '@main/window/transientViews'
 import { logInfo, logWarn } from '@main/logs/logService'
+import { markStartupPhase } from '@main/logs/startupTiming'
 import { parseHomeReference } from './homeSecurity'
 import { resolveHomePage, type ResolvedHomePage } from './homeRegistry'
 import { getHomeAppearanceSnapshot, invalidateHomeSearchHandles, suspendHomeSearch } from './homeDataService'
@@ -94,7 +93,8 @@ function homeInstallCommand(payload: ShellEventPayload): import('@shared/types/h
   if (payload.type === 'plugins-changed' || payload.type === 'uninstall-result') {
     return { type: 'refresh', reason: 'boot', revision: Date.now() % 2147483647 }
   }
-  if (payload.type === 'plugin-launch-changed' || payload.type === 'launch-directory-changed') return { type: 'searchDirectoryChanged' }
+  // General directory changes reach each current/preparing view via bindHomeContents.
+  if (payload.type === 'plugin-launch-changed') return { type: 'searchDirectoryChanged' }
   if (payload.type === 'settings-changed' || payload.type === 'settings-sections') return { type: 'settingsChanged' }
   return null
 }
@@ -218,7 +218,9 @@ export class HomeSurfaceManager {
     try {
       this.attachHidden(runtime)
       this.applyRuntimePolicy(runtime, trustedUrl)
+      markStartupPhase('home-load-start', `generation=${generation} source=${reference.source}`)
       await this.load(runtime, trustedUrl)
+      markStartupPhase('home-did-finish-load', `generation=${generation} source=${reference.source}`)
       await this.waitForReady(runtime)
       await this.ensureDesiredRoute(runtime)
       if (this.preparing !== runtime) return this.retiringTransaction(runtime)
@@ -363,6 +365,7 @@ export class HomeSurfaceManager {
       runtime.route = { page: 'catalog' }
     }
     runtime.ready = true
+    markStartupPhase('home-ready', `generation=${runtime.generation} source=${runtime.reference.source}`)
     for (const resolve of runtime.readyWaiters.splice(0)) resolve()
     runtime.readyRejecters.splice(0)
     if (runtime === this.current) this.setRuntimeVisible(this.desiredVisible)
@@ -448,6 +451,7 @@ export class HomeSurfaceManager {
     clearTimeout(pending.timer)
     if (payload.ok) {
       runtime.route = { ...pending.route }
+      markStartupPhase('home-route-ack', `generation=${runtime.generation} route=${pending.route.page}`)
       pending.resolve()
     } else pending.reject(new Error('Workspace route was rejected'))
   }
@@ -567,13 +571,18 @@ export class HomeSurfaceManager {
 
   private bounds() {
     const shell = getShellBounds()
-    // 标题栏自动收起时让出顶部空间，首页表面同样顶到窗口最上方。
-    const top = TITLEBAR_HEIGHT - getPluginTopInset()
+    /*
+     * 首页表面从窗口最顶端铺满，不再让出标题栏高度。
+     * 让出 36px 时，那一条只有主壳自己的底色、没有背景动效，
+     * 与下方首页视图的动效之间会出现一条可见的分割线；
+     * 标题栏本身是透明的（红绿灯浮在上面），所以这里铺满不会遮住任何东西。
+     * 页面内容的顶部留白由 workspace 自身的内边距提供。
+     */
     return {
       x: 0,
-      y: top,
+      y: 0,
       width: Math.max(0, shell.width),
-      height: Math.max(0, shell.height - top)
+      height: Math.max(0, shell.height)
     }
   }
 
@@ -590,7 +599,10 @@ export class HomeSurfaceManager {
     current.visible = nextVisible
     if (changed) {
       if (!nextVisible) suspendHomeSearch(current.view.webContents.id)
-      try { current.view.setVisible(nextVisible) }
+      try {
+        current.view.setVisible(nextVisible)
+        if (nextVisible && acknowledged) markStartupPhase('home-visible', `generation=${current.generation} source=${current.reference.source}`)
+      }
       catch { /* retired concurrently */ }
       this.sendCommand(current, { type: 'visibility', visible: nextVisible, revision: current.appearance.revision })
     }

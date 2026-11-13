@@ -8,11 +8,20 @@ import { confirmPluginOperation } from '@main/plugin/PluginPermissions'
  * 关键依赖：node:child_process（零新依赖）。
  */
 import { execFile } from 'node:child_process'
+import { join } from 'node:path'
 import process from 'node:process'
 
 /** 采样缓存 TTL：1s 内重复调用共享同一次命令输出 */
 const SAMPLE_CACHE_MS = 1_000
 const CMD_TIMEOUT_MS = 5_000
+
+/** Windows PowerShell 启动参数：不走 PATH、不加载用户 profile（与 pluginProcessMemory 一致） */
+const POWERSHELL_ARGS = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass'] as const
+
+/** 解析 System32 下既有 Windows PowerShell 绝对路径，不信任 PATH（防插件投毒） */
+function windowsPowerShell(): string {
+  return join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+}
 
 export interface SysProcessInfo {
   pid: number
@@ -147,10 +156,55 @@ export function parseSsOutput(stdout: string): SysPortInfo[] {
   return out
 }
 
+/**
+ * 解析 Windows PowerShell `Get-Process | Select-Object Id,ProcessName,CPU,WS,Path |
+ * ConvertTo-Json -Compress` 输出（win32）。ConvertTo-Json 单对象/数组均可能出现，统一按数组处理。
+ * 字段映射（对齐 parsePsOutput 语义）：
+ * - rss：WS 为工作集字节数，除以 1024 对齐 ps rss 的 KB 单位
+ * - pcpu / pmem：Get-Process 的 CPU 是累计处理器秒数而非瞬时百分比，无法等价换算，置 0
+ * - user：Get-Process 不提供属主（查询 Owner 需提权 Win32 API），置空串
+ * - command：优先 Path（可执行完整路径），系统/受保护进程 Path 为 null 时回退 ProcessName
+ */
+export function parsePowerShellProcesses(stdout: string): SysProcessInfo[] {
+  const text = stdout.trim()
+  if (!text) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return []
+  }
+  const rows = Array.isArray(parsed) ? parsed : [parsed]
+  const out: SysProcessInfo[] = []
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const r = row as Record<string, unknown>
+    const pid = Number(r.Id)
+    if (!Number.isInteger(pid) || pid <= 0) continue
+    out.push({
+      pid,
+      pcpu: 0,
+      pmem: 0,
+      rss: Math.round((Number(r.WS) || 0) / 1024),
+      user: '',
+      command: typeof r.Path === 'string' && r.Path ? r.Path : String(r.ProcessName ?? '')
+    })
+  }
+  return out
+}
+
 export async function sysProcesses(): Promise<SysProcessInfo[]> {
   return cachedSample('ps', async () => {
     if (process.platform === 'darwin') {
       return parsePsOutput(await run('ps', ['-axo', 'pid,pcpu,pmem,rss,user,comm']))
+    }
+    if (process.platform === 'win32') {
+      const text = await run(windowsPowerShell(), [
+        ...POWERSHELL_ARGS,
+        '-Command',
+        'Get-Process | Select-Object Id,ProcessName,CPU,WS,Path | ConvertTo-Json -Compress'
+      ])
+      return parsePowerShellProcesses(text)
     }
     // Linux 回退（探测式：先试 --sort 参数形态，失败回退朴素 -eo）
     try {
@@ -179,6 +233,30 @@ export async function sysPorts(): Promise<SysPortInfo[]> {
   })
 }
 
+/**
+ * 读取待 kill 进程的身份字符串（启动时间 + 命令名）。
+ * darwin/Linux：`ps -p <pid> -o lstart=,comm=`；win32：PowerShell
+ * `Get-Process -Id <pid> | Select-Object ProcessName,StartTime | ConvertTo-Json -Compress`，
+ * 组合 `StartTime/ProcessName` 保持「启动时间 + 命令名」的同一防 TOCTOU 语义。
+ * 进程不存在返回空串。
+ */
+async function processIdentity(pid: number): Promise<string> {
+  if (process.platform === 'win32') {
+    const text = await run(windowsPowerShell(), [
+      ...POWERSHELL_ARGS,
+      '-Command',
+      `Get-Process -Id ${pid} -ErrorAction SilentlyContinue | Select-Object ProcessName,StartTime | ConvertTo-Json -Compress`
+    ])
+    const row = text.trim() ? JSON.parse(text.trim()) as Record<string, unknown> : null
+    if (!row) return ''
+    const start = row.StartTime // ConvertTo-Json 序列化为 /Date(epochMs)/ 或 ISO 字符串，按原样拼接
+    const name = row.ProcessName
+    if (typeof start !== 'string' || typeof name !== 'string' || !start || !name) return ''
+    return `${start} ${name}`
+  }
+  return (await run('ps', ['-p', String(pid), '-o', 'lstart=,comm='])).trim()
+}
+
 export async function sysKill(
   pluginId: string,
   pid: number,
@@ -190,10 +268,10 @@ export async function sysKill(
   if (pid === process.pid || pid === process.ppid) {
     throw new Error('refusing to kill eNest process')
   }
-  const identity = (await run('ps', ['-p', String(pid), '-o', 'lstart=,comm='])).trim()
+  const identity = await processIdentity(pid)
   if (!identity) throw new Error('process no longer exists')
   await confirmPluginOperation(pluginId, `结束进程 ${pid}？`, `${identity}\n信号：${signal}`)
-  if ((await run('ps', ['-p', String(pid), '-o', 'lstart=,comm='])).trim() !== identity) throw new Error('process identity changed; select it again')
+  if ((await processIdentity(pid)) !== identity) throw new Error('process identity changed; select it again')
   const sig = signal === 'KILL' ? 'SIGKILL' : signal === 'INT' ? 'SIGINT' : 'SIGTERM'
   await new Promise<void>((resolve, reject) => {
     // process.kill 同步抛错（ESRCH 等）；用 try 包成 Promise 语义

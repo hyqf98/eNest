@@ -29,10 +29,6 @@ export function registerMcpHandlers(): void {
     assertNativeSettingsSender(event)
     return mcpService.copyConnectionConfig()
   })
-  handleShellIpc(IpcChannels.ShellMcpRotateToken, event => {
-    assertNativeSettingsSender(event)
-    return mcpService.rotateToken()
-  })
   handleShellIpc(IpcChannels.ShellMcpCatalog, (event, query?: McpCatalogQuery) => {
     assertNativeSettingsSender(event)
     return listMcpTools(query)

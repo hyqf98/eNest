@@ -48,6 +48,9 @@ function normalizeProxyForm(
 export function useGeneralSettings() {
   const { t, setLocale } = useI18n()
   const [hwAccel, setHwAccel] = useState(true)
+  const [launchAtLoginSupported, setLaunchAtLoginSupported] = useState(false)
+  const [launchAtLogin, setLaunchAtLogin] = useState(false)
+  const [launchAtLoginError, setLaunchAtLoginError] = useState<string | null>(null)
   const [dataRoot, setDataRoot] = useState('')
   const [closeBehavior, setCloseBehavior] = useState<CloseBehavior>('minimize-tray')
   const [notifyPosition, setNotifyPosition] = useState<NotifyPosition>('bottom-right')
@@ -86,6 +89,19 @@ export function useGeneralSettings() {
           if (!cancelled) setHwAccel(state.enabled !== false)
         } else {
           setHwAccel(general.hardwareAcceleration !== false)
+        }
+        // 开机自启：以系统实际注册状态为准（主进程读取时会顺带把偏好同步成系统事实）。
+        // dev 未打包 / Linux 无 autostart 目录 → supported=false，开关禁用只读。
+        if (shellApi.getLoginItem) {
+          try {
+            const state = await shellApi.getLoginItem()
+            if (!cancelled) {
+              setLaunchAtLoginSupported(state.supported)
+              setLaunchAtLogin(state.enabled)
+            }
+          } catch {
+            /* 保持默认关闭，开关可用性由支持态决定 */
+          }
         }
         if (shellApi.getPaths) {
           const paths = await shellApi.getPaths()
@@ -128,6 +144,33 @@ export function useGeneralSettings() {
       toastStore.getState().push(next ? t('toasts.hardwareEnabled') : t('toasts.needRestart'))
     })()
   }, [hwAccel, t])
+
+  /**
+   * 开机自启切换：乐观更新 → 注册 → 以系统验证结果回滚。
+   * 失败（如 macOS 未签名静默失败）不落偏好，开关回到真实状态并提示。
+   */
+  const handleLaunchAtLogin = useCallback(() => {
+    const next = !launchAtLogin
+    setLaunchAtLogin(next)
+    setLaunchAtLoginError(null)
+    void (async () => {
+      try {
+        if (!shellApi.setLoginItem) throw new Error('native api unavailable')
+        const result = await shellApi.setLoginItem(next)
+        setLaunchAtLogin(result.enabled)
+        if (!result.ok) {
+          setLaunchAtLoginError(result.error ?? 'unknown')
+          toastStore.getState().push(t('settings.general.launchAtLoginFailed'))
+        } else {
+          toastStore.getState().push(next ? t('settings.general.launchAtLoginOn') : t('settings.general.launchAtLoginOff'))
+        }
+      } catch (error) {
+        setLaunchAtLogin(!next)
+        setLaunchAtLoginError(error instanceof Error ? error.message : String(error))
+        toastStore.getState().push(t('settings.general.launchAtLoginFailed'))
+      }
+    })()
+  }, [launchAtLogin, t])
 
   const handleCloseBehavior = useCallback(
     (value: CloseBehavior) => {
@@ -254,9 +297,9 @@ export function useGeneralSettings() {
   }, [dataRoot, t])
 
   return {
-    hwAccel, dataRoot, closeBehavior, notifyPosition, loadingGeneral,
+    hwAccel, launchAtLogin, launchAtLoginSupported, launchAtLoginError, dataRoot, closeBehavior, notifyPosition, loadingGeneral,
     proxyType, proxyHost, proxyPort, testingProxy, setProxyHost, setProxyPort,
-    handleLocale, handleHwAccel, handleCloseBehavior, handleNotifyPosition,
+    handleLocale, handleHwAccel, handleLaunchAtLogin, handleCloseBehavior, handleNotifyPosition,
     handleProxyType, handleProxyFieldBlur, handleTestProxy, handleOpenDataRoot
   }
 }

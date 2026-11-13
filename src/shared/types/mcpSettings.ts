@@ -18,8 +18,6 @@ export interface McpStatus {
   configuration: McpConfiguration
   state: 'disabled' | 'starting' | 'running' | 'error'
   endpoint: string
-  sessionCount: number
-  activeCalls: number
   error?: string
   recentCalls: McpCallRecord[]
 }

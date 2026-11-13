@@ -2,7 +2,6 @@ import type { PluginLaunchIndexEntry, PluginLaunchIndexState } from '@shared/typ
 import { kvStore, runInDurableTransaction } from '@main/db/sqliteService'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
-import { sendShellEvent } from '@main/window/createShellWindow'
 import { logWarn } from '@main/logs/logService'
 
 interface IndexRecord extends PluginLaunchIndexState { buildRevision: string; entries: PluginLaunchIndexEntry[] }
@@ -62,7 +61,6 @@ function normalize(pluginId: string, value: unknown): PluginLaunchIndexEntry[] {
 function changed(): void {
   revision++
   for (const listener of listeners) { try { listener() } catch (error) { logWarn('launch-index', String(error)) } }
-  sendShellEvent({ type: 'launch-directory-changed', revision: String(revision) })
 }
 function notifyDirty(): void { for (const listener of dirtyListeners) { try { listener() } catch (error) { logWarn('launch-index', String(error)) } } }
 function write(pluginId: string, record: IndexRecord): void {

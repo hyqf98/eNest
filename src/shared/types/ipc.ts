@@ -52,7 +52,6 @@ export const ShellGetMarketStatus = 'shell:get-market-status'
 export const ShellMcpStatus = 'shell:mcp-status'
 export const ShellMcpConfigure = 'shell:mcp-configure'
 export const ShellMcpCopyConnection = 'shell:mcp-copy-connection'
-export const ShellMcpRotateToken = 'shell:mcp-rotate-token'
 export const ShellMcpCatalog = 'shell:mcp-catalog'
 export const ShellOpenPlugin = 'shell:open-plugin'
 export const ShellClosePlugin = 'shell:close-plugin'
@@ -141,6 +140,10 @@ export const ShellGetPluginReadme = 'shell:get-plugin-readme'
 /** 硬件加速（写入设置后需重启） */
 export const ShellGetHardwareAccel = 'shell:get-hardware-accel'
 export const ShellSetHardwareAccel = 'shell:set-hardware-accel'
+
+/** 开机自启：读系统实际状态 / 注册并持久化偏好（Linux 无桌面自启目录时 supported=false） */
+export const ShellGetLoginItem = 'shell:get-login-item'
+export const ShellSetLoginItem = 'shell:set-login-item'
 
 /** 网络代理：读/写（写即 session.setProxy）/ 连通性测试 */
 export const ShellGetProxy = 'shell:get-proxy'
@@ -337,7 +340,6 @@ export const IpcChannels = {
   ShellMcpStatus,
   ShellMcpConfigure,
   ShellMcpCopyConnection,
-  ShellMcpRotateToken,
   ShellMcpCatalog,
   ShellOpenPlugin,
   ShellClosePlugin,
@@ -407,6 +409,8 @@ export const IpcChannels = {
   ShellGetPluginReadme,
   ShellGetHardwareAccel,
   ShellSetHardwareAccel,
+  ShellGetLoginItem,
+  ShellSetLoginItem,
   ShellGetProxy,
   ShellSetProxy,
   ShellTestProxy,

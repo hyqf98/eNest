@@ -62,10 +62,16 @@ export function rankDefaultQuickMedia<T extends DefaultSearchEntry>(
     .map((item): DefaultQuickMatch<T> => ({ ...item, group: 'match' }))
 }
 
+/**
+ * 首页排序分：打开次数是主信号，最近使用是次信号。
+ * 此前次数只占 2 分/次、时间衰减独占 100 分，一周内用过的项永远压过常用项；
+ * 现在次数按对数放大到与时间同量级（1 次≈0、2 次≈60、8 次≈120、50 次≈225），
+ * 再用最近使用做同分裁决，避免"很久以前开过很多次"长期霸榜。
+ */
 function recentRank(entry: DefaultSearchEntry, now: number): number {
-  if (!entry.lastUsedTs) return 0
-  const decay = Math.pow(0.5, Math.max(0, now - entry.lastUsedTs) / (7 * 24 * 60 * 60 * 1_000))
-  return decay * 100 + Math.min(entry.useCount ?? 0, 50) * 2
+  if (!entry.lastUsedTs && !entry.useCount) return 0
+  const decay = entry.lastUsedTs ? Math.pow(0.5, Math.max(0, now - entry.lastUsedTs) / (7 * 24 * 60 * 60 * 1_000)) : 0
+  return decay * 40 + Math.log2(1 + Math.min(entry.useCount ?? 0, 200)) * 30
 }
 
 /** Home/paste ranking stays independent of the name worker's index readiness. */

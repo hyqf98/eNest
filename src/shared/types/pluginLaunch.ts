@@ -4,8 +4,12 @@ import type { PluginEnterPayload, PluginLaunchTarget } from './plugin'
 export type PluginFeatureActivation = { type: 'view'; target?: PluginLaunchTarget } | { type: 'command' }
 export interface PluginActivationDeclaration {
   indexSync?: boolean
-  /** The host restores this command only while its declared boolean setting is true. */
-  resident?: { setting: string; code: string }
+  /**
+   * The host restores this command only while its declared boolean setting is true.
+   * The setting may live solely in `activation.resident` (with `default`) instead of
+   * a `contributes.settings` section; the plugin then owns its own settings UI.
+   */
+  resident?: { setting: string; code: string; default?: boolean }
 }
 export type PluginActivationContext = 'view' | 'command' | 'index-sync' | 'resident'
 export type PluginActivationReason = 'quick' | 'workspace' | 'shortcut' | 'settings' | 'open-with' | 'index-sync' | 'resident-restore' | 'resident-setting'
@@ -47,7 +51,14 @@ export interface PluginLaunchApi {
   /** One registration per document. Resolves only after the host acknowledges this incarnation. */
   registerHandlers(handlers: PluginActivationHandlers): Promise<void>
 }
-export interface PluginActivationRegistration { registrationId: string }
+export interface PluginActivationRegistration {
+  registrationId: string
+  /**
+   * 旧文档在重载/关闭前发出的迟到注册：宿主代次已换，注册未生效。
+   * 前端按"静默放弃"处理——这不是错误，下一次加载会重新注册。
+   */
+  retired?: boolean
+}
 export interface PluginActivationDispatch extends Omit<PluginActivationRequest, 'signal' | 'onCancel'> {
   registrationId: string
   kind: 'command' | 'index-sync' | 'prepare-view'

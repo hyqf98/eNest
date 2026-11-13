@@ -18,6 +18,8 @@ export interface GeneralSettingsData {
   tabStyle?: TabStyle
   animationLevel?: AnimationLevel
   openAtLogin?: boolean
+  /** 开机自启偏好；真实状态以系统注册为准（Linux 桌面无 autostart 目录时不可用） */
+  launchAtLogin?: boolean
   /** 当前界面中文/默认字体 CSS font-family */
   fontFamily?: string
   /** 英文/Latin 优先字体栈；有值时 --font = en + cjk 拼接 */

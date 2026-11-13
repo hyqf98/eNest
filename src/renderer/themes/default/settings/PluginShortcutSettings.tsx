@@ -28,6 +28,7 @@ export function PluginShortcutSettings() {
   const [draftError, setDraftError] = useState('')
   const [recording, setRecording] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
   const busy = useRef(false)
   const request = useRef(0)
   const groupRefs = useRef(new Map<string, HTMLElement>())
@@ -89,20 +90,11 @@ export function PluginShortcutSettings() {
     } catch (cause) { setError((cause as Error).message) }
     finally { busy.current = false; setBusyId(null) }
   }
-  const launch = async (id: string, binding = true): Promise<void> => {
-    if (busy.current) return
-    busy.current = true; setBusyId(id); setError('')
-    try {
-      if (binding) {
-        const result = await shellApi.launchPluginShortcut(id)
-        if (!result.ok && !result.cancelled) setError(result.error || '启动失败')
-      } else {
-        await shellApi.openPlugin(id)
-      }
-    } catch (cause) { setError((cause as Error).message) }
-    finally { busy.current = false; setBusyId(null) }
-  }
   // A detail-page shortcut link locates its plugin without hiding the other installed plugins.
+  // 定位要能看见目标，所以清掉搜索词（否则目标可能被过滤掉，滚动也找不到）。
+  useEffect(() => {
+    if (filter) setQuery('')
+  }, [filter])
   useEffect(() => {
     if (!loading && filter) groupRefs.current.get(filter)?.scrollIntoView({ block: 'nearest' })
   }, [filter, loading, plugins])
@@ -140,7 +132,6 @@ export function PluginShortcutSettings() {
   const renderRow = (binding: PluginShortcutBinding): JSX.Element => {
     const plugin = installed.find(item => item.id === binding.pluginId)
     const state = states.get(binding.id)
-    const unavailable = !plugin || plugin.enabled === false
     return <li key={binding.id} className="shortcut-binding">
       <div className="shortcut-binding-main">
         <kbd className="shortcut-keys">{formatAccelerator(binding.accelerator)}</kbd>
@@ -152,7 +143,6 @@ export function PluginShortcutSettings() {
           disabled={!!busyId || !!draft} onCheckedChange={() => void save({ ...binding, enabled: !binding.enabled })} />
       </div>
       <div className="shortcut-binding-actions">
-        <button type="button" className="btn btn-ghost" disabled={!!busyId || !!draft || unavailable} onClick={() => void launch(binding.id)}>{busyId === binding.id ? '处理中…' : '立即启动'}</button>
         <button type="button" className="btn btn-ghost" disabled={!!busyId || !!draft || !plugin} onClick={() => { setDraft({ ...binding }); setDraftError('') }}>编辑</button>
         <button type="button" className="btn btn-ghost" disabled={!!busyId || !!draft} onClick={() => void remove(binding.id)}>删除</button>
       </div>
@@ -160,7 +150,16 @@ export function PluginShortcutSettings() {
     </li>
   }
   const missingIds = [...new Set(snapshot.bindings.filter(binding => !installed.some(plugin => plugin.id === binding.pluginId)).map(binding => binding.pluginId))]
-  const groups = [...installed.map(plugin => ({ id: plugin.id, plugin })), ...missingIds.map(id => ({ id, plugin: undefined }))]
+  const allGroups = [...installed.map(plugin => ({ id: plugin.id, plugin })), ...missingIds.map(id => ({ id, plugin: undefined }))]
+  /*
+   * 搜索按插件名、插件 ID 和已设组合键三路匹配：改过的键位也常是找人的入口。
+   * 组合键匹配用原始 accelerator，避免用户按显示格式（⌘⇧K）搜不到。
+   */
+  const needle = query.trim().toLowerCase()
+  const groups = needle ? allGroups.filter(({ id, plugin }) => {
+    if ((plugin?.name ?? '').toLowerCase().includes(needle) || id.toLowerCase().includes(needle)) return true
+    return snapshot.bindings.some(binding => binding.pluginId === id && binding.accelerator.toLowerCase().includes(needle))
+  }) : allGroups
   return <section className="s-card" aria-label="插件快捷键">
     <div className="shortcut-section-head"><div><h2>插件快捷键 <span className="shortcut-count">{installed.length}</span></h2>
       <p className="hint">同一插件可分别设置小窗口和主窗口快捷键。</p></div>
@@ -168,7 +167,19 @@ export function PluginShortcutSettings() {
     {filter && <div className="shortcut-location">已定位到 {plugins.find(plugin => plugin.id === filter)?.name ?? filter}
       <button type="button" className="btn btn-ghost" onClick={() => setFilter(null)}>取消定位</button></div>}
     {error && <p className="shortcut-error" role="alert">{error} <button type="button" className="btn btn-ghost" disabled={!!busyId} onClick={() => void refresh()}>刷新状态</button></p>}
-    {loading ? <p className="shortcut-empty" role="status">正在读取插件绑定…</p> : groups.length ? <div className="shortcut-plugin-groups">
+    {loading ? <p className="shortcut-empty" role="status">正在读取插件绑定…</p> : <>
+      {/* 搜索框固定在滚动区外面：列表滚到哪儿都能改关键词。 */}
+      <div className="shortcut-search">
+        <input
+          type="search"
+          className="shortcut-search-input"
+          value={query}
+          onChange={event => setQuery(event.target.value)}
+          placeholder="搜索插件或快捷键…"
+          aria-label="搜索插件快捷键"
+        />
+      </div>
+      {groups.length ? <div className="shortcut-plugin-groups" data-scrollbar="auto-hide">
       {groups.map(({ id, plugin }) => {
         const bindings = snapshot.bindings.filter(binding => binding.pluginId === id)
         return <section key={id} className={`shortcut-plugin-group${filter === id ? ' is-located' : ''}`} data-plugin-id={id}
@@ -178,8 +189,6 @@ export function PluginShortcutSettings() {
             <div className="shortcut-plugin"><strong>{plugin?.name ?? id}</strong>
               <span>{!plugin ? '插件已移除 · 可删除保留的绑定' : plugin.enabled === false ? '插件已禁用' : bindings.length ? `${bindings.length} 组快捷键` : '未设置快捷键'}</span></div>
             <div className="shortcut-plugin-actions">
-              <button type="button" className="btn btn-ghost" disabled={!!busyId || !!draft || !plugin || plugin.enabled === false}
-                title="在主窗口启动" onClick={() => void launch(id, false)}>{busyId === id ? '启动中…' : '启动'}</button>
               {plugin && <button type="button" className="btn btn-ghost shortcut-add" disabled={!!busyId || !!draft}
                 onClick={() => newBinding(id)}><span aria-hidden="true">＋</span> 添加快捷键</button>}
             </div>
@@ -188,6 +197,7 @@ export function PluginShortcutSettings() {
           {draft?.pluginId === id && !draft.id && editor}
         </section>
       })}
-    </div> : <div className="shortcut-empty"><strong>还没有安装插件</strong><p>安装后会自动出现在这里，随时添加快捷键。</p></div>}
+    </div> : <div className="shortcut-empty"><strong>{needle ? '没有匹配的插件' : '还没有安装插件'}</strong><p>{needle ? '换个关键词，或清空搜索查看全部。' : '安装后会自动出现在这里，随时添加快捷键。'}</p></div>}
+    </>}
   </section>
 }

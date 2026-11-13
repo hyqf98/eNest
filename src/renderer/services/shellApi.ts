@@ -2,7 +2,7 @@
 import type { PluginShortcutInput, PluginShortcutsSnapshot, PluginShortcutMutationResult, PluginShortcutLaunchResult, ShortcutProbeResult } from '@shared/types/shortcuts'
 import type { AccountState, AccountLoginResult } from '@shared/types/account'
 import type { AppPaths, DevPluginLoadOptions, MarketInstallResult, PluginMarketStatus, PluginLaunchPatch, PluginPermission, PluginPermissionGrant, PluginSummary, ProxyConfig, ThemeMode, ThemeTokens } from '@shared/types/plugin'
-import type { HardwareAccelSetResult, HardwareAccelState, PickFileOptions, PluginLaunchSetResult, ProxySetResult, ShellSettingsSection, ShellThemeResult } from '@shared/types/shell'
+import type { HardwareAccelSetResult, HardwareAccelState, LoginItemSetResult, LoginItemState, PickFileOptions, PluginLaunchSetResult, ProxySetResult, ShellSettingsSection, ShellThemeResult } from '@shared/types/shell'
 import type { ShellSettingsData } from '@shared/types/shellSettings'
 import type { McpCatalogPage, McpCatalogQuery, McpConfiguration, McpStatus } from '@shared/types/mcpSettings'
 import type { AppearanceSnapshot, ThemeProfilePatch } from '@shared/types/appearance'
@@ -19,7 +19,6 @@ export interface ShellApi {
   getMcpStatus(): Promise<McpStatus>
   configureMcp(input: McpConfiguration): Promise<McpStatus>
   copyMcpConnectionConfig(): Promise<void>
-  resetMcpToken(): Promise<McpStatus>
   listMcpTools(query?: McpCatalogQuery): Promise<McpCatalogPage>
   getPlugins(): Promise<PluginSummary[]>
   getMarketStatus(refresh?: boolean): Promise<PluginMarketStatus>
@@ -120,6 +119,10 @@ export interface ShellApi {
   getPluginReadme(pluginId: string): Promise<string>
   getHardwareAcceleration(): Promise<HardwareAccelState>
   setHardwareAcceleration(enabled: boolean): Promise<HardwareAccelSetResult>
+  /** 读取系统开机自启实际状态；浏览器 mock 恒不可用（supported=false） */
+  getLoginItem?(): Promise<LoginItemState>
+  /** 注册/注销系统开机自启；浏览器 mock 直接报不支持 */
+  setLoginItem?(enabled: boolean): Promise<LoginItemSetResult>
   /** 读取代理配置；浏览器 mock 读 localStorage */
   getProxy?(): Promise<ProxyConfig>
   /** 写入并即时应用；浏览器 mock 仅持久化 */

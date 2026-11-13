@@ -24,6 +24,7 @@ import { applyHardwareAccelerationBeforeReady } from '@main/hardwareAcceleration
 import { ensureAppDirs } from '@main/paths/pathsService'
 import { migrateToDataRoot } from '@main/paths/migrate'
 import { initLogService, logError, logInfo, logWarn } from '@main/logs/logService'
+import { markStartupPhase } from '@main/logs/startupTiming'
 import { kvStore } from '@main/db/sqliteService'
 import { flushAll } from '@main/db/pluginStorage'
 import { themePackRegistry } from '@main/theme/themePacks'
@@ -44,6 +45,7 @@ import { appearanceService } from '@main/theme/appearanceService'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { applyProxyFromSettings } from '@main/proxy/proxyService'
 import { restoreDevPlugins } from '@main/dev/DevConsole'
+import { disposeDevPluginPreparations } from '@main/dev/devPluginRuntime'
 import { stopAllDevServers } from '@main/dev/devServerManager'
 import { registerShellHandlers } from '@main/ipc/shellHandlers'
 import { registerPluginHandlers } from '@main/ipc/pluginHandlers'
@@ -135,6 +137,7 @@ function beginShutdown(reason: string): void {
   mcpService.prepareShutdown()
   if (!shuttingDown) {
     shuttingDown = true
+    disposeDevPluginPreparations()
     flushMainWindowState(true)
     logInfo('main', `shutdown begin (${reason})`)
   }
@@ -258,6 +261,7 @@ void app.whenReady().then(async () => {
     // 日志服务在数据目录就绪后立刻初始化，后续 boot / install 全部落盘
     initLogService()
     logInfo('main', 'ready')
+    markStartupPhase('app-ready')
     watchDevParentProcess()
     await migrateToDataRoot()
     logInfo('main', 'migrate ok')
@@ -273,9 +277,11 @@ void app.whenReady().then(async () => {
     logInfo('main', 'theme packs ok')
     await pluginRegistry.scan()
     logInfo('main', 'registry ok')
+    markStartupPhase('registry-metadata-ready')
     // 恢复上次加载过的开发态插件（dev.json → 源码目录仍存在则重新挂进 registry）
     await restoreDevPlugins()
     logInfo('main', 'dev plugins restored')
+    markStartupPhase('dev-registrations-ready')
     try {
       await initDeadlineTasks((event) => {
         if (event.type === 'change') {
@@ -295,6 +301,7 @@ void app.whenReady().then(async () => {
 
     const win: BaseWindow = createShellWindow()
     logInfo('main', 'window ok')
+    markStartupPhase('shell-window-created')
 
     // 外部打开：等壳渲染层首屏完成再放行排队请求（避免 open-with-choice 事件丢在挂载前）
     const armOpenWith = () => {

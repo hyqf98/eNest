@@ -140,9 +140,13 @@ export function collectPluginActivationIssues(manifest: unknown): string[] {
   const contributions = isRecord(manifest.contributes) ? manifest.contributes : {}
   const fields = Array.isArray(contributions.settings) ? contributions.settings.flatMap(section => isRecord(section) && Array.isArray(section.items) ? section.items : []) : []
   const field = fields.find(item => isRecord(item) && item.key === resident.setting)
-  if (!isRecord(field) || !['switch', 'boolean', 'bool'].includes(String(field.type))
-    || field.default !== undefined && typeof field.default !== 'boolean'
-    || ['permissionGrants', '__proto__', 'prototype', 'constructor'].includes(resident.setting)) issues.push('activation.resident.setting 必须绑定本插件已声明的布尔设置')
+  // The boolean field may come from a declared settings section or solely from the
+  // resident declaration itself (plugin-owned settings UI, no shell settings tab).
+  const declaredInline = typeof resident.default === 'boolean'
+    && !['permissionGrants', '__proto__', 'prototype', 'constructor'].includes(resident.setting)
+  if ((!isRecord(field) || !['switch', 'boolean', 'bool'].includes(String(field.type))
+    || field.default !== undefined && typeof field.default !== 'boolean')
+    && !declaredInline) issues.push('activation.resident.setting 必须绑定本插件已声明的布尔设置（或自带 default 的布尔声明）')
   const feature = Array.isArray(manifest.features) ? manifest.features.find(item => isRecord(item) && item.code === resident.code) : undefined
   if (!isRecord(feature) || !isRecord(feature.activation) || feature.activation.type !== 'command') issues.push('activation.resident.code 必须绑定 activation.type=command 的功能')
   return issues

@@ -92,8 +92,14 @@ export function DefaultBackgroundEffect({ effect, level, background, className =
 
   useEffect(() => { resourceRef.current?.setPaused(paused) }, [paused])
 
+  /*
+   * paused 只停动画循环，不再整体隐藏这一层。
+   * 此前 `visibility: hidden` 会在低动画档 / 窗口失焦 / 被遮挡时把整个背景层抹掉，
+   * 于是标题栏与设置卡片调到透明后，露出的只有 body 的纯色底——
+   * 看起来就像"透明没生效"。canvas 侧已改为暂停时保留静态首帧。
+   */
   return <div ref={containerRef} className={`background-effect ${className}${failed ? ' background-effect--fallback' : ''}`}
-    data-background-effect={effect.id} style={{ visibility: paused ? 'hidden' : undefined }} aria-hidden>
+    data-background-effect={effect.id} aria-hidden>
     {effect.renderer === 'video' && (staticVideo
       ? effect.poster && <img ref={posterRef} alt="" draggable={false}
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', visibility: failed ? 'hidden' : undefined }}

@@ -5,7 +5,8 @@
 .default-workspace > .page[hidden] { display: none; }
 .default-workspace .page-home .home-scroll {
   max-width: var(--appearance-content-width, 1520px);
-  padding-top: calc(28px * var(--appearance-density, 1));
+  /* 首页视图从窗口顶部铺满，顶部要让出标题栏高度（否则内容压到红绿灯上）。 */
+  padding-top: calc(var(--titlebar-h, 36px) + 28px * var(--appearance-density, 1));
   padding-bottom: calc(76px * var(--appearance-density, 1));
 }
 .default-workspace .market-grid {

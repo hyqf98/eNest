@@ -10,7 +10,15 @@ import { Segmented } from '@renderer/components/ui/Segmented'
 import { ThemeSelectionCards } from './ThemeSelectionCards'
 import { ThemeSettingsFields } from './ThemeSettingsFields'
 import { FreePanelFields, usePanelAppearance } from './PanelAppearanceCard'
+import { TransparencyFields } from './TransparencyFields'
+import { TabBarFields } from './TabBarFields'
 import './appearanceSettings.css'
+
+/**
+ * 归属壳的布局键：由「标签栏」「背景透明度」两个固定分区渲染。
+ * 主题参数卡里要排除它们，否则第三方主题重复声明同名字段会出现第二套控件。
+ */
+const HOST_LAYOUT_FIELDS = new Set(['tabStyle', 'tabOpacity', 'tabAutoHide', 'cardOpacity'])
 
 function previewField(appearance: ResolvedAppearance, field: ThemeSettingsField, value: ThemeSettingValue): void {
   const binding = field.binding
@@ -47,12 +55,14 @@ export function AppearanceSettingsSection() {
   const draftVersion = useRef(0)
   const activeKey = themeProfileKey(appearance.profile.identity)
   const activePack = appearance.packs.find(pack => pack.source === appearance.profile.identity.source && pack.id === appearance.profile.identity.id)
-  // Global navigation is edited only in Settings > General, never by a theme's form.
+  // Global navigation is edited only in Settings > Appearance, never by a theme's form.
   const tuningSchema = activePack ? {
     ...activePack.settings,
     groups: activePack.settings.groups.map(group => ({
       ...group,
-      fields: group.fields.filter(field => field.binding.target !== 'layout' || !['tabStyle', 'tabOpacity', 'tabAutoHide'].includes(field.binding.key)),
+      // tabStyle / tabAutoHide 由「标签栏」分区渲染，tabOpacity / cardOpacity 由「背景透明度」分区渲染：
+      // 这些布局键归属壳，第三方主题若也声明了同名字段，不能在「主题参数」里出现第二个滑块。
+      fields: group.fields.filter(field => field.binding.target !== 'layout' || !HOST_LAYOUT_FIELDS.has(field.binding.key)),
     })).filter(group => group.fields.length > 0),
   } : undefined
   const fields = tuningSchema?.groups.flatMap(group => group.fields) ?? []
@@ -231,6 +241,30 @@ export function AppearanceSettingsSection() {
             <p className="hint">把插件固定成桌面小组件；所有面板共用的底板材质与不透明度（材质由系统提供：毛玻璃 = 桌面级模糊，系统材质 = 更重的浮窗质感）。</p>
           </div>
           <FreePanelFields state={panel} />
+        </div>
+
+        {/* 壳级材质浓度：标题栏与设置卡片的透明度。归属壳，但与主题呈现放在一起更好找。 */}
+        <div className="appearance-section appearance-section-transparency" role="group" aria-label="背景透明度">
+          <div className="appearance-section-head">
+            <div className="appearance-section-head-row">
+              <h3 className="appearance-section-title">背景透明度</h3>
+            </div>
+            <p className="hint">控制标题栏与设置卡片的材质浓度；越透明越能看到页面背景动效，文字与控件始终清晰。</p>
+          </div>
+          <TransparencyFields />
+        </div>
+
+        {/* 标签栏形态：经典顶栏 / 悬浮圆轨与自动隐藏。与透明度同属"顶栏怎么呈现"，紧随其后。 */}
+        <div className="appearance-section appearance-section-tabbar" role="group" aria-label="标签栏">
+          <div className="appearance-section-head">
+            <div className="appearance-section-head-row">
+              <h3 className="appearance-section-title">标签栏</h3>
+            </div>
+            <p className="hint">顶部标签与悬浮圆轨二选一；这是壳级设置，切换主题不会改变，已打开的会话也不会丢失。</p>
+          </div>
+          <div className="appearance-panel-fields">
+            <TabBarFields />
+          </div>
         </div>
 
         <div className="appearance-unified-footer">

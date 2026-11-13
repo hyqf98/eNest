@@ -90,8 +90,8 @@ export function PerformanceCaptureSection({ visible }: { visible: boolean }) {
       {state.captureId && <code>{state.captureId}</code>}
     </p>}
     <p className="plugin-memory-note">{en
-      ? 'Includes unique process memory, single-core CPU deltas, plugin generations, backgrounds, auxiliary windows, file streams and DevTools/focus flags. Native-child CPU may be unavailable. No commands, paths or payloads are collected. Numeric summaries also appear in main.log / console as [performance-capture]. A new recording replaces the previous in-memory recording; quitting clears it.'
-      : '包含唯一进程内存、单核口径 CPU 差分、插件代次、后台、辅助窗口、文件流及 DevTools / 焦点标记；原生子进程 CPU 可能不可用。不记录命令、路径或业务内容。main.log / console 同时输出 [performance-capture] 数值摘要。新记录覆盖上次内存记录，退出应用后清空。'}</p>
+      ? 'Includes unique process memory, single-core CPU deltas, main-process event-loop delay, plugin generations, backgrounds, auxiliary windows, file streams and DevTools/focus flags. This does not measure animation frame rate; native-child CPU may be unavailable. No commands, paths or payloads are collected. Numeric summaries also appear in main.log / console as [performance-capture]. A new recording replaces the previous in-memory recording; quitting clears it.'
+      : '包含唯一进程内存、单核口径 CPU 差分、主进程事件循环延迟、插件代次、后台、辅助窗口、文件流及 DevTools / 焦点标记；不测量动画帧率，原生子进程 CPU 可能不可用。不记录命令、路径或业务内容。main.log / console 同时输出 [performance-capture] 数值摘要。新记录覆盖上次内存记录，退出应用后清空。'}</p>
     {error && <p className="plugin-memory-error" role="alert">{error}</p>}
     {notice && <p className="plugin-memory-message" role="status">{notice}</p>}
   </div>

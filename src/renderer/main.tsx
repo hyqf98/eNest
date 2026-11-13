@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client'
 import App from '@renderer/App'
 import { configureLocalePersistence } from '@renderer/i18n'
 import { shellApi } from '@renderer/services/shellApi'
+import { installScrollActivity } from '@renderer/services/scrollActivity'
 import '@renderer/styles/tokens.css'
 import '@renderer/styles/base.css'
 import '@renderer/styles/app.css'
@@ -18,6 +19,9 @@ import '@renderer/styles/appearance.css'
 
 const container = document.getElementById('root')
 if (!container) throw new Error('#root not found')
+
+// 页面滚动条只在滚动时出现；信号由 data-scrollbar="auto-hide" 的容器消费。
+installScrollActivity()
 
 configureLocalePersistence({
   read: async () => ((await shellApi.getSettings()).general as { locale?: unknown } | undefined)?.locale,

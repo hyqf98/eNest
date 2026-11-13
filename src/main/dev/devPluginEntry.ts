@@ -5,10 +5,12 @@
  */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { installFromDirectory } from '@main/plugin/PluginInstaller'
 import { normalizePluginDevUrl } from '@shared/pluginContract'
-import { ensureDevServer, matchesDevelopmentServer } from '@main/dev/devServerManager'
+import { ensureDevServer, matchesDevelopmentServer, type DevServerEnsureOptions } from '@main/dev/devServerManager'
 import { resolveDevCommandPlan } from '@main/dev/devCommandResolver'
+import { inspectDevThemeRoot } from './devThemeAssets'
 import type { DevCommandPlan, DevPluginKind, DevPluginLoadOptions, PluginManifest } from '@shared/types/plugin'
 
 export { matchesDevelopmentServer }
@@ -24,28 +26,69 @@ export interface ResolvedDevEntry {
   plan: DevCommandPlan
 }
 
-/** Explicit API overrides remain available; the developer UI uses automatic selection. */
-export async function resolveDevPluginEntry(sourcePath: string, options: DevPluginLoadOptions = {}): Promise<ResolvedDevEntry> {
+export interface InspectedDevSource {
+  sourcePath: string
+  manifest: PluginManifest
+  plan: DevCommandPlan
+  declaredUrl?: string
+  options: DevPluginLoadOptions
+  /** Restricted theme surfaces keep a local root independent of ordinary UI transport. */
+  themeRootPath: string
+}
+
+/** Boot and dormant source watchers only read local metadata; they never contact a service. */
+export async function inspectDevPluginEntry(sourcePath: string, options: DevPluginLoadOptions = {}): Promise<InspectedDevSource> {
   const manifest = await installFromDirectory(sourcePath, { source: true })
   const plan = resolveDevCommandPlan(sourcePath, manifest)
-  const outputDir = join(sourcePath, plan.output)
   const declaredUrl = normalizePluginDevUrl(options.url ?? plan.devUrl)
+  const themeRootPath = await inspectDevThemeRoot(sourcePath, manifest, plan.output)
+  return { sourcePath, manifest, plan, declaredUrl, options: { ...options }, themeRootPath }
+}
+
+export function devRegistrationEntry(source: InspectedDevSource): ResolvedDevEntry {
+  return { rootPath: source.sourcePath, manifest: source.manifest, devSource: true,
+    devKind: source.declaredUrl ? source.plan.framework : 'static', plan: source.plan }
+}
+
+interface DevEntryPrepareOptions extends DevServerEnsureOptions {
+  inspection?: InspectedDevSource
+}
+
+/** Explicit URL overrides retain their connection-only semantics. */
+export async function resolveDevPluginEntry(
+  sourcePath: string,
+  options: DevPluginLoadOptions = {},
+  request: DevEntryPrepareOptions = {}
+): Promise<ResolvedDevEntry> {
+  const check = () => {
+    if (request.signal?.aborted || request.isCurrent?.() === false) {
+      throw Object.assign(new Error('开发插件启动已取消'), { name: 'AbortError' })
+    }
+  }
+  check()
+  const { manifest, plan, declaredUrl } = request.inspection ?? await inspectDevPluginEntry(sourcePath, options)
+  check()
+  const outputDir = join(sourcePath, plan.output)
   if (options.url !== undefined) {
     return { rootPath: sourcePath, manifest, devSource: true, devUrl: declaredUrl, devKind: declaredUrl ? plan.framework : 'static', plan }
   }
-  if (declaredUrl && await matchesDevelopmentServer(declaredUrl, manifest.id)) {
-    return { rootPath: sourcePath, manifest, devSource: true, devUrl: declaredUrl, devKind: plan.framework, plan }
-  }
-  // 开发服务未运行：先按解析出的命令自动拉起（无可用启动命令则跳过），就绪后走 devUrl + 框架 HMR；
-  // 声明端口被占时 devServerManager 会换空闲端口，devUrl 用实际地址
-  if (declaredUrl && options.autoStartServer && plan.start) {
-    const startedUrl = await ensureDevServer(manifest.id, sourcePath, declaredUrl, plan.start)
-    if (startedUrl) return { rootPath: sourcePath, manifest, devSource: true, devUrl: startedUrl, devKind: plan.framework, plan }
+  if (declaredUrl) {
+    // The manager checks both its actual (possibly relocated) port and external services.
+    const readyUrl = options.autoStartServer && plan.start
+      ? await ensureDevServer(manifest.id, sourcePath, declaredUrl, plan.start, request)
+      : await matchesDevelopmentServer(declaredUrl, manifest.id, request.signal) ? declaredUrl : null
+    check()
+    if (readyUrl) return { rootPath: sourcePath, manifest, devSource: true, devUrl: readyUrl, devKind: plan.framework, plan }
   }
   if (declaredUrl && existsSync(join(outputDir, 'plugin.json'))) {
     const built = await readBuiltManifest(outputDir)
+    check()
     if (built && (built.id !== manifest.id || built.version !== manifest.version)) {
       throw new Error(`${manifest.name} 的构建产物与源码版本不一致，请在插件目录运行 ${plan.build?.label ?? '构建命令'}`)
+    }
+    const { development: _development, ...published } = manifest
+    if (built && !isDeepStrictEqual(built, published)) {
+      throw new Error(`${manifest.name} 的构建产物声明与源码不一致，请在插件目录运行 ${plan.build?.label ?? '构建命令'}`)
     }
     // 服务离线但已有匹配产物：按产物目录预览（识别仍是框架类型，标签按运行态区分）
     if (built) return { rootPath: outputDir, manifest: built, devSource: false, devUrl: undefined, devKind: plan.framework, plan }

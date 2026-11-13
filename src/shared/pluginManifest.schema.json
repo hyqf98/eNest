@@ -917,6 +917,9 @@
                 ]
               }
             },
+            "default": {
+              "type": "boolean"
+            },
             "code": {
               "type": "string",
               "minLength": 1,

@@ -17,6 +17,7 @@ import './pluginMemory.css'
 
 const REFRESH_INTERVAL_MS = 5000
 const MIB = 1024 * 1024
+const GIB = 1024 * MIB
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -226,9 +227,12 @@ export function PluginMemorySection() {
     }
   }
 
+  // Adaptive units: below 0.5 GiB show MiB for granularity, from 0.5 GiB up switch to GiB (e.g. 0.5 GB, 1.2 GB).
   const memory = (bytes: number | null | undefined) => bytes == null || !Number.isFinite(bytes) || bytes < 0
     ? '—'
-    : `${(bytes / MIB).toLocaleString(locale, { maximumFractionDigits: bytes < MIB ? 2 : 1 })} MiB`
+    : bytes >= GIB / 2
+      ? `${(bytes / GIB).toLocaleString(locale, { maximumFractionDigits: 2 })} GiB`
+      : `${(bytes / MIB).toLocaleString(locale, { maximumFractionDigits: bytes < MIB ? 2 : 1 })} MiB`
   const processKind = {
     renderer: t('settings.pluginMemory.processRenderer'),
     backend: t('settings.pluginMemory.processBackend'),

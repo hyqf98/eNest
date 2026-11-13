@@ -216,7 +216,9 @@ export function resolveAppearance(input: {
   resolved.layout.tabStyle = validTabStyle(chromeValues.tabStyle) ? chromeValues.tabStyle : 'classic'
   resolved.layout.tabAutoHide = chromeValues.tabAutoHide === true
   resolved.layout.tabOpacity = typeof chromeValues.tabOpacity === 'number' && Number.isFinite(chromeValues.tabOpacity)
-    ? Math.max(0, Math.min(1, chromeValues.tabOpacity)) : 1
+    ? Math.max(0, Math.min(1, chromeValues.tabOpacity)) : 0
+  resolved.layout.cardOpacity = typeof chromeValues.cardOpacity === 'number' && Number.isFinite(chromeValues.cardOpacity)
+    ? Math.max(0, Math.min(1, chromeValues.cardOpacity)) : 0.82
   resolved.tokens = { ...resolved.tokens, ...(profile.colors[mode] ?? {}) }
   resolved.fonts.latin ||= pack.variants[mode].fonts.latin ?? ''
   resolved.fonts.cjk ||= pack.variants[mode].fonts.cjk ?? ''
@@ -275,7 +277,8 @@ export function appearanceStyleProperties(
     '--appearance-notification-border-width': `${notifications.borderWidth}px`,
     '--appearance-notification-density': String(notifications.density),
     '--appearance-density': String(appearance.layout.density),
-    '--appearance-tab-opacity': String(appearance.layout.tabOpacity ?? 1),
+    '--appearance-tab-opacity': String(appearance.layout.tabOpacity ?? 0),
+    '--appearance-card-opacity': String(appearance.layout.cardOpacity ?? 0.82),
     '--appearance-tab-autohide': appearance.layout.tabAutoHide ? '1' : '0',
     '--appearance-gap': `${appearance.layout.gap}px`,
     '--appearance-sidebar-width': `${appearance.layout.sidebarWidth}px`,

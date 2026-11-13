@@ -768,6 +768,8 @@ export interface GeneralSettings {
   locale: 'zh-CN' | 'en-US'
   /** 关闭 GPU 加速；变更需重启生效 */
   hardwareAcceleration: boolean
+  /** 开机自启偏好；系统实际注册状态以 shell:get-login-item 为准（变更即时生效） */
+  launchAtLogin?: boolean
   /** 数据根目录，默认 ~/.eNest；可覆盖 */
   dataRoot?: string
   closeBehavior: 'minimize-tray' | 'quit'

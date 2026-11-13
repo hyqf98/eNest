@@ -25,6 +25,20 @@ export interface PerformanceCaptureProcess extends PluginMemoryProcess {
   owners: Array<{ pluginId: string; generation: number | null }>
 }
 
+export interface PerformanceCaptureMainEventLoop {
+  /** End of this observation interval, taken before the asynchronous process sample. */
+  sampledAt: number
+  /** Monotonic elapsed milliseconds since observation started or the previous observation. */
+  intervalMs: number
+  /** Requested monitorEventLoopDelay timer resolution, in milliseconds. */
+  resolutionMs: number
+  sampleCount: number
+  /** Raw histogram nanoseconds converted to milliseconds; null when the interval has no samples. */
+  delayMs: { p50: number | null; p95: number | null; max: number | null }
+  /** Interval event-loop active/idle time in milliseconds and utilization in [0, 1], not process CPU. */
+  eventLoopUtilization: { activeMs: number; idleMs: number; utilization: number } | null
+}
+
 export interface PerformanceCaptureSample {
   sequence: number
   sampledAt: number
@@ -37,6 +51,8 @@ export interface PerformanceCaptureSample {
   processesTruncated: boolean
   memory: { measuredBytes: number; unavailableProcesses: number; uniqueProcesses: number; metrics: PluginMemoryProcess['metric'][] }
   cpu: { intervalMs: number | null; oneCorePercent: number | null; measuredProcesses: number; unavailableProcesses: number; newProcesses: number; exitedProcesses: number }
+  /** Older v2 recordings omit this field; null means observation was unavailable in this session. */
+  mainEventLoop?: PerformanceCaptureMainEventLoop | null
   host: { logicalTabs: number; live: number; hibernated: number; coldShellTabs: number; lazyDetached: number; opening: number; closing: number; retiring: number }
   plugins: Array<{ pluginId: string; generation: number; wcId: number; state: string }>
   resources: Array<{ pluginId: string; generation: number; wcId: number; closing: boolean; activities: number; resources: number }>

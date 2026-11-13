@@ -128,7 +128,9 @@ export function startBackgroundEffect(
   }
 
   function draw(): void {
-    if (disposed || paused || document.hidden || !initialized || !gl || !drawable) return
+    // paused 只停动画循环，不阻止绘制静态帧：暂停时若完全不画，
+    // 透明标题栏与透明卡片下方就只剩底色，看起来像"背景动效消失了"。
+    if (disposed || document.hidden || !initialized || !gl || !drawable) return
     const reveal = Math.max(0, Math.min(1, (age - 0.12) / revealDuration))
     gl.uniform2f(uniforms.pointer, pointerX, pointerY)
     gl.uniform1f(uniforms.time, elapsed)
@@ -276,7 +278,8 @@ export function startBackgroundEffect(
 
   function initialize(): void {
     initializationFrame = 0
-    if (disposed || paused || document.hidden || initializing) return
+    // 同样不因 paused 放弃：暂停态也需要完成一次静态绘制。
+    if (disposed || document.hidden || initializing) return
     initializing = true
     try {
       gl = canvas.getContext('webgl', {
@@ -337,7 +340,9 @@ export function startBackgroundEffect(
   }
 
   function scheduleInitialization(): void {
-    if (disposed || initializing || initializationFrame || paused || document.hidden) return
+    // paused 不再阻止初始化：低动画档/被遮挡时仍需要一个静态首帧，
+    // 透明标题栏与透明卡片要靠它透出背景；循环由 syncActivity 单独停掉。
+    if (disposed || initializing || initializationFrame || document.hidden) return
     // A full paint opportunity also lets StrictMode clean up its discarded setup
     // before it creates a WebGL context.
     initializationFrame = requestAnimationFrame(() => {
@@ -351,9 +356,13 @@ export function startBackgroundEffect(
       if (disposed) return
       paused = value
       if (paused) {
+        // 先取消循环，但保留已初始化的首帧；未初始化时仍走一次初始化，
+        // 否则主壳在低动画档下永远没有静态背景，透明标题栏会露出纯色。
         cancelAnimationFrame(initializationFrame); initializationFrame = 0
         clearTimeout(compilationTimer); compilationTimer = undefined
         stop()
+        if (!initialized) scheduleInitialization()
+        else draw()
       } else {
         scheduleInitialization()
         if (pollCompilation && compilationTimer === undefined) {

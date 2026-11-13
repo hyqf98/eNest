@@ -39,7 +39,7 @@
 .quick-root[data-mode='plugin'] .quick-shell { height: 100%; }
 .quick-root[data-mode='plugin'] .quick-shell { display: grid; grid-template-rows: var(--quick-bar-h) minmax(0, 1fr); }
 /* The same outer corners survive list/plugin transitions; the join has no corners. */
-.quick-shell:focus-within { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--link) 34%, var(--border)); }
+.quick-shell:focus-within { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--link) 34%, var(--border)), 0 18px 48px color-mix(in srgb, var(--text) 14%, transparent); }
 .quick-root .ambient-particles.ambient-flow { position: absolute; inset: 0; height: 100%; opacity: 0.3; }
 .quick-search-bar {
   position: relative;
@@ -168,10 +168,16 @@
 .quick-scope-toggle[aria-expanded='true'],
 .quick-scope-toggle[data-filtered='true'] { background: var(--accent-soft); border-color: color-mix(in srgb, var(--link) 40%, var(--border)); color: var(--link); }
 .quick-category:active { transform: scale(var(--quick-press)); }
+/*
+ * 二级面板（搜索分类）：作为一级菜单胶囊的"下拉"出现，而不是一块孤立浮层。
+ * - 右缘与胶囊对齐（right: 0）
+ * - 顶部留 2px 视觉间距，并加一枚朝上的小尖角指明归属
+ * - 尖角水平对准触发它的分类按钮（胶囊内倒数第 2 个圆形按钮的中心）
+ */
 .quick-categories-slot {
   position: absolute;
-  top: calc(var(--quick-bar-h) - 4px);
-  right: 54px;
+  top: calc(var(--quick-bar-h) - 2px);
+  right: 0;
   padding: 5px;
   border: 1px solid var(--border-strong);
   border-radius: 11px;
@@ -182,6 +188,21 @@
   pointer-events: none;
   transform: translateY(var(--quick-tool-shift));
   transition: opacity var(--quick-reveal) ease, transform var(--quick-reveal) ease, visibility 0s var(--quick-reveal);
+}
+/* 朝上的小尖角：把二级面板指回触发它的分类按钮，视觉上明确是同一组控件。 */
+.quick-categories-slot::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  /* 胶囊右内边距 44px 为齿轮预留；分类按钮中心在右缘内 ~55px 处 */
+  right: 50px;
+  width: 9px;
+  height: 9px;
+  border-left: 1px solid var(--border-strong);
+  border-top: 1px solid var(--border-strong);
+  border-radius: 2px 0 0 0;
+  background: var(--surface);
+  transform: rotate(45deg);
 }
 .quick-search-bar[data-tools='expanded'] .quick-categories-slot { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0); transition-delay: 0s; }
 .quick-categories { display: flex; align-items: center; gap: 4px; }

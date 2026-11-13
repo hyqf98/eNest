@@ -37,12 +37,20 @@ const settingMutations = new Set<string>()
 let registered = false, stopping = false, pumping = false, pumpRequested = false
 let pumpTimer: ReturnType<typeof setTimeout> | undefined
 const same = (a: McpRuntime, b: McpRuntime | null) => !!b && a.scope === b.scope && a.documentEpoch === b.documentEpoch && a.buildRevision === b.buildRevision
+/**
+ * 代次已作废（导航/重载/关闭中）时的迟到 IPC：
+ * 旧文档在卸载前仍会发出 register/result，宿主此时已换或销毁 runtime。
+ * 这属于预期的竞态，不是越权——调用方按"未注册"处理即可，不该在主进程抛错。
+ */
+class RetiredRuntimeError extends Error {
+  constructor() { super('Retired activation sender'); this.name = 'RetiredRuntimeError' }
+}
 function identity(event: IpcMainEvent | IpcMainInvokeEvent): { pluginId: string; runtime: McpRuntime } {
   const pluginId = pluginHost.getPluginIdByWebContentsId(event.sender.id)
   if (!pluginId || event.sender.isDestroyed() || event.senderFrame !== event.sender.mainFrame
     || !isPluginPageUrl(event.senderFrame.url, pluginId, pluginRegistry.get(pluginId)?.devUrl)) throw new Error('Unauthorized activation sender')
   const runtime = pluginHost.getMcpRuntime(pluginId)
-  if (!runtime || runtime.contents !== event.sender) throw new Error('Retired activation sender')
+  if (!runtime || runtime.contents !== event.sender) throw new RetiredRuntimeError()
   return { pluginId, runtime }
 }
 function finish(job: Job, error?: Error, value?: unknown): void {
@@ -162,11 +170,21 @@ export function commandOutcome(value: unknown): PluginCommandOutcome {
 function desiredResident(pluginId: string): { enabled: boolean; code: string } | null {
   const manifest = pluginRegistry.getManifest(pluginId), declaration = manifest?.activation?.resident
   if (!declaration || !isPluginSettingKey(declaration.setting) || !pluginRegistry.isEnabled(pluginId)) return null
+  // The boolean field may come from a declared settings section or solely from the
+  // resident declaration itself (plugin-owned settings UI, no shell settings tab).
   const field = manifest.contributes?.settings?.flatMap(section => section.items).find(item => item.key === declaration.setting && ['switch', 'boolean', 'bool'].includes(item.type))
-  if (!field || manifest.features?.find(feature => feature.code === declaration.code)?.activation?.type !== 'command') return null
+  if (!field && typeof declaration.default !== 'boolean') return null
+  const fallbackDefault = field?.default ?? declaration.default
+  if (manifest.features?.find(feature => feature.code === declaration.code)?.activation?.type !== 'command') return null
   const settings = settingsStore.getPluginSettings(pluginId)
-  const enabled = Object.hasOwn(settings, declaration.setting) ? settings[declaration.setting] === true : field.default === true
+  const enabled = Object.hasOwn(settings, declaration.setting) ? settings[declaration.setting] === true : fallbackDefault === true
   return { enabled, code: declaration.code }
+}
+
+/** True when `key` is the plugin's declared resident setting (writable even without a settings section). */
+export function isResidentSettingKey(pluginId: string, key: string): boolean {
+  const declaration = pluginRegistry.getManifest(pluginId)?.activation?.resident
+  return declaration?.setting === key && isPluginSettingKey(key)
 }
 
 function awaitSettlement(job: Job | undefined): Promise<void> {
@@ -174,6 +192,23 @@ function awaitSettlement(job: Job | undefined): Promise<void> {
   return new Promise(resolve => {
     const finish = () => { clearTimeout(timer); job.settledListeners.delete(finish); resolve() }
     const timer = setTimeout(finish, 2000)
+    timer.unref?.()
+    job.settledListeners.add(finish)
+  })
+}
+
+/**
+ * 源码重载在改写开发态元数据前先等待进行中的激活结算：
+ * dev server 冷启动自身写产物（子构建、缓存）会触发 source-change，
+ * 若此时 re-register 使 buildRevision 过期，会把刚发起的激活判为 retired。
+ * 就绪超时兜底 15s：分发后的 ACK 由结果链路结算，此处不做更长等待。
+ */
+export function awaitPluginActivation(pluginId: string): Promise<void> {
+  const job = jobs.get(pluginId)
+  if (!job || job.settled) return Promise.resolve()
+  return new Promise(resolve => {
+    const finish = () => { clearTimeout(timer); job.settledListeners.delete(finish); resolve() }
+    const timer = setTimeout(finish, 15_000)
     timer.unref?.()
     job.settledListeners.add(finish)
   })
@@ -188,7 +223,7 @@ export async function setResidentSettingFromUser(
   if (declaration?.setting !== key) return false
   assertSurfaceSender(event, IpcChannels.ShellSetPluginSetting)
   const previous = desiredResident(pluginId), frame = event.senderFrame
-  if (!previous || !frame || typeof value !== 'boolean' || !pluginSettingsBridge.isWritableKey(pluginId, key)) throw new Error('Invalid resident setting')
+  if (!previous || !frame || typeof value !== 'boolean' || !(pluginSettingsBridge.isWritableKey(pluginId, key) || isResidentSettingKey(pluginId, key))) throw new Error('Invalid resident setting')
   if (settingMutations.has(pluginId)) throw new Error('Resident setting is busy')
   const build = pluginRegistry.getBuildRevision(pluginId), sourceUrl = frame.url
   const fingerprint = () => {
@@ -331,7 +366,13 @@ export function registerPluginActivationHandlers(): void {
   registered = true
   initializeLaunchIndex()
   ipcMain.handle(IpcChannels.PluginActivationRegister, (event, input: unknown) => {
-    const { pluginId, runtime } = identity(event)
+    let who: { pluginId: string; runtime: McpRuntime }
+    try { who = identity(event) } catch (error) {
+      // 旧文档迟到的注册请求：宿主代次已换，静默拒绝即可（详见 RetiredRuntimeError）。
+      if (error instanceof RetiredRuntimeError) return { registrationId: '', retired: true }
+      throw error
+    }
+    const { pluginId, runtime } = who
     if (!Array.isArray(input) || input.length > 3 || input.some(value => !['command', 'index-sync', 'prepare-view'].includes(value))) throw new Error('Invalid activation registration')
     const previous = registrations.get(pluginId)
     if (previous && same(previous.runtime, runtime)) throw new Error('Activation handlers already registered')

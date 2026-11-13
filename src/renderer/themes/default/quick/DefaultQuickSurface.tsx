@@ -6,7 +6,8 @@ import type { QuickThemeAction, QuickThemeActionResult, QuickThemeItem, QuickThe
 import { QUICK_BAR_AREA_H, QUICK_BORDER_WIDTH, QUICK_CONTENT_HEIGHT, QUICK_CORNER_RADIUS, QUICK_GRID_COLUMNS, QUICK_HOME_HEIGHT, QUICK_HOME_ROWS } from '@shared/constants'
 import { IS_MAC } from '@shared/platform'
 import { normalizeSearchText } from '@shared/search'
-import { d, ease } from '@renderer/gsap/marketMotion'
+import { d, dy, ease } from '@renderer/gsap/marketMotion'
+import { useReducedMotion } from '@renderer/hooks/useReducedMotion'
 import { Button } from '@renderer/components/ui/Button'
 import { SearchField } from '@renderer/components/SearchField'
 import { ChevronLeftIcon, HouseIcon, RotateCwIcon, SearchIcon, SettingsIcon } from '@renderer/components/icons'
@@ -52,9 +53,12 @@ function CategoryIcon({ kind }: { kind: QuickCommandKind }) {
 
 function ItemIcon({ item }: { item: QuickThemeItem }) {
   const [failed, setFailed] = useState(false)
-  useEffect(() => setFailed(false), [item.icon])
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => { setFailed(false); setAttempt(0) }, [item.icon])
+  /** enest:// 协议与插件视图初始化有先后：首次失败重试一次，别直接退回首字。 */
+  const onError = () => { if (attempt < 1) setAttempt(prev => prev + 1); else setFailed(true) }
   return <span className={`quick-icon-tile kind-${item.kind}${item.icon && !failed ? ' has-icon' : ''}`} aria-hidden>
-    {item.icon && !failed ? <img src={item.icon} alt="" onError={() => setFailed(true)} draggable={false} /> :
+    {item.icon && !failed ? <img key={attempt} src={item.icon} alt="" onError={onError} draggable={false} /> :
       item.kind === 'action' ? item.action === 'open-settings' ? <SettingsIcon size={25} /> : item.action === 'refresh-apps' ? <RotateCwIcon size={25} /> : <HouseIcon size={25} /> :
         <span>{Array.from(item.title || '?')[0].toUpperCase()}</span>}
   </span>
@@ -77,6 +81,7 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   useEffect(() => { if (searchActive) refreshUsage() }, [searchActive, snapshot.shown, refreshUsage])
   const [categoriesOpen, setCategoriesOpen] = useState(false)
   const [columns, setColumns] = useState(QUICK_GRID_COLUMNS)
+  const reducedMotion = useReducedMotion()
   const composing = useRef(false)
   const plugin = snapshot.plugin
   const showResults = !plugin
@@ -85,12 +90,17 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   const inputItems = snapshot.input?.items ?? []
   const media = useMemo(() => matchDefaultQuickMedia(snapshot.catalog, snapshot.input?.items), [snapshot.catalog, snapshot.input])
   const searching = snapshot.searching || (media.mediaPresent && media.matches.size > 0)
-  const focus = useCallback((selectAll = false) => { inputRef.current?.focus(); if (selectAll) inputRef.current?.select() }, [])
+  const focus = useCallback((selectAll = false) => {
+    const input = inputRef.current
+    if (!input) return
+    if (document.activeElement !== input) input.focus({ preventScroll: true })
+    if (selectAll) input.select()
+  }, [])
   useLayoutEffect(() => {
     if (rootRef.current) rootRef.current.inert = !active
     if (active) focus()
   }, [active, focus])
-  useEffect(() => { setCategoriesOpen(false) }, [snapshot.shown, Boolean(plugin)])
+  useLayoutEffect(() => { setCategoriesOpen(false) }, [active, snapshot.shown, Boolean(plugin)])
   useLayoutEffect(() => { if (panelRef.current) panelRef.current.scrollTop = 0 }, [snapshot.queryRevision])
 
   const usageCatalog = useMemo(() => projectDefaultQuickUsage(snapshot.catalog, usage, ''), [snapshot.catalog, usage])
@@ -137,19 +147,18 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
     panelRef.current?.querySelector<HTMLElement>(`[data-index="${index}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [index, visibleItems])
   useLayoutEffect(() => {
-    if (!active || !rootRef.current) return
+    const panel = panelRef.current
+    const results = panel?.querySelector<HTMLElement>('.quick-results')
+    if (!panel || !results || !showResults || reducedMotion) return
     const context = gsap.context(() => {
-      gsap.fromTo('.quick-search-bar .search-box', { opacity: 0 }, { opacity: 1, duration: d(0.25), ease: ease('power2.out') })
-    }, rootRef.current)
+      // Prepare while hidden, then settle once on visibility. QuickShown and query
+      // updates must not blank an already-painted input or restart this motion.
+      // Move the inner results only: the measured panel stays at its native bounds.
+      gsap.set(results, { y: dy(5) })
+      if (active) gsap.to(results, { y: 0, duration: d(0.18), ease: ease('power3.out'), clearProps: 'transform' })
+    }, panel)
     return () => context.revert()
-  }, [active, snapshot.shown])
-  useLayoutEffect(() => {
-    if (!active || !panelRef.current || plugin) return
-    const context = gsap.context(() => {
-      gsap.fromTo(panelRef.current, { opacity: 0 }, { opacity: 1, duration: d(0.28), ease: ease('power2.out') })
-    }, panelRef.current)
-    return () => context.revert()
-  }, [active, showResults, searching, kind, snapshot.shown])
+  }, [active, showResults, reducedMotion])
 
   useLayoutEffect(() => {
     const panel = panelRef.current
@@ -264,12 +273,12 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
             <span className="quick-search-leading" aria-hidden><SearchIcon size={19} /></span>
           </>}
           accessory={<>
-            {!plugin && busy && <span className="quick-input-status"><span className="quick-spinner" aria-label="搜索中" /></span>}
+            {!plugin && <span className="quick-input-status">{busy && <span className="quick-spinner" aria-label="搜索中" />}</span>}
             <span className="quick-inline-tools">
               {plugin && <button className="quick-tool quick-pin" type="button" title={`移到主窗口（${modifier} Enter）`} aria-label="移到主窗口" onClick={() => void dispatch({ type: 'plugin-pin' })}>
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M14 3h7v7m0-7-10 10" /><path d="M10 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-5" /></svg>
               </button>}
-              <QuickAccessMenu key={`${snapshot.shown}-${Boolean(plugin)}`} onMarket={() => void dispatch({ type: 'open-market' })} onSettings={() => void dispatch({ type: 'open-settings' })} onDismiss={() => focus()}>
+              <QuickAccessMenu resetKey={`${active}-${snapshot.shown}-${Boolean(plugin)}`} pinned={categoriesOpen} onMarket={() => void dispatch({ type: 'open-market' })} onSettings={() => void dispatch({ type: 'open-settings' })} onDismiss={() => { setCategoriesOpen(false); focus() }}>
                 {!plugin && <Button className="quick-tool quick-scope-toggle" aria-expanded={categoriesOpen} aria-controls="quick-categories" aria-label={categoriesOpen ? '收起搜索分类' : '展开搜索分类'} data-filtered={Boolean(kind)}
                   title={`${categoriesOpen ? '收起' : '展开'}搜索分类${kind ? ` · 当前：${FILTERS.find(filter => filter.kind === kind)!.label}` : ''}`} onClick={() => { setCategoriesOpen(value => !value); focus() }}>
                   {kind ? <CategoryIcon kind={kind} /> : <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden><path d="M4 7h9m4 0h3M4 17h3m4 0h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>}

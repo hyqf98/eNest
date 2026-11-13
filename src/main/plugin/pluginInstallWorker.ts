@@ -3,8 +3,8 @@ import { parentPort, workerData } from 'node:worker_threads'
 import { createReadStream } from 'node:fs'
 import { readdir, lstat } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
+import { createRequire } from 'node:module'
 import { isAbsolute, join, relative, resolve } from 'node:path'
-import AdmZip from 'adm-zip'
 
 export const BUILD_METADATA_FILE = '.enest-build.json'
 
@@ -30,6 +30,8 @@ export async function hashPluginDirectory(root: string): Promise<string> {
 }
 
 export function extractPluginArchive(source: string, dest: string): void {
+  // Hash-only workers do not need the archive parser or its dependency graph.
+  const AdmZip = createRequire(import.meta.url)('adm-zip') as typeof import('adm-zip')
   const zip = new AdmZip(source)
   let total = 0
   const entries = zip.getEntries()

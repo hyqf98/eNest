@@ -56,7 +56,7 @@ import {
 
 const FIELD_TYPES = new Set(['color', 'slider', 'switch', 'select', 'font', 'media', 'token'])
 
-const LAYOUT_KEYS = new Set<string>(['density', 'gap', 'sidebarWidth', 'contentWidth', 'columns', 'tabStyle', 'tabOpacity', 'tabAutoHide'])
+const LAYOUT_KEYS = new Set<string>(['density', 'gap', 'sidebarWidth', 'contentWidth', 'columns', 'tabStyle', 'tabOpacity', 'cardOpacity', 'tabAutoHide'])
 
 const BACKGROUND_KEYS = new Set<string>(['texture', 'intensity', 'speed', 'direction', 'effect', 'media', 'warmth', 'grain', 'scale', 'wash', 'kind', 'palette', 'color', 'opacity', 'fit'])
 
@@ -147,7 +147,10 @@ function variant(value: unknown, path: string, source: string, paletteIds: Reado
     variant: safeVariantId(layoutBag.variant, `${path}.layout.variant`),
     tabStyle: layoutBag.tabStyle === undefined ? 'classic'
       : validTabStyle(layoutBag.tabStyle) ? layoutBag.tabStyle : fail(`${path}.layout.tabStyle is invalid`),
-    tabOpacity: layoutBag.tabOpacity === undefined ? 1 : numberInRange(layoutBag.tabOpacity, `${path}.layout.tabOpacity`, 0, 1),
+    tabOpacity: layoutBag.tabOpacity === undefined ? 0 : numberInRange(layoutBag.tabOpacity, `${path}.layout.tabOpacity`, 0, 1),
+    cardOpacity: layoutBag.cardOpacity === undefined
+      ? HOST_BASE.light.layout.cardOpacity
+      : numberInRange(layoutBag.cardOpacity, `${path}.layout.cardOpacity`, 0, 1),
     tabAutoHide: layoutBag.tabAutoHide === undefined ? false
       : typeof layoutBag.tabAutoHide === 'boolean' ? layoutBag.tabAutoHide : fail(`${path}.layout.tabAutoHide must be boolean`),
     density: numberInRange(layoutBag.density, `${path}.layout.density`, 0.8, 1.2),
@@ -307,7 +310,7 @@ function numericBindingRange(binding: ThemeSettingBinding): [number, number] | u
   }
   if (binding.target === 'font' && binding.key === 'scale') return [0.9, 1.3]
   if (binding.target === 'layout') {
-    if (binding.key === 'tabOpacity') return [0, 1]
+    if (binding.key === 'tabOpacity' || binding.key === 'cardOpacity') return [0, 1]
     return ({ density: [0.8, 1.2], gap: [0, 32], sidebarWidth: [220, 440], contentWidth: [640, 1920], columns: [1, 6] } as Record<string, [number, number]>)[binding.key]
   }
   if (binding.target === 'component') {

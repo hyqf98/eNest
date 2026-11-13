@@ -94,7 +94,7 @@ function currentSelection(): Selection | null {
   const source = appearance.theme.source
   if (suspendedSources.has(source)) { currentGrant = null; return null }
   const pack = themePackRegistry.get(appearance.theme.id) as ThemePackV2 | null
-  const rootInput = pluginRegistry.getAssetRootPath(source)
+  const rootInput = pluginRegistry.getThemeRootPath(source)
   if (!quick || quick.version !== 1 || !safePackagePath(quick.entry) || extname(quick.entry).toLowerCase() !== '.html' ||
       !pack || pack.schemaVersion !== 2 || pack.source !== source || pack.quick?.version !== 1 || pack.quick.entry !== quick.entry ||
       !pluginRegistry.isEnabled(source) || !pluginRegistry.getManifest(source) || !rootInput) {

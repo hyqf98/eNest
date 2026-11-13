@@ -8,6 +8,7 @@
   --home-gutter: clamp(28px, 5vw, 80px);
   max-width: 1520px;
   margin: 0 auto;
+  /* 顶部留白由 defaultWorkspace.css 统一接管（需让出标题栏高度），此处只给兜底值。 */
   padding: 28px var(--home-gutter) 76px;
 }
 

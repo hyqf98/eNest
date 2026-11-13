@@ -1,5 +1,13 @@
 .plugin-memory-section { min-width: 0; }
-.performance-capture { margin: 16px 0 22px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+/*
+ * 嵌套表面（性能诊断子卡 / 表头 / 徽章）跟随设置页卡片透明度一起衰减：
+ * 直接写死 var(--surface-2) 会在低透明度下成为卡内唯一的实色块。
+ * 基线 24% 保证完全透明时仍有极淡的层次可辨。
+ */
+.plugin-memory-section {
+  --memory-surface: color-mix(in srgb, var(--surface-2) calc(24% + var(--settings-card-opacity, 0.82) * 58%), transparent);
+}
+.performance-capture { margin: 16px 0 22px; padding: 16px; border: 1px solid var(--settings-glass-edge, var(--border)); border-radius: var(--radius-sm); background: var(--memory-surface); }
 .performance-capture-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
 .performance-capture-heading h3 { margin: 0; color: var(--text); font-size: 13px; font-weight: 600; }
 .performance-capture .desc { margin: 10px 0 12px; line-height: 1.7; }
@@ -18,11 +26,12 @@
 .plugin-memory-error > span { flex: 1; min-width: min(100%, 180px); }
 .plugin-memory-table-scroll { max-width: 100%; max-height: 360px; overflow: auto; scrollbar-gutter: stable; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .plugin-memory-table { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.5; text-align: left; }
-.plugin-memory-table thead { background: var(--surface-2); color: var(--text-2); }
+.plugin-memory-table thead { color: var(--text-2); }
 .plugin-memory-table th { font-weight: 500; }
 .plugin-memory-table th,
 .plugin-memory-table td { padding: 12px; vertical-align: middle; }
-.plugin-memory-table thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); white-space: nowrap; font-size: 11px; }
+/* 吸顶表头半透明时补一层磨砂，滚动行内容不从表头底下透出。 */
+.plugin-memory-table thead th { position: sticky; top: 0; z-index: 1; background: var(--memory-surface); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); white-space: nowrap; font-size: 11px; }
 .plugin-memory-table tbody tr + tr { border-top: 1px solid var(--border); }
 .plugin-memory-table tbody th { min-width: 156px; }
 .plugin-memory-table td { white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -30,7 +39,7 @@
 .plugin-memory-name { display: block; color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
 .plugin-memory-badges { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 5px; }
 .plugin-memory-status { color: var(--text-2); font-size: 11px; }
-.plugin-memory-badge { display: inline-block; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); font-size: 10px; line-height: 1.6; }
+.plugin-memory-badge { display: inline-block; padding: 1px 5px; border-radius: 4px; background: var(--memory-surface); color: var(--text-2); font-size: 10px; line-height: 1.6; }
 .plugin-memory-badge[data-alert='warning'] { background: var(--accent-soft); color: var(--accent); }
 .plugin-memory-badge[data-alert='critical'] { background: var(--danger-soft); color: var(--danger); }
 .plugin-memory-meta { display: flex; flex-wrap: wrap; gap: 2px 8px; margin-top: 5px; color: var(--text-2); font-size: 11px; overflow-wrap: anywhere; }

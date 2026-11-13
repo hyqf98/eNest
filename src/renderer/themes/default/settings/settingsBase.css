@@ -36,6 +36,11 @@
   font-size: 13px;
 }
 
+/*
+ * 始终撑满内容区宽度，与下方设置卡片左右对齐。
+ * 之前折叠时用 width: fit-content，条目少就缩成一条短条，与卡片宽度不一致；
+ * 展开后才变成 100%，造成"只有展开才对齐"的观感。
+ */
 .settings-tabs {
   display: flex;
   flex-wrap: nowrap;
@@ -46,14 +51,13 @@
   border-radius: var(--radius-md);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   margin-bottom: 16px;
   position: relative;
 }
 
 .settings-tabs.is-expanded {
-  width: 100%;
   flex-wrap: wrap;
 }
 
@@ -85,6 +89,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* 有 icon 的 tab 回到 inline-flex 排布；icon 不收缩、不换行、不吃省略号宽度 */
+.settings-tabs .settings-tab:has(.settings-tab-icon) { display: inline-flex; gap: 6px; justify-content: flex-start; }
+.settings-tab-icon { flex: 0 0 auto; display: inline-flex; color: var(--text-3); }
+.settings-tab .settings-tab-icon :is(svg, .plugin-icon) { display: block; }
+.settings-tabs button.active .settings-tab-icon { color: var(--text); }
+.settings-tab-plugin-icon.plugin-icon { width: 16px; height: 16px; }
 
 .settings-tabs button.active {
   background: var(--surface);

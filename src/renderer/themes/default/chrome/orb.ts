@@ -274,7 +274,7 @@ function syncAccountAvatar(): void {
 
 interface OrbItemSpec {
   key: string
-  kind: 'home' | 'tab' | 'contrib' | 'separator' | 'settings'
+  kind: 'home' | 'tab' | 'contrib' | 'separator' | 'settings' | 'overflow'
   title?: string
   color?: string
   glyph?: string
@@ -284,10 +284,15 @@ interface OrbItemSpec {
   tabId?: string
   pluginId?: string
   contributionId?: string
+  /** 聚合圈上显示的剩余数量（kind === 'overflow' 时使用） */
+  count?: number
 }
 
 const panelItems = new Map<string, HTMLElement>()
 let previousDots = ''
+/** 轨道聚合：超过阈值后只列前 N 个，其余收进「+N」圈；点开后临时全量显示。 */
+const RAIL_VISIBLE_TABS = 4
+let railTabsExpanded = false
 
 function syncPanel(): void {
   if (PART !== 'rail') {
@@ -315,11 +320,22 @@ function syncPanel(): void {
     }))
   }
   const items: OrbItemSpec[] = [{ key: 'home', kind: 'home', title: '首页', active: homeActive }]
-  for (const tab of state.tabs) {
+  /** tab 多到撑满轨道时折叠：只列前 RAIL_VISIBLE_TABS 个，其余收进「+N」；点开后全量显示。 */
+  const collapse = state.tabs.length > RAIL_VISIBLE_TABS + 1 && !railTabsExpanded
+  const shownTabs = collapse ? state.tabs.slice(0, RAIL_VISIBLE_TABS) : state.tabs
+  for (const tab of shownTabs) {
     items.push({ key: `tab:${tab.id}`, kind: 'tab', tabId: tab.id, title: tab.title,
       pluginId: tab.pluginId,
       color: tab.color, glyph: tab.glyph, icon: tab.icon, badge: tab.badge,
       active: tab.id === state.activeTabId && state.view === 'plugin' })
+  }
+  if (collapse) {
+    const hidden = state.tabs.length - RAIL_VISIBLE_TABS
+    items.push({ key: 'overflow', kind: 'overflow', count: hidden,
+      title: `还有 ${hidden} 个标签，点击展开全部`, color: 'var(--orb-face-bg)' })
+  } else if (railTabsExpanded && state.tabs.length > RAIL_VISIBLE_TABS) {
+    items.push({ key: 'overflow', kind: 'overflow', count: 0, title: '收起为前 4 个标签',
+      color: 'var(--orb-face-bg)' })
   }
   const contribs = state.contribEntries ?? []
   if (contribs.length) items.push({ key: 'separator', kind: 'separator' })
@@ -349,6 +365,11 @@ function syncPanel(): void {
         } else if (item.kind === 'settings') {
           button.dataset.settings = '1'
           button.innerHTML = ACCOUNT_PORTRAIT
+        } else if (item.kind === 'overflow') {
+          button.dataset.overflow = '1'
+          const count = document.createElement('span')
+          count.className = 'orb-overflow-count'
+          button.appendChild(count)
         } else {
           const glyph = document.createElement('span')
           glyph.className = 'orb-glyph'
@@ -391,6 +412,11 @@ function syncPanel(): void {
       if (item.active) face.setAttribute('aria-current', 'page')
       else face.removeAttribute('aria-current')
       if (item.color) face.style.background = item.color
+      if (item.kind === 'overflow') {
+        const count = face.querySelector('.orb-overflow-count')
+        if (count) count.textContent = item.count ? `+${item.count}` : '−'
+        face.classList.toggle('is-collapse', !item.count)
+      }
       const glyph = face.querySelector('.orb-glyph')
       if (glyph && glyph.textContent !== item.glyph) glyph.textContent = item.glyph ?? ''
       const image = face.querySelector<HTMLImageElement>('.orb-icon')
@@ -469,6 +495,12 @@ function bindEvents(): void {
         return
       }
       if (!expanded || t.closest('#orb-panel')?.hasAttribute('inert')) return
+    }
+    if (t.closest('[data-overflow]')) {
+      // 折叠 ↔ 全量切换：面板保持展开，位置由 applyExpanded 重新错落。
+      railTabsExpanded = !railTabsExpanded
+      syncPanel()
+      return
     }
     if (t.closest('[data-home]')) {
       void chrome.dispatch({ type: 'home' }).catch(() => undefined)

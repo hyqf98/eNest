@@ -10,7 +10,7 @@ export interface CatalogEntry { tool: McpCatalogTool; buildRevision: string; sch
 let signature = '', cached: Promise<CatalogEntry[]> | undefined
 
 export function getMcpCatalog(): Promise<CatalogEntry[]> {
-  const descriptors = pluginRegistry.getInstalledDescriptors().filter(item => item.enabled && !item.dev && !pluginHost.isBlockedForOpen(item.id))
+  const descriptors = pluginRegistry.getInstalledDescriptors().filter(item => item.enabled && !pluginHost.isBlockedForOpen(item.id))
   const next = JSON.stringify(descriptors.map(item => [item.id, item.buildRevision]))
   if (cached && signature === next) return cached
   signature = next

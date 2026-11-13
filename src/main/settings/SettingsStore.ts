@@ -41,6 +41,7 @@ import { migratePluginShortcuts } from './pluginShortcutMigration'
 
 /** 通用设置：以 shared 契约为准，保留历史 openAtLogin 扩展字段 */
 export type GeneralSettings = SharedGeneralSettings & {
+  /** 历史遗留字段：从未接线，仅在 setAll 归一并迁移到 launchAtLogin */
   openAtLogin?: boolean
   [key: string]: unknown
 }
@@ -77,6 +78,7 @@ const DEFAULTS: SettingsData = {
     hardwareAcceleration: true,
     closeBehavior: 'minimize-tray',
     notifyPosition: 'bottom-right',
+    launchAtLogin: false,
     pluginMemoryMonitor: { ...DEFAULT_PLUGIN_MEMORY_MONITOR },
     tabStyle: 'classic',
     animationLevel: 'medium',
@@ -525,6 +527,14 @@ export class SettingsStore {
       partial = { ...partial, general: { ...partial.general,
         dataRoot: root?.trim() ? resolveLocalUserPath(root.trim(), { baseDir: process.cwd() }) : undefined
       } }
+    }
+    // 开机自启偏好：布尔归一 + 历史 openAtLogin 字段并入（历史字段从未接线，仅作迁移源）
+    if (partial.general && ('launchAtLogin' in partial.general || 'openAtLogin' in partial.general)) {
+      const { launchAtLogin, openAtLogin, ...rest } = partial.general
+      const value = typeof launchAtLogin === 'boolean' ? launchAtLogin
+        : typeof openAtLogin === 'boolean' ? openAtLogin : undefined
+      if (value === undefined) throw new Error('invalid launch-at-login preference')
+      partial = { ...partial, general: { ...rest, launchAtLogin: value } }
     }
     this.ensureLoaded()
     const previousAppearance = appearanceInputs(this.data)

@@ -187,7 +187,7 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
   if (!state.appearance) return state.loading ? null : <div className="default-workspace-boot"><strong>{english ? 'Workspace is unavailable' : '工作区暂时无法启动'}</strong><p role="alert">{state.message}</p></div>
   return <div className={`default-workspace${state.appearance.appearance.layout.tabStyle === 'orb' ? ' tab-orb' : ''}`} data-workspace-route={state.route.page}>
     <DefaultThemeBackground appearance={state.appearance.appearance} paused={!state.visible} />
-    <section className="page page-home" aria-label={t('nav.market')}>
+    <section className="page page-home" aria-label={t('nav.market')} data-scrollbar="auto-hide">
       <div className="home-scroll" ref={scrollRef}>
         <header className="market-page-heading"><div><h1>{english ? 'Plugin marketplace' : '插件市场'}</h1><p>{english ? `${plugins.length} plugins · ${installedCount} installed` : `${plugins.length} 个插件 · 已安装 ${installedCount} 个`}</p></div>
           <button type="button" className="market-refresh" onClick={() => void controller.refreshCatalog()} disabled={state.refreshing} aria-busy={state.refreshing} title={state.refreshing ? english ? 'Refreshing…' : '正在刷新…' : english ? 'Refresh marketplace' : '刷新市场'} aria-label={english ? 'Refresh marketplace' : '刷新插件市场'}><RotateCwIcon size={15} /></button>

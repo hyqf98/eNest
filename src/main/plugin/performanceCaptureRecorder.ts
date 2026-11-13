@@ -2,8 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import {
   PERFORMANCE_CAPTURE_LIMITS, type PerformanceCaptureReport, type PerformanceCaptureSample,
-  type PerformanceCaptureState, type PerformanceCaptureStopReason
+  type PerformanceCaptureState, type PerformanceCaptureStopReason, type PerformanceCaptureMainEventLoop
 } from '@shared/types/performanceCapture'
+
+interface EventLoopObservation {
+  read(): PerformanceCaptureMainEventLoop
+  stop(): void
+}
 
 interface CaptureSession {
   state: PerformanceCaptureState
@@ -14,6 +19,7 @@ interface CaptureSession {
   deadline?: ReturnType<typeof setTimeout>
   flight?: Promise<void>
   stopping?: Promise<PerformanceCaptureState>
+  eventLoop?: EventLoopObservation
 }
 
 const DEFINITIONS = [
@@ -21,6 +27,10 @@ const DEFINITIONS = [
   'memoryBytes uses the recorded per-process metric. RSS is not footprint/private memory; unknown values are null, not zero.',
   'CPU is 100 * delta(cumulativeCPUUsage seconds) / monotonic interval seconds; one logical core at full load is 100%.',
   'CPU covers only Electron-reported processes with the same creation identity in adjacent samples. Native children, exited and new processes may be unmeasured.',
+  'mainEventLoop observes only the Electron main process. sampledAt/intervalMs end before asynchronous process sampling and are independent of the CPU interval.',
+  'mainEventLoop.delayMs contains raw monitorEventLoopDelay histogram nanoseconds converted to milliseconds, at the recorded resolutionMs; the timer resolution is not subtracted. The histogram resets after each observation; zero sampleCount means null percentiles/max.',
+  'mainEventLoop.eventLoopUtilization contains interval activeMs/idleMs and utilization from 0 to 1. It is event-loop occupancy, not CPU utilization or FPS; a missing valid utilization interval is null even if delay samples exist.',
+  'Older v2 recordings omit mainEventLoop. A null observation means the monitor was unavailable after a capture failure; it never means zero delay. Observation stops immediately when capture stops, including shutdown.',
   'host.logicalTabs counts main-window shell tabs, including cold and hibernated placeholders. It does not equal live renderers.',
   'host.coldShellTabs counts installed-state shell placeholders without a runtime, hibernation record or in-flight open/close/reload/retire/transfer. host.lazyDetached counts restored independent windows not yet instantiated.',
   'host.live and host.hibernated span all plugin containers; host counters are not disjoint parts of logicalTabs. Shared PID memory is not exclusive plugin attribution.',
@@ -39,6 +49,7 @@ export class PerformanceCaptureRecorder {
   constructor(private readonly source: {
     metadata(): PerformanceCaptureReport['metadata']
     collect(sequence: number, startedMono: number, previous: PerformanceCaptureSample | null): Promise<PerformanceCaptureSample>
+    observeEventLoop?(): EventLoopObservation
     log(message: string): void
   }) {}
 
@@ -50,18 +61,37 @@ export class PerformanceCaptureRecorder {
     const startedAt = Date.now()
     const session: CaptureSession = { state: { ...emptyPerformanceCaptureState(), status: 'running', captureId: randomUUID(), startedAt,
       deadlineAt: startedAt + PERFORMANCE_CAPTURE_LIMITS.durationMs }, samples: [], metadata: this.source.metadata(), startedMono: performance.now() }
-    this.session = session
-    session.deadline = setTimeout(() => { void this.stop('time-limit') }, PERFORMANCE_CAPTURE_LIMITS.durationMs)
-    session.deadline.unref?.()
-    this.source.log(`start capture=${session.state.captureId} intervalMs=${PERFORMANCE_CAPTURE_LIMITS.intervalMs} durationMs=${PERFORMANCE_CAPTURE_LIMITS.durationMs}`)
-    this.capture(session)
-    return this.state()
+    const previousSession = this.session
+    try {
+      session.eventLoop = this.source.observeEventLoop?.()
+      this.session = session
+      session.deadline = setTimeout(() => { void this.stop('time-limit') }, PERFORMANCE_CAPTURE_LIMITS.durationMs)
+      session.deadline.unref?.()
+      this.source.log(`start capture=${session.state.captureId} intervalMs=${PERFORMANCE_CAPTURE_LIMITS.intervalMs} durationMs=${PERFORMANCE_CAPTURE_LIMITS.durationMs}`)
+      this.capture(session)
+      return this.state()
+    } catch (error) {
+      if (session.timer) clearTimeout(session.timer)
+      if (session.deadline) clearTimeout(session.deadline)
+      this.stopEventLoop(session)
+      this.session = previousSession
+      throw error
+    }
+  }
+
+  private stopEventLoop(session: CaptureSession): void {
+    const observation = session.eventLoop
+    session.eventLoop = undefined
+    observation?.stop()
   }
 
   private capture(session: CaptureSession): void {
     if (session.state.status !== 'running' || session.flight) return
     session.flight = Promise.resolve().then(async () => {
+      if (session.state.status !== 'running') return
+      const mainEventLoop = session.eventLoop?.read() ?? null
       const sample = await this.source.collect(session.samples.length + 1, session.startedMono, session.samples.at(-1) ?? null)
+      if (this.source.observeEventLoop) sample.mainEventLoop = mainEventLoop
       const bytes = Buffer.byteLength(JSON.stringify(sample))
       if (session.state.retainedBytes + bytes > PERFORMANCE_CAPTURE_LIMITS.maxBytes) { void this.stop('size-limit'); return }
       session.samples.push(sample)
@@ -71,6 +101,7 @@ export class PerformanceCaptureRecorder {
       this.source.log(`sample capture=${session.state.captureId} sequence=${sample.sequence} processes=${sample.memory.uniqueProcesses} measuredMiB=${(sample.memory.measuredBytes / 1048576).toFixed(1)} cpuOneCorePercent=${cpu} cpuUnmeasured=${sample.cpu.unavailableProcesses} logicalTabs=${sample.host.logicalTabs} live=${sample.host.live} hibernated=${sample.host.hibernated} coldShellTabs=${sample.host.coldShellTabs} lazyDetached=${sample.host.lazyDetached} backgrounds=${sample.counters.backgrounds ?? 0} auxiliaryWindows=${sample.counters.auxiliaryWindows ?? 0} fileStreams=${sample.counters.fileStreams ?? 0} devTools=${sample.windows.devTools} collectionMs=${sample.collectionMs.toFixed(1)}`)
       if (session.samples.length >= PERFORMANCE_CAPTURE_LIMITS.maxSamples) void this.stop('sample-limit')
     }).catch(() => {
+      this.stopEventLoop(session)
       session.state.failedSamples++
       // Native errors can contain paths or command output. Keep diagnostics logs content-free.
       this.source.log(`sample-failed capture=${session.state.captureId} count=${session.state.failedSamples}`)
@@ -90,6 +121,8 @@ export class PerformanceCaptureRecorder {
     session.state.stopReason = reason
     if (session.timer) clearTimeout(session.timer)
     if (session.deadline) clearTimeout(session.deadline)
+    // Disable the observer synchronously: native collection may still be awaiting a reply at shutdown.
+    this.stopEventLoop(session)
     session.stopping = Promise.resolve(session.flight).then(() => {
       session.state.status = 'stopped'
       session.state.stoppedAt = Date.now()

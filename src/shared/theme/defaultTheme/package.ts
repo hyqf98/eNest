@@ -95,11 +95,14 @@ const pack: ThemePackV2 = {
       },
       {
         id: 'layout', title: '布局与动画', fields: [
-          // 标签页样式/自动隐藏/标题栏不透明度由「设置 → 通用」渲染，但字段仍在此声明：
-          // TopTabBarSection 只认 schema 里的 binding，删掉会让通用页控件消失。
+          // 标签页样式/自动隐藏/标题栏不透明度由「设置 → 主题」的标签栏与背景透明度分区渲染，
+          // 但字段仍在此声明：这两个分区只认 schema 里的 binding，删掉会让控件消失。
           { key: 'tabStyle', label: '标签页样式', type: 'select', default: 'classic', options: [{ label: '顶部标签', value: 'classic' }, { label: '左侧圆轨', value: 'orb' }], binding: { target: 'layout', key: 'tabStyle' } },
           { key: 'tabAutoHide', label: '标题栏自动隐藏', type: 'switch', default: false, help: '指针离开后整条标题栏收起，移到窗口顶部即展开', binding: { target: 'layout', key: 'tabAutoHide' }, visibleWhen: { field: 'tabStyle', equals: 'classic' } },
-          { key: 'tabOpacity', label: '标题栏背景不透明度', type: 'slider', default: 1, min: 0, max: 1, step: 0.05, binding: { target: 'layout', key: 'tabOpacity' }, visibleWhen: { field: 'tabStyle', equals: 'classic' } },
+          // tabOpacity 不挂 visibleWhen：标题栏（红绿灯 + 插件名/Tab 条）两种样式都存在，背景不透明度都要可调。
+          { key: 'tabOpacity', label: '标题栏透明度', type: 'slider', default: 0, min: 0, max: 1, step: 0.05, help: '越往右越透明，可透出窗口背景', binding: { target: 'layout', key: 'tabOpacity' } },
+          // 卡片与标题栏同源：都是"材质层浓度"，拉到 0 可完全透出背景动效。
+          { key: 'cardOpacity', label: '设置卡片透明度', type: 'slider', default: 0.82, min: 0, max: 1, step: 0.05, help: '越往右越透明，可让页面背景动效透进设置卡片', binding: { target: 'layout', key: 'cardOpacity' } },
           { key: 'contentWidth', label: '内容宽度', type: 'slider', default: 1520, min: 640, max: 1920, step: 10, binding: { target: 'layout', key: 'contentWidth' } },
           { key: 'density', label: '内容密度', type: 'slider', default: 1, min: 0.8, max: 1.2, step: 0.01, binding: { target: 'layout', key: 'density' } },
           { key: 'gap', label: '内容间距', type: 'slider', default: 16, min: 0, max: 32, step: 1, binding: { target: 'layout', key: 'gap' } },

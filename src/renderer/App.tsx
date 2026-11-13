@@ -1,5 +1,5 @@
 /** The bundled appearance loads directly; native Home readiness gates the launch animation handoff. */
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ShellLayout } from '@renderer/layout/ShellLayout'
 import { NotificationHost } from '@renderer/components/NotificationHost'
 import { Splash } from '@renderer/components/Splash'
@@ -12,6 +12,7 @@ import { useDuplicatePluginNotice } from '@renderer/hooks/useDuplicatePluginNoti
 import { useShellStore } from '@renderer/stores/shellStore'
 import { initMotion } from '@renderer/gsap/marketMotion'
 import { shellApi } from '@renderer/services/shellApi'
+import { markStartupPhase } from '@renderer/services/startupTiming'
 
 const QuickLauncherApp = lazy(() => import('@renderer/components/QuickLauncherApp').then(module => ({ default: module.QuickLauncherApp })))
 
@@ -43,7 +44,14 @@ export default function App() {
   const quick = isQuickSurface()
   const view = useShellStore((s) => s.view)
   const workspaceReady = startupStatus === 'ready' && workspacePrepared && splashDone
+  const startupSplashVisible = !quick && startupStatus !== 'error' && hydrated && !splashDone
   useDuplicatePluginNotice(!quick && workspaceReady)
+
+  useLayoutEffect(() => {
+    if (quick || !hydrated) return
+    markStartupPhase('appearance-hydrated')
+    if (startupSplashVisible) markStartupPhase('splash-mounted')
+  }, [quick, hydrated, startupSplashVisible])
 
   useEffect(() => {
     const openLink = (event: MouseEvent): void => {
@@ -122,6 +130,7 @@ export default function App() {
         await shellApi.hidePlugins?.()
         await shellApi.navigateWorkspace?.({ page: 'catalog' })
         if (cancelled) return
+        markStartupPhase('workspace-prepared')
         useShellStore.getState().applyView('home')
         setWorkspacePrepared(true)
       } catch {
@@ -138,8 +147,8 @@ export default function App() {
 
   return (
     <>
-      {startupStatus !== 'error' && hydrated && !splashDone
-        ? <Splash ready={workspacePrepared} onDone={() => setSplashDone(true)} />
+      {startupSplashVisible
+        ? <Splash ready={workspacePrepared} onDone={() => { markStartupPhase('splash-done'); setSplashDone(true) }} />
         : !workspaceReady && <AppBackground />}
       {startupStatus === 'error' && <section className="home-recovery" aria-label="启动恢复" role="alert">
         <span className="home-recovery-mark" aria-hidden="true">eNest</span>

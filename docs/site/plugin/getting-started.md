@@ -21,7 +21,7 @@
 }
 ```
 
-`development.main`（或 `package.json` 的 `enest.dev.url`）端口须与启动脚本一致且全仓唯一；未运行时壳会按插件 `package.json` 解析出的命令（锁文件检测包管理器，缺省 npm）自动拉起（端口被占自动换用空闲端口）。这个便笺只使用本插件私有存储，无需敏感权限。网络、剪贴板等敏感能力须声明对应权限；用户文件选择由宿主原生选择器授权，不因此要求通用文件权限框。详见[权限说明](permissions.md)。
+`development.main`（或 `package.json` 的 `enest.dev.url`）端口须与启动脚本一致且全仓唯一；实际运行插件时，服务未运行则由壳按插件 `package.json` 解析出的命令（锁文件检测包管理器，缺省 npm）自动拉起（端口被占自动换用空闲端口）。重启壳只恢复源码登记，不预先启动全部插件服务。这个便笺只使用本插件私有存储，无需敏感权限。网络、剪贴板等敏感能力须声明对应权限；用户文件选择由宿主原生选择器授权，不因此要求通用文件权限框。详见[权限说明](permissions.md)。
 
 原生 JS + Vite 示例的 `package.json`：
 
@@ -66,7 +66,7 @@ document.querySelector('#save').addEventListener('click', async () => {
 
 ## 开发与发布
 
-执行 `npm run dev`（壳也会按 package.json 自动拉起），在壳开发者页选择源码目录，页面自动打开。Vite HMR 保留当前视图；开发者控制台只有开发模式，按 `package.json` 自动识别框架或静态 HTML。要验证构建产物，先 `npm run build`，让开发服务离线后重新加载，壳按产物目录预览。详情见[开发加载](debug.md)。构建需 `base: './'`、`outDir: 'dist'`，并将去掉 development 的 manifest 写入 dist。仓库构建器会完成这些步骤。
+执行 `npm run dev`（手工加载源码时壳也会按 package.json 自动拉起），在壳开发者页选择源码目录，页面自动打开。Vite HMR 保留当前视图；开发者控制台只有开发模式，按 `package.json` 自动识别框架或静态 HTML。要验证构建产物，先 `npm run build`；运行时服务无法连接且自动启动失败，壳才尝试产物预览。明确验证发布行为应安装构建出的插件包，详情见[开发加载](debug.md)。构建需 `base: './'`、`outDir: 'dist'`，并将去掉 development 的 manifest 写入 dist。仓库构建器会完成这些步骤。
 
 发布前补真实截图，执行 manifest、产物和包校验，在壳内验证 Quick 与主窗、浅深主题、授权拒绝及重新进入。运行截图放在 `public/assets/market/screenshots/` 并声明到 manifest；不要用设计稿替代实际功能截图。
 

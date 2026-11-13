@@ -73,6 +73,8 @@ export async function registerMcpHandlers(handlers: McpToolHandlers): Promise<vo
   mcpHandlers = Object.fromEntries(entries)
   try {
     const ack = await ipcRenderer.invoke(IpcChannels.PluginMcpRegister, { toolIds: entries.map(([id]) => id) }) as McpRegistrationAck
+    // 旧文档迟到的注册：宿主代次已换，这里安静放弃，不再往下抛错。
+    if (ack?.retired) { mcpHandlers = undefined; earlyMcpDispatches.length = 0; return }
     if (!ack || typeof ack.registrationId !== 'string' || !ack.registrationId) throw new Error('MCP registration was not acknowledged')
     mcpRegistrationId = ack.registrationId
     for (const message of earlyMcpDispatches.splice(0)) void dispatchMcpCall(message)

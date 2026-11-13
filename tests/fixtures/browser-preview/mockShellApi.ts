@@ -179,11 +179,10 @@ export function createMockApi(): ShellApi {
 
   return {
     async getMcpStatus(): Promise<McpStatus> {
-      return { configuration: { enabled: false, port: 43921 }, state: 'disabled', endpoint: 'http://127.0.0.1:43921/mcp', sessionCount: 0, activeCalls: 0, recentCalls: [], error: 'Browser preview cannot start the native MCP service or access credentials.' }
+      return { configuration: { enabled: false, port: 43921 }, state: 'disabled', endpoint: 'http://127.0.0.1:43921/mcp', recentCalls: [], error: 'Browser preview cannot start the native MCP service or access credentials.' }
     },
     async configureMcp() { throw new Error('MCP configuration requires the native eNest application') },
     async copyMcpConnectionConfig() { throw new Error('MCP credentials are unavailable in browser preview') },
-    async resetMcpToken() { throw new Error('MCP credentials are unavailable in browser preview') },
     async listMcpTools() { return { tools: [] } },
     async getPlugins() {
       return mockRegistry.getPlugins()

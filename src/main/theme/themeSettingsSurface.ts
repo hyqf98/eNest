@@ -51,7 +51,7 @@ function retireGrant(): void {
 function selection(): Selection | null {
   const appearance = appearanceService.getAppearance(), source = appearance.theme.source
   const pack = themePackRegistry.list().find(pack => pack.source === source && pack.id === appearance.theme.id) as ThemePackV2 | undefined
-  const page = pack?.settingsPage, rootInput = pluginRegistry.getAssetRootPath(source)
+  const page = pack?.settingsPage, rootInput = pluginRegistry.getThemeRootPath(source)
   if (source === 'enest.builtin' || !page || page.version !== 1 || !page.entry.endsWith('.html') || !chromeAssetPath(page.entry)
     || !pack || pack.source !== source || pack.schemaVersion !== 2 || !pluginRegistry.isEnabled(source) || !rootInput) { retireGrant(); return null }
   const selected = { rootInput, entry: page.entry, signature: JSON.stringify([source, appearance.theme.id, appearance.theme.version, page, rootInput, pluginRegistry.getBuildRevision(source)]) }

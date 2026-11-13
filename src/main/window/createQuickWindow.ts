@@ -296,7 +296,8 @@ export function ensureQuickWindow(): QuickWindow {
 
   win.on('blur', () => {
     try {
-      if (!quickWindow || quickWindow.isDestroyed()) return
+      if (quickWindow !== win || win.isDestroyed()) return
+      const revision = showRevision
       if (pendingBlurTimer) {
         clearTimeout(pendingBlurTimer)
         pendingBlurTimer = null
@@ -304,9 +305,10 @@ export function ensureQuickWindow(): QuickWindow {
       pendingBlurTimer = setTimeout(() => {
         try {
           pendingBlurTimer = null
-          if (!quickWindow || quickWindow.isDestroyed()) return
+          if (revision !== showRevision || quickWindow !== win || win.isDestroyed()) return
           if (!quickWindow.isVisible()) return
           if (nativeInteractions.size > 0) return
+          if (quickWindow.isFocused()) return
           if (Date.now() < blurGuardUntil) {
             try {
               quickWindow.focus()
@@ -317,7 +319,6 @@ export function ensureQuickWindow(): QuickWindow {
             if (wc && !wc.isDestroyed()) wc.focus()
             return
           }
-          if (quickWindow.isFocused()) return
           if (quickWindow.webContents.isDevToolsOpened()) return
           logInfo(
             'quick',
@@ -349,9 +350,10 @@ export function ensureQuickWindow(): QuickWindow {
   return win
 }
 
-/** 把 Quick 窗前置并拿到键盘焦点。
+/** 前置并聚焦 Quick；完整呈现时才定位和 show，复焦保留当前位置和尺寸。
  * 注意：不要在 show 前 app.focus——会先把主窗设成 key window，quick 立刻 blur 被收起。 */
-function presentAndFocus(win: QuickWindow): void {
+function focusQuickWindow(win: QuickWindow, present = false): void {
+  const revision = showRevision
   // Guard before show: macOS may activate the app before Quick reports visible.
   guardMainWindowActivation()
   blurGuardUntil = Date.now() + SHOW_BLUR_GRACE_MS
@@ -368,30 +370,31 @@ function presentAndFocus(win: QuickWindow): void {
     }
   }
 
-  step('position', () => positionOnCursorScreen(win))
-  step('show', () => win.show())
+  if (present) {
+    step('position', () => positionOnCursorScreen(win))
+    step('show', () => win.show())
+  }
   step('moveTop', () => win.moveTop())
   // 注：不要在 show 后立刻 setAlwaysOnTop(level)——macOS 26/27 对刚显示的透明窗重设
   // level 会触发原生崩溃（SIGTRAP 无 JS 日志）；创建时已设 alwaysOnTop，无需重申。
   step('focusWin', () => win.focus())
   step('focusWc', () => {
-    const wc = quickWindow?.webContents
-    if (wc && !wc.isDestroyed()) wc.focus()
+    const wc = win.webContents
+    if (!wc.isDestroyed()) wc.focus()
   })
   logInfo('quick', `present done visible=${win.isVisible()} bounds=${JSON.stringify(win.getBounds())}`)
 
   // macOS：app 激活时主窗可能抢 key，保护期内重试把焦点钉回 Quick
-  const retryWin = win
   const retryFocus = (tag: string): void => {
     try {
-      if (!quickWindow || quickWindow.isDestroyed() || quickWindow !== retryWin) return
+      if (revision !== showRevision || quickWindow !== win || win.isDestroyed()) return
       if (!quickWindow.isVisible()) return
       if (nativeInteractions.size > 0) return
       if (quickWindow.isFocused()) return
       if (Date.now() > blurGuardUntil) return
-      retryWin.focus()
-      const w = quickWindow?.webContents
-      if (w && !w.isDestroyed()) w.focus()
+      win.focus()
+      const wc = win.webContents
+      if (!wc.isDestroyed()) wc.focus()
       logInfo('quick', `refocus after show (${tag})`)
     } catch (err) {
       logError('quick', `refocus failed (${tag}): ${(err as Error).message}`)
@@ -399,6 +402,10 @@ function presentAndFocus(win: QuickWindow): void {
   }
   setTimeout(() => retryFocus('90ms'), 90)
   setTimeout(() => retryFocus('280ms'), 280)
+}
+
+function presentAndFocus(win: QuickWindow): void {
+  focusQuickWindow(win, true)
 }
 
 export function getQuickShowRevision(): number { return showRevision }
@@ -447,7 +454,6 @@ export function presentQuickWindowForPlugin(commit?: () => void): boolean {
   if (!wasVisible) ++showRevision
   presentAndFocus(win)
   if (!win.isVisible()) return false
-  win.webContents.focus()
   // Send the reset before the committed owner publishes its plugin mode/input.
   if (!wasVisible) win.webContents.send(IpcChannels.QuickShown)
   try { commit?.() }
@@ -485,7 +491,6 @@ export async function showQuickWindow(canShow: () => boolean = () => true): Prom
     const afterPresent = (): void => {
       try {
         if (!wc || wc.isDestroyed()) return
-        wc.focus()
         wc.send(IpcChannels.QuickShown)
         logInfo('quick', 'afterPresent ok')
       } catch (err) {
@@ -594,7 +599,7 @@ export function toggleQuickWindow(): void {
     if (win && !win.isDestroyed() && win.isVisible()) {
       if (!win.isFocused()) {
         logInfo('quick', 'toggle: visible but unfocused → refocus')
-        showQuickWindow()
+        focusQuickWindow(win)
         return
       }
       hideQuickWindow('toggle')

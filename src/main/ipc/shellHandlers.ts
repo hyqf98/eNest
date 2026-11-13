@@ -66,6 +66,7 @@ import {
   applyPluginLaunchHotkeys
 } from '@main/hotkey/pluginLaunchHotkeys'
 import { settingsStore } from '@main/settings/SettingsStore'
+import { getLoginItemState, setLoginItemEnabled } from '@main/settings/loginItemService'
 import { pluginSettingsBridge } from '@main/settings/PluginSettingsBridge'
 import {
   applyProxy,
@@ -775,6 +776,27 @@ export function registerShellHandlers(): void {
       general: { ...all.general, hardwareAcceleration: enabled !== false }
     })
     return { needRestart: true as const }
+  })
+
+  // —— 开机自启 ——
+
+  /** 读系统实际注册状态；与持久化偏好不一致时以系统为准回写（用户可能在系统设置里改过）。 */
+  handleShellIpc(IpcChannels.ShellGetLoginItem, async () => {
+    const state = getLoginItemState()
+    const persisted = settingsStore.getAll().general.launchAtLogin === true
+    if (state.supported && state.enabled !== persisted) {
+      try { await settingsStore.setAll({ general: { launchAtLogin: state.enabled } }) } catch { /* 同步失败不阻塞读取 */ }
+    }
+    return state
+  })
+
+  /** 注册/注销系统自启（内部读回验证），成功后落偏好；失败时 UI 依返回值回滚。 */
+  handleShellIpc(IpcChannels.ShellSetLoginItem, async (_e, enabled: boolean) => {
+    const result = await setLoginItemEnabled(enabled === true)
+    if (result.ok) {
+      try { await settingsStore.setAll({ general: { launchAtLogin: result.enabled } }) } catch { /* 落库失败不影响系统注册事实 */ }
+    }
+    return result
   })
 
   // —— 网络代理 ——

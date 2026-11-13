@@ -49,6 +49,8 @@ import type {
 import type {
   HardwareAccelSetResult,
   HardwareAccelState,
+  LoginItemSetResult,
+  LoginItemState,
   PickFileOptions,
   PluginLaunchSetResult,
   ProxySetResult,
@@ -92,7 +94,6 @@ export interface EnestShellApi {
   getMcpStatus(): Promise<McpStatus>
   configureMcp(input: McpConfiguration): Promise<McpStatus>
   copyMcpConnectionConfig(): Promise<void>
-  resetMcpToken(): Promise<McpStatus>
   listMcpTools(query?: McpCatalogQuery): Promise<McpCatalogPage>
   openExternal(url: string): Promise<void>
   getThemeSettingsConfig(): Promise<import('@shared/types/themeSettings').ThemeSettingsConfig | null>
@@ -196,6 +197,10 @@ export interface EnestShellApi {
   getPluginReadme(pluginId: string): Promise<string>
   getHardwareAcceleration(): Promise<HardwareAccelState>
   setHardwareAcceleration(enabled: boolean): Promise<HardwareAccelSetResult>
+  /** 读取系统开机自启实际状态（dev 未打包/Linux 无 autostart 目录时 supported=false） */
+  getLoginItem(): Promise<LoginItemState>
+  /** 注册/注销系统开机自启；返回系统验证后的真实结果 */
+  setLoginItem(enabled: boolean): Promise<LoginItemSetResult>
   /** 读取当前代理配置（settings.general.proxy） */
   getProxy(): Promise<ProxyConfig>
   /** 写入并即时 session.setProxy；needRestart 恒为 false */
@@ -306,7 +311,6 @@ const api: EnestShellApi = {
   getMcpStatus: () => ipcRenderer.invoke(IpcChannels.ShellMcpStatus),
   configureMcp: input => ipcRenderer.invoke(IpcChannels.ShellMcpConfigure, input),
   copyMcpConnectionConfig: () => ipcRenderer.invoke(IpcChannels.ShellMcpCopyConnection),
-  resetMcpToken: () => ipcRenderer.invoke(IpcChannels.ShellMcpRotateToken),
   listMcpTools: query => ipcRenderer.invoke(IpcChannels.ShellMcpCatalog, query),
   openExternal: url => ipcRenderer.invoke(IpcChannels.ShellOpenExternal, url),
   getThemeSettingsConfig: () => ipcRenderer.invoke(IpcChannels.ThemeSettingsConfig),
@@ -462,6 +466,12 @@ const api: EnestShellApi = {
 
   setHardwareAcceleration: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannels.ShellSetHardwareAccel, enabled) as Promise<HardwareAccelSetResult>,
+
+  getLoginItem: () =>
+    ipcRenderer.invoke(IpcChannels.ShellGetLoginItem) as Promise<LoginItemState>,
+
+  setLoginItem: (enabled: boolean) =>
+    ipcRenderer.invoke(IpcChannels.ShellSetLoginItem, enabled) as Promise<LoginItemSetResult>,
 
   getProxy: () => ipcRenderer.invoke(IpcChannels.ShellGetProxy) as Promise<ProxyConfig>,
 

@@ -1,7 +1,7 @@
 import type { ShellApi } from './shellApi'
 
 const ASYNC_METHODS = [
-  'getMcpStatus', 'configureMcp', 'copyMcpConnectionConfig', 'resetMcpToken', 'listMcpTools',
+  'getMcpStatus', 'configureMcp', 'copyMcpConnectionConfig', 'listMcpTools',
   'getPlugins', 'getMarketStatus', 'getPluginDiagnostics', 'getPluginMemorySnapshot',
   'startPerformanceCapture', 'getPerformanceCaptureState', 'stopPerformanceCapture', 'exportPerformanceCapture',
   'restoreTabs', 'openPlugin', 'closePlugin', 'stopPluginResources', 'activatePlugin', 'hidePlugins',
@@ -16,7 +16,7 @@ const ASYNC_METHODS = [
   'forgetDevPlugin', 'reloadPlugin', 'setDevKillOnHide', 'openDevTools',
   'getPluginCallTrace', 'getThemeSettingsConfig', 'getThemeSettingsSnapshot', 'setThemeSettingsActive',
   'dispatchThemeSettingsAction', 'getSettings', 'setSettings', 'getSettingsSections', 'setPluginSetting', 'getPaths',
-  'pickFile', 'getPluginReadme', 'getHardwareAcceleration', 'setHardwareAcceleration', 'getProxy', 'setProxy',
+  'pickFile', 'getPluginReadme', 'getHardwareAcceleration', 'setHardwareAcceleration', 'getLoginItem', 'setLoginItem', 'getProxy', 'setProxy',
   'testProxy', 'saveCustomFont', 'readCustomFont', 'deleteCustomFont', 'installPlugin', 'getInstallQueue',
   'checkForUpdates', 'downloadUpdate', 'installUpdate', 'getUpdateState', 'getPluginsDirty', 'saveAllPlugins',
   'getAccountState', 'loginAccount', 'cancelAccountLogin', 'logoutAccount', 'githubLogin', 'githubCancelLogin',

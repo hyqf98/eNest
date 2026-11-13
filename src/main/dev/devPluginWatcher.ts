@@ -7,6 +7,8 @@ const RELOAD_DEBOUNCE_MS = 400
 const RETRY_DELAY_MS = 2000
 const MAX_WATCH_RETRIES = 5
 const IGNORED_SEGMENTS = new Set(['node_modules', '.git', 'dist', 'out', 'build', 'coverage', '.vite', '.cache', '.turbo', '.next'])
+/** 插件子构建产物落在 public 下（如 auxiliary 受限资产），是 dev server 启动的副产物而非源码编辑。 */
+const IGNORED_PREFIXES = ['public/assets/vendor/']
 
 type WatchOwner = 'runtime' | 'registration'
 interface WatchState {
@@ -33,6 +35,7 @@ function isCurrent(state: WatchState, pluginId: string): boolean {
 
 function isIgnored(state: WatchState, filename: string): boolean {
   if (filename.split(/[\\/]/).some(segment => IGNORED_SEGMENTS.has(segment))) return true
+  if (IGNORED_PREFIXES.some(prefix => filename.replaceAll('\\', '/').startsWith(prefix))) return true
   if (!state.outputPath) return false
   const path = resolve(state.rootPath, filename)
   return path === state.outputPath || path.startsWith(`${state.outputPath}/`)
@@ -45,28 +48,58 @@ async function refreshRegistration(state: WatchState, pluginId: string, manifest
   const previous = pluginRegistry.get(pluginId)
   if (!previous?.dev || previous.sourcePath !== state.rootPath) return
   const { prepareDevPluginReload } = await import('@main/dev/DevConsole')
-  if (!isCurrent(state, pluginId)) return
-  const prepared = await prepareDevPluginReload(previous, () => isCurrent(state, pluginId))
-  if (!isCurrent(state, pluginId) || !prepared) return
-  // A forget/re-registration may happen while resolving the entry or starting its server.
-  if (!pluginRegistry.get(pluginId)?.dev) return
-  pluginRegistry.addDevPlugin(prepared.summary, prepared.manifest)
-  state.outputPath = prepared.outputPath
-  await pluginRegistry.waitForThemeContributions(pluginId)
-  if (!isCurrent(state, pluginId)) return
-  const { appearanceService } = await import('@main/theme/appearanceService')
-  if (!isCurrent(state, pluginId)) return
-  appearanceService.invalidate()
-  const { homeSurfaceManager } = await import('@main/home/HomeSurfaceManager')
-  if (!isCurrent(state, pluginId)) return
-  await homeSurfaceManager.reloadDevSource(pluginId)
-  if (!isCurrent(state, pluginId)) return
   const { pluginHost } = await import('@main/plugin/PluginHost')
   if (!isCurrent(state, pluginId)) return
-  // Vite owns ordinary UI edits. Manifest/static-entry changes still require a native reload.
-  if (pluginHost.isOpen(pluginId) && (!prepared.summary.devUrl || manifestChanged
-    || previous.devUrl !== prepared.summary.devUrl || previous.rootPath !== prepared.summary.rootPath)) {
-    pluginHost.reloadPlugin(pluginId)
+  const transition = pluginHost.getPluginTransitionTask(pluginId)
+  if (transition) {
+    // An opening may already have selected an origin before its View exists.
+    // Settle it before deciding whether this source is dormant or running.
+    await transition.catch(() => undefined)
+    if (isCurrent(state, pluginId)) {
+      state.pending = true
+      state.manifestChanged ||= manifestChanged
+    }
+    return
+  }
+  // 隐藏激活（resident/command/index-sync）没有 transition task；re-register 会推进
+  // buildRevision 使激活 guard 失效（dev server 冷启动写产物即可自触发）。先等激活结算。
+  const { awaitPluginActivation } = await import('@main/launcher/pluginActivation')
+  await awaitPluginActivation(pluginId)
+  if (!isCurrent(state, pluginId)) return
+  const runtime = pluginHost.getPluginView(pluginId)
+  const sameRuntime = () => isCurrent(state, pluginId) && !pluginHost.getPluginTransitionTask(pluginId)
+    && pluginHost.getPluginView(pluginId) === runtime
+  let completed = false
+  try {
+    const prepared = await prepareDevPluginReload(previous, sameRuntime, runtime === null, false)
+    if (!sameRuntime() || !prepared?.isCurrent()) return
+    const current = () => sameRuntime() && prepared.isCurrent()
+    // A forget/re-registration or instance transition may happen during local inspection.
+    if (!pluginRegistry.get(pluginId)?.dev) return
+    pluginRegistry.addDevPlugin(prepared.summary, prepared.manifest)
+    state.outputPath = prepared.outputPath
+    await pluginRegistry.waitForThemeContributions(pluginId)
+    if (!current()) return
+    const { appearanceService } = await import('@main/theme/appearanceService')
+    if (!current()) return
+    appearanceService.invalidate()
+    const { homeSurfaceManager } = await import('@main/home/HomeSurfaceManager')
+    if (!current()) return
+    await homeSurfaceManager.reloadDevSource(pluginId)
+    if (!current()) return
+    completed = true
+    // Vite owns ordinary UI edits. Manifest/static-entry changes still require a native reload.
+    if (runtime && (!prepared.summary.devUrl || manifestChanged
+      || previous.devUrl !== prepared.summary.devUrl || previous.rootPath !== prepared.summary.rootPath)) {
+      pluginHost.reloadPlugin(pluginId)
+    }
+  } finally {
+    // Reclassify a save that raced an open/close; never start a now-dormant source or
+    // publish dormant transport fields onto an instance that just finished opening.
+    if (!completed && isCurrent(state, pluginId) && !sameRuntime()) {
+      state.pending = true
+      state.manifestChanged ||= manifestChanged
+    }
   }
 }
 

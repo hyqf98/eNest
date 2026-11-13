@@ -9,6 +9,7 @@
 import { readdir, rm, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import type {
   PluginContributes,
   PluginManifest,
@@ -19,7 +20,7 @@ import type {
 } from '@shared/types/plugin'
 import { resolvePluginUi } from '@shared/types/plugin'
 import { pluginProtocolUrl } from '@shared/constants'
-import { getAppPaths } from '@main/paths/pathsService'
+import { getAppPaths, getAppPathsGeneration } from '@main/paths/pathsService'
 import { installFromDirectory, installFromZip, withInstallLock, beginPluginInstall, type InstallResult } from '@main/plugin/PluginInstaller'
 import {
   downloadPluginPackage,
@@ -36,6 +37,7 @@ import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { themePackRegistry } from '@main/theme/themePacks'
 import { sendShellEvent } from '@main/window/createShellWindow'
 import { logInfo, logWarn } from '@main/logs/logService'
+import { cancelDevPluginPreparation, forgetDevPluginSource, getDevPluginSource } from '@main/dev/devPluginRuntime'
 import { readPluginBuildRevision } from './pluginInstallTasks'
 import { localCatalogResources, remoteCatalogResources, type CatalogResources } from './catalogResources'
 import {
@@ -166,6 +168,7 @@ export class PluginRegistry {
   private devManifests = new Map<string, PluginManifest>()
   /** 远程 eNest_plugin 市场缓存；断网时沿用上次成功结果 */
   private remoteMarket: MarketPluginSummary[] = []
+  private remoteById = new Map<string, MarketPluginSummary>()
   private remoteFetchedAt = 0
   /** 拉取失败后的冷却截止时间，避免 GitHub 不可达时反复 SSL 失败刷屏 */
   private remoteFailUntil = 0
@@ -175,6 +178,8 @@ export class PluginRegistry {
   private installing = new Map<string, Promise<PluginSummary>>()
   private scanInFlight: Promise<void> | null = null
   private scanRequested = 0
+  /** A targeted refresh cannot mix a new data root into an older complete snapshot. */
+  private installedPathsGeneration: number | null = null
   private installedRevision = 0
   private mutationRevision = 0
   private installedEnabledSignature = ''
@@ -226,7 +231,7 @@ export class PluginRegistry {
   getBuildRevision(id: string): string {
     const plugin = this.installed.get(id)
     const base = this.dev.has(id)
-      ? `dev:${this.dev.get(id)?.rootPath ?? ''}`
+      ? `dev:${this.dev.get(id)?.sourcePath ?? this.dev.get(id)?.rootPath ?? ''}`
       : plugin?.buildRevision ?? `${plugin?.version ?? ''}:${plugin?.rootPath ?? ''}`
     return `${base}:${this.buildEpochs.get(id) ?? 0}`
   }
@@ -351,7 +356,45 @@ private removeThemePackContributions(pluginId: string): void {
   })
 }
 
-/** 扫描 userData/plugins 下所有已安装插件，解析 manifest 并缓存到内存 */
+  /** Shared by full scans and targeted refreshes; callers own locking and publication. */
+  private async readInstalledPlugin(root: string, id: string, isCurrent: () => boolean): Promise<InstalledPlugin | undefined> {
+    if (id.startsWith('.') || !isCurrent()) return undefined // unpublished staging/rollback directories
+    const idDir = join(root, id)
+    try {
+      if (!(await stat(idDir)).isDirectory() || !isCurrent()) return undefined
+      const versions = (await readdir(idDir)).filter((name) => !name.startsWith('.')).sort(compareVersions).reverse()
+      for (const version of versions) {
+        if (!isCurrent()) return undefined
+        const pluginDir = join(idDir, version)
+        try {
+          const manifest = await installFromDirectory(pluginDir, { metadataOnly: true })
+          if (!isCurrent()) return undefined
+          if (manifest.id !== id || manifest.version !== version) throw new Error('安装目录必须为 plugins/<完整 id>/<version>')
+          const buildRevision = await readPluginBuildRevision(pluginDir)
+          if (!isCurrent()) return undefined
+          return { manifest, rootPath: pluginDir, version: manifest.version, buildRevision }
+        } catch (error) {
+          if (!isCurrent()) return undefined
+          logWarn('registry', `scan skip ${id}/${version}: ${(error as Error).message}`)
+        }
+      }
+    } catch (error) {
+      if (isCurrent()) logWarn('registry', `scan skip ${id}: ${(error as Error).message}`)
+    }
+    return undefined
+  }
+
+  private sameInstalledBuild(previous: InstalledPlugin | undefined, next: InstalledPlugin | undefined): boolean {
+    return previous === next || !!previous && !!next && previous.rootPath === next.rootPath
+      && previous.version === next.version && previous.buildRevision === next.buildRevision
+      && isDeepStrictEqual(previous.manifest, next.manifest)
+  }
+
+  private enabledSignature(items: Map<string, InstalledPlugin>): string {
+    return JSON.stringify([...items.keys()].sort().map((id) => [id, isEnabledSync(id)]))
+  }
+
+  /** 扫描 userData/plugins 下所有已安装插件，解析 manifest 并缓存到内存 */
   scan(): Promise<void> {
     this.scanRequested++
     if (this.scanInFlight) return this.scanInFlight
@@ -360,46 +403,31 @@ private removeThemePackContributions(pluginId: string): void {
       do {
         request = this.scanRequested
         const mutation = this.mutationRevision
+        const root = pluginsRoot(), pathsGeneration = getAppPathsGeneration()
+        const isCurrent = () => pathsGeneration === getAppPathsGeneration() && root === pluginsRoot()
         await loadDisabledIds()
         const next = new Map<string, InstalledPlugin>()
-        const root = pluginsRoot()
         let ids: string[]
         try { ids = await readdir(root) } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          if (isCurrent() && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
           ids = []
         }
         for (const id of ids) {
-          if (id.startsWith('.')) continue // unpublished staging/rollback directories
-          const idDir = join(root, id)
-          try {
-            if (!(await stat(idDir)).isDirectory()) continue
-            const versions = (await readdir(idDir)).filter((name) => !name.startsWith('.')).sort(compareVersions).reverse()
-            for (const version of versions) {
-              const pluginDir = join(idDir, version)
-              try {
-                const manifest = await installFromDirectory(pluginDir, { metadataOnly: true })
-                if (manifest.id !== id || manifest.version !== version) throw new Error('安装目录必须为 plugins/<完整 id>/<version>')
-                const buildRevision = await readPluginBuildRevision(pluginDir)
-                next.set(manifest.id, { manifest, rootPath: pluginDir, version: manifest.version, buildRevision })
-                break
-              } catch (error) {
-                logWarn('registry', `scan skip ${id}/${version}: ${(error as Error).message}`)
-              }
-            }
-          } catch (error) {
-            logWarn('registry', `scan skip ${id}: ${(error as Error).message}`)
-          }
+          if (!isCurrent()) break
+          const item = await this.readInstalledPlugin(root, id, isCurrent)
+          if (item) next.set(id, item)
         }
-        // An installation/dev mutation won the race. Never publish the stale disk snapshot.
-        if (mutation !== this.mutationRevision) {
+        // An installation/dev mutation or data-root switch invalidates the complete snapshot.
+        if (!isCurrent() || mutation !== this.mutationRevision) {
           this.scanRequested++
           continue
         }
         const previous = this.installed
         this.installed = next // one atomic publication: readers never see an empty/partial catalog
-        const fingerprint = (items: Map<string, InstalledPlugin>) => JSON.stringify([...items].map(([id, item]) => [id, item.rootPath, item.buildRevision, item.version]).sort())
-        const enabledSignature = JSON.stringify([...next.keys()].sort().map((id) => [id, isEnabledSync(id)]))
-        if (fingerprint(previous) !== fingerprint(next) || enabledSignature !== this.installedEnabledSignature) this.changed()
+        this.installedPathsGeneration = pathsGeneration
+        const enabledSignature = this.enabledSignature(next)
+        const contentChanged = previous.size !== next.size || [...next].some(([id, item]) => !this.sameInstalledBuild(previous.get(id), item))
+        if (contentChanged || enabledSignature !== this.installedEnabledSignature) this.changed()
         else this.descriptors = null // enabled state may have been reloaded
         this.installedEnabledSignature = enabledSignature
         for (const id of previous.keys()) {
@@ -410,7 +438,7 @@ private removeThemePackContributions(pluginId: string): void {
         }
         for (const [id, item] of next) {
           if (this.dev.has(id)) continue
-          if (previous.get(id)?.buildRevision !== item.buildRevision || !previous.has(id)) {
+          if (!this.sameInstalledBuild(previous.get(id), item)) {
             this.syncContributes(item.manifest, isEnabledSync(id))
           }
         }
@@ -421,6 +449,50 @@ private removeThemePackContributions(pluginId: string): void {
     this.scanInFlight = task
     void task.finally(() => { if (this.scanInFlight === task) this.scanInFlight = null }).catch(() => {})
     return task
+  }
+
+  /** Called after an installer releases its lock; retain the same highest-valid-version policy. */
+  async refreshInstalledPlugin(id: string): Promise<void> {
+    if (!id || id.startsWith('.') || /[\\/\0]/.test(id)) throw new Error('invalid plugin id')
+    const root = pluginsRoot(), pathsGeneration = getAppPathsGeneration()
+    const isCurrent = () => pathsGeneration === getAppPathsGeneration() && root === pluginsRoot()
+    let needsFullScan = false
+    await withInstallLock(id, async () => {
+      await loadDisabledIds()
+      for (;;) {
+        if (!isCurrent() || this.installedPathsGeneration !== pathsGeneration) {
+          needsFullScan = true
+          return
+        }
+        const mutation = this.mutationRevision
+        const next = await this.readInstalledPlugin(root, id, isCurrent)
+        if (!isCurrent()) {
+          needsFullScan = true
+          return
+        }
+        // A concurrent full scan or registry mutation may have selected a newer snapshot.
+        if (mutation !== this.mutationRevision) continue
+        const previous = this.installed.get(id)
+        if (!this.sameInstalledBuild(previous, next)) {
+          if (next) this.installed.set(id, next)
+          else this.installed.delete(id)
+          this.changed()
+          if (!this.dev.has(id)) {
+            if (next) this.syncContributes(next.manifest, isEnabledSync(id))
+            else {
+              contributionRegistry.unregisterBySource(id)
+              this.removeThemePackContributions(id)
+            }
+          }
+        }
+        this.installedEnabledSignature = this.enabledSignature(this.installed)
+        this.warnDuplicateInstallations(this.installed)
+        return
+      }
+    })
+    // Uninstall already scans while holding this same lock. Never await a full scan inside it.
+    if (needsFullScan || !isCurrent()) await this.scan()
+    else void this.refreshRemoteMarket()
   }
 
   /** Names are presentation only; collisions never authorize deleting another owner. */
@@ -447,6 +519,12 @@ private removeThemePackContributions(pluginId: string): void {
 
   getAssetRootPath(id: string): string | null { return this.getRootPath(id) }
   getAssetManifest(id: string): PluginManifest | null { return this.getManifest(id) }
+
+  /** Theme entry provenance cannot change when an ordinary plugin View selects Vite or dist. */
+  getThemeRootPath(id: string): string | null {
+    if (!isEnabledSync(id)) return null
+    return this.dev.has(id) ? getDevPluginSource(id)?.source.themeRootPath ?? this.getRootPath(id) : this.getRootPath(id)
+  }
 
   /** Select one resource provenance for the entire item; never fall through per missing slot. */
   getCatalogResources(id: string): CatalogResources {
@@ -475,8 +553,12 @@ private removeThemePackContributions(pluginId: string): void {
       try {
         const list = await fetchRemoteMarket()
         if (list.length) {
+          const byId = new Map<string, MarketPluginSummary>()
+          // Preserve the first-match behavior of the catalog's previous Array.find lookup.
+          for (const entry of list) if (!byId.has(entry.id)) byId.set(entry.id, entry)
           this.remoteFetchedAt = Date.now()
           this.remoteMarket = list
+          this.remoteById = byId
           this.remoteFailUntil = 0
           logInfo('registry', `remote market ok: ${list.length} plugins`)
         } else {
@@ -507,7 +589,7 @@ private removeThemePackContributions(pluginId: string): void {
   }
 
   getRemoteEntry(id: string): MarketPluginSummary | undefined {
-    return this.remoteMarket.find((s) => s.id === id)
+    return this.remoteById.get(id)
   }
 
   /** 统一 list/get 的合并顺序，安装与开发态不会丢失市场展示元数据。 */
@@ -576,6 +658,7 @@ private removeThemePackContributions(pluginId: string): void {
    * 禁用时不强制关已打开 Tab（用户可自行关）；openPlugin 会拒绝新的打开。
    */
   async setPluginEnabled(id: string, enabled: boolean): Promise<PluginSummary> {
+    if (!enabled) cancelDevPluginPreparation(id)
     await persistPluginEnabled(id, enabled)
     // 禁用集合变更后 list/get 需立刻反映
     await loadDisabledIds()
@@ -597,7 +680,7 @@ private removeThemePackContributions(pluginId: string): void {
       version: result.manifest.version || '0.0.0', buildRevision: result.buildRevision
     })
     this.changed()
-    this.syncContributes(result.manifest, isEnabledSync(result.manifest.id))
+    if (!this.dev.has(result.manifest.id)) this.syncContributes(result.manifest, isEnabledSync(result.manifest.id))
   }
 
   /**
@@ -668,12 +751,23 @@ private removeThemePackContributions(pluginId: string): void {
     this.invalidateBuildRevision(summary.id)
     if (manifest) {
       this.devManifests.set(summary.id, manifest)
-      this.syncContributes(manifest, true)
+      this.syncContributes(manifest, isEnabledSync(summary.id))
     }
     return this.get(summary.id)!
   }
 
+  /** Runtime transport does not replace source declarations or retire the launch that requested it. */
+  updateDevRuntime(id: string, runtime: Pick<PluginSummary, 'rootPath' | 'devUrl' | 'devSource' | 'devKind' | 'devCommand'>): PluginSummary {
+    const previous = this.dev.get(id)
+    if (!previous) throw new Error('development source is no longer registered')
+    this.dev.set(id, { ...previous, rootPath: runtime.rootPath, devUrl: runtime.devUrl,
+      devSource: runtime.devSource, devKind: runtime.devKind, devCommand: runtime.devCommand })
+    this.changed()
+    return this.get(id)!
+  }
+
   removeDevPlugin(id: string): void {
+    forgetDevPluginSource(id)
     this.dev.delete(id)
     this.devManifests.delete(id)
     this.changed()

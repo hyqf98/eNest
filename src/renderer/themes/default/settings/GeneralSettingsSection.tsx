@@ -15,9 +15,9 @@ export function GeneralSettingsSection({ settings, updates }: {
 }) {
   const { t, locale } = useI18n()
   const {
-    hwAccel, dataRoot, closeBehavior, notifyPosition, loadingGeneral,
+    hwAccel, launchAtLogin, launchAtLoginSupported, launchAtLoginError, dataRoot, closeBehavior, notifyPosition, loadingGeneral,
     proxyType, proxyHost, proxyPort, testingProxy, setProxyHost, setProxyPort,
-    handleLocale, handleHwAccel, handleCloseBehavior, handleNotifyPosition,
+    handleLocale, handleHwAccel, handleLaunchAtLogin, handleCloseBehavior, handleNotifyPosition,
     handleProxyType, handleProxyFieldBlur, handleTestProxy, handleOpenDataRoot
   } = settings
   const { updateState, checkingUpdate, openUpdateDialog, handleCheckUpdate, handleInstallUpdate } = updates
@@ -28,6 +28,21 @@ export function GeneralSettingsSection({ settings, updates }: {
       </Field>
       <Field label={t('settings.general.hardwareAccel')} desc={t('settings.general.hardwareAccelDesc')}>
         <Switch checked={hwAccel} onCheckedChange={handleHwAccel} aria-label={t('settings.general.hardwareAccel')} />
+      </Field>
+      <Field
+        label={t('settings.general.launchAtLogin')}
+        desc={launchAtLoginError
+          ? t('settings.general.launchAtLoginErrorDesc', { error: launchAtLoginError })
+          : launchAtLoginSupported
+            ? t('settings.general.launchAtLoginDesc')
+            : t('settings.general.launchAtLoginUnsupportedDesc')}
+      >
+        <Switch
+          checked={launchAtLogin}
+          disabled={!launchAtLoginSupported}
+          onCheckedChange={handleLaunchAtLogin}
+          aria-label={t('settings.general.launchAtLogin')}
+        />
       </Field>
       <Field label={t('settings.general.dataRoot')}>
         <div className="path-actions">

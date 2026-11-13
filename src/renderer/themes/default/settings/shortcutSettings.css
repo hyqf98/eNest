@@ -15,7 +15,27 @@
 .shortcut-recorder .desc { margin: 6px 0 0; color: var(--text-3); font-size: 12px; }
 .shortcut-recorder .btn { flex-shrink: 0; }
 .shortcut-location { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
-.shortcut-plugin-groups { display: grid; gap: 12px; }
+/*
+ * 搜索框固定在滚动区外面，列表滚动时始终可见。
+ * 插件多时列表限高并内部滚动，避免整页被几十个插件组拉成一条长墙。
+ * 两者都撑满卡片内宽：滚动条槽位只存在于列表内部，不影响搜索框宽度。
+ */
+.shortcut-search { display: flex; margin-bottom: 12px; }
+.shortcut-search-input {
+  flex: 1 1 auto; min-width: 0; height: 32px; padding: 0 11px;
+  border: 1px solid var(--border-strong); border-radius: 9px;
+  background: var(--surface-2); color: var(--text);
+  font: inherit; font-size: calc(12.5px * var(--appearance-font-scale, 1));
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.shortcut-search-input::placeholder { color: var(--text-3); }
+.shortcut-search-input:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring, 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent)); }
+.shortcut-search-input::-webkit-search-cancel-button { appearance: none; }
+/* 列表限高 + 内部滚动；滚动条走 scrollbar.css 的「只在滚动时出现」约定。 */
+.shortcut-plugin-groups {
+  display: grid; gap: 12px;
+  max-height: 520px; overflow-y: auto; overscroll-behavior: contain;
+}
 .shortcut-plugin-group { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); scroll-margin-block: 16px; }
 .shortcut-plugin-group.is-located { border-color: var(--accent); }
 .shortcut-plugin-head { display: flex; align-items: center; gap: 12px; }

@@ -82,7 +82,7 @@ export async function resolveHomePage(source: string, id: string, variant: strin
     const entryPath = join(__dirname, '..', 'renderer', ...contribution.entry.split('/'))
     return { contribution, rootPath: join(entryPath, '..'), entryPath }
   }
-  const requestedRoot = pluginRegistry.getAssetRootPath(source)
+  const requestedRoot = pluginRegistry.getThemeRootPath(source)
   if (!requestedRoot) return null
   const entryPath = join(requestedRoot, ...contribution.entry.split('/'))
   let rootPath: string

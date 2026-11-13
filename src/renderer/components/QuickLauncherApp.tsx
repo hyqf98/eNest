@@ -3,6 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import type { QuickCommand, QuickCommandKind, QuickImageContext, QuickInputContextRequest, QuickOpenRequest, QuickPluginModeInfo } from '@shared/types/quick'
 import type { QuickProviderStateRequest, QuickThemeAction, QuickThemeActionResult, QuickThemeConfig, QuickThemeItem, QuickThemeOpenedReceipt, QuickThemeSnapshot } from '@shared/types/quickTheme'
 import { QUICK_BAR_AREA_H, QUICK_CORNER_RADIUS } from '@shared/constants'
+import { DEFAULT_THEME_IDENTITY } from '@shared/theme/builtinThemes'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
 import { shellApi } from '@renderer/services/shellApi'
 import { bindPluginDragSource, bindPluginDropTarget } from '@renderer/services/pluginWindowDrag'
@@ -10,6 +11,7 @@ import type { DefaultQuickSurfaceHandle } from '@renderer/themes/default/quick/D
 import type { DefaultQuickStateClient } from '@renderer/themes/default/quick/usageState'
 import { QuickThemeSurface, type QuickThemeSurfaceHandle } from './QuickThemeSurface'
 import { QuickPluginInputSession, type QuickPluginInputUpdate } from './quickPluginInputSession'
+import { QuickSourceCache } from './quickSourceCache'
 import { buildQuickInputSelection, projectQuickThemeResults, publicQuickCatalog, quickRequestFromRecord, safeQuickIcon, updateQuickCatalog, type QuickCatalogRecord } from './quickCatalog'
 import '@renderer/styles/plugin-window-drag.css'
 import './quickHost.css'
@@ -17,6 +19,7 @@ import './quickHost.css'
 const DefaultQuickSurface = lazy(() => import('@renderer/themes/default/quick/DefaultQuickSurface').then(module => ({ default: module.DefaultQuickSurface })))
 type ThemeKey = Extract<QuickThemeAction, { type: 'key' }>
 interface DirectoryState { revision: number; records: QuickCatalogRecord[] }
+interface NativeCatalog { commands: QuickCommand[]; signature: string }
 const catalogIconCache = new Map<string, string>()
 const iconKey = (record: QuickCatalogRecord) => record.command.icon ?? record.command.id
 const providerState = (request: QuickProviderStateRequest) => {
@@ -33,6 +36,9 @@ const sameItems = (left: QuickThemeItem[], right: QuickThemeItem[]) => left.leng
 
 export function QuickLauncherApp() {
   const appearance = useAppearanceStore(state => state.appearance)
+  const appearanceHydrated = useAppearanceStore(state => state.hydrated)
+  const [themeCache] = useState(() => new QuickSourceCache<QuickThemeConfig>())
+  const [catalogCache] = useState(() => new QuickSourceCache<NativeCatalog>())
   const [themeConfig, setThemeConfig] = useState<QuickThemeConfig | null>(null)
   const [themeReady, setThemeReady] = useState(false)
   const themeReadyRef = useRef(false)
@@ -61,6 +67,7 @@ export function QuickLauncherApp() {
   const [opening, setOpening] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
+  const [themeRefresh, setThemeRefresh] = useState(0)
   const [shown, setShown] = useState(0)
   const [visible, setVisible] = useState(() => !document.hidden)
   const [pluginMode, setPluginMode] = useState<QuickPluginModeInfo | null>(null)
@@ -74,9 +81,7 @@ export function QuickLauncherApp() {
   const contextReadRevision = useRef(0)
   const queryRevision = useRef(0)
   const searchSequence = useRef(0)
-  const catalogFetchRevision = useRef(0)
-  const nativeCatalog = useRef<{ commands: QuickCommand[]; signature: string } | null>(null)
-  const catalogFlight = useRef<{ refresh: number; promise: Promise<QuickCommand[]> } | null>(null)
+  const nativeCatalog = useRef<NativeCatalog | null>(null)
   const catalogNonce = useRef('')
   const iconRequests = useRef(new Set<string>())
   const iconController = useRef<AbortController | null>(null)
@@ -123,14 +128,18 @@ export function QuickLauncherApp() {
   }, [])
 
   const refreshSources = useCallback((dropCatalog = false) => {
-    catalogFetchRevision.current++
-    catalogFlight.current = null
+    catalogCache.invalidate()
     catalogIconCache.clear()
     iconController.current?.abort()
     iconRequests.current.clear()
     if (dropCatalog) nativeCatalog.current = null
     invalidate(); setRefresh(value => value + 1)
-  }, [invalidate])
+  }, [catalogCache, invalidate])
+
+  const refreshTheme = useCallback(() => {
+    themeCache.invalidate()
+    setThemeRefresh(value => value + 1)
+  }, [themeCache])
 
   const applyThemeConfig = useCallback((config: QuickThemeConfig | null) => {
     if (themeKey.current !== config?.key) {
@@ -195,13 +204,33 @@ export function QuickLauncherApp() {
   }, [invalidate, resetContext])
 
   useEffect(() => {
+    if (!appearanceHydrated) {
+      void useAppearanceStore.getState().hydrate().catch(() => undefined)
+      return
+    }
+    const usesDefaultSurface = appearance.theme.source === DEFAULT_THEME_IDENTITY.source && appearance.theme.id === DEFAULT_THEME_IDENTITY.id
+    if (usesDefaultSurface || !appearance.quick) {
+      // The source-built theme declares Quick support, but renders locally.
+      themeCache.invalidate()
+      applyThemeConfig(null)
+      return
+    }
     let disposed = false
-    void shellApi.quickGetTheme?.().then(config => {
-      if (disposed) return
+    const revision = appearance.revision
+    const read = themeCache.read(revision, async () => {
+      const config = await shellApi.quickGetTheme?.()
+      // A declared surface can be temporarily unavailable during a development
+      // rebuild. Use the fallback now, but allow the next summon to retry.
+      if (!config) throw new Error('Quick theme is unavailable')
+      return config
+    })
+    const isCurrent = () => !disposed && read.isCurrent() && revision === useAppearanceStore.getState().appearance.revision
+    void read.promise.then(config => {
+      if (!isCurrent()) return
       applyThemeConfig(config)
-    }).catch(() => { if (!disposed) applyThemeConfig(null) })
+    }).catch(() => { if (isCurrent()) applyThemeConfig(null) })
     return () => { disposed = true }
-  }, [appearance.revision, refresh, shown, applyThemeConfig])
+  }, [appearance.revision, appearance.quick, appearance.theme.source, appearance.theme.id, appearanceHydrated, themeRefresh, shown, applyThemeConfig, themeCache])
 
   useEffect(() => {
     const resize = () => setBounds({ width: innerWidth, height: innerHeight, inputHeight: QUICK_BAR_AREA_H })
@@ -222,20 +251,20 @@ export function QuickLauncherApp() {
   }, [])
 
   useEffect(() => {
-    const revision = ++catalogFetchRevision.current
+    let disposed = false
     setCatalogLoading(!nativeCatalog.current)
-    if (!catalogFlight.current || catalogFlight.current.refresh !== refresh) {
-      const promise = Promise.resolve(shellApi.quickSearch?.('', 65_536, undefined, 'catalog'))
-        .then(result => (result?.items ?? []).filter(command => command.group !== 'provider'))
-      const flight = { refresh, promise }
-      catalogFlight.current = flight
-      void promise.finally(() => { if (catalogFlight.current === flight) catalogFlight.current = null }).catch(() => undefined)
-    }
-    void catalogFlight.current.promise.then(commands => {
-      if (revision !== catalogFetchRevision.current) return
-      const signature = JSON.stringify(commands)
+    const read = catalogCache.read(refresh, async () => {
+      const result = await shellApi.quickSearch?.('', 65_536, undefined, 'catalog')
+      if (!result || !Array.isArray(result.items)) throw new Error('Quick catalog is unavailable')
+      const commands = result.items.filter(command => command.group !== 'provider')
+      return { commands, signature: JSON.stringify(commands) }
+    })
+    const isCurrent = () => !disposed && read.isCurrent()
+    void read.promise.then(snapshot => {
+      if (!isCurrent()) return
+      const { commands, signature } = snapshot
       if (nativeCatalog.current?.signature === signature) return
-      nativeCatalog.current = { commands, signature }
+      nativeCatalog.current = snapshot
       const providers = current.current.directory.records.filter(record => record.command.group === 'provider').map(record => record.command)
       if (!catalogNonce.current) catalogNonce.current = crypto.randomUUID()
       const next = { revision: current.current.directory.revision + 1,
@@ -243,10 +272,10 @@ export function QuickLauncherApp() {
       current.current = { directory: next, items: [], selectedId: null }
       setDirectory(next); setItems([]); setSelectedId(null)
     }).catch(() => {
-      if (revision === catalogFetchRevision.current) setError('部分搜索来源暂时不可用，请重试。')
-    }).finally(() => { if (revision === catalogFetchRevision.current) setCatalogLoading(false) })
-    return () => { catalogFetchRevision.current++ }
-  }, [refresh, shown])
+      if (isCurrent()) setError('部分搜索来源暂时不可用，请重试。')
+    }).finally(() => { if (isCurrent()) setCatalogLoading(false) })
+    return () => { disposed = true }
+  }, [refresh, shown, catalogCache])
 
   useEffect(() => {
     const sequence = ++searchSequence.current
@@ -352,6 +381,12 @@ export function QuickLauncherApp() {
       } else if (event.type === 'quick-focus-search') focus(true)
       else if (event.type === 'plugins-changed' || event.type === 'plugin-launch-changed' || event.type === 'launch-directory-changed') {
         refreshSources(true)
+        if (event.type === 'plugins-changed') refreshTheme()
+      } else if (event.type === 'appearance-changed' || event.type === 'theme-changed' || event.type === 'theme-packs-changed') {
+        refreshTheme()
+      } else if (event.type === 'settings-changed') {
+        if (event.generalKeys.some(key => key === 'customFonts' || key === 'dataRoot')) refreshTheme()
+        if (event.generalKeys.includes('dataRoot')) refreshSources(true)
       }
     })
     const offShown = shellApi.onQuickShown?.(() => {
@@ -362,7 +397,7 @@ export function QuickLauncherApp() {
       requestAnimationFrame(() => focus())
     })
     return () => { inputSession.restore(null); contextEpoch.current++; contextReadRevision.current++; offEvent?.(); offShown?.() }
-  }, [applyPluginInput, focus, inputSession, invalidate, refreshContext, refreshSources, resetContext, restorePluginInput])
+  }, [applyPluginInput, focus, inputSession, invalidate, refreshContext, refreshSources, refreshTheme, resetContext, restorePluginInput])
 
   const catalog = useMemo(() => publicQuickCatalog(directory.records), [directory.records])
   useEffect(() => {
@@ -514,7 +549,7 @@ export function QuickLauncherApp() {
     if (request.type === 'key') return keyAction(request, trusted)
     if (request.type === 'retry') {
       if (modeRef.current) restorePluginInput(modeRef.current.pluginId)
-      refreshSources(); return { ok: true }
+      refreshSources(); refreshTheme(); return { ok: true }
     }
     const before = queryRevision.current, modeBefore = modeRef.current?.pluginId, providerBefore = themeKey.current
     if (!await authorized(trusted)) return { ok: false, error: '请通过点击或按键执行此操作。' }
@@ -536,7 +571,7 @@ export function QuickLauncherApp() {
       return { ok: result?.ok === true }
     }
     return { ok: false }
-  }, [authorized, catalog, changeQuery, escapePlugin, execute, filter, invalidate, keyAction, mutateContext, openHandle, pasteFromClipboard, query, refreshSources, resetContext, restorePluginInput, themeConfig])
+  }, [authorized, catalog, changeQuery, escapePlugin, execute, filter, invalidate, keyAction, mutateContext, openHandle, pasteFromClipboard, query, refreshSources, refreshTheme, resetContext, restorePluginInput, themeConfig])
 
   const snapshot = useMemo<QuickThemeSnapshot>(() => ({
     version: 1, revision: ++snapshotRevision.current, query, filter, searching: Boolean(query.trim()), loading, busy: opening, composing,
@@ -568,6 +603,7 @@ export function QuickLauncherApp() {
       }}
       onFailure={() => {
         if (themeKey.current !== themeConfig.key) return
+        themeCache.invalidate()
         applyThemeConfig(null); requestAnimationFrame(() => defaultView.current?.focus())
       }} />}
     <div ref={nativeBar} className="quick-host-native-bar" aria-hidden />

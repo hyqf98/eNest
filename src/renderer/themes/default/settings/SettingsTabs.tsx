@@ -1,9 +1,12 @@
 import { useCallback, useId, useLayoutEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Button } from '@renderer/components/ui/Button'
 
 export interface SettingsTabItem {
   id: string
   label: string
+  /** tab 前缀小图标；内置 tab 传线性 icon，插件 tab 传 PluginIcon */
+  icon?: ReactNode
 }
 
 interface Props {
@@ -120,6 +123,7 @@ export function SettingsTabs({ tabs, active, moreLabel, collapseLabel = '收起'
               title={tab.label}
               onClick={() => onChange(tab.id)}
             >
+              {tab.icon && <span className="settings-tab-icon" aria-hidden="true">{tab.icon}</span>}
               {tab.label}
             </button>
           )
@@ -144,7 +148,12 @@ export function SettingsTabs({ tabs, active, moreLabel, collapseLabel = '收起'
         <span className="caret" aria-hidden="true">{expanded ? '▴' : '▾'}</span>
       </Button>
       <div className="settings-tabs-measure" ref={measureRef} aria-hidden="true">
-        {tabs.map(tab => <span key={tab.id} className="settings-tab" data-measure-tab>{tab.label}</span>)}
+        {tabs.map(tab => (
+          <span key={tab.id} className="settings-tab" data-measure-tab>
+            {tab.icon && <span className="settings-tab-icon">{tab.icon}</span>}
+            {tab.label}
+          </span>
+        ))}
         <span className="btn btn-sm tabs-more-toggle" data-measure-more>
           <span className="tabs-more-label">{moreLabel} {tabs.length}</span>
           <span className="caret">▾</span>

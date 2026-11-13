@@ -42,6 +42,37 @@
   height: 0;
 }
 
+/*
+ * 自动隐藏滚动条：容器声明 data-scrollbar="auto-hide" 时，thumb 只在滚动期间出现。
+ * "正在滚动"由 renderer 的 scrollActivity 写入 data-scrolling（CSS 没有这个状态）。
+ * 轨道始终透明，隐藏后不留槽位痕迹；滚动条宽度不变，避免出现/消失时内容横向跳动。
+ * 显示条件只有滚动本身——不挂 :hover，否则鼠标停在容器上就会常驻。
+ */
+[data-scrollbar='auto-hide']::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  transition: background-color 160ms ease-out;
+}
+
+[data-scrollbar='auto-hide'][data-scrolling]::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--text-3, var(--text, CanvasText)) 55%, transparent);
+}
+
+[data-scrollbar='auto-hide'][data-scrolling]::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--text-2, var(--text, CanvasText)) 72%, transparent);
+}
+
+[data-scrollbar='auto-hide'][data-scrolling]::-webkit-scrollbar-thumb:active {
+  background-color: var(--accent, var(--text, CanvasText));
+}
+
+[data-scrollbar='auto-hide']::-webkit-scrollbar-track:hover {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-scrollbar='auto-hide']::-webkit-scrollbar-thumb { transition: none; }
+}
+
 /* Standards-only engines: never let these properties suppress Chromium's parts.
    Zero specificity preserves deliberate scrollbar-width: none on tabs/carousels. */
 @supports not selector(::-webkit-scrollbar) {

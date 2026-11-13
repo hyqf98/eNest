@@ -55,7 +55,7 @@ onUnmounted(() => off?.())
 
 Vue/React 的卸载清理还不能替代插件生命周期：后台暂停动画和轮询，在 `onBeforeClose` 保存业务状态。全部网络和系统能力通过 SDK。
 
-这两种项目在开发时声明 `development.main`；开发服务可由开发者手动执行，未运行时壳按插件 `package.json` 解析出的命令自动拉起，宿主只连接该 origin。独立工程 build 后还需把去掉 development 的 manifest 写入 dist，再用插件仓库的产物验证器校验。官方 workspace 构建脚本完成该步骤。更多细节见 [开发调试](debug.md)。
+这两种项目在开发时声明 `development.main`；开发服务可由开发者手动执行，实际运行插件时若服务未运行，壳按插件 `package.json` 解析出的命令自动拉起，宿主只连接该 origin。重启壳只恢复登记，服务按需启动。独立工程 build 后还需把去掉 development 的 manifest 写入 dist，再用插件仓库的产物验证器校验。官方 workspace 构建脚本完成该步骤。更多细节见 [开发调试](debug.md)。
 
 ## 官方参考
 

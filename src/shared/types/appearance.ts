@@ -7,7 +7,7 @@ export type ThemeSettingValue = string | number | boolean | BackgroundConfig | n
 export type ThemeColorToken = '--bg' | '--surface' | '--surface-2' | '--surface-3' | '--text' | '--text-2' | '--text-3' | '--accent' | '--ok' | '--danger' | '--border' | '--border-strong' | '--link'
 /** Options a theme can expose for the classic top tab strip. */
 export type ThemeTabStripKey = 'tabOpacity' | 'tabAutoHide'
-export type ThemeLayoutKey = 'density' | 'gap' | 'sidebarWidth' | 'contentWidth' | 'columns' | 'tabStyle' | ThemeTabStripKey
+export type ThemeLayoutKey = 'density' | 'gap' | 'sidebarWidth' | 'contentWidth' | 'columns' | 'tabStyle' | 'cardOpacity' | ThemeTabStripKey
 export type ThemeBackgroundKind = 'none' | 'gradient' | 'color' | 'image' | 'video'
 export type ThemeBackgroundPalette = 'theme' | 'dawn' | 'mint' | 'linen' | 'peach' | 'ocean' | 'forest' | 'ink'
 /** A pack-declared atmosphere preset; both paints are validated before the pack is accepted. */
@@ -107,6 +107,8 @@ export interface AppearanceLayout {
   tabStyle?: TabStyle
   /** Titlebar background opacity, 0–1; labels, icons and window controls stay opaque. */
   tabOpacity?: number
+  /** Setting-card background opacity, 0–1; text and controls stay opaque. */
+  cardOpacity?: number
   /** Classic titlebar collapses to an 8px host-owned reveal strip. */
   tabAutoHide?: boolean
   density: number

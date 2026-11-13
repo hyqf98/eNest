@@ -4,19 +4,29 @@
   --settings-control-width: 280px;
   /* 复合行（如字体：下拉 + 两个按钮）需要更宽的右列，仍由变量统一表达，避免散落魔数。 */
   --settings-control-width-wide: 400px;
-  --settings-glass-fill: color-mix(in srgb, var(--surface) 54%, transparent);
-  --settings-glass-edge: color-mix(in srgb, var(--surface) 78%, var(--border));
-  --settings-glass-highlight: color-mix(in srgb, var(--surface) 88%, transparent);
+  /*
+   * 卡片底色浓度直接由「卡片背景不透明度」驱动（0 = 完全透出背景动效，1 = 实色）。
+   * 模糊半径同样跟随：全透明时不该再磨砂，否则背景动效会被糊成一块色带——
+   * 与标题栏此前"看起来没动效"是同一类问题。
+   */
+  --settings-card-opacity: var(--appearance-card-opacity, 0.82);
+  --settings-glass-fill: color-mix(in srgb, var(--surface) calc(var(--settings-card-opacity) * 100%), transparent);
+  /*
+   * 描边只由 --border 派生，并跟卡片浓度一起衰减。
+   * 此前它是 color-mix(surface 78%, border)，而浅色下 --surface 是纯白，
+   * 于是这圈 1px 本身就是一条白线；加上 ::before 固定的 1px 纯白内高光，
+   * 卡片顶部和圆角处会亮出一圈明显的白边。浓度到 0 时描边必须彻底消失。
+   */
+  --settings-glass-edge: color-mix(in srgb, var(--border) calc(var(--settings-card-opacity) * 100%), transparent);
   --settings-glass-shadow: color-mix(in srgb, var(--text) 8%, transparent);
-  --settings-glass-blur: 20px;
-  --settings-glass-saturation: 1.18;
+  --settings-glass-blur: calc(var(--settings-card-opacity) * 20px);
+  --settings-glass-saturation: calc(1 + var(--settings-card-opacity) * 0.18);
+  /* 不支持 backdrop-filter 时退回实色，透明度再低也保证可读。 */
   --settings-glass-fallback: var(--surface);
   background: transparent;
 }
 :root[data-theme='dark'] .page-settings {
-  --settings-glass-fill: color-mix(in srgb, var(--surface) 64%, transparent);
-  --settings-glass-edge: color-mix(in srgb, var(--border-strong) 70%, transparent);
-  --settings-glass-highlight: color-mix(in srgb, var(--text) 8%, transparent);
+  --settings-glass-edge: color-mix(in srgb, var(--border-strong) calc(var(--settings-card-opacity) * 75%), transparent);
   --settings-glass-shadow: #00000024;
 }
 .page-settings .settings-shell { max-width: 960px; padding-top: 32px; }
@@ -37,7 +47,8 @@
   border-radius: inherit;
   pointer-events: none;
   background: var(--settings-glass-fallback);
-  box-shadow: inset 0 1px 0 var(--settings-glass-highlight), 0 6px 24px var(--settings-glass-shadow);
+  /* 只保留外投影。顶部 1px 纯白内高光已移除：浅色下它会成为卡片顶边与圆角处最显眼的白色描边。 */
+  box-shadow: 0 6px 24px var(--settings-glass-shadow);
 }
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .page-settings :is(.s-card, .account-card)::before {
@@ -46,14 +57,15 @@
     -webkit-backdrop-filter: blur(var(--settings-glass-blur)) saturate(var(--settings-glass-saturation));
   }
 }
+/* 低动画档只收敛模糊与饱和，不覆盖 fill——否则用户设的卡片透明度会被吃掉。 */
 :root[data-anim='low'] .page-settings {
-  --settings-glass-blur: 4px;
+  --settings-glass-blur: calc(var(--settings-card-opacity) * 4px);
   --settings-glass-saturation: 1;
-  --settings-glass-fill: color-mix(in srgb, var(--surface) 82%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
-  .page-settings { --settings-glass-blur: 4px; --settings-glass-saturation: 1; }
+  .page-settings { --settings-glass-blur: calc(var(--settings-card-opacity) * 4px); --settings-glass-saturation: 1; }
 }
+/* 减少透明/高对比是可达性要求，优先级高于用户设置：此时强制实色可读。 */
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .page-settings { --settings-glass-fill: var(--surface); --settings-glass-blur: 0px; --settings-glass-saturation: 1; }
   .page-settings :is(.s-card, .account-card)::before { backdrop-filter: none; -webkit-backdrop-filter: none; }

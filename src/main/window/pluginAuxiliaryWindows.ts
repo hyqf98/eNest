@@ -8,6 +8,7 @@ import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRun
 import { resolvePluginFile } from '@main/plugin/pluginPaths'
 import { registerPluginProtocolForSession } from '@main/plugin/pluginProtocol'
 import { permissionService } from '@main/plugin/PermissionService'
+import { resolveThemeTokens, themeTokensToInjectScript } from '@main/theme/resolveThemeCss'
 import { captureDisplaySource, resolveCaptureDisplay } from '@main/screen/screenService'
 import { resolvePreload } from '@main/window/createShellWindow'
 import { assertInteractive, assertInteractionEpoch, getInteractionEpoch, isNonInteractive, isResidentActivation, grantAuxiliaryInteraction } from '@main/plugin/pluginInteractionPolicy'
@@ -330,6 +331,13 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
     surface.timer.unref?.()
     await win.loadURL(surface.url)
     if (!current(surface)) throw new Error('Auxiliary window closed during loading')
+    // themeAware 插件的辅助窗口与主视图同源注入主题 Token（悬浮工具栏等 chrome 跟随壳主题）。
+    if (summary.ui.themeAware && !win.webContents.isDestroyed()) {
+      await win.webContents.executeJavaScript(
+        themeTokensToInjectScript(resolveThemeTokens(summary.ui.preferredColorScheme), { transparent: input.transparent === true }),
+        true
+      ).catch(() => { /* renderer may close during theme injection */ })
+    }
     if (!passiveRestore()) assertInteractionEpoch(scope, interactionEpoch)
     assertOpen()
     if (surface.capture ? !permissionService.isGranted(pluginId, 'screen.record') : surface.topmost && !permissionService.isGranted(pluginId, 'pin.create')) throw new Error('Auxiliary permission was revoked')
@@ -345,8 +353,7 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
     return { windowId: id }
   } catch (error) { close(surface); throw error }
 }
-export function sendAuxiliaryMessage(pluginId: string, id: string, data: unknown, options?: AuxiliaryUpdate): void {
-  const surface = owned(pluginId, id)
+export function sendAuxiliaryMessage(pluginId: string, id: string, data: unknown, options?: AuxiliaryUpdate): void {  const surface = owned(pluginId, id)
   if (options?.interaction !== undefined && !['capture', 'passthrough'].includes(options.interaction)) throw new Error('Invalid auxiliary interaction')
   if (options?.visible === true || options?.focus === true || options?.interaction === 'capture' || options?.bounds) assertInteractive(surface.scope)
   if (options?.interaction && surface.capture) throw new Error('Capture interaction cannot change')
@@ -364,6 +371,19 @@ export function sendAuxiliaryMessage(pluginId: string, id: string, data: unknown
   }
   if (options?.interaction || options?.bounds) publishGeometry(surface)
 }
+
+/** 主题变更广播：themeAware 插件的辅助窗口与主视图同步刷新 Token（宿主 setTheme / 系统明暗切换时由 PluginHost 调用）。 */
+export function broadcastAuxiliaryTheme(): void {
+  for (const surface of surfaces.values()) {
+    const ui = pluginRegistry.get(surface.scope.owner.pluginId)?.ui
+    if (!ui?.themeAware || surface.closed || !surface.win || surface.win.isDestroyed()) continue
+    void surface.win.webContents.executeJavaScript(
+      themeTokensToInjectScript(resolveThemeTokens(ui.preferredColorScheme), { transparent: surface.win.isAlwaysOnTop() }),
+      true
+    ).catch(() => { /* renderer may close during theme injection */ })
+  }
+}
+
 /** Only an already-visible, current auxiliary of this owner may anchor native dialogs. */
 export function getAuxiliaryDialogParent(pluginId: string): BrowserWindow | undefined {
   const candidates = [...surfaces.values()].filter(surface => surface.scope === getRuntimeScope(pluginId) && current(surface)

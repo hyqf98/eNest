@@ -72,6 +72,8 @@ export async function registerActivationHandlers(handlers: PluginActivationHandl
   try {
     const names = [...(handlers.command ? ['command'] : []), ...(handlers.indexSync ? ['index-sync'] : []), ...(handlers.prepareView ? ['prepare-view'] : [])]
     const result = await ipcRenderer.invoke(IpcChannels.PluginActivationRegister, names) as PluginActivationRegistration
+    // 旧文档迟到的注册：宿主代次已换，安静放弃，不再往下抛错。
+    if (result?.retired) { activationHandlers = undefined; earlyActivations.length = 0; return }
     if (!result?.registrationId) throw new Error('Activation registration was not acknowledged')
     activationRegistration = result.registrationId
     for (const message of earlyActivations.splice(0)) void dispatchActivation(message)

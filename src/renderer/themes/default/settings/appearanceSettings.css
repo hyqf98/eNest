@@ -213,19 +213,78 @@
 .appearance-opacity-row { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .appearance-opacity-row .ui-slider { flex: 1 1 auto; min-width: 160px; }
 .appearance-inline-status.is-error { color: var(--danger, #f05b5b); }
-/* 材质 + 浓度小样：CSS 无法采样桌面，用模拟背景表达底板观感。 */
-.panel-preview-swatch {
-  --preview-opacity: .78;
-  flex: none; width: 56px; height: 40px; border-radius: 8px;
+
+/*
+ * 面板缩略预览：按真实面板宽高比绘制底板 + 组件轮廓。
+ * CSS 无法采样桌面，用模拟桌面渐变表达"底板压在上面"的观感；
+ * 底板层浓度 = 设置的 opacity，材质按真实面板上的衰减比例同步。
+ */
+.appearance-field-panel-preview { align-items: start; }
+.appearance-field-panel-preview .desc { max-width: 46ch; }
+.panel-preview { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; width: 100%; max-width: var(--settings-control-width, 280px); }
+.panel-preview-frame {
+  position: relative; width: 100%; overflow: hidden;
+  border-radius: var(--appearance-panel-radius, 14px);
   border: 1px solid var(--border-strong);
-  background: linear-gradient(135deg, #3d5a6a, #12202a 60%, #2a3d4a);
-  position: relative; overflow: hidden;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 10%, transparent);
+  isolation: isolate;
 }
-/* 底板层浓度 = 设置的 opacity；材质观感在真实面板上由原生层衰减，这里同步表达。 */
-.panel-preview-swatch::after {
-  content: ''; position: absolute; inset: 0; background: var(--bg, #0e1518);
+/* 模拟桌面：固定的斜向渐变，代表面板底下的真实桌面内容。 */
+.panel-preview-desktop {
+  position: absolute; inset: 0; z-index: 0;
+  background: linear-gradient(135deg, #3d5a6a, #12202a 58%, #2a3d4a);
+}
+/* 底板层：浓度由不透明度驱动；材质在真实面板上会衰减这层，这里按同一比例。 */
+.panel-preview-base {
+  position: absolute; inset: 0; z-index: 1;
+  background: var(--bg, #0e1518);
   transition: opacity 120ms linear;
 }
-.panel-preview-swatch.material-none::after { opacity: var(--preview-opacity); }
-.panel-preview-swatch.material-blur::after { opacity: calc(var(--preview-opacity) * .62); }
-.panel-preview-swatch.material-system::after { opacity: calc(var(--preview-opacity) * .62); }
+.panel-preview-frame[data-material='none'] .panel-preview-base { opacity: var(--preview-opacity); }
+.panel-preview-frame[data-material='blur'] .panel-preview-base,
+.panel-preview-frame[data-material='system'] .panel-preview-base { opacity: calc(var(--preview-opacity) * .62); }
+/* 组件轮廓：表达数量、疏密与大致比例，不模拟插件界面。
+   行数由 --preview-rows 决定，单元格高度均分剩余空间，避免撑破底板。 */
+.panel-preview-widgets {
+  position: relative; z-index: 2;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(var(--preview-rows, 2), minmax(0, 1fr));
+  gap: 5%; padding: 7%;
+  width: 100%; height: 100%; align-content: start;
+}
+.panel-preview-widget {
+  position: relative; display: flex; flex-direction: column;
+  min-height: 0; min-width: 0; padding: 8%;
+  border-radius: calc(var(--appearance-control-radius, 10px) * .6);
+  border: 1px solid color-mix(in srgb, var(--text) 13%, transparent);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 8%, transparent);
+  overflow: hidden;
+}
+/* 组件内部的极简骨架：一个图标位 + 两条文本行，示意这是「插件组件」而非空方块。 */
+.panel-preview-widget > i {
+  flex: none; width: 18%; max-width: 10px; aspect-ratio: 1; border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 52%, transparent);
+}
+.panel-preview-widget > b {
+  flex: none; height: 2px; border-radius: 1px;
+  background: color-mix(in srgb, var(--text) 24%, transparent);
+}
+.panel-preview-widget > b:first-of-type { width: 62%; margin-top: auto; }
+.panel-preview-widget > b:last-of-type { width: 40%; margin-top: 4px; }
+/* 组件多于 4 个时的 +N 提示，占满剩余网格行。 */
+.panel-preview-more {
+  grid-column: 1 / -1; align-self: center; justify-self: center;
+  color: color-mix(in srgb, var(--text) 55%, transparent);
+  font: calc(11px * var(--appearance-font-scale, 1))/1.4 var(--font-mono);
+}
+.panel-preview-empty {
+  grid-column: 1 / -1; align-self: center; justify-self: center;
+  color: color-mix(in srgb, var(--text) 62%, transparent);
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+}
+.panel-preview-caption {
+  margin: 0; color: var(--text-3, var(--text-2));
+  font: calc(11px * var(--appearance-font-scale, 1))/1.5 var(--font-mono);
+  font-variant-numeric: tabular-nums; text-align: right;
+}

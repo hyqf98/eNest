@@ -24,6 +24,7 @@ export function DevConsoleSection() {
   const [dirPath, setDirPath] = useState('')
   const [loading, setLoading] = useState(false)
   const [debuggingId, setDebuggingId] = useState<string | null>(null)
+  const [devQuery, setDevQuery] = useState('')
   const logRef = useRef<HTMLDivElement>(null)
   const { t } = useI18n()
 
@@ -32,6 +33,12 @@ export function DevConsoleSection() {
   }, [devLogs])
 
   const devPlugins = plugins.filter((p) => p.dev === true)
+  // 搜索按名称 / 插件 ID / 本地路径匹配：路径片段常是找开发插件最快的入口。
+  const devNeedle = devQuery.trim().toLowerCase()
+  const visibleDevPlugins = devNeedle ? devPlugins.filter(p =>
+    p.name.toLowerCase().includes(devNeedle)
+    || p.id.toLowerCase().includes(devNeedle)
+    || (p.rootPath ?? '').toLowerCase().includes(devNeedle)) : devPlugins
   const openIds = new Set(tabs.map((t) => t.pluginId))
 
   const load = async (path?: string) => {
@@ -73,14 +80,15 @@ export function DevConsoleSection() {
     }
   }
 
-  /** 自动识别结果标签：开发服务显示「开发服务 · 框架」，离线产物显示「构建产物」，无服务声明显示「静态 HTML」 */
-  const kindLabel = (kind: string | undefined, runningServer: boolean, builtPreview: boolean) => {
+  /** 区分尚未准备的开发服务、实际连接的服务、离线产物和静态源码。 */
+  const kindLabel = (kind: string | undefined, runningServer: boolean, builtPreview: boolean, pendingServer: boolean) => {
     if (builtPreview) return t('devConsole.kindDist')
-    if (runningServer) {
+    if (runningServer || pendingServer) {
+      const label = t(pendingServer ? 'devConsole.kindPending' : 'devConsole.kindServer')
       if (kind === 'vite' || kind === 'next' || kind === 'nuxt' || kind === 'webpack' || kind === 'custom') {
-        return `${t('devConsole.kindServer')} · ${t(`devConsole.kind.${kind}`)}`
+        return `${label} · ${t(`devConsole.kind.${kind}`)}`
       }
-      return t('devConsole.kindServer')
+      return label
     }
     return t('devConsole.kindStatic')
   }
@@ -130,68 +138,84 @@ export function DevConsoleSection() {
         {devPlugins.length === 0 ? (
           <p className="desc">{t('devConsole.emptyDesc')}</p>
         ) : (
-          <div className="dev-plugin-list">
-            {devPlugins.map((p) => {
-              const running = openIds.has(p.id)
-              const isSelf = debuggingId === p.id || running
-              const server = !!p.devUrl
-              return (
-                <div className={`dev-plugin-item${running ? ' running' : ''}`} key={p.id}>
-                  <PluginIcon src={p.icon} glyph={p.glyph} size={40} alt={p.name} />
-                  <div className="dev-plugin-meta">
-                    <div className="dev-plugin-name">
-                      {p.name}
-                      {running ? <span className="dev-run-dot" /> : null}
-                      <span className="tag">
-                        {kindLabel(p.devKind, server, !server && p.devSource === false)}
-                      </span>
-                      {server && p.devCommand ? <code className="dev-command-tag">{p.devCommand}</code> : null}
+          <>
+            {/* 搜索框在滚动区外面：列表滚到哪儿都能改关键词。 */}
+            <div className="dev-search">
+              <input
+                type="search"
+                className="dev-search-input"
+                value={devQuery}
+                onChange={e => setDevQuery(e.target.value)}
+                placeholder={t('devConsole.searchPlaceholder')}
+                aria-label={t('devConsole.searchPlaceholder')}
+              />
+            </div>
+            {visibleDevPlugins.length === 0 ? <p className="desc" role="status">{t('devConsole.searchEmpty')}</p> : (
+              <div className="dev-plugin-list" data-scrollbar="auto-hide">
+                {visibleDevPlugins.map((p) => {
+                  const running = openIds.has(p.id)
+                  const isSelf = debuggingId === p.id || running
+                  const server = !!p.devUrl
+                  const pendingServer = !server && p.devSource === true && !!p.devKind && p.devKind !== 'static'
+                  return (
+                    <div className={`dev-plugin-item${running ? ' running' : ''}`} key={p.id}>
+                      <PluginIcon src={p.icon} glyph={p.glyph} size={40} alt={p.name} />
+                      <div className="dev-plugin-meta">
+                        <div className="dev-plugin-name">
+                          {p.name}
+                          {running ? <span className="dev-run-dot" /> : null}
+                          <span className="tag">
+                            {kindLabel(p.devKind, server, !server && p.devSource === false, pendingServer)}
+                          </span>
+                          {server && p.devCommand ? <code className="dev-command-tag">{p.devCommand}</code> : null}
+                        </div>
+                        <code className="dev-plugin-path">
+                          {p.rootPath ?? '—'}
+                          {p.devUrl ? ` · ${p.devUrl}` : ''}
+                        </code>
+                      </div>
+                      <div className="dev-plugin-actions">
+                        {running ? (
+                          <>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              type="button"
+                              onClick={() => void openPlugin(p.id)}
+                            >
+                              {t('devConsole.view')}
+                            </button>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              type="button"
+                              onClick={() => void handleStop(p.id)}
+                            >
+                              {t('devConsole.stop')}
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            className="btn btn-primary btn-sm"
+                            type="button"
+                            disabled={!!debuggingId && !isSelf}
+                            onClick={() => void handleStart(p.id)}
+                          >
+                            {t('devConsole.start')}
+                          </button>
+                        )}
+                        <button
+                          className="btn btn-danger btn-sm"
+                          type="button"
+                          onClick={() => void handleRemove(p.id, p.name)}
+                        >
+                          {t('devConsole.remove')}
+                        </button>
+                      </div>
                     </div>
-                    <code className="dev-plugin-path">
-                      {p.rootPath ?? '—'}
-                      {p.devUrl ? ` · ${p.devUrl}` : ''}
-                    </code>
-                  </div>
-                  <div className="dev-plugin-actions">
-                    {running ? (
-                      <>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          type="button"
-                          onClick={() => void openPlugin(p.id)}
-                        >
-                          {t('devConsole.view')}
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          type="button"
-                          onClick={() => void handleStop(p.id)}
-                        >
-                          {t('devConsole.stop')}
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        className="btn btn-primary btn-sm"
-                        type="button"
-                        disabled={!!debuggingId && !isSelf}
-                        onClick={() => void handleStart(p.id)}
-                      >
-                        {t('devConsole.start')}
-                      </button>
-                    )}
-                    <button
-                      className="btn btn-danger btn-sm"
-                      type="button"
-                      onClick={() => void handleRemove(p.id, p.name)}
-                    >
-                      {t('devConsole.remove')}
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
 

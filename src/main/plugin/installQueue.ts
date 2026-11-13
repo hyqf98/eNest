@@ -7,7 +7,7 @@
  *       让进度 UI 与日志顺序不可预期；上限 3 覆盖「多文件拖入」的常见峰值，
  *       又保证用户能同时关注到每条进度。
  * 被 shellHandlers（ShellInstallPlugin / ShellInstallMarketPlugin）调用；
- * 安装完成后重扫 PluginRegistry。
+ * 安装完成后仅重选该插件的已安装版本。
  * 关键依赖：PluginInstaller、PluginRegistry、marketClient（远程下载）、
  * logService、sendShellEvent。
  */
@@ -117,8 +117,8 @@ async function runJob(job: InstallJob): Promise<void> {
   emitQueue()
   try {
     const result = job.sourceUrl ? await runRemoteJob(job) : await runLocalJob(job)
-    // 重扫注册表，让市场列表立即出现新装插件
-    await pluginRegistry.scan()
+    // The installer has released its same-id lock; reconcile retained versions without scanning other plugins.
+    await pluginRegistry.refreshInstalledPlugin(result.manifest.id)
     job.status = 'done'
     job.progress = 100
     logInfo(

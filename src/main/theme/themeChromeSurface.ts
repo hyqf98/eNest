@@ -18,7 +18,7 @@ export function selectThemeChrome(part: ThemeChromePart): Selection | null {
   if (appearance.theme.source === 'enest.builtin') return null
   const pack = themePackRegistry.get(appearance.theme.id) as ThemePackV2 | null
   const descriptor = appearance.chrome?.[part]
-  const source = appearance.theme.source, rootInput = pluginRegistry.getAssetRootPath(source)
+  const source = appearance.theme.source, rootInput = pluginRegistry.getThemeRootPath(source)
   if (!descriptor || appearance.chrome?.version !== 1 || !pack || pack.source !== source ||
     pack.chrome?.version !== 1 || pack.chrome[part]?.entry !== descriptor.entry ||
     !descriptor.entry.endsWith('.html') || !chromeAssetPath(descriptor.entry) ||

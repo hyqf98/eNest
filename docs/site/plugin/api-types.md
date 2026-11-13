@@ -71,6 +71,12 @@ export interface EnestPluginApi {
          * 收起走统一隐藏语义，下次呼出仍恢复本插件。基础能力，无需声明或授权。
          */
         dismissQuick(): Promise<boolean>;
+        /**
+         * 插件主动让出前台（如开始录屏时切回桌面）：Quick 挂载收起小窗，
+         * 主窗挂载最小化主窗。不改变挂载关系，下次唤起恢复本插件视图。
+         * 基础 UI 能力，无需声明或授权。
+         */
+        hide(): Promise<boolean>;
         /** 原生容器中的安全富文本通知；兼容 message/type，不需要额外授权。 */
         toast(payload: PluginToastOptions): Promise<boolean>;
         /** 读取当前主题变量（themeAware 插件可主动拉取） */
@@ -1647,6 +1653,8 @@ export interface AppearanceLayout {
     tabStyle?: TabStyle;
     /** Titlebar background opacity, 0–1; labels, icons and window controls stay opaque. */
     tabOpacity?: number;
+    /** Setting-card background opacity, 0–1; text and controls stay opaque. */
+    cardOpacity?: number;
     /** Classic titlebar collapses to an 8px host-owned reveal strip. */
     tabAutoHide?: boolean;
     density: number;
@@ -2517,7 +2525,7 @@ export type PluginAssetMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image
 /** Validated declaration, not an evaluated match. The selected theme owns matching. */
 export type QuickContentType = 'text' | 'regex' | 'over' | 'img' | 'files';
 
-export type ThemeLayoutKey = 'density' | 'gap' | 'sidebarWidth' | 'contentWidth' | 'columns' | 'tabStyle' | ThemeTabStripKey;
+export type ThemeLayoutKey = 'density' | 'gap' | 'sidebarWidth' | 'contentWidth' | 'columns' | 'tabStyle' | 'cardOpacity' | ThemeTabStripKey;
 
 export type ThemeBackgroundKey = 'texture' | 'intensity' | 'speed' | 'direction' | 'effect' | 'media' | 'warmth' | 'grain' | 'scale' | 'wash' | 'kind' | 'palette' | 'color' | 'opacity' | 'fit';
 

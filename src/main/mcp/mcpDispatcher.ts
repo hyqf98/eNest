@@ -12,6 +12,7 @@ import type { McpCallRecord } from '@shared/types/mcpSettings'
 import { getMcpCatalog, type CatalogEntry } from './mcpCatalog'
 import { failureCode, failureResult, MCP_MAX_BYTES, McpFailure } from './mcpErrors'
 import { validateMcpSchema } from './mcpSchemaValidator'
+import { logWarn } from '@main/logs/logService'
 
 interface Registration { id: string; runtime: McpRuntime }
 interface Job {
@@ -32,12 +33,19 @@ function same(a: McpRuntime, b: McpRuntime | null): boolean {
   return !!b && a.scope === b.scope && a.contents === b.contents && a.generation === b.generation
     && a.documentEpoch === b.documentEpoch && a.buildRevision === b.buildRevision
 }
+/**
+ * 代次已作废（导航/重载/关闭中）的迟到 IPC：旧文档卸载前仍会发注册请求，
+ * 此时宿主已换或销毁 runtime。属于预期竞态，不是越权，也不该在主进程抛错。
+ */
+class RetiredRuntimeError extends Error {
+  constructor() { super('unavailable'); this.name = 'RetiredRuntimeError' }
+}
 function identity(event: IpcMainEvent | IpcMainInvokeEvent): { pluginId: string; runtime: McpRuntime } {
   const pluginId = pluginHost.getPluginIdByWebContentsId(event.sender.id)
   if (!pluginId || event.sender.isDestroyed() || event.senderFrame !== event.sender.mainFrame
     || !isPluginPageUrl(event.senderFrame.url, pluginId, pluginRegistry.get(pluginId)?.devUrl)) throw new McpFailure('permission-denied')
   const runtime = pluginHost.getMcpRuntime(pluginId)
-  if (!runtime || runtime.contents !== event.sender || runtime.scope.isClosing || !runtime.scope.isCurrent()) throw new McpFailure('unavailable')
+  if (!runtime || runtime.contents !== event.sender || runtime.scope.isClosing || !runtime.scope.isCurrent()) throw new RetiredRuntimeError()
   return { pluginId, runtime }
 }
 function clientDone(job: Job, result: McpToolResult, code?: McpErrorCode): void {
@@ -142,12 +150,27 @@ export function registerMcpPluginBridge(): void {
   if (registered) return
   registered = true
   ipcMain.handle(IpcChannels.PluginMcpRegister, async (event, input: unknown): Promise<McpRegistrationAck> => {
-    const { pluginId, runtime } = identity(event)
+    let who: { pluginId: string; runtime: McpRuntime }
+    try { who = identity(event) } catch (error) {
+      // 旧文档迟到的注册：代次已换，静默告知前端放弃（不是错误）。
+      if (error instanceof RetiredRuntimeError) return { registrationId: '', retired: true }
+      throw error
+    }
+    const { pluginId, runtime } = who
     const ids = input && typeof input === 'object' ? Reflect.get(input, 'toolIds') : undefined
     const declared = runtime.scope.isCurrent() ? pluginRegistry.getManifest(pluginId)?.contributes?.mcpTools?.map(tool => tool.id).sort() ?? [] : []
+    // 工具清单必须与本插件声明完全一致；重复注册同样视为调用方错误。
     if (!Array.isArray(ids) || ids.length > 128 || ids.some(id => typeof id !== 'string')
       || !declared.length || JSON.stringify([...ids].sort()) !== JSON.stringify(declared) || registrations.has(pluginId)) throw new McpFailure('invalid-arguments')
-    if (!(await getMcpCatalog()).some(entry => entry.tool.pluginId === pluginId) || !same(runtime, pluginHost.getMcpRuntime(pluginId))) throw new McpFailure('unavailable')
+    // 与参数校验分离：catalog 收录已启用且未被打开展障的插件（含 dev 源），
+    // schema 校验未通过的插件在这里查不到。这是"当前形态不提供 MCP"，不是错误；
+    // 但静默丢弃会让排查失去线索，落一条 warn 供诊断。
+    const inCatalog = (await getMcpCatalog()).some(entry => entry.tool.pluginId === pluginId)
+    if (!inCatalog) {
+      logWarn('mcp', `MCP registration dropped: ${pluginId} is not in the tool catalog (disabled, blocked for open, or manifest schema invalid)`)
+      return { registrationId: '', retired: true }
+    }
+    if (!same(runtime, pluginHost.getMcpRuntime(pluginId))) return { registrationId: '', retired: true }
     const registration = { id: randomUUID(), runtime }
     registrations.set(pluginId, registration)
     for (const listener of readyListeners.get(pluginId) ?? []) listener()
@@ -179,8 +202,8 @@ export function setMcpAccepting(value: boolean): void {
   accepting = value
   if (!value) for (const job of jobs.values()) cancel(job, 'cancelled')
 }
-export function getMcpExecutionState(): { activeCalls: number; recentCalls: McpCallRecord[] } {
-  return { activeCalls: jobs.size, recentCalls: records.map(record => ({ ...record })) }
+export function getMcpExecutionState(): { recentCalls: McpCallRecord[] } {
+  return { recentCalls: records.map(record => ({ ...record })) }
 }
 
 export function callMcpTool(input: { pluginId: string; toolId: string; arguments: Record<string, unknown> }, signal: AbortSignal, source: string): Promise<McpToolResult> {

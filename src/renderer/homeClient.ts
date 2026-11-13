@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import type { EnestWorkspaceApi } from '@shared/types/home'
 import { useI18nStore } from '@renderer/i18n'
 import { applyAppearanceToDom, releaseAppearanceResources } from '@renderer/services/appearanceDom'
+import { installScrollActivity } from '@renderer/services/scrollActivity'
 import { DefaultWorkspace } from '@renderer/themes/default/DefaultWorkspace'
 import { createDefaultWorkspaceController } from '@renderer/themes/default/WorkspaceController'
 import '@renderer/styles/tokens.css'
@@ -16,6 +17,8 @@ const container = document.getElementById('home-root')
 if (!container) throw new Error('#home-root not found')
 const root = document.documentElement
 root.dataset.surface = 'workspace'
+// 首页视图独立文档：同样需要"只在滚动时出现"的滚动条信号。
+installScrollActivity()
 const bridge = (window as Window & { enestWorkspace?: EnestWorkspaceApi }).enestWorkspace
 
 if (!bridge) {

@@ -7,6 +7,7 @@ import { isBuiltinCapability } from '@shared/pluginPermissionPolicy'
 import { callPluginBackend, stopPluginBackend } from '@main/plugin/pluginBackendRpc'
 import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
 import { callPluginBackground, refreshPluginBackgrounds, requiredBackgroundPermissions, stopPluginBackground } from '@main/plugin/pluginBackgroundRuntime'
+import { isResidentSettingKey } from '@main/launcher/pluginActivation'
 /**
  * pluginHandlers — 插件 IPC 调用分发器
  * 职责：接收插件 preload 发起的 `plugin:call`，校验发送者身份与权限，按 method 分发到具体实现；
@@ -137,6 +138,8 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'ui.focusSearch': null,
   // quick 小窗「提交即收起」：基础 UI 能力，仅当前 quick 挂载者生效
   'ui.dismissQuick': null,
+  // 插件主动让出前台（如开始录屏回桌面）：quick 收小窗，主窗最小化
+  'ui.hide': null,
   'localFiles.read': 'fs.read',
   'localFiles.pick': 'fs.read',
   'localFiles.pickSave': 'fs.write',
@@ -403,6 +406,19 @@ async function dispatch(
       hideQuickWindow('plugin-dismiss')
       return true
     }
+    case 'ui.hide': {
+      // 插件主动让出前台（如开始录屏时切回桌面）：quick 挂载收起小窗，
+      // 主窗挂载最小化主窗；不改变挂载关系，下次唤起即恢复本插件视图。
+      assertInteractive(pluginId)
+      if (pluginHost.getQuickPlugin() === pluginId) {
+        hideQuickWindow('plugin-hide')
+        return true
+      }
+      const win = pluginHost.getContainerWindow(pluginId)
+      if (!win || win.isDestroyed()) return false
+      win.minimize()
+      return true
+    }
     case 'localFiles.read': return readLocalFile(pluginId, asObj(args) as { handleId: string; encoding?: 'text' | 'dataUrl'; maxBytes?: number })
     case 'localFiles.pick': return pickLocalFiles(pluginId, asObj(args) as LocalFilePickOptions)
     case 'localFiles.fromDrop': return localFilesFromDrop(pluginId, args[0] as string[])
@@ -484,8 +500,9 @@ async function dispatch(
       if (!isPluginSettingKey(key)) throw new Error('reserved plugin settings key')
       const value = args[1]
       // key 白名单：必须在该插件注册的 settings item keys 内（运行时 register +
-      // manifest contributes.settings 统一入 contributions 表），防止任意键写库
-      if (!pluginSettingsBridge.isWritableKey(pluginId, key)) {
+      // manifest contributes.settings 统一入 contributions 表），或为该插件声明的
+      // resident 设置键（插件自有设置 UI 场景），防止任意键写库
+      if (!pluginSettingsBridge.isWritableKey(pluginId, key) && !isResidentSettingKey(pluginId, key)) {
         throw new Error(`unknown settings key: ${key}`)
       }
       await settingsStore.setPluginSetting(pluginId, key, value)

@@ -153,7 +153,8 @@ import { appearanceService } from '@main/theme/appearanceService'
 import { routeExternal, isInternalNavigation } from '@main/plugin/externalLinks'
 import type { DetachedPluginState, PluginPlacement } from '@shared/types/plugin-window'
 import { settingsStore } from '@main/settings/SettingsStore'
-import { resumeDevServer, stopDevServer, stopDevServerAndWait } from '@main/dev/devServerManager'
+import { stopDevServer, stopDevServerAndWait } from '@main/dev/devServerManager'
+import { cancelDevPluginPreparation } from '@main/dev/devPluginRuntime'
 import { stopPluginProcesses } from '@main/plugin/pluginOwnedProcesses'
 import { PluginWindowSession } from '@main/plugin/pluginWindowSession'
 import {
@@ -168,6 +169,7 @@ import {
 import {
   getPanelContentParent, getPanelWindow, isPanelWindowVisible, releasePluginViewChrome
 } from '@main/window/panelWindows'
+import { broadcastAuxiliaryTheme } from '@main/window/pluginAuxiliaryWindows'
 
 /** beforeClose 等待插件 ack 的上限；超时直接销毁，避免挂死关闭流程 */
 const BEFORE_CLOSE_ACK_TIMEOUT = BEFORE_CLOSE_ACK_TIMEOUT_MS
@@ -683,6 +685,12 @@ export class PluginHost {
 
   getPluginView(pluginId: string): WebContentsView | null {
     return this.entries.get(toPluginId(pluginId))?.view ?? null
+  }
+
+  /** Source refreshes wait for transport selection and instance teardown to settle. */
+  getPluginTransitionTask(pluginId: string): Promise<unknown> | null {
+    const id = toPluginId(pluginId)
+    return this.reloading.get(id)?.promise ?? this.closing.get(id) ?? this.opening.get(id)?.promise ?? null
   }
 
   setInputContext(pluginId: string, context: PluginInputContext): void {
@@ -1340,20 +1348,19 @@ export class PluginHost {
     }
 
     const silent = Boolean(opts?.backgroundExecution || opts?.activationContext)
-    const summary = silent ? pluginRegistry.get(pluginId) : await pluginRegistry.ensureInstalled(pluginId)
+    let summary = silent ? pluginRegistry.get(pluginId) : await pluginRegistry.ensureInstalled(pluginId)
     if (!summary || silent && (!summary.installed || summary.enabled === false || !summary.rootPath)) {
       throw new Error(`MCP plugin is not installed or enabled: ${pluginId}`)
     }
     if (!currentOpening() || !isEnabledSync(pluginId)) throw new Error('plugin opening cancelled')
-    if (summary.dev && summary.devUrl) {
-      const devUrl = await resumeDevServer(pluginId)
-      if (!currentOpening()) {
-        if (!operation?.preserveDevServer) stopDevServer(pluginId)
-        throw new Error('plugin opening cancelled')
-      }
-      if (devUrl && devUrl !== summary.devUrl) {
-        summary.devUrl = devUrl
-        pluginRegistry.addDevPlugin(summary, pluginRegistry.getManifest(pluginId) ?? undefined)
+    if (summary.dev) {
+      try {
+        const { prepareDevPluginRuntime } = await import('@main/dev/DevConsole')
+        summary = await prepareDevPluginRuntime(pluginId, currentOpening,
+          opts?.activationContext ? 'activation' : opts?.backgroundExecution ? 'mcp' : opts?.layoutMode === 'panel' ? 'panel' : opts?.container === 'quick' ? 'quick' : 'open')
+      } catch (error) {
+        if (!currentOpening() && !operation?.preserveDevServer) stopDevServer(pluginId)
+        throw error
       }
     }
     if (opts?.guard && !opts.guard()) throw new Error('plugin launch cancelled')
@@ -1623,6 +1630,7 @@ export class PluginHost {
    */
   closePlugin(tabId: string, reason: PluginCloseReason = 'tab-close', preserveSession = false, preserveSharedResources = false): Promise<void> {
     const pluginId = toPluginId(tabId)
+    if (!preserveSharedResources) cancelDevPluginPreparation(pluginId)
     const resourceOwner = this.ensureResourceOwner(pluginId)
     resourceOwner.closing = true
     const quickWasVisible = this.quickPluginId === pluginId
@@ -1926,12 +1934,13 @@ export class PluginHost {
     if (rootPath) invalidatePluginFileCache(rootPath)
     pluginRegistry.invalidateBuildRevision(pluginId)
     const prepare = summary?.dev && summary.sourcePath
-      ? import('@main/dev/DevConsole').then(module => module.prepareDevPluginReload(summary))
+      ? import('@main/dev/DevConsole').then(module => module.prepareDevPluginReload(summary,
+        () => !operation.cancelled && !this.shuttingDown && !this.barriers.has(pluginId) && isEnabledSync(pluginId)))
       : null
     const close = prepare ? prepare.then(async prepared => {
       if (operation.cancelled) return
       await this.closePlugin(pluginId, 'tab-close', true)
-      if (!operation.cancelled && prepared) pluginRegistry.addDevPlugin(prepared.summary, prepared.manifest)
+      if (!operation.cancelled && prepared?.isCurrent()) pluginRegistry.addDevPlugin(prepared.summary, prepared.manifest)
     }) : this.closePlugin(pluginId, 'tab-close', true)
     operation.promise = close.then(async () => {
       if (operation.cancelled) return
@@ -2570,6 +2579,7 @@ export class PluginHost {
 
   /** 向所有已打开的 themeAware 插件广播当前主题（壳子 setTheme / nativeTheme 变化时调用） */
   broadcastTheme(): void {
+    broadcastAuxiliaryTheme()
     for (const entry of this.entries.values()) {
       if (!entry.ui.themeAware) continue
       const resolved = resolveThemeTokens(entry.ui.preferredColorScheme)

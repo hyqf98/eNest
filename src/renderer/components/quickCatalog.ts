@@ -51,8 +51,17 @@ export function publicQuickCatalog(records: QuickCatalogRecord[]): QuickThemeCat
   })
 }
 
+/**
+ * Quick 图标允许两种来源：
+ * 1. 宿主导出的 data URL（应用图标由原生侧抽取）；
+ * 2. `enest://` 插件协议 URL——目录里插件图标本来就是这种形态，
+ *    此前只放行 data URL，导致全部插件（含「常用」区）退化成名称首字。
+ * 其它协议一律拒绝：主题拿不到任意远程 URL。
+ */
 export function safeQuickIcon(value: string | undefined): boolean {
-  return typeof value === 'string' && value.length <= 1_048_576 && /^data:image\/(?:png|jpeg|gif|webp|svg\+xml|x-icon);base64,[a-z0-9+/=]+$/i.test(value)
+  if (typeof value !== 'string' || value.length > 1_048_576) return false
+  return /^data:image\/(?:png|jpeg|gif|webp|svg\+xml|x-icon);base64,[a-z0-9+/=]+$/i.test(value)
+    || /^enest:\/\/plugin\/[A-Za-z0-9._-]+\/[A-Za-z0-9._\/-]*\.(?:png|jpe?g|gif|webp|svg|ico)(?:\?[^#\s]*)?$/i.test(value)
 }
 
 export function quickRequestFromRecord(record: QuickCatalogRecord, query: string, container?: 'quick' | 'shell'): QuickOpenRequest | null {

@@ -121,6 +121,7 @@ const api: EnestPluginApi = {
     focus: () => call<boolean>('ui.focus', []),
     focusSearch: () => call<boolean>('ui.focusSearch', []),
     dismissQuick: () => call<boolean>('ui.dismissQuick', []),
+    hide: () => call<boolean>('ui.hide', []),
     toast: (payload: PluginToastOptions) =>
       call<boolean>('ui.toast', [payload]),
     getThemeTokens: () =>

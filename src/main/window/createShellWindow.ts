@@ -22,6 +22,7 @@ import { readMainWindowState, trackMainWindowState } from '@main/window/mainWind
 import { devShortcutAction, toggleDevTools } from '@main/dev/devShortcuts'
 import { registerThemeSettingsPolicy } from '@main/theme/themeSettingsSurface'
 import { resolveThemeTokens } from '@main/theme/resolveThemeCss'
+import { markStartupPhase } from '@main/logs/startupTiming'
 
 let mainWindow: BaseWindow | null = null
 let shellView: WebContentsView | null = null
@@ -127,6 +128,7 @@ export function createShellWindow(): BaseWindow {
     ...(windowIcon ? { icon: windowIcon } : {}),
     title: APP_NAME
   })
+  win.once('show', () => markStartupPhase('shell-window-shown'))
 
   // Dock 单独设置；不可把 icns 传给 BrowserWindow/BaseWindow.icon
   applyDockIcon()
@@ -173,6 +175,7 @@ export function createShellWindow(): BaseWindow {
 
   contents.once('did-finish-load', () => {
     if (win.isDestroyed()) return
+    markStartupPhase('shell-did-finish-load')
     if (restored?.maximized) win.maximize()
     if (restored?.minimized) { win.showInactive(); win.minimize() }
     else win.show()
@@ -309,6 +312,7 @@ export function sendShellEvent(payload: ShellEventPayload): void {
     payload.type === 'quick-focus-search' ||
     payload.type === 'plugins-changed' ||
     payload.type === 'plugin-launch-changed' ||
+    payload.type === 'launch-directory-changed' ||
     payload.type === 'theme-changed' ||
     payload.type === 'theme-packs-changed' ||
     payload.type === 'appearance-changed' ||

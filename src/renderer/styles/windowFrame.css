@@ -88,7 +88,13 @@
    * 叠加会让标题栏在最透明档也残留一层色带，与页面背景明显分层、跟随主题时也不同步。
    * --appearance-tab-opacity 为 0 时完全透出页面背景，1 时是实色 --bg。
    */
-  --titlebar-paint: color-mix(in srgb, var(--bg) calc(var(--appearance-tab-opacity, 1) * 100%), transparent);
+  --titlebar-paint: color-mix(in srgb, var(--bg) calc(var(--appearance-tab-opacity, 0) * 100%), transparent);
+  /*
+   * 模糊半径同样跟随不透明度：材质层是"半透明磨砂"，完全透明时不该再磨砂。
+   * 此前 blur 恒定 20px，导致透明档下标题栏仍把背景动效糊成一块色带，
+   * 和下面清晰的页面形成明显分层——看起来像"看不到动效"。
+   */
+  --titlebar-blur: calc(var(--appearance-tab-opacity, 0) * 20px);
   position: relative;
   isolation: isolate;
   display: grid;
@@ -109,10 +115,19 @@
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  /*
+   * 底边分割线同样跟随不透明度：材质层全透明时整条标题栏应当与页面连成一片，
+   * 此时再留一根实线就成了凭空多出的分割线。
+   */
+  border-bottom: 1px solid color-mix(
+    in srgb,
+    var(--border) calc(var(--appearance-tab-opacity, 0) * 70%),
+    transparent
+  );
   background: var(--titlebar-paint);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  /* 模糊量随不透明度衰减；0 时不生成模糊层，背景动效原样透出。 */
+  backdrop-filter: blur(var(--titlebar-blur)) saturate(calc(1 + var(--appearance-tab-opacity, 0) * 0.6));
+  -webkit-backdrop-filter: blur(var(--titlebar-blur)) saturate(calc(1 + var(--appearance-tab-opacity, 0) * 0.6));
 }
 
 /* 必须限定到 header，不能用可能命中 app 根节点的通用状态类。 */

@@ -74,8 +74,10 @@ body {
   align-items: center;
   justify-content: flex-start;
   min-height: 56px;
+  /* 上下留白给出渐隐带的空间；内容超过窗口高度时由 .orb-panel 自己滚动。 */
+  max-height: calc(100vh - 16px);
   padding: 6px 0;
-  box-sizing: content-box;
+  box-sizing: border-box;
 }
 
 .orb-rail.expanded .orb-tabs-zone {
@@ -158,11 +160,30 @@ body {
   padding: 20px 0 20px 10px;
   margin: -12px 0 -12px -6px;
   box-sizing: border-box;
-  max-height: calc(100vh - 12px);
+  /* 上限留出上下渐隐带（各 26px）的呼吸：内容再多也在这条轨道内滚动，不顶到屏幕边缘。 */
+  max-height: calc(100vh - 24px);
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
   overscroll-behavior: contain;
+  /* 上下边缘渐隐：内容进入/离开可视区时自然淡出，避免被硬边切断。
+     用 mask 而不是叠一层渐变底色——rail 视图是透明的，叠底色会露出方块。 */
+  --orb-fade-top: 26px;
+  --orb-fade-bottom: 26px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--orb-fade-top),
+    #000 calc(100% - var(--orb-fade-bottom)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--orb-fade-top),
+    #000 calc(100% - var(--orb-fade-bottom)),
+    transparent 100%
+  );
   opacity: 0;
   transform: translateX(-10px);
   transition:
@@ -373,6 +394,45 @@ body {
 
 .orb-contrib .orb-glyph {
   font-size: 12px;
+}
+
+/*
+ * 聚合圈：标签超量时收起的剩余数量。
+ * 用虚线圈 + 计数，不抢插件圆球的实色，明确表达「这里还藏着东西」。
+ */
+.orb-overflow .orb-face {
+  width: 44px;
+  height: 44px;
+  border: 1.5px dashed var(--orb-face-border);
+  background: transparent;
+  color: var(--text-2, #5c6578);
+  font-variant-numeric: tabular-nums;
+  box-shadow: none;
+}
+
+.orb-overflow .orb-face:hover,
+.orb-overflow .orb-face:focus-visible {
+  border-color: var(--accent, #3579dd);
+  color: var(--accent, #3579dd);
+}
+
+.orb-overflow-count {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+/* 展开后同一位置变成收起按钮：实线小圈，弱于聚合态。 */
+.orb-overflow .orb-face.is-collapse {
+  width: 36px;
+  height: 36px;
+  border-style: solid;
+}
+
+.orb-overflow .orb-face.is-collapse .orb-overflow-count {
+  font-size: 15px;
+  font-weight: 500;
 }
 
 /* Only classic navigation has a separate, always-visible account dock. */
