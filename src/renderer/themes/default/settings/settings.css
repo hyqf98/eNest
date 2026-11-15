@@ -268,9 +268,10 @@
   border-style: dashed;
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border-strong));
 }
-.open-with-row-main { display: flex; align-items: flex-start; gap: 12px; flex: 1 1 auto; min-width: 0; }
-.open-with-type-cell { flex: 0 0 auto; min-width: 0; max-width: 46%; }
-.open-with-provider-cell { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-end; }
+.open-with-row-body--oneline { display: flex; align-items: center; gap: 12px; }
+.open-with-row-body--oneline .open-with-type-cell { flex: 0 0 auto; min-width: 0; max-width: 46%; }
+.open-with-row-body--oneline .open-with-provider-cell { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-end; }
+.open-with-row-body--oneline .open-with-remove.btn { flex: 0 0 auto; }
 .open-with-type-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .open-with-type {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -357,19 +358,41 @@
   background: var(--surface-2);
   font-size: calc(11px * var(--appearance-font-scale, 1));
 }
-.open-with-section .open-with-draft-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.open-with-section .open-with-draft-head .open-with-remove.btn { margin-left: auto; }
-.open-with-row.is-draft .open-with-providers { justify-content: flex-start; }
-.open-with-row.is-draft .open-with-draft-actions { padding-top: 4px; }
-.open-with-section .open-with-type-field {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex: 1 1 140px;
-  min-width: 0;
+/* 草稿行主控一行：类别徽标 + 类型输入（带建议浮层）+ 默认插件 + 保存 + 取消 */
+.open-with-draft-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.open-with-draft-kind {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  color: var(--text-3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+.open-with-kind-toggle {
+  height: 26px; padding: 0 8px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text-2); font-size: 11px; cursor: pointer;
+}
+.open-with-kind-toggle:disabled { opacity: .55; cursor: default; }
+.open-with-section .open-with-type-field { position: relative; flex: 1 1 180px; min-width: 0; display: inline-flex; align-items: center; gap: 2px; }
 .open-with-type-affix { color: var(--text-3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .open-with-type-input { flex: 1 1 auto; min-width: 0; }
-.open-with-note { margin: 0; font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.5; }
+/* 已声明类型建议浮层：挂在输入框正下方，mousedown 选中避免失焦先关闭 */
+.open-with-suggestions {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 60;
+  display: flex; flex-direction: column; padding: 4px;
+  border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface);
+  box-shadow: var(--shadow-float, 0 12px 32px rgb(0 0 0 / .14));
+}
+.open-with-suggestions button {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 6px 8px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--text-2); font-size: 12.5px; cursor: pointer; text-align: left;
+}
+.open-with-suggestions button:hover { background: var(--surface-2); color: var(--text); }
+.open-with-suggestions .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.open-with-suggestion-note { color: var(--text-3); font-size: 11px; flex: none; }
+.open-with-section .open-with-default-select { max-width: 200px; }
+.open-with-section .open-with-default-select .ui-select-value.is-placeholder { color: var(--text-3); }
+/* 多插件时的补充关联行：小标签 + 横排 provider pills */
+.open-with-draft-extra { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.open-with-draft-extra-label { color: var(--text-3); font-size: 11.5px; flex: none; }
+.open-with-row.is-draft .open-with-providers { justify-content: flex-start; }
+.open-with-note { margin: 4px 0 0; font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.5; }
 .open-with-note.is-error { color: var(--danger); }
-.open-with-draft-actions { display: flex; justify-content: flex-end; gap: 8px; }

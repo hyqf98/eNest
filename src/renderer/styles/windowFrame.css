@@ -258,17 +258,25 @@ header.titlebar.titlebar-autohide:not(.is-revealed) :is(.tab-strip, .titlebar-dr
   inset-inline: 88px;
   top: 0;
   height: var(--titlebar-h);
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   overflow: hidden;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: calc(12px * var(--appearance-font-scale, 1));
   font-weight: 600;
   line-height: var(--titlebar-h);
   color: var(--text-2);
   pointer-events: none;
   -webkit-app-region: drag;
+}
+
+/* orb 模式当前插件标识：icon + 名称共用 classic label 的 icon 尺寸。 */
+.titlebar-plugin-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ========== Stage ========== */

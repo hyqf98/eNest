@@ -37,8 +37,6 @@ interface SaveOutcome {
   error?: string
 }
 
-const CUSTOM_TYPE = 'custom'
-
 const statusLabel = (row: OpenWithRow, packaged: boolean): string => {
   if (!packaged) return '仅安装版可验证'
   switch (row.status) {
@@ -183,28 +181,26 @@ function MappedRow({ row, packaged, selected, busy, onToggle, onSetDefault, onRe
 
   return (
     <li className="open-with-row">
-      <div className="open-with-row-body" role="group" aria-label={`${label} 的默认打开方式`}>
-        <div className="open-with-row-main">
-          <div className="open-with-type-cell">
-            <div className="open-with-type-line">
-              <span className="open-with-type">{label}</span>
-              <span className={`open-with-chip open-with-chip--${statusTone(row)}`}>
-                {statusLabel(row, packaged)}
-              </span>
-            </div>
-            <p className="open-with-row-desc">{desc}</p>
+      <div className="open-with-row-body open-with-row-body--oneline" role="group" aria-label={`${label} 的默认打开方式`}>
+        <div className="open-with-type-cell">
+          <div className="open-with-type-line">
+            <span className="open-with-type">{label}</span>
+            <span className={`open-with-chip open-with-chip--${statusTone(row)}`}>
+              {statusLabel(row, packaged)}
+            </span>
           </div>
-          <div className="open-with-provider-cell">
-            <ProviderList
-              providers={row.providers}
-              defaultId={current?.pluginId}
-              selected={selected}
-              disabled={busy}
-              selectable
-              onToggle={onToggle}
-              onSetDefault={onSetDefault}
-            />
-          </div>
+          <p className="open-with-row-desc">{desc}</p>
+        </div>
+        <div className="open-with-provider-cell">
+          <ProviderList
+            providers={row.providers}
+            defaultId={current?.pluginId}
+            selected={selected}
+            disabled={busy}
+            selectable
+            onToggle={onToggle}
+            onSetDefault={onSetDefault}
+          />
         </div>
         <Button
           variant="ghost"
@@ -222,8 +218,10 @@ function MappedRow({ row, packaged, selected, busy, onToggle, onSetDefault, onRe
 }
 
 /**
- * 草稿行：选类型 → 勾选关联插件 → 指定默认 → 保存。
- * 类型来源：已声明但还没有默认打开方式的类型（下拉），或自定义输入（扩展名 / 协议名）。
+ * 草稿行（紧凑单行布局）：
+ * 类型 = 可输入 Combobox（下拉选已声明类型，或手动输入自定义后缀/协议，ext 模式支持
+ * 空格/逗号分隔批量录入多个后缀）→ 默认插件下拉（候选=声明该类型且已启用的插件）→ 保存。
+ * 关联集合（多选插件）保留在类型命中后的第二行，仅在多插件可选时展示。
  */
 function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
   rows: OpenWithRow[]
@@ -233,10 +231,10 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
   onSave: (key: OpenWithKey, pluginId: string) => Promise<SaveOutcome>
 }) {
   const availableRows = useMemo(() => rows.filter(row => !routedKeys.has(row.key)), [routedKeys, rows])
-  /** 下拉选中项：已声明类型的 key，或 CUSTOM_TYPE */
-  const [typeChoice, setTypeChoice] = useState<string>(() => availableRows[0]?.key ?? CUSTOM_TYPE)
   const [kind, setKind] = useState<OpenWithKind>(() => availableRows[0]?.kind ?? 'ext')
+  /** 输入框文本：选择已声明类型时为其 value；自定义时为用户原始输入（ext 可含分隔符） */
   const [value, setValue] = useState(() => availableRows[0]?.value ?? '')
+  const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
   const [defaultId, setDefaultId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -244,26 +242,45 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
   const inputRef = useRef<HTMLInputElement>(null)
   const rowRef = useRef<HTMLLIElement>(null)
 
-  const typeOptions = useMemo(() => [
-    ...availableRows.map(row => ({ value: row.key as string, label: formatType(row.kind, row.value) })),
-    { value: CUSTOM_TYPE, label: availableRows.length ? '自定义类型…' : '自定义类型' }
-  ], [availableRows])
-  /** 选中的类型被占用/消失后回落为自定义，避免下拉显示原始 key */
-  const choice = typeOptions.some(option => option.value === typeChoice) ? typeChoice : CUSTOM_TYPE
-  const custom = choice === CUSTOM_TYPE
-  const normalized = custom ? normalizeTypeValue(kind, value) : value
-  const key = normalized && !shapeErrorOf(kind, normalized) ? (`${kind}:${normalized}` as OpenWithKey) : null
-  const matched = useMemo(() => (key ? rows.find(row => row.key === key) : undefined), [key, rows])
+  const normalizedParts = useMemo(
+    () => normalizeTypeValue(kind, value)
+      .split(kind === 'ext' ? /[\s,]+/ : /[\s,]+/)
+      .filter(Boolean),
+    [kind, value]
+  )
+  /** ext 支持批量：全部形状合法才算命中；scheme 只取单值 */
+  const parts = kind === 'ext' ? normalizedParts : normalizedParts.slice(0, 1)
+  const shapeError = useMemo(() => {
+    for (const part of parts) {
+      const error = shapeErrorOf(kind, part)
+      if (error) return error
+    }
+    return null
+  }, [kind, parts])
+  const matched = useMemo(() => {
+    if (!parts.length) return undefined
+    const first = rows.find(row => row.kind === kind && row.value === parts[0])
+    if (kind === 'ext' && parts.length > 1) {
+      // 批量模式：每个后缀都必须有插件声明，且声明集合一致才允许一次性多选
+      const all = parts.map(part => rows.find(row => row.kind === 'ext' && row.value === part))
+      if (all.some(row => !row)) return undefined
+      return all[0]
+    }
+    return first
+  }, [kind, parts, rows])
+  const batchKeys = useMemo(() => {
+    if (kind !== 'ext' || parts.length < 2 || !matched) return []
+    return parts.map(part => `ext:${part}` as OpenWithKey)
+  }, [kind, parts, matched])
+  const batchMissing = useMemo(() => {
+    if (kind !== 'ext' || parts.length < 2) return []
+    return parts.filter(part => !rows.some(row => row.kind === 'ext' && row.value === part))
+  }, [kind, parts, rows])
 
   // 新草稿行在列表底部：滚到可见处，避免长列表里看不到
   useEffect(() => {
     rowRef.current?.scrollIntoView({ block: 'nearest' })
   }, [])
-
-  useEffect(() => {
-    if (!custom) return
-    inputRef.current?.focus()
-  }, [custom])
 
   // 命中类型变化后重置：默认全选已启用的声明者，默认项沿用已有路由或第一个
   useEffect(() => {
@@ -276,110 +293,147 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
   }, [matched])
 
   const validationError = ((): string | null => {
-    if (!normalized) return null
-    const shape = shapeErrorOf(kind, normalized)
-    if (shape) return shape
+    if (!parts.length) return null
+    if (shapeError) return shapeError
+    if (batchMissing.length) return `没有插件声明 ${batchMissing.map(part => `.${part}`).join(' ')}，请先安装对应插件或去掉它们`
     if (!matched) return '没有插件声明该类型，安装对应插件后再来关联'
     if (!matched.providers.some(provider => provider.enabled)) return '声明该类型的插件均已停用，启用后再来关联'
-    if (routedKeys.has(matched.key)) return '该类型已有默认打开方式，请先移除原映射'
+    if (kind !== 'ext' || parts.length === 1) {
+      if (routedKeys.has(matched.key)) return '该类型已有默认打开方式，请先移除原映射'
+    } else if (batchKeys.some(key => routedKeys.has(key))) {
+      return '所选类型里有的已有默认打开方式，请先移除原映射'
+    }
     return null
   })()
-  const canSave = !!matched && !validationError && selected.length > 0 && !saving && !busy
+  const canSave = !!matched && !validationError && !!defaultId && !saving && !busy
   const message = submitError ?? validationError
 
-  const toggleProvider = (pluginId: string): void => {
-    setSubmitError(null)
-    setSelected(prev => {
-      const next = prev.includes(pluginId) ? prev.filter(id => id !== pluginId) : [...prev, pluginId]
-      if (!next.length) return prev
-      if (!defaultId || !next.includes(defaultId)) setDefaultId(next[0])
-      return next
-    })
-  }
+  /** 下拉建议：已声明未映射的类型，按当前输入前缀过滤 */
+  const suggestions = useMemo(() => {
+    const prefix = normalizedParts[0] ?? ''
+    return availableRows
+      .filter(row => row.kind === kind && (!prefix || row.value.startsWith(prefix)))
+      .slice(0, 8)
+  }, [availableRows, kind, normalizedParts])
 
-  /** 设为默认时同时把它加入关联集合（默认必须是被关联的一个） */
-  const chooseDefault = (pluginId: string): void => {
-    setSubmitError(null)
-    setSelected(prev => (prev.includes(pluginId) ? prev : [...prev, pluginId]))
-    setDefaultId(pluginId)
-  }
-
-  const chooseType = (next: string): void => {
-    setSubmitError(null)
-    if (next === CUSTOM_TYPE) {
-      setTypeChoice(next)
-      setKind('ext')
-      setValue('')
-      return
-    }
-    const row = rows.find(item => item.key === next)
-    if (!row) return
-    setTypeChoice(next)
+  const chooseSuggestion = (row: OpenWithRow): void => {
     setKind(row.kind)
     setValue(row.value)
+    setOpen(false)
+    setSubmitError(null)
   }
 
   const save = async (): Promise<void> => {
-    if (!canSave || !matched) return
-    const primary = defaultId && selected.includes(defaultId) ? defaultId : selected[0]
+    if (!canSave || !matched || !defaultId) return
+    const targets = batchKeys.length ? batchKeys : [matched.key]
     setSaving(true)
     setSubmitError(null)
     try {
-      const outcome = await onSave(matched.key, primary)
-      if (!outcome.ok) setSubmitError(outcome.error ?? '保存失败')
+      for (const key of targets) {
+        const outcome = await onSave(key, defaultId)
+        if (!outcome.ok) {
+          setSubmitError(outcome.error ?? '保存失败')
+          return
+        }
+      }
     } finally {
       setSaving(false)
     }
   }
 
+  const defaultOptions = useMemo(
+    () => (matched?.providers ?? []).filter(provider => provider.enabled)
+      .map(provider => ({ value: provider.pluginId, label: provider.pluginName })),
+    [matched]
+  )
+  const defaultChoice = defaultId && defaultOptions.some(option => option.value === defaultId) ? defaultId : ''
+
   return (
     <li className="open-with-row is-draft" ref={rowRef}>
       <div className="open-with-row-body" role="group" aria-label="新增默认打开方式">
-        <div className="open-with-draft-head">
-          <Select
-            value={choice}
-            ariaLabel="选择文件类型或协议"
-            minWidth={124}
-            options={typeOptions}
-            onChange={chooseType}
-          />
-          {custom && (
-            <>
-              <Select
-                value={kind}
-                ariaLabel="类型类别"
-                minWidth={96}
-                options={[
-                  { value: 'ext', label: '文件类型' },
-                  { value: 'scheme', label: '协议' }
-                ]}
-                onChange={next => {
-                  setKind(next)
-                  setValue('')
-                  setSubmitError(null)
-                }}
-              />
-              <span className="open-with-type-field">
-                {kind === 'ext' && <span className="open-with-type-affix" aria-hidden="true">.</span>}
-                <Input
-                  ref={inputRef}
-                  className="open-with-type-input"
-                  value={value}
-                  placeholder={kind === 'ext' ? 'md' : 'enest-md'}
-                  aria-label={kind === 'ext' ? '文件扩展名（不含点）' : '协议名'}
-                  aria-invalid={!!message}
-                  onChange={event => {
-                    setValue(event.target.value)
-                    setSubmitError(null)
-                  }}
-                  onKeyDown={event => {
-                    if (event.key === 'Enter' && canSave) void save()
-                  }}
-                />
-                {kind === 'scheme' && <span className="open-with-type-affix" aria-hidden="true">://</span>}
+        <div className="open-with-draft-line">
+          <span className="open-with-draft-kind" title={kind === 'ext' ? '文件类型' : '协议'}>
+            {kind === 'ext' ? <span className="open-with-type-affix" aria-hidden="true">.</span> : null}
+            <button
+              type="button"
+              className="open-with-kind-toggle"
+              disabled={!!suggestions.length}
+              title={suggestions.length ? '已有声明类型时跟随所选类型' : '点击在文件类型 / 协议间切换'}
+              onClick={() => { setKind(kind === 'ext' ? 'scheme' : 'ext'); setValue(''); setSubmitError(null) }}
+            >
+              {kind === 'ext' ? '文件' : '协议'}
+            </button>
+          </span>
+          <span className="open-with-type-field">
+            <Input
+              ref={inputRef}
+              className="open-with-type-input"
+              value={value}
+              placeholder={kind === 'ext' ? 'md png jpg（可多个，空格分隔）' : 'enest-md'}
+              aria-label={kind === 'ext' ? '文件扩展名，可空格分隔多个' : '协议名'}
+              aria-invalid={!!message}
+              role="combobox"
+              aria-expanded={open}
+              aria-autocomplete="list"
+              aria-controls="open-with-suggestions"
+              onChange={event => {
+                setValue(event.target.value)
+                setOpen(true)
+                setSubmitError(null)
+              }}
+              onFocus={() => setOpen(true)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  const hit = suggestions[0]
+                  if (open && hit && hit.value !== normalizedParts[0]) {
+                    event.preventDefault()
+                    chooseSuggestion(hit)
+                  } else if (canSave) {
+                    event.preventDefault()
+                    void save()
+                  }
+                } else if (event.key === 'Escape' && open) {
+                  event.stopPropagation()
+                  setOpen(false)
+                }
+              }}
+            />
+            {kind === 'scheme' && <span className="open-with-type-affix" aria-hidden="true">://</span>}
+            {open && suggestions.length > 0 && (
+              <span className="open-with-suggestions" id="open-with-suggestions" role="listbox" aria-label="可选类型">
+                {suggestions.map(row => (
+                  <button
+                    type="button"
+                    key={row.key}
+                    role="option"
+                    aria-selected={row.value === normalizedParts[0]}
+                    onMouseDown={event => { event.preventDefault(); chooseSuggestion(row) }}
+                  >
+                    <span className="mono">{formatType(row.kind, row.value)}</span>
+                    <span className="open-with-suggestion-note">{row.providers.length} 插件</span>
+                  </button>
+                ))}
               </span>
-            </>
-          )}
+            )}
+          </span>
+          <Select
+            value={defaultChoice}
+            ariaLabel="默认打开插件"
+            className="open-with-default-select"
+            placeholder={defaultOptions.length ? '选择默认插件' : '暂无可用插件'}
+            options={defaultOptions}
+            disabled={!defaultOptions.length || saving}
+            onChange={next => { setDefaultId(next); setSubmitError(null) }}
+          />
+          <Button
+            size="sm"
+            variant="primary"
+            className="open-with-save-btn"
+            onClick={() => void save()}
+            disabled={!canSave}
+          >
+            {saving ? '保存中…' : batchKeys.length > 1 ? `保存 ${batchKeys.length} 项` : '保存'}
+          </Button>
           <Button
             variant="ghost"
             className="open-with-icon-btn open-with-remove"
@@ -391,33 +445,34 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
           </Button>
         </div>
 
-        <p className="open-with-row-desc">
-          {matched
-            ? `声明了该类型的 ${matched.providers.length} 个插件都可关联，勾选要保留的插件并指定默认。`
-            : availableRows.length
-              ? '选择插件已声明的类型，或选「自定义」手动输入；只有声明过该类型的插件才能被关联。'
-              : '暂无可选类型：安装并启用声明了 openWith 的插件后这里会出现可选类型，也可选「自定义」手动输入。'}
-        </p>
-
-        {matched && (
-          <ProviderList
-            providers={matched.providers}
-            selected={selected}
-            defaultId={defaultId ?? undefined}
-            disabled={saving}
-            selectable
-            onToggle={toggleProvider}
-            onSetDefault={chooseDefault}
-          />
+        {matched && matched.providers.length > 1 && (
+          <div className="open-with-draft-extra">
+            <span className="open-with-draft-extra-label">同时关联</span>
+            <ProviderList
+              providers={matched.providers}
+              selected={selected}
+              defaultId={defaultId ?? undefined}
+              disabled={saving}
+              selectable
+              onToggle={pluginId => {
+                setSubmitError(null)
+                setSelected(prev => {
+                  const next = prev.includes(pluginId) ? prev.filter(id => id !== pluginId) : [...prev, pluginId]
+                  if (!next.length) return prev
+                  if (!defaultId || !next.includes(defaultId)) setDefaultId(next[0])
+                  return next
+                })
+              }}
+              onSetDefault={pluginId => {
+                setSubmitError(null)
+                setSelected(prev => (prev.includes(pluginId) ? prev : [...prev, pluginId]))
+                setDefaultId(pluginId)
+              }}
+            />
+          </div>
         )}
 
         {message && <p className="open-with-note is-error" role="alert">{message}</p>}
-
-        <div className="open-with-draft-actions">
-          <Button size="sm" variant="primary" onClick={() => void save()} disabled={!canSave}>
-            {saving ? '保存中…' : '保存'}
-          </Button>
-        </div>
       </div>
     </li>
   )

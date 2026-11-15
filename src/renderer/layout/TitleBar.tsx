@@ -158,7 +158,20 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
         </div>
         {tabStyle === 'orb' ? <>
           <div className="titlebar-spacer" aria-hidden="true" />
-          {activePluginTitle && <span className="titlebar-plugin-name" title={activePluginTitle}>{activePluginTitle}</span>}
+          {activePluginTitle && (
+            <span className="titlebar-plugin-name" title={activePluginTitle}>
+              <PluginIcon
+                className="titlebar-plugin-label-icon"
+                src={activePluginIcon ?? undefined}
+                glyph={activePluginGlyph}
+                slot="tab"
+                size={16}
+                alt=""
+                style={activePluginColor ? { background: activePluginColor } : undefined}
+              />
+              <span className="titlebar-plugin-name-text">{activePluginTitle}</span>
+            </span>
+          )}
         </> : <div ref={defaultTabsRef} className={`titlebar-default-tabs${customClassicReady ? ' is-replaced' : ''}`}
           aria-hidden={customClassicReady || undefined}>
           <TabStrip />

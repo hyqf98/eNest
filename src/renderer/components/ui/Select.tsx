@@ -19,6 +19,8 @@ interface SelectProps<T extends string> {
   ariaLabel?: string
   /** 触发器内右侧的浅色提示文案 */
   hint?: string
+  /** 值为空字符串时显示的占位文案 */
+  placeholder?: string
   className?: string
   minWidth?: number
 }
@@ -35,6 +37,7 @@ export function Select<T extends string>({
   disabled = false,
   ariaLabel,
   hint,
+  placeholder,
   className,
   minWidth,
 }: SelectProps<T>) {
@@ -46,7 +49,9 @@ export function Select<T extends string>({
         aria-label={ariaLabel}
         style={minWidth ? { minWidth } : undefined}
       >
-        <span className="ui-select-value">{current?.label ?? value}</span>
+        <span className={`ui-select-value${current ? '' : ' is-placeholder'}`}>
+          {current?.label ?? placeholder ?? value}
+        </span>
         {hint && <span className="ui-select-hint">{hint}</span>}
         <SelectPrimitive.Icon className="ui-select-caret">
           <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">

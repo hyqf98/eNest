@@ -156,7 +156,7 @@ const enUS: EnDict = {
       enabled: 'Memory monitoring task',
       enabledDesc: 'The host samples continuously when enabled. This panel refreshes only while visible.',
       alerts: 'Memory alerts',
-      alertsDesc: 'The host sends notifications for abnormal usage. Turning alerts off does not stop sampling.',
+      alertsDesc: 'The host sends notifications for abnormal usage. Same-level repeats respect cooldown and growth thresholds. Turning alerts off does not stop sampling.',
       threshold: 'Alert threshold',
       thresholdDesc: '128–8192 MiB; default 512 MiB. Leave the field or press Enter to save.',
       invalidThreshold: 'Enter a whole number from 128 to 8192 MiB. The previous value was restored.',

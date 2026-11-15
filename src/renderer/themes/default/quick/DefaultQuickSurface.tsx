@@ -87,6 +87,11 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   const showResults = !plugin
   const query = snapshot.query, kind = snapshot.filter
   const hasQuery = Boolean(query.trim())
+  /** 键盘已进入网格导航（下/上/Tab 移动过选中）：此后左右键归网格而不是输入框光标；查询变化即重置。 */
+  const gridNavigatedRef = useRef(false)
+  const gridEpoch = snapshot.queryRevision
+  const gridEpochRef = useRef(gridEpoch)
+  if (gridEpochRef.current !== gridEpoch) { gridEpochRef.current = gridEpoch; gridNavigatedRef.current = false }
   const inputItems = snapshot.input?.items ?? []
   const media = useMemo(() => matchDefaultQuickMedia(snapshot.catalog, snapshot.input?.items), [snapshot.catalog, snapshot.input])
   const searching = snapshot.searching || (media.mediaPresent && media.matches.size > 0)
@@ -130,7 +135,9 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
     navigate: (key, shift) => {
       if (!searchActive || plugin || snapshot.busy || !visibleItems.length
         || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab'].includes(key)
-        || shift && key !== 'Tab' || query && ['ArrowLeft', 'ArrowRight'].includes(key)) return null
+        || shift && key !== 'Tab'
+        || query && ['ArrowLeft', 'ArrowRight'].includes(key) && !gridNavigatedRef.current) return null
+      if (key === 'ArrowDown' || key === 'ArrowUp' || key === 'Tab') gridNavigatedRef.current = true
       const next = moveQuickGridSelection(index, groups.map(group => group.items.length), columns, key as QuickGridKey, shift)
       return visibleItems[next].id
     }
@@ -241,8 +248,11 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
     if ((!inInput && !inGrid) || snapshot.busy || !showResults) return
     const navigation: QuickGridKey[] = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab']
     if (navigation.includes(event.key as QuickGridKey)) {
-      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey && event.key !== 'Tab' || inInput && query && ['ArrowLeft', 'ArrowRight'].includes(event.key) || !visibleItems.length) return
+      // 查询文本存在时左右键默认编辑光标；一旦用下/上/Tab 进入网格导航，左右键改归网格选择。
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey && event.key !== 'Tab'
+        || inInput && query && ['ArrowLeft', 'ArrowRight'].includes(event.key) && !gridNavigatedRef.current || !visibleItems.length) return
       event.preventDefault()
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') gridNavigatedRef.current = true
       if (event.key === 'Tab' && moreRef.current && (event.shiftKey ? index === 0 : index === visibleItems.length - 1)) { moreRef.current.focus(); return }
       select(moveQuickGridSelection(index, groups.map(group => group.items.length), columns, event.key as QuickGridKey, event.shiftKey)); focus()
     }

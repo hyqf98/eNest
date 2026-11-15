@@ -15,10 +15,16 @@ import { logWarn } from '@main/logs/logService'
 import { normalizePluginMemoryMonitor, type PluginMemoryEntry, type PluginMemoryProcess, type PluginMemorySnapshot, type PluginProcessKind } from '@shared/types/pluginMemory'
 
 const INTERVAL_MS = 5000
-const ALERT_COOLDOWN_MS = 5 * 60_000
 const MiB = 1024 * 1024
+/** A same-level repeat needs both this cooldown and real growth beyond the last alerted footprint. */
+const ALERT_COOLDOWN_MS = 15 * 60_000
+/** Long-run repeat for usage that is high but stable and already alerted at this level. */
+const ALERT_STABLE_COOLDOWN_MS = 6 * 60 * 60_000
+const ALERT_REGROWTH_BYTES = 256 * MiB
+const ALERT_REGROWTH_RATIO = 1.25
 interface Ownership { pluginId: string; kind: PluginProcessKind; identity: string }
-interface History { signature: string; peak: number; firstHighAt: number; lastAlert: number; level: PluginMemoryEntry['alert'] }
+interface History { signature: string; peak: number; firstHighAt: number; lastAlert: number; lastAlertBytes: number; level: PluginMemoryEntry['alert'] }
+interface AlertCandidate { entry: PluginMemoryEntry; record: History; measured: number }
 const history = new Map<string, History>()
 const trackedDescendants = new Map<number, { startedAt: number; owners: Ownership[] }>()
 const noticeOwner = {}
@@ -64,25 +70,57 @@ function rootsForSample(): Map<number, Ownership[]> {
   return roots
 }
 
-function alert(entry: PluginMemoryEntry, record: History, now: number): void {
-  if (entry.alert !== 'warning' && entry.alert !== 'critical') return
-  if (entry.status === 'closing' || (entry.alert !== 'critical' && now - record.firstHighAt < INTERVAL_MS * 2)) return
-  if (record.lastAlert && now - record.lastAlert < ALERT_COOLDOWN_MS && !(entry.alert === 'critical' && record.level !== 'critical')) return
-  const bytes = (entry.memoryBytes ?? 0) + (entry.sharedMemoryBytes ?? 0)
+function formatAmount(bytes: number): string {
+  return bytes >= 1024 * MiB ? `${(bytes / (1024 * MiB)).toFixed(1)} GiB` : `${Math.round(bytes / MiB)} MiB`
+}
+
+/** A level-crossing sustained for two samples, or an escalation from a previously alerted warning. */
+function shouldAlert(entry: PluginMemoryEntry, record: History, measured: number, now: number): boolean {
+  if (entry.alert !== 'warning' && entry.alert !== 'critical') return false
+  if (entry.status === 'closing') return false
+  if (now - record.firstHighAt < INTERVAL_MS * 2) return false
+  if (!record.lastAlert) return true
+  if (entry.alert === 'critical' && record.level !== 'critical') return true
+  if (now - record.lastAlert >= ALERT_STABLE_COOLDOWN_MS) return true
+  const grown = measured >= Math.max(record.lastAlertBytes + ALERT_REGROWTH_BYTES, record.lastAlertBytes * ALERT_REGROWTH_RATIO)
+  return now - record.lastAlert >= ALERT_COOLDOWN_MS && grown
+}
+
+/** One notification per sample cycle no matter how many plugins crossed their threshold. */
+function alertCandidates(candidates: AlertCandidate[], now: number): void {
+  if (!candidates.length) return
   const en = settingsStore.getLocale() === 'en-US'
-  const amount = bytes >= 1024 * MiB ? `${(bytes / (1024 * MiB)).toFixed(1)} GiB` : `${Math.round(bytes / MiB)} MiB`
-  const shared = entry.sharedMemoryBytes ? (en ? ' (includes a shared process; attribution is not exclusive)' : '（含共享进程，不能全部归属于该插件）') : ''
-  const action = entry.canClose ? (en ? 'close the plugin to release its resources.' : '关闭插件释放资源。')
-    : (en ? 'switch themes to release its workspace.' : '切换主题释放首页资源。')
-  const body = en ? `${entry.name} is using ${amount}${shared}. Open Settings > General to inspect it, or ${action}`
-    : `${entry.name} 当前占用 ${amount}${shared}。可到“设置 → 通用”查看详情，或${action}`
-  logWarn('plugin-memory', `${entry.pluginId}: ${amount}, ${entry.alert}, pids=${entry.processes.map(item => item.pid).join(',')}`)
+  const critical = candidates.some(item => item.entry.alert === 'critical')
+  let body: string
+  if (candidates.length === 1) {
+    const { entry, measured } = candidates[0]
+    const shared = entry.sharedMemoryBytes ? (en ? ' (includes a shared process; attribution is not exclusive)' : '（含共享进程，不能全部归属于该插件）') : ''
+    const action = entry.canClose ? (en ? 'close the plugin to release its resources.' : '关闭插件释放资源。')
+      : (en ? 'switch themes to release its workspace.' : '切换主题释放首页资源。')
+    body = en ? `${entry.name} is using ${formatAmount(measured)}${shared}. Open Settings > General to inspect it, or ${action}`
+      : `${entry.name} 当前占用 ${formatAmount(measured)}${shared}。可到“设置 → 通用”查看详情，或${action}`
+  } else {
+    const sorted = [...candidates].sort((left, right) => right.measured - left.measured)
+    const names = sorted.slice(0, 3).map(item => item.entry.name).join(en ? ', ' : '、')
+    const top = formatAmount(sorted[0].measured)
+    const rest = sorted.length - Math.min(sorted.length, 3)
+    body = rest > 0
+      ? (en ? `${sorted.length} plugins (${names} and ${rest} more) show high memory usage, peaking at ${top}. Open Settings > General to inspect or close them.`
+        : `${names} 等 ${sorted.length} 个插件内存占用异常，最高 ${top}。可到“设置 → 通用”查看详情并关闭插件释放资源。`)
+      : (en ? `${sorted.length} plugins (${names}) show high memory usage, peaking at ${top}. Open Settings > General to inspect or close them.`
+        : `${names} 内存占用异常，最高 ${top}。可到“设置 → 通用”查看详情并关闭插件释放资源。`)
+  }
+  for (const { entry, measured } of candidates) logWarn('plugin-memory', `${entry.pluginId}: ${formatAmount(measured)}, ${entry.alert}, pids=${entry.processes.map(item => item.pid).join(',')}`)
   try {
     showNotification(getMainWindow(), { title: en ? 'High plugin memory usage' : '插件内存占用异常', body,
-      level: entry.alert === 'critical' ? 'error' : 'warn', duration: 12000 }, { owner: noticeOwner, source: 'eNest' })
-    record.lastAlert = now
-    record.level = entry.alert
-  } catch { /* A later sample retries when the shell notification surface is available. */ }
+      level: critical ? 'error' : 'warn', duration: 12000 }, { owner: noticeOwner, source: 'eNest' })
+    for (const { record, entry, measured } of candidates) {
+      record.lastAlert = now
+      record.lastAlertBytes = measured
+      record.level = entry.alert
+    }
+  } catch { /* A later sample retries when the shell notification surface is available. */
+  }
 }
 
 async function collect(sampleEpoch: number, diagnostic = false): Promise<void> {
@@ -158,6 +196,7 @@ async function collect(sampleEpoch: number, diagnostic = false): Promise<void> {
   const now = Date.now()
   const runtimeOwners = rendererOwners()
   const ids = new Set([...runtimeOwners.map(owner => owner.pluginId), ...processes.flatMap(item => item.pluginIds)])
+  const alertQueue: AlertCandidate[] = []
   const plugins: PluginMemoryEntry[] = [...ids].map(pluginId => {
     const owned = processes.filter(item => item.pluginIds.includes(pluginId))
     const exclusive = owned.filter(item => !item.shared), shared = owned.filter(item => item.shared)
@@ -170,7 +209,7 @@ async function collect(sampleEpoch: number, diagnostic = false): Promise<void> {
       : `runtime:${generation}`
     const old = history.get(pluginId)
     const record: History = old?.signature === signature ? old : {
-      signature, peak: old?.peak ?? 0, firstHighAt: old?.firstHighAt ?? 0, lastAlert: old?.lastAlert ?? 0, level: old?.level ?? 'normal'
+      signature, peak: old?.peak ?? 0, firstHighAt: old?.firstHighAt ?? 0, lastAlert: old?.lastAlert ?? 0, lastAlertBytes: old?.lastAlertBytes ?? 0, level: old?.level ?? 'normal'
     }
     const measured = owned.reduce((total, item) => total + (item.memoryBytes ?? 0), 0)
     const threshold = settings.warningThresholdMiB * MiB
@@ -183,10 +222,11 @@ async function collect(sampleEpoch: number, diagnostic = false): Promise<void> {
       canClose: !homeSurfaceManager.getMemoryOwners().some(owner => owner.pluginId === pluginId), memoryBytes, sharedMemoryBytes,
       peakMemoryBytes: record.peak, processCount: owned.length, unmeasuredProcessCount: owned.filter(item => item.memoryBytes === null).length,
       alert: alertLevel, processes: owned }
-    if (settings.enabled && settings.alertsEnabled) alert(entry, record, now)
+    if (settings.enabled && settings.alertsEnabled && shouldAlert(entry, record, measured, now)) alertQueue.push({ entry, record, measured })
     history.set(pluginId, record)
     return entry
   }).sort((left, right) => (right.memoryBytes ?? 0) + (right.sharedMemoryBytes ?? 0) - (left.memoryBytes ?? 0) - (left.sharedMemoryBytes ?? 0) || left.name.localeCompare(right.name))
+  if (alertQueue.length) alertCandidates(alertQueue, now)
   for (const id of history.keys()) if (!ids.has(id)) history.delete(id)
   snapshot = { sampledAt: now, intervalMs: INTERVAL_MS, settings, totalMemoryBytes: sumKnown(processes.filter(item => item.pluginIds.length > 0)),
     hostMemoryBytes: sumKnown(processes.filter(item => item.pluginIds.length === 0)), sharedMemoryBytes: sumKnown(processes.filter(item => item.shared)),

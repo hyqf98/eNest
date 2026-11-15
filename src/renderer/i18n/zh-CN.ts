@@ -146,7 +146,7 @@ const zhCN = {
       enabled: '内存监控任务',
       enabledDesc: '开启后由宿主持续采样；本面板仅在可见时刷新。',
       alerts: '异常提醒',
-      alertsDesc: '内存异常时由宿主发送通知，关闭后仍可查看占用。',
+      alertsDesc: '内存异常时由宿主发送通知，同级重复提醒有冷却与增量门槛，关闭后仍可查看占用。',
       threshold: '提醒阈值',
       thresholdDesc: '128–8192 MiB，默认 512 MiB；失焦或按 Enter 保存。',
       invalidThreshold: '请输入 128–8192 的整数 MiB，已恢复原值。',

@@ -138,6 +138,17 @@ body {
   border-radius: 50%;
   display: block;
   opacity: 0.9;
+  transition: width 0.16s ease, height 0.16s ease, box-shadow 0.16s ease;
+}
+
+/* 活动定位点：放大成短棒 + 双层光环，收起态一眼锁定当前插件/首页。 */
+.orb-handle-dots i.on {
+  width: 5px;
+  height: 5px;
+  box-shadow:
+    0 0 0 1.5px color-mix(in srgb, var(--surface, #ffffff) 90%, transparent),
+    0 0 0 2.5px color-mix(in srgb, currentColor 38%, transparent);
+}
 }
 
 .orb-panel {
@@ -275,6 +286,17 @@ body {
   box-shadow:
     0 0 0 3px var(--orb-face-ring),
     0 0 0 5px var(--orb-face-ring-2),
+    var(--orb-shadow);
+}
+/* 活动项在共圈之上再叠一层 accent 描边：与 hover/focus 区分「当前插件」。 */
+.orb-item.active > .orb-face {
+  border-color: color-mix(in srgb, var(--accent, #bd542b) 62%, var(--orb-face-border, transparent));
+}
+.orb-item.active:not(:hover):not(:focus-within) .orb-face {
+  box-shadow:
+    0 0 0 3px var(--orb-face-ring),
+    0 0 0 5px var(--orb-face-ring-2),
+    0 0 0 6.5px color-mix(in srgb, var(--accent, #bd542b) 46%, transparent),
     var(--orb-shadow);
 }
 .orb-item.active .orb-face { transform: scale(var(--orb-selected-scale)); }

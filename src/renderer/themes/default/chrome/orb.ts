@@ -309,13 +309,25 @@ function syncPanel(): void {
   const dots = document.getElementById('orb-dots')
   if (!panel || !dots) return
   const homeActive = state.view === 'home'
-  const dotsKey = JSON.stringify([homeActive, state.tabs.slice(0, 3).map((tab) => tab.color)])
+  // 收起态定位：点列 = 首页 + 前 3 个插件；活动插件不在前 3 时占用末位点，
+  // 并点亮它——收起时也能从把手点列看出「当前在哪个插件」。
+  const activeTab = state.view === 'plugin' ? state.tabs.find(tab => tab.id === state.activeTabId) : undefined
+  let previewTabs = state.tabs.slice(0, 3)
+  if (activeTab && !previewTabs.includes(activeTab)) previewTabs = [...state.tabs.slice(0, 2), activeTab]
+  const dotsKey = JSON.stringify([homeActive, previewTabs.map(tab => [tab.id, tab.color, tab.id === activeTab?.id])])
   if (dotsKey !== previousDots) {
     previousDots = dotsKey
-    dots.replaceChildren(...[undefined, ...state.tabs.slice(0, 3)].map((tab) => {
+    dots.replaceChildren(...[undefined, ...previewTabs].map((tab) => {
       const dot = document.createElement('i')
-      dot.style.background = tab?.color ?? 'currentColor'
-      if (!tab) dot.style.opacity = homeActive ? '0.95' : '0.4'
+      if (!tab) {
+        dot.style.background = 'currentColor'
+        dot.style.opacity = homeActive ? '1' : '0.4'
+        if (homeActive) dot.classList.add('on')
+      } else {
+        dot.style.background = tab.color ?? 'currentColor'
+        if (tab.id === activeTab?.id) { dot.style.opacity = '1'; dot.classList.add('on') }
+        else dot.style.opacity = activeTab ? '0.45' : '0.9'
+      }
       return dot
     }))
   }
@@ -538,13 +550,16 @@ function bindEvents(): void {
 
   if (PART !== 'rail') return
 
-  // 真实 DOM 事件，但触发区限定在把手/圆球 zone（垂直居中矩形）：
-  // 沿左缘扫过条带顶部/底部（如去点设置钮）不应弹开 Tab 轨
+  // 真实 DOM 事件，但触发区按状态分流：
+  // 收起态只认垂直居中的把手矩形（±6px 容差）——zone 会随 tab 数量撑到接近整窗高，
+  // 沿用 zone 判定会让左缘窄条上任何高度（如插件左上角悬浮钮旁的路径）都唤出轨道；
+  // 展开态仍用 zone 全域，把手↔圆球间滑动不误收。
   const overChrome = (y: number): boolean => {
-    const zone = document.getElementById('orb-tabs-zone')
-    if (!zone) return false
-    const r = zone.getBoundingClientRect()
-    return y >= r.top && y <= r.bottom
+    const target = expanded ? document.getElementById('orb-tabs-zone') : document.getElementById('orb-handle')
+    if (!target) return false
+    const r = target.getBoundingClientRect()
+    const margin = expanded ? 0 : 6
+    return y >= r.top - margin && y <= r.bottom + margin
   }
   const move = (e: MouseEvent): void => {
     pointerWithinChrome = overChrome(e.clientY)
