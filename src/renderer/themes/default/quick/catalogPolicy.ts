@@ -54,6 +54,10 @@ export function namesOf(entry: DefaultSearchEntry): string[] {
   return entry.action ? ACTION_COPY[entry.action]?.aliases ?? [] : entry.aliases ?? [entry.title]
 }
 
+export function allowsQuickTextPrefix(entry: DefaultSearchEntry): entry is DefaultSearchEntry & { aliases: string[] } {
+  return entry.kind === 'plugin' && entry.textInput?.trigger === 'prefix' && Boolean(entry.aliases?.length)
+}
+
 export function rankDefaultQuickMedia<T extends DefaultSearchEntry>(
   pool: T[], mediaMatches: ReadonlySet<string>
 ): Array<DefaultQuickMatch<T>> {
@@ -63,15 +67,48 @@ export function rankDefaultQuickMedia<T extends DefaultSearchEntry>(
 }
 
 /**
- * 首页排序分：打开次数是主信号，最近使用是次信号。
- * 此前次数只占 2 分/次、时间衰减独占 100 分，一周内用过的项永远压过常用项；
- * 现在次数按对数放大到与时间同量级（1 次≈0、2 次≈60、8 次≈120、50 次≈225），
- * 再用最近使用做同分裁决，避免"很久以前开过很多次"长期霸榜。
+ * 首页排序分：最近使用是主信号，打开次数是次信号。
+ * 之前是「7 天半衰期的衰减占 40 + 次数对数占 30」：实测一次 4.2 天前用了 4 次的条目（96.0 分）
+ * 仍然压过刚刚启动的条目（87.4 分），用户感知就是「刚用过却没排到第一」。
+ * 现在半衰期缩到 2 天、时间权重提到 60，次数降到 20——刚启动的条目稳居首位，
+ * 但 1~3 天内的常用项仍能靠累计次数留在前排，不会变成纯时间流。
  */
-function recentRank(entry: DefaultSearchEntry, now: number): number {
+type QuickUsageFacts = { lastUsedTs?: number; useCount?: number }
+
+function recentRank(entry: QuickUsageFacts, now: number): number {
   if (!entry.lastUsedTs && !entry.useCount) return 0
-  const decay = entry.lastUsedTs ? Math.pow(0.5, Math.max(0, now - entry.lastUsedTs) / (7 * 24 * 60 * 60 * 1_000)) : 0
-  return decay * 40 + Math.log2(1 + Math.min(entry.useCount ?? 0, 200)) * 30
+  const decay = entry.lastUsedTs ? Math.pow(0.5, Math.max(0, now - entry.lastUsedTs) / (2 * 24 * 60 * 60 * 1_000)) : 0
+  return decay * 60 + Math.log2(1 + Math.min(entry.useCount ?? 0, 200)) * 20
+}
+
+/** 插件身份：`plugin:<id>:<code>` 去掉 code；用于把同一插件的多个入口归成一组。 */
+function pluginGroupOf(id: string): string | null {
+  const match = /^plugin:([^:]+):/.exec(id)
+  return match ? match[1] : null
+}
+
+/**
+ * 同一插件的其它入口借用「本组最强」的使用记录打折参与排序。
+ * 没有这一层时，从 Quick 用 zmhb 打开「桌面画板」只会抬高 desktop-canvas 一条，
+ * 用户再看首页仍然找不到刚碰过的「画板」——两个入口，同一个插件，却像两个插件。
+ * 折扣取 0.55 并额外衰减时间：借用只用于「别掉队」，不足以压过真正刚用过的那一条。
+ */
+function groupBoost(home: Array<DefaultSearchEntry & { id: string }>, now: number): Map<string, number> {
+  const best = new Map<string, { ts: number; count: number }>()
+  for (const entry of home) {
+    const group = pluginGroupOf(entry.id)
+    if (!group || (!entry.lastUsedTs && !entry.useCount)) continue
+    const previous = best.get(group)
+    if (!previous || (entry.lastUsedTs ?? 0) > previous.ts) best.set(group, { ts: entry.lastUsedTs ?? 0, count: entry.useCount ?? 0 })
+  }
+  const boosts = new Map<string, number>()
+  for (const entry of home) {
+    const group = pluginGroupOf(entry.id)
+    const source = group ? best.get(group) : undefined
+    if (!source || source.ts === (entry.lastUsedTs ?? 0)) continue
+    boosts.set(entry.id, recentRank({ lastUsedTs: source.ts, useCount: source.count }, now) * 0.55)
+  }
+  return boosts
 }
 
 /** Home/paste ranking stays independent of the name worker's index readiness. */
@@ -83,9 +120,13 @@ export function rankDefaultQuickHome<T extends DefaultSearchEntry>(
   const cap = Math.max(1, Math.min(100, Math.floor(limit) || 60))
   const home = pool.filter(entry => !entry.content && !entry.provider && (filter === 'action' || entry.kind !== 'action') && namesOf(entry).length > 0)
   const order = { plugin: 0, app: 1, action: 2 }
+  const boosts = groupBoost(home, now)
+  const score = (entry: DefaultSearchEntry) => recentRank(entry, now) + (boosts.get(entry.id) ?? 0)
   const ranked = home.sort((a, b) => {
-    if (Boolean(a.lastUsedTs) !== Boolean(b.lastUsedTs)) return a.lastUsedTs ? -1 : b.lastUsedTs ? 1 : 0
-    return recentRank(b, now) - recentRank(a, now) || order[a.kind] - order[b.kind] || a.title.localeCompare(b.title, 'zh-CN')
+    // 借用加成不能把「从没碰过的插件」整体炒热：先按有无真实记录分组。
+    const aUsed = Boolean(a.lastUsedTs || a.useCount), bUsed = Boolean(b.lastUsedTs || b.useCount)
+    if (aUsed !== bUsed) return aUsed ? -1 : 1
+    return score(b) - score(a) || order[a.kind] - order[b.kind] || a.title.localeCompare(b.title, 'zh-CN')
   }).slice(0, cap).map(item => ({ ...item, title: item.action ? ACTION_COPY[item.action].title : item.title, group: 'best' as const }))
   return [...rankDefaultQuickMedia(pool, mediaMatches), ...ranked].slice(0, cap)
 }

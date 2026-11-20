@@ -34,7 +34,7 @@ import { filterPermissionGrants, isBuiltinCapability } from '@shared/pluginPermi
 import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
 import type { PluginShortcutBinding } from '@shared/types/shortcuts'
 import { DEFAULT_PLUGIN_MEMORY_MONITOR, normalizePluginMemoryMonitor } from '@shared/types/pluginMemory'
-import { emptyOpenWithRoutes, type OpenWithRoutes } from '@shared/types/openWith'
+import { emptyOpenWithRoutes, validOpenWithValue, type OpenWithRoutes } from '@shared/types/openWith'
 import type { AppearanceSettings, LegacyAppearanceBackup } from '@shared/types/appearance'
 import { migrateAppearanceSettings, THEME_PROFILE_LEGACY, themeProfileKey } from '@shared/theme/appearance'
 import { migratePluginShortcuts } from './pluginShortcutMigration'
@@ -118,7 +118,7 @@ function normalizeOpenWithRoutes(raw: unknown): OpenWithRoutes {
     const bag = (raw as Record<string, unknown>)[kind]
     if (!bag || typeof bag !== 'object' || Array.isArray(bag)) continue
     for (const [value, pluginId] of Object.entries(bag as Record<string, unknown>)) {
-      if (typeof pluginId !== 'string' || !pluginId.trim()) continue
+      if (!validOpenWithValue(kind, value) || typeof pluginId !== 'string' || !pluginId.trim()) continue
       if (Object.keys(out[kind]).length >= 256) break
       out[kind][value] = pluginId
     }
@@ -540,6 +540,7 @@ export class SettingsStore {
     const previousAppearance = appearanceInputs(this.data)
     const next = this.data
     const prevRoot = this.data.general.dataRoot as string | undefined
+    if (partial.general && 'dataRoot' in partial.general) setAppPathsRoot(partial.general.dataRoot ?? null)
     if (partial.theme) next.theme = { ...next.theme, ...partial.theme }
     if (partial.general) {
       next.general = { ...next.general, ...partial.general }
@@ -571,9 +572,6 @@ export class SettingsStore {
     if (!isDeepStrictEqual(previousAppearance, appearanceInputs(next))) this.appearanceInputRevision++
     this.schedulePersist()
     if (partial.pluginLaunch) this.pluginLaunchRevision++
-    if (partial.general && 'dataRoot' in partial.general) {
-      setAppPathsRoot(this.data.general.dataRoot ?? null)
-    }
     // dataRoot 变更：锚点立即更新，并把设置行预写到新根的库，避免下次启动读到空库
     const nextRoot = this.data.general.dataRoot as string | undefined
     if (nextRoot !== prevRoot && !this.fileFallback) {
@@ -628,7 +626,8 @@ export class SettingsStore {
   /** 写入一条路由（同键覆盖） */
   async setOpenWithRoute(kind: 'ext' | 'scheme', value: string, pluginId: string): Promise<OpenWithRoutes> {
     this.ensureLoaded()
-    if (!value || !pluginId) throw new Error('invalid openWith route')
+    if (!validOpenWithValue(kind, value) || !pluginId) throw new Error('invalid openWith route')
+    if (!Object.hasOwn(this.data.openWith[kind], value) && Object.keys(this.data.openWith[kind]).length >= 256) throw new Error('已达到打开方式数量上限')
     this.data.openWith[kind][value] = pluginId
     this.schedulePersist()
     return this.getOpenWithRoutes()

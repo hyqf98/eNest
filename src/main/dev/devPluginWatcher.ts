@@ -1,6 +1,7 @@
 /** Registration owns source watching; ordinary Tab watches are only a runtime fallback. */
 import { watch, type FSWatcher } from 'node:fs'
-import { relative, resolve } from 'node:path'
+import { relative, resolve, sep } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { logWarn } from '@main/logs/logService'
 
 const RELOAD_DEBOUNCE_MS = 400
@@ -38,7 +39,7 @@ function isIgnored(state: WatchState, filename: string): boolean {
   if (IGNORED_PREFIXES.some(prefix => filename.replaceAll('\\', '/').startsWith(prefix))) return true
   if (!state.outputPath) return false
   const path = resolve(state.rootPath, filename)
-  return path === state.outputPath || path.startsWith(`${state.outputPath}/`)
+  return path === state.outputPath || path.startsWith(`${state.outputPath}${sep}`)
 }
 
 /** Re-register in place: removing first would retire the active theme and select a fallback. */
@@ -63,12 +64,12 @@ async function refreshRegistration(state: WatchState, pluginId: string, manifest
   }
   // 隐藏激活（resident/command/index-sync）没有 transition task；re-register 会推进
   // buildRevision 使激活 guard 失效（dev server 冷启动写产物即可自触发）。先等激活结算。
-  const { awaitPluginActivation } = await import('@main/launcher/pluginActivation')
+  const { awaitPluginActivation, hasPluginActivation } = await import('@main/launcher/pluginActivation')
   await awaitPluginActivation(pluginId)
   if (!isCurrent(state, pluginId)) return
   const runtime = pluginHost.getPluginView(pluginId)
   const sameRuntime = () => isCurrent(state, pluginId) && !pluginHost.getPluginTransitionTask(pluginId)
-    && pluginHost.getPluginView(pluginId) === runtime
+    && !pluginHost.isBlockedForOpen(pluginId) && !hasPluginActivation(pluginId) && pluginHost.getPluginView(pluginId) === runtime
   let completed = false
   try {
     const prepared = await prepareDevPluginReload(previous, sameRuntime, runtime === null, false)
@@ -76,7 +77,15 @@ async function refreshRegistration(state: WatchState, pluginId: string, manifest
     const current = () => sameRuntime() && prepared.isCurrent()
     // A forget/re-registration or instance transition may happen during local inspection.
     if (!pluginRegistry.get(pluginId)?.dev) return
-    pluginRegistry.addDevPlugin(prepared.summary, prepared.manifest)
+    const declarationChanged = !isDeepStrictEqual(pluginRegistry.getManifest(pluginId), prepared.manifest)
+    const needsRuntimeReload = !prepared.summary.devUrl || manifestChanged || previous.devUrl !== prepared.summary.devUrl
+      || previous.rootPath !== prepared.summary.rootPath || declarationChanged
+    if (!runtime || needsRuntimeReload) pluginRegistry.addDevPlugin(prepared.summary, prepared.manifest)
+    if (declarationChanged) {
+      const { sendShellEvent } = await import('@main/window/createShellWindow')
+      if (!current()) return
+      sendShellEvent({ type: 'plugins-changed' })
+    }
     state.outputPath = prepared.outputPath
     await pluginRegistry.waitForThemeContributions(pluginId)
     if (!current()) return
@@ -89,16 +98,14 @@ async function refreshRegistration(state: WatchState, pluginId: string, manifest
     if (!current()) return
     completed = true
     // Vite owns ordinary UI edits. Manifest/static-entry changes still require a native reload.
-    if (runtime && (!prepared.summary.devUrl || manifestChanged
-      || previous.devUrl !== prepared.summary.devUrl || previous.rootPath !== prepared.summary.rootPath)) {
+    if (runtime && needsRuntimeReload) {
       pluginHost.reloadPlugin(pluginId)
     }
   } finally {
     // Reclassify a save that raced an open/close; never start a now-dormant source or
     // publish dormant transport fields onto an instance that just finished opening.
     if (!completed && isCurrent(state, pluginId) && !sameRuntime()) {
-      state.pending = true
-      state.manifestChanged ||= manifestChanged
+      scheduleReload(state, pluginId, manifestChanged ? 'plugin.json' : 'source')
     }
   }
 }

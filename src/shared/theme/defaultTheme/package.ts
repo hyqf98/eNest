@@ -97,7 +97,8 @@ const pack: ThemePackV2 = {
         id: 'layout', title: '布局与动画', fields: [
           // 标签页样式/自动隐藏/标题栏不透明度由「设置 → 主题」的标签栏与背景透明度分区渲染，
           // 但字段仍在此声明：这两个分区只认 schema 里的 binding，删掉会让控件消失。
-          { key: 'tabStyle', label: '标签页样式', type: 'select', default: 'classic', options: [{ label: '顶部标签', value: 'classic' }, { label: '左侧圆轨', value: 'orb' }], binding: { target: 'layout', key: 'tabStyle' } },
+          { key: 'tabStyle', label: '标签页样式', type: 'select', default: 'classic', options: [{ label: '顶部标签', value: 'classic' }, { label: '圆轨', value: 'orb' }], binding: { target: 'layout', key: 'tabStyle' } },
+          { key: 'orbDock', label: '圆轨停靠', type: 'select', default: 'left', options: [{ label: '左侧', value: 'left' }, { label: '右侧', value: 'right' }], help: '圆轨吸附在窗口左边或右边；也可直接拖动把手换边', binding: { target: 'layout', key: 'orbDock' }, visibleWhen: { field: 'tabStyle', equals: 'orb' } },
           { key: 'tabAutoHide', label: '标题栏自动隐藏', type: 'switch', default: false, help: '指针离开后整条标题栏收起，移到窗口顶部即展开', binding: { target: 'layout', key: 'tabAutoHide' }, visibleWhen: { field: 'tabStyle', equals: 'classic' } },
           // tabOpacity 不挂 visibleWhen：标题栏（红绿灯 + 插件名/Tab 条）两种样式都存在，背景不透明度都要可调。
           { key: 'tabOpacity', label: '标题栏透明度', type: 'slider', default: 0, min: 0, max: 1, step: 0.05, help: '越往右越透明，可透出窗口背景', binding: { target: 'layout', key: 'tabOpacity' } },

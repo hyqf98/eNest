@@ -2,7 +2,7 @@
 
 eNest 作为本机 MCP 服务，聚合已安装、已启用的插件工具。插件负责业务处理，壳负责协议传输、参数校验、实例生命周期和权限边界；插件不需要自行监听端口。
 
-> 服务默认关闭。宿主实现包含主进程服务、专用管理 IPC 与设置页「开发者 → MCP 服务」管理区（启用、端口、运行状态、复制连接配置与已注册工具目录）；插件不能自行启用服务，也不能让用户通过普通主题或插件设置绕过该入口。本文说明现有协议与限制，不代表所有 MCP 客户端或退出重启场景已经完成目标平台验收。
+> 服务默认关闭。「设置 → 通用 → MCP 服务」可启用服务、设置端口、查看运行状态和复制连接配置。服务运行时，「已注册工具」按插件显示图标、名称、ID 和工具数；展开一行即可查看工具说明。插件不能自行启用服务，也不能通过普通主题或插件设置绕过这个入口。本文说明现有协议与限制，不代表所有 MCP 客户端或退出重启场景已经完成目标平台验收。
 
 ## 1. 声明工具
 
@@ -40,7 +40,7 @@ eNest 作为本机 MCP 服务，聚合已安装、已启用的插件工具。插
 - `inputSchema` 必须是 `type: "object"` 的 JSON Schema 2020-12；`outputSchema` 可选。引用只能使用本地 `#` 片段，不支持外部 `$ref`、`$id`、`$async`。
 - 每份 schema 最多 64 KiB、20 层深度、10000 个节点，正则最长 256 字符。宿主在受限 Worker 中编译和校验，超时拒绝，不在 Electron 主线程执行不可信正则。
 - `annotations` 仅是语义提示，不授予权限。支持 `title`、`readOnlyHint`、`destructiveHint`、`idempotentHint`、`openWorldHint`。
-- 开发态/HMR 插件不进入 MCP 目录。先按普通插件流程构建、安装、启用，再检查目录；枚举工具本身不会启动或安装插件。
+- 目录包含本机安装包和在开发者控制台登记的源码/HMR 插件。两者都必须已启用、声明有效且不在替换或卸载中；枚举不会启动开发服务或安装插件。HMR 换代后，旧注册不再可调用。
 
 ## 2. 注册处理器
 
@@ -86,9 +86,9 @@ await enest.mcp.registerHandlers({
 |---|---|---|
 | `enest_list_plugins` | 可选 `query`（关键字过滤）、`limit`（默认 50，1–100） | `plugins` 数组：`pluginId`、名称、版本、分类、启用态、feature/MCP 工具计数；不启动插件 |
 | `enest_list_plugin_apis` | 必填 `pluginId` | 三段 API 面：`features`（启动 code 与指令）、`launchEntries`（持久启动索引条目，带 `entryId/buildRevision/indexRevision`）、`mcpTools`（工具 id 列表） |
-| `enest_execute` | 必填 `pluginId`、`code`；可选 `entryId`（配 `buildRevision`/`indexRevision`）、`query`（作为功能输入文本）、`target`（`quick`/`shell`） | 走原生启动链调度插件功能（与工作区打开等价）；返回 `dispatched` 与展示位置，业务结果由插件自身呈现 |
+| `enest_execute` | 必填 `pluginId`、`code`；可选 `entryId`（配 `buildRevision`/`indexRevision`）、`query`、`target`（`quick`/`shell`） | 以 `reason: 'mcp'` 调度已启用插件的功能；返回 `dispatched` 与展示位置，不授予用户手势 |
 
-`enest_execute` 与 `enest_call_tool` 的分工：前者调度插件的**启动功能**（features/launch entries，会打开界面），后者调用插件的 **MCP 工具**（不弹界面、结构化返回）。
+`enest_execute` 可以展示视图入口。命令返回 `done` 时不改变窗口；命令返回 `view` 时，只有调用方显式指定了相同的 `target` 才展示。命令、`prepareView` 和由 MCP 发起的展示不等同于用户点击，不能弹授权或选文件。`enest_call_tool` 始终不展示界面，返回插件的结构化业务结果。
 
 `limit` 默认 20，范围 1–100。目录改变后旧 cursor 会失效，需重新从第一页枚举。调用前宿主重新检查安装、启用、构建版本、禁用/卸载屏障和处理器身份；未知插件或工具不会被自动安装。
 
@@ -132,7 +132,7 @@ await enest.mcp.registerHandlers({
 
 上述 8 个管理任务不是 HTTP 会话数或插件工具并发数，`getMcpStatus()` 等只读查询也不占该管理队列。外部 MCP 客户端不能直接调用这些管理接口；管理接口的“繁忙”拒绝不等同于第 5 节工具结果中的 `busy` 错误码。工具调用仍遵循第 3 节的会话与执行预算。
 
-启动时读取独立配置，退出时关闭 HTTP/Worker；安装、启停、更新与卸载影响工具目录及运行资格。管理入口在宿主设置页「开发者 → MCP 服务」（启用/端口、状态、复制连接配置、工具目录分页与最近调用），由可信壳视图直接调用上述管理接口；第三方主题快照不发布可用的 MCP 原生分组，不能靠拼接 section ID 进入。字段细节以自动生成的 [TypeScript 类型](api-types.md) 中 `McpToolDeclaration`、`McpToolResult`、`McpHandlerContext` 为准；宿主扩展管理入口还须遵守[宿主开发标准](host-development.md)的来源、生命周期和原生确认规则。
+启动时读取独立配置，退出时关闭 HTTP/Worker；安装、启停、更新与卸载影响工具目录及运行资格。「设置 → 通用 → MCP 服务」中的工具目录和最近调用由可信壳视图读取；第三方主题快照不发布可用的 MCP 原生分组，不能靠拼接 section ID 进入。字段细节以自动生成的 [TypeScript 类型](api-types.md) 中 `McpToolDeclaration`、`McpToolResult`、`McpHandlerContext` 为准；宿主扩展管理入口还须遵守[宿主开发标准](host-development.md)的来源、生命周期和原生确认规则。
 
 ## 7. 图像返回实践
 

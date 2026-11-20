@@ -1,6 +1,6 @@
 /** 插件市场展示元数据：统一远程索引、本地 manifest 与已安装摘要的图片解析和合并。 */
 import { isPluginAssetPath } from '@shared/pluginContract'
-import manifestSchema from '@shared/pluginManifest.schema.json'
+import { isPackageId, isPackageVersion } from './packageIdentity'
 import { pluginProtocolUrl } from '@shared/constants'
 import type { PluginManifest, PluginPermission, PluginSummary, PluginUiConfig } from '@shared/types/plugin'
 import { PLUGIN_PERMISSIONS, resolvePluginUi } from '@shared/types/plugin'
@@ -50,8 +50,6 @@ export interface MarketPluginSummary {
 
 const SCREENSHOT_LIMIT = 8
 const IMAGE_EXTENSION = /\.(png|jpe?g|webp|gif)$/i
-const PLUGIN_ID_PATTERN = new RegExp(manifestSchema.properties.id.pattern)
-const PLUGIN_VERSION_PATTERN = new RegExp(manifestSchema.properties.version.pattern)
 /** 本地兜底分类；远程 registry 声明 categories 时以其为准（插件仓库配置即市场分类） */
 const CATEGORIES = new Set(['效率', '开发', '设计', '媒体', '其它'])
 
@@ -180,8 +178,7 @@ export function parseRemoteMarket(
   return data.plugins.flatMap((raw: unknown) => {
     if (!raw || typeof raw !== 'object') return []
     const p = raw as RemoteRegistryPlugin
-    if (typeof p.id !== 'string' || !PLUGIN_ID_PATTERN.test(p.id) || p.id === manifestSchema.properties.id.not.const || typeof p.name !== 'string' || !p.name.trim() ||
-        typeof p.version !== 'string' || !PLUGIN_VERSION_PATTERN.test(p.version)) return []
+    if (!isPackageId(p.id) || typeof p.name !== 'string' || !p.name.trim() || !isPackageVersion(p.version)) return []
     const category = stringValue(p.category).trim()
     const installs = typeof p.installs === 'number' && Number.isFinite(p.installs) && p.installs > 0 ? p.installs : 0
     const asset = stringValue(p.asset?.url) || stringValue(p.asset?.name)
@@ -210,7 +207,7 @@ export function parseRemoteMarket(
       featured: p.featured === true,
       tags: marketTags(p.tags),
       packageSize: typeof p.asset?.size === 'number' && Number.isSafeInteger(p.asset.size) && p.asset.size > 0 ? p.asset.size : undefined,
-      assetUrl,
+      assetUrl: assetUrl?.startsWith('https://') && /^[0-9a-f]{64}$/.test(sha) ? assetUrl : null,
       assetSha256: /^[0-9a-f]{64}$/.test(sha) ? sha : null,
       source: 'remote' as const
     }]

@@ -14,12 +14,14 @@ interface Props {
   items: PluginPresentation[]
   onOpen: (id: string) => void
   onDetail?: (id: string, origin?: HTMLElement | null) => void
+  /** 升级已安装插件到市场最新版本；缺省则不显示升级角标。 */
+  onUpdate?: (id: string) => void
   paused?: boolean
   continuous?: boolean
   mediaVisible?: boolean
 }
 
-export const FeaturedCarousel = memo(function FeaturedCarousel({ items, onOpen, onDetail, paused = false, continuous = true, mediaVisible = true }: Props) {
+export const FeaturedCarousel = memo(function FeaturedCarousel({ items, onOpen, onDetail, onUpdate, paused = false, continuous = true, mediaVisible = true }: Props) {
   const { locale, t } = useI18n()
   const english = locale === 'en-US'
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -92,6 +94,11 @@ export const FeaturedCarousel = memo(function FeaturedCarousel({ items, onOpen, 
               data-plugin-id={plugin.id}
               data-product-position={physicalIndex}
               data-product-clone={clone || undefined}
+              /* 侧卡内容贴向中间卡那一侧：物理位置在激活项左边的贴右、右边的贴左。
+                 否则侧卡只露出靠内的一条窄边，居中内容会落在被裁掉的部分之外，
+                 看到的是空白而不是图标与名称。
+                 激活项的物理位置就是 index（positions 里 0..len-1 与 itemIndex 一一对应）。 */
+              data-side={active ? undefined : physicalIndex < index ? 'left' : 'right'}
               role={clone ? undefined : 'group'}
               aria-roledescription={clone ? undefined : 'slide'}
               aria-label={clone ? undefined : `${itemIndex + 1} / ${items.length}: ${plugin.name}`}
@@ -103,11 +110,11 @@ export const FeaturedCarousel = memo(function FeaturedCarousel({ items, onOpen, 
               } : undefined}
               onClick={() => { if (!active) select(itemIndex) }}
             >
-              <div className="product-peek" aria-hidden="true">
+              {/* 三卡布局：两侧卡缩小模糊，但仍保留"图标 + 名称"的可辨认轮廓——
+                  完全糊掉会让用户不知道旁边有什么，失去"左右还能切"的暗示。 */}
+              <div className="product-side" aria-hidden="true">
                 <PluginIcon src={plugin.icon} glyph={plugin.glyph} slot="featured" className="product-icon" />
                 <strong>{plugin.name}</strong>
-                <p className="product-peek-description">{plugin.description}</p>
-                <span>{english ? 'View plugin' : '查看插件'} <ChevronRightIcon size={13} /></span>
               </div>
               <div className="product-copy" onClick={(event) => {
                 // The title button supplies keyboard access; the surrounding copy shares its action.
@@ -131,6 +138,24 @@ export const FeaturedCarousel = memo(function FeaturedCarousel({ items, onOpen, 
                   {clone ? <span className="product-cta">{cta}</span> : (
                     <button type="button" className="product-cta" tabIndex={interactive ? 0 : -1}
                       onClick={(event) => { if (interactive) openPlugin(plugin, event.currentTarget.closest<HTMLElement>('.product-slide')) }}>{cta}</button>
+                  )}
+                  {/* 升级角标：市场里有更高版本时出现，点击直接走宿主的 updatePlugin 标准流程。
+                      只有已安装且 latestVersion 高于当前 version 才显示——未安装的走「安装」CTA。 */}
+                  {!clone && onUpdate && plugin.installed && plugin.latestVersion && plugin.latestVersion !== plugin.version && (
+                    <button type="button" className="product-update" tabIndex={interactive ? 0 : -1}
+                      title={english ? `Update to v${plugin.latestVersion}` : `升级到 v${plugin.latestVersion}`}
+                      aria-label={english ? `Update ${plugin.name} to v${plugin.latestVersion}` : `升级 ${plugin.name} 到 v${plugin.latestVersion}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        if (interactive) onUpdate(plugin.id)
+                      }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth={ICON_STROKE_WIDTH} strokeLinecap="round" strokeLinejoin="round"
+                        aria-hidden="true" focusable="false">
+                        <path d="M12 19V5M5 12l7-7 7 7" />
+                      </svg>
+                      <span>{english ? `v${plugin.latestVersion}` : `升级 v${plugin.latestVersion}`}</span>
+                    </button>
                   )}
                   <div className="product-stats">
                     <span>v{plugin.version}</span>

@@ -4,7 +4,6 @@
  * 仅存 id + 绝对路径 + 开发地址覆盖 + 退出即杀开关；manifest 每次从目录现读。
  * 旧记录里的 mode / preview 字段被读取时忽略并丢弃（不再有 dev/prod 切换），不影响加载。
  */
-import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { getAppPaths } from '@main/paths/pathsService'
@@ -23,27 +22,26 @@ export function devPluginsFile(): string {
   return join(getAppPaths().plugins, 'dev.json')
 }
 
-export async function readDevPluginRecords(): Promise<DevPluginRecord[]> {
+export async function readDevPluginRecords(requireComplete = false): Promise<DevPluginRecord[]> {
   const file = devPluginsFile()
-  if (!existsSync(file)) return []
   try {
     const raw = await readFile(file, 'utf8')
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
-    } catch {
+    } catch (error) {
+      if (requireComplete) throw error
       // 写入中断等损坏：截取首个完整数组前缀尽力恢复，避免 dev 插件全部静默丢失
       const end = raw.indexOf(']')
       if (end <= 0) throw new Error('unrecoverable content')
       parsed = JSON.parse(raw.slice(0, end + 1))
       logWarn('dev', 'dev.json was corrupt, recovered records from valid prefix')
     }
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter((x): x is DevPluginRecord => {
-        const r = x as Partial<DevPluginRecord>
-        return typeof r?.id === 'string' && r.id.length > 0 && typeof r?.path === 'string' && r.path.length > 0
-      })
+    if (!Array.isArray(parsed)) throw new Error('Invalid development source registry')
+    const records = parsed.filter((record): record is DevPluginRecord => typeof record?.id === 'string' && record.id.length > 0
+      && typeof record.path === 'string' && record.path.length > 0)
+    if (requireComplete && records.length !== parsed.length) throw new Error('Invalid development source record')
+    return records
       // 仅保留仍被使用的字段；旧记录多出来的 mode / preview 在此被丢弃，不报错也不迁移。
       .map((r) => ({
         id: r.id, path: r.path,
@@ -51,7 +49,9 @@ export async function readDevPluginRecords(): Promise<DevPluginRecord[]> {
         ...(r.killOnHide ? { killOnHide: true } : {})
       }))
   } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
     logWarn('dev', `read dev.json failed: ${(err as Error).message}`)
+    if (requireComplete) throw err
     return []
   }
 }
@@ -72,7 +72,7 @@ async function writeDevPluginRecords(records: DevPluginRecord[]): Promise<void> 
 /** Serialize read-modify-write operations so concurrent developer actions cannot lose records. */
 let mutationTail: Promise<void> = Promise.resolve()
 function updateRecords(change: (records: DevPluginRecord[]) => DevPluginRecord[]): Promise<void> {
-  const operation = mutationTail.then(async () => writeDevPluginRecords(change(await readDevPluginRecords())))
+  const operation = mutationTail.then(async () => writeDevPluginRecords(change(await readDevPluginRecords(true))))
   mutationTail = operation.catch(() => {})
   return operation
 }

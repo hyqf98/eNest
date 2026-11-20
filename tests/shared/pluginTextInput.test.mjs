@@ -2,11 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
+import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const bundle = await build({
-  stdin: { contents: `export * from '@shared/pluginTextInput'; export { collectPluginFeatureIssues } from '@shared/pluginCommands'; export { rankDefaultQuickCatalog } from '@renderer/themes/default/quick/searchPolicy';`, resolveDir: root },
+  stdin: { contents: `export * from '@shared/pluginTextInput'; export { collectPluginFeatureIssues } from '@shared/pluginCommands'; export { rankDefaultQuickCatalog } from '@renderer/themes/default/quick/searchPolicy'; export { allowsQuickTextPrefix, namesOf } from '@renderer/themes/default/quick/catalogPolicy';`, resolveDir: root },
   tsconfig: join(root, 'tsconfig.node.json'), bundle: true, write: false, platform: 'node', format: 'esm'
 })
 const api = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`)
@@ -65,6 +66,46 @@ test('explicit prefix outranks learned names and survives media long-text suppre
   assert.equal(api.rankDefaultQuickCatalog(catalog, 'fy hello')[0].id, 'text')
   assert.equal(api.rankDefaultQuickCatalog(catalog, `fy ${'hello '.repeat(20)}`, undefined, 60, new Set(), new Set(), true)[0].id, 'text')
   assert.deepEqual(api.rankDefaultQuickCatalog([{ ...catalog[1], textInput: undefined }], 'fy hello'), [])
+})
+
+test('the same query separates drawing entry names, text consumers and a plugin-returned history preview', () => {
+  const catalog = [
+    { id: 'desktop', kind: 'plugin', title: '桌面标注', aliases: ['桌面画板'] },
+    { id: 'board', kind: 'plugin', title: '画板', aliases: ['draw'] },
+    { id: 'translate', kind: 'plugin', title: '翻译文本', content: { type: 'over', minLength: 1 } },
+    { id: 'record', kind: 'plugin', title: '一条历史预览', provider: true }
+  ]
+  const rank = matches => api.rankDefaultQuickCatalog(catalog, '画板', null, 60, matches).map(item => [item.title, item.group])
+  const named = [['画板', 'best'], ['桌面画板', 'best']]
+  assert.deepEqual(rank(new Set()), [...named, ['一条历史预览', 'provider']])
+  assert.deepEqual(rank(new Set(['translate'])), [...named, ['翻译文本', 'recommendation'], ['一条历史预览', 'provider']])
+})
+
+test('worker and synchronous ranking find display titles, aliases and mixed terms without minting prefix triggers', async () => {
+  const catalog = [
+    { id: 'draw', kind: 'plugin', title: '桌面画板', aliases: ['canvas tool', 'scratch'], textInput: prefix },
+    { id: 'content-only', kind: 'plugin', title: '桌面画板', aliases: [], textInput: prefix },
+    { id: 'title-only', kind: 'plugin', title: '便笺', textInput: prefix },
+    { id: 'no-prefix', kind: 'plugin', title: '快捷操作', aliases: ['quick'], textInput: { type: 'text', trigger: 'none' } }
+  ]
+  const bundle = await build({ entryPoints: [join(root, 'src/renderer/themes/default/quick/nameSearchWorker.ts')],
+    tsconfig: join(root, 'tsconfig.web.json'), bundle: true, write: false, platform: 'browser', format: 'iife' })
+  let response
+  const self = { postMessage: message => { response = message } }
+  runInNewContext(bundle.outputFiles[0].text, { self })
+  const rows = catalog.map(item => ({ key: item.id, kind: item.kind, title: item.title, names: api.namesOf(item), prefix: api.allowsQuickTextPrefix(item) }))
+  self.onmessage({ data: { id: 0, query: '', filter: null, preferred: [], index: { upsert: rows, remove: [], order: rows.map(row => row.key) } } })
+  for (const [query, expected] of [
+    ['画板', [['draw', '桌面画板', false]]], ['zmhb', [['draw', '桌面画板', false]]],
+    ['ＳＣＲＡＴＣＨ', [['draw', 'scratch', false]]], ['画板 scratch', [['draw', '桌面画板', false]]],
+    ['canvas   tool\t原 文', [['draw', 'canvas   tool', true]]], ['桌面画板 原文', []], ['zmhb 原文', []],
+    ['便笺', [['title-only', '便笺', false]]], ['便笺 原文', []], ['quick 原文', []]
+  ]) {
+    self.onmessage({ data: { id: 1, query, filter: null, preferred: [] } })
+    assert.deepEqual(Array.from(response.hits, hit => [rows[hit.index].key, hit.keyword, Boolean(hit.prefix)]), expected, `worker: ${query}`)
+    assert.deepEqual(api.rankDefaultQuickCatalog(catalog, query).map(item => [item.id, item.title, Boolean(item.prefix)]), expected, `sync: ${query}`)
+  }
+  assert.deepEqual(api.buildPluginTextInput('桌面画板 原文', catalog[0].aliases, prefix), { text: '桌面画板 原文', query: { raw: '桌面画板 原文' } })
 })
 
 test('manifest validator rejects malformed input declarations and unknown fields', () => {

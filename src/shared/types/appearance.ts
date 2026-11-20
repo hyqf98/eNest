@@ -7,7 +7,9 @@ export type ThemeSettingValue = string | number | boolean | BackgroundConfig | n
 export type ThemeColorToken = '--bg' | '--surface' | '--surface-2' | '--surface-3' | '--text' | '--text-2' | '--text-3' | '--accent' | '--ok' | '--danger' | '--border' | '--border-strong' | '--link'
 /** Options a theme can expose for the classic top tab strip. */
 export type ThemeTabStripKey = 'tabOpacity' | 'tabAutoHide'
-export type ThemeLayoutKey = 'density' | 'gap' | 'sidebarWidth' | 'contentWidth' | 'columns' | 'tabStyle' | 'cardOpacity' | ThemeTabStripKey
+/** Which window edge the orb rail docks to. The native view bounds mirror this value. */
+export type ThemeOrbKey = 'orbDock'
+export type ThemeLayoutKey = 'density' | 'gap' | 'sidebarWidth' | 'contentWidth' | 'columns' | 'tabStyle' | 'cardOpacity' | ThemeTabStripKey | ThemeOrbKey
 export type ThemeBackgroundKind = 'none' | 'gradient' | 'color' | 'image' | 'video'
 export type ThemeBackgroundPalette = 'theme' | 'dawn' | 'mint' | 'linen' | 'peach' | 'ocean' | 'forest' | 'ink'
 /** A pack-declared atmosphere preset; both paints are validated before the pack is accepted. */
@@ -111,6 +113,8 @@ export interface AppearanceLayout {
   cardOpacity?: number
   /** Classic titlebar collapses to an 8px host-owned reveal strip. */
   tabAutoHide?: boolean
+  /** Window edge the orb rail docks to; the native overlay view mirrors this side. */
+  orbDock?: 'left' | 'right'
   density: number
   gap: number
   sidebarWidth: number

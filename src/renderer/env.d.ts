@@ -7,7 +7,9 @@
  */
 interface Window {
   /** preload 桥接的 shell 能力；仅 DEV 浏览器预览可在缺失时使用独立夹具。 */
-  enestShell?: import('@renderer/services/shellApi').ShellApi
+  enestShell?: import('@shared/types/shellApi').ShellApi
+  enestQuickHost?: import('@shared/types/shellApi').QuickHostBridge
+  enestBuiltinChrome?: import('@shared/types/shellApi').BuiltinChromeBridge
   enestChrome?: import('@shared/types/themeChrome').ThemeChromeApi
   enestSettings?: import('@shared/types/themeSettings').EnestSettingsApi
   enestWindows?: import('@shared/types/plugin-window').PluginWindowsApi

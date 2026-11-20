@@ -12,12 +12,12 @@ import { invalidatePluginFileCache } from '@main/plugin/pluginProtocol'
 import { registerTrustedSurface, revokeTrustedSurface } from '@main/ipc/ipcSecurity'
 import type { ShellEventPayload } from '@shared/types/ipc'
 import { getMainWindow, getShellBounds, resolvePreload, sendShellEvent, setHomeEventSink } from '@main/window/createShellWindow'
-import { raiseOrbRailViews } from '@main/window/orbRailViews'
+import { raiseOrbRailViews, buildHomeTabsSnapshot } from '@main/window/orbRailViews'
 import { raiseTransientViews } from '@main/window/transientViews'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { markStartupPhase } from '@main/logs/startupTiming'
 import { parseHomeReference } from './homeSecurity'
-import { resolveHomePage, type ResolvedHomePage } from './homeRegistry'
+import { isHomeBuildCurrent, resolveHomePage, type ResolvedHomePage } from './homeRegistry'
 import { getHomeAppearanceSnapshot, invalidateHomeSearchHandles, suspendHomeSearch } from './homeDataService'
 import { BUILT_IN_HOME_SOURCE } from './homeContract'
 import { createHomeSession, disposeHomeSession, homeEntryUrl } from './homeSessionPolicy'
@@ -32,6 +32,8 @@ export interface HomeTransaction {
 
 interface Runtime {
   generation: number
+  buildRevision: string
+  themeBuild: string
   reference: { source: string; id: string; variant: string }
   appearance: ResolvedAppearance
   sentAppearanceKey: string
@@ -105,7 +107,7 @@ export class HomeSurfaceManager {
   private nextGeneration = 1
   private nextNavigation = 1
   private readonly devRevisions = new Map<string, number>()
-  private readonly devReloads = new Map<string, Promise<void>>()
+  private readonly providerReloads = new Map<string, Promise<void>>()
   private desiredVisible = false
   private desiredRoute: WorkspaceRoute = { page: 'catalog' }
   private recoverySuspended = false
@@ -123,12 +125,14 @@ export class HomeSurfaceManager {
       && !runtime.view.webContents.isDestroyed() ? [{ pluginId: runtime.reference.source, generation: runtime.generation, wcId: runtime.view.webContents.id }] : [])
   }
 
-  async prepare(candidate: ResolvedAppearance): Promise<HomeTransaction> {
+  async prepare(candidate: ResolvedAppearance, mayStart: () => boolean = () => true): Promise<HomeTransaction> {
     if (!candidate || candidate.version !== 2) throw new Error('Invalid appearance candidate')
     const reference = parseHomeReference(candidate.home)
     if (!reference) throw new Error('Invalid home reference')
+    const themeSource = candidate.theme.source
+    const themeBuild = themeSource === BUILT_IN_HOME_SOURCE ? 'builtin' : pluginRegistry.getBuildRevision(themeSource)
     const page = await resolveHomePage(reference.source, reference.id, reference.variant)
-    if (!page) throw new Error('Home page is unavailable')
+    if (!page || !mayStart() || !isHomeBuildCurrent(themeSource, themeBuild)) throw new Error('Home page is unavailable')
     const trustedUrl = this.entryUrl(page)
     const runtimeKey = this.runtimeKey(page)
     if (
@@ -144,6 +148,7 @@ export class HomeSurfaceManager {
           if (settled || this.current !== current || current.retired) return
           settled = true
           current.appearance = candidate
+          current.themeBuild = themeBuild
           current.reference = reference
           this.sendAppearance(current, candidate)
           this.setRuntimeVisible(this.desiredVisible)
@@ -153,7 +158,7 @@ export class HomeSurfaceManager {
       }
     }
 
-    await this.closePreparing()
+    this.closePreparing()
     const generation = this.nextGeneration++
     if (!this.hasCurrent) this.publishState({ status: 'loading', generation, route: { ...this.desiredRoute } })
     const view = new WebContentsView({
@@ -169,6 +174,8 @@ export class HomeSurfaceManager {
     const homeSession = view.webContents.session
     const runtime: Runtime = {
       generation,
+      buildRevision: page.buildRevision,
+      themeBuild,
       reference,
       appearance: candidate,
       sentAppearanceKey: '',
@@ -223,6 +230,7 @@ export class HomeSurfaceManager {
       markStartupPhase('home-did-finish-load', `generation=${generation} source=${reference.source}`)
       await this.waitForReady(runtime)
       await this.ensureDesiredRoute(runtime)
+      if (!isHomeBuildCurrent(reference.source, runtime.buildRevision) || !isHomeBuildCurrent(themeSource, themeBuild)) throw new Error('Workspace provider changed during preparation')
       if (this.preparing !== runtime) return this.retiringTransaction(runtime)
       return {
         commit: () => {
@@ -292,7 +300,7 @@ export class HomeSurfaceManager {
       entryPath: page.entryPath,
       rootPath: page.rootPath,
       contribution: page.contribution,
-      buildRevision: page.contribution.source === BUILT_IN_HOME_SOURCE ? 'builtin' : pluginRegistry.getBuildRevision(page.contribution.source),
+      buildRevision: page.buildRevision,
       devRevision: this.devRevisions.get(page.contribution.source) ?? 0,
     })
   }
@@ -303,25 +311,42 @@ export class HomeSurfaceManager {
     if (!plugin?.dev) return Promise.resolve()
     if (plugin.rootPath) invalidatePluginFileCache(plugin.rootPath)
     this.devRevisions.set(pluginId, (this.devRevisions.get(pluginId) ?? 0) + 1)
-    const running = this.devReloads.get(pluginId)
+    return this.refreshProvider(pluginId)
+  }
+
+  refreshInstalledSource(): void {
+    const current = this.current
+    if (!current || this.recoverySuspended || this.preparing) return
+    const source = current.appearance.theme.source
+    if (source === BUILT_IN_HOME_SOURCE) return
+    if (pluginRegistry.getInstalledPackage(source) && !pluginRegistry.get(source)?.dev && pluginRegistry.isEnabled(source)
+      && current.themeBuild !== pluginRegistry.getBuildRevision(source)) void this.refreshProvider(source)
+  }
+
+  private refreshProvider(pluginId: string): Promise<void> {
+    const running = this.providerReloads.get(pluginId)
     if (running) return running
+    const revision = () => JSON.stringify([pluginRegistry.getBuildRevision(pluginId), this.devRevisions.get(pluginId) ?? 0])
     const operation = (async () => {
-      let observed: number
+      let observed: string
       do {
-        observed = this.devRevisions.get(pluginId) ?? 0
+        observed = revision()
+        await pluginRegistry.waitForThemeContributions(pluginId)
+        if (revision() !== observed) continue
         const current = this.current
-        if (!current || current.retired || current.reference.source !== pluginId || this.recoverySuspended || this.preparing) return
+        if (!current || current.retired || current.appearance.theme.source !== pluginId || this.recoverySuspended || this.preparing) return
         const recoveryRevision = this.recoveryRevision
         const appearance = getAppearance()
-        if (appearance.home.source !== pluginId) return
+        if (appearance.theme.source !== pluginId) return
         let transaction: HomeTransaction | null = null
         try {
-          transaction = await this.prepare(appearance)
+          transaction = await this.prepare(appearance, () => this.current === current && !this.preparing && !this.recoverySuspended
+            && recoveryRevision === this.recoveryRevision && observed === revision())
           if (this.current !== current || current.retired || recoveryRevision !== this.recoveryRevision || this.recoverySuspended) {
             transaction.rollback()
             return
           }
-          if (observed !== this.devRevisions.get(pluginId)) {
+          if (observed !== revision()) {
             transaction.rollback()
             continue
           }
@@ -335,17 +360,23 @@ export class HomeSurfaceManager {
           transaction.commit()
           this.updateAppearance(latest)
           this.setRuntimeVisible(this.desiredVisible)
-          logInfo('home', `dev workspace refreshed: ${pluginId}`)
+          logInfo('home', `workspace refreshed: ${pluginId}`)
         } catch (error) {
           transaction?.rollback()
-          // A half-written edit must not tear down the last working development page.
-          logWarn('home', `dev refresh ${pluginId} kept the previous workspace: ${String(error)}`)
+          if (observed !== revision()) continue
+          logWarn('home', `workspace refresh ${pluginId}: ${String(error)}`)
+          if (!pluginRegistry.get(pluginId)?.dev && this.current === current && !this.preparing && !this.recoverySuspended && recoveryRevision === this.recoveryRevision) {
+            this.current = null
+            this.retireRuntime(current)
+            this.publishState({ status: 'error', generation: current.generation, message: '更新后的工作区未能完成加载', recovery: true, route: { ...this.desiredRoute } })
+            for (const listener of this.faultListeners) listener('更新后的工作区未能完成加载')
+          }
         }
-      } while (observed !== this.devRevisions.get(pluginId))
+      } while (observed !== revision())
     })().finally(() => {
-      if (this.devReloads.get(pluginId) === operation) this.devReloads.delete(pluginId)
+      if (this.providerReloads.get(pluginId) === operation) this.providerReloads.delete(pluginId)
     })
-    this.devReloads.set(pluginId, operation)
+    this.providerReloads.set(pluginId, operation)
     return operation
   }
 
@@ -366,6 +397,9 @@ export class HomeSurfaceManager {
     }
     runtime.ready = true
     markStartupPhase('home-ready', `generation=${runtime.generation} source=${runtime.reference.source}`)
+    // 首页就绪后补推一次 Tab 投影：Provider 自己也会 getTabs()，
+    // 但 ready 是「可以收事件」的确定时点，避免初次挂载时 Tab 条短暂为空。
+    this.sendTabs(runtime)
     for (const resolve of runtime.readyWaiters.splice(0)) resolve()
     runtime.readyRejecters.splice(0)
     if (runtime === this.current) this.setRuntimeVisible(this.desiredVisible)
@@ -374,12 +408,12 @@ export class HomeSurfaceManager {
   isContentsActive(wcId: number): boolean {
     const runtime = this.current
     return Boolean(runtime && runtime.view.webContents.id === wcId && !runtime.retired && runtime.visible
-      && !runtime.navigation && routeKey(runtime.route) === routeKey(this.desiredRoute))
+      && isHomeBuildCurrent(runtime.reference.source, runtime.buildRevision) && !runtime.navigation && routeKey(runtime.route) === routeKey(this.desiredRoute))
   }
 
   getContentsGeneration(wcId: number): number | null {
     const runtime = [this.current, this.preparing].find(item => item?.view.webContents.id === wcId)
-    return runtime && !runtime.retired && !runtime.view.webContents.isDestroyed() ? runtime.generation : null
+    return runtime && !runtime.retired && !runtime.view.webContents.isDestroyed() && isHomeBuildCurrent(runtime.reference.source, runtime.buildRevision) ? runtime.generation : null
   }
 
   getContentsActivityRevision(wcId: number): number | null {
@@ -517,7 +551,7 @@ export class HomeSurfaceManager {
   suspendForRecovery(): void {
     this.recoverySuspended = true
     this.recoveryRevision++
-    void this.closePreparing()
+    this.closePreparing()
     if (this.current) this.cancelNavigation(this.current, new Error('Workspace is suspended for recovery'))
     this.setRuntimeVisible(false)
     this.publishState({ status: 'error', generation: this.current?.generation ?? this.preparing?.generation ?? this.state.generation, recovery: true, route: { ...this.desiredRoute }, message: '工作区已暂停，可在设置中恢复' })
@@ -572,11 +606,14 @@ export class HomeSurfaceManager {
   private bounds() {
     const shell = getShellBounds()
     /*
-     * 首页表面从窗口最顶端铺满，不再让出标题栏高度。
-     * 让出 36px 时，那一条只有主壳自己的底色、没有背景动效，
-     * 与下方首页视图的动效之间会出现一条可见的分割线；
-     * 标题栏本身是透明的（红绿灯浮在上面），所以这里铺满不会遮住任何东西。
-     * 页面内容的顶部留白由 workspace 自身的内边距提供。
+     * 首页表面铺满整个窗口（含标题栏那一条）。
+     *
+     * 它是原生 WebContentsView，DOM 的 z-index 管不到它。两种做法都不行：
+     *   · 让主壳标题栏浮在首页之上 —— 原生视图永远盖住 DOM，浮不上去；
+     *   · 让首页顶部切掉 36px 露出标题栏 —— 那条由主壳单独绘制、与首页自己的
+     *     背景动效不同源，接缝处会出现一条可见分割线。
+     * 所以首页照旧铺满，窗口控件由首页自己画在左上角（见 DefaultWorkspace 的
+     * WindowControls），主壳那组在首页时用 CSS 隐藏，避免两套并存。
      */
     return {
       x: 0,
@@ -630,7 +667,7 @@ export class HomeSurfaceManager {
     } catch { /* teardown may race */ }
   }
 
-  private async closePreparing(): Promise<void> {
+  private closePreparing(): void {
     const runtime = this.preparing
     this.preparing = null
     this.retireRuntime(runtime)
@@ -726,14 +763,49 @@ export class HomeSurfaceManager {
     runtime.view.webContents.send(IpcChannels.HomeEvent, { command })
   }
 
+  /**
+   * classic 模式下把 Tab 投影推给首页。首页自绘 Tab 条用同一份数据，
+   * 与主壳/圆轨不产生第二套状态：来源是 orbRailViews 的 lastState。
+   * orb 模式首页没有 Tab 条，但照样下发（首页按 tabStyle 自行决定是否渲染）。
+   */
+  private sendTabs(runtime: Runtime | null): void {
+    if (!runtime || runtime.retired || runtime.view.webContents.isDestroyed()) return
+    /*
+     * 只在 ready 之后发。首页 WebContents 在 did-finish-load 之前收不到 preload 桥的
+     * 监听注册，早发的消息会被直接丢掉——这正是"刷新进首页没有 Tab 条"的成因之一。
+     * 未 ready 时不必在这里补：handleReady 会紧跟着再推一次。
+     */
+    if (!runtime.ready) return
+    runtime.view.webContents.send(IpcChannels.HomeEvent, { tabs: buildHomeTabsSnapshot() })
+  }
+
+  /**
+   * 对外暴露：Tab 投影变化时由 orbRailViews 调用。
+   *
+   * 同时覆盖 current 与 preparing —— 启动期首页还在 preparing 时就可能收到
+   * Tab 变化通知，只发 current 会让首屏缺数据。
+   */
+  publishTabs(): void {
+    this.sendTabs(this.current)
+    if (this.preparing && this.preparing !== this.current) this.sendTabs(this.preparing)
+  }
+
   handleShellEvent(payload: ShellEventPayload): void {
     const command = homeInstallCommand(payload)
     if (command) this.sendCommand(this.current, command)
+    // Tab 集合或激活项变化时同步首页自绘 Tab 条。
+    if (payload.type === 'plugin-tabs' || payload.type === 'plugin-active'
+      || payload.type === 'plugin-title' || payload.type === 'plugin-icon'
+      || payload.type === 'plugin-badge' || payload.type === 'tab-closed') {
+      this.publishTabs()
+    }
     if (payload.type === 'plugins-changed' || payload.type === 'theme-packs-changed') {
       if (!appearanceService.isActiveThemeAvailable()) {
         for (const listener of this.faultListeners) listener('当前主题已不可用')
       }
       const current = this.current
+      this.refreshInstalledSource()
+      if (current && this.providerReloads.has(current.appearance.theme.source) && appearanceService.isActiveThemeAvailable()) return
       if (current) void resolveHomePage(current.reference.source, current.reference.id, current.reference.variant).then(page => {
         if (page || this.current !== current || current.retired) return
         this.current = null
@@ -746,7 +818,7 @@ export class HomeSurfaceManager {
 
   destroy(): void {
     this.recoveryRevision++
-    void this.closePreparing()
+    this.closePreparing()
     this.retireRuntime(this.current)
     this.current = null
     this.desiredVisible = false
@@ -761,11 +833,12 @@ export const homeSurfaceManager = new HomeSurfaceManager()
 // 模块体顺序不确定导致的 TDZ。
 queueMicrotask(() => {
   setHomeEventSink(payload => homeSurfaceManager.handleShellEvent(payload))
+  pluginRegistry.onInstalledChanged(() => homeSurfaceManager.refreshInstalledSource())
 })
 appearanceService.subscribeAppearance(({ appearance }) => homeSurfaceManager.updateAppearance(appearance))
 homeSurfaceManager.onFault(message => {
   const { theme } = getAppearance()
-  if (theme.source === DEFAULT_THEME_IDENTITY.source && theme.id === DEFAULT_THEME_IDENTITY.id) return
+  if (theme.source === DEFAULT_THEME_IDENTITY.source && theme.id === DEFAULT_THEME_IDENTITY.id && appearanceService.isActiveThemeAvailable()) return
   void appearanceService.recoverToBuiltin(message)
     .catch(error => logWarn('home', `paired fallback failed: ${String(error)}`))
 })

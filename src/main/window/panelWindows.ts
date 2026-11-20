@@ -28,6 +28,7 @@ import {
 } from '@shared/types/panel'
 import { registerTrustedSurface, revokeTrustedSurface } from '@main/ipc/ipcSecurity'
 import { resolvePreload } from '@main/window/createShellWindow'
+import { resolveWindowIcon } from './applicationIcon'
 import { appearanceService } from '@main/theme/appearanceService'
 import { raiseTransientViews } from '@main/window/transientViews'
 import { logWarn } from '@main/logs/logService'
@@ -311,6 +312,7 @@ export async function createPanelWindow(options: CreatePanelOptions): Promise<Pa
   if (existing && !existing.window.isDestroyed()) return existing
   const bounds = constrainPanelBounds(options.bounds)
   const win = new BaseWindow({
+    icon: resolveWindowIcon(),
     x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
     show: false, frame: false, transparent: true, hasShadow: false,
     resizable: true, movable: true, minimizable: false, maximizable: false, fullscreenable: false,

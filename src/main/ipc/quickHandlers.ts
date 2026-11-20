@@ -292,6 +292,7 @@ export function registerQuickHandlers(): void {
     return scanApplications(payload?.force === true)
   })
 
+  handleShellIpc(IpcChannels.QuickGetLocale, () => settingsStore.getLocale())
   handleShellIpc(IpcChannels.QuickGetConfig, () => {
     return getQuickHotkeyConfig()
   })

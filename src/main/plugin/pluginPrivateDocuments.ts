@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, mkdir, open, readdir, realpath, rename, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { getAppPaths } from '@main/paths/pathsService'
+import { existingOwnedDirectory } from '@main/paths/ownedDirectory'
+import { DATA_SUBDIR } from '@shared/constants'
 import { pluginDataDir as root } from './pluginPrivatePaths'
 
 export interface PrivateDocumentOwner {
@@ -225,7 +227,8 @@ export function clearPrivateDocuments(pluginId: string): Promise<void> {
   clearing.add(pluginId)
   const task = (async () => {
     await queues.get(pluginId)?.tail.catch(() => {})
-    await rm(root(pluginId), { recursive: true, force: true })
+    const dir = await existingOwnedDirectory(getAppPaths().root, DATA_SUBDIR, 'plugin-documents', basename(root(pluginId)))
+    if (dir) await rm(dir, { recursive: true, force: true })
     inventories.delete(root(pluginId))
   })().finally(() => { clearing.delete(pluginId); clearTasks.delete(pluginId) })
   clearTasks.set(pluginId, task)

@@ -51,6 +51,7 @@ function isDevPreviewImport(node, file) {
 
 function moduleReference(node) {
   if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) return node.moduleSpecifier
+  if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) return node.argument.literal
   if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) return node.moduleReference.expression
   if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
     || ts.isIdentifier(node.expression) && node.expression.text === 'require'
@@ -68,6 +69,7 @@ function inspectSource(path) {
     const reference = moduleReference(node)
     if (reference && ts.isStringLiteralLike(reference)) {
       const name = reference.text
+      if (/^(?:\.\.\/|\.\/[^/]+\/)/.test(name)) fail(node, `cross-directory import must use a source alias: ${name}`)
       if (testDependency.test(name)) fail(node, `test dependency ${name}`)
       if (pluginDriver.test(name)) fail(node, `plugin-owned driver ${name}`)
       if (name.startsWith('@test/') || testPath.test(name)) {

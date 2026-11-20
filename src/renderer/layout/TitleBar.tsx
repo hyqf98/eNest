@@ -7,6 +7,7 @@ import { shellApi } from '@renderer/services/shellApi'
 import { useAnimationLevel, useReducedMotion } from '@renderer/hooks/useAnimationLevel'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
 import { useShellStore } from '@renderer/stores/shellStore'
+import { IS_MAC } from '@shared/platform'
 import { d, dy, ease } from '@renderer/gsap/marketMotion'
 import { createTitlebarHover } from './titlebarHover'
 
@@ -124,7 +125,16 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
         tabIndex={-1}
         data-autohide={autoHide ? 'true' : undefined}
       >
-        <div className="traffic" role="group" aria-label="窗口控制">
+        {/* macOS 上宿主用 setWindowButtonVisibility 打开了系统原生红绿灯（全局常开），
+            这里再画一组就会重叠成两套——设置页截图里"两排关闭按钮"就是这个。
+            Windows/Linux 没有等价原生按钮，仍由这里自绘。
+
+            注意不能直接不渲染：标题栏是 grid（68px / 1fr / auto），第一列一直
+            留给红绿灯。少一个子项会让后面的 Tab 条前移补进那 68px，
+            于是被原生红绿灯压住。所以 macOS 保留同宽的占位元素，列不错位。 */}
+        {IS_MAC
+          ? <div className="traffic-slot" aria-hidden="true" />
+          : <div className="traffic" role="group" aria-label="窗口控制">
           <button
             type="button"
             className="traffic-btn r"
@@ -155,7 +165,7 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
               <path d="M4 8V4h4" stroke="var(--titlebar-icon-stroke)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
             </svg>
           </button>
-        </div>
+        </div>}
         {tabStyle === 'orb' ? <>
           <div className="titlebar-spacer" aria-hidden="true" />
           {activePluginTitle && (

@@ -8,7 +8,6 @@ const installChannels = [IpcChannels.InstallDropState, IpcChannels.InstallDropFi
 const notificationClientChannels = [IpcChannels.NotificationShow, IpcChannels.NotificationDismiss]
 const notificationChannels = new Set<string>([IpcChannels.NotificationDismiss, IpcChannels.NotificationState, IpcChannels.NotificationMeasure, IpcChannels.NotificationOpenLink])
 const modalChannels = new Set<string>([IpcChannels.ModalReady, IpcChannels.ModalRespond])
-const sharedReads = [...installChannels, IpcChannels.ShellGetTheme, IpcChannels.ShellGetAppearance, IpcChannels.ShellGetSettings, IpcChannels.ShellReadCustomFont]
 const appearanceWrites = new Set([
   IpcChannels.ShellUpdateThemeProfile,
   IpcChannels.ShellActivateTheme,
@@ -23,10 +22,10 @@ const detachedChannels = new Set<string>([...windowChannels, ...installChannels,
 const quickChannels = new Set<string>([
   ...notificationClientChannels,
   ...windowChannels,
-  ...sharedReads, IpcChannels.QuickInput, IpcChannels.QuickInputContext, IpcChannels.QuickToggle, IpcChannels.QuickHide,
-  IpcChannels.QuickSearch, IpcChannels.QuickOpen, IpcChannels.QuickGetConfig, IpcChannels.QuickThemeGetConfig, IpcChannels.QuickThemeAuthorize, IpcChannels.QuickProviderState,
-  IpcChannels.QuickResize, IpcChannels.ShellSetView, IpcChannels.ShellGetPlugins,
-  IpcChannels.ShellActivatePlugin, IpcChannels.ShellOpenPlugin
+  ...installChannels, IpcChannels.ShellGetAppearance, IpcChannels.ShellReadCustomFont,
+  IpcChannels.QuickInput, IpcChannels.QuickInputContext, IpcChannels.QuickHide, IpcChannels.QuickGetLocale,
+  IpcChannels.QuickSearch, IpcChannels.QuickOpen, IpcChannels.QuickThemeGetConfig, IpcChannels.QuickThemeAuthorize,
+  IpcChannels.QuickProviderState, IpcChannels.QuickResize
 ])
 const homeChannels = new Set<string>([
   IpcChannels.HomeReady,
@@ -37,17 +36,21 @@ const homeChannels = new Set<string>([
   IpcChannels.HomeRefresh,
   IpcChannels.HomeAction,
   IpcChannels.HomeGetAppearance,
-  IpcChannels.HomeGetConfig
+  IpcChannels.HomeGetConfig,
+  IpcChannels.HomeGetTabs
 ])
 // Classic settings dock can only read its state and request settings navigation.
 const dockChannels = new Set<string>([IpcChannels.ShellGetOrbState, IpcChannels.ShellSetView])
 const orbChannels = new Set<string>([
   ...windowChannels,
   IpcChannels.ShellGetOrbState, IpcChannels.ShellSetOrbRailExpanded,
+  // 拖把手换边：只允许在 left/right 之间切换，不接受任意坐标。
+  IpcChannels.ShellSetOrbDock,
+  // 悬停名称浮层：只切换「拓宽/还原」，宽度由主进程常量决定，不接受 renderer 指定尺寸。
+  IpcChannels.ShellSetOrbRailCaption,
   IpcChannels.ShellActivateRailContribution,
-  IpcChannels.ShellActivatePlugin, IpcChannels.ShellOpenPlugin, IpcChannels.ShellClosePlugin,
-  IpcChannels.ShellGoHome, IpcChannels.ShellSetView, IpcChannels.WindowMinimize,
-  IpcChannels.WindowMaximize, IpcChannels.WindowClose
+  IpcChannels.ShellActivatePlugin, IpcChannels.ShellClosePlugin,
+  IpcChannels.ShellGoHome, IpcChannels.ShellSetView
 ])
 // Panel chrome may only read its own snapshot and issue panel commands; no shell or plugin access.
 const panelChannels = new Set<string>([

@@ -56,3 +56,21 @@ export function scoreQuickName(index: QuickNameIndex, query: string, queryTerms?
     continuousScore(index.initials, term) * 0.7))
   return Math.max(continuous, scores.every(score => score > 0) ? scores.reduce((sum, score) => sum + score, 0) / scores.length * 0.6 : 0)
 }
+
+export function prepareQuickSearchNames(title: string, aliases: string[]) {
+  const names = aliases.length && title && !aliases.includes(title) ? [...aliases, title] : aliases
+  return { title, names, prepared: names.map(prepareQuickName), combined: names.length > 1 ? prepareQuickName(names.join(' ')) : undefined }
+}
+
+export function matchQuickSearchNames(row: ReturnType<typeof prepareQuickSearchNames>, query: string, terms: string[]) {
+  let score = 0, keyword = row.title
+  for (let index = 0; index < row.prepared.length; index++) {
+    const next = scoreQuickName(row.prepared[index], query, terms)
+    if (next > score) { score = next; keyword = row.names[index] }
+  }
+  if (row.combined && terms.length > 1) {
+    const combined = scoreQuickName(row.combined, query, terms) * 0.5
+    if (combined > score) return { score: combined, keyword: row.title }
+  }
+  return { score, keyword }
+}

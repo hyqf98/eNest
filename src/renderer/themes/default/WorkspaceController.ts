@@ -1,18 +1,18 @@
 import type {
   EnestWorkspaceApi, HomeAction, HomeAppearanceSnapshot, HomeCatalog, HomeCommand,
-  HomeDetail, HomeRuntimeConfig, HomeSearchEntry, HomeSearchResult, HomeSearchScope
+  HomeDetail, HomeRuntimeConfig, HomeSearchEntry, HomeSearchResult, HomeSearchScope, HomeTabsSnapshot
 } from '@shared/types/home'
 import type { QuickCommandKind, QuickImageContext } from '@shared/types/quick'
 import type { WorkspaceRoute } from '@shared/types/workspace'
 import { normalizeSearchText } from '@shared/search'
 import { buildQuickInputSelection } from '@renderer/components/quickCatalog'
 import { loadWorkspaceReadme } from '@renderer/services/workspaceReadme'
-import { ACTION_COPY, assembleDefaultQuickResults, matchDefaultQuickMedia, namesOf, rankDefaultQuickHome, type DefaultQuickMatch } from './quick/catalogPolicy'
-import { createNameSearch } from './quick/nameSearchClient'
-import type { QuickNameRow } from './quick/nameSearchTypes'
-import { matchDefaultQuickContent } from './quick/patternMatching'
-import { defaultQuickPreferredKey, emptyDefaultQuickUsage, projectDefaultQuickUsage } from './quick/usagePolicy'
-import { createDefaultQuickUsageSession } from './quick/usageState'
+import { ACTION_COPY, assembleDefaultQuickResults, matchDefaultQuickMedia, namesOf, rankDefaultQuickHome, type DefaultQuickMatch } from '@renderer/themes/default/quick/catalogPolicy'
+import { createNameSearch } from '@renderer/themes/default/quick/nameSearchClient'
+import type { QuickNameRow } from '@renderer/themes/default/quick/nameSearchTypes'
+import { matchDefaultQuickContent } from '@renderer/themes/default/quick/patternMatching'
+import { defaultQuickPreferredKey, emptyDefaultQuickUsage, projectDefaultQuickUsage } from '@renderer/themes/default/quick/usagePolicy'
+import { createDefaultQuickUsageSession } from '@renderer/themes/default/quick/usageState'
 
 type WorkspaceCommand = HomeSearchEntry & { id: string; kind: QuickCommandKind; lastUsedTs?: number; useCount?: number }
 
@@ -38,6 +38,8 @@ export interface DefaultWorkspaceState {
   busy: ReadonlySet<string>
   message?: string
   visible: boolean
+  /** classic 模式顶部 Tab 条的投影；orb 模式也有值但首页不渲染。 */
+  tabs?: HomeTabsSnapshot
 }
 
 interface Callbacks {
@@ -94,6 +96,15 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
   let directoryFlight: Promise<void> | undefined
   let directoryItems: HomeSearchEntry[] = [], nativeItems: WorkspaceCommand[] = [], nameEntries: HomeSearchEntry[] = []
   let nativeByHandle = new Map<string, WorkspaceCommand>()
+  /*
+   * 应用图标的本地缓存，键是搜索结果 handle。
+   *
+   * handle 在目录签名不变时对同一条目保持稳定（宿主复用飞行记录），所以这张表
+   * 能在多次搜索之间复用同一张位图：既省掉重复 IPC，也让 content/provider 这些
+   * 后到的阶段重新发布时不会把图标冲掉。
+   * 目录失效（应用列表/插件列表变化）时清空——handle 会随之换代。
+   */
+  const appIcons = new Map<string, string>()
   let nameRows: QuickNameRow[] = [], nameRevision = 0
   let statePositions = new Map<string, number[]>()
   let nameClient: ReturnType<typeof createNameSearch> | undefined
@@ -101,11 +112,17 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
   const pendingCommands: HomeCommand[] = []
   let offAppearance: (() => void) | undefined
   let offCommand: (() => void) | undefined
+  let offTabs: (() => void) | undefined
   const patch = (next: Partial<DefaultWorkspaceState>) => {
     if (disposed) return
     state = { ...state, ...next }
     listeners.forEach(listener => listener())
   }
+  /** 把已取到的应用图标贴回结果条目；没有缓存就保持原样（渲染层回退首字母）。 */
+  const withAppIcons = <T extends { handle: string; kind?: string; icon?: string | null }>(items: T[]): T[] =>
+    items.some(item => item.kind === 'app' && !item.icon && appIcons.has(item.handle))
+      ? items.map(item => item.kind === 'app' && !item.icon && appIcons.has(item.handle) ? { ...item, icon: appIcons.get(item.handle)! } : item)
+      : items
   const message = (zh: string, en: string) => state.config?.locale === 'en-US' ? en : zh
   const usageSession = createDefaultQuickUsageSession({
     read: async () => {
@@ -188,6 +205,8 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     const flight = bridge.search({ query: '', phase: 'catalog', knownRevision: directoryRevision || undefined }).then(result => {
       if (disposed || sequence !== directorySequence || generation !== state.runtimeGeneration) return
       if (!result.unchanged) {
+        // 目录换代 → handle 全部重签，旧图标对不上任何新条目。
+        appIcons.clear()
         directoryItems = result.items
         updateUsageCatalog()
         nameEntries = directoryItems.filter(item => !item.content && !item.provider)
@@ -207,6 +226,8 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
 
   function invalidateSearchDirectory() {
     directoryDirty = true; directorySequence++; directoryFlight = undefined
+    // Handles 换代后旧图标再也对不上新条目，留着只会撑内存。
+    appIcons.clear()
     if (state.visible) {
       if (state.query.trim() || state.input.length) queueSearch(state.query, state.scope, composing)
       else void loadSearchDirectory().catch(() => undefined)
@@ -230,6 +251,8 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
       let named: Array<DefaultQuickMatch<WorkspaceCommand>> = [], market: HomeSearchEntry[] = [], providers: WorkspaceCommand[] = []
       let namesReady = !query.trim()
       let content = new Set<string>()
+      /** 本轮首屏里还没有图标的应用 handle；图标只在首屏发布之后才去取。 */
+      let iconHandles: string[] = []
       const publish = () => {
         if (!current() || !namesReady) return
         const matches = scope === 'market' ? [] : query.trim()
@@ -237,7 +260,35 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
           : rankDefaultQuickHome(catalog, filter, 60, media.matches)
         const represented = new Set(matches.flatMap(item => item.kind === 'plugin' && item.pluginId ? [item.pluginId] : []))
         const discovery = scope === 'market' ? market : scope === 'all' ? market.filter(item => !item.pluginId || !represented.has(item.pluginId)) : []
-        patch({ results: { items: [...matches, ...discovery].slice(0, 60), revision: sequence, directoryRevision }, searching: false })
+        const items = withAppIcons([...matches, ...discovery].slice(0, 60))
+        iconHandles = items.filter(item => item.kind === 'app' && !item.icon).map(item => item.handle).slice(0, 100)
+        patch({ results: { items, revision: sequence, directoryRevision }, searching: false })
+      }
+      /*
+       * 应用图标由宿主原生抽取（macOS ICNS/NSWorkspace、Windows 快捷方式、
+       * Linux Icon= 主题查找），渲染层既拿不到路径也无权读文件，所以只把
+       * 首屏已列出条目的 handle 递回去换位图。目录阶段不带图标是为了不让
+       * 每条目录条目都背一张 96² 位图；插件图标在目录阶段已是宿主代理 URL。
+       *
+       * 图标是锦上添花：失败只让该条目回退首字母，不影响搜索本身可用性。
+       */
+      const applyIcons = async () => {
+        if (!iconHandles.length || !query.trim()) return
+        const result = await bridge.search({ query, scope, phase: 'enriched', ids: iconHandles })
+        if (!current() || !result.items.length) return
+        let changed = false
+        for (const item of result.items) {
+          if (!item.icon || appIcons.get(item.handle) === item.icon) continue
+          appIcons.set(item.handle, item.icon)
+          changed = true
+        }
+        if (!changed) return
+        /*
+         * 只就地贴图标，不重新跑 publish()：
+         * publish 会按当前 named/content/providers 重算整轮，而图标到达时这些
+         * 阶段可能还没结算，重发会把已出现的行暂时收掉。图标并入只改 icon 字段。
+         */
+        if (state.results) patch({ results: { ...state.results, items: withAppIcons(state.results.items) } })
       }
       const contentWork = scope === 'market' ? Promise.resolve() : matchDefaultQuickContent(catalog, query, controller.signal)
         .then(matches => { content = matches; publish() })
@@ -266,7 +317,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
       }
       namesReady = true
       publish()
-      await Promise.all([contentWork, providerWork])
+      await Promise.all([contentWork, providerWork, applyIcons()])
     } catch {
       if (current()) patch({ searching: false, searchError: message('搜索失败，请重试。', 'Search failed. Please retry.') })
     }
@@ -330,6 +381,20 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
   async function action(request: HomeAction): Promise<void> {
     const result = await bridge.action(request)
     if (!result.ok) throw new Error(result.error || message('操作失败或已取消。', 'The action failed or was cancelled.'))
+  }
+
+  /**
+   * 窗口控制（Windows/Linux 自绘红绿灯）：把主题层的点击转成宿主认可的三种语义。
+   * macOS 用系统原生按钮，不会调用这里。
+   *
+   * 失败必须报出来：静默 catch 会让用户点完毫无反馈、也无从判断原因
+   * （宿主可能拒绝、可能首页视图被判非 active），所以把原因落到页面提示上。
+   */
+  async function windowControl(control: 'close' | 'minimize' | 'zoom'): Promise<void> {
+    try { await action({ type: 'window', control }) }
+    catch (error) {
+      patch({ message: error instanceof Error ? error.message : message('窗口操作失败。', 'Window action failed.') })
+    }
   }
 
   async function navigate(route: WorkspaceRoute): Promise<void> {
@@ -435,11 +500,15 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
   async function start() {
     offAppearance = bridge.onAppearance(acceptAppearance)
     offCommand = bridge.onCommand(handleCommand)
-    const [appearance, config, catalog] = await Promise.allSettled([bridge.getAppearance(), bridge.getConfig(), bridge.getCatalog()])
+    offTabs = bridge.onTabs(tabs => patch({ tabs }))
+    const [appearance, config, catalog, tabs] = await Promise.allSettled([
+      bridge.getAppearance(), bridge.getConfig(), bridge.getCatalog(), bridge.getTabs()
+    ])
     if (disposed) return
     if (appearance.status === 'fulfilled') acceptAppearance(appearance.value)
     if (config.status === 'fulfilled') { patch({ config: config.value }); callbacks.applyConfig?.(config.value) }
     if (catalog.status === 'fulfilled') acceptCatalog(catalog.value)
+    if (tabs.status === 'fulfilled') patch({ tabs: tabs.value })
     void usageSession.initialize().catch(() => undefined)
     patch({ loading: false })
     if (!state.appearance) { patch({ message: message('外观服务暂时不可用，请从宿主重试。', 'Appearance is unavailable. Retry from the host.') }); return }
@@ -448,6 +517,17 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     pendingCommands.splice(0).forEach(handleCommand)
     await afterPaint()
     if (!disposed) await bridge.ready({ revision: state.appearance.appearance.revision, workspaceVersion: 1, routes: ['catalog', 'detail'] })
+    /*
+     * ready 之后补拉一次 Tab 投影。
+     *
+     * 首页通常比主壳先就绪：上面那次 getTabs() 拉到的是空投影，而此时主壳还没
+     * hydrate 完、也不会向一个尚未 ready 的首页推送。等主壳把 tabs 推上来时，
+     * 这条链路才通；但用户看到的是"首屏没有 Tab 条，切去设置再回来才有"。
+     * ready 是宿主认可的确定时点，这里再拉一次即可补上首屏缺的那份数据。
+     */
+    if (!disposed) {
+      void bridge.getTabs().then(tabs => { if (!disposed) patch({ tabs }) }).catch(() => undefined)
+    }
   }
 
   function dispose() {
@@ -462,13 +542,14 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     void bridge.action({ type: 'searchInput', operation: 'clear' }).catch(() => undefined)
     cancelReadme()
     pendingCommands.length = 0
-    offAppearance?.(); offCommand?.(); listeners.clear()
+    offAppearance?.(); offCommand?.(); offTabs?.(); listeners.clear()
   }
 
   return {
     getState: () => state,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
     start, dispose, showDetail, queueSearch, runSearch, refreshCatalog, action, navigate, manage, setBasePage, openSearchResult,
+    windowControl,
     pasteInput: () => changeInput('read-clipboard'), clearInput: (id?: string) => changeInput('clear', id),
     setCategory: (category: string) => patch({ category }),
     dismissMessage: () => patch({ message: undefined }),

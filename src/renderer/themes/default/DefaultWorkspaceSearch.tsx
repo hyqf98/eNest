@@ -125,7 +125,8 @@ export function DefaultWorkspaceSearch({ state, controller, onDetailOrigin }: {
           {group.items.map(({ item, index }) => <button key={item.handle} id={`${listId}-${index}`} type="button" role="option" aria-selected={selected?.handle === item.handle}
             className={`home-search-result${selected?.handle === item.handle ? ' is-selected' : ''}`} data-home-result-index={index} data-home-result-id={item.handle}
             disabled={Boolean(opening || item.disabled || loading)} onFocus={() => setSelectedHandle(item.handle)} onPointerMove={() => setSelectedHandle(item.handle)} onKeyDown={onKeyDown} onClick={event => void open(item, event.currentTarget)}>
-            <span className="home-search-icon"><PluginIcon src={item.icon || undefined} glyph={item.glyph || Array.from(item.title)[0] || ''} size={38} /></span>
+            <span className="home-search-icon"><PluginIcon src={item.icon || undefined} glyph={item.glyph || Array.from(item.title)[0] || ''} size={38}
+              fit={item.kind === 'app' ? 'contain' : undefined} /></span>
             <span className="home-search-copy"><span className="home-search-title">{item.title}</span><span className="home-search-subtitle">{item.subtitle}</span></span>
             <span className="home-search-kind">{kindLabel(item)}</span><span className="home-search-action">{opening === item.handle ? english ? 'Opening…' : '正在打开…' : item.kind === 'market' ? english ? 'View plugin' : '查看插件' : item.kind === 'action' ? english ? 'Run' : '执行' : english ? 'Open' : '打开'}</span>
           </button>)}

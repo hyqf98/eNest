@@ -15,8 +15,41 @@ import { RotateCwIcon } from '@renderer/components/icons'
 import { animateCards, playHeroIn } from '@renderer/themes/default/motion/workspaceMotion'
 import { DefaultThemeBackground } from './DefaultThemeBackground'
 import { DefaultWorkspaceSearch } from './DefaultWorkspaceSearch'
+import { HomeTabStrip } from '@renderer/themes/default/workspace/HomeTabStrip'
 import type { DefaultWorkspaceController, DefaultWorkspaceState } from './WorkspaceController'
+import { IS_MAC } from '@shared/platform'
 import './defaultWorkspace.css'
+
+/**
+ * 左上角窗口控件：关闭 / 最小化 / 缩放（**仅 Windows/Linux**）。
+ *
+ * macOS 不画这一组：那里改由宿主打开系统原生红绿灯
+ * （createShellWindow 的 enableNativeWindowButtons）。原生按钮由 AppKit 画在
+ * 所有内容视图之上、点击直接由窗口处理，不受拖拽区命中测试影响，行为与其它
+ * macOS 应用完全一致——这才是官方文档给的方案。
+ *
+ * 非 macOS 没有等价的原生按钮（Window Controls Overlay 会压在标题栏的 Tab 上），
+ * 所以仍然自绘。首页铺满整窗、盖住主壳标题栏，主壳那组被盖住且不可点，
+ * 因此这三个按钮必须画在首页自己这一层。
+ */
+const WINDOW_CONTROLS = [
+  { control: 'close' as const, tone: 'r', label: '关闭', path: 'M3.2 3.2l5.6 5.6M8.8 3.2L3.2 8.8' },
+  { control: 'minimize' as const, tone: 'y', label: '最小化', path: 'M3 6h6' },
+  { control: 'zoom' as const, tone: 'g', label: '缩放', path: 'M4 8V4h4' },
+]
+function WindowControls({ onControl }: { onControl: (control: 'close' | 'minimize' | 'zoom') => void }) {
+  return <div className="workspace-window-controls" role="group" aria-label="窗口控制">
+    {WINDOW_CONTROLS.map(item => (
+      <button key={item.control} type="button" className={`workspace-window-btn ${item.tone}`}
+        aria-label={item.label} onClick={() => onControl(item.control)}>
+        <svg viewBox="0 0 12 12" width="8" height="8" aria-hidden>
+          <path d={item.path} stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </svg>
+        <span className="workspace-window-hint" aria-hidden="true">{item.label}</span>
+      </button>
+    ))}
+  </div>
+}
 
 const CATEGORY_I18N: Record<string, string> = {
   效率: 'market.catProductivity', 开发: 'market.catDev', 设计: 'market.catDesign',
@@ -100,10 +133,12 @@ const DefaultWorkspaceCatalog = memo(function DefaultWorkspaceCatalog({ plugins,
   const label = (key: string) => key === '全部' ? t('market.all') : CATEGORY_I18N[key] ? t(CATEGORY_I18N[key]) : key
   const onUninstall = useCallback((pluginId: string) => controller.manage({ type: 'uninstallPlugin', pluginId }, pluginId), [controller])
   const onSetEnabled = useCallback((pluginId: string, enabled: boolean) => controller.manage({ type: 'setPluginEnabled', pluginId, enabled }, pluginId), [controller])
+  // 精选卡片的升级角标与详情页「升级」共用同一个宿主 manage 流程，没有第二条安装路径。
+  const onUpdate = useCallback((pluginId: string) => controller.manage({ type: 'updatePlugin', pluginId }, pluginId), [controller])
   const renderPlugin = useCallback((plugin: PluginPresentation) => <PluginCardView plugin={plugin} onOpen={onOpen} onDetail={onDetail}
     onUninstall={onUninstall} onSetEnabled={onSetEnabled} />, [onOpen, onDetail, onUninstall, onSetEnabled])
   return <>
-    {seg === 'browse' && category === '全部' && carouselItems.length > 0 && <section className="market-featured" aria-label={english ? 'Recommended by the plugin repository' : '插件仓库推荐'}><div className="market-featured-heading"><h2>{english ? 'Featured plugins' : '精选推荐'}</h2><span>{english ? 'From the plugin repository' : '来自插件仓库'}</span></div><FeaturedCarousel items={carouselItems} onOpen={onOpen} onDetail={onDetail}
+    {seg === 'browse' && category === '全部' && carouselItems.length > 0 && <section className="market-featured" aria-label={english ? 'Recommended by the plugin repository' : '插件仓库推荐'}><div className="market-featured-heading"><h2>{english ? 'Featured plugins' : '精选推荐'}</h2><span>{english ? 'From the plugin repository' : '来自插件仓库'}</span></div><FeaturedCarousel items={carouselItems} onOpen={onOpen} onDetail={onDetail} onUpdate={onUpdate}
       paused={detailOpen || !visible} continuous={continuous} mediaVisible={visible} /></section>}
     <div className="home-toolbar"><SegmentTabs value={seg} onChange={value => controller.setBasePage(value === 'installed' ? 'installed' : 'catalog')} /><CategoryChips categories={categoryKeys.map(label)} value={label(category)} onChange={value => controller.setCategory(categoryKeys.find(key => label(key) === value) ?? '全部')} /></div>
     <section className="market-catalog" aria-label={seg === 'installed' ? t('market.installedPlugins') : t('market.browse')}>
@@ -152,7 +187,6 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
   const detailOpen = state.route.page === 'detail'
   const detail = detailOpen ? state.detail : undefined
   const handleOpen = useCallback((pluginId: string) => { void controller.action({ type: 'openPlugin', pluginId }).catch(controller.reportError) }, [controller])
-  const handleHomeCard = useCallback((pluginId: string, cardId: string) => controller.action({ type: 'openHomeCard', pluginId, cardId }), [controller])
   const handleDetail = useCallback((pluginId: string, origin?: HTMLElement | null) => {
     originRef.current = origin ?? null
     void controller.navigate({ page: 'detail', pluginId })
@@ -187,6 +221,20 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
   if (!state.appearance) return state.loading ? null : <div className="default-workspace-boot"><strong>{english ? 'Workspace is unavailable' : '工作区暂时无法启动'}</strong><p role="alert">{state.message}</p></div>
   return <div className={`default-workspace${state.appearance.appearance.layout.tabStyle === 'orb' ? ' tab-orb' : ''}`} data-workspace-route={state.route.page}>
     <DefaultThemeBackground appearance={state.appearance.appearance} paused={!state.visible} />
+    {/* 顶部拖拽带：主壳标题栏的 drag 区在首页必须关掉（否则先命中、吞掉首页的点击），
+        窗口拖动改由这条带负责。left 让开左上角的按钮簇，两者才不互相吃掉。 */}
+    <div className="workspace-drag-band" aria-hidden="true" />
+    {/* macOS 用系统原生红绿灯（宿主 setWindowButtonVisibility），这里不再画。 */}
+    {!IS_MAC && <WindowControls onControl={control => void controller.windowControl?.(control)} />}
+    {/* classic 模式顶部 Tab 条：首页铺满整窗、盖住主壳标题栏，所以自己复刻一条。
+        无插件 Tab 时也渲染——组件自带固定的「首页」按钮，与主壳标题栏行为一致。
+        orb 模式没有 Tab 条（左侧圆轨就是导航），不渲染。 */}
+    {state.tabs && state.tabs.tabStyle === 'classic' && (
+      <HomeTabStrip tabs={state.tabs} english={english}
+        onHome={() => void controller.action({ type: 'navigate', route: { page: 'catalog' } }).catch(controller.reportError)}
+        onActivate={tabId => void controller.action({ type: 'tabActivate', tabId }).catch(controller.reportError)}
+        onClose={tabId => void controller.action({ type: 'tabClose', tabId }).catch(controller.reportError)} />
+    )}
     <section className="page page-home" aria-label={t('nav.market')} data-scrollbar="auto-hide">
       <div className="home-scroll" ref={scrollRef}>
         <header className="market-page-heading"><div><h1>{english ? 'Plugin marketplace' : '插件市场'}</h1><p>{english ? `${plugins.length} plugins · ${installedCount} installed` : `${plugins.length} 个插件 · 已安装 ${installedCount} 个`}</p></div>
@@ -198,7 +246,7 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
           loading={state.loading} visible={state.visible} detailOpen={detailOpen} continuous={state.appearance.appearance.animation.continuous}
           gridRef={gridRef} controller={controller} onOpen={handleOpen} onDetail={handleDetail} />}
         {!searching && !state.loading && seg === 'browse' && state.category === '全部' && state.catalog &&
-          <HomeCardsView items={state.catalog.items} onOpen={handleHomeCard} onError={controller.reportError} />}
+          <HomeCardsView items={state.catalog.items} onOpen={handleDetail} onError={controller.reportError} />}
       </div>
       {detail && <DefaultWorkspaceDetail key={detail.pluginId} state={state} controller={controller} origin={originRef.current} />}
     </section>

@@ -21,7 +21,7 @@ import { enqueueInstallFromUrl } from '@main/plugin/installQueue'
 import { executePluginCommand, launchPlugin } from '@main/launcher/pluginLauncher'
 import { launchLocalApp } from '@main/launcher/appLauncher'
 import { scanApplications } from '@main/launcher/appScanner'
-import { cancelQuickProviderSession, getLaunchDirectorySnapshot, onLaunchDirectoryChanged, quickOpenedIdentity, searchQuickCommands, validateQuickOpenTarget } from '@main/launcher/commandIndex'
+import { cancelQuickProviderSession, enrichCommandIcons, getLaunchDirectorySnapshot, onLaunchDirectoryChanged, quickOpenedIdentity, searchQuickCommands, validateQuickOpenTarget } from '@main/launcher/commandIndex'
 import { createSearchInputSession } from '@main/launcher/quickInputContext'
 import { quickProviderStates } from '@main/theme/quickStateService'
 import { IpcChannels } from '@shared/types/ipc'
@@ -238,6 +238,10 @@ function catalogItem(id: string): HomeCatalogItem | null {
     installs: publicText(summary.installs, 32),
     packageSize: typeof summary.packageSize === 'number' && Number.isSafeInteger(summary.packageSize) && summary.packageSize > 0 ? summary.packageSize : undefined,
     screenshots: resources.screenshots.map((_resource, index) => homeCatalogResourceUrl(id, 'screenshot', index)),
+    // 只有真的提供了 preview 资源的插件才带这两个字段；
+    // 首页「小组件」区块据此判断该插件能否作为小组件列出。
+    ...(resources.panelPreview ? { panelPreview: homeCatalogResourceUrl(id, 'panel-preview') } : {}),
+    ...(resources.panelPreview && resources.panelSize ? { panelSize: resources.panelSize } : {}),
     homeCards: declaredHomeCards(id).map(({ card }) => card),
   }
 }
@@ -351,10 +355,25 @@ function makeSearchHandle(): string {
   throw new Error('unable to allocate home search handle')
 }
 
-function publicSearchItem(item: QuickCommand, handle: string): HomeSearchEntry {
+/**
+ * 图标只有两种来源：
+ * - 插件：宿主按 manifest 声明的槽位换成 `enest-home://catalog/...`；
+ * - 本机应用：宿主抽取的 data URL，只经 `enriched` 阶段回填（见 `searchHome`），
+ *   目录阶段一律不给，避免把 96² 位图塞进每条目录条目。
+ * 其它形态（远程 URL、任意文件路径）一律不进入渲染层。
+ *
+ * 放行的 MIME 与 Quick 的 `safeQuickIcon` 一致：Linux 主题图标常常只有 SVG，
+ * 只认 png/jpeg 会让那批应用在首页继续退回首字母。
+ */
+const APP_ICON_DATA_URL = /^data:image\/(?:png|jpeg|gif|webp|svg\+xml|x-icon)(?:\+xml)?;base64,[a-z0-9+/=]+$/i
+
+function publicSearchItem(item: QuickCommand, handle: string, appIcon?: string): HomeSearchEntry {
   const summary = item.pluginId ? pluginRegistry.get(item.pluginId) : null
   const installed = item.kind === 'plugin' ? summary?.installed === true : undefined
   const enabled = item.kind === 'plugin' ? summary?.enabled !== false : undefined
+  const icon = item.kind === 'app'
+    ? (appIcon && APP_ICON_DATA_URL.test(appIcon) && appIcon.length <= 1_048_576 ? appIcon : null)
+    : item.pluginId ? safePublicIcon(item.pluginId) : null
   return {
     handle,
     stateKey: item.stateKey,
@@ -363,7 +382,7 @@ function publicSearchItem(item: QuickCommand, handle: string): HomeSearchEntry {
     title: publicText(item.title, 256) ?? '',
     // App subtitles are filesystem paths; expose only a neutral type label.
     subtitle: item.kind === 'app' ? '' : publicText(item.subtitle, 512) ?? '',
-    icon: item.kind === 'app' || !item.pluginId ? null : safePublicIcon(item.pluginId),
+    icon,
     color: safeColor(summary?.color),
     glyph: publicText(summary?.glyph, 12) ?? publicText(item.title, 256)?.slice(0, 1) ?? '',
     pluginId: item.pluginId,
@@ -384,7 +403,7 @@ function publicTags(tags: string[] | undefined): string[] | undefined {
 }
 
 export async function searchHome(
-  request: { query?: unknown; scope?: unknown; limit?: unknown; phase?: unknown; knownRevision?: unknown; queryRevision?: unknown },
+  request: { query?: unknown; scope?: unknown; limit?: unknown; phase?: unknown; ids?: unknown; knownRevision?: unknown; queryRevision?: unknown },
   context: Pick<HomeActionContext, 'wcId' | 'generation' | 'isCurrent'>
 ): Promise<HomeSearchResult> {
   if (!context.isCurrent()) return { items: [], revision: nextRevision() }
@@ -407,6 +426,32 @@ export async function searchHome(
       return publicSearchItem(command, handle)
     })
     return { items, revision: nextRevision(), queryRevision: sequence }
+  }
+  if (request?.phase === 'enriched') {
+    /*
+     * 图标回填：目录阶段为了体积/时序不带应用位图，这里只按调用方已持有的
+     * handle 取图。handle 是宿主签名过的飞行记录（含代次与过期时间），
+     * 所以渲染层递回来的 id 只能命中它已经看得到的条目——应用图标的目标
+     * 始终来自飞行记录里的 `path`，不会变成任意文件读取。
+     */
+    const ids: unknown[] = Array.isArray(request?.ids) ? request.ids : []
+    const requested = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.length <= 512))].slice(0, 100)
+    const flights = requested.map(handle => [handle, searchHandles.get(handle)] as const)
+      .filter((entry): entry is readonly [string, SearchFlight] => {
+        const flight = entry[1]
+        return Boolean(flight) && flight!.wcId === context.wcId && flight!.generation === context.generation
+          && flight!.expiresAt > Date.now()
+      })
+    const needsIcons = flights.filter(([, flight]) => flight.command.kind === 'app')
+    if (!needsIcons.length) return { items: [], revision: nextRevision() }
+    // 只把应用命令交给原生提图；插件图标在目录阶段已经是宿主代理 URL。
+    const enriched = await enrichCommandIcons(needsIcons.map(([, flight]) => flight.command as QuickCommand))
+    if (!current()) return { items: [], revision: nextRevision() }
+    const icons = new Map(enriched.map((command, index) => [needsIcons[index][0], command.icon]))
+    const items = flights
+      .filter(([, flight]) => flight.command.kind === 'app')
+      .map(([handle, flight]) => publicSearchItem(flight.command as QuickCommand, handle, icons.get(handle)))
+    return { items, revision: nextRevision() }
   }
   const directory = await getLaunchDirectorySnapshot()
   if (!current()) return { items: [], revision: nextRevision() }
@@ -718,6 +763,40 @@ export async function runHomeAction(action: HomeAction, context: HomeActionConte
     if (action.type === 'setHomeVisible') {
       if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
       context.setHomeVisible(action.visible === true)
+      return { ok: true }
+    }
+    /**
+     * 窗口控制（Windows/Linux 的自绘红绿灯）。只接受三种既定语义，落到主窗上；
+     * 首页拿不到任意窗口句柄。macOS 走系统原生按钮，不会发这个动作。
+     */
+    if (action.type === 'window') {
+      if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
+      if (action.control !== 'close' && action.control !== 'minimize' && action.control !== 'zoom') {
+        return { ok: false, error: 'unsupported window control' }
+      }
+      const win = getMainWindow()
+      if (!win || win.isDestroyed()) return { ok: false, error: 'main window unavailable' }
+      if (action.control === 'close') win.close()
+      else if (action.control === 'minimize') win.minimize()
+      // zoom 与 macOS 绿钮一致：已最大化则还原，否则最大化。
+      else if (win.isMaximized()) win.unmaximize()
+      else win.maximize()
+      return { ok: true }
+    }
+    /**
+     * 首页自绘 Tab 条：激活 / 关闭。首页拿不到任意窗口或插件句柄，
+     * 只能提交 Tab id，由宿主复核后走既有的激活/关闭链路。
+     */
+    if (action.type === 'tabActivate') {
+      if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
+      if (typeof action.tabId !== 'string' || action.tabId.length > 300) return { ok: false, error: 'invalid tab id' }
+      pluginHost.activatePlugin(action.tabId, undefined, true)
+      return { ok: true }
+    }
+    if (action.type === 'tabClose') {
+      if (!context.isCurrent()) return { ok: false, error: 'home surface retired' }
+      if (typeof action.tabId !== 'string' || action.tabId.length > 300) return { ok: false, error: 'invalid tab id' }
+      await pluginHost.closePlugin(action.tabId)
       return { ok: true }
     }
     return { ok: false, error: 'unsupported action' }

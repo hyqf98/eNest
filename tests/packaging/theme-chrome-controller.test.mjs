@@ -30,9 +30,12 @@ const clone = value => JSON.parse(JSON.stringify(value))
 
 function fixture() {
   const handlers = new Map(), sessions = [], views = [], timers = new Set(), calls = [], failures = [], shellEvents = [], pluginWatchers = new Set()
+  const stackEdits = [], transients = load('src/main/window/transientViews.ts')
+  const timer = (callback, ms) => { const entry = { callback, ms, unref() {} }; timers.add(entry); return entry }
   let clock = 10_000, nextId = 100
   const chrome = { version: 1, classic: { entry: 'chrome/classic.html' }, rail: { entry: 'chrome/rail.html' }, dock: { entry: 'chrome/dock.html' } }
   const env = { enabled: true, manifest: true, root: '/fixture/theme', build: 1, focused: true, active: true, inset: 0,
+    visible: true, minimized: false, dock: 'left', bounds: { x: -1300, y: 90, width: 1200, height: 800 }, cursor: null,
     appearance: { theme: { source: 'fixture.theme', id: 'custom', version: '1' }, chrome },
     pack: { source: 'fixture.theme', chrome }, read: async () => new Uint8Array([60, 62]), changed: 0,
     pluginEnabled: true, targetBuild: 1, installedRevision: 0, runtime: undefined, openGate: null, openStarted: null }
@@ -43,7 +46,8 @@ function fixture() {
     tabs: [{ id: 't1', pluginId: 'fixture.plugin', title: 'One', color: '#123', glyph: '1', icon: 'file:///private/icon.png', badge: '2', lazy: true, crashed: true }],
     contribEntries: [] }
   const electron = {
-    app: { getAppPath: () => '/fixture/eNest' }, nativeTheme: new EventEmitter(),
+    app: { getAppPath: () => '/fixture/eNest', commandLine: { getSwitchValue: () => '' } }, nativeTheme: new EventEmitter(),
+    screen: { getCursorScreenPoint() { if (!env.cursor) throw Error('Global cursor unavailable'); return env.cursor } },
     ipcMain: { handle: (name, handler) => handlers.set(name, handler) }, shell: {},
     session: { fromPartition(partition, options) {
       const isolated = { partition, options, protocolHandlers: new Map(), cleared: 0,
@@ -66,6 +70,9 @@ function fixture() {
     async loadURL(url) { this.mainFrame.url = url; this.url = url }
     async loadFile(file) { this.mainFrame.url = `file://${file}`; this.url = this.mainFrame.url }
     send(channel, payload) { this.messages.push({ channel, payload }) }
+    inputEvents = []
+    sendInputEvent(event) { this.inputEvents.push(clone(event)) }
+    focus() { calls.push(['focus', this.id]) }
     close(options) { this.closeOptions = options; this.destroyed = true; this.emit('destroyed') }
   }
   electron.WebContentsView = class {
@@ -77,7 +84,7 @@ function fixture() {
     getBounds() { return this.bounds }
   }
   const pluginRegistry = {
-    getAssetRootPath: () => env.root,
+    getThemeRootPath: () => env.root,
     isEnabled: id => id === 'fixture.theme' ? env.enabled : env.pluginEnabled && railRows.some(row => row.source === id),
     getManifest: id => env.manifest ? { contributes: { railEntries: railRows.filter(row => row.source === id).map(row => row.data) } } : null,
     getBuildRevision: id => id === 'fixture.theme' ? env.build : env.targetBuild,
@@ -86,14 +93,15 @@ function fixture() {
     onInstalledChanged(listener) { pluginWatchers.add(listener); return () => pluginWatchers.delete(listener) },
   }
   const children = []
-  const mainWindow = { isFocused: () => env.focused, isDestroyed: () => false,
-    contentView: { children, addChildView(view) { const old = children.indexOf(view); if (old >= 0) children.splice(old, 1); children.push(view) },
-      removeChildView(view) { const index = children.indexOf(view); if (index >= 0) children.splice(index, 1) } } }
+  const mainWindow = Object.assign(new EventEmitter(), { isFocused: () => env.focused, isDestroyed: () => false,
+    isVisible: () => env.visible, isMinimized: () => env.minimized, getContentBounds: () => env.bounds, focus: () => calls.push(['focus', 'window']),
+    contentView: { children, addChildView(view) { stackEdits.push('add'); const old = children.indexOf(view); if (old >= 0) children.splice(old, 1); children.push(view) },
+      removeChildView(view) { stackEdits.push('remove'); const index = children.indexOf(view); if (index >= 0) children.splice(index, 1) } } })
   const windowService = { getMainWindow: () => mainWindow, resolvePreload: name => `/preload/${name}`, sendShellEvent: event => shellEvents.push(event),
-    getShellBounds: () => ({ width: 1200, height: 800 }), getPluginTopInset: () => env.inset, setPluginLeftInset() {} }
+    getShellBounds: () => env.bounds, getPluginTopInset: () => env.inset, setPluginLeftInset() {} }
   const pluginHost = {
     hasShellTab: id => id === 't1', activatePlugin: id => calls.push(['activate', id]),
-    closePlugin: async (id, reason) => { calls.push(['close', id, reason]) },
+    closePlugin: async (id, reason) => { calls.push(['close', id, reason]); await env.onClose?.() },
     detachPlugin: async id => { calls.push(['detach', id]) }, reorderPlugin: (id, index) => calls.push(['reorder', id, index]),
     openPlugin: async (id, enter, options) => {
       if (options?.guard && !options.guard()) throw Error('plugin launch cancelled')
@@ -120,12 +128,13 @@ function fixture() {
     './themeChromeAssets': { ...assets, readChromeAsset: (...args) => env.read(...args) },
     '@main/plugin/PluginHost': { pluginHost },
     '@main/ipc/shellHandlers': { navigateWorkspace: async route => { calls.push(['home', route]) }, openShellSettings: () => calls.push(['settings']) },
-  }, { performance: { now: () => clock }, setTimeout(callback, ms) { const timer = { callback, ms, unref() {} }; timers.add(timer); return timer }, clearTimeout: timer => timers.delete(timer) })
+  }, { performance: { now: () => clock }, setTimeout: timer, clearTimeout: entry => timers.delete(entry) })
   const security = load('src/main/ipc/ipcSecurity.ts', { electron, '@shared/types/ipc': ipc })
   function make(part = 'rail') {
     const selected = api.selectThemeChrome(part)
     assert.ok(selected)
     return new api.ThemeChromeSurface(part, selected, { state: () => state, active: () => env.active,
+      caption: open => calls.push(['caption', open]), refreshPointer: sender => calls.push(['refresh', sender.id]),
       expand: value => calls.push(['expand', value]), changed: () => { env.changed++ }, failed: signature => failures.push(signature) })
   }
   function event(surface) { return { sender: surface.view.webContents, senderFrame: surface.view.webContents.mainFrame } }
@@ -137,17 +146,17 @@ function fixture() {
     wc.emit('before-mouse-event', {}, { button: 'left', type: 'mouseUp' })
   }
   const dispatch = (surface, action) => invoke(surface, contract.ThemeChromeChannels.Action, action)
-  function orb() {
-    return load('src/main/window/orbRailViews.ts', { electron, '@main/window/transientViews': { raiseTransientViews() {} },
+  function orb(platform = 'darwin', environment = {}) {
+    return load('src/main/window/orbRailViews.ts', { electron, '@main/window/transientViews': transients,
       '@main/ipc/ipcSecurity': security, '@shared/constants': constants, '@shared/types/ipc': ipc,
       '@main/window/createShellWindow': windowService, '@main/settings/SettingsStore': { settingsStore: { getAll: () => ({ general: { animationLevel: 'low' } }) } },
-      '@main/theme/resolveThemeCss': { resolveThemeTokens: () => ({ mode: 'light', tokens: {} }) },
-      '@main/contrib/railContributions': rail, '@main/plugin/PluginRegistry': { pluginRegistry },
+      '@main/theme/resolveThemeCss': { resolveThemeTokens: () => ({ mode: 'light', tokens: {}, appearance: { layout: { orbDock: env.dock }, animation: { effective: 'low' } } }) },
+      '@main/contrib/railContributions': rail, '@main/plugin/PluginRegistry': { pluginRegistry }, '@main/plugin/PluginHost': { pluginHost },
       '@main/logs/logService': { logInfo() {}, logWarn() {} }, '@main/theme/themeChromeSurface': api,
-    }, { process: { env: {} }, queueMicrotask })
+    }, { process: { platform, env: environment }, queueMicrotask, setInterval: timer, clearInterval: entry => timers.delete(entry) })
   }
   return { api, env, state, sessions, views, handlers, timers, calls, failures, shellEvents, make, show, click, event, invoke, dispatch, security,
-    orb, mainWindow, pluginWatchers, electron, rail, railRows,
+    orb, mainWindow, pluginWatchers, electron, rail, railRows, transients, stackEdits,
     advance(ms) { clock += ms } }
 }
 
@@ -284,6 +293,21 @@ test('actions require visible/focused readiness and one recent native gesture pe
   assert.deepEqual(f.calls, [['activate', 't1']])
 })
 
+test('only a completed close on a still interactive custom rail refreshes its own pointer', async () => {
+  const f = fixture(), rail = f.make(), close = { type: 'close', tabId: 't1' }
+  f.show(rail); f.click(rail)
+  await f.dispatch(rail, close)
+  assert.deepEqual(f.calls, [['close', 't1', 'tab-close'], ['refresh', rail.view.webContents.id]])
+  f.env.onClose = () => { throw Error('Close refused') }
+  f.click(rail)
+  await assert.rejects(f.dispatch(rail, close), /Close refused/)
+  f.env.onClose = () => { f.env.focused = false }
+  f.click(rail)
+  await f.dispatch(rail, close)
+  assert.equal(f.calls.filter(([kind]) => kind === 'refresh').length, 1)
+  rail.dispose()
+})
+
 test('host resolves contribution/tab targets and refuses forged targets, invalid order and stale async action', async () => {
   const f = fixture(), surface = f.make()
   f.show(surface)
@@ -393,7 +417,7 @@ test('native rail retains a usable trusted fallback until custom ACK, respects m
   assert.equal(f.views.length, 0)
   orb.applyOrbRailVisibility('orb', true)
   const custom = f.views.find(view => view.options.webPreferences.preload.endsWith('themeChromePreload.js'))
-  const fallback = f.views.find(view => view.options.webPreferences.preload.endsWith('shellPreload.js'))
+  const fallback = f.views.find(view => view.options.webPreferences.preload.endsWith('railPreload.js'))
   assert.ok(custom && fallback)
   assert.equal(custom.getVisible(), false)
   assert.equal(fallback.getVisible(), true)
@@ -418,6 +442,72 @@ test('native rail retains a usable trusted fallback until custom ACK, respects m
   assert.equal(f.pluginWatchers.size, 0)
   assert.equal(f.electron.nativeTheme.listenerCount('updated'), 0)
   assert.equal(f.timers.size, 0)
+})
+
+for (const dock of ['left', 'right']) test(`${dock} rail re-hits only its unobscured band, in view-local DIP without taking focus`, () => {
+  const f = fixture(), orb = f.orb()
+  f.env.dock = dock
+  if (dock === 'left') f.env.appearance.theme.source = 'enest.builtin'
+  else Object.assign(f.env.bounds, { x: 230, y: -850 })
+  orb.applyOrbRailVisibility('orb', true)
+  orb.setOrbRailExpandedView(true)
+  orb.setOrbRailCaptionOpen(true)
+  const rail = f.views.find(view => view.getVisible()), sender = rail.webContents
+  const right = dock === 'right', { bounds } = f.env, band = constants.ORB_RAIL_EXPANDED_W
+  const column = right ? bounds.width - 16 : 16, row = constants.TITLEBAR_HEIGHT + 72
+  const cursor = (x, y) => { f.env.cursor = { x: bounds.x + x, y: bounds.y + y } }
+  const move = { type: 'mouseMove', x: right ? constants.ORB_RAIL_CAPTION_EXTRA_W + band - 16 : 16, y: 72 }
+  cursor(column, row); orb.refreshOrbRailPointer(sender)
+  assert.deepEqual(sender.inputEvents, [move])
+  for (const [x, y] of [[right ? bounds.width - band - 1 : band, row], [column, constants.TITLEBAR_HEIGHT - 1], [column, bounds.height]]) {
+    cursor(x, y); orb.refreshOrbRailPointer(sender)
+  }
+  for (const absent of [null, { x: NaN, y: 0 }]) { f.env.cursor = absent; orb.refreshOrbRailPointer(sender) }
+  cursor(column, row)
+  for (const gate of ['visible', 'focused', 'minimized']) {
+    f.env[gate] = !f.env[gate]; orb.refreshOrbRailPointer(sender); f.env[gate] = !f.env[gate]
+  }
+  const cover = new f.electron.WebContentsView({ webPreferences: {} })
+  cover.setBounds({ x: column - 3, y: row - 3, width: 6, height: 6 }); f.mainWindow.contentView.addChildView(cover)
+  orb.refreshOrbRailPointer(cover.webContents); orb.refreshOrbRailPointer(sender)
+  assert.deepEqual(cover.webContents.inputEvents, [])
+  assert.deepEqual(sender.inputEvents, [move])
+  cover.setVisible(false); orb.refreshOrbRailPointer(sender)
+  assert.deepEqual(sender.inputEvents, [move, move])
+  if (right) {
+    const custom = f.views[0]
+    orb.refreshOrbRailPointer(custom.webContents)
+    assert.deepEqual(custom.webContents.inputEvents, [])
+    f.invoke({ view: custom }, contract.ThemeChromeChannels.Ready)
+    orb.refreshOrbRailPointer(sender); orb.refreshOrbRailPointer(custom.webContents)
+    assert.deepEqual(sender.inputEvents, [move, move])
+    assert.deepEqual(custom.webContents.inputEvents, [move])
+  }
+  assert.equal(f.calls.some(([kind]) => kind === 'focus'), false)
+  orb.destroyOrbRailViews()
+})
+
+test('Wayland leaves hover to the renderer without sampling unsupported global coordinates', () => {
+  const f = fixture(), orb = f.orb('linux', { XDG_SESSION_TYPE: 'wayland' })
+  f.env.appearance.theme.source = 'enest.builtin'
+  let reads = 0
+  f.electron.screen.getCursorScreenPoint = () => { reads++; return { x: 0, y: 0 } }
+  orb.applyOrbRailVisibility('orb', true); orb.setOrbRailExpandedView(true); orb.setOrbRailCaptionOpen(true)
+  orb.refreshOrbRailPointer(f.views[0].webContents)
+  assert.equal(reads, 0); assert.equal(f.timers.size, 0); assert.deepEqual(f.views[0].webContents.inputEvents, [])
+  orb.destroyOrbRailViews()
+})
+
+test('raising a rail beneath a transient does not detach either view or reorder an already correct stack', () => {
+  const f = fixture(), orb = f.orb(), { contentView } = f.mainWindow
+  f.env.appearance.theme.source = 'enest.builtin'; orb.applyOrbRailVisibility('orb', true)
+  const [rail] = f.views, overlay = new f.electron.WebContentsView({ webPreferences: {} }), plugin = new f.electron.WebContentsView({ webPreferences: {} })
+  contentView.addChildView(overlay); f.transients.registerTransientView(f.mainWindow, overlay); contentView.addChildView(plugin)
+  f.stackEdits.length = 0; orb.raiseOrbRailViews()
+  assert.deepEqual(contentView.children, [plugin, rail, overlay]); assert.ok(!f.stackEdits.includes('remove'))
+  f.stackEdits.length = 0; orb.raiseOrbRailViews(); f.transients.raiseTransientViews(f.mainWindow)
+  assert.deepEqual(f.stackEdits, [])
+  orb.destroyOrbRailViews()
 })
 
 test('pending failure and source revocation restore the same builtin without a hidden blank navigation interval', async () => {

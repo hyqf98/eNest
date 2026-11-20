@@ -1,7 +1,7 @@
 /**
  * marketClient — 远程插件市场（eNest_plugin 仓库）
  * 职责：拉取 registry.json 并转换为 PluginSummary 列表，供 PluginRegistry 合并；
- *       提供 .enestplugin 资产下载（https + 可选 sha256 校验），保留 Node fetch 代理链路。
+ *       提供 .enestplugin 资产下载（HTTPS + SHA-256 校验），保留 Node fetch 代理链路。
  * 数据源优先级：Release latest → raw main 分支。
  * 关键依赖：Node undici fetch（避开 Chromium c-ares）、marketMetadata、logService。
  */
@@ -27,13 +27,28 @@ const REGISTRY_URLS = [
   `https://raw.githubusercontent.com/${MARKET_REPO_OWNER}/${MARKET_REPO_NAME}/main/registry.json`
 ]
 
+async function fetchMarketHttps(url: string, signal: AbortSignal): Promise<Response> {
+  let target = new URL(url)
+  for (let hop = 0; hop <= 5; hop++) {
+    if (target.protocol !== 'https:' || target.username || target.password) throw new Error('Market downloads require credential-free HTTPS')
+    const response = await fetch(target.href, { method: 'GET', redirect: 'manual', credentials: 'omit', signal })
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response
+    const location = response.headers.get('location')
+    await response.body?.cancel()
+    if (!location) throw new Error('Invalid market redirect')
+    target = new URL(location, target)
+  }
+  throw new Error('Too many market redirects')
+}
+
 async function fetchJson(url: string): Promise<unknown> {
   try {
     // Node undici fetch（不走 Chromium net/c-ares）：主进程外部请求须避开内置解析器，
     // 见 index.ts host-resolver-rules 注释；沿用 proxyService 配置的全局 undici dispatcher
     const proxy = getActiveProxy()
-    const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(15_000) })
+    const res = await fetchMarketHttps(url, AbortSignal.timeout(15_000))
     if (!res.ok) {
+      await res.body?.cancel()
       logWarn('registry', `market ${url} → HTTP ${res.status} (proxy=${proxy.type})`)
       return null
     }
@@ -87,9 +102,9 @@ export interface DownloadedPackage {
 
 /**
  * 下载 .enestplugin 到系统临时目录。
- * - 仅允许 http(s)；优先 https（GitHub Release）。
+ * - 初始地址与重定向均要求 HTTPS。
  * - 走 Node fetch，沿用 proxyService 设置的环境代理。
- * - 大小上限 / 超时 / 可选 sha256；失败或调用方结束时 cleanup 临时文件。
+ * - 大小上限 / 超时 / 必填 sha256；失败或调用方结束时 cleanup 临时文件。
  */
 export async function downloadPluginPackage(
   url: string,
@@ -108,12 +123,9 @@ export async function downloadPluginPackage(
   } catch {
     throw new Error(`invalid asset url: ${url}`)
   }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new Error(`unsupported asset protocol: ${parsed.protocol}`)
-  }
-  if (parsed.protocol === 'http:') {
-    logWarn('market', `insecure http download: ${url}`)
-  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error('Market downloads require credential-free HTTPS')
+  const expected = (opts.expectedSha256 ?? '').trim().toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(expected)) throw new Error('Market package requires a valid SHA-256 digest')
 
   const safeName = (opts.fileName || parsed.pathname.split('/').pop() || 'plugin.enestplugin')
     .replace(/[^\w.@+-]+/g, '_')
@@ -133,11 +145,7 @@ export async function downloadPluginPackage(
   try {
     logInfo('market', `download ← ${url}`)
     // 同 fetchJson：Node undici fetch，避开 Chromium c-ares（见 index.ts host-resolver-rules）
-    const res = await fetch(url, {
-      method: 'GET',
-      signal: controller.signal,
-      redirect: 'follow'
-    })
+    const res = await fetchMarketHttps(url, controller.signal)
     if (!res.ok) {
       throw new Error(`download failed: HTTP ${res.status}`)
     }
@@ -185,15 +193,8 @@ export async function downloadPluginPackage(
     }
 
     const actualSha = digest.digest('hex')
-    const expected = (opts.expectedSha256 ?? '').trim().toLowerCase()
-    if (expected) {
-      if (actualSha !== expected) {
-        throw new Error(`sha256 mismatch: expected ${expected.slice(0, 12)}… got ${actualSha.slice(0, 12)}…`)
-      }
-      logInfo('market', `sha256 ok ${actualSha.slice(0, 12)}…`)
-    } else {
-      logWarn('market', `sha256 not provided, skip verify (${actualSha.slice(0, 12)}…)`)
-    }
+    if (actualSha !== expected) throw new Error(`sha256 mismatch: expected ${expected.slice(0, 12)}… got ${actualSha.slice(0, 12)}…`)
+    logInfo('market', `sha256 ok ${actualSha.slice(0, 12)}…`)
 
     opts.onProgress?.({ percent: 100, received, total: total ?? received })
     logInfo('market', `download ok → ${dest} (${received} bytes)`)

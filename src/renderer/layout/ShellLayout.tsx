@@ -2,7 +2,7 @@
  * ShellLayout — 壳子主框架布局
  * classic 使用顶部标签与左下角头像入口；orb 使用首页、插件、设置合一的左侧圆轨。
  */
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { TitleBar } from '@renderer/layout/TitleBar'
 import { AppBackground } from '@renderer/components/AppBackground'
 import { HomeRecovery } from '@renderer/components/HomeRecovery'
@@ -17,8 +17,7 @@ import { useShellStore } from '@renderer/stores/shellStore'
 import { useShellEvents } from '@renderer/hooks/useShellEvents'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
 import { useI18n } from '@renderer/hooks/useI18n'
-
-const SettingsPage = lazy(() => import('@renderer/components/SettingsSurfaceController').then(module => ({ default: module.SettingsSurfaceController })))
+import { SettingsSurfaceController } from '@renderer/components/SettingsSurfaceController'
 
 /** 按窗口宽度写入 --shell-scale（0.85–1.1）；标题栏 36px 固定不缩放。 */
 function useShellScale(): void {
@@ -138,7 +137,7 @@ export function ShellLayout() {
           <Suspense fallback={<div className="page" role="status" aria-busy="true"><div className="empty">{t('common.loading')}</div></div>}>
             {view === 'home' && <HomeRecovery />}
             {/* 设置由原生壳渲染层独占；主题 Workspace 不再提供设置页 */}
-            {view === 'settings' && <SettingsPage />}
+            {view === 'settings' && <SettingsSurfaceController />}
           </Suspense>
           {view === 'plugin' && <PluginHostChrome />}
         </div>

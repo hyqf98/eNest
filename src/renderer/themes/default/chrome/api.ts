@@ -7,12 +7,14 @@ interface LocalChromeActions {
   settings?: () => void | Promise<void>
   activate?: (tabId: string) => void | Promise<void>
   close?: (tabId: string) => void | Promise<void>
+  /** 宿主已收回名称浮层的拓宽（光标看门狗判定离开）：overlay 应同步收起浮层。 */
+  captionClose?: () => void
 }
 
 /** Keep store/toast behavior in the inline shell, without importing its graph into native chrome. */
 export function createDefaultChromeApi(surface: ThemeChromePart, local: LocalChromeActions = {}): ThemeChromeApi {
   if (window.enestChrome) return window.enestChrome
-  const shell = window.enestShell
+  const shell = window.enestBuiltinChrome ?? window.enestShell
   const assertCurrent = (): void => {
     if (local.isCurrent?.() === false) throw new Error('Chrome adapter retired')
   }
@@ -39,7 +41,11 @@ export function createDefaultChromeApi(surface: ThemeChromePart, local: LocalChr
     getSnapshot,
     onSnapshot(listener) {
       return shell?.onOrbEvent?.(payload => {
-        if (payload.type !== 'orb-state' || local.isCurrent?.() === false) return
+        if (local.isCurrent?.() === false) return
+        // 宿主看门狗判定光标离开轨道后发这个事件：overlay 收起浮层即可，
+        // 视图宽度已由主进程还原，不需要额外往返。
+        if (payload.type === 'orb-caption-close') { local.captionClose?.(); return }
+        if (payload.type !== 'orb-state') return
         eventRevision++
         state = payload.state
         listener(snapshot())
@@ -58,15 +64,25 @@ export function createDefaultChromeApi(surface: ThemeChromePart, local: LocalChr
           return
         case 'activate':
           if (local.activate) await local.activate(action.tabId)
-          else await shell?.activatePlugin(action.tabId)
+          else await shell?.activatePlugin?.(action.tabId)
           return
         case 'close':
           if (local.close) await local.close(action.tabId)
-          else await shell?.closePlugin(action.tabId)
+          else await shell?.closePlugin?.(action.tabId)
           return
         case 'expand':
           await shell?.setOrbRailExpanded?.(action.expanded)
           return
+        case 'dock': {
+          if (action.dock !== 'left' && action.dock !== 'right') throw new Error('Invalid orb dock side')
+          await shell?.setOrbDock?.(action.dock)
+          return
+        }
+        case 'caption': {
+          if (typeof action.open !== 'boolean') throw new Error('Invalid orb caption state')
+          await shell?.setOrbRailCaption?.(action.open)
+          return
+        }
         case 'contribution': {
           if (!shell?.activateRailContribution) throw new Error('Native rail contribution bridge unavailable')
           await shell.activateRailContribution(action.id)

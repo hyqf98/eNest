@@ -6,12 +6,10 @@ import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
  * 被 index.ts 在 app.whenReady 后调用；PluginHost / pluginHandlers 通过 sendShellEvent 推送事件。
  * 关键依赖：@shared/constants（分区与尺寸）、shellPreload（渲染层桥接）。
  */
-import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   app,
   BaseWindow,
-  nativeImage,
   WebContentsView,
   type Rectangle,
   type WebContents
@@ -23,9 +21,12 @@ import { devShortcutAction, toggleDevTools } from '@main/dev/devShortcuts'
 import { registerThemeSettingsPolicy } from '@main/theme/themeSettingsSurface'
 import { resolveThemeTokens } from '@main/theme/resolveThemeCss'
 import { markStartupPhase } from '@main/logs/startupTiming'
+import { logWarn } from '@main/logs/logService'
+import { resolveWindowIcon } from './applicationIcon'
 
 let mainWindow: BaseWindow | null = null
 let shellView: WebContentsView | null = null
+let pendingDockShow: Promise<void> | null = null
 
 /**
  * 主窗口底色必须跟随主题：DOM 自带圆角，圆角外露出的就是窗口 background。
@@ -51,46 +52,54 @@ export function resolvePreload(name: string): string {
   return join(app.getAppPath(), 'out', 'preload', name.replace(/\.(js|mjs|cjs)$/, '.cjs'))
 }
 
-/** 解析 icons 根目录列表：开发路径优先，打包后走 process.resourcesPath */
-function iconRoots(): string[] {
-  return [
-    join(app.getAppPath(), 'assets', 'icons'),
-    process.resourcesPath ? join(process.resourcesPath, 'icons') : ''
-  ].filter(Boolean)
-}
-
-/** 窗口 icon：必须是 PNG/ICO（Electron 不接受 ICNS，会 throw） */
-export function resolveWindowIcon(): string | undefined {
-  const png = 'enest-icon-256.png'
-  for (const root of iconRoots()) {
-    const p = join(root, png)
-    if (existsSync(p)) return p
-  }
-  return undefined
+/**
+ * 主窗隐藏后保住 macOS 的 Dock 项；返回 Dock 是否作为可用入口。
+ *
+ * 「关闭到托盘」把主窗 hide 掉，app 随即没有可见窗口；macOS 会顺手把 Dock 项
+ * 也收走，用户从 Dock 找不到 eNest，只能记着热键。关闭到托盘的本意是"后台常驻"，
+ * 所以这里显式把图标要回来——`dock.show()` 在没有窗口时也能让 app 留在 Dock 上。
+ * 呼出 Quick / 重新显示主窗时系统会自然恢复，不需要反向调用 `dock.hide()`。
+ *
+ * 非 darwin 平台没有 Dock，返回 false 让调用方改用托盘。
+ */
+export function keepDockIconVisible(): boolean {
+  if (process.platform !== 'darwin') return false
+  const dock = app.dock
+  if (!dock) return false
+  try {
+    if (dock.isVisible() || pendingDockShow) return true
+    pendingDockShow = dock.show()
+      .catch(error => logWarn('main', `cannot show Dock icon: ${String(error)}`))
+      .finally(() => { pendingDockShow = null })
+    return true
+  } catch { return false }
 }
 
 /**
- * macOS Dock 运行时图标。
- * dock.setIcon 不会自动补齐 App Icon 安全边距；PNG 与打包 ICNS 必须
- * 使用相同的居中画布（主体最长边 824/1024），否则启动后会突然变大。
+ * macOS 上把系统红绿灯要回来，替掉渲染层自绘的那一组。
+ *
+ * 自绘方案在这里是走不通的，原因在 Electron 的命中测试实现里：
+ * `native_window.cc` 的 `NonClientHitTest` 按**注册顺序**遍历所有
+ * DraggableRegionProvider 并返回第一个命中（`if (hit != HTNOWHERE) return hit`），
+ * 不看视图叠放次序。主壳标题栏带 `-webkit-app-region: drag`，于是那条 36px 横带
+ * 永远先返回 HTCAPTION。官方文档说明 "draggable areas ignore all pointer events"，
+ * 所以哪怕首页视图盖在最上层，落在该横带里的自绘按钮也收不到 hover / click。
+ *
+ * 官方给的正解是 `frame: false` + `setWindowButtonVisibility(true)`
+ * （等价于 `titleBarStyle: 'hidden'`）：系统红绿灯画在所有内容视图之上，
+ * 点击由窗口直接处理，不经过任何 renderer，也就不受拖拽区影响。
  */
-function applyDockIcon(): void {
-  if (process.platform !== 'darwin' || !app.dock) return
-  const names = ['dock-runtime.png', 'enest-icon-256.png']
-  for (const root of iconRoots()) {
-    for (const name of names) {
-      const p = join(root, name)
-      if (!existsSync(p)) continue
-      try {
-        const img = nativeImage.createFromPath(p)
-        if (img.isEmpty()) continue
-        app.dock.setIcon(img)
-        return
-      } catch (err) {
-        console.warn('[enest] dock icon failed', p, (err as Error).message)
-      }
-    }
-  }
+function enableNativeWindowButtons(win: BaseWindow): void {
+  if (process.platform !== 'darwin') return
+  try {
+    win.setWindowButtonVisibility(true)
+    /*
+     * 位置对齐主壳标题栏：36px 高、左内距 14px，12px 圆点居中 → y = (36-12)/2 = 12。
+     * 横向沿用系统的三钮间距（12px 点 + 8px 间隙），起点取 20px：
+     * 比左内距稍进一点，避开窗口 12px 圆角，视觉上和原来那组 DOM 按钮同一位置。
+     */
+    win.setWindowButtonPosition({ x: 20, y: 12 })
+  } catch { /* 窗口可能在创建阶段即被销毁 */ }
 }
 
 function loadRenderer(view: WebContentsView): void {
@@ -112,7 +121,6 @@ function applyShellBounds(win: BaseWindow, view: WebContentsView): void {
 
 /** 创建无边框圆角壳子主窗口并挂载 shell WebContentsView，窗口就绪后显示 */
 export function createShellWindow(): BaseWindow {
-  const windowIcon = resolveWindowIcon()
   const restored = readMainWindowState()
   const win = new BaseWindow({
     width: 1200,
@@ -125,13 +133,11 @@ export function createShellWindow(): BaseWindow {
     roundedCorners: true,
     hasShadow: true,
     backgroundColor: resolveWindowBackgroundColor(),
-    ...(windowIcon ? { icon: windowIcon } : {}),
+    icon: resolveWindowIcon(),
     title: APP_NAME
   })
   win.once('show', () => markStartupPhase('shell-window-shown'))
-
-  // Dock 单独设置；不可把 icns 传给 BrowserWindow/BaseWindow.icon
-  applyDockIcon()
+  enableNativeWindowButtons(win)
 
   const view = new WebContentsView({
     webPreferences: {

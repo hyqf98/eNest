@@ -7,14 +7,14 @@ import { MCP_MAX_BYTES, McpFailure } from './mcpErrors'
 import { validateMcpSchema } from './mcpSchemaValidator'
 
 export interface CatalogEntry { tool: McpCatalogTool; buildRevision: string; schemaKey: string }
-let signature = '', cached: Promise<CatalogEntry[]> | undefined
+interface CatalogSnapshot { signature: string; entries: Promise<CatalogEntry[]> }
+let cached: CatalogSnapshot | undefined
 
-export function getMcpCatalog(): Promise<CatalogEntry[]> {
+function catalogSnapshot(): CatalogSnapshot {
   const descriptors = pluginRegistry.getInstalledDescriptors().filter(item => item.enabled && !pluginHost.isBlockedForOpen(item.id))
-  const next = JSON.stringify(descriptors.map(item => [item.id, item.buildRevision]))
-  if (cached && signature === next) return cached
-  signature = next
-  cached = (async () => {
+  const signature = JSON.stringify(descriptors.map(item => [item.id, item.buildRevision]))
+  if (cached?.signature === signature) return cached
+  const entries = (async () => {
     const entries: CatalogEntry[] = []
     for (const item of descriptors) {
       const tools = item.manifest.contributes?.mcpTools
@@ -29,9 +29,21 @@ export function getMcpCatalog(): Promise<CatalogEntry[]> {
       entries.push(...group)
     }
     return entries.sort((a, b) => a.tool.pluginId.localeCompare(b.tool.pluginId) || a.tool.id.localeCompare(b.tool.id))
-  })().catch(error => { cached = undefined; throw error })
+  })()
+  cached = { signature, entries }
+  void entries.catch(() => { if (cached?.entries === entries) cached = undefined })
   return cached
 }
+
+async function readCatalog(): Promise<{ signature: string; catalog: CatalogEntry[] }> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const snapshot = catalogSnapshot(), catalog = await snapshot.entries
+    if (catalogSnapshot() === snapshot) return { signature: snapshot.signature, catalog }
+  }
+  throw new McpFailure('busy', 'Plugin catalog is changing')
+}
+
+export async function getMcpCatalog(): Promise<CatalogEntry[]> { return (await readCatalog()).catalog }
 
 export async function listMcpTools(input: McpCatalogQuery = {}): Promise<McpCatalogPage> {
   if (!input || typeof input !== 'object' || Array.isArray(input)
@@ -40,7 +52,7 @@ export async function listMcpTools(input: McpCatalogQuery = {}): Promise<McpCata
     || input.query !== undefined && (typeof input.query !== 'string' || input.query.length > 256)
     || input.cursor !== undefined && (typeof input.cursor !== 'string' || input.cursor.length > 512)
     || input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100)) throw new McpFailure('invalid-arguments')
-  const catalog = await getMcpCatalog()
+  const { signature, catalog } = await readCatalog()
   const query = input.query?.trim().toLocaleLowerCase() ?? ''
   const revision = createHash('sha256').update(JSON.stringify([signature, input.pluginId, query])).digest('hex')
   let offset = 0

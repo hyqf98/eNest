@@ -12,7 +12,8 @@ import type {
   HomeReadyPayload,
   HomeRuntimeConfig,
   HomeSearchRequest,
-  HomeSearchResult
+  HomeSearchResult,
+  HomeTabsSnapshot
 } from '@shared/types/home'
 import type { WorkspaceNavigationAck } from '@shared/types/workspace'
 
@@ -43,6 +44,16 @@ const api: EnestHomeApi = {
   },
   action(request: HomeAction): Promise<HomeActionResponse> {
     return ipcRenderer.invoke(IpcChannels.HomeAction, request)
+  },
+  getTabs(): Promise<HomeTabsSnapshot> {
+    return ipcRenderer.invoke(IpcChannels.HomeGetTabs)
+  },
+  onTabs(listener: (payload: HomeTabsSnapshot) => void): () => void {
+    const handler = (_event: unknown, data: HomeEventData): void => {
+      if (data?.tabs) listener(data.tabs)
+    }
+    ipcRenderer.on(IpcChannels.HomeEvent, handler)
+    return () => { ipcRenderer.removeListener(IpcChannels.HomeEvent, handler) }
   },
   onAppearance(listener: (payload: HomeAppearanceSnapshot) => void): () => void {
     const handler = (_event: unknown, data: HomeEventData): void => {

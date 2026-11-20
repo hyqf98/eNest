@@ -6,6 +6,7 @@ import { registerPluginProcess } from './pluginOwnedProcesses'
 import { PluginBackendControl } from './pluginBackendControl'
 import { getAppPaths } from '@main/paths/pathsService'
 import { interactionErrorCode, runHostRpc } from '@main/plugin/pluginInteractionPolicy'
+import { resolveEffectiveProxyUrl } from '@main/proxy/proxyService'
 
 interface Pending {
   resolve: (value: unknown) => void
@@ -119,7 +120,13 @@ function backendFor(pluginId: string): Backend {
     stop(old, 'plugin backend replaced')
     if (!old.retired) throw new Error('previous plugin backend is still retiring')
   }
-  const child = utilityProcess.fork(entry, [], { serviceName: `eNest backend ${pluginId} #${scope.owner.generation}`, stdio: 'ignore', execArgv: ['--max-old-space-size=256'], env: { ...process.env, NODE_USE_ENV_PROXY: '1' } })
+  // 插件后端是独立 Node 进程，Chromium 的 session 代理不会自动生效；
+  // 把宿主当前实际生效的代理注入环境，供后端（undici ProxyAgent）使用。
+  const effectiveProxy = resolveEffectiveProxyUrl()
+  const proxyEnv = effectiveProxy
+    ? { HTTP_PROXY: effectiveProxy, HTTPS_PROXY: effectiveProxy, ALL_PROXY: effectiveProxy }
+    : {}
+  const child = utilityProcess.fork(entry, [], { serviceName: `eNest backend ${pluginId} #${scope.owner.generation}`, stdio: 'ignore', execArgv: ['--max-old-space-size=256'], env: { ...process.env, ...proxyEnv, NODE_USE_ENV_PROXY: '1' } })
   let resolveExit!: () => void
   const exit = new Promise<void>(resolve => { resolveExit = resolve })
   const backend: Backend = { scope, child, exit, resolveExit, pending: new Map(), closed: false, failedClose: false, exited: false, retired: false, detach: () => {}, unregister: () => {}, releases: new Set(),

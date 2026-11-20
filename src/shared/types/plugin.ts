@@ -214,6 +214,14 @@ const ALL_LAUNCH_MODES: readonly PluginLaunchMode[] = ['quick', 'shell', 'panel'
 export interface PluginPanelViewConfig {
   /** 组件默认外框尺寸（DIP）：添加组件时的初始尺寸；被宿主最小尺寸与面板内容区钳制。 */
   size?: { width: number; height: number }
+  /**
+   * 小组件预览图：首页「小组件」区块用它展示该插件在面板里的真实渲染效果。
+   *
+   * 必须是插件包内相对路径，且落在 `assets/market/screenshots/`
+   * （与 market.screenshots 共用同一套资源校验：PNG/WebP/JPEG）。
+   * 这样构建期就能校验文件存在与格式，壳子按声明读取，**不扫目录、不猜文件名**。
+   */
+  preview?: string
 }
 
 /**
@@ -244,11 +252,18 @@ export function resolvePluginViews(views?: Partial<PluginViewsConfig> | null): P
     : layouts.includes('shell') ? 'shell' : layouts[0]
   // panel 几何偏好只在声明了 panel 布局时生效；尺寸取整，非法值忽略（宿主几何层再钳制）。
   const size = views?.panel?.size
-  const panel = layouts.includes('panel') && size
+  const validSize = layouts.includes('panel') && size
     && Number.isFinite(size.width) && size.width > 0
     && Number.isFinite(size.height) && size.height > 0
     ? { size: { width: Math.round(size.width), height: Math.round(size.height) } }
     : undefined
+  // preview 与 size 独立：只声明预览图、不声明尺寸是合法的（尺寸走宿主默认）。
+  // 路径合法性（必须 assets/market/screenshots + 图片扩展名）由构建期校验负责，
+  // 这里只做类型归一，不重复实现一遍路径规则。
+  const preview = layouts.includes('panel') && typeof views?.panel?.preview === 'string' && views.panel.preview.trim()
+    ? { preview: views.panel.preview.trim() }
+    : undefined
+  const panel = validSize || preview ? { ...validSize, ...preview } : undefined
   return { layouts, default: fallback, panel }
 }
 
@@ -338,8 +353,8 @@ export interface HomeCardContribution {
 }
 
 /**
- * 「打开方式」贡献（manifest.contributes.openWith；open-with 插槽）。
- * 纯声明：插件只声明能处理的扩展名 / MIME / URL scheme，系统注册与文件→插件
+ * 「打开方式」贡献（contributes.openWith 或 enest.openWith.register）。
+ * 插件只登记能处理的扩展名 / MIME / URL scheme，系统注册与文件→插件
  * 路由由壳统一负责（插件是壳内视图，OS 关联目标只能是 eNest 本体）。
  * 打开时壳以 enter.code='open-file'|'open-url' + payload{paths,url} 唤起插件。
  */
@@ -891,7 +906,7 @@ export interface PluginEnterPayload {
 }
 
 /** 关闭原因：用户关 Tab / 卸载插件 / 应用退出 */
-export type PluginCloseReason = 'tab-close' | 'uninstall' | 'app-quit'
+export type PluginCloseReason = 'tab-close' | 'update' | 'uninstall' | 'app-quit'
 
 /**
  * 主进程 → 插件 webContents 的生命周期消息（通道 plugin:lifecycle）。

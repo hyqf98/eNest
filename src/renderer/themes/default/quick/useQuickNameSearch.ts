@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { QuickCommandKind } from '@shared/types/quick'
-import { ACTION_COPY, namesOf, type DefaultQuickMatch, type DefaultSearchEntry } from './catalogPolicy'
+import { ACTION_COPY, allowsQuickTextPrefix, namesOf, type DefaultQuickMatch, type DefaultSearchEntry } from './catalogPolicy'
 import type { QuickNameHit, QuickNameRow } from './nameSearchTypes'
 import { createNameSearch } from './nameSearchClient'
 
@@ -22,11 +22,11 @@ export function useQuickNameSearch<T extends DefaultSearchEntry>(
     const unchanged = entries.length === previous.rows.length && entries.every((item, position) => {
       const row = previous.rows[position], names = namesOf(item)
       return item.id === row.key && item.kind === row.kind && item.title === row.title && names.length === row.names.length
-        && (item.textInput?.trigger === 'prefix') === row.prefix
+        && allowsQuickTextPrefix(item) === row.prefix
         && names.every((name, nameIndex) => name === row.names[nameIndex])
     })
     if (unchanged) return previous
-    const next = { rows: entries.map(item => ({ key: item.id, kind: item.kind, title: item.title, names: namesOf(item), prefix: item.textInput?.trigger === 'prefix' })), revision: previous.revision + 1 }
+    const next = { rows: entries.map(item => ({ key: item.id, kind: item.kind, title: item.title, names: namesOf(item), prefix: allowsQuickTextPrefix(item) })), revision: previous.revision + 1 }
     indexRef.current = next
     return next
   }, [entries])

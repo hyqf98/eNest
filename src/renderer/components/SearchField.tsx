@@ -13,15 +13,17 @@ interface Props {
   trailing?: ReactNode
   /** 输入有内容、显示清空按钮时仍保留的工具入口。 */
   accessory?: ReactNode
+  /** 隐藏输入光标但仍保留焦点：Quick 里用方向键在网格中选项时使用。 */
+  caretHidden?: boolean
   inputProps?: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'placeholder'>
 }
 
-export function SearchField({ value, onChange, inputRef, placeholder, clearLabel = '清空搜索', leading, trailing, accessory, inputProps }: Props) {
+export function SearchField({ value, onChange, inputRef, placeholder, clearLabel = '清空搜索', leading, trailing, accessory, caretHidden = false, inputProps }: Props) {
   return (
     <div className="search-box">
       {leading ?? <SearchIcon size={19} />}
       <input ref={inputRef} type="search" aria-label={placeholder} autoComplete="off" spellCheck={false}
-        {...inputProps} placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />
+        {...inputProps} data-caret-hidden={caretHidden ? 'true' : undefined} placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />
       {value ? (
         <button type="button" className="search-clear" aria-label={clearLabel}
           onClick={() => { onChange(''); inputRef.current?.focus() }}><XIcon size={15} /></button>

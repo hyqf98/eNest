@@ -986,13 +986,13 @@ function mountWidget(record: PanelRecord, widget: WidgetRecord, epoch: number, g
 }
 
 /** 重试单个失败组件（chrome 错误态按钮）。 */
-export async function retryWidget(panelId: string, pluginId: string): Promise<void> {
+export async function retryWidget(panelId: string, pluginId: string, guard?: () => boolean): Promise<void> {
   assertFreePanelEnabled()
   const record = panels.get(panelId)
   const widget = record?.widgets.get(pluginId)
   if (!record || !widget) return
   try {
-    await mountWidget(record, widget, lifecycleEpoch)
+    await mountWidget(record, widget, lifecycleEpoch, guard)
   } catch (error) {
     logWarn('panel', `retry failed: ${pluginId} ${String(error)}`)
     throw error

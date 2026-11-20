@@ -26,7 +26,8 @@ import { IpcChannels } from '@shared/types/ipc'
 import { ensureShellSessionProtocol } from '@main/plugin/pluginProtocol'
 import { registerQuickThemeWebContentsPolicy } from '@main/theme/quickThemeProtocol'
 import { logError, logInfo } from '@main/logs/logService'
-import { resolvePreload, setQuickEventSink } from './createShellWindow'
+import { getMainWindow, keepDockIconVisible, resolvePreload, setQuickEventSink } from './createShellWindow'
+import { resolveWindowIcon } from './applicationIcon'
 
 /** Explicit shell view lets one native surface clip shell and plugin together. */
 class QuickWindow extends BaseWindow {
@@ -35,13 +36,14 @@ class QuickWindow extends BaseWindow {
 
   constructor() {
     super({
+      icon: resolveWindowIcon(),
       width: QUICK_WIDTH, height: QUICK_HOME_HEIGHT, show: false, frame: false,
       resizable: false, maximizable: false, minimizable: false, fullscreenable: false,
       skipTaskbar: true, alwaysOnTop: true, transparent: true, hasShadow: true,
       roundedCorners: false, backgroundColor: '#00000000', title: 'eNest Quick'
     })
     this.shellView = new WebContentsView({ webPreferences: {
-      preload: resolvePreload('shellPreload.js'), contextIsolation: true,
+      preload: resolvePreload('quickPreload.js'), contextIsolation: true,
       nodeIntegration: false, sandbox: true, partition: SHELL_PARTITION
     } })
     this.shellView.setBackgroundColor('#00000000')
@@ -352,7 +354,7 @@ export function ensureQuickWindow(): QuickWindow {
 
 /** 前置并聚焦 Quick；完整呈现时才定位和 show，复焦保留当前位置和尺寸。
  * 注意：不要在 show 前 app.focus——会先把主窗设成 key window，quick 立刻 blur 被收起。 */
-function focusQuickWindow(win: QuickWindow, present = false): void {
+function presentAndFocus(win: QuickWindow, options: { refocusOnly?: boolean; commit?: () => void } = {}): boolean {
   const revision = showRevision
   // Guard before show: macOS may activate the app before Quick reports visible.
   guardMainWindowActivation()
@@ -370,10 +372,12 @@ function focusQuickWindow(win: QuickWindow, present = false): void {
     }
   }
 
-  if (present) {
+  if (!options.refocusOnly) {
+    keepDockIconVisible()
     step('position', () => positionOnCursorScreen(win))
     step('show', () => win.show())
   }
+  if (win.isDestroyed() || !win.isVisible()) return false
   step('moveTop', () => win.moveTop())
   // 注：不要在 show 后立刻 setAlwaysOnTop(level)——macOS 26/27 对刚显示的透明窗重设
   // level 会触发原生崩溃（SIGTRAP 无 JS 日志）；创建时已设 alwaysOnTop，无需重申。
@@ -402,13 +406,42 @@ function focusQuickWindow(win: QuickWindow, present = false): void {
   }
   setTimeout(() => retryFocus('90ms'), 90)
   setTimeout(() => retryFocus('280ms'), 280)
-}
-
-function presentAndFocus(win: QuickWindow): void {
-  focusQuickWindow(win, true)
+  options.commit?.()
+  step('minimizeMain', () => {
+    const main = getMainWindow()
+    if (main && !main.isDestroyed() && main.isVisible() && !main.isMinimized()) main.minimize()
+  })
+  return true
 }
 
 export function getQuickShowRevision(): number { return showRevision }
+
+function waitForQuickRenderer(win: QuickWindow, resolve: (ready: boolean) => void, timeoutMs?: number): void {
+  const wc = win.webContents
+  let settled = false
+  const finish = (ready: boolean) => {
+    if (settled) return
+    settled = true
+    clearTimeout(timer)
+    wc.removeListener('did-finish-load', loaded)
+    wc.removeListener('did-stop-loading', loaded)
+    wc.removeListener('did-fail-load', failed)
+    wc.removeListener('destroyed', destroyed)
+    resolve(ready)
+  }
+  // A fresh WebContents can finish its initial about:blank document while the
+  // requested renderer is still navigating. Only the destination document is ready.
+  const loaded = () => { if (isQuickRendererReady(win)) finish(true) }
+  const failed = (_event: unknown, _code: number, _description: string, _url: string, isMainFrame: boolean) => { if (isMainFrame) finish(false) }
+  const destroyed = () => finish(false)
+  const timer = timeoutMs === undefined ? undefined : setTimeout(() => finish(false), timeoutMs)
+  wc.on('did-finish-load', loaded)
+  wc.on('did-stop-loading', loaded)
+  wc.on('did-fail-load', failed)
+  wc.once('destroyed', destroyed)
+  try { if (!quickRendererUrls.has(win) || !wc.isLoadingMainFrame()) loadQuickRenderer(win) }
+  catch { finish(false) }
+}
 
 /** Prepare a docking destination without resetting its owner or changing native focus. */
 export async function prepareQuickWindowForPlugin(canPrepare: () => boolean = () => true): Promise<boolean> {
@@ -418,31 +451,7 @@ export async function prepareQuickWindowForPlugin(canPrepare: () => boolean = ()
   const current = () => revision === showRevision && canPrepare() && quickWindow === win && !win.isDestroyed() && !wc.isDestroyed()
   if (!current()) return false
   if (isQuickRendererReady(win)) return true
-  const ready = await new Promise<boolean>(resolve => {
-    let settled = false
-    const finish = (success: boolean) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      wc.removeListener('did-finish-load', loaded)
-      wc.removeListener('did-stop-loading', loaded)
-      wc.removeListener('did-fail-load', failed)
-      wc.removeListener('destroyed', destroyed)
-      resolve(success)
-    }
-    // A fresh WebContents can finish its initial about:blank document while the
-    // requested renderer is still navigating. Only the destination document is ready.
-    const loaded = () => { if (isQuickRendererReady(win)) finish(true) }
-    const failed = (_event: unknown, _code: number, _description: string, _url: string, isMainFrame: boolean) => { if (isMainFrame) finish(false) }
-    const destroyed = () => finish(false)
-    const timer = setTimeout(() => finish(false), 5000)
-    wc.on('did-finish-load', loaded)
-    wc.on('did-stop-loading', loaded)
-    wc.on('did-fail-load', failed)
-    wc.once('destroyed', destroyed)
-    try { if (!quickRendererUrls.has(win) || !wc.isLoadingMainFrame()) loadQuickRenderer(win) }
-    catch { finish(false) }
-  })
+  const ready = await new Promise<boolean>(resolve => waitForQuickRenderer(win, resolve, 5000))
   return ready && current()
 }
 
@@ -452,19 +461,18 @@ export function presentQuickWindowForPlugin(commit?: () => void): boolean {
   if (!win || win.isDestroyed() || !isQuickRendererReady(win)) return false
   const wasVisible = win.isVisible()
   if (!wasVisible) ++showRevision
-  presentAndFocus(win)
-  if (!win.isVisible()) return false
-  // Send the reset before the committed owner publishes its plugin mode/input.
-  if (!wasVisible) win.webContents.send(IpcChannels.QuickShown)
-  try { commit?.() }
-  catch (error) {
+  try {
+    return presentAndFocus(win, { commit: () => {
+      if (!wasVisible) win.webContents.send(IpcChannels.QuickShown)
+      commit?.()
+    } })
+  } catch (error) {
     if (!wasVisible && !win.isDestroyed()) {
       guardMainWindowActivation()
       win.hide()
     }
     throw error
   }
-  return true
 }
 
 export async function showQuickWindow(canShow: () => boolean = () => true): Promise<boolean> {
@@ -487,50 +495,18 @@ export async function showQuickWindow(canShow: () => boolean = () => true): Prom
       if (revision !== showRevision || !canShow()) return false
     }
     currentTargetHeight = QUICK_HOME_HEIGHT
-    const wc = quickWindow?.webContents
-    const afterPresent = (): void => {
-      try {
-        if (!wc || wc.isDestroyed()) return
-        wc.send(IpcChannels.QuickShown)
-        logInfo('quick', 'afterPresent ok')
-      } catch (err) {
-        logError('quick', `afterPresent failed: ${(err as Error).stack || String(err)}`)
-      }
-    }
-
-    // 首次 show 才 load 渲染层
-    if (wc && !wc.isDestroyed() && !wc.isLoadingMainFrame() && wc.getURL() && wc.getURL() !== 'about:blank') {
-      presentAndFocus(win)
-      afterPresent()
+    const wc = win.webContents
+    if (wc.isDestroyed()) return false
+    const present = () => presentAndFocus(win, { commit: () => {
+      wc.send(IpcChannels.QuickShown)
       applyQuickHeightAfterShow()
-      logInfo('quick', `show (ready) bounds=${JSON.stringify(win.getBounds())}`)
-    } else if (wc && !wc.isDestroyed()) {
-      try {
-        if (!wc.getURL() || wc.getURL() === 'about:blank') {
-          logInfo('quick', 'show: loading renderer first time')
-          loadQuickRenderer(win)
-        }
-      } catch (err) {
-        logError('quick', `loadQuickRenderer failed: ${(err as Error).message}`)
-      }
-      // 首帧文档就绪再显示，避免首次唤出时出现透明空窗。
-      wc.once('did-finish-load', () => {
-        if (revision !== showRevision || !canShow()) return
-        try {
-          if (quickWindow !== win || win.isDestroyed()) return
-          presentAndFocus(win)
-          afterPresent()
-          applyQuickHeightAfterShow()
-          logInfo('quick', 'show (after load)')
-        } catch (err) {
-          logError('quick', `show-after-load failed: ${(err as Error).stack || String(err)}`)
-        }
-      })
-    } else {
-      presentAndFocus(win)
-      applyQuickHeightAfterShow()
-      logInfo('quick', 'show (no wc)')
-    }
+    } })
+    if (isQuickRendererReady(win)) return present()
+    waitForQuickRenderer(win, ready => {
+      if (!ready || revision !== showRevision || !canShow() || quickWindow !== win || win.isDestroyed()) return
+      try { present() }
+      catch (err) { logError('quick', `show-after-load failed: ${(err as Error).stack || String(err)}`) }
+    })
   } catch (err) {
     const stack = (err as Error).stack || String(err)
     logError('quick', `show failed: ${stack}`)
@@ -599,7 +575,7 @@ export function toggleQuickWindow(): void {
     if (win && !win.isDestroyed() && win.isVisible()) {
       if (!win.isFocused()) {
         logInfo('quick', 'toggle: visible but unfocused → refocus')
-        focusQuickWindow(win)
+        presentAndFocus(win, { refocusOnly: true })
         return
       }
       hideQuickWindow('toggle')

@@ -3,7 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' enest-home: data:; media-src enest-home://appearance; font-src 'self' enest-home://appearance; connect-src 'self' enest-home://catalog enest-home://appearance; frame-src 'none'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <!--
+      img-src 必须包含 `enest:`：插件图标由主进程以 enest://plugin/<id>/<icon>
+      提供。缺失时浏览器直接拦截，PluginIcon 收到 onError 后回退成字形字符
+      ——表现为首页 Tab / 卡片显示"字体"而不是插件图标。
+      media-src 同理带上 enest:（插件贡献的背景媒体走同一协议）。
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' enest: enest-home: data:; media-src 'self' enest: enest-home://appearance; font-src 'self' enest-home://appearance; connect-src 'self' enest-home://catalog enest-home://appearance; frame-src 'none'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <title>eNest Home</title>
   </head>
   <body>

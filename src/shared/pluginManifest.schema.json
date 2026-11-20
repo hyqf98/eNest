@@ -27,7 +27,7 @@
     },
     "version": {
       "type": "string",
-      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+      "pattern": "^(\\d+)\\.(\\d+)\\.(\\d+)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
     },
     "description": {
       "type": "string",
@@ -482,6 +482,11 @@
           "type": "object",
           "description": "panel 布局的几何偏好；仅在 layouts 含 panel 时生效",
           "properties": {
+            "preview": {
+              "type": "string",
+              "pattern": "^assets/market/screenshots/[A-Za-z0-9._/-]+\\.(png|webp|jpe?g)$",
+              "description": "小组件预览图（包内相对路径，必须位于 assets/market/screenshots 且为 PNG/WebP/JPEG）。首页「小组件」区块按此声明展示该插件在自由面板里的真实渲染效果；构建期校验文件存在"
+            },
             "size": {
               "type": "object",
               "description": "组件默认外框尺寸（DIP）：添加组件时的初始尺寸，被宿主最小尺寸（200×140）与面板内容区钳制",
@@ -753,7 +758,7 @@
         },
         "openWith": {
           "type": "array",
-          "description": "「打开方式」声明：插件声明可处理的扩展名/MIME/URL scheme。系统注册与「类型→插件」路由由壳统一负责（插件是壳内视图，不是独立 OS 应用）。命中后壳以 enter.code='open-file'|'open-url' 唤起插件。scheme 保留字与跨插件重复在宿主聚合时拒绝。",
+          "description": "登记可处理的文件扩展名与 URL scheme。也可用 enest.openWith.register 动态登记其他入口；两者均不得设置系统默认或替用户选择插件。",
           "maxItems": 8,
           "items": {
             "type": "object",
@@ -782,6 +787,7 @@
                 "uniqueItems": true,
                 "items": {
                   "type": "string",
+                  "maxLength": 127,
                   "pattern": "^[a-z0-9.+-]+/[a-z0-9.+-]+$"
                 }
               },
@@ -791,14 +797,20 @@
                 "uniqueItems": true,
                 "items": {
                   "type": "string",
-                  "pattern": "^[a-z][a-z0-9+.-]*$",
+                  "pattern": "^(?!ms-|x-apple\\.)[a-z][a-z0-9+.-]{1,63}$",
                   "not": {
                     "enum": [
                       "enest",
                       "http",
                       "https",
                       "file",
-                      "mailto"
+                      "mailto",
+                      "tel",
+                      "data",
+                      "javascript",
+                      "about",
+                      "blob",
+                      "shell"
                     ]
                   }
                 }
@@ -811,9 +823,33 @@
                 ]
               },
               "schemaVersion": {
-                "type": "string"
+                "const": "1"
               }
             },
+            "anyOf": [
+              {
+                "required": [
+                  "extensions"
+                ],
+                "properties": {
+                  "extensions": {
+                    "type": "array",
+                    "minItems": 1
+                  }
+                }
+              },
+              {
+                "required": [
+                  "schemes"
+                ],
+                "properties": {
+                  "schemes": {
+                    "type": "array",
+                    "minItems": 1
+                  }
+                }
+              }
+            ],
             "additionalProperties": false
           }
         },

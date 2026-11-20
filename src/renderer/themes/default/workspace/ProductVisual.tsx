@@ -15,6 +15,13 @@ interface Props {
   onPreviewChange?: (open: boolean) => void
 }
 
+/**
+ * 截图自动轮播间隔。
+ * 比卡片轮播（PRODUCT_DWELL_MS = 6500ms）短：一张卡片停留期间至少能看到两张图，
+ * 而不是「一张卡只换一张图」看不出它在轮播。
+ */
+const GALLERY_ROTATE_MS = 4000
+
 function GalleryImage({ url, visible, requested, label, eager, onReady, onFailed, onFadeEnd }: {
   url: string; visible: boolean; requested: boolean; label: string; eager: boolean
   onReady: (url: string) => void; onFailed: (url: string) => void; onFadeEnd: (url: string) => void
@@ -121,6 +128,30 @@ function ProductGallery({ plugin, active, sources, screenshot, onScreenshotChang
   useEffect(() => {
     if (active && screenshot && source && screenshot !== source) onScreenshotChange?.(source)
   }, [active, screenshot, source, onScreenshotChange])
+
+  /**
+   * 截图自动轮播：只有「当前居中卡 + 多张图 + 未打开大图」时才推进。
+   *
+   * 为什么放在这里而不是父级轮播：截图切换是**卡片内部**的展示节奏，
+   * 与卡片轮播的停留计时是两条独立时间线（卡片 6.5s 一换，截图 4s 一换），
+   * 合在一起会让用户看不出哪张图对应哪个插件。
+   *
+   * 窗口失焦不暂停（与卡片轮播一致）：精选是橱窗，回来后应该看到画面在动。
+   * 但仍然尊重「页面不可见」——隐藏/最小化时 `document.hidden` 为真，
+   * 这时继续跑定时器只是空转，没有意义。
+   */
+  useEffect(() => {
+    if (!active || available.length < 2 || previewOpen) return
+    if (typeof document !== 'undefined' && document.hidden) return
+    const timer = window.setTimeout(() => {
+      const current = available.indexOf(sourceRef.current ?? '')
+      const next = available[(current + 1 + available.length) % available.length]
+      if (!next) return
+      setSelected(next)
+      onScreenshotChange?.(next)
+    }, GALLERY_ROTATE_MS)
+    return () => window.clearTimeout(timer)
+  }, [active, available.join('\u0000'), source, previewOpen, onScreenshotChange])
 
   useEffect(() => {
     const dialog = dialogRef.current

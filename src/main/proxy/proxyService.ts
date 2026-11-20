@@ -5,6 +5,7 @@
  * 被 index.ts 启动时应用、shellHandlers 读写、PluginHost 新建 session 时注入。
  * 关键依赖：electron session/net、settingsStore、logService。
  */
+import { execFileSync } from 'node:child_process'
 import { Socket } from 'node:net'
 import { session } from 'electron'
 import { Agent, EnvHttpProxyAgent, ProxyAgent, setGlobalDispatcher } from 'undici'
@@ -64,6 +65,37 @@ let envSnapshot: { HTTP_PROXY?: string; HTTPS_PROXY?: string; ALL_PROXY?: string
 
 export function getActiveProxy(): ProxyConfig {
   return { ...current }
+}
+
+/**
+ * 当前实际生效的代理 URL（供插件后端进程注入环境变量）。
+ * - `http`：配置里的显式地址
+ * - `system`：优先宿主环境变量，其次从进程环境里已有的代理值取；无法确定时返回空
+ * - `none`：空
+ * 说明：`system` 模式下 Chromium 走 OS 设置，Node 侧没有等价自动机制，
+ * 因此这里只返回能确定的值，插件后端据此决定是否启用 ProxyAgent。
+ */
+export function resolveEffectiveProxyUrl(): string {
+  const c = normalizeProxy(current)
+  if (c.type === 'none') return ''
+  if (c.type === 'http') return buildProxyEnvUrl(c)
+  const fromEnv = process.env.HTTPS_PROXY || process.env.https_proxy
+    || process.env.HTTP_PROXY || process.env.http_proxy
+    || process.env.ALL_PROXY || process.env.all_proxy
+  if (fromEnv) return fromEnv
+  // system 模式且宿主进程没有代理环境变量（GUI 启动的 Electron 不继承 shell 配置）：
+  // 读取 macOS 系统代理设置，让插件后端的 Node 网络也能走同一代理。
+  if (process.platform === 'darwin') {
+    try {
+      const out = execFileSync('scutil', ['--proxy'], { encoding: 'utf8', timeout: 1500 })
+      const enabled = /HTTPSEnable\s*:\s*1/.test(out) || /HTTPEnable\s*:\s*1/.test(out)
+      if (!enabled) return ''
+      const host = /HTTPSProxy\s*:\s*(\S+)/.exec(out)?.[1] ?? /HTTPProxy\s*:\s*(\S+)/.exec(out)?.[1]
+      const port = /HTTPSPort\s*:\s*(\d+)/.exec(out)?.[1] ?? /HTTPPort\s*:\s*(\d+)/.exec(out)?.[1]
+      return host && port ? `http://${host}:${port}` : ''
+    } catch { /* 读取失败按直连处理 */ }
+  }
+  return ''
 }
 
 function restoreEnv(): void {

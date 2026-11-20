@@ -65,7 +65,9 @@ test('macOS statuses use the current bundle and system queries, not declaration 
   assert.equal(await darwinRegistrar.detect('ext', 'md'), 'default')
   assert.equal(await darwinRegistrar.detect('scheme', 'example-open'), 'candidate')
   assert.equal(await darwinRegistrar.detect('ext', 'txt'), 'unregistered', 'a packaged extension is not evidence of registration')
-  assert.equal(state.calls.filter(call => call.command.endsWith('/osascript')).length, 1, 'declared rows are read in one batch')
+  assert.deepEqual(state.calls.filter(call => call.command.endsWith('/osascript')).map(call => JSON.parse(call.args.at(-1))), [
+    { kind: 'ext', value: 'md' }, { kind: 'scheme', value: 'example-open' }, { kind: 'ext', value: 'txt' }
+  ], 'only the selected association is queried, never the entire list')
   assert.equal(await darwinRegistrar.detect('ext', 'novel'), 'unregistered')
   assert.ok(state.calls[0].args.includes('/Applications/Custom.app/Contents/Info.plist'))
   assert.equal(state.calls.some(call => call.command.endsWith('/defaults')), false)

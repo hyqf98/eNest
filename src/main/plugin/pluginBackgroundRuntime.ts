@@ -36,6 +36,7 @@ const stoppedPlugins = new Map<string, { buildRevision: string; disabled: boolea
 const builtConfigurations = new Map<string, { identity: string; root: string }>()
 let generation = 0, registered = false, stopping = false
 let unregisterRegistry: (() => void) | undefined
+let unregisterAvailability: (() => void) | undefined
 
 function configuration(pluginId: string, includeStopped = false): Configuration | null {
   if ((!includeStopped && stoppedPlugins.has(pluginId)) || pluginHost.isBlockedForOpen(pluginId)) return null
@@ -459,11 +460,16 @@ export function startPluginBackgrounds(): void {
   }
   unregisterRegistry?.()
   unregisterRegistry = pluginRegistry.onInstalledChanged(refreshPluginBackgrounds)
+  unregisterAvailability?.()
+  unregisterAvailability = pluginHost.onPluginUnblocked(refreshPluginBackgrounds)
   refreshPluginBackgrounds()
 }
 export function stopPluginBackground(pluginId: string, reason = 'plugin stopped'): void {
   const item = pluginRegistry.getInstalledDescriptors().find(item => item.id === pluginId)
   stoppedPlugins.set(pluginId, { buildRevision: item?.buildRevision ?? '', disabled: !item?.enabled })
+  releasePluginBackgroundResources(pluginId, reason)
+}
+export function releasePluginBackgroundResources(pluginId: string, reason: string): void {
   entries.get(pluginId)?.dispose(reason)
   for (const [key, subscription] of subscriptions) if (key.startsWith(`${pluginId}:`)) { subscription.dispose(); subscriptions.delete(key) }
 }
@@ -471,6 +477,8 @@ export function disposePluginBackgrounds(): void {
   stopping = true
   unregisterRegistry?.()
   unregisterRegistry = undefined
+  unregisterAvailability?.()
+  unregisterAvailability = undefined
   for (const subscription of subscriptions.values()) subscription.dispose()
   subscriptions.clear()
   for (const entry of [...entries.values()]) entry.dispose('application shutdown')

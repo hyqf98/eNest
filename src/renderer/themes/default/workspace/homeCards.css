@@ -1,5 +1,100 @@
-.page-home .contrib-card.btn {
-  height: auto;
-  justify-content: flex-start;
-  white-space: normal;
+/**
+ * 首页「小组件」区块：展示自由面板小组件的真实渲染截图。
+ *
+ * 与市场卡片的区别：这里的主体是**截图**而不是图标+文字，
+ * 因为用户要判断的是「这个小部件放进面板好不好看、占多大地方」。
+ */
+
+.market-widgets { margin-top: 32px; }
+
+.market-widgets-hint {
+  font-size: calc(12px * var(--appearance-font-scale, 1));
+  color: var(--text-3);
+}
+
+.widget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: clamp(10px, 1.4vw, 16px);
+  margin-bottom: var(--grid-gap, 16px);
+}
+
+.widget-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+
+.widget-card:hover:not(:disabled) {
+  border-color: var(--text-3);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.widget-card:active:not(:disabled) { transform: translateY(0); }
+.widget-card:disabled { cursor: default; opacity: .6; }
+.widget-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 预览区：默认 4:3，有 panelSize 时由内联 aspect-ratio 覆盖成真实比例。 */
+.widget-preview {
+  display: block;
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.widget-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+}
+
+.widget-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 0 10px 10px;
+  min-width: 0;
+}
+
+.widget-name {
+  font-size: calc(13px * var(--appearance-font-scale, 1));
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.widget-size {
+  font-size: calc(11px * var(--appearance-font-scale, 1));
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 660px) {
+  .widget-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .widget-card { transition: none; }
+  .widget-card:hover:not(:disabled) { transform: none; }
 }

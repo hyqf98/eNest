@@ -59,30 +59,148 @@ body {
 }
 
 /*
- * Tab 区：垂直居中。
+ * Tab 区：撑满视图并垂直居中内容。
  * 收起时整区不抢点击（仅 handle 命中），避免 84px 宽挡插件。
  * 展开后 zone 可命中，保证把手↔圆球滑动不丢 hover。
+ *
+ * 高度约束：zone 直接取 100% 视图高度（而不是 `top:50% + translateY(-50%)`），
+ * 由 flex 居中内容。居中定位在内容高于视口时会把超出部分**对称**溢出到上下之外，
+ * 而 #orb-root / 原生视图是 overflow:hidden，首尾圆球就会被切成一半；
+ * 撑满 + 居中配合 .orb-panel 的内部滚动，首尾始终完整可见。
  */
 .orb-tabs-zone {
   position: absolute;
   left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 100%;
+  top: 0;
+  width: min(100%, 84px);
+  height: 100%;
   pointer-events: none;
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  min-height: 56px;
-  /* 上下留白给出渐隐带的空间；内容超过窗口高度时由 .orb-panel 自己滚动。 */
-  max-height: calc(100vh - 16px);
-  padding: 6px 0;
   box-sizing: border-box;
+  /* 用上下的 padding 留出渐隐带与安全边距：条目不会顶到窗口边缘被原生视图裁掉。 */
+  padding: var(--orb-edge-gap, 8px) 0;
+  --orb-edge-gap: 8px;
 }
 
 .orb-rail.expanded .orb-tabs-zone {
   pointer-events: auto;
 }
+
+/* ========== 悬停名称浮层 ==========
+ * 原生 title 的弹出延迟由系统控制（约 0.5s，不可配置），悬停找插件时太迟滞。
+ * 这个共享浮层由 orb.ts 在 pointerover 时立即显示。
+ *
+ * 关键：WebContentsView 里的 DOM 画不出视图边界。悬停期间主进程会把轨道视图
+ * 从 84px 临时拓宽（+ORB_RAIL_CAPTION_EXTRA_W = 236px，总宽 320px），
+ * 浮层画在拓宽出来的那块视图内部；否则会被原生边界裁掉（表现为名称铺满轨道、
+ * 右侧出现硬切边，并压住插件内容）。
+ *
+ * max-width 必须小于拓宽后的可用宽度（320 - 圆球占位 72 - 间隙 8 ≈ 240），
+ * 这里取 200 留出省略号与边框余量；box-sizing 用 border-box，让 200 含 padding。
+ */
+.orb-caption {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 60;
+  box-sizing: border-box;
+  max-width: 200px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--orb-face-border);
+  background: var(--orb-face-bg);
+  color: var(--text, #2f3437);
+  font-size: 11.5px;
+  line-height: 15px;
+  /* 默认单行省略：侧向展开展示完整名称时不允许换行，避免气泡变高。
+     退化态（data-side 被移除，视图没拓宽）改由下面的规则换行。 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: var(--orb-shadow);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  /* 立即出现、极短淡入：悬停响应速度优先于动效仪式感。 */
+  transition: opacity 90ms linear, visibility 0s linear 90ms;
+}
+/* 退化态：侧向空间不足（视图未拓宽）时贴在圆球上下的小字行。
+   允许换行，把长名称折成 2-3 行窄块，而不是横向压到 icon 上。 */
+.orb-caption:not([data-side='1']) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 14px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+.orb-caption.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 90ms linear, visibility 0s;
+}
+/* 低动效/减少动态：直接显示，不做淡入。 */
+:root[data-anim='low'] .orb-caption,
+:root[data-anim='low'] .orb-caption.is-visible {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orb-caption,
+  .orb-caption.is-visible { transition: none; }
+}
+
+/* ========== 右侧停靠（root[data-orb-dock="right"]） ==========
+ * 原生视图已由主进程移到窗口右缘，宽度不变；这里把轨道内部的横向方向整体镜像：
+ * 把手贴右缘、panel 向右对齐、展开从右侧滑入、悬停向右移动改为向左。
+ * 不改任何纵向规则，所以上下渐隐与景深衰减在两侧完全一致。 */
+:root[data-orb-dock='right'] .orb-tabs-zone {
+  left: auto;
+  right: 0;
+  justify-content: flex-end;
+}
+
+:root[data-orb-dock='right'] .orb-panel {
+  margin-left: 0;
+  margin-right: -6px;
+  align-items: flex-end;
+  padding: 20px 10px 20px 0;
+  /* 收起时从右侧滑出（与左侧的 translateX(-10px) 镜像） */
+  transform: translateX(10px);
+}
+
+:root[data-orb-dock='right'] .orb-rail.expanded .orb-panel { transform: translateX(0); }
+
+:root[data-orb-dock='right'] .orb-handle {
+  order: 2;
+  margin-left: 0;
+  margin-right: 2px;
+  border-left: 1px solid var(--orb-face-border);
+  border-right: 0;
+  border-radius: 10px 0 0 10px;
+  box-shadow: -1px 0 5px rgba(15, 23, 42, 0.08);
+}
+:root[data-orb-dock='right'][data-theme='dark'] .orb-handle {
+  box-shadow: -1px 0 6px rgba(0, 0, 0, 0.45);
+}
+:root[data-orb-dock='right'] .orb-rail.expanded .orb-handle { transform: translateX(4px); }
+
+/* 条目入场/悬停方向镜像 */
+:root[data-orb-dock='right'] .orb-item { transform: translateX(10px) scale(0.68); }
+:root[data-orb-dock='right'] .orb-rail.expanded .orb-item { transform: translateX(0) scale(1); }
+:root[data-orb-dock='right'] .orb-face { margin-left: 0; margin-right: 4px; }
+:root[data-orb-dock='right'] .orb-item > .orb-face:hover,
+:root[data-orb-dock='right'] .orb-item.is-pointer-over > .orb-face,
+:root[data-orb-dock='right'] .orb-item > .orb-face:focus-visible {
+  transform: scale(var(--orb-hover-scale)) translateX(calc(-1 * var(--orb-hover-x)));
+}
+
+/* 关闭按钮与角标移到镜像侧 */
+:root[data-orb-dock='right'] .orb-close { left: auto; right: 0; }
+:root[data-orb-dock='right'] .orb-badge { right: auto; left: -0.45em; }
+
+/* 聚合圈与贡献分隔线跟随右边对齐 */
+:root[data-orb-dock='right'] .orb-contrib-sep { margin: 4px 14px 6px 0; }
 
 .orb-handle {
   flex-shrink: 0;
@@ -149,7 +267,6 @@ body {
     0 0 0 1.5px color-mix(in srgb, var(--surface, #ffffff) 90%, transparent),
     0 0 0 2.5px color-mix(in srgb, currentColor 38%, transparent);
 }
-}
 
 .orb-panel {
   display: flex;
@@ -164,15 +281,14 @@ body {
   flex: 0 0 auto;
   /*
    * overflow 同时裁纵向。圆球投影 0 6px 16px 向上扩散约 10px，首项阴影会被切出硬边。
-   * 上下 padding 加到 20px 让出阴影空间，再用同等负 margin 抵回，
-   * 圆球位置和间距保持原样。右内边距归零：padding 会把横向裁切边界往里推，
+   * 上下 padding 加到 20px 让出阴影空间。右内边距归零：padding 会把横向裁切边界往里推，
    * 更早切掉 high 档悬停外圈（放大 1.18 + 右移 6px + 外圈 5px）。
+   * 高度由 zone 的 flex 约束给出（zone 本身夹在视口内），这里**不能**再写 vh 上限：
+   * 两套上限会互相打架，且 vh 算不进 zone 的 padding 与渐隐带。
    */
   padding: 20px 0 20px 10px;
-  margin: -12px 0 -12px -6px;
   box-sizing: border-box;
-  /* 上限留出上下渐隐带（各 26px）的呼吸：内容再多也在这条轨道内滚动，不顶到屏幕边缘。 */
-  max-height: calc(100vh - 24px);
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
@@ -205,6 +321,7 @@ body {
 }
 
 .orb-panel::-webkit-scrollbar { display: none; }
+
 .orb-tab { touch-action: none; }
 .orb-tab .orb-face { cursor: grab; }
 .orb-rail.plugin-drag-session .orb-panel { transform: none; opacity: 1; transition: none; }
@@ -226,9 +343,15 @@ body {
   transform: translateX(-10px) scale(0.68);
   transition:
     opacity 0.26s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.4s cubic-bezier(0.22, 1.35, 0.36, 1);
+    transform 0.4s cubic-bezier(0.22, 1.35, 0.36, 1),
+    filter 0.26s cubic-bezier(0.22, 1, 0.36, 1);
   pointer-events: none;
   background: transparent;
+  /* 衰减式景深：--orb-depth 由 orb.ts 按「离焦点几个条目」写入（0 = 焦点）。
+     越远越糊、越小、越淡，把注意力收拢在当前激活的插件上。
+     只影响视觉，不改布局尺寸（filter/opacity 不参与排版）。 */
+  --orb-depth: 0;
+  --orb-depth-max: 4;
 }
 
 .orb-item:first-child {
@@ -241,9 +364,32 @@ body {
   pointer-events: auto;
 }
 
+/* 景深衰减：--orb-depth 由 orb.ts 写入，0 = 清晰带，数值越大越虚。
+   焦点**跟随鼠标**（悬停的条目），未悬停时回落到轨道可视中线；
+   清晰带半宽 0.5 档，所以焦点和它相邻的那一个都是 depth 0——一次能看到两个完整 icon。
+   越往上下两端越虚：每档 blur 0.7px / opacity −0.11 / scale −0.045，
+   最远档 ≈ blur 2.8px、opacity 0.56、scale 0.82。
+   衰减刻意克制：远端仍要能辨认有哪些插件，层次靠清晰带更实更大来体现。
+
+   不再给 :hover 单独豁免——悬停项本身就是景深焦点（depth 0），
+   额外豁免会让相邻项也跟着变清晰，破坏"两个 icon"的节奏。 */
+/* 渲染层只负责 blur/opacity；scale 由文件末尾的「景深缩放收口」统一给。 */
+.orb-rail.expanded .orb-item {
+  filter: blur(calc(var(--orb-depth) * 0.7px));
+  opacity: calc(1 - var(--orb-depth) * 0.11);
+}
+/* 降级：减少动态/低动画档位时不做模糊，只留透明度与轻微缩放（避免逐帧 filter 开销）。 */
+:root[data-anim='low'] .orb-rail.expanded .orb-item {
+  filter: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orb-rail.expanded .orb-item { filter: none; }
+}
+
 /* 相邻圆球有重叠；当前交互项的外圈不能被后面的插件盖住。 */
 .orb-item.active { z-index: 1; }
 .orb-item:hover,
+.orb-item.is-pointer-over,
 .orb-item:focus-within { z-index: 2; }
 
 .orb-face {
@@ -282,25 +428,37 @@ body {
 /* 首页和插件共用选中、悬停、键盘聚焦的双层外圈，与动画档位无关。 */
 .orb-item.active .orb-face,
 .orb-item > .orb-face:hover,
+.orb-item.is-pointer-over > .orb-face,
 .orb-item > .orb-face:focus-visible {
   box-shadow:
     0 0 0 3px var(--orb-face-ring),
     0 0 0 5px var(--orb-face-ring-2),
     var(--orb-shadow);
 }
-/* 活动项在共圈之上再叠一层 accent 描边：与 hover/focus 区分「当前插件」。 */
+/* 活动项在共圈之上再叠一层 accent 描边 + 更强的一圈光晕：
+   之前 active 与 hover 都用同一套双层外圈，视觉完全一样——
+   用户鼠标停在某个条目上时，会把它误认成"当前插件"（就是"密码本被高亮"的由来）。
+   这里给 active 用实心 accent 粗边 + 外扩光晕，与 hover 的白色细环明确区分。
+   用简写 border 而不是 border-width：基础规则的 `border: 2px solid` 是简写，
+   单独写 border-width 在同一元素上会被更靠后的简写重置，简写对简写才稳妥。 */
 .orb-item.active > .orb-face {
-  border-color: color-mix(in srgb, var(--accent, #bd542b) 62%, var(--orb-face-border, transparent));
+  border: 2.5px solid var(--accent, #bd542b);
 }
-.orb-item.active:not(:hover):not(:focus-within) .orb-face {
+.orb-item.active:not(:hover):not(.is-pointer-over):not(:focus-within) .orb-face {
   box-shadow:
     0 0 0 3px var(--orb-face-ring),
     0 0 0 5px var(--orb-face-ring-2),
     0 0 0 6.5px color-mix(in srgb, var(--accent, #bd542b) 46%, transparent),
+    0 0 14px 4px color-mix(in srgb, var(--accent, #bd542b) 22%, transparent),
     var(--orb-shadow);
+}
+/* hover/focus 保持细白环（上面前两条规则已给），不叠 accent，避免与"当前插件"混淆。 */
+.orb-item:not(.active) > .orb-face:hover {
+  border-color: var(--orb-face-border);
 }
 .orb-item.active .orb-face { transform: scale(var(--orb-selected-scale)); }
 .orb-item > .orb-face:hover,
+.orb-item.is-pointer-over > .orb-face,
 .orb-item > .orb-face:focus-visible {
   transform: scale(var(--orb-hover-scale)) translateX(var(--orb-hover-x));
 }
@@ -367,7 +525,11 @@ body {
   pointer-events: none;
 }
 
-.orb-item:hover .orb-close {
+/* 关闭按钮显形。`is-pointer-over` 由 orb.ts 在列表重排后按真实坐标补挂：
+   关闭一个条目后 DOM 变了但鼠标没动，浏览器不会重算 :hover，
+   新落到指针下的条目拿不到 hover，× 就不显示、无法连续关闭。 */
+.orb-item:hover .orb-close,
+.orb-item.is-pointer-over .orb-close {
   opacity: 1;
   transform: scale(1);
   pointer-events: auto;
@@ -506,7 +668,15 @@ body {
   visibility: hidden;
   transition: opacity var(--orb-dock-duration) ease, transform var(--orb-dock-duration) ease;
 }
-.orb-dock .orb-settings:is(:hover, :focus-visible) + .orb-dock-caption {
+/*
+ * 只在**悬停**和**键盘焦点**下显示。
+ *
+ * 这里不能写 :focus-visible：按钮被点击后会保留焦点，Chromium 对 <button> 的
+ * 持久焦点仍可能判定 focus-visible，于是鼠标移开、文字还挂着不消失
+ * ——就是"左下角设置的字体没有自动隐藏"。
+ * 键盘用户的可达性由 orb.ts 在 focus 时判断 modality 后补 data-kbd-focus 标记。
+ */
+.orb-dock .orb-settings:is(:hover, [data-kbd-focus='1']) + .orb-dock-caption {
   opacity: 1;
   visibility: visible;
   transform: translate(-50%, 0);
@@ -640,9 +810,44 @@ body {
   }
   .orb-panel, .orb-rail:not(.plugin-drag-session) .orb-item,
   .orb-rail .orb-face:hover,
+  .orb-rail .orb-item.is-pointer-over > .orb-face,
   .orb-rail .orb-face:active,
   .orb-rail .orb-face:focus-visible,
   .orb-rail .orb-item.active .orb-face {
     transform: none !important;
   }
+}
+
+/* ========== 景深缩放收口（必须在所有 hover/active 规则之后） ==========
+ * 前面的 .orb-item > .orb-face:hover（0,3,0）和 .orb-item.active .orb-face
+ * 都在文件更靠后或权重相当，会把景深的 scale 覆盖掉，导致"远端模糊却依然放大"。
+ * 这里用 0,4,0 权重统一收口：景深 scale 由 --orb-depth 唯一决定，
+ * 只有清晰带成员（depth 0）保留 hover 放大作为点击反馈。 */
+.orb-rail.expanded .orb-item > .orb-face {
+  transform: scale(calc(1 - var(--orb-depth) * 0.045));
+}
+/* 激活项：depth 恒为 0（orb.ts 强制），这里的 1.06 是「当前插件」的选中放大。
+   必须在这一层重复声明——上面那条 0,4,0 会压掉靠前的 .orb-item.active(0,3,0)，
+   否则激活项和其他清晰项一样大，用户分不清"当前"是哪个。 */
+.orb-rail.expanded .orb-item.active > .orb-face {
+  transform: scale(var(--orb-selected-scale));
+}
+.orb-rail.expanded .orb-item[data-orb-focus='1'] > .orb-face:hover,
+.orb-rail.expanded .orb-item[data-orb-focus='1'].is-pointer-over > .orb-face,
+.orb-rail.expanded .orb-item[data-orb-focus='1'] > .orb-face:focus-visible {
+  transform: scale(var(--orb-hover-scale)) translateX(var(--orb-hover-x));
+}
+:root[data-orb-dock='right'] .orb-rail.expanded .orb-item[data-orb-focus='1'] > .orb-face:hover,
+:root[data-orb-dock='right'] .orb-rail.expanded .orb-item[data-orb-focus='1'].is-pointer-over > .orb-face,
+:root[data-orb-dock='right'] .orb-rail.expanded .orb-item[data-orb-focus='1'] > .orb-face:focus-visible {
+  transform: scale(var(--orb-hover-scale)) translateX(calc(-1 * var(--orb-hover-x)));
+}
+.orb-rail.expanded .orb-item[data-orb-focus='1'] > .orb-face:active {
+  transform: scale(var(--orb-press-scale));
+}
+/* 光晕只给**鼠标正悬停**的那一个（清晰带内，但不铺满整条带）：
+   三个 depth 0 都加光晕会让它们互相抢焦点，看起来像"只有一个清晰"的错觉反而更重。
+   这让"清晰带"（三个都可读）与"当前指向"（带光晕的那个）层次分明。 */
+.orb-rail.expanded .orb-item:is(:hover, .is-pointer-over, :focus-within) > .orb-face {
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent, #bd542b) 34%, transparent));
 }

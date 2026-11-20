@@ -32,7 +32,7 @@ test('native adapter is complete and never silently falls back to preview', asyn
   await assert.rejects(api.getThemeSettingsConfig(), /getThemeSettingsConfig/)
   assert.throws(() => api.closeWindow(), /closeWindow/)
   assert.throws(() => api.getPathForFile({}), /getPathForFile/)
-  const source = ts.createSourceFile('shellApi.ts', read('./shellApi.ts'), ts.ScriptTarget.Latest, true)
+  const source = ts.createSourceFile('shellApi.ts', readFileSync(new URL('../../../src/shared/types/shellApi.ts', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true)
   const contract = source.statements.find(item => ts.isInterfaceDeclaration(item) && item.name.text === 'ShellApi')
   assert.deepEqual([...SHELL_API_METHODS].sort(), contract.members.map(item => item.name.getText(source)).sort())
 })

@@ -16,6 +16,7 @@ import { IpcChannels } from '@shared/types/ipc'
 import { PANEL_MIN_HEIGHT, PANEL_MIN_WIDTH, type PanelBounds } from '@shared/types/panel'
 import { onShellIpc, registerTrustedSurface, revokeTrustedSurface } from '@main/ipc/ipcSecurity'
 import { resolvePreload } from '@main/window/createShellWindow'
+import { resolveWindowIcon } from '@main/window/applicationIcon'
 import { logWarn } from '@main/logs/logService'
 
 const SELECTION_TIMEOUT_MS = 120_000
@@ -121,6 +122,7 @@ export async function selectRegion(): Promise<PanelBounds | null> {
       for (const display of displays) {
         const { x, y, width, height } = display.bounds
         const win = new BaseWindow({
+          icon: resolveWindowIcon(),
           x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height),
           show: false, frame: false, transparent: true, hasShadow: false, resizable: false, movable: false,
           minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, alwaysOnTop: true,

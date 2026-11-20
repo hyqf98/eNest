@@ -56,7 +56,7 @@ import {
 
 const FIELD_TYPES = new Set(['color', 'slider', 'switch', 'select', 'font', 'media', 'token'])
 
-const LAYOUT_KEYS = new Set<string>(['density', 'gap', 'sidebarWidth', 'contentWidth', 'columns', 'tabStyle', 'tabOpacity', 'cardOpacity', 'tabAutoHide'])
+const LAYOUT_KEYS = new Set<string>(['density', 'gap', 'sidebarWidth', 'contentWidth', 'columns', 'tabStyle', 'tabOpacity', 'cardOpacity', 'tabAutoHide', 'orbDock'])
 
 const BACKGROUND_KEYS = new Set<string>(['texture', 'intensity', 'speed', 'direction', 'effect', 'media', 'warmth', 'grain', 'scale', 'wash', 'kind', 'palette', 'color', 'opacity', 'fit'])
 
@@ -153,6 +153,8 @@ function variant(value: unknown, path: string, source: string, paletteIds: Reado
       : numberInRange(layoutBag.cardOpacity, `${path}.layout.cardOpacity`, 0, 1),
     tabAutoHide: layoutBag.tabAutoHide === undefined ? false
       : typeof layoutBag.tabAutoHide === 'boolean' ? layoutBag.tabAutoHide : fail(`${path}.layout.tabAutoHide must be boolean`),
+    orbDock: layoutBag.orbDock === undefined ? 'left'
+      : layoutBag.orbDock === 'left' || layoutBag.orbDock === 'right' ? layoutBag.orbDock : fail(`${path}.layout.orbDock must be "left" or "right"`),
     density: numberInRange(layoutBag.density, `${path}.layout.density`, 0.8, 1.2),
     gap: numberInRange(layoutBag.gap, `${path}.layout.gap`, 0, 32),
     sidebarWidth: numberInRange(layoutBag.sidebarWidth, `${path}.layout.sidebarWidth`, 220, 440),
@@ -225,6 +227,7 @@ function bindingValueType(binding: ThemeSettingBinding): 'color' | 'number' | 'b
   if (binding.target === 'notification') return ['layout', 'accent', 'shadow'].includes(binding.key) ? 'string' : 'number'
   if (binding.target === 'layout' && binding.key === 'tabStyle') return 'string'
   if (binding.target === 'layout' && binding.key === 'tabAutoHide') return 'boolean'
+  if (binding.target === 'layout' && binding.key === 'orbDock') return 'string'
   if (binding.target === 'background') {
     if (binding.key === 'media') return 'media'
     if (binding.key === 'color') return 'color'

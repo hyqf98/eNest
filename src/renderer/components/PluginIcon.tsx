@@ -24,9 +24,15 @@ interface Props {
   size?: number
   className?: string
   alt?: string
+  /**
+   * 位图填充方式。默认 `cover` 适合插件方形图标；本机应用图标来自系统
+   * （macOS ICNS、Windows 可执行文件、Linux 主题），常带透明留白或非方形比例，
+   * `cover` 会把内容裁掉，这类场景要传 `contain`。
+   */
+  fit?: 'cover' | 'contain'
 }
 
-export function PluginIcon({ src, glyph, style, slot = 'card', size, className, alt }: Props) {
+export function PluginIcon({ src, glyph, style, slot = 'card', size, className, alt, fit }: Props) {
   const [failed, setFailed] = useState(false)
   const showImg = Boolean(src) && !failed
 
@@ -34,7 +40,8 @@ export function PluginIcon({ src, glyph, style, slot = 'card', size, className, 
     setFailed(false)
   }, [src])
 
-  const classes = ['plugin-icon', `plugin-icon-${slot}`, className].filter(Boolean).join(' ')
+  const objectFit = fit ?? PLUGIN_ICON_OBJECT_FIT
+  const classes = ['plugin-icon', `plugin-icon-${slot}`, fit === 'contain' ? 'plugin-icon-contain' : '', className].filter(Boolean).join(' ')
   const sized: CSSProperties = size
     ? {
         width: size,
@@ -45,7 +52,7 @@ export function PluginIcon({ src, glyph, style, slot = 'card', size, className, 
     : { ...style }
 
   return (
-    <div className={classes} style={sized} aria-hidden={alt ? undefined : true}>
+    <span className={classes} style={sized} aria-hidden={alt ? undefined : true}>
       {showImg && src ? (
         <img
           src={src}
@@ -56,13 +63,13 @@ export function PluginIcon({ src, glyph, style, slot = 'card', size, className, 
           style={{
             width: '100%',
             height: '100%',
-            objectFit: PLUGIN_ICON_OBJECT_FIT,
+            objectFit,
             borderRadius: 'inherit',
           }}
         />
       ) : (
         <span className="plugin-icon-glyph">{glyph}</span>
       )}
-    </div>
+    </span>
   )
 }

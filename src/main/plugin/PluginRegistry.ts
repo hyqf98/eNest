@@ -6,9 +6,8 @@
  * 关键依赖：pathsService、PluginInstaller（manifest 解析）、
  * marketClient（远程列表与资产下载）、pluginEnabledStore（启用状态）。
  */
-import { readdir, rm, stat } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdir, rm } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import type {
   PluginContributes,
@@ -20,7 +19,9 @@ import type {
 } from '@shared/types/plugin'
 import { resolvePluginUi } from '@shared/types/plugin'
 import { pluginProtocolUrl } from '@shared/constants'
-import { getAppPaths, getAppPathsGeneration } from '@main/paths/pathsService'
+import { getAppPaths, getAppPathsGeneration, retainAppPaths } from '@main/paths/pathsService'
+import { existingOwnedDirectory } from '@main/paths/ownedDirectory'
+import { ownedPackageVersion } from './packageOwnership'
 import { installFromDirectory, installFromZip, withInstallLock, beginPluginInstall, type InstallResult } from '@main/plugin/PluginInstaller'
 import {
   downloadPluginPackage,
@@ -38,7 +39,10 @@ import { themePackRegistry } from '@main/theme/themePacks'
 import { sendShellEvent } from '@main/window/createShellWindow'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { cancelDevPluginPreparation, forgetDevPluginSource, getDevPluginSource } from '@main/dev/devPluginRuntime'
+import { readDevPluginRecords } from '@main/dev/devPluginsStore'
 import { readPluginBuildRevision } from './pluginInstallTasks'
+import { compareVersions, isPackageId, isPackageVersion, selectsInstalledVersion } from './packageIdentity'
+export { compareVersions } from './packageIdentity'
 import { localCatalogResources, remoteCatalogResources, type CatalogResources } from './catalogResources'
 import {
   manifestCategory,
@@ -75,22 +79,6 @@ function freezeDescriptor<T>(value: T): T {
 
 function pluginsRoot(): string {
   return getAppPaths().plugins
-}
-
-/**
- * 简易语义版本比较：点分数字段，缺段视为 0。
- * 返回 <0 / 0 / >0；预发布后缀忽略（市场包以稳定版为主）。
- */
-export function compareVersions(a: string, b: string): number {
-  const pa = String(a || '0').split(/[.\-+]/).map((x) => parseInt(x, 10) || 0)
-  const pb = String(b || '0').split(/[.\-+]/).map((x) => parseInt(x, 10) || 0)
-  const len = Math.max(pa.length, pb.length)
-  for (let i = 0; i < len; i++) {
-    const da = pa[i] ?? 0
-    const db = pb[i] ?? 0
-    if (da !== db) return da < db ? -1 : 1
-  }
-  return 0
 }
 
 /** manifest icon 按磁盘原名编码，不受 devUrl 影响。 */
@@ -155,7 +143,7 @@ function normalizeContributes(
 
 /** 若远程存在更高版本，补 latestVersion（供市场 UI 显示「更新」） */
 function withUpdateHint(summary: PluginSummary, remote: MarketPluginSummary | undefined): PluginSummary {
-  if (!summary.installed || !remote?.version) return summary
+  if (!summary.installed || !remote?.assetUrl) return summary
   if (compareVersions(remote.version, summary.version) > 0) {
     return { ...summary, latestVersion: remote.version }
   }
@@ -236,6 +224,12 @@ export class PluginRegistry {
     return `${base}:${this.buildEpochs.get(id) ?? 0}`
   }
 
+  getOpenWithBuild(id: string): string | undefined {
+    const dev = this.dev.get(id), installed = this.installed.get(id)
+    if (dev) return JSON.stringify(['dev', dev.version, this.getBuildRevision(id)])
+    return installed && JSON.stringify(['installed', installed.rootPath, installed.version, installed.buildRevision])
+  }
+
   /** Explicit dev reload/update invalidates generations observed by pending opens and asset reads. */
   invalidateBuildRevision(id: string): string {
     this.buildEpochs.set(id, (this.buildEpochs.get(id) ?? 0) + 1)
@@ -266,7 +260,7 @@ private syncContributes(manifest: PluginManifest, enabled: boolean): void {
     if (enabled) {
       const previousThemeIds = contributionRegistry.listSlot<ThemePack>('theme-packs')
         .filter(entry => entry.source === manifest.id).map(entry => entry.id)
-      contributionRegistry.registerManifestContributes(manifest.id, manifest.contributes)
+      contributionRegistry.registerManifestContributes(manifest.id, manifest.contributes, this.getOpenWithBuild(manifest.id))
       this.applyThemePackContributions(manifest.id, previousThemeIds)
     } else {
       // 禁用插件的声明式贡献不显示
@@ -358,15 +352,19 @@ private removeThemePackContributions(pluginId: string): void {
 
   /** Shared by full scans and targeted refreshes; callers own locking and publication. */
   private async readInstalledPlugin(root: string, id: string, isCurrent: () => boolean): Promise<InstalledPlugin | undefined> {
-    if (id.startsWith('.') || !isCurrent()) return undefined // unpublished staging/rollback directories
+    if (!isPackageId(id) || !isCurrent()) return undefined
     const idDir = join(root, id)
     try {
-      if (!(await stat(idDir)).isDirectory() || !isCurrent()) return undefined
-      const versions = (await readdir(idDir)).filter((name) => !name.startsWith('.')).sort(compareVersions).reverse()
+      if (!await existingOwnedDirectory(dirname(root), basename(root), id) || !isCurrent()) return undefined
+      const versions = (await readdir(idDir, { withFileTypes: true })).filter(entry => entry.isDirectory() && isPackageVersion(entry.name))
+        .map(entry => entry.name).sort((left, right) => compareVersions(right, left)
+          || Number(right === this.installed.get(id)?.version) - Number(left === this.installed.get(id)?.version)
+          || (left < right ? -1 : left > right ? 1 : 0))
       for (const version of versions) {
         if (!isCurrent()) return undefined
         const pluginDir = join(idDir, version)
         try {
+          if (!await existingOwnedDirectory(dirname(root), basename(root), id, version) || !isCurrent()) continue
           const manifest = await installFromDirectory(pluginDir, { metadataOnly: true })
           if (!isCurrent()) return undefined
           if (manifest.id !== id || manifest.version !== version) throw new Error('安装目录必须为 plugins/<完整 id>/<version>')
@@ -408,13 +406,14 @@ private removeThemePackContributions(pluginId: string): void {
         await loadDisabledIds()
         const next = new Map<string, InstalledPlugin>()
         let ids: string[]
-        try { ids = await readdir(root) } catch (error) {
+        try { ids = await existingOwnedDirectory(dirname(root), basename(root)) ? await readdir(root) : [] } catch (error) {
           if (isCurrent() && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
           ids = []
         }
         for (const id of ids) {
           if (!isCurrent()) break
-          const item = await this.readInstalledPlugin(root, id, isCurrent)
+          if (!isPackageId(id)) continue
+          const item = await withInstallLock(id, () => this.readInstalledPlugin(root, id, isCurrent))
           if (item) next.set(id, item)
         }
         // An installation/dev mutation or data-root switch invalidates the complete snapshot.
@@ -453,7 +452,7 @@ private removeThemePackContributions(pluginId: string): void {
 
   /** Called after an installer releases its lock; retain the same highest-valid-version policy. */
   async refreshInstalledPlugin(id: string): Promise<void> {
-    if (!id || id.startsWith('.') || /[\\/\0]/.test(id)) throw new Error('invalid plugin id')
+    if (!isPackageId(id)) throw new Error('invalid plugin id')
     const root = pluginsRoot(), pathsGeneration = getAppPathsGeneration()
     const isCurrent = () => pathsGeneration === getAppPathsGeneration() && root === pluginsRoot()
     let needsFullScan = false
@@ -490,7 +489,7 @@ private removeThemePackContributions(pluginId: string): void {
         return
       }
     })
-    // Uninstall already scans while holding this same lock. Never await a full scan inside it.
+    // A full scan takes individual package locks; reconcile it outside this operation.
     if (needsFullScan || !isCurrent()) await this.scan()
     else void this.refreshRemoteMarket()
   }
@@ -644,6 +643,13 @@ private removeThemePackContributions(pluginId: string): void {
     return this.installed.get(id)?.manifest ?? null
   }
 
+  getInstalledPackage(id: string): Readonly<InstalledPlugin> | undefined { return this.installed.get(id) }
+
+  async getDevSourcePaths(): Promise<string[]> {
+    const saved = await readDevPluginRecords(true)
+    return [...new Set([...saved.map(record => record.path), ...[...this.dev.values()].flatMap(plugin => plugin.sourcePath ? [plugin.sourcePath] : [])])]
+  }
+
   getRootPath(id: string): string | null {
     return this.dev.get(id)?.rootPath ?? this.installed.get(id)?.rootPath ?? null
   }
@@ -675,6 +681,8 @@ private removeThemePackContributions(pluginId: string): void {
 
   /** Installer calls this before releasing the same-id package lock. */
   publishInstalledBuild(result: InstallResult): void {
+    const previous = this.installed.get(result.manifest.id)
+    if (!selectsInstalledVersion(result.manifest.version, previous?.version)) return
     this.installed.set(result.manifest.id, {
       manifest: result.manifest, rootPath: result.dest,
       version: result.manifest.version || '0.0.0', buildRevision: result.buildRevision
@@ -683,8 +691,16 @@ private removeThemePackContributions(pluginId: string): void {
     if (!this.dev.has(result.manifest.id)) this.syncContributes(result.manifest, isEnabledSync(result.manifest.id))
   }
 
+  removeInstalledBuild(id: string): void {
+    const previous = this.installed.get(id)
+    if (!previous) return
+    this.installed.delete(id)
+    this.changed()
+    if (!this.dev.has(id)) this.syncContributes(previous.manifest, false)
+  }
+
   /**
-   * 从远程市场资产安装：下载 .enestplugin → sha256 校验（有则校）→ zip 安装。
+   * 从远程市场资产安装：下载 .enestplugin → sha256 校验 → zip 安装。
    * 进度经 onProgress 回调（0–100：下载占 0–70，解压安装 70–100）。
    */
   async installFromRemote(
@@ -696,6 +712,7 @@ private removeThemePackContributions(pluginId: string): void {
       throw new Error(`no remote asset for plugin: ${id}`)
     }
     const operation = beginPluginInstall()
+    const generation = getAppPathsGeneration(), root = pluginsRoot()
     onProgress?.(2, '下载安装包')
     const pkg = await downloadPluginPackage(remote.assetUrl, {
       pluginId: id,
@@ -713,13 +730,14 @@ private removeThemePackContributions(pluginId: string): void {
       }
     })
     try {
+      if (generation !== getAppPathsGeneration()) throw new Error('Plugin installation data root changed')
       onProgress?.(72, '解压安装')
-      const result = await installFromZip(pkg.path, pluginsRoot(), (p, step) => {
+      const result = await installFromZip(pkg.path, root, (p, step) => {
         onProgress?.(72 + Math.round(p * 0.28), step)
       }, operation, (published) => this.publishInstalledBuild(published), { id, version: remote.version })
       // 安装成功后清理同 id 下更旧的版本目录（保留刚写入的）
       await withInstallLock(result.manifest.id, async () => {
-        if (this.installed.get(result.manifest.id)?.rootPath === result.dest) await this.cleanupOldVersions(result.manifest.id, result.dest)
+        if (generation === getAppPathsGeneration() && this.installed.get(result.manifest.id)?.rootPath === result.dest) await this.cleanupOldVersions(result.manifest.id, result.dest)
       })
       onProgress?.(100, '安装完成')
       return this.get(result.manifest.id)!
@@ -730,19 +748,21 @@ private removeThemePackContributions(pluginId: string): void {
 
   /** 删除同插件下除 keepDir 外的旧版本目录 */
   private async cleanupOldVersions(id: string, keepDir: string): Promise<void> {
+    const release = retainAppPaths(), root = pluginsRoot()
     try {
-      const idDir = join(pluginsRoot(), id)
-      if (!existsSync(idDir)) return
-      const versions = await readdir(idDir)
-      for (const v of versions) {
-        const dir = join(idDir, v)
-        if (dir === keepDir) continue
+      const idDir = await existingOwnedDirectory(dirname(root), basename(root), id)
+      if (!idDir) return
+      const sources = await this.getDevSourcePaths()
+      for (const version of await readdir(idDir, { withFileTypes: true })) {
+        if (!version.isDirectory() || !isPackageVersion(version.name) || compareVersions(version.name, basename(keepDir)) >= 0) continue
+        const dir = await ownedPackageVersion(root, id, version.name, sources, true)
+        if (!dir) continue
         await rm(dir, { recursive: true, force: true })
         logInfo('registry', `removed old version dir ${dir}`)
       }
     } catch (err) {
       logWarn('registry', `cleanup old versions failed: ${(err as Error).message}`)
-    }
+    } finally { release() }
   }
 
 /** 注册开发态插件（不落盘，仅内存） */
@@ -768,10 +788,11 @@ private removeThemePackContributions(pluginId: string): void {
 
   removeDevPlugin(id: string): void {
     forgetDevPluginSource(id)
-    this.dev.delete(id)
+    if (!this.dev.delete(id)) return
     this.devManifests.delete(id)
     this.changed()
-    // 开发态卸载：撤下其声明式贡献（含声明式主题包）
+    const installed = this.installed.get(id)
+    if (installed) { this.syncContributes(installed.manifest, isEnabledSync(id)); return }
     contributionRegistry.unregisterBySource(id)
     this.removeThemePackContributions(id)
   }

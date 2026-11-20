@@ -37,6 +37,10 @@ export type ThemeChromeAction =
   | { type: 'reorder'; tabId: string; index: number }
   | { type: 'contribution'; id: string }
   | { type: 'expand'; expanded: boolean }
+  /** 圆轨换边：只允许 left/right，由宿主校验并持久化到内置主题 profile。 */
+  | { type: 'dock'; dock: 'left' | 'right' }
+  /** 圆轨悬停名称浮层：宿主据此临时拓宽原生视图，让名称画在视图内部。 */
+  | { type: 'caption'; open: boolean }
 export interface ThemeChromeApi {
   getSnapshot(): Promise<ThemeChromeSnapshot>
   onSnapshot(listener: (snapshot: ThemeChromeSnapshot) => void): () => void

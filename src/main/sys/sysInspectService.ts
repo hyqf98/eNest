@@ -10,6 +10,7 @@ import { confirmPluginOperation } from '@main/plugin/PluginPermissions'
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import process from 'node:process'
+import type { SysProcessInfo, SysPortInfo } from '@shared/types/pluginApi'
 
 /** 采样缓存 TTL：1s 内重复调用共享同一次命令输出 */
 const SAMPLE_CACHE_MS = 1_000
@@ -21,26 +22,6 @@ const POWERSHELL_ARGS = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Execution
 /** 解析 System32 下既有 Windows PowerShell 绝对路径，不信任 PATH（防插件投毒） */
 function windowsPowerShell(): string {
   return join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-}
-
-export interface SysProcessInfo {
-  pid: number
-  pcpu: number
-  pmem: number
-  /** 常驻内存（KB） */
-  rss: number
-  user: string
-  command: string
-}
-
-export interface SysPortInfo {
-  command: string
-  pid: number
-  user: string
-  protocol: string
-  address: string
-  port: number
-  name: string
 }
 
 function run(cmd: string, args: string[]): Promise<string> {

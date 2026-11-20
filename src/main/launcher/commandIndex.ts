@@ -96,9 +96,23 @@ export function buildPluginCommands(): QuickCommand[] {
     for (const feature of features) {
       if (!feature.cmds?.length && feature.activation) continue
       const names = (feature.cmds ?? []).filter((command): command is string => typeof command === 'string' && Boolean(command.trim()))
+      /**
+       * 标题就写**功能名**，不再有「插件名 · 一句长长的说明」那种副标题小字——
+       * Quick 首页是图标网格，一格只有一句的位置，小字必然被省略号切碎
+       * （用户在截图里就是被那排半句话劝退的）。
+       *
+       * 规则：
+       *   · 主入口 / 单入口 → 插件名。它是用户认这个插件的方式，缩写（`codec` 的
+       *     explain 一按 `/` 切就只剩 `Base64`）只会让人认不出是哪个插件。
+       *   · 其它入口 → 各自的功能名，截到第一个分隔点（括号/冒号/斜杠）取主干，
+       *     让「在画板窗口里画草稿」这类长句也能塞进一格。
+       */
+      const explain = feature.explain?.trim()
+      const compact = explain ? explain.split(/[（(:：/／—]/)[0].trim() : ''
+      const title = feature === primary ? manifest.name : compact || names[0] || manifest.name
+      const subtitle = explain && explain !== title ? explain : manifest.name
       const base: QuickCommand = {
-        kind: 'plugin', id: `plugin:${pluginId}:${feature.code}`, title: names[0] || manifest.name,
-        subtitle: feature.explain ? `${manifest.name} · ${feature.explain}` : manifest.name,
+        kind: 'plugin', id: `plugin:${pluginId}:${feature.code}`, title, subtitle,
         pluginId, code: feature.code, icon, type: 'text', buildRevision: pluginRegistry.getBuildRevision(pluginId),
         aliases: [...names, ...(feature === primary ? [...userAliases, manifest.name, manifest.id] : [])],
         textInput: resolvePluginFeatureInput(feature)
@@ -264,6 +278,22 @@ export function resolveQuickOpenCommand(request: QuickOpenRequest, sessionId = '
   return command ? { ...command, ...(request.query ? { payload: request.query.slice(0, 4096) } : {}) } : null
 }
 
+/**
+ * 原生图标回填：把已解析出的命令补齐 `icon` 后返回副本。
+ *
+ * 只接受调用方已经枚举出来的命令对象——图标提取的目标来自命令自身
+ * （应用的 path 或插件的 manifest），渲染层永远无法用它指定任意路径；
+ * Quick 与 Workspace 搜索共用这一条链路，避免两处各写一份平台分支。
+ */
+export async function enrichCommandIcons(commands: QuickCommand[]): Promise<QuickCommand[]> {
+  const items = commands.map(item => ({ ...item }))
+  await Promise.all(items.map(async item => {
+    if (item.kind === 'app' && item.path && !item.icon) item.icon = await getAppIconDataUrl(item.path, item.iconName)
+    if (item.kind === 'plugin' && item.pluginId) item.icon = await getCatalogPluginIcon(item.pluginId)
+  }))
+  return items
+}
+
 /** Compatibility name for existing bridges. No query matching, ranking or recommendations run in main. */
 export async function searchQuickCommands(
   query: string, limit = 20, kind?: QuickCommandKind, phase?: QuickSearchPhase, ids?: string[], context?: QuickProviderSearchContext
@@ -302,13 +332,8 @@ export async function searchQuickCommands(
   const directory = nativeDirectory().filter(item => !kind || item.kind === kind)
   if (phase === 'enriched') {
     const requested = new Set((Array.isArray(ids) ? ids : []).filter(id => typeof id === 'string' && id.length <= 2_048).slice(0, 100))
-    const items = directory.filter(item => requested.has(item.id)).map(item => ({ ...item }))
     // Native icon extraction is constrained to enumerated targets, never a renderer-supplied path.
-    await Promise.all(items.map(async item => {
-      if (item.kind === 'app' && item.path && !item.icon) item.icon = await getAppIconDataUrl(item.path, item.iconName)
-      if (item.kind === 'plugin' && item.pluginId) item.icon = await getCatalogPluginIcon(item.pluginId)
-    }))
-    return items
+    return enrichCommandIcons(directory.filter(item => requested.has(item.id)))
   }
   return directory
 }

@@ -4,7 +4,7 @@
  * 放在 shared 的原因：主进程 PluginHost（逐插件定向发送）与 shellNotices（全量广播）
  * 共用同一序号源，且不引入任何运行时依赖。
  */
-import type { ShellNotice, ShellNoticeDataMap, ShellNoticeTopic } from './types/notice'
+import type { ShellNotice, ShellNoticeDataMap, ShellNoticeTopic } from '@shared/types/notice'
 
 /** 会话内单调递增；进程重启归零 */
 let seq = 0

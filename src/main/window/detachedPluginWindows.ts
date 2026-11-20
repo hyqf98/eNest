@@ -7,7 +7,8 @@ import type { DetachedWindowSession, PluginLaunchMode } from '@shared/types/plug
 import type { DetachedPluginState, WindowPoint, WindowRect } from '@shared/types/plugin-window'
 import { normalizeDetachedWindowSession } from '@shared/windowState'
 import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
-import { resolvePreload, resolveWindowIcon, setDetachedAppearanceSink } from '@main/window/createShellWindow'
+import { resolvePreload, setDetachedAppearanceSink } from '@main/window/createShellWindow'
+import { resolveWindowIcon } from './applicationIcon'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { resolveThemeTokens } from '@main/theme/resolveThemeCss'
 import { themePackRegistry } from '@main/theme/themePacks'
@@ -158,8 +159,7 @@ export async function createDetachedWindow(
   const restored = normalizeDetachedWindowSession(options?.restored)
   if (restored) mode = restored.mode
   const bounds = constrainDetachedBounds(restored?.bounds ?? { x: point.x - 100, y: point.y - 18, width: Math.max(360, size.width), height: Math.max(240, size.height + chromeHeight(mode)) })
-  const icon = resolveWindowIcon()
-  const win = new BaseWindow({ ...bounds, ...(icon ? { icon } : {}), minWidth: Math.min(360, bounds.width), minHeight: Math.min(240, bounds.height),
+  const win = new BaseWindow({ ...bounds, icon: resolveWindowIcon(), minWidth: Math.min(360, bounds.width), minHeight: Math.min(240, bounds.height),
     show: false, frame: false, roundedCorners: true, hasShadow: true, alwaysOnTop: restored?.alwaysOnTop === true,
     backgroundColor: theme.theme === 'dark' ? '#182126' : '#f6f8fa', title: 'eNest' })
   let chrome: WebContentsView | null = null

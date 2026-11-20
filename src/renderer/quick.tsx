@@ -4,7 +4,6 @@ import { QuickLauncherApp } from '@renderer/components/QuickLauncherApp'
 import { useAppearanceSync } from '@renderer/hooks/useAppearanceSync'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { configureLocalePersistence } from '@renderer/i18n'
-import { shellApi } from '@renderer/services/shellApi'
 import { initMotion } from '@renderer/gsap/marketMotion'
 import '@renderer/styles/tokens.css'
 import '@renderer/styles/base.css'
@@ -18,8 +17,7 @@ import '@renderer/styles/reducedMotion.css'
 import '@renderer/styles/appearance.css'
 
 configureLocalePersistence({
-  read: async () => ((await shellApi.getSettings()).general as { locale?: unknown } | undefined)?.locale,
-  write: async locale => { await shellApi.setSettings({ general: { locale } }) }
+  read: async () => window.enestQuickHost?.getLocale()
 })
 
 function QuickEntry() {

@@ -47,7 +47,7 @@ function browserPreview(): Plugin {
 
 /** Sandboxed windows only support a self-contained CommonJS preload. */
 function sandboxedPreloads(production: boolean): Plugin {
-  const entries = ['shellPreload', 'pluginPreload', 'backgroundPreload', 'auxiliaryPreload', 'detachedPluginPreload', 'installPreload', 'notificationPreload', 'homePreload', 'modalPreload', 'themeChromePreload', 'panelPreload', 'regionPreload']
+  const entries = ['shellPreload', 'quickPreload', 'railPreload', 'dockPreload', 'pluginPreload', 'backgroundPreload', 'auxiliaryPreload', 'detachedPluginPreload', 'installPreload', 'notificationPreload', 'homePreload', 'modalPreload', 'themeChromePreload', 'panelPreload', 'regionPreload']
   return {
     name: 'enest:sandboxed-preloads',
     async generateBundle(_options, bundle) {

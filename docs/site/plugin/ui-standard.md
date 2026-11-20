@@ -570,6 +570,8 @@ const api = window.enest // zapi 仅作 deprecated 兼容别名
 
 ## 设计语言与样式规范（插件 UI 集成标准）
 
+官方插件仓的标准控件模板在 `templates/plugin-ui/`。修改模板后在插件仓执行 `npm run ui:sync`，再用 `npm run ui:check` 检查差异。插件仍随包携带自己的 `src/ui/`，不依赖宿主源码；只使用 CSS 的插件不会被加入 React 入口。
+
 本节是插件作者的 **视觉与主题契约**。与前文「能注入哪些主题变量」互补：这里规定 **必须使用哪些主题变量、如何排版层级、主题如何跟随壳子**。
 
 ### 必须使用的壳子主题变量（`themeAware: true` 时）

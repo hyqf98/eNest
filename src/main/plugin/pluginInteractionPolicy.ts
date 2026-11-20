@@ -56,12 +56,16 @@ export function acquireNonInteractive(scope: PluginRuntimeScope, _reason: string
 }
 
 /** Kept through cancellation until the plugin's actual handler ACK or runtime retirement. */
-export function acquireActivation(scope: PluginRuntimeScope, signal?: AbortSignal): () => void {
+export function acquireActivation(scope: PluginRuntimeScope, signal?: AbortSignal, nonInteractive = false): () => void {
   resolveScope(scope)
   const value = policy(scope), token = Symbol('activation')
   if (value.leases.size || value.activations.size) throw new Error('Plugin activation is busy')
   value.activations.set(token, signal)
-  return () => { value.activations.delete(token) }
+  if (nonInteractive) { value.leases.add(token); value.epoch++ }
+  return () => {
+    value.activations.delete(token)
+    if (value.leases.delete(token)) value.epoch++
+  }
 }
 
 export function setBackgroundNonInteractive(scope: PluginRuntimeScope, enabled: boolean): void {
@@ -107,7 +111,7 @@ export function isNonInteractive(owner: PluginRuntimeScope | string): boolean {
   const value = policy(scope)
   const captured = rpcContext.getStore()?.get(scope)
   const held = captured?.epoch === value.epoch && Date.now() < captured.interactiveUntil
-  return value.leases.size > 0 || value.background && Date.now() >= value.interactiveUntil && !held
+  return captured?.interactiveUntil === 0 || value.leases.size > 0 || value.background && Date.now() >= value.interactiveUntil && !held
 }
 
 export function getInteractionEpoch(scope: PluginRuntimeScope): number { return policy(scope).epoch }
@@ -151,6 +155,20 @@ export async function runHostRpc<T>(scope: PluginRuntimeScope, action: () => T |
 }
 
 export function getHostRpcCount(scope: PluginRuntimeScope): number { return policy(scope).hostRpcs }
+
+export function onDocumentRetired(contents: Electron.WebContents, signal: AbortSignal, settle: () => void): () => void {
+  const detach = () => {
+    signal.removeEventListener('abort', retired)
+    contents.removeListener('did-navigate', retired)
+    contents.removeListener('destroyed', retired)
+  }
+  const retired = () => { detach(); settle() }
+  if (signal.aborted || contents.isDestroyed()) { settle(); return () => {} }
+  signal.addEventListener('abort', retired, { once: true })
+  contents.once('did-navigate', retired)
+  contents.once('destroyed', retired)
+  return detach
+}
 
 /** Native consent inherits the exact originating activation, not a later job on the same scope. */
 export function getHostInteractionSignal(scope: PluginRuntimeScope): AbortSignal | undefined { return rpcContext.getStore()?.get(scope)?.signal }

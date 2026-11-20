@@ -86,6 +86,7 @@ import { showNotification } from '@main/window/notificationOverlay'
 import { themePackRegistry } from '@main/theme/themePacks'
 import { appearanceService } from '@main/theme/appearanceService'
 import { contributionRegistry } from '@main/contrib/ContributionRegistry'
+import { associationService } from '@main/openWith/associationService'
 import { registerDeclaredHomeContribution } from '@main/home/homeRegistry'
 import { resolveQuickQuery } from '@main/launcher/quickProviders'
 import {
@@ -108,6 +109,8 @@ const runtimeLeases = new Map<string, { release: () => void; unregister: () => v
 const CLOSE_SAFE = /^(storage\.|files\.stream\.(write|finish|abort)$|auxiliary\.(send|close)$|runtime\.release$|backend\.stop$|net\.socket\.close$)/
 
 const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
+  'openWith.register': null,
+  'openWith.unregister': null,
   'contribute.replaceLaunchIndex': null,
   'contribute.launchIndexState': null,
   'contribute.markLaunchIndexDirty': null,
@@ -345,6 +348,8 @@ async function dispatch(
     return dispatchPluginTool(pluginId, method, args)
   }
   switch (method) {
+    case 'openWith.register': return associationService.register(pluginId, args[0])
+    case 'openWith.unregister': return associationService.unregister(pluginId, args[0])
     case 'contribute.replaceLaunchIndex': return replaceLaunchIndex(pluginId, args[0])
     case 'contribute.launchIndexState': return getLaunchIndexState(pluginId)
     case 'contribute.markLaunchIndexDirty': return markLaunchIndexDirty(pluginId)
@@ -946,6 +951,7 @@ export function registerPluginHandlers(): void {
         if (scope && isIndexSyncActivation(scope) && !['storage.get', 'storage.session.get', 'settings.get', 'theme.getTokens', 'theme.getAppearance',
           'i18n.getLocale', 'contribute.launchIndexState', 'runtime.release'].includes(method)) return { ok: false, error: 'Index synchronization may only read local plugin data' }
         const allowed = () => scope?.owner.wcId === senderId && scope.isCurrent() && (!scope.isClosing || CLOSE_SAFE.test(method))
+          && (!method.startsWith('openWith.') || pluginHost.isCurrentBuildSender(hostPluginId, senderId))
         if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
         return await runHostRpc(scope!, async (): Promise<PluginCallResult> => {
           // 权限为 null 表示该方法无需 manifest 声明（settings 由 Bridge 管控）

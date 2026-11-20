@@ -161,7 +161,7 @@ export function patchThemeProfile(
     const reset = cleanProfileShell(patchIdentity, pack?.schemaVersion ?? APPEARANCE_SCHEMA_VERSION)
     if (patchIdentity.source === DEFAULT_THEME_IDENTITY.source && patchIdentity.id === DEFAULT_THEME_IDENTITY.id) {
       const values = reconcileThemeProfile(pack, profile).values
-      for (const key of ['tabStyle', 'tabOpacity', 'tabAutoHide']) {
+      for (const key of ['tabStyle', 'tabOpacity', 'tabAutoHide', 'orbDock']) {
         if (Object.hasOwn(values, key)) reset.values[key] = plainClone(values[key])
       }
     }

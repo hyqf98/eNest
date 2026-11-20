@@ -71,7 +71,7 @@ export async function verifyNativePayload({ platform, arch, directory }) {
   const directoryInfo = await lstat(directory)
   if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) throw new Error('Invalid native payload directory')
   const top = (await readdir(directory)).sort(), files = await tree(directory)
-  const expected = platform === 'darwin' ? ['clipboard-helper', 'process-memory-helper'] : platform === 'win32'
+  const expected = platform === 'darwin' ? ['clipboard-helper', 'open-with-helper', 'process-memory-helper'] : platform === 'win32'
     ? ['clipboard-helper.ps1', 'process-memory-helper.ps1']
     : ['THIRD-PARTY-NOTICES.txt', 'clipboard-helper', 'lib', 'licenses', 'linux-dependencies.json']
   if (JSON.stringify(top) !== JSON.stringify(expected.sort())) throw new Error(`Unexpected ${platform} native payload: ${top.join(', ')}`)

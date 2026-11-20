@@ -4,7 +4,7 @@ import { pluginHost, type McpRuntime } from '@main/plugin/PluginHost'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { isPluginPageUrl } from '@main/plugin/pluginSessionPolicy'
 import { acquirePluginActivity } from '@main/plugin/activityRegistry'
-import { acquireNonInteractive, getHostRpcCount, hasNativeInteraction, whenHostRpcIdle } from '@main/plugin/pluginInteractionPolicy'
+import { acquireNonInteractive, getHostRpcCount, hasNativeInteraction, onDocumentRetired, whenHostRpcIdle } from '@main/plugin/pluginInteractionPolicy'
 import type { PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { IpcChannels } from '@shared/types/ipc'
 import type { McpErrorCode, McpRegistrationAck, McpResultMessage, McpToolResult } from '@shared/types/mcp'
@@ -20,11 +20,11 @@ interface Job {
   controller: AbortController; runtime?: McpRuntime; registration?: Registration; entry?: CatalogEntry
   clientSettled: boolean; handlerSettled: boolean; draining: boolean
   resolve(result: McpToolResult): void; releaseActivity(): void; releaseGuard?: () => void; detachSignal(): void
-  timer?: ReturnType<typeof setTimeout>; quarantineTimer?: ReturnType<typeof setTimeout>
+  timer?: ReturnType<typeof setTimeout>; quarantineTimer?: ReturnType<typeof setTimeout>; detachRetirement?: () => void
 }
 const registrations = new Map<string, Registration>()
 const jobs = new Map<string, Job>()
-const unavailable = new WeakSet<PluginRuntimeScope>()
+const unavailable = new WeakMap<PluginRuntimeScope, number>()
 const readyListeners = new Map<string, Set<() => void>>()
 const records: McpCallRecord[] = []
 let registered = false, accepting = false
@@ -60,6 +60,7 @@ function clientDone(job: Job, result: McpToolResult, code?: McpErrorCode): void 
 }
 function release(job: Job): void {
   if (job.quarantineTimer) clearTimeout(job.quarantineTimer)
+  job.detachRetirement?.()
   job.releaseGuard?.(); job.releaseGuard = undefined
   job.releaseActivity()
   if (jobs.get(job.pluginId) === job) jobs.delete(job.pluginId)
@@ -79,7 +80,7 @@ function cancel(job: Job, code: McpErrorCode): void {
   }
   job.quarantineTimer = setTimeout(() => {
     if (jobs.get(job.pluginId) !== job || !job.runtime) return
-    if (!job.handlerSettled || getHostRpcCount(job.runtime.scope)) unavailable.add(job.runtime.scope)
+    if (!job.handlerSettled || getHostRpcCount(job.runtime.scope)) unavailable.set(job.runtime.scope, job.runtime.documentEpoch)
     // Keep the slot/guard until actual settlement; only the bounded keepalive expires.
     job.releaseActivity()
   }, 2000)
@@ -171,6 +172,7 @@ export function registerMcpPluginBridge(): void {
       return { registrationId: '', retired: true }
     }
     if (!same(runtime, pluginHost.getMcpRuntime(pluginId))) return { registrationId: '', retired: true }
+    if (registrations.has(pluginId)) throw new McpFailure('invalid-arguments')
     const registration = { id: randomUUID(), runtime }
     registrations.set(pluginId, registration)
     for (const listener of readyListeners.get(pluginId) ?? []) listener()
@@ -184,14 +186,14 @@ export function registerMcpPluginBridge(): void {
       void resultFor(job, message)
     } catch { /* Stale documents cannot settle another generation. */ }
   })
-  pluginHost.onMcpRuntimeRetired((pluginId, reason) => {
+  pluginHost.onMcpRuntimeRetired(pluginId => {
     registrations.delete(pluginId)
     const job = jobs.get(pluginId)
     if (job) {
       cancel(job, 'unavailable')
-      if (reason !== 'navigation' && job.runtime?.scope.signal.aborted) { job.handlerSettled = true; void drain(job) }
-      else if (job.runtime) {
-        job.runtime.scope.signal.addEventListener('abort', () => { job.handlerSettled = true; void drain(job) }, { once: true })
+      if (job.runtime && !job.detachRetirement) {
+        const { contents, scope } = job.runtime
+        job.detachRetirement = onDocumentRetired(contents, scope.signal, () => { job.handlerSettled = true; void drain(job) })
       }
     }
     for (const listener of readyListeners.get(pluginId) ?? []) listener()
@@ -230,14 +232,14 @@ export function callMcpTool(input: { pluginId: string; toolId: string; arguments
         if (hasNativeInteraction()) throw new McpFailure('busy')
         const existing = pluginHost.getMcpRuntime(input.pluginId)
         if (existing) {
-          if (unavailable.has(existing.scope)) throw new McpFailure('unavailable')
+          if (unavailable.get(existing.scope) === existing.documentEpoch) throw new McpFailure('unavailable')
           job.runtime = existing; job.releaseGuard = acquireNonInteractive(existing.scope, 'MCP execution')
         }
         job.timer = setTimeout(() => cancel(job, 'timeout'), 15_000)
         const runtime = await pluginHost.ensureRunningForMcp(input.pluginId, job.controller.signal)
         if (job.controller.signal.aborted) throw job.controller.signal.reason
         if (hasNativeInteraction()) throw new McpFailure('busy')
-        if (job.runtime && !same(job.runtime, runtime) || unavailable.has(runtime.scope)) throw new McpFailure('unavailable')
+        if (job.runtime && !same(job.runtime, runtime) || unavailable.get(runtime.scope) === runtime.documentEpoch) throw new McpFailure('unavailable')
         job.runtime = runtime
         job.releaseGuard ??= acquireNonInteractive(runtime.scope, 'MCP execution')
         job.registration = await waitForReady(input.pluginId, runtime, job.controller.signal)

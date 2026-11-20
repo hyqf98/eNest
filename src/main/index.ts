@@ -28,14 +28,16 @@ import { markStartupPhase } from '@main/logs/startupTiming'
 import { kvStore } from '@main/db/sqliteService'
 import { flushAll } from '@main/db/pluginStorage'
 import { themePackRegistry } from '@main/theme/themePacks'
-import { createShellWindow, setPanelAppearanceSink, getMainWindow, getShellWebContents } from '@main/window/createShellWindow'
+import { createShellWindow, setPanelAppearanceSink, getMainWindow, getShellWebContents, keepDockIconVisible } from '@main/window/createShellWindow'
 import { flushMainWindowState } from '@main/window/mainWindowState'
 import {
   destroyOrbRailViews,
   layoutOrbRailViews
 } from '@main/window/orbRailViews'
 import { destroyQuickWindow } from '@main/window/createQuickWindow'
-import { showMainWindowOnActivate } from '@main/window/mainWindowActivation'
+import { destroyTray, ensureTray, setTrayHandlers, updateTrayIcon } from '@main/window/trayService'
+import { watchSystemIcons } from '@main/window/applicationIcon'
+import { showMainWindowFromTray, showMainWindowOnActivate } from '@main/window/mainWindowActivation'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { applyPluginMemoryMonitorSetting, startPluginMemoryMonitor, stopPluginMemoryMonitor } from '@main/plugin/pluginMemoryMonitor'
 import { broadcastNotice } from '@main/plugin/shellNotices'
@@ -60,7 +62,6 @@ import {
 } from '@main/hotkey/pluginLaunchHotkeys'
 import { scanApplications } from '@main/launcher/appScanner'
 import { initUpdateService } from '@main/update/updateService'
-import { associationService } from '@main/openWith/associationService'
 import {
   flushPendingOpenWith, handleOpenFile, handleOpenUrl, handleOpenWithArgv, setOpenWithReadyProbe
 } from '@main/openWith/openWithRouter'
@@ -173,6 +174,11 @@ function handleFatalSignal(sig: NodeJS.Signals | string): void {
   } catch {
     /* ignore */
   }
+  try {
+    destroyTray()
+  } catch {
+    /* ignore */
+  }
   logInfo('main', `${sig} → shortcuts released, app.exit(0)`)
   app.exit(0)
 }
@@ -254,6 +260,8 @@ app.on('second-instance', (_event, argv) => {
   }
 })
 
+let quitPhase: 'idle' | 'draining' | 'complete' = 'idle'
+
 void app.whenReady().then(async () => {
   if (!gotLock) return
   try {
@@ -299,9 +307,17 @@ void app.whenReady().then(async () => {
     initPluginProtocol()
     logInfo('main', 'protocol ok')
 
+    watchSystemIcons(updateTrayIcon)
     const win: BaseWindow = createShellWindow()
     logInfo('main', 'window ok')
     markStartupPhase('shell-window-created')
+
+    // 托盘菜单的回调由宿主提供：恢复走 showMainWindowFromTray（用户明确要回来，
+    // 不受 Quick 激活抑制影响），退出统一交给 before-quit。
+    setTrayHandlers({
+      restore: () => showMainWindowFromTray(win),
+      quit: () => app.quit()
+    })
 
     // 外部打开：等壳渲染层首屏完成再放行排队请求（避免 open-with-choice 事件丢在挂载前）
     const armOpenWith = () => {
@@ -318,10 +334,6 @@ void app.whenReady().then(async () => {
     }
     // 冷启动 argv（Windows/Linux 双击文件）：窗口创建后再解析，命中插件走 shell 模式
     handleOpenWithArgv(process.argv)
-    // 用户此前选择过的 scheme 幂等同步系统注册（未选择的 scheme 不碰）
-    void associationService.syncRoutedSchemes().catch((err) => {
-      logWarn('open-with', `sync schemes failed: ${String(err)}`)
-    })
 
     const syncShellVisibility = () => pluginHost.setShellVisible(win.isVisible() && !win.isMinimized())
     win.on('hide', syncShellVisibility)
@@ -347,22 +359,31 @@ void app.whenReady().then(async () => {
      * - minimize-tray（默认）：仅「用户点关闭」时隐藏窗口，进程保留、热键可用
      * - quit / 退出中（Ctrl+C、SIGTERM、before-quit）：放行 close 并真正退出
      */
-    let appQuitting = false
     win.on('close', (e) => {
+      if (quitPhase === 'draining') { e.preventDefault(); return }
       // 退出路径（控制台 Ctrl+C / 信号 / quit）绝不允许 hide 拦截
-      if (shuttingDown || appQuitting || quitting) {
+      if (shuttingDown) {
         logInfo('main', 'close → allow (shutting down)')
         return
       }
       const behavior = settingsStore.getAll().general?.closeBehavior ?? 'minimize-tray'
       if (behavior === 'minimize-tray') {
         e.preventDefault()
+        // 「关闭到托盘」在两个平台需要两种恢复入口，语义一致：
+        //   macOS   → Dock 图标。主窗 hide 后 app 没有可见窗口，系统会把 Dock 项
+        //             也收掉，用户从 Dock 里找不到 eNest；显式要回来。
+        //   Win/Linux → 托盘图标。没有 Dock 这种系统入口，窗口任务栏项一消失
+        //             应用就等于"没了"，必须挂一个托盘图标才谈得上后台常驻。
+        const hasEntry = process.platform === 'darwin' ? keepDockIconVisible() : ensureTray()
         try {
-          win.hide()
+          // 恢复入口拿不到时降级成最小化：hide 会让用户彻底失去回到窗口的办法，
+          // 最小化至少还在任务栏里留着一项（Linux 缺 AppIndicator 的桌面就是这种情况）。
+          if (hasEntry) win.hide()
+          else win.minimize()
         } catch {
           /* already gone */
         }
-        logInfo('main', 'close → hide (closeBehavior=minimize-tray)，热键仍可用')
+        logInfo('main', `close → ${hasEntry ? 'hide' : 'minimize'} (closeBehavior=minimize-tray)，热键仍可用`)
         return
       }
       logInfo('main', 'close → quit (closeBehavior=quit)')
@@ -371,10 +392,9 @@ void app.whenReady().then(async () => {
     })
     win.on('closed', () => {
       destroyOrbRailViews()
-      if (shuttingDown || quitting) return
+      if (shuttingDown) return
       const behavior = settingsStore.getAll().general?.closeBehavior ?? 'minimize-tray'
       if (behavior === 'quit') {
-        appQuitting = true
         app.quit()
       }
     })
@@ -432,7 +452,7 @@ void app.whenReady().then(async () => {
     void refreshProfileOnBoot().catch(() => { /* best effort */ })
 
     app.on('activate', () => {
-      if (shuttingDown || quitting) return
+      if (shuttingDown) return
       showMainWindowOnActivate(win)
     })
   } catch (err) {
@@ -441,12 +461,21 @@ void app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
-  if (shuttingDown || quitting) {
-    app.quit()
+  if (shuttingDown) return
+  // 「最小化到托盘」必须三平台一致：Windows/Linux 原本在这里无条件 app.quit()，
+  // 于是关窗=退出，托盘的常驻语义根本无从谈起。
+  const behavior = settingsStore.getAll().general?.closeBehavior ?? 'minimize-tray'
+  if (behavior === 'minimize-tray') {
+    // 托盘挂不上（Linux 无 AppIndicator 等）就别把进程留在后台——
+    // 那样既没有窗口也没有入口，任务管理器里多一个看不见的进程。
+    if (process.platform !== 'darwin' && !ensureTray()) {
+      logWarn('main', 'no tray entry available; quit instead of lingering in background')
+      app.quit()
+    }
     return
   }
-  // macOS：窗口全关≠退出；是否退出由 closeBehavior / before-quit 决定
-  if (process.platform !== 'darwin') app.quit()
+  // 退出模式：关掉最后一个窗口就退出
+  app.quit()
 })
 
 // Electron 文档推荐：退出前注销全部全局快捷键；同时回收壳子拉起的插件 dev server
@@ -455,12 +484,12 @@ app.on('will-quit', () => {
   stopAllDevServers()
 })
 
-let quitting = false
 app.on('before-quit', (event) => {
-  beginShutdown('before-quit')
-  if (quitting) return
-  quitting = true
+  if (quitPhase === 'complete') return
   event.preventDefault()
+  if (quitPhase === 'draining') return
+  quitPhase = 'draining'
+  beginShutdown('before-quit')
   pluginHost.prepareSessionShutdown()
   preparePanelShutdown()
   cancelPluginWindowDrag()
@@ -497,6 +526,8 @@ app.on('before-quit', (event) => {
       destroyAllDetachedWindows()
       // 面板内插件已由 pluginHost.destroyAll 释放，这里只销毁面板窗口本身。
       disposePanels()
+      // 托盘最后销毁：清理链跑完之前，用户仍能从这里看到应用还在。
+      destroyTray()
     })
     .finally(() => {
       clearTimeout(forceTimer)
@@ -512,6 +543,7 @@ app.on('before-quit', (event) => {
         /* ignore */
       }
       releaseAllGlobalShortcutsSync()
+      quitPhase = 'complete'
       app.quit()
     })
 })

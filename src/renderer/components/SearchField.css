@@ -30,6 +30,9 @@
 }
 .search-box input::-webkit-search-cancel-button { -webkit-appearance: none; }
 .search-box input::placeholder { color: var(--text-3); }
+/* 网格键盘导航态：输入框仍持有焦点（可以继续打字），但隐藏闪烁光标——
+   用户此刻在用方向键选项，光标留着只是干扰。打字/点击会移除该标记。 */
+.search-box input[data-caret-hidden='true'] { caret-color: transparent; }
 .search-shortcut { font: inherit; font-size: calc(12px * var(--appearance-font-scale, 1)); color: var(--text-3); white-space: nowrap; }
 .search-clear {
   display: grid;

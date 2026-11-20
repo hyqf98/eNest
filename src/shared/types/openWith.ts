@@ -2,26 +2,30 @@
  * openWith — 「设为默认打开方式」跨端契约（壳统一能力）
  *
  * 背景：插件是壳内 WebContentsView，不是 OS 应用；任何平台的系统关联写入目标
- * 只能是 eNest 本体。因此插件仅经 manifest.contributes.openWith 声明可处理的
- * 类型/scheme，注册（macOS/Windows/Linux）与「类型→插件」路由全由壳负责。
+ * 只能是 eNest 本体。插件可声明或运行时登记可处理的类型/scheme；用户决定路由和系统默认。
  *
  * 键约定：文件类型一律 `ext:<小写无点扩展名>`；scheme 一律 `scheme:<小写名>`。
  * 路由表存设置段 `openWith`（仅主进程写，renderer 写入在 shell:set-settings 剥离）。
  */
 
-import type { OpenWithContribution } from './plugin'
+import { CONTRIB_SCHEMA_VERSION, type OpenWithContribution } from './plugin'
 
 /** 壳保留 / 非法 scheme：插件不得声明占用 */
-export const RESERVED_OPEN_WITH_SCHEMES = ['enest', 'http', 'https', 'file', 'mailto'] as const
+export const RESERVED_OPEN_WITH_SCHEMES = ['enest', 'http', 'https', 'file', 'mailto', 'tel', 'data', 'javascript', 'about', 'blob', 'shell'] as const
 
 /** scheme 形状：RFC 3986 scheme 子集，小写字母开头 */
-export const OPEN_WITH_SCHEME_RE = /^[a-z][a-z0-9+.-]*$/
+export const OPEN_WITH_SCHEME_RE = /^[a-z][a-z0-9+.-]{1,63}$/
 /** 扩展名形状：小写字母数字，1-10 位，无点 */
 export const OPEN_WITH_EXT_RE = /^[a-z0-9]{1,10}$/
 /** MIME 形状：type/subtype 粗校验 */
 export const OPEN_WITH_MIME_RE = /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/
 
 export type OpenWithKey = `ext:${string}` | `scheme:${string}`
+
+export function validOpenWithValue(kind: 'ext' | 'scheme', value: string): boolean {
+  return kind === 'ext' ? OPEN_WITH_EXT_RE.test(value) : OPEN_WITH_SCHEME_RE.test(value)
+    && !(RESERVED_OPEN_WITH_SCHEMES as readonly string[]).includes(value) && !/^(?:ms-|x-apple\.)/.test(value)
+}
 
 export function extKey(ext: string): OpenWithKey {
   return `ext:${ext}`
@@ -80,12 +84,13 @@ export interface OpenWithRow {
   }
 }
 
-/** IPC list() 响应 */
+/** IPC list() 响应：所有候选可选；只有 inspectedKey 对应行包含本次查询的系统能力与状态。 */
 export interface OpenWithListResult {
   platform: NodeJS.Platform
   /** dev 态下 scheme 注册不可靠（macOS）：true 时状态列显示"仅打包可用" */
   packaged: boolean
   rows: OpenWithRow[]
+  inspectedKey?: OpenWithKey
 }
 
 /** IPC set/unset 请求与响应 */
@@ -115,35 +120,26 @@ export interface OpenWithEnterPayload {
   url?: string
 }
 
-/** 校验单条 openWith 贡献的形状与保留字；返回错误列表（空=合法） */
-export function validateOpenWithContribution(
-  c: OpenWithContribution,
-  takenSchemes?: ReadonlySet<string>
-): string[] {
-  const errors: string[] = []
-  const lists: Array<['extensions' | 'mimeTypes' | 'schemes', string[], RegExp]> = [
-    ['extensions', c.extensions ?? [], OPEN_WITH_EXT_RE],
-    ['mimeTypes', c.mimeTypes ?? [], OPEN_WITH_MIME_RE],
-    ['schemes', c.schemes ?? [], OPEN_WITH_SCHEME_RE]
-  ]
-  for (const [field, list, re] of lists) {
-    if (!Array.isArray(list)) {
-      errors.push(`openWith.${field} must be an array`)
-      continue
-    }
-    for (const v of list) {
-      if (typeof v !== 'string' || !re.test(v)) {
-        errors.push(`openWith.${field}: invalid value ${JSON.stringify(String(v))}`)
-      } else if (field === 'schemes' && (RESERVED_OPEN_WITH_SCHEMES as readonly string[]).includes(v)) {
-        errors.push(`openWith.schemes: ${v} is reserved by the shell`)
-      } else if (field === 'schemes' && takenSchemes?.has(v)) {
-        errors.push(`openWith.schemes: ${v} already claimed by another plugin`)
-      }
-    }
-    if (list.length > 64) errors.push(`openWith.${field}: too many entries (max 64)`)
+/** Validate the manifest/IPC declaration before it can become a routing candidate. */
+export function readOpenWithContribution(value: unknown): OpenWithContribution {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid openWith declaration')
+  const entry = value as Record<string, unknown>
+  if (Object.keys(entry).some(key => !['id', 'extensions', 'schemes', 'mimeTypes', 'role', 'schemaVersion'].includes(key))) throw new Error('Unknown openWith field')
+  if (typeof entry.id !== 'string' || !entry.id.trim() || entry.id.length > 64 || /[\x00-\x1f\x7f]/.test(entry.id)) throw new Error('Invalid openWith id')
+  if (entry.schemaVersion !== undefined && entry.schemaVersion !== CONTRIB_SCHEMA_VERSION) throw new Error('Unsupported openWith schema version')
+  const result: OpenWithContribution = { id: entry.id }
+  if (entry.role !== undefined) {
+    if (entry.role !== 'Editor' && entry.role !== 'Viewer' && entry.role !== 'Browser') throw new Error('Invalid openWith role')
+    result.role = entry.role
   }
-  if (!c.extensions?.length && !c.mimeTypes?.length && !c.schemes?.length) {
-    errors.push('openWith entry declares nothing (extensions/mimeTypes/schemes all empty)')
+  for (const field of ['extensions', 'schemes', 'mimeTypes'] as const) {
+    const list = entry[field]
+    if (list === undefined) continue
+    if (!Array.isArray(list) || list.length > (field === 'schemes' ? 8 : 64) || new Set(list).size !== list.length
+      || !Array.from(list).every(item => typeof item === 'string' && item.length <= 127 && (field === 'mimeTypes'
+        ? OPEN_WITH_MIME_RE.test(item) : validOpenWithValue(field === 'schemes' ? 'scheme' : 'ext', item)))) throw new Error(`Invalid openWith.${field}`)
+    result[field] = [...list]
   }
-  return errors
+  if (!result.extensions?.length && !result.schemes?.length) throw new Error('openWith needs an extension or URL scheme')
+  return result
 }

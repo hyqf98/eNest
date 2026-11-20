@@ -11,7 +11,7 @@ const adapters = {
   'quick-geometry-fixture': `export const state = {
     windows: [], workArea: { x: 100, y: 40, width: 1600, height: 1000 },
     captureCalls: 0, captureGate: null, logs: [], trusted: [], eventSink: null,
-    onShow: null, onHide: null
+    onShow: null, onHide: null, mainWindow: null
   };`,
   electron: `
     import { EventEmitter } from 'node:events';
@@ -86,10 +86,12 @@ const adapters = {
   `,
   '@main/ipc/ipcSecurity': `import { state } from 'quick-geometry-fixture'; export const registerTrustedSurface = (...args) => state.trusted.push(args);`,
   '@main/clipboard/nativeClipboard': `import { state } from 'quick-geometry-fixture'; export async function capturePasteTarget() { state.captureCalls++; await state.captureGate; }`,
+  '@main/launcher/quickInputContext': `export const clearQuickInputContext = () => {};`,
   '@main/plugin/pluginProtocol': `export const ensureShellSessionProtocol = () => {};`,
+  '@main/theme/quickThemeProtocol': `export const registerQuickThemeWebContentsPolicy = () => {};`,
   '@main/logs/logService': `import { state } from 'quick-geometry-fixture'; export const logInfo = () => {}; export const logError = (...args) => state.logs.push(args);`,
   '@main/settings/SettingsStore': `export const settingsStore = { getAll: () => ({ general: { animationLevel: 'high' } }) };`,
-  './createShellWindow': `import { state } from 'quick-geometry-fixture'; export const resolvePreload = file => file; export const setQuickEventSink = sink => { state.eventSink = sink; };`
+  './createShellWindow': `import { state } from 'quick-geometry-fixture'; export const getMainWindow = () => state.mainWindow; export const keepDockIconVisible = () => false; export const resolvePreload = file => file; export const setQuickEventSink = sink => { state.eventSink = sink; };`
 }
 
 let fixtureId = 0
@@ -116,6 +118,18 @@ async function showLoaded(api) {
   if (win.webContents.isLoadingMainFrame()) win.webContents.finishLoad()
   assert.equal(api.isQuickVisible(), true)
   return win
+}
+
+function trackDesktop(api) {
+  const main = {
+    visible: true, minimized: false, destroyed: false, minimizeCalls: 0,
+    isDestroyed() { return this.destroyed },
+    isVisible() { return this.visible },
+    isMinimized() { return this.minimized },
+    minimize() { this.minimized = true; this.minimizeCalls++ }
+  }
+  api.state.mainWindow = main
+  return main
 }
 
 function assertGeometry(api, expectedSize = standardSize) {
@@ -186,6 +200,32 @@ test('Quick snapshots forward while hidden and lazy load/reopen never write a le
   assert.equal(await api.prepareQuickWindowForPlugin(), true)
   assert.equal(api.presentQuickWindowForPlugin(), true)
   assert.deepEqual(win.webContents.scripts, [], 'plugin docking also preserves snapshot-owned animation')
+})
+
+test('Quick minimizes the visible desktop on presentation and explicit refocus, not on load or dismissal', async t => {
+  const api = await fixture(t), main = trackDesktop(api)
+  assert.equal(await api.showQuickWindow(), true)
+  const quick = api.getQuickWindow(), url = quick.webContents.url
+  quick.webContents.url = 'about:blank'
+  quick.webContents.finishLoad()
+  assert.equal(quick.isVisible(), false)
+  assert.equal(main.minimizeCalls, 0)
+  quick.webContents.url = url
+  quick.webContents.finishLoad()
+  assert.equal(quick.isFocused(), true)
+  assert.equal(main.minimizeCalls, 1)
+
+  for (const state of [{ minimized: true }, { minimized: false, visible: false }, { visible: true, destroyed: true }]) {
+    Object.assign(main, state)
+    api.hideQuickWindow('escape')
+    await showLoaded(api)
+    assert.equal(main.minimizeCalls, 1)
+  }
+  main.destroyed = false
+  quick.focused = false
+  api.toggleQuickWindow()
+  assert.equal(quick.isFocused(), true)
+  assert.equal(main.minimizeCalls, 2)
 })
 
 test('Quick show, Escape hide and delayed activation never open main; a later Dock activation still works', async t => {
@@ -323,7 +363,7 @@ test('destroy during paste-target capture invalidates the pending show before a 
 })
 
 test('late renderer load callbacks cannot show a hidden or destroyed Quick window', async t => {
-  const api = await fixture(t)
+  const api = await fixture(t), main = trackDesktop(api)
   assert.equal(await api.showQuickWindow(), true)
   const hidden = api.getQuickWindow()
   assert.equal(hidden.isVisible(), false)
@@ -345,6 +385,7 @@ test('late renderer load callbacks cannot show a hidden or destroyed Quick windo
   assert.equal(replacement.showAttempts, 0)
   assert.equal(api.getQuickWindow(), replacement)
   assert.equal(api.isQuickVisible(), false)
+  assert.equal(main.minimizeCalls, 0)
   assert.deepEqual(api.state.logs, [])
   await showLoaded(api)
   assertGeometry(api)
@@ -425,7 +466,7 @@ test('initial blank load and a finish event during navigation cannot commit Quic
 })
 
 test('a failed native show cannot commit and failed attachment restores hidden presentation', async t => {
-  const api = await fixture(t)
+  const api = await fixture(t), main = trackDesktop(api)
   const preparing = api.prepareQuickWindowForPlugin()
   const win = api.getQuickWindow()
   win.webContents.finishLoad(); await preparing
@@ -438,6 +479,9 @@ test('a failed native show cannot commit and failed attachment restores hidden p
   win.show = show
   assert.throws(() => api.presentQuickWindowForPlugin(() => { throw new Error('attach failed') }), /attach failed/)
   assert.equal(win.isVisible(), false)
+  assert.equal(main.minimizeCalls, 0)
+  assert.equal(api.presentQuickWindowForPlugin(() => assert.equal(main.minimizeCalls, 0)), true)
+  assert.equal(main.minimizeCalls, 1)
 })
 
 test('direct plugin presentation resets the renderer before its mode event and preserves committed focus', async t => {

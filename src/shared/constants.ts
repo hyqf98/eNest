@@ -25,6 +25,12 @@ export const PLUGIN_BAR_HEIGHT_NONE = 0
  */
 export const ORB_RAIL_COLLAPSED_W = 14
 export const ORB_RAIL_EXPANDED_W = 84
+/**
+ * 悬停名称浮层额外需要的宽度：视图在展开宽度之外再拓宽这么多，
+ * 让名称文字画在视图内部而不是溢出到视图边界外（DOM 无法越过 WebContentsView 边界）。
+ * 值需要覆盖 CSS 里 .orb-caption 的 max-width（220px）+ 圆球右侧间隙。
+ */
+export const ORB_RAIL_CAPTION_EXTRA_W = 236
 /** classic dock 固定命中区，贴左下并容纳按钮放大与柔和阴影 */
 export const ORB_DOCK_VIEW_W = 80
 export const ORB_DOCK_VIEW_H = 72
@@ -120,8 +126,14 @@ export const QUICK_CORNER_RADIUS = 20
 export const QUICK_BORDER_WIDTH = 1
 /** Quick 小窗默认宽度（px） */
 export const QUICK_WIDTH = 720
-/** 默认呼出与返回列表时，仅展示两行常用项。 */
-export const QUICK_HOME_HEIGHT = 248
+/**
+ * 默认呼出与返回列表时只展示两行常用项。
+ * 高度 = 输入条 64 + 边框 1 + 分组标题 22 + 两行卡片 2×60 + 行距 6 + 底部 5 + 气泡余量 18。
+ *
+ * 最后那 18px 是给「选中项名称气泡」留的：气泡画在卡片下沿（绝对定位，不撑高格子），
+ * 第二排的气泡会落在面板之外，没有这块余量就会被窗口边缘裁掉。
+ */
+export const QUICK_HOME_HEIGHT = 236
 export const QUICK_GRID_COLUMNS = 8
 export const QUICK_HOME_ROWS = 2
 /**

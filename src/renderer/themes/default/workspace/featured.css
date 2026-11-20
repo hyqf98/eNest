@@ -1,7 +1,8 @@
-/* 产品横幅：主题色仅用于动作和分页，视觉与动画强度由设置实时控制。 */
+/* 产品横幅：三卡居中轮播。中间完整呈现，两侧缩小模糊，--product-reveal 连续驱动。 */
 .product-carousel {
-  --product-gap: 20px;
-  --product-peek: clamp(120px, 11vw, 160px);
+  --product-gap: 18px;
+  /* 侧卡露出的宽度：太窄看不出是什么，太宽会把中间卡挤瘦。 */
+  --product-side-w: clamp(140px, 15vw, 210px);
   --product-duration: 220ms;
   position: relative;
   margin: 0 0 8px;
@@ -15,13 +16,16 @@
   gap: var(--product-gap);
   overflow-x: auto;
   overflow-y: hidden;
+  /* 首尾留白由 JS（applyEdgeSpacers）写成 ::before/::after 的宽度，不用 padding：
+     padding 会缩小内容区，让 slide 的 calc(100% - ...) 基准跟着变小，卡宽算塌。 */
+  padding: 12px 0;
+  margin: 0;
+  box-sizing: border-box;
   border-radius: 16px;
-  clip-path: inset(4px 0 10px 0 round 12px);
-  padding: 4px 4px 10px;
-  margin: -4px -4px -10px;
+  /* 上下留白给缩放/模糊与投影空间；横向多留出侧卡缩放的溢出。 */
+  clip-path: inset(0 -40px 10px -40px round 14px);
   scrollbar-width: none;
   scroll-snap-type: x mandatory;
-  scroll-padding-inline: 4px;
   scroll-behavior: auto;
   touch-action: pan-x pan-y;
   cursor: grab;
@@ -31,26 +35,59 @@
 
 .product-viewport::-webkit-scrollbar { display: none; }
 
+/* 首尾占位：让第一张和最后一张也能滚到正中（否则 scrollLeft 到 0 就停住，
+   首项永远贴左）。宽度由 JS 的 applyEdgeSpacers 写成 --product-edge，
+   是 flex item 而非 padding，因此不影响 slide 的百分比基准。 */
+.product-viewport::before,
+.product-viewport::after {
+  content: '';
+  flex: 0 0 auto;
+  width: var(--product-edge, 0px);
+  pointer-events: none;
+}
+
 .product-slide {
   --product-reveal: 0;
   position: relative;
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(0, 1.2fr);
-  flex: 0 0 calc(100% - var(--product-peek) - var(--product-gap));
-  min-height: clamp(280px, 23vw, 340px);
+  /* 文案区至少 300px，图片区吃掉剩余。两侧都用 minmax(…, …) 且下限不为 0，
+     否则窄卡时图片列会被压成 0（实测出现过 `260px 0px`，整卡只剩文字）。 */
+  grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
+  /* 卡宽 = 视口 W - 两侧各露 sideW - 两个 gap。
+     viewport 无横向 padding，所以 100% 就是视口内宽，公式干净。 */
+  flex: 0 0 auto;
+  width: calc(100% - var(--product-side-w) * 2 - var(--product-gap) * 2);
+  min-height: clamp(272px, 22vw, 326px);
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface) 66%, var(--bg));
-  scroll-snap-align: start;
+  border-radius: 18px;
+  /* 边框与背景随 reveal 变化：侧卡几乎透明，中间卡清晰有实体感。 */
+  border: 1px solid color-mix(in srgb, var(--border-strong) calc(40% + var(--product-reveal) * 60%), transparent);
+  background: color-mix(in srgb, var(--surface) calc(35% + var(--product-reveal) * 55%), var(--bg));
+  scroll-snap-align: center;
   scroll-snap-stop: always;
-  transition: border-color var(--product-duration) ease;
+  /* 侧卡：缩小 + 模糊 + 降透明；中间卡完全清晰。
+     全部由 --product-reveal（0=完全离开，1=居中）连续驱动，滑动时平滑过渡。
+     侧卡不能压得太狠（初版 opacity 0.42 + blur 3.2px 几乎看不出是什么），
+     用户需要能从两侧认出"旁边是哪几个插件"。 */
+  transform: scale(calc(0.92 + var(--product-reveal) * 0.08));
+  filter: blur(calc((1 - var(--product-reveal)) * 2.4px)) saturate(calc(0.88 + var(--product-reveal) * 0.12));
+  opacity: calc(0.62 + var(--product-reveal) * 0.38);
+  box-shadow:
+    0 2px 6px color-mix(in srgb, var(--text) calc((1 - var(--product-reveal)) * 4%), transparent),
+    0 calc(6px + var(--product-reveal) * 14px) calc(18px + var(--product-reveal) * 28px)
+      color-mix(in srgb, var(--text) calc(6% + var(--product-reveal) * 12%), transparent);
+  transition: border-color var(--product-duration) ease, box-shadow var(--product-duration) ease;
 }
-.product-slide.is-current, .product-slide.is-loop-current { --product-reveal: 1; }
+
+/* 悬停侧卡时把它提升为完整呈现（鼠标指向哪张就看清哪张）。 */
+.product-slide:not(.is-current):not(.is-loop-current):hover {
+  filter: blur(0.6px) saturate(0.96);
+  opacity: 0.92;
+  transform: scale(0.96);
+}
 
 .product-slide:not(.is-current):not(.is-loop-current) { cursor: pointer; }
-.product-slide:not(.is-current):not(.is-loop-current):hover { border-color: var(--text-3); }
 
 .product-copy {
   display: flex;
@@ -61,8 +98,8 @@
   min-width: 0;
   padding: 28px;
   padding-right: 12px;
-  /* Retain the full copy early in departure; reveal it only after the compact peek fades. */
-  opacity: clamp(0, calc((var(--product-reveal) - .2) * 2), 1);
+  /* 中间卡才显示完整文案；接近侧位时快速淡出，把位置让给 .product-side 的图标+名称。 */
+  opacity: clamp(0, calc((var(--product-reveal) - .45) * 2.2), 1);
 }
 .product-slide.is-current .product-copy { cursor: pointer; }
 .product-slide.is-current .product-copy:hover .product-title { color: var(--link); }
@@ -180,6 +217,33 @@
 .product-cta:hover { filter: brightness(1.07); }
 .product-cta:active { transform: translateY(1px); }
 
+/* 升级角标：市场有更高版本时出现在主 CTA 旁边。
+   用强调色描边 + 上箭头，与实心主按钮区分开——它是「附加动作」，不是主要入口。 */
+.product-update {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 52%, var(--border-strong));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: background var(--product-duration) ease, border-color var(--product-duration) ease, transform var(--product-duration) ease;
+}
+.product-update:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  border-color: var(--accent);
+}
+.product-update:active { transform: translateY(1px); }
+.product-update svg { flex: 0 0 auto; }
+
 .product-stats {
   display: flex;
   flex-wrap: wrap;
@@ -271,21 +335,65 @@
 @keyframes product-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .product-viewport.is-dragging, .product-viewport.is-dragging * { cursor: grabbing !important; user-select: none; }
 .product-slide:not(.is-current):not(.is-loop-current) .product-copy { pointer-events: none; }
-.product-peek {
+/* 侧卡内容层：整卡缩小模糊时，仍露出图标+名称，让用户知道"旁边是哪几个插件"。
+   与 .product-copy 互斥（两者都在 .product-reveal 两端切换）。
+
+   关键：内容不能居中——侧卡只露出靠中间卡那一侧的窄条，
+   居中会让图标落在被裁掉的区域外，看到的是空白色块。
+   左卡内容靠右、右卡内容靠左（由 data-product-index 与当前索引比较决定，
+   CSS 里用 :has 无法可靠判断，所以两侧统一靠内：左侧贴右、右侧贴左）。 */
+.product-side {
   position: absolute;
-  top: 50%;
-  left: 24px;
-  transform: translateY(-50%);
+  inset: 0;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 16px;
-  width: calc(var(--product-peek) - 10px);
-  opacity: clamp(0, calc(1 - var(--product-reveal) * 5), 1);
+  padding: 24px;
+  text-align: center;
+  /* 侧卡状态显示它；成为中间卡后淡出。 */
+  opacity: clamp(0, calc(1 - var(--product-reveal) * 3), 1);
   pointer-events: none;
 }
-.product-peek strong { font-size: 22px; font-weight: 600; line-height: 1.3; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.product-peek-description { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.8; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.product-peek > span { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.product-side .product-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+}
+.product-side strong {
+  font-size: clamp(15px, 1.3vw, 18px);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+/* 侧卡内容贴向中间卡：左邻靠右、右邻靠左。
+   露出的窄条就是这一侧，内容必须落在可见范围内，否则只看得到空白边缘。 */
+.product-slide[data-side='left'] .product-side {
+  align-items: flex-end;
+  text-align: right;
+  /* 只占靠内的那一条，避免内容跑到被裁掉的区域。 */
+  padding-right: 28px;
+  padding-left: 0;
+  justify-content: center;
+}
+.product-slide[data-side='right'] .product-side {
+  align-items: flex-start;
+  text-align: left;
+  padding-left: 28px;
+  padding-right: 0;
+  justify-content: center;
+}
+/* 侧卡只露出约 side 宽，内容限制在该宽度内。 */
+.product-slide[data-side] .product-side strong {
+  max-width: min(100%, var(--product-side-w));
+}
 :root[data-anim='high'] .product-copy { transform: translateY(calc((1 - var(--product-reveal)) * 8px)); }
 
 .product-carousel button:focus-visible,
@@ -293,7 +401,10 @@
 .product-viewport:focus-visible { outline-offset: -6px; }
 .product-carousel .product-title button:focus-visible { outline-offset: -2px; }
 
-.product-carousel[data-single] { --product-peek: 0px; --product-gap: 0px; width: 100%; }
+/* 只有一张：没有侧卡，视口不需要任何留白，卡片占满。 */
+.product-carousel[data-single] { --product-side-w: 0px; --product-gap: 0px; width: 100%; }
+.product-carousel[data-single] .product-viewport { padding: 12px 0; }
+.product-carousel[data-single] .product-slide { flex-basis: 100%; }
 
 :root[data-anim='low'] .product-carousel { --product-duration: 160ms; }
 :root[data-anim='low'] .product-viewport { scroll-behavior: auto; }
@@ -301,24 +412,23 @@
 :root[data-anim='high'] .product-carousel { --product-duration: 260ms; }
 
 @media (max-width: 1100px) {
-  .product-carousel { --product-peek: 112px; }
-  .product-slide { grid-template-columns: minmax(270px, 1fr) minmax(0, 1.1fr); }
-  .product-copy { gap: 18px; padding: 24px; padding-right: 16px; }
+  .product-carousel { --product-side-w: clamp(90px, 11vw, 130px); --product-gap: 14px; }
+  .product-slide { grid-template-columns: minmax(240px, 1fr) minmax(0, 1.05fr); }
+  .product-copy { gap: 16px; padding: 22px; padding-right: 14px; }
   .product-heading { gap: 12px; }
-  .product-icon { width: 54px; height: 54px; }
-  .product-title { font-size: 28px; }
-  .product-peek { left: 22px; width: calc(var(--product-peek) - 14px); }
-  .product-peek strong { font-size: 18px; }
+  .product-icon { width: 46px; height: 46px; border-radius: 15px; }
+  .product-title { font-size: 26px; }
+  .product-side .product-icon { width: 54px; height: 54px; }
 }
 
-@media (max-width: 760px) {
-  .product-carousel { --product-peek: 36px; --product-gap: 12px; }
-  .product-slide { grid-template-columns: minmax(0, 1fr); min-height: 282px; }
-  .product-copy { gap: 20px; padding: 26px; }
-  .product-peek { left: 12px; width: 32px; overflow: hidden; }
-  .product-peek .product-icon { width: 32px; height: 32px; }
-  .product-peek strong, .product-peek-description, .product-peek > span { display: none; }
-  .product-pagination { width: 40%; }
+@media (max-width: 860px) {
+  /* 窄屏放不下三卡：退化为单卡 + 两侧极窄露出，模糊仍保留暗示。 */
+  .product-carousel { --product-side-w: 24px; --product-gap: 10px; }
+  .product-slide { grid-template-columns: minmax(0, 1fr); min-height: 268px; }
+  .product-copy { gap: 16px; padding: 24px; }
+  .product-side strong { display: none; }
+  .product-side .product-icon { width: 40px; height: 40px; }
+  .product-pagination { width: 44%; }
   .product-description { max-width: 48ch; }
   .product-carousel::before { inset: 0; }
   .product-nav { width: 28px; height: 28px; top: auto; bottom: 1px; z-index: 1; }

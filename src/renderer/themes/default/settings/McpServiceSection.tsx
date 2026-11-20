@@ -1,16 +1,20 @@
 /**
  * McpServiceSection — 设置 → 通用 → MCP 服务管理
- * 启用/端口、运行状态、连接配置复制、令牌重置与已注册工具目录。
+ * 启用/端口、运行状态、连接配置复制与已注册工具目录。
  * 仅壳视图可调用（原生 IPC 已校验 sender 角色）；mock 预览不轮询。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronRightIcon } from '@renderer/components/icons'
 import { Button } from '@renderer/components/ui/Button'
 import { Switch } from '@renderer/components/ui/Switch'
 import { Input } from '@renderer/components/ui/Input'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { isMockShell, shellApi } from '@renderer/services/shellApi'
 import { notify } from '@renderer/services/notifyService'
+import { useShellStore } from '@renderer/stores/shellStore'
 import type { McpCatalogTool, McpStatus } from '@shared/types/mcpSettings'
+import type { PluginSummary } from '@shared/types/plugin'
+import { SettingsPluginRow } from './SettingsPluginRow'
 
 const STATE_KEYS: Record<McpStatus['state'], { zh: string; en: string; cls: string }> = {
   disabled: { zh: '未启用', en: 'Disabled', cls: 'mcp-state-off' },
@@ -23,17 +27,52 @@ function formatTime(ts: number): string {
   try { return new Date(ts).toLocaleTimeString() } catch { return '—' }
 }
 
+function McpPluginTools({ pluginId, plugin, tools }: { pluginId: string; plugin?: PluginSummary; tools: McpCatalogTool[] }) {
+  const { t } = useI18n()
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <details className="mcp-tool-group" onToggle={event => setExpanded(event.currentTarget.open)}>
+      <SettingsPluginRow
+        as="summary"
+        plugin={plugin ?? { id: pluginId, name: tools[0]?.pluginName || pluginId }}
+        detail={pluginId}
+        badges={<>
+          {plugin?.dev && <span className="tag">{t('devConsole.developing')}</span>}
+          <span className="tag">{t('mcp.toolCount', { count: tools.length })}</span>
+        </>}
+      >
+        <ChevronRightIcon className="mcp-tool-group-caret" size={16} />
+      </SettingsPluginRow>
+      {expanded && (
+        <div className="mcp-tool-group-body">
+          {tools.map(tool => (
+            <div className="mcp-tool-item" key={tool.id}>
+              <div className="mcp-tool-name">
+                <code>{tool.id}</code>
+                {tool.title && <span className="desc">{tool.title}</span>}
+              </div>
+              {tool.description && <p className="mcp-tool-desc">{tool.description}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </details>
+  )
+}
+
 export function McpServiceSection() {
   const { t, locale } = useI18n()
   const en = locale === 'en-US'
+  const plugins = useShellStore(state => state.plugins)
   const [status, setStatus] = useState<McpStatus | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [portDraft, setPortDraft] = useState('43921')
   const [busy, setBusy] = useState(false)
-  const [tools, setTools] = useState<McpCatalogTool[]>([])
-  const [toolsNextCursor, setToolsNextCursor] = useState<string | undefined>(undefined)
+  const [tools, setTools] = useState<McpCatalogTool[] | null>(null)
   const [toolsLoading, setToolsLoading] = useState(false)
-  const wasRunning = useRef(false)
+  const [toolsError, setToolsError] = useState<string | null>(null)
+  const [catalogRefresh, setCatalogRefresh] = useState(0)
+  const running = status?.state === 'running'
   const revision = useRef(0)
   const mounted = useRef(true)
 
@@ -43,18 +82,37 @@ export function McpServiceSection() {
     return () => { mounted.current = false; revision.current++ }
   }, [])
 
-  const loadTools = useCallback(async (cursor?: string) => {
-    setToolsLoading(true)
-    try {
-      const page = await shellApi.listMcpTools(cursor ? { cursor } : {})
-      setTools((prev) => (cursor ? [...prev, ...page.tools] : page.tools))
-      setToolsNextCursor(page.nextCursor)
-    } catch (error) {
-      notify.error(error instanceof Error ? error.message : String(error))
-    } finally {
+  useEffect(() => {
+    setToolsError(null)
+    if (!running) {
+      setTools(null)
       setToolsLoading(false)
+      return
     }
-  }, [])
+    let current = true
+    setToolsLoading(true)
+    void (async () => {
+      try {
+        const all: McpCatalogTool[] = []
+        let cursor: string | undefined
+        do {
+          const page = await shellApi.listMcpTools({ cursor, limit: 100 })
+          if (!current) return
+          all.push(...page.tools)
+          cursor = page.nextCursor
+        } while (cursor)
+        setTools(all)
+      } catch (error) {
+        if (current) {
+          setTools(null)
+          setToolsError(error instanceof Error ? error.message : String(error))
+        }
+      } finally {
+        if (current) setToolsLoading(false)
+      }
+    })()
+    return () => { current = false }
+  }, [running, plugins, catalogRefresh])
 
   const refresh = useCallback(async () => {
     const current = revision.current
@@ -64,22 +122,17 @@ export function McpServiceSection() {
       setStatus(next)
       setLoadError(null)
       setPortDraft(String(next.configuration.port))
-      // 服务从关到开（或出错恢复）：目录此前可能不可用，自动重拉工具列表
-      const runningNow = next.state === 'running'
-      if (runningNow && !wasRunning.current) void loadTools()
-      wasRunning.current = runningNow
     } catch (error) {
       if (mounted.current && current === revision.current) setLoadError(error instanceof Error ? error.message : String(error))
     }
-  }, [loadTools])
+  }, [])
 
   useEffect(() => {
     void refresh()
     if (isMockShell) return
-    void loadTools()
     const timer = setInterval(() => { void refresh() }, 3000)
     return () => clearInterval(timer)
-  }, [refresh, loadTools])
+  }, [refresh])
 
   const applyConfig = async (enabled: boolean, port: number) => {
     if (busy) return
@@ -131,26 +184,18 @@ export function McpServiceSection() {
   }
 
   const stateMeta = status ? STATE_KEYS[status.state] : null
-  const running = status?.state === 'running'
 
-  // 按插件分组：插件行可展开/收起，展开后显示工具名与描述
   const groupedTools = useMemo(() => {
-    const groups = new Map<string, { pluginName: string; tools: McpCatalogTool[] }>()
-    for (const tool of tools) {
-      const group = groups.get(tool.pluginId) ?? { pluginName: tool.pluginName || tool.pluginId, tools: [] }
-      group.tools.push(tool)
-      groups.set(tool.pluginId, group)
+    const summaries = new Map(plugins.map(plugin => [plugin.id, plugin]))
+    const groups = new Map<string, McpCatalogTool[]>()
+    for (const tool of tools ?? []) {
+      const group = groups.get(tool.pluginId)
+      if (group) group.push(tool)
+      else groups.set(tool.pluginId, [tool])
     }
-    return [...groups.entries()].map(([pluginId, group]) => ({ pluginId, ...group }))
-  }, [tools])
-  const expandedToolGroups = useRef<Set<string>>(new Set())
-  const [toolGroupsRevision, setToolGroupsRevision] = useState(0)
-  const toggleToolGroup = (pluginId: string) => {
-    const next = expandedToolGroups.current
-    if (next.has(pluginId)) next.delete(pluginId)
-    else next.add(pluginId)
-    setToolGroupsRevision(value => value + 1)
-  }
+    return Array.from(groups, ([pluginId, tools]) => ({ pluginId, tools, plugin: summaries.get(pluginId) }))
+      .filter(({ plugin }) => !plugin || (plugin.installed && plugin.enabled !== false))
+  }, [plugins, tools])
 
   return (
     <>
@@ -200,7 +245,7 @@ export function McpServiceSection() {
               <Button variant="primary" size="sm" disabled={busy} onClick={() => void handleCopyConnection()}>
                 {t('mcp.copyConnection')}
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => { void refresh(); void loadTools() }}>
+              <Button variant="ghost" size="sm" onClick={() => { void refresh(); setCatalogRefresh(value => value + 1) }}>
                 {t('mcp.refresh')}
               </Button>
             </div>
@@ -212,53 +257,17 @@ export function McpServiceSection() {
         ) : null}
         {!status && loadError ? <p className="mcp-error">{loadError}</p> : null}
 
-        {/* 已注册工具并入本卡：按插件分组折叠展示，容器限高滚动。 */}
-        <div className="mcp-tools-block">
+        {running && <div className="mcp-tools-block" aria-busy={toolsLoading}>
           <div className="dev-card-head">
             <h3 className="mcp-tools-title">{t('mcp.toolsTitle')}</h3>
-            <span className="tag">{tools.length}</span>
+            {toolsLoading ? <span className="desc">{t('common.loading')}</span> : null}
           </div>
-          {running && groupedTools.length > 0 ? (
-            <div className="mcp-tool-groups" key={toolGroupsRevision}>
-              {groupedTools.map((group) => {
-                const expanded = expandedToolGroups.current.has(group.pluginId)
-                return (
-                  <div className={`mcp-tool-group${expanded ? ' open' : ''}`} key={group.pluginId}>
-                    <button
-                      type="button"
-                      className="mcp-tool-group-head"
-                      aria-expanded={expanded}
-                      onClick={() => toggleToolGroup(group.pluginId)}
-                    >
-                      <span className="mcp-tool-group-caret" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
-                      <strong className="mcp-tool-group-name">{group.pluginName}</strong>
-                      <code className="mcp-tool-group-id">{group.pluginId}</code>
-                      <span className="tag">{group.tools.length}</span>
-                    </button>
-                    {expanded ? (
-                      <div className="mcp-tool-group-body">
-                        {group.tools.map((tool) => (
-                          <div className="mcp-tool-item" key={`${tool.pluginId}/${tool.id}`}>
-                            <div className="mcp-tool-name">
-                              <code>{tool.id}</code>
-                              {tool.title ? <span className="desc">{tool.title}</span> : null}
-                            </div>
-                            {tool.description ? <p className="mcp-tool-desc">{tool.description}</p> : null}
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                )
-              })}
+          {toolsError ? <p className="mcp-error" role="alert">{toolsError}</p> : groupedTools.length > 0 ? (
+            <div className="dev-plugin-list" data-scrollbar="auto-hide">
+              {groupedTools.map(group => <McpPluginTools key={group.pluginId} {...group} />)}
             </div>
-          ) : null}
-          {running && toolsNextCursor ? (
-            <Button variant="ghost" size="sm" disabled={toolsLoading} onClick={() => void loadTools(toolsNextCursor)}>
-              {t('mcp.toolsMore')}
-            </Button>
-          ) : null}
-        </div>
+          ) : tools !== null && !toolsLoading && <p className="desc" role="status">{t('mcp.toolsEmpty')}</p>}
+        </div>}
       </div>
 
       {status && status.recentCalls.length > 0 ? (

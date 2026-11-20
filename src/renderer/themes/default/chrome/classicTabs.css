@@ -18,6 +18,9 @@
   align-items: center;
   gap: 2px;
   min-width: 0;
+  /* 参与父级 flex 分配。缺这条时滚动容器只占内容宽度，右侧 .titlebar-drag-fill
+     的位置随 tab 数量伸缩，看起来像整条 Tab 的宽度被固定住了。 */
+  flex: 0 1 auto;
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-app-region: no-drag;
@@ -41,7 +44,12 @@
   align-items: center;
   gap: 6px;
   height: 26px;
-  max-width: 180px;
+  /*
+   * 宽度跟随内容：flex: 0 0 auto + 无 width，由文字长度决定。
+   * 上限只用来兜住异常长名（防止单个 Tab 吃掉整条），取 220px —— 常见中文/英文
+   * 插件名基本都在这个范围里，不必截断；真正超长的仍然省略，鼠标悬停有 title 全名。
+   */
+  max-width: 220px;
   padding: 0 10px;
   border-radius: 7px;
   color: var(--text-2);
@@ -68,6 +76,13 @@
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
+/*
+ * 激活项：实底 + 更深描边 + 轻微投影，靠"浮起来"区分。
+ *
+ * 不再用 `inset 0 -2px 0 accent` 底线：标题栏材质本身已接近透明，那 2px 橙色
+ * 会贴着 tab 下沿形成一条突兀的横线（用户两次反馈"底部有橙色"）。
+ * 选中语义改由背景与投影表达，与首页自绘 Tab 条保持同一套视觉。
+ */
 .home-tab.active,
 .tab.active {
   background: var(--surface);
@@ -75,8 +90,7 @@
   font-weight: 600;
   box-shadow:
     inset 0 0 0 1px var(--border-strong),
-    inset 0 -2px 0 color-mix(in srgb, var(--accent, #bd542b) 78%, transparent),
-    0 1px 3px rgba(15, 23, 42, 0.06);
+    0 1px 3px rgba(15, 23, 42, 0.1);
 }
 
 .tab .ico,

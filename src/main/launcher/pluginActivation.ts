@@ -9,7 +9,7 @@ import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { assertSurfaceSender } from '@main/ipc/ipcSecurity'
 import { isPluginPageUrl } from '@main/plugin/pluginSessionPolicy'
 import { acquirePluginActivity } from '@main/plugin/activityRegistry'
-import { acquireActivation, grantAuxiliaryInteraction, retireInteractionEpoch, setActivationContext, hasNonInteractiveLease, getHostRpcCount, isIndexSyncActivation } from '@main/plugin/pluginInteractionPolicy'
+import { acquireActivation, grantAuxiliaryInteraction, retireInteractionEpoch, setActivationContext, hasNonInteractiveLease, getHostRpcCount, hasNativeInteraction, onDocumentRetired, whenHostRpcIdle, isIndexSyncActivation } from '@main/plugin/pluginInteractionPolicy'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { pluginSettingsBridge } from '@main/settings/PluginSettingsBridge'
 import { acquireQuickInteraction } from '@main/window/createQuickWindow'
@@ -24,6 +24,7 @@ interface Job {
   release(): void; releaseActivation(): void; resolve(value: unknown): void; reject(error: Error): void
   timer?: ReturnType<typeof setTimeout>; detach(): void
   settledListeners: Set<() => void>
+  nonInteractive: boolean; draining?: boolean; detachRetirement?: () => void
 }
 const registrations = new Map<string, Registration>()
 const jobs = new Map<string, Job>()
@@ -55,8 +56,16 @@ function identity(event: IpcMainEvent | IpcMainInvokeEvent): { pluginId: string;
 }
 function finish(job: Job, error?: Error, value?: unknown): void {
   if (job.settled) return
+  if (job.nonInteractive && job.runtime && getHostRpcCount(job.runtime.scope)) {
+    if (!job.draining) {
+      job.draining = true
+      void whenHostRpcIdle(job.runtime.scope).then(() => { job.draining = false; finish(job, error, value) })
+    }
+    return
+  }
   job.settled = true
   if (job.timer) clearTimeout(job.timer)
+  job.detachRetirement?.()
   job.detach(); job.release(); job.releaseActivation()
   if (jobs.get(job.pluginId) === job) jobs.delete(job.pluginId)
   for (const listener of job.settledListeners) listener()
@@ -114,7 +123,7 @@ export function invokePluginActivation(pluginId: string, kind: PluginActivationD
     const releaseActivity = acquirePluginActivity(pluginId, `activation:${randomUUID()}`, 'Plugin feature activation')
     let releaseInteraction = () => {}
     const job: Job = { id: randomUUID(), pluginId, kind, controller: new AbortController(), cancelled: false, dispatched: false, settled: false,
-      resolve, reject, release: () => { releaseActivity(); releaseInteraction() }, releaseActivation: () => {}, detach: () => {}, settledListeners: new Set() }
+      resolve, reject, release: () => { releaseActivity(); releaseInteraction() }, releaseActivation: () => {}, detach: () => {}, settledListeners: new Set(), nonInteractive: options.reason === 'mcp' }
     jobs.set(pluginId, job)
     const abort = () => cancel(job, 'Plugin activation cancelled')
     options.signal?.addEventListener('abort', abort, { once: true })
@@ -127,21 +136,27 @@ export function invokePluginActivation(pluginId: string, kind: PluginActivationD
         const context = kind === 'index-sync' ? 'index-sync' : resident ? 'resident' : 'command'
         const runtime = await pluginHost.ensureRunningForActivation(pluginId, context, job.controller.signal)
         job.runtime = runtime
+        if (job.cancelled || options.guard?.() === false) throw new Error('Plugin activation retired')
+        if (job.nonInteractive) {
+          if (hasNativeInteraction() || getHostRpcCount(runtime.scope)) throw new Error('Plugin has pending native requests')
+          job.releaseActivation = acquireActivation(runtime.scope, job.controller.signal, true)
+          pluginHost.restrictMcpInteraction(pluginId, runtime)
+        }
         if (kind === 'index-sync' && !isIndexSyncActivation(runtime.scope)) throw new Error('Index synchronization context changed')
         const registration = await waitReady(pluginId, runtime, job.controller.signal)
         job.registration = registration
         if (job.cancelled || options.guard?.() === false || !same(runtime, pluginHost.getMcpRuntime(pluginId))) throw new Error('Plugin activation retired')
         // Do not interrupt an in-flight native dialog or a non-interactive MCP job.
-        if (hasNonInteractiveLease(runtime.scope) || kind !== 'index-sync' && getHostRpcCount(runtime.scope)) throw new Error('Plugin has pending native requests')
+        if ((job.nonInteractive ? hasNativeInteraction() : hasNonInteractiveLease(runtime.scope)) || kind !== 'index-sync' && getHostRpcCount(runtime.scope)) throw new Error('Plugin has pending native requests')
         if (!registration.handlers.has(kind)) {
           if (kind === 'prepare-view') { setActivationContext(runtime.scope, context); finish(job); return }
           throw new Error(`Plugin has no ${kind} handler`)
         }
-        job.releaseActivation = acquireActivation(runtime.scope, job.controller.signal)
+        if (!job.nonInteractive) job.releaseActivation = acquireActivation(runtime.scope, job.controller.signal)
         if (kind !== 'index-sync') {
           setActivationContext(runtime.scope, context)
           if (resident) pluginHost.setResidentLease(pluginId, options.enabled !== false)
-          if (!resident || options.interactive === true) releaseInteraction = grantAuxiliaryInteraction(runtime.scope, 60_000)
+          if (!job.nonInteractive && (!resident || options.interactive === true)) releaseInteraction = grantAuxiliaryInteraction(runtime.scope, 60_000)
         }
         if (job.timer) clearTimeout(job.timer)
         const duration = kind === 'index-sync' ? 15_000 : 60_000
@@ -196,6 +211,8 @@ function awaitSettlement(job: Job | undefined): Promise<void> {
     job.settledListeners.add(finish)
   })
 }
+
+export function hasPluginActivation(pluginId: string): boolean { return jobs.has(pluginId) }
 
 /**
  * 源码重载在改写开发态元数据前先等待进行中的激活结算：
@@ -320,7 +337,7 @@ async function pump(): Promise<void> {
   let retry = false
   try {
     for (const descriptor of pluginRegistry.getInstalledDescriptors()) {
-      if (stopping || !descriptor.enabled || jobs.has(descriptor.id) || settingMutations.has(descriptor.id)) continue
+      if (stopping || !descriptor.enabled || pluginHost.isBlockedForOpen(descriptor.id) || jobs.has(descriptor.id) || settingMutations.has(descriptor.id)) continue
       const id = descriptor.id, resident = desiredResident(id)
       const reconciled = residentDesired.get(id)
       if (resident && stoppedResidents.get(id)?.buildRevision !== descriptor.buildRevision
@@ -334,6 +351,7 @@ async function pump(): Promise<void> {
           residentDesired.set(id, { buildRevision: descriptor.buildRevision, enabled: resident.enabled })
           pluginHost.setResidentLease(id, resident.enabled)
         } catch (error) {
+          if (pluginHost.isBlockedForOpen(id) || pluginRegistry.getBuildRevision(id) !== descriptor.buildRevision) continue
           logWarn('activation', `resident ${id}: ${String(error)}`)
           residentDesired.set(id, { buildRevision: descriptor.buildRevision, enabled: resident.enabled })
           pluginHost.setResidentLease(id, false)
@@ -394,11 +412,21 @@ export function registerPluginActivationHandlers(): void {
   pluginHost.onMcpRuntimeRetired((pluginId, reason) => {
     registrations.delete(pluginId)
     const job = jobs.get(pluginId)
-    if (job) { cancel(job, 'Plugin runtime retired'); finish(job) }
+    if (job) {
+      cancel(job, 'Plugin runtime retired')
+      if (job.nonInteractive && job.dispatched && job.runtime) {
+        if (!job.detachRetirement) {
+          const { contents, scope } = job.runtime
+          job.detachRetirement = onDocumentRetired(contents, scope.signal, () => finish(job))
+        }
+      } else finish(job)
+    }
     for (const listener of ready.get(pluginId) ?? []) listener()
-    if (reason.startsWith('close:')) stoppedResidents.set(pluginId, { buildRevision: pluginRegistry.getBuildRevision(pluginId), disabled: !pluginRegistry.isEnabled(pluginId) })
+    if (reason === 'close:update') residentDesired.delete(pluginId)
+    else if (reason.startsWith('close:')) stoppedResidents.set(pluginId, { buildRevision: pluginRegistry.getBuildRevision(pluginId), disabled: !pluginRegistry.isEnabled(pluginId) })
     schedulePump()
   })
+  pluginHost.onPluginUnblocked(() => schedulePump())
   onLaunchIndexDirty(() => schedulePump())
   pluginRegistry.onInstalledChanged(() => {
     for (const [id, state] of residentDesired) if (!pluginRegistry.isEnabled(id) || pluginRegistry.getBuildRevision(id) !== state.buildRevision) residentDesired.delete(id)

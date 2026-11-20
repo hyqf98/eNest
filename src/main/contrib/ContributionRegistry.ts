@@ -21,7 +21,8 @@ import type {
   PluginContributes,
   QuickProviderContribution,
   RailEntryContribution,
-  SettingsSectionContribution
+  SettingsSectionContribution,
+  SourcedContribution
 } from '@shared/types/plugin'
 import { CONTRIB_SCHEMA_VERSION } from '@shared/types/plugin'
 import { kvStore, runInTransaction } from '@main/db/sqliteService'
@@ -50,7 +51,7 @@ interface ContribStatements {
 }
 
 let cachedStatements: { db: DatabaseSync; stmts: ContribStatements } | null = null
-let initialized = false
+let initialized: DatabaseSync | null = null
 
 function statementsFor(db: DatabaseSync): ContribStatements | null {
   if (cachedStatements && cachedStatements.db === db) return cachedStatements.stmts
@@ -73,16 +74,18 @@ function statementsFor(db: DatabaseSync): ContribStatements | null {
 
 /** 建表（幂等）；由各注册入口惰性调用，库不可用时降级为仅内存 provider 表 */
 function ensureInit(): boolean {
-  if (initialized) return kvStore.getDatabase() !== null
-  initialized = true
   const db = kvStore.getDatabase()
   if (!db) return false
+  if (initialized === db) return true
   try {
     db.exec(
       'CREATE TABLE IF NOT EXISTS contributions (' +
         'source TEXT NOT NULL, slot TEXT NOT NULL, id TEXT NOT NULL, json TEXT NOT NULL, ' +
-        'PRIMARY KEY (source, slot, id))'
+        'PRIMARY KEY (source, slot, id)); ' +
+      'CREATE TABLE IF NOT EXISTS open_with_registrations (' +
+        'source TEXT NOT NULL, id TEXT NOT NULL, build TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY(source, id))'
     )
+    initialized = db
     return true
   } catch (err) {
     logWarn('contrib', `init failed: ${(err as Error).message}`)
@@ -144,7 +147,7 @@ export class ContributionRegistry {
    * 每次调用先清掉该插件在全部声明式插槽的旧行（版本升级撤掉某插槽 / 同版本重扫幂等），
    * 再逐条 upsert；仅同 (source,slot,id) 后注册覆盖前者，不同来源的同名贡献各自保留。
    */
-  registerManifestContributes(pluginId: string, contributes?: PluginContributes): void {
+  registerManifestContributes(pluginId: string, contributes?: PluginContributes, build?: string): void {
     const db = kvStore.getDatabase()
     if (!ensureInit() || !db) {
       logWarn('contrib', `sqlite unavailable, skip manifest contributes for ${pluginId}`)
@@ -154,6 +157,7 @@ export class ContributionRegistry {
     const touched = new Set<ContributionSlot>()
     try {
       runInTransaction(db, () => {
+        if (db.prepare('DELETE FROM open_with_registrations WHERE source = ? AND build <> ?').run(pluginId, build ?? '').changes) touched.add('open-with')
         // 先全量清除该插件的声明式贡献（含此前存在、本次 manifest 已移除的插槽）
         const prev = stmts.selectSource.all(pluginId) as unknown as Array<{ slot: string }>
         for (const row of prev) touched.add(row.slot as ContributionSlot)
@@ -207,6 +211,7 @@ export class ContributionRegistry {
         const rows = stmts.selectSource.all(pluginId) as unknown as Array<{ slot: string }>
         for (const r of rows) slots.add(r.slot)
         stmts.removeSource.run(pluginId)
+        if (db.prepare('DELETE FROM open_with_registrations WHERE source = ?').run(pluginId).changes) slots.add('open-with')
       } catch (err) {
         logWarn('contrib', `unregisterBySource failed for ${pluginId}: ${(err as Error).message}`)
       }
@@ -219,6 +224,36 @@ export class ContributionRegistry {
       sendShellEvent({ type: 'contributions-changed', slot, source: pluginId })
     }
     if (slots.has('rail-entries')) refreshOrbRailContribEntries()
+  }
+
+  registerOpenWith(pluginId: string, build: string, entry: OpenWithContribution): void {
+    const db = kvStore.getDatabase()
+    if (!db || !ensureInit()) throw new Error('打开方式存储不可用')
+    const existing = db.prepare('SELECT id, build, json FROM open_with_registrations WHERE source = ?').all(pluginId)
+    const previous = existing.find(row => row.id === entry.id)
+    if (!previous && existing.length >= 8) throw new Error('每个插件最多登记 8 项打开方式')
+    const json = JSON.stringify(entry)
+    if (previous?.json === json && previous.build === build) return
+    db.prepare('INSERT INTO open_with_registrations(source,id,build,json) VALUES (?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET build=excluded.build,json=excluded.json').run(pluginId, entry.id, build, json)
+    sendShellEvent({ type: 'contributions-changed', slot: 'open-with', source: pluginId })
+  }
+
+  unregisterOpenWith(pluginId: string, build: string, id: string): boolean {
+    const db = kvStore.getDatabase()
+    if (!db || !ensureInit()) throw new Error('打开方式存储不可用')
+    const removed = !!db.prepare('DELETE FROM open_with_registrations WHERE source = ? AND build = ? AND id = ?').run(pluginId, build, id).changes
+    if (removed) sendShellEvent({ type: 'contributions-changed', slot: 'open-with', source: pluginId })
+    return removed
+  }
+
+  listRuntimeOpenWith(): Array<SourcedContribution<OpenWithContribution> & { build: string }> {
+    const db = kvStore.getDatabase()
+    if (!db || !ensureInit()) return []
+    const rows = db.prepare('SELECT source, id, build, json FROM open_with_registrations ORDER BY source, id').all() as unknown as Array<ContribRow & { build: string }>
+    return rows.flatMap(row => {
+      const entry = rowToSourced<OpenWithContribution>(row)
+      return entry ? [{ ...entry, build: row.build }] : []
+    })
   }
 
   /** 读取某插槽全部贡献（含来源）；库不可用返回空 */

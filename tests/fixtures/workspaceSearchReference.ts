@@ -1,6 +1,6 @@
 import { matchesSearchTerms, normalizeSearchText } from '@shared/search'
 import type { HomeSearchEntry, HomeSearchScope } from '@shared/types/home'
-import { rankDefaultQuickCatalog } from './searchPolicy'
+import { rankDefaultQuickCatalog } from '@renderer/themes/default/quick/searchPolicy'
 
 /** Workspace and Quick share default name rules, but marketplace discovery stays a provider choice. */
 export function rankDefaultWorkspaceSearch(

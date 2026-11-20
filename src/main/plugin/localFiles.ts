@@ -78,6 +78,11 @@ export async function grantLocalFile(
   return { id, name: basename(canonical), kind: info.isDirectory() ? 'directory' : 'file', size: info.size, displayPath: canonical }
 }
 
+export function releaseLocalFileHandles(pluginId: string, handles: LocalFileHandle[]): void {
+  const bag = grants.get(pluginId)
+  for (const handle of handles) bag?.delete(handle.id)
+}
+
 export async function resolveLocalFileHandle(pluginId: string, id: string, access: 'read' | 'write' = 'read'): Promise<string> {
   const assertOwner = guardOwner(pluginId)
   const grant = grants.get(pluginId)?.get(id)

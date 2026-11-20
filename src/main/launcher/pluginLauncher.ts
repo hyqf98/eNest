@@ -1,6 +1,5 @@
 import type { PluginEnterPayload, PluginLaunchTarget } from '@shared/types/plugin'
 import type { QuickCommand, QuickEnterInput, QuickOpenRequest } from '@shared/types/quick'
-import type { PluginActivationReason } from '@shared/types/pluginLaunch'
 import { resolveQuickOpenCommand } from './commandIndex'
 import { commandOutcome, invokePluginActivation } from './pluginActivation'
 import { resolvePluginLaunchPresentation } from '@shared/pluginPresentation'
@@ -19,7 +18,7 @@ import { logWarn } from '@main/logs/logService'
 export interface PluginLaunchRequest {
   pluginId: string
   mode?: PluginLaunchTarget
-  source: 'shortcut' | 'quick' | 'workspace' | 'settings' | 'open-with'
+  source: 'shortcut' | 'quick' | 'workspace' | 'settings' | 'open-with' | 'mcp'
   enter?: PluginEnterPayload
   /** Host-owned request validity; checked through preparation, before native presentation commits. */
   guard?: () => boolean
@@ -41,7 +40,7 @@ export interface PluginCommandResult extends PluginLaunchResult {
 }
 
 export interface ExecutePluginCommandOptions {
-  source: PluginActivationReason
+  source: PluginLaunchRequest['source']
   defaultTarget: PluginLaunchTarget
   /** Explicit user destination, distinct from a surface's fallback preference. */
   target?: PluginLaunchTarget
@@ -78,8 +77,11 @@ export async function executePluginCommand(command: QuickCommand, options: Execu
     if (queryInput?.query?.trigger) enter.payload = queryInput.text
     const mergeInput = (input: QuickEnterInput | undefined) => queryInput ? { ...input, ...queryInput } : input
     enter.input = mergeInput(options.input)
-    if (activation || manifest?.activation || options.prepareInput || enter.input) {
-      preparedScope = (await pluginHost.ensureRunningForActivation(pluginId, 'command', options.signal)).scope
+    if (activation || manifest?.activation || options.prepareInput || enter.input || options.source === 'mcp') {
+      const runtime = options.source === 'mcp' && !activation && !manifest?.activation
+        ? await pluginHost.ensureRunningForMcp(pluginId, options.signal)
+        : await pluginHost.ensureRunningForActivation(pluginId, 'command', options.signal)
+      preparedScope = runtime.scope
       if (!current()) return { ok: false, cancelled: true }
     }
     if (options.prepareInput) {
@@ -96,15 +98,16 @@ export async function executePluginCommand(command: QuickCommand, options: Execu
         if (options.source === 'quick') hideQuickWindow('plugin-command')
         return { ok: true, presentation: 'none' }
       }
+      if (options.source === 'mcp' && !options.target) return { ok: false, error: 'Command requires an explicit presentation target' }
       target = outcome.target
+      if (options.source === 'mcp' && target !== options.target) return { ok: false, error: 'Command returned a different presentation target' }
     }
     if (activation || manifest?.activation) {
       await invokePluginActivation(pluginId, 'prepare-view', { ...enter, entryId: selected.entryId,
         reason: options.source, guard: current, signal: options.signal })
       if (!current()) return { ok: false, cancelled: true }
     }
-    const result = await launchPlugin({ pluginId, source: options.source === 'workspace' ? 'workspace'
-      : options.source === 'settings' || options.source === 'shortcut' || options.source === 'open-with' ? options.source : 'quick',
+    const result = await launchPlugin({ pluginId, source: options.source,
       enter, mode: target, guard: current, presentationOnly: true })
     const scope = getRuntimeScope(pluginId)
     return result.ok && enter.input && scope?.isCurrent() && !scope.isClosing && (!preparedScope || scope === preparedScope)
@@ -130,6 +133,7 @@ function captureOriginalTarget(revision: number): Promise<void> {
 /** One foreground intent, one reusable runtime; shortcut launches never enter the search list. */
 export function launchPlugin(request: PluginLaunchRequest): Promise<PluginLaunchResult> {
   if (!request.presentationOnly) {
+    if (request.source === 'mcp') return Promise.resolve({ ok: false, error: 'MCP requires a validated feature dispatch' })
     const manifest = pluginRegistry.getManifest(request.pluginId)
     const feature = manifest?.features?.find(feature => feature.code === request.enter?.code)
     if (manifest?.activation || feature?.activation) return (async () => {
@@ -213,14 +217,14 @@ export function launchPlugin(request: PluginLaunchRequest): Promise<PluginLaunch
       } else {
         if (target === 'quick') {
           const prepared = await Promise.all([
-            isQuickVisible() ? Promise.resolve() : captureOriginalTarget(quickRevision),
+            request.source === 'mcp' || isQuickVisible() ? Promise.resolve() : captureOriginalTarget(quickRevision),
             prepareQuickWindowForPlugin(current)
           ])
           if (!current()) return { ok: false, cancelled: true }
           if (!prepared[1]) throw new Error('快捷小窗暂时无法打开，请重试')
         }
         if (!current()) return { ok: false, cancelled: true }
-        await pluginHost.launchPluginIn(pluginId, target, request.enter, current, layoutMode)
+        await pluginHost.launchPluginIn(pluginId, target, request.enter, current, layoutMode, request.source !== 'mcp')
       }
       // A committed launch may deliberately deactivate its source (for example Workspace).
       // The external guard governs preparation, not a post-commit visibility observation.

@@ -60,7 +60,7 @@ function choiceOptions(raw: unknown): { title: string; message: string; value: s
     return value
   }
   const choices = input.choices
-  if (!Array.isArray(choices) || !choices.length || choices.length > 8) throw new Error('Invalid open-with choices')
+  if (!Array.isArray(choices) || !choices.length || choices.length > 256) throw new Error('Invalid open-with choices')
   const parsed: OpenWithChoiceOption[] = choices.map(item => {
     const entry = item as Record<string, unknown>
     if (!entry || typeof entry.pluginId !== 'string' || !entry.pluginId || typeof entry.pluginName !== 'string' || !entry.pluginName) {

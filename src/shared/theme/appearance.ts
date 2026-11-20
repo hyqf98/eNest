@@ -215,6 +215,7 @@ export function resolveAppearance(input: {
   const chromeValues = settings.profiles[themeProfileKey(DEFAULT_THEME_IDENTITY)]?.values ?? {}
   resolved.layout.tabStyle = validTabStyle(chromeValues.tabStyle) ? chromeValues.tabStyle : 'classic'
   resolved.layout.tabAutoHide = chromeValues.tabAutoHide === true
+  resolved.layout.orbDock = chromeValues.orbDock === 'right' ? 'right' : 'left'
   resolved.layout.tabOpacity = typeof chromeValues.tabOpacity === 'number' && Number.isFinite(chromeValues.tabOpacity)
     ? Math.max(0, Math.min(1, chromeValues.tabOpacity)) : 0
   resolved.layout.cardOpacity = typeof chromeValues.cardOpacity === 'number' && Number.isFinite(chromeValues.cardOpacity)
@@ -280,6 +281,7 @@ export function appearanceStyleProperties(
     '--appearance-tab-opacity': String(appearance.layout.tabOpacity ?? 0),
     '--appearance-card-opacity': String(appearance.layout.cardOpacity ?? 0.82),
     '--appearance-tab-autohide': appearance.layout.tabAutoHide ? '1' : '0',
+    '--appearance-orb-dock': appearance.layout.orbDock === 'right' ? 'right' : 'left',
     '--appearance-gap': `${appearance.layout.gap}px`,
     '--appearance-sidebar-width': `${appearance.layout.sidebarWidth}px`,
     '--appearance-content-width': `${appearance.layout.contentWidth}px`,

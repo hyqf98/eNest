@@ -39,7 +39,7 @@ async function nativeFixture(directory, platform, arch = 'x64') {
   if (platform === 'win32') {
     for (const name of ['clipboard-helper.ps1', 'process-memory-helper.ps1']) await writeFile(join(directory, name), 'Write-Output "fixture"\n')
   } else if (platform === 'darwin') {
-    for (const name of ['clipboard-helper', 'process-memory-helper']) {
+    for (const name of ['clipboard-helper', 'open-with-helper', 'process-memory-helper']) {
       await writeFile(join(directory, name), binary('fat')); await chmod(join(directory, name), 0o755)
     }
   } else {
@@ -83,7 +83,8 @@ test('per-platform electron-builder resources exclude foreign helpers from a mix
     const matchers = getFileMatchers(config, 'extraResources', destination, { macroExpander: value => value,
       customBuildOptions: config[key], defaultSrc: root, globalOutDir: destination })
     await copyFiles(matchers)
-    assert.equal((await verifyNativePayload({ platform, arch: 'x64', directory: join(destination, 'native') })).files.length, 2)
+    const { files } = await verifyNativePayload({ platform, arch: 'x64', directory: join(destination, 'native') })
+    assert.equal(files.length, platform === 'darwin' ? 3 : 2)
     assert.equal((await readdir(join(destination, 'icons'))).length, 2)
   }
   assert.ok(config.win.target.some(target => target.target === 'zip'))

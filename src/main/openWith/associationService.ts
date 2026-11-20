@@ -2,21 +2,20 @@
  * associationService — 「打开方式」聚合服务（主进程单例）
  *
  * 职责：
- *  - 聚合所有插件的 manifest.contributes.openWith 声明（open-with 插槽），
- *    做形状校验与 scheme 冲突裁决（先声明者优先）；
+ *  - 聚合清单声明和插件运行时登记；协议冲突优先采用清单声明；
  *  - 维护设置段 openWith 的路由表（键 → pluginId，主进程独占写）；
  *  - 调平台注册器完成候选注册 / 设默认 / 状态检测 / 系统设置引导。
  *
  * 插件是壳内视图，OS 关联目标只能是 eNest 本体；本服务是唯一的系统写入方。
  */
-import { listOpenWithContributions } from '@main/contrib/ContributionRegistry'
+import { contributionRegistry, listOpenWithContributions } from '@main/contrib/ContributionRegistry'
 import { logWarn } from '@main/logs/logService'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { settingsStore } from '@main/settings/SettingsStore'
 import {
   extKey,
   schemeKey,
-  validateOpenWithContribution,
+  readOpenWithContribution,
   type OpenWithActionResult,
   type OpenWithKey,
   type OpenWithListResult,
@@ -25,21 +24,16 @@ import {
 } from '@shared/types/openWith'
 import { getOpenWithRegistrar, registrationAvailable, type OpenWithKind } from './registrar'
 
-export interface OpenWithProvider {
-  pluginId: string
-  pluginName: string
-  icon?: string
-  glyph?: string
-  color?: string
-  enabled: boolean
-}
+export type OpenWithProvider = Omit<OpenWithRow['providers'][number], 'routed'>
 
 export interface OpenWithTargetResolution {
   pluginId?: string
-  /** 多个启用插件都声明该键且无路由 → 需要用户选择 */
+  /** 当前候选需要用户确认，不能直接交付文件或链接。 */
   ambiguous: boolean
   providers: OpenWithProvider[]
 }
+
+type Candidate = OpenWithProvider & { declared: boolean }
 
 function splitKey(key: OpenWithKey): { kind: OpenWithKind; value: string } {
   const kind = key.startsWith('scheme:') ? 'scheme' : 'ext'
@@ -48,45 +42,38 @@ function splitKey(key: OpenWithKey): { kind: OpenWithKind; value: string } {
 
 function providerFor(pluginId: string): OpenWithProvider | null {
   const summary = pluginRegistry.get(pluginId)
-  if (!summary) return null
+  if (!summary?.installed || !pluginRegistry.isEnabled(pluginId)) return null
   return {
     pluginId,
     pluginName: summary.name || pluginId,
     icon: summary.icon,
     glyph: summary.glyph,
     color: summary.color,
-    enabled: pluginRegistry.isEnabled(pluginId)
+    enabled: true
   }
 }
 
 /** 聚合贡献：key → providers（按 pluginId 去重；scheme 冲突先到先得） */
-function collectProviders(): Map<OpenWithKey, OpenWithProvider[]> {
-  const map = new Map<OpenWithKey, OpenWithProvider[]>()
-  const claimedSchemes = new Map<string, string>()
-  const push = (key: OpenWithKey, provider: OpenWithProvider): void => {
+function collectProviders(): Map<OpenWithKey, Candidate[]> {
+  const map = new Map<OpenWithKey, Candidate[]>()
+  const push = (key: OpenWithKey, provider: OpenWithProvider, declared: boolean): void => {
     const list = map.get(key) ?? []
-    if (!list.some((p) => p.pluginId === provider.pluginId)) list.push(provider)
+    if (key.startsWith('scheme:') && list.length) return
+    if (!list.some((p) => p.pluginId === provider.pluginId)) list.push({ ...provider, declared })
     map.set(key, list)
   }
-  // 贡献按 source 排序，保证冲突裁决稳定
-  const contributions = [...listOpenWithContributions()].sort((a, b) => a.source.localeCompare(b.source))
-  for (const { source, id, data } of contributions) {
-    const errors = validateOpenWithContribution(data)
-    if (errors.length) {
-      logWarn('open-with', `${source}/${id} skipped: ${errors.join('; ')}`)
-      continue
-    }
-    const provider = providerFor(source)
+  const entries = [...listOpenWithContributions(), ...contributionRegistry.listRuntimeOpenWith()]
+  for (const entry of entries) {
+    const declared = !('build' in entry)
+    if (!declared && entry.build !== pluginRegistry.getOpenWithBuild(entry.source)) continue
+    const provider = providerFor(entry.source)
     if (!provider) continue
-    for (const ext of data.extensions ?? []) push(extKey(ext), provider)
-    for (const scheme of data.schemes ?? []) {
-      const owner = claimedSchemes.get(scheme)
-      if (owner && owner !== source) {
-        logWarn('open-with', `scheme ${scheme} already claimed by ${owner}, ignored for ${source}`)
-        continue
-      }
-      claimedSchemes.set(scheme, source)
-      push(schemeKey(scheme), provider)
+    try {
+      const data = readOpenWithContribution(entry.data)
+      for (const ext of data.extensions ?? []) push(extKey(ext), provider, declared)
+      for (const scheme of data.schemes ?? []) push(schemeKey(scheme), provider, declared)
+    } catch (error) {
+      logWarn('open-with', `${entry.source}/${entry.id} skipped: ${String(error)}`)
     }
   }
   return map
@@ -97,64 +84,78 @@ function routesFor(kind: OpenWithKind): Record<string, string> {
   return kind === 'ext' ? routes.ext : routes.scheme
 }
 
-/** 状态检测有子进程开销：30s 内复用 */
-const statusCache = new Map<string, { at: number; status: OpenWithStatus | undefined }>()
-const STATUS_TTL = 30_000
-
-async function detectCached(kind: OpenWithKind, value: string): Promise<OpenWithStatus | undefined> {
-  const cacheKey = `${kind}:${value}`
-  const hit = statusCache.get(cacheKey)
-  if (hit && Date.now() - hit.at < STATUS_TTL) return hit.status
-  let status: OpenWithStatus | undefined
+async function detectStatus(kind: OpenWithKind, value: string): Promise<OpenWithStatus | undefined> {
+  if (!registrationAvailable()) return undefined
   try {
-    status = await getOpenWithRegistrar().detect(kind, value)
+    return await getOpenWithRegistrar().detect(kind, value)
   } catch (err) {
-    logWarn('open-with', `detect ${cacheKey} failed: ${(err as Error).message}`)
+    logWarn('open-with', `detect ${kind}:${value} failed: ${(err as Error).message}`)
+    return undefined
   }
-  statusCache.set(cacheKey, { at: Date.now(), status })
-  return status
 }
 
 export class AssociationService {
+  register(pluginId: string, input: unknown): void {
+    const build = pluginRegistry.getOpenWithBuild(pluginId)
+    if (!build || !pluginRegistry.isEnabled(pluginId)) throw new Error('插件未安装或未启用')
+    const entry = readOpenWithContribution(input)
+    if (pluginRegistry.getManifest(pluginId)?.contributes?.openWith?.some(item => item.id === entry.id)) throw new Error('该登记 ID 已在插件清单中声明')
+    if (entry.schemes?.length) {
+      const candidates = collectProviders()
+      if (entry.schemes.some(scheme => candidates.get(schemeKey(scheme))?.some(candidate => candidate.pluginId !== pluginId))) throw new Error('此协议已被其他插件声明')
+    }
+    contributionRegistry.registerOpenWith(pluginId, build, entry)
+  }
+
+  unregister(pluginId: string, id: unknown): boolean {
+    const build = pluginRegistry.getOpenWithBuild(pluginId)
+    if (!build || !pluginRegistry.isEnabled(pluginId) || typeof id !== 'string' || !id || id.length > 64) throw new Error('无效的打开方式登记')
+    return contributionRegistry.unregisterOpenWith(pluginId, build, id)
+  }
+
   /** 设置页列表：贡献 + 路由 + 系统状态合并 */
-  async list(): Promise<OpenWithListResult> {
+  async list(selectedKey?: OpenWithKey): Promise<OpenWithListResult> {
     const providersByKey = collectProviders()
     const registrar = getOpenWithRegistrar()
     const rows: OpenWithRow[] = []
-    for (const [key, providers] of [...providersByKey.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const routes = settingsStore.getOpenWithRoutes()
+    for (const [key, providers] of providersByKey) {
       const { kind, value } = splitKey(key)
-      const routedPluginId = routesFor(kind)[value]
+      const routedPluginId = Object.hasOwn(routes[kind], value) ? routes[kind][value] : undefined
       rows.push({
         key,
         kind,
         value,
-        providers: providers.map((p) => ({ ...p, routed: p.pluginId === routedPluginId })),
+        providers: providers.map(({ declared: _declared, ...provider }) => ({ ...provider, routed: provider.pluginId === routedPluginId })),
         routedPluginId,
-        status: await detectCached(kind, value),
-        caps: registrar.caps(kind)
+        caps: { canSetDefault: false, needsSystemSettings: false }
       })
     }
     // 文件类型在前，scheme 在后；各自按值排序
     rows.sort((a, b) => (a.kind === b.kind ? a.value.localeCompare(b.value) : a.kind === 'ext' ? -1 : 1))
-    return { platform: process.platform, packaged: registrationAvailable(), rows }
+    const selected = rows.find(row => row.key === selectedKey) ?? rows[0]
+    if (selected && registrationAvailable()) {
+      try {
+        selected.caps = await registrar.caps(selected.kind, selected.value)
+        selected.status = await detectStatus(selected.kind, selected.value)
+      } catch (error) { logWarn('open-with', `system options for ${selected.key} unavailable: ${String(error)}`) }
+    }
+    return { platform: process.platform, packaged: registrationAvailable(), rows, inspectedKey: selected?.key }
   }
 
-  /** 设为默认：写路由 + 平台注册（能力受限平台返回候选状态与引导） */
+  /** 只处理明确的系统设置请求；不覆盖用户已保存的内部选择。 */
   async setDefault(key: OpenWithKey, pluginId: string): Promise<OpenWithActionResult> {
     const { kind, value } = splitKey(key)
     const provider = collectProviders().get(key)?.find((p) => p.pluginId === pluginId)
-    if (!provider) return { ok: false, error: '该插件未声明此类型' }
-    if (!provider.enabled) return { ok: false, error: '插件已停用，无法设为打开方式' }
-    await settingsStore.setOpenWithRoute(kind, value, pluginId)
+    if (!provider || routesFor(kind)[value] !== pluginId) return { ok: false, error: '请先选择用来打开此类型的插件' }
+    if (!registrationAvailable()) return { ok: false, error: '只有安装版可以更改系统打开方式' }
     try {
-      await getOpenWithRegistrar().registerCandidate(kind, value)
       const result = await getOpenWithRegistrar().setDefault(kind, value)
-      statusCache.delete(`${kind}:${value}`)
       return {
         ok: result.ok,
         error: result.error,
         hint: result.hint,
-        status: result.status ?? (await detectCached(kind, value))
+        status: result.status ?? (await detectStatus(kind, value))
       }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -166,17 +167,15 @@ export class AssociationService {
     const { kind, value } = splitKey(key)
     const provider = collectProviders().get(key)?.find((p) => p.pluginId === pluginId)
     if (!provider) return { ok: false, error: '该插件未声明此类型' }
-    if (!provider.enabled) return { ok: false, error: '插件已停用，无法路由' }
     await settingsStore.setOpenWithRoute(kind, value, pluginId)
-    return { ok: true, status: await detectCached(kind, value) }
+    return { ok: true }
   }
 
   /** 移除路由（不重置系统默认——系统默认由用户在 OS 侧决定） */
   async clearDefault(key: OpenWithKey): Promise<OpenWithActionResult> {
     const { kind, value } = splitKey(key)
     await settingsStore.clearOpenWithRoute(kind, value)
-    statusCache.delete(`${kind}:${value}`)
-    return { ok: true, status: await detectCached(kind, value) }
+    return { ok: true }
   }
 
   async openSystemSettings(): Promise<void> {
@@ -186,40 +185,23 @@ export class AssociationService {
   /**
    * 路由解析（双击打开用）：
    *  - 已有路由且插件仍启用 → 命中；
-   *  - 无路由但只有一个启用插件 → 自动写入路由并命中（安装即用）；
-   *  - 多个插件 → ambiguous，由 UI 让用户选择；
+   *  - 单一清单声明可直接打开，不替用户写入偏好；
+   *  - 多个候选或仅有运行时登记时由用户选择；
    *  - 无插件声明 → 空。
    */
   resolveTarget(key: OpenWithKey): OpenWithTargetResolution {
-    const providers = (collectProviders().get(key) ?? []).filter((p) => p.enabled)
+    const providers = collectProviders().get(key) ?? []
     if (!providers.length) return { ambiguous: false, providers: [] }
     const { kind, value } = splitKey(key)
-    const routed = routesFor(kind)[value]
+    const routes = routesFor(kind)
+    const routed = Object.hasOwn(routes, value) ? routes[value] : undefined
     if (routed && providers.some((p) => p.pluginId === routed)) {
       return { pluginId: routed, ambiguous: false, providers }
     }
-    if (providers.length === 1) {
-      const only = providers[0].pluginId
-      void settingsStore.setOpenWithRoute(kind, value, only).catch((err) => {
-        logWarn('open-with', `auto route ${key} failed: ${(err as Error).message}`)
-      })
-      return { pluginId: only, ambiguous: false, providers }
+    if (!routed && providers.length === 1 && providers[0].declared) {
+      return { pluginId: providers[0].pluginId, ambiguous: false, providers }
     }
     return { ambiguous: true, providers }
-  }
-
-  /** 启动时幂等同步用户已选 scheme 的系统注册（不改用户未选的 scheme） */
-  async syncRoutedSchemes(): Promise<void> {
-    if (!registrationAvailable()) return
-    const routes = settingsStore.getOpenWithRoutes()
-    for (const scheme of Object.keys(routes.scheme)) {
-      try {
-        await getOpenWithRegistrar().registerCandidate('scheme', scheme)
-        await getOpenWithRegistrar().setDefault('scheme', scheme)
-      } catch (err) {
-        logWarn('open-with', `sync scheme ${scheme} failed: ${(err as Error).message}`)
-      }
-    }
   }
 
   /** 卸载/禁用插件：清掉指向它的路由 */

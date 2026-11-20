@@ -153,7 +153,7 @@ async function buildSession(serviceRevision: number): Promise<Session> {
     entryId: { type: 'string', maxLength: 160 }, buildRevision: { type: 'string', maxLength: 128 }, indexRevision: { type: 'integer', minimum: 0 },
     query: { type: 'string', maxLength: 4096 }, target: { type: 'string', enum: ['quick', 'shell'] }
   } }
-  server.registerTool('enest_execute', { description: 'Dispatch one declared plugin feature through the native launch path (same as opening it from the workspace). Pass an entryId from enest_list_plugin_apis for durable launch-index entries. Optional query text is delivered as the feature input.', inputSchema: fromJsonSchema<{ pluginId: string; code: string; entryId?: string; buildRevision?: string; indexRevision?: number; query?: string; target?: 'quick' | 'shell' }>(executeSchema) }, async (input, context) => {
+  server.registerTool('enest_execute', { description: 'Dispatch an installed feature without a user gesture. A view can be presented; a command returning a view needs an explicit matching target. Use entryId and revisions from enest_list_plugin_apis for a durable entry.', inputSchema: fromJsonSchema<{ pluginId: string; code: string; entryId?: string; buildRevision?: string; indexRevision?: number; query?: string; target?: 'quick' | 'shell' }>(executeSchema) }, async (input, context) => {
     const signal = AbortSignal.any([context.mcpReq.signal, controller.signal])
     try {
       const command = resolveQuickOpenCommand({ kind: 'plugin', pluginId: input.pluginId, code: input.code,
@@ -163,7 +163,7 @@ async function buildSession(serviceRevision: number): Promise<Session> {
       if (!command) return protocolResult({ content: [{ type: 'text', text: 'Feature is not available for this plugin (unknown code, stale entry, or plugin disabled)' }], isError: true } as CallToolResult)
       const configured = settingsStore.getPluginLaunchConfig(input.pluginId)?.mode
       const result = await executePluginCommand(command, {
-        source: 'workspace', signal,
+        source: 'mcp', signal, target: input.target,
         query: typeof input.query === 'string' ? input.query.slice(0, 4096) : '',
         defaultTarget: input.target ?? configured ?? 'shell',
         guard: () => !signal.aborted && !shuttingDown && state === 'running'

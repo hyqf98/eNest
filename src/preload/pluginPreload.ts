@@ -154,6 +154,10 @@ const api: EnestPluginApi = {
   home: {
     register: contribution => ipcRenderer.invoke(IpcChannels.PluginHomeRegister, contribution),
   },
+  openWith: {
+    register: entry => call<void>('openWith.register', [entry]),
+    unregister: id => call<boolean>('openWith.unregister', [id])
+  },
   hotkey: {
     register: (accelerator: string, opts?: { label?: string }) =>
       call<PluginHotkeyRegisterResult>('hotkey.register', [accelerator, opts]),

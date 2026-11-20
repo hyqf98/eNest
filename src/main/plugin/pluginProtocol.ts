@@ -274,6 +274,22 @@ export function ensureShellSessionProtocol(): void {
   }
 }
 
+/**
+ * 给任意 session 挂上全量 enest:// 处理器（只读插件资源，与默认 session 同一份实现）。
+ *
+ * 用于隔离分区：首页跑在 `enest-home-<gen>-<uuid>` 独立分区里，不挂这个 handler
+ * 就拿不到任何插件资源——首页自绘 Tab 条的插件图标会 404 并回退成字形字符。
+ * 调用方负责在持有 session 的窗口销毁时 unhandle。
+ */
+export function registerEnestProtocolForSession(ses: Session): void {
+  try {
+    ses.protocol.unhandle(PROTOCOL)
+  } catch {
+    /* 尚未注册 */
+  }
+  ses.protocol.handle(PROTOCOL, handleEnestProtocol)
+}
+
 /** Session-scoped handler: only serves the given plugin root. */
 export function registerPluginProtocolForSession(
   ses: Session,

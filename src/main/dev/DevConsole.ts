@@ -5,6 +5,7 @@ import { dialog } from 'electron'
 import { trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 import { resolveLocalUserPath } from '@main/paths/userPath'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { withInstallLock } from '@main/plugin/PluginInstaller'
 import type { DevPluginLoadOptions, PluginSummary } from '@shared/types/plugin'
 import { resolvePluginUi } from '@shared/types/plugin'
 import { pluginCategoryColor } from '@shared/constants'
@@ -21,15 +22,6 @@ import { startDevRegistrationWatch, stopDevRegistrationWatch, stopDevWatch } fro
 const DEFAULT_DEV_OPTIONS: DevPluginLoadOptions = { autoStartServer: true }
 let changeRevision = 0
 const devChanges = new Map<string, number>()
-const devOperations = new Map<string, Promise<unknown>>()
-
-/** Serialize replacement and removal so an old teardown cannot remove a new registration. */
-async function withDevOperation<T>(id: string, action: () => Promise<T>): Promise<T> {
-  const operation = (devOperations.get(id) ?? Promise.resolve()).then(action, action)
-  devOperations.set(id, operation)
-  try { return await operation }
-  finally { if (devOperations.get(id) === operation) devOperations.delete(id) }
-}
 
 /** Retire the previous in-flight sequence and release both watchers for this id. */
 function beginDevChange(id: string, revision = ++changeRevision): () => boolean {
@@ -87,7 +79,7 @@ export async function prepareDevPluginReload(
     && pluginRegistry.get(plugin.id)?.sourcePath === plugin.sourcePath
   if (!valid()) return null
   const source = await inspectDevPluginEntry(plugin.sourcePath, options)
-  if (!valid()) return null
+  if (!valid() || getDevPluginSource(plugin.id) !== previous) return null
   if (source.manifest.id !== plugin.id) throw new Error('插件源码的 id 已变化，请重新加载该目录')
   const registration = registerDevPluginSource(source)
   const current = () => valid() && isDevPluginSourceCurrent(plugin.id, registration)
@@ -131,7 +123,7 @@ export async function loadDevPlugin(dirPath: string, options: DevPluginLoadOptio
   if (restore && manifest.id !== restore.expectedId) throw new Error('插件源码的 id 已变化，请重新加载该目录')
   if ((devChanges.get(manifest.id) ?? 0) > revision) throw new Error('开发插件加载已取消')
   const isCurrent = beginDevChange(manifest.id, revision)
-  return withDevOperation(manifest.id, async () => {
+  return withInstallLock(manifest.id, async () => {
     if (!isCurrent()) throw new Error('开发插件加载已取消')
     const { pluginHost } = await import('@main/plugin/PluginHost')
     if (!isCurrent()) throw new Error('开发插件加载已取消')
@@ -184,18 +176,16 @@ export async function restoreDevPlugins(): Promise<void> {
   }
 }
 
-/**
- * Release everything a development registration owns. Order matters: stop accepting
- * reloads, close the live view, then the development server tree, background/timers,
- * routes and finally the registry entry and its persisted record. Plugin data is kept —
- * the source folder may be loaded again.
- *
- * When the full uninstaller drives this, it has already removed the registry entry and
- * closed the view with its own lifecycle; here only the persisted record is dropped.
- */
+export async function dropUninstalledDevRegistration(id: string): Promise<void> {
+  beginDevChange(id)
+  pluginRegistry.removeDevPlugin(id)
+  forgetDevServer(id)
+  await dropDevPluginRecord(id)
+}
+
 export async function forgetDevPlugin(id: string): Promise<void> {
   beginDevChange(id)
-  return withDevOperation(id, async () => {
+  return withInstallLock(id, async () => {
     const ownsTeardown = pluginRegistry.get(id)?.dev === true
     forgetDevPluginSource(id)
     await forgetDevServer(id)

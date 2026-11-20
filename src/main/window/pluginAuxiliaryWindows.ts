@@ -11,6 +11,7 @@ import { permissionService } from '@main/plugin/PermissionService'
 import { resolveThemeTokens, themeTokensToInjectScript } from '@main/theme/resolveThemeCss'
 import { captureDisplaySource, resolveCaptureDisplay } from '@main/screen/screenService'
 import { resolvePreload } from '@main/window/createShellWindow'
+import { resolveWindowIcon } from './applicationIcon'
 import { assertInteractive, assertInteractionEpoch, getInteractionEpoch, isNonInteractive, isResidentActivation, grantAuxiliaryInteraction } from '@main/plugin/pluginInteractionPolicy'
 
 interface Surface {
@@ -186,7 +187,16 @@ export function registerAuxiliaryHandlers(): void {
     rate(surface, auxiliaryPayloadBytes(data, MAX_MESSAGE))
     publish(surface, { type: 'auxiliary.message', windowId: surface.id, data })
   })
-  ipcMain.handle(IpcChannels.AuxiliaryClose, event => close(fromEvent(event)))
+  // 关闭只做收缩，不扩张任何能力：即使窗口所属的运行代次已经换代（插件重载后
+  // current() 为假），也必须允许它自己关掉——否则屏幕上会留下点不动也关不掉的
+  // 僵尸浮窗，而用户唯一能做的只有重启整个应用。
+  ipcMain.handle(IpcChannels.AuxiliaryClose, event => {
+    const surface = senders.get(event.sender.id)
+    if (!surface || surface.closed || !surface.win || surface.win.isDestroyed()
+      || event.sender !== surface.win.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error('Retired or foreign auxiliary sender')
+    close(surface)
+    return true
+  })
 }
 export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen): Promise<{ windowId: string }> {
   const scope = requireOwner(pluginId)
@@ -274,12 +284,20 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
     const finite = (value: unknown, fallback: number): number => typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback
     const area = display.workArea, requested = input.bounds ?? {}, fullscreen = input.placement === 'display'
     const width = Math.max(80, Math.min(area.width, finite(requested.width, 360))), height = Math.max(60, Math.min(area.height, finite(requested.height, 270)))
-    const win = new BrowserWindow({
+    // acceptFirstMouse：macOS 上非活动窗口的第一次鼠标按下默认只用来激活窗口、
+    // 不会派发给页面。悬浮球/工具栏这类 surface 用 showInactive 显示（不抢前台焦点），
+    // 少了这一项第一次点击就"没反应"，用户必须先点一下激活、再点一次才生效。
+    const windowOptions = {
       ...(fullscreen ? display.bounds : { width, height, x: Math.max(area.x, Math.min(area.x + area.width - width, finite(requested.x, area.x + (area.width - width) / 2))), y: Math.max(area.y, Math.min(area.y + area.height - height, finite(requested.y, area.y + 80))) }),
       title: String(input.title ?? '').slice(0, 200), frame: false, transparent: input.transparent === true,
       resizable: !fullscreen && input.resizable === true, movable: !fullscreen && input.movable !== false,
       fullscreenable: false, skipTaskbar: true, alwaysOnTop: input.alwaysOnTop === true, hasShadow: false, show: false,
-      ...(parent?.win ? { parent: parent.win } : {}),
+      acceptFirstMouse: true,
+      ...(parent?.win ? { parent: parent.win } : {})
+    } as Electron.BrowserWindowConstructorOptions & { acceptFirstMouse?: boolean }
+    const win = new BrowserWindow({
+      ...windowOptions,
+      icon: resolveWindowIcon(),
       webPreferences: { session: isolated, preload: resolvePreload('auxiliaryPreload.js'), sandbox: true, contextIsolation: true,
         nodeIntegration: false, webSecurity: true, backgroundThrottling: !surface.capture, spellcheck: false, navigateOnDragDrop: false }
     })
@@ -291,7 +309,11 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
       if (!current(surface) || !win.isVisible() || surface.interaction === 'passthrough') return
       try { grantAuxiliaryInteraction(scope) } catch { /* A concurrent noninteractive lease never inherits a gesture. */ }
     }
-    win.webContents.on('before-mouse-event', (_event, mouse) => { if (mouse.type === 'mouseDown') grantInput() })
+    // 按下与拖动都续期：一次拖动可能持续数秒（拖动窗口/连续绘制），
+    // 只在 mouseDown 授权 2 秒会让后续 setBounds / 手势在拖到一半时被拒。
+    win.webContents.on('before-mouse-event', (_event, mouse) => {
+      if (mouse.type === 'mouseDown' || mouse.type === 'mouseMove') grantInput()
+    })
     win.webContents.on('before-input-event', (_event, key) => {
       if (key.type !== 'keyDown' || key.isAutoRepeat) return
       grantInput()
@@ -402,6 +424,19 @@ export function listAuxiliaryWindows(pluginId: string): Array<{ windowId: string
   return [...surfaces.values()].filter(value => value.scope === scope && current(value)).map(value => ({ windowId: value.id, entry: value.entry }))
 }
 export function disposeAuxiliaryWindows(): void { for (const surface of [...surfaces.values()]) close(surface) }
+/**
+ * 回收某一代运行时遗留的辅助窗口。
+ *
+ * 插件重载会让 buildRevision 换代（invalidateBuildRevision），而已经打开的悬浮球/
+ * 画布窗口仍挂在旧 revision 上。它们此后既不能收发消息（fromEvent 判 current 失败，
+ * 报「Retired or foreign auxiliary sender」），也不会被新的插件实例收养——
+ * 屏幕上就是一颗点不动、关不掉的僵尸球。换代时主动回收，把这些窗口清干净。
+ */
+export function closeStaleAuxiliaryWindows(pluginId: string): void {
+  for (const surface of [...surfaces.values()]) {
+    if (surface.scope.owner.pluginId === pluginId && !current(surface, true)) close(surface)
+  }
+}
 export function revokeAuxiliaryCapture(pluginId: string): void {
   for (const surface of [...surfaces.values()]) if (surface.scope.owner.pluginId === pluginId && surface.capture) close(surface)
 }

@@ -16,7 +16,7 @@ import { basename } from 'node:path'
 import type { InstallJobInfo } from '@shared/types/ipc'
 import { logError, logInfo } from '@main/logs/logService'
 import { getAppPaths } from '@main/paths/pathsService'
-import { beginPluginInstall, installFromZip, installPluginFromPath } from '@main/plugin/PluginInstaller'
+import { beginPluginInstall, installFromZip, installPluginFromPath, type InstallOperation } from '@main/plugin/PluginInstaller'
 import { downloadPluginPackage } from '@main/plugin/marketClient'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { refreshPluginBackgrounds } from '@main/plugin/pluginBackgroundRuntime'
@@ -27,7 +27,7 @@ export const MAX_PARALLEL_INSTALLS = 3
 
 interface InstallJob extends InstallJobInfo {
   /** Assigned at enqueue time; uninstall also supersedes jobs still waiting to start. */
-  operation: number
+  operation: InstallOperation
   /** 本地路径安装 */
   sourcePath?: string
   /** 远程 URL 安装 */

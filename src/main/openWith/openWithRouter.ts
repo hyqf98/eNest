@@ -17,10 +17,12 @@ import { app } from 'electron'
 import { launchPlugin } from '@main/launcher/pluginLauncher'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { isAbsoluteLocalUserPath, resolveLocalUserPath } from '@main/paths/userPath'
-import { grantLocalFile } from '@main/plugin/localFiles'
-import { getShellWebContents, sendShellEvent } from '@main/window/createShellWindow'
+import { grantLocalFile, releaseLocalFileHandles } from '@main/plugin/localFiles'
+import { pluginRegistry } from '@main/plugin/PluginRegistry'
+import { getMainWindow, getShellWebContents, sendShellEvent } from '@main/window/createShellWindow'
 import { openNativeModal } from '@main/window/modalSurface'
-import { extKey, schemeKey, type OpenWithKey } from '@shared/types/openWith'
+import { extKey, schemeKey, validOpenWithValue, type OpenWithKey } from '@shared/types/openWith'
+import type { LocalFileHandle } from '@shared/types/local-files'
 import { associationService, type OpenWithProvider } from './associationService'
 
 type OpenItem =
@@ -28,10 +30,6 @@ type OpenItem =
   | { kind: 'url'; url: string }
 
 const pending: OpenItem[] = []
-/** 等待用户选择的条目：key → items（选择后恢复） */
-const deferred = new Map<OpenWithKey, OpenItem[]>()
-/** 已发出选择请求但尚未响应的 key（避免重复弹框） */
-const awaitingChoice = new Set<OpenWithKey>()
 let readyProbe: (() => boolean) | null = null
 let flushing = false
 
@@ -75,22 +73,8 @@ export function handleOpenWithArgv(argv: string[]): void {
     const ext = path ? extOf(path) : null
     if (path && ext) byExt.set(ext, [...(byExt.get(ext) ?? []), path])
   }
-  for (const [ext, paths] of byExt) enqueue({ kind: 'file', paths })
+  for (const paths of byExt.values()) enqueue({ kind: 'file', paths })
   for (const url of urls) handleOpenUrl(url)
-}
-
-/** 渲染层完成「用哪个插件打开」选择后调用：写路由并恢复被暂停的条目 */
-export async function resumeDeferredOpen(key: OpenWithKey, pluginId: string): Promise<boolean> {
-  const result = await associationService.route(key, pluginId)
-  awaitingChoice.delete(key)
-  if (!result.ok) return false
-  const items = deferred.get(key)
-  deferred.delete(key)
-  if (items?.length) {
-    pending.push(...items)
-    void flush()
-  }
-  return true
 }
 
 /** 窗口就绪后由 index.ts 调用，处理启动期排队的打开请求 */
@@ -121,66 +105,53 @@ async function flush(): Promise<void> {
 }
 
 async function routeItem(item: OpenItem): Promise<void> {
-  if (item.kind === 'file') {
-    const ext = extOf(item.paths[0])
-    if (!ext) return
-    const key = extKey(ext)
-    const target = associationService.resolveTarget(key)
-    if (target.ambiguous) {
-      await defer(key, item, target.providers)
-      return
-    }
-    if (!target.pluginId) {
-      sendShellEvent({ type: 'open-with-unhandled', kind: 'ext', value: ext, reason: 'no-provider' })
-      return
-    }
-    const pluginId = target.pluginId
-    const handles = await Promise.all(
-      item.paths.map((path) => grantLocalFile(pluginId, path, { writable: false }))
-    )
-    logInfo('open-with', `open ${item.paths.length} file(s) .${ext} → ${pluginId}`)
-    const result = await launchPlugin({
-      pluginId,
-      source: 'open-with',
-      mode: 'shell',
-      enter: { code: 'open-file', type: 'files', payload: { paths: item.paths, handles } }
-    })
-    if (!result.ok) {
-      sendShellEvent({ type: 'open-with-unhandled', kind: 'ext', value: ext, reason: 'launch-failed' })
-    }
-    return
-  }
-
-  const scheme = schemeOf(item.url)
-  if (!scheme) return
-  const key = schemeKey(scheme)
+  const value = item.kind === 'file' ? extOf(item.paths[0]) : schemeOf(item.url)
+  if (!value) return
+  const kind = item.kind === 'file' ? 'ext' : 'scheme'
+  const key = kind === 'ext' ? extKey(value) : schemeKey(value)
   const target = associationService.resolveTarget(key)
+  const builds = new Map(target.providers.map(provider => [provider.pluginId, pluginRegistry.getBuildRevision(provider.pluginId)]))
+  let pluginId = target.pluginId
   if (target.ambiguous) {
-    await defer(key, item, target.providers)
+    pluginId = await chooseProvider(key, target.providers)
+    if (!pluginId) return
+    if (builds.get(pluginId) !== pluginRegistry.getBuildRevision(pluginId) || !(await associationService.route(key, pluginId)).ok) {
+      sendShellEvent({ type: 'open-with-unhandled', kind, value, reason: 'no-provider' })
+      return
+    }
+  }
+  if (!pluginId) {
+    sendShellEvent({ type: 'open-with-unhandled', kind, value, reason: 'no-provider' })
     return
   }
-  if (!target.pluginId) {
-    sendShellEvent({ type: 'open-with-unhandled', kind: 'scheme', value: scheme, reason: 'no-provider' })
-    return
-  }
-  const result = await launchPlugin({
-    pluginId: target.pluginId,
-    source: 'open-with',
-    mode: 'shell',
-    enter: { code: 'open-url', payload: { url: item.url } }
-  })
-  if (!result.ok) {
-    sendShellEvent({ type: 'open-with-unhandled', kind: 'scheme', value: scheme, reason: 'launch-failed' })
+  const owner = pluginId
+  const currentBuild = () => pluginRegistry.isEnabled(owner) && builds.get(owner) === pluginRegistry.getBuildRevision(owner)
+  const guard = () => currentBuild() && associationService.resolveTarget(key).pluginId === owner
+  const handles: LocalFileHandle[] = []
+  try {
+    if (item.kind === 'file') {
+      const assertCurrent = () => { if (!currentBuild()) throw new Error('打开方式的插件已变更') }
+      for (const path of item.paths) handles.push(await grantLocalFile(owner, path, { writable: false }, assertCurrent))
+    }
+    const result = await launchPlugin({ pluginId: owner, source: 'open-with', mode: 'shell', guard,
+      enter: item.kind === 'file' ? { code: 'open-file', type: 'files', payload: { paths: item.paths, handles } }
+        : { code: 'open-url', payload: { url: item.url } } })
+    if (!result.ok) throw new Error(result.error ?? '打开方式启动失败')
+    logInfo('open-with', `open ${key} → ${owner}`)
+  } catch (error) {
+    releaseLocalFileHandles(owner, handles)
+    sendShellEvent({ type: 'open-with-unhandled', kind, value, reason: 'launch-failed' })
+    throw error
   }
 }
 
-/** 多候选：入队等待 + 原生选择框；选中写路由并恢复，取消则丢弃本次打开 */
-async function defer(key: OpenWithKey, item: OpenItem, providers: OpenWithProvider[]): Promise<void> {
-  deferred.set(key, [...(deferred.get(key) ?? []), item])
-  if (awaitingChoice.has(key)) return
-  awaitingChoice.add(key)
+async function chooseProvider(key: OpenWithKey, providers: OpenWithProvider[]): Promise<string | undefined> {
   const owner = getShellWebContents()
-  if (!owner || owner.isDestroyed()) return
+  const window = getMainWindow()
+  if (!owner || owner.isDestroyed() || !window || window.isDestroyed()) return
+  if (window.isMinimized()) window.restore()
+  if (!window.isVisible()) window.show()
+  window.focus()
   const label = key.startsWith('scheme:') ? `${key.slice('scheme:'.length)}:// 链接` : `.${key.slice('ext:'.length)} 文件`
   const out: { picked?: string } = {}
   let confirmed = false
@@ -189,7 +160,7 @@ async function defer(key: OpenWithKey, item: OpenItem, providers: OpenWithProvid
       kind: 'open-with-choice',
       options: {
         title: '选择打开方式',
-        message: `要用哪个组件打开此${label}？选择后会记住，下次直接打开。`,
+        message: `选择处理 ${label} 的插件。eNest 会记住选择，不会更改系统默认应用。`,
         value: label,
         choices: providers.map(({ pluginId, pluginName, icon, glyph, color }) => ({
           pluginId, pluginName, icon, glyph, color
@@ -199,12 +170,7 @@ async function defer(key: OpenWithKey, item: OpenItem, providers: OpenWithProvid
   } catch (err) {
     logWarn('open-with', `choice modal failed: ${(err as Error).message}`)
   }
-  if (confirmed && out.picked) {
-    await resumeDeferredOpen(key, out.picked)
-  } else {
-    deferred.delete(key)
-    awaitingChoice.delete(key)
-  }
+  return confirmed && providers.some(provider => provider.pluginId === out.picked) ? out.picked : undefined
 }
 
 function extOf(path: string): string | null {
@@ -213,11 +179,10 @@ function extOf(path: string): string | null {
 }
 
 function schemeOf(url: string): string | null {
-  const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(url)
+  const match = /^([a-z][a-z0-9+.-]{1,63}):/i.exec(url)
   if (!match) return null
   const scheme = match[1].toLowerCase()
-  if (scheme === 'http' || scheme === 'https' || scheme === 'file' || scheme === 'enest') return null
-  return scheme
+  return validOpenWithValue('scheme', scheme) ? scheme : null
 }
 
 function normalizeFileArg(raw: string): string | null {

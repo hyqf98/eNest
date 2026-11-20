@@ -17,14 +17,16 @@ const adapters = {
     export class WebContentsView{constructor(){throw Error('unexpected web contents view creation')}}
   `,
   '@main/clipboard/nativeClipboard': `import {state} from 'test-state';export const capturePasteTarget=()=>state.capture();`,
+  '@main/launcher/quickInputContext': 'export const clearQuickInputContext=()=>{};',
   '@main/plugin/pluginProtocol':
     'export const ensureShellSessionProtocol=()=>{};',
+  '@main/theme/quickThemeProtocol': 'export const registerQuickThemeWebContentsPolicy=()=>{};',
   '@main/logs/logService':
     'export const logInfo=()=>{};export const logError=()=>{};',
   '@main/settings/SettingsStore':
     'export const settingsStore={getAll:()=>({general:{}})};',
   './createShellWindow':
-    'export const resolvePreload=()=>"";export const setQuickEventSink=()=>{};',
+    'export const getMainWindow=()=>null;export const keepDockIconVisible=()=>false;export const resolvePreload=()=>"";export const setQuickEventSink=()=>{};',
 }
 const output = await build({
   stdin: {

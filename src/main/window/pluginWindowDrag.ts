@@ -7,6 +7,7 @@ import { pluginHost } from '@main/plugin/PluginHost'
 import { getRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { getMainWindow, getShellWebContents } from '@main/window/createShellWindow'
+import { resolveWindowIcon } from './applicationIcon'
 import { acquireQuickInteraction, getQuickWebContents, getQuickWindow } from '@main/window/createQuickWindow'
 import { acquireOrbDragExpansion, getOrbDragSurface } from '@main/window/orbRailViews'
 import { constrainDetachedBounds, getDetachedChrome, getDetachedWindow, getPluginForDetachedSender, observeDetachedWindows } from '@main/window/detachedPluginWindows'
@@ -220,7 +221,7 @@ export function beginPluginWindowDrag(senderId: number, pluginId: string): { tok
   let cleanup = (): void => {}
   try {
   const preview = createdPreview = new BaseWindow({ x: point.x + 14, y: point.y + 18, width: 242, height: 171, show: false, frame: false, transparent: true,
-    focusable: false, skipTaskbar: true, alwaysOnTop: true, resizable: false, hasShadow: false, backgroundColor: '#00000000' })
+    icon: resolveWindowIcon(), focusable: false, skipTaskbar: true, alwaysOnTop: true, resizable: false, hasShadow: false, backgroundColor: '#00000000' })
   const previewView = new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
   const previewContents = createdContents = previewView.webContents
   previewView.setBackgroundColor('#00000000')

@@ -119,8 +119,18 @@ async function macBundleIcon(path: string): Promise<string | undefined> {
         iconFile = stdout.trim()
       } catch { /* Asset-only applications may omit this key but still ship AppIcon.icns. */ }
     } else iconFile = plistString(data.toString('utf8'), 'CFBundleIconFile')
-    const names = [...new Set([iconFile, 'AppIcon.icns', 'app.icns', 'icon.icns', `${basename(path, '.app')}.icns`].filter((name): name is string => Boolean(name)))]
-    for (const name of names) {
+    const declared = [iconFile, 'AppIcon.icns', 'app.icns', 'icon.icns', `${basename(path, '.app')}.icns`]
+      .filter((name): name is string => Boolean(name))
+    /*
+     * CFBundleIconFile 不是唯一来源：Safari 这类系统应用只声明
+     * `AppIconUpdated.icns`，元数据缺失时按 Resources 下真实存在的 icns 补齐候选，
+     * 名字带 icon 的优先（避免先撞上文档/工具类图标）。
+     */
+    const scanned = (await readdir(join(path, 'Contents', 'Resources')).catch(() => [] as string[]))
+      .filter(name => name.toLowerCase().endsWith('.icns'))
+      .sort((a, b) => Number(!/icon/i.test(a)) - Number(!/icon/i.test(b)) || a.localeCompare(b))
+    const candidates = [...new Set([...declared, ...scanned])]
+    for (const name of candidates) {
       const file = join(path, 'Contents', 'Resources', extname(name) ? name : `${name}.icns`)
       try {
         if ((await stat(file)).size > 16 * 1024 * 1024) continue
@@ -169,7 +179,7 @@ let macIconFlush: ReturnType<typeof setTimeout> | null = null
 let macIconBatchRunning = false
 
 /** Prefer full-colour application representations, never a symbolic/template variant. */
-const LINUX_ICON_EXTS = ['.png', '.xpm', '.svg', '']
+const LINUX_ICON_EXTS = ['.png', '.svg', '.xpm', '.ico', '']
 const LINUX_APP_ICON_DIRS = ['96x96/apps', '128x128/apps', '64x64/apps', 'scalable/apps', '48x48/apps', '256x256/apps', '32x32/apps', '512x512/apps', '16x16/apps', 'apps', '']
 let linuxDirectories: { expires: number; promise: Promise<string[]> } | undefined
 

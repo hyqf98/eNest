@@ -70,6 +70,13 @@ export interface HomeCatalogItem {
   packageSize?: number
   installs?: string
   latestVersion?: string
+  /**
+   * 自由面板小组件预览图（`views.panel.preview` 声明的包内路径，已由宿主解析为可加载 URL）。
+   * 只有声明了 panel 布局的插件才有；首页「小组件」区块据此展示真实渲染效果。
+   */
+  panelPreview?: string
+  /** 小组件默认外框尺寸（DIP），来自 `views.panel.size`。 */
+  panelSize?: { width: number; height: number }
   /** At most 16 validated cards from this installed, enabled plugin. */
   homeCards?: HomeCatalogCard[]
 }
@@ -135,7 +142,14 @@ export interface HomeSearchRequest {
   query: string
   scope?: HomeSearchScope
   limit?: number
-  phase?: 'catalog' | 'providers'
+  /**
+   * `catalog`：本机目录快照；`providers`：插件动态搜索；
+   * `enriched`：只为已列出的 handle 回填原生图标（应用图标由宿主抽取，
+   * 首页拿不到路径，也拿不到任意文件读取权）。
+   */
+  phase?: 'catalog' | 'providers' | 'enriched'
+  /** enriched 专用：要回填图标的搜索结果 handle，未知 handle 不会成为文件目标。 */
+  ids?: string[]
   knownRevision?: string
   queryRevision?: number
 }
@@ -153,6 +167,9 @@ export interface EnestHomeApi {
   search(request: HomeSearchRequest): Promise<HomeSearchResult>
   refresh(request?: { reason?: 'manual' | 'boot' }): Promise<HomeCatalog>
   action(request: HomeAction): Promise<HomeActionResponse>
+  /** classic 模式首页自绘 Tab 条：启动/重载时主动拉一次当前投影。 */
+  getTabs(): Promise<HomeTabsSnapshot>
+  onTabs(listener: (payload: HomeTabsSnapshot) => void): () => void
   onAppearance(listener: (payload: HomeAppearanceSnapshot) => void): () => void
   onCommand(listener: (payload: HomeCommand) => void): () => void
 }
@@ -182,6 +199,18 @@ export type HomeAction =
   | { type: 'uninstallPlugin'; pluginId: string }
   | { type: 'refreshCatalog'; reason?: 'manual' | 'boot' }
   | { type: 'setHomeVisible'; visible: boolean }
+  /**
+   * 首页自绘 Tab 条的动作。首页铺满整窗、盖住主壳标题栏，classic 模式下主壳
+   * 那排 Tab 在首页不可见，所以首页自己画一条并回传这三类语义。
+   * 与 orb/classic chrome 的表现一致：切换、关闭、回首页。
+   */
+  | { type: 'tabActivate'; tabId: string }
+  | { type: 'tabClose'; tabId: string }
+  /**
+   * 窗口控制：首页铺满整窗、盖住主壳标题栏，Windows/Linux 上没有系统原生红绿灯，
+   * 只能由首页自己画在左上角并回传这三种语义。macOS 用原生按钮，不走这里。
+   */
+  | { type: 'window'; control: 'close' | 'minimize' | 'zoom' }
 
 export interface HomeActionResponse {
   ok: boolean
@@ -217,7 +246,32 @@ export type HomeCommand =
       error?: string
     }
 
+/**
+ * 首页顶部 Tab 条的投影。
+ *
+ * 首页是铺满整窗的原生视图，会把主壳 DOM 标题栏整个盖住，所以 classic 模式下
+ * 主壳那排 Tab 在首页看不见。要么把首页顶部切掉 36px（会露出接缝），
+ * 要么由首页自己画一条——这里选后者，数据与 orb/classic chrome 同源。
+ */
+export interface HomeTabsSnapshot {
+  tabStyle: 'classic' | 'orb'
+  view: 'home' | 'plugin' | 'settings'
+  activeTabId: string | null
+  tabs: Array<{
+    id: string
+    title: string
+    color: string
+    glyph: string
+    icon?: string | null
+    badge?: string
+    lazy?: boolean
+    crashed?: boolean
+  }>
+}
+
 export interface HomeEventData {
   appearance?: HomeAppearanceSnapshot
   command?: HomeCommand
+  /** classic 模式首页自绘 Tab 条的数据源；orb 模式不下发。 */
+  tabs?: HomeTabsSnapshot
 }

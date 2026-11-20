@@ -17,6 +17,11 @@ export interface ResolvedHomePage {
   contribution: HomePageContribution
   rootPath: string
   entryPath: string
+  buildRevision: string
+}
+
+export function isHomeBuildCurrent(source: string, buildRevision: string): boolean {
+  return source === BUILT_IN_HOME_SOURCE || pluginRegistry.isEnabled(source) && pluginRegistry.getBuildRevision(source) === buildRevision
 }
 
 export function builtinHomeReference(): HomePageContribution {
@@ -80,8 +85,9 @@ export async function resolveHomePage(source: string, id: string, variant: strin
   if (source === BUILT_IN_HOME_SOURCE) {
     // Renderer output is host-owned. The view cannot select a sibling file.
     const entryPath = join(__dirname, '..', 'renderer', ...contribution.entry.split('/'))
-    return { contribution, rootPath: join(entryPath, '..'), entryPath }
+    return { contribution, rootPath: join(entryPath, '..'), entryPath, buildRevision: 'builtin' }
   }
+  const buildRevision = pluginRegistry.getBuildRevision(source)
   const requestedRoot = pluginRegistry.getThemeRootPath(source)
   if (!requestedRoot) return null
   const entryPath = join(requestedRoot, ...contribution.entry.split('/'))
@@ -99,8 +105,10 @@ export async function resolveHomePage(source: string, id: string, variant: strin
     logWarn('home', `refused unsafe entry for ${source}/${id}`)
     return null
   }
+  if (!isHomeBuildCurrent(source, buildRevision) || requestedRoot !== pluginRegistry.getThemeRootPath(source)) return null
   return {
     contribution,
+    buildRevision,
     rootPath,
     entryPath: canonicalEntry
   }

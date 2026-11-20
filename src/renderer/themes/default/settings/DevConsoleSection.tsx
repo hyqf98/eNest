@@ -7,10 +7,10 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { useShellStore } from '@renderer/stores/shellStore'
-import { PluginIcon } from '@renderer/components/PluginIcon'
 import { notify } from '@renderer/services/notifyService'
 import { confirmAction } from '@renderer/services/confirmAction'
 import { useI18n } from '@renderer/hooks/useI18n'
+import { SettingsPluginRow } from './SettingsPluginRow'
 
 export function DevConsoleSection() {
   const devLogs = useShellStore((s) => s.devLogs)
@@ -158,22 +158,20 @@ export function DevConsoleSection() {
                   const server = !!p.devUrl
                   const pendingServer = !server && p.devSource === true && !!p.devKind && p.devKind !== 'static'
                   return (
-                    <div className={`dev-plugin-item${running ? ' running' : ''}`} key={p.id}>
-                      <PluginIcon src={p.icon} glyph={p.glyph} size={40} alt={p.name} />
-                      <div className="dev-plugin-meta">
-                        <div className="dev-plugin-name">
-                          {p.name}
-                          {running ? <span className="dev-run-dot" /> : null}
+                    <SettingsPluginRow
+                      key={p.id}
+                      plugin={p}
+                      running={running}
+                      detail={`${p.rootPath ?? '—'}${p.devUrl ? ` · ${p.devUrl}` : ''}`}
+                      badges={
+                        <>
                           <span className="tag">
                             {kindLabel(p.devKind, server, !server && p.devSource === false, pendingServer)}
                           </span>
                           {server && p.devCommand ? <code className="dev-command-tag">{p.devCommand}</code> : null}
-                        </div>
-                        <code className="dev-plugin-path">
-                          {p.rootPath ?? '—'}
-                          {p.devUrl ? ` · ${p.devUrl}` : ''}
-                        </code>
-                      </div>
+                        </>
+                      }
+                    >
                       <div className="dev-plugin-actions">
                         {running ? (
                           <>
@@ -210,7 +208,7 @@ export function DevConsoleSection() {
                           {t('devConsole.remove')}
                         </button>
                       </div>
-                    </div>
+                    </SettingsPluginRow>
                   )
                 })}
               </div>

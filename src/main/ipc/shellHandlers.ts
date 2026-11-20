@@ -33,9 +33,8 @@ import { setResidentSettingFromUser } from '@main/launcher/pluginActivation'
 import { trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 import { broadcastNotice } from '@main/plugin/shellNotices'
 import { associationService } from '@main/openWith/associationService'
-import { resumeDeferredOpen } from '@main/openWith/openWithRouter'
 import type { OpenWithKey, OpenWithSetRequest } from '@shared/types/openWith'
-import { OPEN_WITH_EXT_RE, OPEN_WITH_SCHEME_RE } from '@shared/types/openWith'
+import { validOpenWithValue } from '@shared/types/openWith'
 import {
   startGithubLogin,
   cancelGithubLogin,
@@ -76,6 +75,7 @@ import {
 } from '@main/proxy/proxyService'
 import { themePackRegistry } from '@main/theme/themePacks'
 import { appearanceService } from '@main/theme/appearanceService'
+import { DEFAULT_THEME_IDENTITY } from '@shared/theme/builtinThemes'
 import { importAppearanceFont, pickAppearanceMedia, removeAppearanceFont, resolveAppearanceResource } from '@main/theme/appearanceResources'
 import { homeSurfaceManager, prewarmHomeSurface, retryHomeSurface, setHomeSurfaceVisible } from '@main/home/HomeSurfaceManager'
 import { normalizeWorkspaceRoute } from '@main/home/workspaceRoute'
@@ -98,7 +98,10 @@ import {
   getOrbDragSurface,
   getOrbRailState,
   layoutOrbRailViews,
+  refreshOrbRailPointer,
   setOrbAnimationLevel,
+  setOrbDockSide,
+  setOrbRailCaptionOpen,
   setOrbRailExpandedView,
   setOrbRailState,
   setOrbTheme
@@ -217,8 +220,9 @@ export function registerShellHandlers(): void {
     }
   )
 
-  handleShellIpc(IpcChannels.ShellClosePlugin, async (_e, tabId: string) => {
+  handleShellIpc(IpcChannels.ShellClosePlugin, async (event, tabId: string) => {
     try {
+      const rail = getTrustedSurfaceRole(event.sender.id) === 'orb' ? event.sender : null
       if (typeof tabId !== 'string' || tabId.length > 300) throw new Error('Invalid plugin identifier')
       const hasWorkspace = homeSurfaceManager.getMemoryOwners().some(owner => owner.pluginId === toPluginId(tabId))
       // 普通 Tab 与同 ID 的 Workspace 是不同实例；仅拒绝释放仍被 Workspace 独占的插件。
@@ -227,6 +231,7 @@ export function registerShellHandlers(): void {
           ? 'Switch themes before releasing this workspace plugin' : '请先切换主题，再释放正在使用的首页插件' }
       }
       await pluginHost.closePresentation(tabId, hasWorkspace)
+      if (rail) refreshOrbRailPointer(rail)
       await refreshPluginMemoryAfterClose()
       return { ok: true }
     } catch (error) {
@@ -329,6 +334,29 @@ export function registerShellHandlers(): void {
   /** 圆轨 rail 视图展开/收起：renderer CSS 动画先行，主进程跟进切换视图宽度 */
   handleShellIpc(IpcChannels.ShellSetOrbRailExpanded, (_e, expanded: boolean) => {
     setOrbRailExpandedView(expanded === true)
+    return { ok: true }
+  })
+
+  /**
+   * shell:set-orb-dock — 拖动圆轨把手换边。
+   * 只接受 left/right 两个字面量；持久化逻辑与主题渲染的 dock 动作共用
+   * setOrbDockSide（写内置主题 profile 的 orbDock 字段，不引入第二套停靠状态）。
+   */
+  handleShellIpc(IpcChannels.ShellSetOrbDock, async (_e, dock: unknown) => {
+    if (dock !== 'left' && dock !== 'right') throw new Error('Invalid orb dock side')
+    await setOrbDockSide(dock)
+    return { ok: true }
+  })
+
+  /**
+   * shell:set-orb-rail-caption — 悬停名称浮层开合。
+   * 只接受布尔值；拓宽后的宽度由主进程常量决定（renderer 不能指定尺寸）。
+   * 目的：WebContentsView 内的 DOM 画不出视图边界，名称必须画在视图内部，
+   * 所以悬停期间把轨道视图临时加宽，离开即还原。
+   */
+  handleShellIpc(IpcChannels.ShellSetOrbRailCaption, (_e, open: unknown) => {
+    if (typeof open !== 'boolean') throw new Error('Invalid orb caption state')
+    setOrbRailCaptionOpen(open)
     return { ok: true }
   })
 
@@ -657,13 +685,13 @@ export function registerShellHandlers(): void {
   // —— 「打开方式」：壳统一能力（插件只声明，系统写入与路由在主进程）——
 
   const parseOpenWithKey = (raw: unknown): OpenWithKey | null => {
-    const key = String(raw ?? '')
-    if (key.startsWith('ext:') && OPEN_WITH_EXT_RE.test(key.slice(4))) return key as OpenWithKey
-    if (key.startsWith('scheme:') && OPEN_WITH_SCHEME_RE.test(key.slice(7))) return key as OpenWithKey
+    if (typeof raw !== 'string') return null
+    if (raw.startsWith('ext:') && validOpenWithValue('ext', raw.slice(4))) return raw as OpenWithKey
+    if (raw.startsWith('scheme:') && validOpenWithValue('scheme', raw.slice(7))) return raw as OpenWithKey
     return null
   }
 
-  handleShellIpc(IpcChannels.ShellOpenWithList, () => associationService.list())
+  handleShellIpc(IpcChannels.ShellOpenWithList, (_event, key?: unknown) => associationService.list(parseOpenWithKey(key) ?? undefined))
 
   handleShellIpc(IpcChannels.ShellOpenWithSetDefault, (_e, req: OpenWithSetRequest) => {
     const key = parseOpenWithKey(req?.key)
@@ -678,13 +706,11 @@ export function registerShellHandlers(): void {
     return associationService.clearDefault(key)
   })
 
-  handleShellIpc(IpcChannels.ShellOpenWithRoute, async (_e, req: OpenWithSetRequest) => {
+  handleShellIpc(IpcChannels.ShellOpenWithRoute, (_e, req: OpenWithSetRequest) => {
     const key = parseOpenWithKey(req?.key)
     const pluginId = String(req?.pluginId ?? '')
     if (!key || !pluginId) return { ok: false, error: 'invalid openWith request' }
-    return (await resumeDeferredOpen(key, pluginId))
-      ? { ok: true }
-      : { ok: false, error: '该插件未声明此类型或已停用' }
+    return associationService.route(key, pluginId)
   })
 
   handleShellIpc(IpcChannels.ShellOpenWithOpenSystemSettings, () => associationService.openSystemSettings())

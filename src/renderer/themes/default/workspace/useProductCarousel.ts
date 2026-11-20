@@ -24,7 +24,6 @@ export function useProductCarousel(items: PluginPresentation[], paused: boolean,
   const strideRef = useRef(1)
   const presentationFrame = useRef(0)
   const windowFocused = useRef(document.hasFocus())
-  const [hasWindowFocus, setHasWindowFocus] = useState(windowFocused.current)
   const [index, setIndex] = useState(0)
   const [moving, setMoving] = useState(false)
   const [dragging, setDragging] = useState(false)
@@ -42,6 +41,19 @@ export function useProductCarousel(items: PluginPresentation[], paused: boolean,
   const suspendedRef = useRef(suspended)
   suspendedRef.current = suspended
 
+  /**
+   * 某张幻灯片「居中显示」时的 scrollLeft（单一事实来源）。
+   *
+   * 精选是三卡布局（中间完整、两侧露出并模糊），只有当前卡居中时两侧才对称。
+   * `position` / `measureSlides` / `nearest` 必须共用这个函数，
+   * 否则 `--product-reveal` 的 0 点与滚动目标错位，会出现「卡居中了但没被点亮」。
+   *
+   * viewport 的左右 padding（首尾留白）已包含在 `slide.offsetLeft` 里，
+   * 所以用 `clientWidth`（含 padding 的内部宽度）居中是对的。
+   */
+  const centerLeft = (viewport: HTMLElement, slide: HTMLElement) =>
+    Math.max(0, slide.offsetLeft - (viewport.clientWidth - slide.offsetWidth) / 2)
+
   // Cache geometry on layout changes. A frame only reads scrollLeft once, then
   // updates presentation without React commits or per-slide layout reads.
   const syncPresentation = useCallback(() => {
@@ -56,14 +68,45 @@ export function useProductCarousel(items: PluginPresentation[], paused: boolean,
     }
   }, [])
 
+  /**
+   * 首尾留白：让第一张和最后一张也能滚到正中。
+   *
+   * 写成 viewport 上的 `--product-edge` 变量，由 CSS 的 `::before/::after` 消费。
+   * **不能用 padding**：padding 会缩小内容区，slide 的 `width: calc(100% - …)`
+   * 基准随之变小，卡宽会被算塌（实测 704px 塌成 328px）。
+   * 伪元素是普通 flex item，不参与百分比基准计算。
+   *
+   * 宽度 = 侧卡露出宽度 + 半个 gap：与「中间卡两侧各露出 side 宽、间距 gap」对齐，
+   * 这样首尾项居中时左右也各有半张侧卡，视觉与中间项一致。
+   * 该变量可能是 clamp()，必须读实际像素而不能拼接字符串。
+   */
+  const applyEdgeSpacers = useCallback(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const style = getComputedStyle(viewport)
+    const first = viewport.querySelector<HTMLElement>('[data-product-position="0"]')
+    const gap = parseFloat(style.columnGap || style.gap) || 0
+    const slideW = first?.offsetWidth ?? 0
+    if (!slideW) return
+    // 占位 = 侧卡露出宽度 + gap：首尾项居中时，左右各露出「半张侧卡」的镜像，
+    // 与中间项的三卡视觉完全一致（首尾镜像由 JSX 的 -1 / length 克隆提供）。
+    const side = Math.max(0, (viewport.clientWidth - slideW) / 2 - gap)
+    const edge = Math.round(side + gap)
+    const current = parseFloat(style.getPropertyValue('--product-edge')) || 0
+    if (Math.abs(current - edge) < 1) return
+    viewport.style.setProperty('--product-edge', `${edge}px`)
+  }, [])
+
   const measureSlides = useCallback(() => {
     const viewport = viewportRef.current
     if (!viewport) return
+    // 先写首尾留白，再测量：留白会改变 offsetLeft，测量必须在它之后。
+    applyEdgeSpacers()
     slides.current = Array.from(viewport.querySelectorAll<HTMLElement>('[data-product-position]'))
-      .map(node => ({ node, left: node.offsetLeft - 4, reveal: -1 }))
-    strideRef.current = Math.max(1, slides.current[1]?.left - slides.current[0]?.left || viewport.clientWidth)
+      .map(node => ({ node, left: centerLeft(viewport, node), reveal: -1 }))
+    strideRef.current = Math.max(1, slides.current[1] ? slides.current[1].left - slides.current[0].left : viewport.clientWidth)
     syncPresentation()
-  }, [syncPresentation])
+  }, [syncPresentation, applyEdgeSpacers])
 
   const commit = useCallback((next: number) => {
     const count = itemsRef.current.length
@@ -86,9 +129,17 @@ export function useProductCarousel(items: PluginPresentation[], paused: boolean,
     }
   }, [])
 
+  /**
+   * 把第 next 张幻灯片滚到「居中对齐」所需的 scrollLeft。
+   *
+   * 精选是三卡布局（中间完整、两侧露出并模糊），只有当前卡居中时两侧才对称。
+   * 首尾项要能居中，滚动范围两侧必须各有一块空白：这块空白由 `applyEdgeSpacers`
+   * 写成 viewport 的横向 padding（宽度 = 侧卡 + gap），而不是 CSS 百分比 padding——
+   * 百分比会改变 slide 的 `100%` 基准，把卡宽算塌。
+   */
   const position = (viewport: HTMLElement, next: number) => {
     const slide = viewport.querySelector<HTMLElement>(`[data-product-position="${next}"]`)
-    return slide ? slide.offsetLeft - 4 : 0
+    return slide ? centerLeft(viewport, slide) : 0
   }
 
   const nearest = useCallback(() => {
@@ -97,7 +148,7 @@ export function useProductCarousel(items: PluginPresentation[], paused: boolean,
     let closest = 0
     let distance = Infinity
     viewport.querySelectorAll<HTMLElement>('[data-product-position]').forEach((slide) => {
-      const delta = Math.abs(slide.offsetLeft - 4 - viewport.scrollLeft)
+      const delta = Math.abs(centerLeft(viewport, slide) - viewport.scrollLeft)
       if (delta < distance) { closest = Number(slide.dataset.productPosition); distance = delta }
     })
     return closest
@@ -236,10 +287,9 @@ export function useProductCarousel(items: PluginPresentation[], paused: boolean,
 
   useEffect(() => {
     const visibility = () => setDocumentVisible(!document.hidden)
-    const focus = () => { windowFocused.current = true; setHasWindowFocus(true) }
+    const focus = () => { windowFocused.current = true }
     const blur = () => {
       windowFocused.current = false
-      setHasWindowFocus(false)
       // Native window blur does not deliver pointerleave or DOM focusout reliably.
       // Clear interaction holds, but let an ordinary slide animation continue.
       setHovered(false)
@@ -281,8 +331,11 @@ export function useProductCarousel(items: PluginPresentation[], paused: boolean,
   }, [reducedMotion, select])
 
   // 自动阅读与动效强度解耦：低档仍然轮播并显示进度，只是切换不走位移补间。
-  // 减少动态效果、失焦、悬停等用户意图仍然暂停计时。
-  const running = continuous && hasWindowFocus && items.length > 1 && !reducedMotion && !suspended && !hovered && !focused && !moving && !dragging && !touching
+  //
+  // 窗口失焦（切到别的应用）**不再**暂停轮播：精选是橱窗内容，用户回来后
+  // 应该看到画面在动，而不是停在离开时那一屏。仍然尊重真正表示"别打扰"的意图：
+  // 减少动态效果、页面不可见（隐藏/最小化）、悬停、键盘聚焦、拖动中。
+  const running = continuous && items.length > 1 && !reducedMotion && !suspended && !hovered && !focused && !moving && !dragging && !touching
   useEffect(() => {
     if (!running) return
     const timer = setTimeout(() => select(indexRef.current + 1, true), PRODUCT_DWELL_MS)

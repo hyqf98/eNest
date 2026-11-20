@@ -4,6 +4,8 @@ import * as Dialog from '@radix-ui/react-dialog'
 import type { NativeModalAction, NativeModalApi, NativeModalState } from '@shared/types/modal'
 import { applyAppearanceToDom } from '@renderer/services/appearanceDom'
 import { Button } from '@renderer/components/ui/Button'
+import { PluginIcon } from '@renderer/components/PluginIcon'
+import { pluginProtocolUrl } from '@shared/constants'
 import { MarkdownView } from '@renderer/components/MarkdownView'
 import '@renderer/styles/tokens.css'
 import '@renderer/styles/base.css'
@@ -70,13 +72,12 @@ function NativeModal() {
           </div>
         </> : state.kind === 'open-with-choice' ? <>
           <Dialog.Title>{text('选择打开方式', 'Open with')}</Dialog.Title>
-          <Dialog.Description>{text(`要用哪个组件打开此${state.openWith?.value ?? ''}？选择后会记住，下次直接打开。`, `Which component should open this ${state.openWith?.value ?? ''}? Your choice will be remembered.`)}</Dialog.Description>
+          <Dialog.Description>{text(`选择处理 ${state.openWith?.value ?? ''} 的插件。eNest 会记住选择，不会更改系统默认应用。`, `Choose a plugin for ${state.openWith?.value ?? ''}. eNest remembers your choice without changing the system default.`)}</Dialog.Description>
           <div className="open-with-choices">
             {state.openWith?.choices.map(choice => (
               <Button key={choice.pluginId} className="open-with-choice-btn" onClick={() => action(`open-with:${choice.pluginId}`)}>
-                <span className="open-with-choice-glyph" style={choice.color ? { background: choice.color } : undefined}>
-                  {choice.glyph ?? choice.pluginName.slice(0, 1)}
-                </span>
+                <PluginIcon slot="tab" size={22} src={choice.icon?.startsWith(pluginProtocolUrl(choice.pluginId, '')) ? choice.icon : undefined}
+                  glyph={choice.glyph ?? Array.from(choice.pluginName)[0] ?? '?'} />
                 {choice.pluginName}
               </Button>
             ))}

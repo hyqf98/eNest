@@ -15,10 +15,11 @@ const adapters = {
   electron: `export const app={getAppPath:()=>${JSON.stringify('C:\\eNest\\resources\\app.asar')}};`,
   '@main/launcher/pluginLauncher': `import {state} from 'fixture';export const launchPlugin=async request=>{state.launches.push(request);return {ok:true}};`,
   '@main/logs/logService': 'export const logInfo=()=>{};export const logWarn=()=>{};',
-  '@main/plugin/localFiles': 'export const grantLocalFile=async(_owner,path)=>({id:path,displayPath:path});',
-  '@main/window/createShellWindow': 'export const getShellWebContents=()=>null;export const sendShellEvent=()=>{};',
+  '@main/plugin/localFiles': 'export const grantLocalFile=async(_owner,path)=>({id:path,displayPath:path});export const releaseLocalFileHandles=()=>{};',
+  '@main/plugin/PluginRegistry': "export const pluginRegistry={getBuildRevision:()=> 'build',isEnabled:()=>true};",
+  '@main/window/createShellWindow': 'export const getMainWindow=()=>null,getShellWebContents=()=>null;export const sendShellEvent=()=>{};',
   '@main/window/modalSurface': 'export const openNativeModal=async()=>false;',
-  './associationService': `export const associationService={resolveTarget:()=>({pluginId:'test.paths',ambiguous:false,providers:[]})};`
+  './associationService': `export const associationService={resolveTarget:()=>({pluginId:'test.paths',ambiguous:false,providers:[{pluginId:'test.paths'}]})};`
 }
 const output = await build({
   stdin: { contents: "export {handleOpenWithArgv,setOpenWithReadyProbe} from '@main/openWith/openWithRouter';export {state} from 'fixture';", resolveDir: process.cwd() },

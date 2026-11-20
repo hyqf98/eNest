@@ -213,6 +213,52 @@ header.titlebar.titlebar-autohide:not(.is-revealed) :is(.tab-strip, .titlebar-dr
   -webkit-app-region: no-drag;
 }
 
+/*
+ * macOS 的红绿灯占位。宿主用 setWindowButtonVisibility 打开系统原生按钮，
+ * DOM 这组不再渲染；但标题栏是 grid（68px / 1fr / auto），第一列固定留给红绿灯，
+ * 子项少一个会让 Tab 条前移补位、被原生按钮压住。
+ * 这块只占位、不画任何东西，也不吃指针事件。
+ */
+.traffic-slot {
+  width: 68px;
+  height: 100%;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+/**
+ * 首页视图铺满整窗、盖住主壳这一层。主壳标题栏有两个副作用必须在这里撤掉：
+ *
+ * 1. 红绿灯回避。macOS 上这组 DOM 按钮根本不渲染（TitleBar 里按 IS_MAC 跳过），
+ *    改用宿主打开的系统原生红绿灯；Windows/Linux 仍在 TitleBar 里自绘一组，
+ *    但首页是盖在整窗上的原生视图，会把主壳这组挡住，所以首页可见时这里还要隐藏，
+ *    避免它在首页切换的过渡帧里透出来。用 visibility 而非 display：
+ *    标题栏仍参与布局，Tab 条宽度不受影响。
+ * 2. **窗口拖拽区抢走指针事件**。Electron 把 `-webkit-app-region: drag` 注册成
+ *    窗口级的 DraggableRegionProvider；`native_window.cc` 的 NonClientHitTest 按
+ *    **注册顺序**取第一个命中返回 HTCAPTION，不看视图叠放次序。主壳标题栏那条
+ *    36px 横带因此永远先命中，而文档明确 "draggable areas ignore all pointer events"，
+ *    于是盖在它上面的首页内容（含自绘红绿灯）收不到 hover / click。
+ *
+ * 注意：首页的 `no-drag` 无法从主壳的 drag 区里挖洞——两者属于不同的
+ * WebContents，各有一份 draggable_region()，只有主壳那份能减自己。所以只能
+ * 整条撤销，再由首页自己提供一条拖拽带（defaultWorkspace.css 的
+ * .workspace-drag-band），拖动能力才不会一起丢掉。
+ */
+.app[data-shell-view='home'] .titlebar,
+.app[data-shell-view='home'] .titlebar :is(.tab-strip, .titlebar-drag-fill, .titlebar-spacer, .titlebar-plugin-label, .titlebar-plugin-name) {
+  -webkit-app-region: no-drag;
+}
+/*
+ * 首页时主壳标题栏的内容必须整体隐形，不只是红绿灯。
+ *
+ * 首页那层原生视图是透明底（#00000000），主壳在它下面继续绘制：只隐藏红绿灯的话，
+ * 主壳的 Tab 条会透过首页背景隐约露出来——就是截图里"首页按钮背后那块底板"。
+ * 首页已自绘红绿灯（Windows/Linux）与 Tab 条，这里把整条标题栏的内容藏掉，
+ * 只保留布局占位（用 visibility 不用 display，避免 Tab 条宽度重算）。
+ */
+.app[data-shell-view='home'] .titlebar > * { visibility: hidden; }
+
 .traffic-btn {
   width: 12px;
   height: 12px;

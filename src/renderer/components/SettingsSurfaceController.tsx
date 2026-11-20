@@ -132,13 +132,26 @@ function SettingsFrame({ config, snapshot, onNative, refresh, onFailure }: {
   return <iframe className="settings-theme-frame" ref={frameRef} src={`${config.url}#generation=${generation}`} sandbox="allow-scripts" referrerPolicy="no-referrer" title="Theme settings (isolated)" aria-hidden={!ready} tabIndex={ready ? 0 : -1} />
 }
 
+/**
+ * 跨挂载保留上一次的设置数据。
+ *
+ * 设置页切走即卸载、切回即重新挂载，而挂载后要先走两趟 IPC
+ * （getThemeSettingsConfig → getThemeSettingsSnapshot）才拿到数据。
+ * 只靠组件内 state 的话，每次回到设置页都会先渲染一次"加载中"——
+ * 用户看到的就是左上角一闪而过的过渡。
+ * 用模块级缓存把上次结果带过来：重新进入时直接出内容，同时在后台静默刷新。
+ */
+let cachedConfig: ThemeSettingsConfig | null = null
+let cachedSnapshot: ThemeSettingsSnapshot | null = null
+
 /** Chooses the selected theme's presentation; native account/security dialogs never enter its realm. */
 export function SettingsSurfaceController() {
   const { locale, t } = useI18n()
   const en = locale === 'en-US'
-  const [config, setConfig] = useState<ThemeSettingsConfig | null>(null)
-  const [snapshot, setSnapshot] = useState<ThemeSettingsSnapshot | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [config, setConfig] = useState<ThemeSettingsConfig | null>(cachedConfig)
+  const [snapshot, setSnapshot] = useState<ThemeSettingsSnapshot | null>(cachedSnapshot)
+  // 有缓存时不再进入 loading 分支：直接渲染上次内容，refresh 在后台静默补齐。
+  const [loading, setLoading] = useState(cachedConfig === null)
   const [failed, setFailed] = useState(false)
   const settingsTab = useShellStore(state => state.settingsTab)
   const previousTab = useRef(settingsTab)
@@ -152,6 +165,7 @@ export function SettingsSurfaceController() {
       const state = next ? await shellApi.getThemeSettingsSnapshot(next.key) : null
       if (sequence !== request.current) return
       if (key.current !== next?.key) { key.current = next?.key ?? null; setFailed(false) }
+      cachedConfig = next; cachedSnapshot = state
       setConfig(next); setSnapshot(state)
     } catch { if (sequence === request.current) setFailed(true) }
     finally { if (sequence === request.current) setLoading(false) }
@@ -180,14 +194,18 @@ export function SettingsSurfaceController() {
   const fallback = <Suspense fallback={<div role="status">{t('common.loading')}</div>}><DefaultSettingsPage /></Suspense>
   if (loading) return <div className="settings-surface-status" role="status">{t('common.loading')}</div>
   if (!config && !failed) return fallback
+  if (failed || !config || !snapshot) return <div className="settings-surface-controller">
+    <div className="settings-surface-toolbar" role="status">
+      <span>{en ? 'Theme settings are unavailable. Showing system settings.' : '主题设置暂不可用，已显示系统设置。'}</span>
+      <Button size="sm" variant="ghost" onClick={() => { setNative(false); setFailed(false); setLoading(true); void refresh() }}>{en ? 'Retry theme' : '重试主题设置'}</Button>
+    </div>
+    {fallback}
+  </div>
   return <div className="settings-surface-controller">
     <div className="settings-surface-toolbar">
       {native ? <Button size="sm" variant="ghost" onClick={() => { setNative(false); void refresh() }}>{en ? 'Back to theme settings' : '返回主题设置'}</Button> : <span>{en ? 'Theme settings' : '主题设置'}</span>}
       <Button size="sm" variant="ghost" onClick={() => openNative('general')}>{en ? 'System & security' : '系统与安全设置'}</Button>
     </div>
-    {native ? fallback : failed || !config || !snapshot ? <div className="settings-surface-status" role="alert">
-      <p>{en ? 'Theme settings are unavailable. System settings remain accessible.' : '主题设置暂不可用，系统设置仍可正常使用。'}</p>
-      <Button size="sm" onClick={() => { setFailed(false); setLoading(true); void refresh() }}>{en ? 'Retry' : '重试'}</Button>
-    </div> : <SettingsFrame key={config.key} config={config} snapshot={snapshot} onNative={openNative} refresh={refresh} onFailure={() => setFailed(true)} />}
+    {native ? fallback : <SettingsFrame key={config.key} config={config} snapshot={snapshot} onNative={openNative} refresh={refresh} onFailure={() => setFailed(true)} />}
   </div>
 }

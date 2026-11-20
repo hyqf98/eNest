@@ -28,6 +28,7 @@ export interface DefaultQuickSurfaceProps {
   active: boolean
   /** Compatibility policy for v1 themes which only replace presentation. */
   searchActive?: boolean
+  catalogPending?: boolean
   /** Internal retry/source invalidation only, never a public theme protocol field. */
   retryRevision?: number
   privateState: DefaultQuickStateClient
@@ -70,7 +71,7 @@ function HighlightTitle({ text, query }: { text: string; query: string }) {
 }
 
 export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, DefaultQuickSurfaceProps>(function DefaultQuickSurface(
-  { snapshot, active, searchActive = active, retryRevision = 0, privateState, onAction }, ref
+  { snapshot, active, searchActive = active, catalogPending = false, retryRevision = 0, privateState, onAction }, ref
 ) {
   const rootRef = useRef<HTMLDivElement>(null), inputRef = useRef<HTMLInputElement>(null), panelRef = useRef<HTMLDivElement>(null)
   const moreRef = useRef<HTMLButtonElement>(null), marketRef = useRef<HTMLButtonElement>(null)
@@ -89,9 +90,19 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   const hasQuery = Boolean(query.trim())
   /** 键盘已进入网格导航（下/上/Tab 移动过选中）：此后左右键归网格而不是输入框光标；查询变化即重置。 */
   const gridNavigatedRef = useRef(false)
+  /**
+   * 同一状态的可渲染镜像：输入框仍然持有焦点（这样才能继续打字），
+   * 但光标不该再闪——用户此刻在网格里选项，闪烁的竖线是干扰。
+   * 用 state 才能驱动 `caret-color`；ref 不触发渲染。
+   */
+  const [gridNavigated, setGridNavigated] = useState(false)
   const gridEpoch = snapshot.queryRevision
   const gridEpochRef = useRef(gridEpoch)
-  if (gridEpochRef.current !== gridEpoch) { gridEpochRef.current = gridEpoch; gridNavigatedRef.current = false }
+  if (gridEpochRef.current !== gridEpoch) {
+    gridEpochRef.current = gridEpoch
+    gridNavigatedRef.current = false
+    if (gridNavigated) setGridNavigated(false)
+  }
   const inputItems = snapshot.input?.items ?? []
   const media = useMemo(() => matchDefaultQuickMedia(snapshot.catalog, snapshot.input?.items), [snapshot.catalog, snapshot.input])
   const searching = snapshot.searching || (media.mediaPresent && media.matches.size > 0)
@@ -112,14 +123,15 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   const policyEnabled = searchActive && !plugin
   const names = useQuickNameSearch(usageCatalog, query, kind, policyEnabled, snapshot.composing, retryRevision, defaultQuickPreferredKey(usage, query))
   const content = useQuickContentMatches(snapshot.catalog, query, policyEnabled && !snapshot.composing, retryRevision)
-  const policyPending = names.pending
+  const policyPending = names.pending || hasQuery && catalogPending
   const displayError = snapshot.error || (hasQuery ? names.error : null)
   const ranked = useMemo(() => {
     const limit = searching || media.mediaPresent ? 60 : QUICK_GRID_COLUMNS * QUICK_HOME_ROWS
     if (!hasQuery) return rankDefaultQuickHome(usageCatalog, kind, limit, media.matches)
+    if (policyPending) return []
     const named = normalizeSearchText(query).length <= 32 || !media.mediaPresent ? names.matches : names.matches.filter(item => item.prefix)
     return assembleDefaultQuickResults(usageCatalog, named, kind, limit, content.matches, media.matches, media.mediaPresent)
-  }, [usageCatalog, query, kind, searching, content.matches, media, hasQuery, names.matches])
+  }, [usageCatalog, query, kind, searching, content.matches, media, hasQuery, names.matches, policyPending])
   const allGroups = useMemo(() => showResults ? groupQuickCommands(ranked, searching || kind === 'action', QUICK_GRID_COLUMNS * QUICK_HOME_ROWS) : [], [ranked, searching, kind, showResults])
   const { groups, visibleItems, overflowCount } = useMemo(() => getQuickSearchResults(allGroups, columns, searching, snapshot.expanded), [allGroups, columns, searching, snapshot.expanded])
   const index = quickSelectionIndex(visibleItems, snapshot.selectedId)
@@ -137,13 +149,17 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
         || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab'].includes(key)
         || shift && key !== 'Tab'
         || query && ['ArrowLeft', 'ArrowRight'].includes(key) && !gridNavigatedRef.current) return null
-      if (key === 'ArrowDown' || key === 'ArrowUp' || key === 'Tab') gridNavigatedRef.current = true
+      if (key === 'ArrowDown' || key === 'ArrowUp' || key === 'Tab') {
+        gridNavigatedRef.current = true
+        // 与键盘路径保持一致：进入网格选项就隐藏输入光标。
+        setGridNavigated(true)
+      }
       const next = moveQuickGridSelection(index, groups.map(group => group.items.length), columns, key as QuickGridKey, shift)
       return visibleItems[next].id
     }
   }), [focus, recordOpened, searchActive, plugin, snapshot.busy, visibleItems, query, index, groups, columns])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!searchActive || plugin || snapshot.composing || hasQuery && policyPending) return
     void dispatch({ type: 'results', catalogRevision: snapshot.catalogRevision, queryRevision: snapshot.queryRevision,
       items: visibleItems.map(item => ({ id: item.id, title: item.title, group: item.group })), hiddenCount: overflowCount,
@@ -153,6 +169,40 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   useLayoutEffect(() => {
     panelRef.current?.querySelector<HTMLElement>(`[data-index="${index}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [index, visibleItems])
+  /** 选中项名称被截断时的胶囊提示：浮在卡片上方、盖在其余格子之上，不撑格。
+      固定定位 + 视口钳制，贴边格子也不会把提示推出窗外；面板滚动即隐藏。 */
+  const tipRef = useRef<HTMLDivElement>(null)
+  const [nameTip, setNameTip] = useState<{ title: string; x: number; top: number } | null>(null)
+  useLayoutEffect(() => {
+    const raf = window.requestAnimationFrame(() => {
+      const titleEl = panelRef.current?.querySelector<HTMLElement>(`[data-index="${index}"] .quick-item-title`)
+      const item = visibleItems[index]
+      if (!active || !titleEl || !item) { setNameTip(null); return }
+      const source = item.group === 'provider' ? item.subtitle : ''
+      if (!source && titleEl.scrollWidth <= titleEl.clientWidth + 1) { setNameTip(null); return }
+      const card = titleEl.closest<HTMLElement>('.quick-item')
+      if (!card) { setNameTip(null); return }
+      const rect = card.getBoundingClientRect()
+      setNameTip({ title: source ? `${source} · ${item.title}` : item.title, x: rect.left + rect.width / 2, top: rect.top })
+    })
+    return () => window.cancelAnimationFrame(raf)
+  }, [active, index, visibleItems, columns, searching, snapshot.expanded])
+  // 高度量出来后再写位置，避免按估计高度定位产生跳动。
+  useLayoutEffect(() => {
+    const tip = tipRef.current
+    if (!tip || !nameTip) return
+    const half = tip.offsetWidth / 2
+    const x = Math.min(Math.max(nameTip.x, half + 10), Math.max(window.innerWidth - half - 10, half + 10))
+    tip.style.left = `${x}px`
+    tip.style.top = `${Math.max(nameTip.top - tip.offsetHeight - 8, 8)}px`
+  }, [nameTip])
+  useEffect(() => {
+    const panel = panelRef.current
+    if (!panel) return
+    const hide = () => setNameTip(null)
+    panel.addEventListener('scroll', hide, { passive: true })
+    return () => panel.removeEventListener('scroll', hide)
+  }, [])
   useLayoutEffect(() => {
     const panel = panelRef.current
     const results = panel?.querySelector<HTMLElement>('.quick-results')
@@ -194,7 +244,12 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
 
   const select = (next: number) => { if (visibleItems[next]) void dispatch({ type: 'select', id: visibleItems[next].id }) }
   const open = (item: QuickThemeItem, mainWindow = false) => dispatch({ type: 'open', id: item.id, ...(mainWindow ? { container: 'shell' as const } : {}) })
-  const changeQuery = (value: string) => { void dispatch({ type: 'query', query: value }) }
+  const changeQuery = (value: string) => {
+    // 一开始打字就退出网格导航态：光标要回来，左右键也该恢复成编辑光标。
+    // queryRevision 变化也会重置一次，这里显式做是为了不在"输入同样的字"时依赖它。
+    if (gridNavigatedRef.current) { gridNavigatedRef.current = false; setGridNavigated(false) }
+    void dispatch({ type: 'query', query: value })
+  }
   const onPaste = (event: { clipboardData: DataTransfer | null; preventDefault(): void }) => {
     if (plugin || !searchActive) return
     // 文本粘贴保持默认插入行为；仅在剪贴板携带图片/文件时拦截并交给宿主上下文。
@@ -252,7 +307,11 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey && event.key !== 'Tab'
         || inInput && query && ['ArrowLeft', 'ArrowRight'].includes(event.key) && !gridNavigatedRef.current || !visibleItems.length) return
       event.preventDefault()
-      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') gridNavigatedRef.current = true
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+        gridNavigatedRef.current = true
+        // 进入网格选项：输入框保留焦点（还能继续打字），但隐藏闪烁光标。
+        setGridNavigated(true)
+      }
       if (event.key === 'Tab' && moreRef.current && (event.shiftKey ? index === 0 : index === visibleItems.length - 1)) { moreRef.current.focus(); return }
       select(moveQuickGridSelection(index, groups.map(group => group.items.length), columns, event.key as QuickGridKey, event.shiftKey)); focus()
     }
@@ -266,6 +325,9 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
       <DefaultQuickBackground active={active} />
       <div className="quick-search-bar" role="search" data-tools={plugin ? 'plugin' : categoriesOpen ? 'expanded' : 'collapsed'}>
         <SearchField value={query} onChange={changeQuery} inputRef={inputRef}
+          // 网格键盘导航时隐藏输入光标：用户此刻在用方向键选项，闪烁竖线是干扰。
+          // 焦点仍留在输入框，随时可以继续打字（打字/点击会清掉这个标记）。
+          caretHidden={gridNavigated && !plugin}
           placeholder={plugin ? plugin.placeholder : kind === 'app' ? '搜索软件…' : kind === 'plugin' ? '搜索插件…' : kind === 'action' ? '搜索系统操作…' : '搜索应用、插件与指令…'}
           leading={plugin ? <>
             <button type="button" className="quick-search-leading quick-plugin-back" onClick={() => void dispatch({ type: 'plugin-back' })} title={`返回全局搜索 · ${plugin.title}（Esc）`} aria-label="返回全局搜索"><ChevronLeftIcon size={20} /></button>
@@ -297,8 +359,11 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
             </span>
           </>}
           inputProps={{ role: 'combobox', readOnly: Boolean(plugin && !plugin.acceptsInput), 'aria-expanded': showResults, 'aria-controls': showResults ? 'quick-results' : undefined, 'aria-activedescendant': showResults && selected && !snapshot.busy ? `quick-item-${index}` : undefined,
+            // 一旦真的选中/点击输入框、或开始输入法组合，就退出网格导航态、恢复光标。
+            onSelect: () => { if (gridNavigated) { gridNavigatedRef.current = false; setGridNavigated(false) } },
+            onClick: () => { if (gridNavigated) { gridNavigatedRef.current = false; setGridNavigated(false) } },
             onPaste: event => onPaste(event),
-            onCompositionStart: () => { composing.current = true; void dispatch({ type: 'composition', active: true }) },
+            onCompositionStart: () => { composing.current = true; if (gridNavigated) { gridNavigatedRef.current = false; setGridNavigated(false) } void dispatch({ type: 'composition', active: true }) },
             onCompositionEnd: () => { composing.current = false; void dispatch({ type: 'composition', active: false }) } }} />
         {!plugin && <div className="quick-categories-slot" id="quick-categories" aria-hidden={!categoriesOpen}><div className="quick-categories" aria-label="搜索范围">
           {FILTERS.map(filter => <button key={filter.kind} type="button" className="quick-category" tabIndex={categoriesOpen ? 0 : -1} aria-label={filter.label} aria-pressed={kind === filter.kind}
@@ -313,9 +378,13 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
             <div className="quick-section-head"><h2 id={`quick-group-${group.id}`}>{group.title}</h2></div>
             <div className="quick-group-items">{group.items.map((item, offset) => {
               const position = group.offset + offset
-              return <button key={item.id} id={`quick-item-${position}`} type="button" role="option" aria-selected={index === position} tabIndex={-1} data-index={position} data-quick-command
-                className={`quick-item quick-result${index === position ? ' active' : ''}`} title={`${item.title} · ${item.subtitle}`} disabled={snapshot.busy}
-                onMouseEnter={() => select(position)} onMouseDown={event => event.preventDefault()} onClick={() => void open(item)}>
+              // 网格里只放图标 + 名称：副标题那排小字在 8 列宽的一格里必然被省略号
+              // 切碎，读不了还占高度；完整说明由选中时的 nameTip 胶囊 / aria-label 承载。
+              const active = index === position
+              return <button key={item.id} id={`quick-item-${position}`} type="button" role="option" aria-selected={active} tabIndex={-1} data-index={position} data-quick-command
+                className={`quick-item quick-result${active ? ' active' : ''}`}
+                aria-label={item.subtitle ? `${item.title} · ${item.subtitle}` : item.title} disabled={snapshot.busy}
+                onMouseMove={event => { if (event.movementX || event.movementY) select(position) }} onMouseDown={event => event.preventDefault()} onClick={() => void open(item)}>
                 <ItemIcon item={item} /><span className="quick-item-copy"><span className="quick-item-title"><HighlightTitle text={item.title} query={query} /></span></span>
                 {snapshot.busy && selected?.id === item.id && <span className="quick-item-opening" aria-label="打开中" />}
               </button>
@@ -331,6 +400,7 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
         {!displayError && !showMarketEmpty && !visibleItems.length && <div className="quick-empty"><span>{busy ? '正在查找应用与插件…' : searching ? '没有找到匹配项' : '暂时没有常用应用或插件'}</span><small>{busy ? '正在补齐搜索结果，请稍候' : searching ? '试试应用名称、插件名或指令关键词' : '搜索并打开后会显示在这里'}</small>
           {!busy && <button type="button" onClick={() => void dispatch({ type: 'refresh-apps' })}>重新扫描应用</button>}</div>}
       </div>}
+      {nameTip && <div className="quick-name-tip" ref={tipRef} role="tooltip">{nameTip.title}</div>}
     </div>
   </div>
 })

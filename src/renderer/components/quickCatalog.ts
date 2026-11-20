@@ -38,7 +38,10 @@ export function publicQuickCatalog(records: QuickCatalogRecord[]): QuickThemeCat
     if (cached?.id === id && cached.icon === icon) return cached.item
     const item: QuickThemeCatalogItem = {
       id, stateKey: command.stateKey ?? '', kind: command.kind, title: publicText(command.title, 256),
-      subtitle: command.kind === 'app' ? '本机应用' : command.kind === 'plugin' ? '插件指令' : '系统操作',
+      // 插件条目的 subtitle 由主进程按 feature.explain 组装（「插件名 · 功能场景」），
+      // 它才是区分同一插件多个入口（如画板 / 桌面画板）的唯一说明；只有目录没给时才回退类别名。
+      subtitle: command.subtitle?.trim() ? publicText(command.subtitle, 512)
+        : command.kind === 'app' ? '本机应用' : command.kind === 'plugin' ? '插件指令' : '系统操作',
       aliases: (command.aliases ?? [command.title]).filter(alias => !/^(?:\/|[a-z]:[\\/])/i.test(alias)).slice(0, 100).map(alias => publicText(alias, 256)),
       ...(command.action ? { action: command.action } : {}),
       ...(command.content ? { content: { ...command.content } } : {}),

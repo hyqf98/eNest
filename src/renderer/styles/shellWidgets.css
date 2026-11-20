@@ -45,6 +45,14 @@
   user-select: none;
 }
 
+/*
+ * 本机应用图标：系统给的是完整应用图标（macOS 自带圆角与阴影留白、
+ * Windows/Linux 比例不一），按 cover 裁切会吃掉图形边缘。
+ * contain 保持原件，底板交给外层容器。
+ */
+.plugin-icon-contain img { object-fit: contain; }
+.plugin-icon-contain { background: none; }
+
 .plugin-icon-glyph {
   color: #fff;
   font-weight: 750;

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>eNest</title>
+  <defs>
+    <linearGradient id="pine" x2=".8" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#062520"/><stop offset="1" stop-color="#001512"/>
+    </linearGradient>
+    <linearGradient id="jade" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#20dbae"/><stop offset="1" stop-color="#13c9a1"/>
+    </linearGradient>
+    <path id="rail" d="M350 336l29-51c9-16 13-19 28-19h211c14 0 20 3 29 19l120 218"/>
+    <path id="plug" d="M339 369l85 35q12 5 8 17l-6 17q-4 10 5 13l22 9c12 5 16 16 11 27s-15 14-26 9l-22-9q-8-4-11 6l-13 35q-5 13-17 8l-103-42q-13-5-7-18l56-101q6-12 18-6Z"/>
+  </defs>
+  <path id="tile" fill="url(#pine)" d="M370 100h284c90 0 136 0 177 23a173 173 0 0 1 70 70c23 41 23 87 23 177v284c0 90 0 136-23 177a173 173 0 0 1-70 70c-41 23-87 23-177 23H370c-90 0-136 0-177-23a173 173 0 0 1-70-70c-23-41-23-87-23-177V370c0-90 0-136 23-177a173 173 0 0 1 70-70c41-23 87-23 177-23Z"/>
+  <g fill="none" stroke="#20d6ad" stroke-width="17" stroke-linecap="round">
+    <use xlink:href="#rail"/><use xlink:href="#rail" transform="rotate(180 512 512)"/>
+  </g>
+  <g fill="url(#jade)"><use xlink:href="#plug"/><use xlink:href="#plug" transform="rotate(180 512 512)"/></g>
+  <circle cx="512" cy="512" r="26" fill="#ffb43a"/>
+</svg>

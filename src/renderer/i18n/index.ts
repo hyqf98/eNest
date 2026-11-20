@@ -22,7 +22,7 @@ const LOCALES: readonly Locale[] = ['zh-CN', 'en-US']
 
 interface LocalePersistence {
   read: () => Promise<unknown>
-  write: (locale: Locale) => Promise<void>
+  write?: (locale: Locale) => Promise<void>
 }
 
 let persistence: LocalePersistence | undefined
@@ -125,7 +125,7 @@ export const useI18nStore = create<I18nState>((set, get) => ({
     document.documentElement.lang = locale
     set({ locale })
     try {
-      await persistence?.write(locale)
+      await persistence?.write?.(locale)
     } catch {
       /* mock 或 IPC 失败时仅本地生效 */
     }

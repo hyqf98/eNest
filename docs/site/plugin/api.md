@@ -24,7 +24,7 @@ const api = window.enest
 
 ## MCP 工具处理器
 
-普通插件通过 `contributes.mcpTools` 声明工具，在业务初始化后调用一次 `enest.mcp.registerHandlers(handlers)`；处理器键集合须与 manifest 完全一致，不得依赖前台 `onEnter` 才注册。MCP 不授予额外权限，也不替用户触发原生交互。服务默认关闭，管理入口位于可信宿主设置页「开发者 → MCP 服务」；普通插件与隔离主题页不获得管理接口，第三方主题快照不发布 MCP 原生分组。完整声明、结果、取消、限额与目标平台验收边界见 [MCP 工具贡献](mcp.md)。
+普通插件通过 `contributes.mcpTools` 声明工具，在业务初始化后调用一次 `enest.mcp.registerHandlers(handlers)`；处理器键集合须与 manifest 完全一致，不得依赖前台 `onEnter` 才注册。MCP 不授予额外权限，也不替用户触发原生交互。服务默认关闭，管理入口位于可信宿主设置页「通用 → MCP 服务」；普通插件与隔离主题页不获得管理接口，第三方主题快照不发布 MCP 原生分组。完整声明、结果、取消、限额与目标平台验收边界见 [MCP 工具贡献](mcp.md)。
 
 ## 调用模型
 
@@ -1067,9 +1067,19 @@ if (!resolved.path) showError(resolved.error)
 
 解析不创建目录、不读取文件内容，也不签发访问权限。实际读写继续使用用户选定的文件句柄；`exists: true` 不代表当前插件有权读写。系统“打开方式”收到的 `file:` URL 由可信宿主入口转换，不由此 API 接受任意协议。
 
-### 打开方式（宿主统一能力，非插件 API）
+### `openWith.register(contribution)` / `openWith.unregister(id)`
 
-「设为默认打开软件」不暴露给插件：系统关联的写入目标只能是 eNest 本体（插件是壳内视图），注册、状态检测与「类型→插件」路由统一由壳主进程负责。插件只经 [manifest `contributes.openWith`](manifest.md#打开方式contributesopenwith) 声明能处理的类型/scheme；命中后以 `onEnter`（`code: 'open-file' | 'open-url'`）收到 `{ paths?, handles?, url? }`，文件读取走 `localFiles.read` 只读句柄。管理界面在壳设置 → 通用 → 打开方式。
+在插件页面登记本插件能打开的文件或链接，无需额外权限。固定类型优先写在 [manifest `contributes.openWith`](manifest.md#打开方式contributesopenwith)，这样安装后不必先启动插件。按用户配置决定的类型可在运行时注册，不需要在清单重复声明。
+
+```js
+await enest.openWith.register({ id: 'notes', extensions: ['note'], schemes: ['my-notes'] })
+// 用户在插件内关闭该功能时：
+await enest.openWith.unregister('notes')
+```
+
+`register` 成功后返回 `void`；同一登记 ID 再调用会替换该项。宿主按调用实例绑定来源，每插件最多 8 项运行时登记；非法输入、保留协议、他人已占用的协议或与本插件清单重名的 ID 会拒绝。`unregister` 只撤销本插件运行时登记，实际移除返回 `true`，不存在返回 `false`。登记保存在本机：关掉插件后仍可冷启动打开；停用、卸载或替换插件构建会撤销旧登记。
+
+登记只增加 **eNest 内的候选插件**，不改变操作系统默认，也不直接授予文件访问权。未选过插件时，多个候选或仅来自运行时的候选会先请用户选择。系统打开 eNest 后，选中的插件通过 `onEnter` 收到 `code: 'open-file' | 'open-url'` 及 `payload: { paths?, handles?, url? }`；文件内容通过 `localFiles.read({ handleId })` 读取。系统默认只由用户在宿主设置 → 通用 → 默认打开方式明确操作；是否生效以目标平台检测为准。
 
 ### `shell.openExternal(url)`
 
@@ -1406,7 +1416,7 @@ enest.onOut(() => {
 
 | | |
 |--|--|
-| **参数** | `cb: (event: { reason: 'tab-close' \| 'uninstall' \| 'app-quit' }) => void \| Promise<unknown>` |
+| **参数** | `cb: (event: { reason: 'tab-close' \| 'update' \| 'uninstall' \| 'app-quit' }) => void \| Promise<unknown>` |
 | **返回** | `() => void` |
 
 - 回调返回 **Promise** 时，preload 会等它 settle 后再回 ack（关闭流程随之等待）；reject 回报保存未确认，不伪造成功。

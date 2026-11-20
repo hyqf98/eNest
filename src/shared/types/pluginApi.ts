@@ -17,6 +17,7 @@ import type { ThemePackRegistrationInput } from './plugin'
 import type {
   AppLocale,
   CaptureDisplay,
+  OpenWithContribution,
   PluginCloseReason,
   PluginEnterPayload,
   PluginLaunchMode,
@@ -260,6 +261,10 @@ export interface EnestPluginApi {
   /** Confirm an own, installed and enabled manifest home entry; never activates it. */
   home: {
     register(contribution: HomePageRegistrationInput): Promise<HomePageRegistrationResult>
+  }
+  openWith: {
+    register(contribution: OpenWithContribution): Promise<void>
+    unregister(id: string): Promise<boolean>
   }
   /** 全局热键命名空间：enest.hotkey.register/unregister；需 'hotkey' 权限 */
   hotkey: {

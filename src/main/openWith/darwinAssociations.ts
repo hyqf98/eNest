@@ -1,6 +1,6 @@
 import { basename, dirname, join } from 'node:path'
 import { app } from 'electron'
-import { OPEN_WITH_EXT_RE, OPEN_WITH_SCHEME_RE, type OpenWithStatus } from '@shared/types/openWith'
+import { validOpenWithValue, type OpenWithStatus } from '@shared/types/openWith'
 import { run, type OpenWithKind } from './registrar'
 
 interface BundleAssociations {
@@ -8,16 +8,8 @@ interface BundleAssociations {
   extensions: string[]
   schemes: string[]
 }
-interface AssociationQuery { kind: OpenWithKind; value: string }
-interface AssociationAnswer { key: string; defaultBundleId: string | null; candidateBundleIds: string[] }
-
-const TTL = 30_000
-const MAX_BATCH = 128
-const MAX_CACHED_STATUSES = 512
-let bundleCache: { value: BundleAssociations | null; expiresAt: number } | undefined
+let bundleCache: BundleAssociations | undefined
 let bundleRead: Promise<BundleAssociations | null> | undefined
-const statuses = new Map<string, { expiresAt: number; value: OpenWithStatus | undefined }>()
-let detection: Promise<void> | undefined
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
@@ -40,10 +32,11 @@ async function readBundle(): Promise<BundleAssociations | null> {
     const protocols = Array.isArray(plist?.CFBundleURLTypes) ? plist.CFBundleURLTypes : []
     return {
       bundleId,
-      extensions: [...new Set(documents.flatMap(item => strings(record(item)?.CFBundleTypeExtensions))
-        .map(value => value.toLowerCase()).filter(value => OPEN_WITH_EXT_RE.test(value)))],
-      schemes: [...new Set(protocols.flatMap(item => strings(record(item)?.CFBundleURLSchemes))
-        .map(value => value.toLowerCase()).filter(value => OPEN_WITH_SCHEME_RE.test(value)))]
+      extensions: [...new Set(documents.filter(item => record(item)?.CFBundleTypeRole !== 'None' && record(item)?.LSHandlerRank !== 'None')
+        .flatMap(item => strings(record(item)?.CFBundleTypeExtensions))
+        .map(value => value.toLowerCase()).filter(value => validOpenWithValue('ext', value)))],
+      schemes: [...new Set(protocols.filter(item => record(item)?.CFBundleTypeRole !== 'None').flatMap(item => strings(record(item)?.CFBundleURLSchemes))
+        .map(value => value.toLowerCase()).filter(value => validOpenWithValue('scheme', value)))]
     }
   } catch { return null }
 }
@@ -51,10 +44,10 @@ async function readBundle(): Promise<BundleAssociations | null> {
 /** Read the running app's package, never the checkout's build snapshot or a fixed bundle ID. */
 export function getDarwinBundleAssociations(): Promise<BundleAssociations | null> {
   if (!app.isPackaged) return Promise.resolve(null)
-  if (bundleCache && bundleCache.expiresAt > Date.now()) return Promise.resolve(bundleCache.value)
+  if (bundleCache) return Promise.resolve(bundleCache)
   if (!bundleRead) {
     bundleRead = readBundle().catch(() => null).then(value => {
-      bundleCache = { value, expiresAt: value ? Infinity : Date.now() + TTL }
+      if (value) bundleCache = value
       return value
     }).finally(() => { bundleRead = undefined })
   }
@@ -67,7 +60,6 @@ export function getDarwinBundleAssociations(): Promise<BundleAssociations | null
 // recent macOS, which silently disabled every association query.
 const QUERY_SOURCE = String.raw`
 ObjC.import('AppKit');
-var UTType = $.NSClassFromString('UTType');
 function nil(value) {
   return value === null || value === undefined || (typeof value.isNil === 'function' && value.isNil());
 }
@@ -94,80 +86,38 @@ function candidateIds(urls) {
   return ids;
 }
 function run(argv) {
-  var queries = JSON.parse(argv[0]);
+  var query = JSON.parse(argv[0]);
   var workspace = $.NSWorkspace.sharedWorkspace;
-  return JSON.stringify(queries.map(function(query) {
-    var key = query.kind + ':' + query.value;
-    try {
-      var defaultHandler, handlers;
-      if (query.kind === 'scheme') {
-        var url = $.NSURL.URLWithString(query.value + ':');
-        if (nil(url)) return {key: key};
-        defaultHandler = workspace.URLForApplicationToOpenURL(url);
-        handlers = workspace.URLsForApplicationsToOpenURL(url);
-      } else {
-        var type = $.UTType.typeWithFilenameExtension(query.value);
-        if (nil(type)) return {key: key};
-        defaultHandler = workspace.URLForApplicationToOpenContentType(type);
-        handlers = workspace.URLsForApplicationsToOpenContentType(type);
-      }
-      return {key: key, defaultBundleId: bundleId(defaultHandler), candidateBundleIds: candidateIds(handlers)};
-    } catch (error) { return {key: key}; }
-  }));
+  var defaultHandler, handlers;
+  if (query.kind === 'scheme') {
+    var url = $.NSURL.URLWithString(query.value + ':');
+    if (nil(url)) throw new Error('Invalid URL');
+    defaultHandler = workspace.URLForApplicationToOpenURL(url);
+    handlers = workspace.URLsForApplicationsToOpenURL(url);
+  } else {
+    var typeClass = $.NSClassFromString ? $.NSClassFromString('UTType') : $.UTType;
+    if (nil(typeClass)) throw new Error('UTType is unavailable');
+    var type = typeClass.typeWithFilenameExtension(query.value);
+    if (nil(type)) throw new Error('Unknown file type');
+    defaultHandler = workspace.URLForApplicationToOpenContentType(type);
+    handlers = workspace.URLsForApplicationsToOpenContentType(type);
+  }
+  return JSON.stringify({defaultBundleId: bundleId(defaultHandler), candidateBundleIds: candidateIds(handlers)});
 }
 `
 
-async function readStatuses(bundle: BundleAssociations, queries: AssociationQuery[]): Promise<void> {
-  let answers: unknown
-  try {
-    const result = await run('/usr/bin/osascript', ['-l', 'JavaScript', '-e', QUERY_SOURCE, JSON.stringify(queries)], 5000)
-    if (result.code === 0) answers = JSON.parse(result.stdout)
-  } catch { /* An unavailable system bridge must remain unknown, never become candidate. */ }
-  const rows = new Map<string, AssociationAnswer>()
-  if (Array.isArray(answers)) {
-    for (const raw of answers) {
-      const answer = record(raw)
-      if (typeof answer?.key !== 'string' || answer.defaultBundleId !== null && typeof answer.defaultBundleId !== 'string'
-        || !Array.isArray(answer.candidateBundleIds) || answer.candidateBundleIds.some(value => typeof value !== 'string')) continue
-      rows.set(answer.key, answer as unknown as AssociationAnswer)
-    }
-  }
-  const ours = bundle.bundleId.toLowerCase()
-  for (const query of queries) {
-    const key = `${query.kind}:${query.value}`, answer = rows.get(key)
-    const value: OpenWithStatus | undefined = !answer ? undefined
-      : answer.defaultBundleId?.toLowerCase() === ours ? 'default'
-        : answer.candidateBundleIds.some(id => id.toLowerCase() === ours) ? 'candidate' : 'unregistered'
-    statuses.delete(key)
-    statuses.set(key, { expiresAt: Date.now() + TTL, value })
-    while (statuses.size > MAX_CACHED_STATUSES) statuses.delete(statuses.keys().next().value!)
-  }
-}
-
-/** Prime the package's declared types in one read instead of spawning a process for every row. */
 export async function detectDarwinAssociation(kind: OpenWithKind, value: string): Promise<OpenWithStatus | undefined> {
-  if (!app.isPackaged || !(kind === 'ext' ? OPEN_WITH_EXT_RE : OPEN_WITH_SCHEME_RE).test(value)) return undefined
+  if (!app.isPackaged || !validOpenWithValue(kind, value)) return undefined
   const bundle = await getDarwinBundleAssociations()
   if (!bundle) return undefined
-  const key = `${kind}:${value}`
-  const cached = statuses.get(key)
-  if (cached && cached.expiresAt > Date.now()) return cached.value
-  while (detection) {
-    await detection
-    const completed = statuses.get(key)
-    if (completed && completed.expiresAt > Date.now()) return completed.value
-  }
-  for (const [cacheKey, entry] of statuses) if (entry.expiresAt <= Date.now()) statuses.delete(cacheKey)
-  const queries = new Map<string, AssociationQuery>([[key, { kind, value }]])
-  for (const extension of bundle.extensions) queries.set(`ext:${extension}`, { kind: 'ext', value: extension })
-  for (const scheme of bundle.schemes) queries.set(`scheme:${scheme}`, { kind: 'scheme', value: scheme })
-  detection = readStatuses(bundle, [...queries.values()].slice(0, MAX_BATCH)).finally(() => { detection = undefined })
-  await detection
-  return statuses.get(key)?.value
-}
-
-export async function refreshDarwinAssociation(kind: OpenWithKind, value: string): Promise<OpenWithStatus | undefined> {
-  await detection
-  statuses.delete(`${kind}:${value}`)
-  return detectDarwinAssociation(kind, value)
+  try {
+    const result = await run('/usr/bin/osascript', ['-l', 'JavaScript', '-e', QUERY_SOURCE, JSON.stringify({ kind, value })], 5000)
+    if (result.code !== 0) return undefined
+    const answer = record(JSON.parse(result.stdout))
+    if (!answer || (answer.defaultBundleId !== null && typeof answer.defaultBundleId !== 'string')
+      || !Array.isArray(answer.candidateBundleIds) || answer.candidateBundleIds.some(id => typeof id !== 'string')) return undefined
+    const ours = bundle.bundleId.toLowerCase()
+    return answer.defaultBundleId?.toLowerCase() === ours ? 'default'
+      : answer.candidateBundleIds.some(id => id.toLowerCase() === ours) ? 'candidate' : 'unregistered'
+  } catch { return undefined }
 }

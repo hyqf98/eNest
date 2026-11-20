@@ -396,7 +396,8 @@ function ipcInventory(preloads, mainFiles) {
 function restrictedRoles(requests) {
   const roles = {
     install: 'installPreload', notification: 'notificationPreload', home: 'homePreload',
-    detached: 'detachedPluginPreload', modal: 'modalPreload', panel: 'panelPreload', region: 'regionPreload'
+    detached: 'detachedPluginPreload', modal: 'modalPreload', panel: 'panelPreload', region: 'regionPreload',
+    quick: 'quickPreload', orb: 'railPreload', dock: 'dockPreload'
   }
   const security = load(securityPath)
   for (const [role, entry] of Object.entries(roles)) {
@@ -451,7 +452,7 @@ restrictedRoles(requests)
 console.log(`Static contract audit: ${preloads.length} preload files and ${mainFiles.length} main files parsed; application code was not executed.`)
 for (const summary of summaries) console.log(summary)
 console.log('Scope boundary: public API types, argument/result shapes and generated SDK consistency still require typecheck and generator --check separately.')
-console.log('Scope boundary: shared shell preload role partitioning, owner validation for plugin/background/chrome/auxiliary surfaces, guard control flow, handler reachability and runtime behavior are not proven by this inventory.')
+console.log('Scope boundary: owner validation, guard control flow, handler reachability and runtime behavior are not proven by this inventory.')
 console.log('Scope boundary: main-to-renderer event delivery and transport implementations other than direct Electron calls or the three recognized wrappers are not inferred.')
 if (failures.size) {
   console.error(`Contract audit failed (${failures.size} findings):`)

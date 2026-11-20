@@ -11,7 +11,7 @@ import ts from 'typescript'
 const root = fileURLToPath(new URL('../../../../', import.meta.url))
 const nativeRequire = createRequire(import.meta.url)
 const controllerFile = join(root, 'src/renderer/themes/default/WorkspaceController.ts')
-const policyFile = join(dirname(controllerFile), 'quick/workspaceSearchPolicy.ts')
+const policyFile = join(root, 'tests/fixtures/workspaceSearchReference.ts')
 const matcherFile = join(dirname(controllerFile), 'quick/patternMatching.ts')
 const plain = value => JSON.parse(JSON.stringify(value))
 const deferred = () => {
@@ -60,6 +60,7 @@ function fixture(options = {}) {
         return modules.get(specifier).exports
       }
       const target = specifier === '@shared/search' ? join(root, 'src/shared/search.ts')
+        : specifier.startsWith('@renderer/') ? join(root, 'src/renderer', `${specifier.slice('@renderer/'.length)}.ts`)
         : specifier.startsWith('.') ? resolve(dirname(file), `${specifier}.ts`) : null
       if (!target) throw new Error(`Unexpected fixture dependency: ${specifier}`)
       if (target === policyFile || target === matcherFile) {

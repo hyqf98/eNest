@@ -5,7 +5,7 @@ const ASYNC_METHODS = [
   'getPlugins', 'getMarketStatus', 'getPluginDiagnostics', 'getPluginMemorySnapshot',
   'startPerformanceCapture', 'getPerformanceCaptureState', 'stopPerformanceCapture', 'exportPerformanceCapture',
   'restoreTabs', 'openPlugin', 'closePlugin', 'stopPluginResources', 'activatePlugin', 'hidePlugins',
-  'setPluginInset', 'setPluginTopInset', 'goHome', 'setShellView', 'setOrbRailExpanded', 'syncOrbState', 'getOrbState',
+  'setPluginInset', 'setPluginTopInset', 'goHome', 'setShellView', 'setOrbRailExpanded', 'setOrbDock', 'setOrbRailCaption', 'syncOrbState', 'getOrbState',
   'activateRailContribution',
   'uninstallPlugin', 'setPluginEnabled', 'getPluginShortcuts', 'savePluginShortcut', 'removePluginShortcut',
   'probePluginShortcut', 'launchPluginShortcut', 'beginShortcutCapture', 'endShortcutCapture', 'setPluginLaunch',
@@ -39,7 +39,7 @@ const unavailable = (name: string, native: boolean) => new Error(native
   : `Browser preview does not support ${name}`)
 
 /** Native transport is deliberately complete and fail-closed; it never consults preview state. */
-export function createNativeShellApi(raw: ShellApi): ShellApi {
+export function createNativeShellApi(raw: Partial<ShellApi>): ShellApi {
   const api: Partial<Record<Method, (...args: unknown[]) => unknown>> = {}
   for (const name of ASYNC_METHODS) api[name] = (...args) => {
     const method = raw[name]

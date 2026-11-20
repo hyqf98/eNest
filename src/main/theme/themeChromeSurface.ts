@@ -31,6 +31,9 @@ interface Options {
   state(): OrbRailState
   active(): boolean
   expand(value: boolean): void
+  /** 悬停名称浮层开合：rail 视图据此临时拓宽，让名称画在视图内部。 */
+  caption(open: boolean): void
+  refreshPointer(sender: Electron.WebContents): void
   changed(): void
   failed(signature: string): void
 }
@@ -184,10 +187,27 @@ export class ThemeChromeSurface {
       this.options.expand(action.expanded)
       return
     }
+    // 悬停名称浮层：rail 专属的非用户手势动作（悬停即触发，不经过点击）。
+    // 与 expand 同类——只切视图宽度，不涉及导航或插件，因此放在 gesture 校验之前。
+    if (action.type === 'caption') {
+      if (this.part !== 'rail' || typeof action.open !== 'boolean') throw new Error('Invalid rail caption action')
+      this.options.caption(action.open)
+      return
+    }
     if (this.part === 'dock' && action.type !== 'settings') throw new Error('Settings dock action required')
     const gestureAt = this.gestureAt
     this.gestureAt = -Infinity
     if (now - gestureAt > 1000) throw new Error('A native user gesture is required')
+    // 拖拽换边：rail 专属的用户手势动作（按住把手拖完松手）。只持久化一个偏好，
+    // 不碰插件与导航，因此放在 gesture 校验之后、插件相关动作之前。
+    if (action.type === 'dock') {
+      if (this.part !== 'rail' || (action.dock !== 'left' && action.dock !== 'right')) throw new Error('Invalid rail dock action')
+      // 动态 import 打断循环依赖：orbRailViews 静态引入本模块（创建 surface），
+      // 这里只能在调用点按需取用，不能提到顶层。
+      const { setOrbDockSide } = await import('@main/window/orbRailViews')
+      await setOrbDockSide(action.dock)
+      return
+    }
     if (action.type === 'contribution') {
       await activateRailContribution(action.id, () => this.interactive())
       return
@@ -211,6 +231,7 @@ export class ThemeChromeSurface {
       if (!Number.isSafeInteger(action.index) || action.index < 0 || action.index >= this.options.state().tabs.length) throw new Error('Invalid tab index')
       pluginHost.reorderPlugin(tab.pluginId, action.index)
     }
+    if (this.part === 'rail' && action.type === 'close' && this.interactive()) this.options.refreshPointer(this.view.webContents)
   }
   dispose(): void {
     if (this.disposed) return

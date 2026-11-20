@@ -10,7 +10,7 @@
 import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, extname, join } from 'node:path'
+import { basename, dirname, extname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { extractPluginArchive, writePluginBuildRevision } from './pluginInstallTasks'
 import type { PluginManifest } from '@shared/types/plugin'
@@ -21,6 +21,9 @@ import { isPluginAssetPath, isPluginBackendPath, normalizePluginDevUrl, PLUGIN_E
 import { resolvePluginFile } from './pluginPaths'
 import { resolveBackendFile } from './pluginBackendPath'
 import { validatePluginDistribution } from './pluginDistribution'
+import { isPackageId, isPackageVersion } from './packageIdentity'
+import { existingOwnedDirectory } from '@main/paths/ownedDirectory'
+import { getAppPathsGeneration } from '@main/paths/pathsService'
 import { logInfo, logWarn } from '@main/logs/logService'
 import Ajv2020 from 'ajv/dist/2020.js'
 import manifestSchema from '@shared/pluginManifest.schema.json'
@@ -39,18 +42,20 @@ export interface InstallResult {
 export type InstallPublished = (result: InstallResult) => void
 
 export interface PluginInstallLifecycleHooks {
-  beforeReplace?: (pluginId: string, dest: string) => Promise<void | (() => void)>
+  beforeReplace?: (pluginId: string, dest: string) => Promise<void | ((restorable: boolean) => void)>
   afterReplace?: (pluginId: string, dest: string) => Promise<void>
 }
 let lifecycleHooks: PluginInstallLifecycleHooks = {}
 const installLocks = new Map<string, Promise<unknown>>()
 let installSequence = 0
 const cancelledBefore = new Map<string, number>()
-export function beginPluginInstall(): number { return ++installSequence }
+export interface InstallOperation { sequence: number; pathsGeneration: number }
+export function beginPluginInstall(): InstallOperation { return { sequence: ++installSequence, pathsGeneration: getAppPathsGeneration() } }
 /** Uninstall supersedes preparations/downloads that started before it. */
 export function cancelPluginInstalls(id: string): void { cancelledBefore.set(id, ++installSequence) }
-function assertInstallCurrent(id: string, sequence: number): void {
-  if ((cancelledBefore.get(id) ?? 0) > sequence) throw new Error('插件安装已被卸载操作取消')
+function assertInstallCurrent(id: string, operation: InstallOperation): void {
+  if (operation.pathsGeneration !== getAppPathsGeneration()) throw new Error('Plugin installation data root changed')
+  if ((cancelledBefore.get(id) ?? 0) > operation.sequence) throw new Error('插件安装已被卸载操作取消')
 }
 
 /** Host supplies close/block hooks without introducing a Registry → Host import cycle. */
@@ -65,11 +70,6 @@ export async function withInstallLock<T>(id: string, action: () => Promise<T>): 
   try { return await task } finally { if (installLocks.get(id) === task) installLocks.delete(id) }
 }
 
-/** id：反向域名（至少两段；首段小写，后续段允许大写如 com.github.eNest.xxx） */
-const ID_PATTERN = /^[a-z0-9]+(\.[a-zA-Z0-9-]+)+$/
-/** version：宽松 semver（允许 -beta.1 / +build 后缀） */
-const SEMVER_PATTERN =
-  /^\d+\.\d+\.\d+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/
 /** engines.enest 支持的范围语法：* / ^x.y.z / >=x.y.z / 精确 x.y.z（* 需独立分支） */
 const ENGINE_RANGE_PATTERN = /^(\*|(\^|>=)?\d+\.\d+\.\d+)$/
 
@@ -100,7 +100,7 @@ export function collectManifestIssues(
 
   if (typeof m.id !== 'string' || !m.id) {
     pushError(errors, m.id, '字段 id 缺失或不是字符串（必填，反向域名）')
-  } else if (!ID_PATTERN.test(m.id)) {
+  } else if (!isPackageId(m.id)) {
     pushError(errors, m.id, `字段 id "${m.id}" 不是合法反向域名（形如 com.github.eNest.plugin）`)
   }
 
@@ -108,7 +108,7 @@ export function collectManifestIssues(
     pushError(errors, m.id, '字段 name 缺失或为空（必填）')
   }
 
-  if (typeof m.version !== 'string' || !SEMVER_PATTERN.test(m.version)) {
+  if (!isPackageVersion(m.version)) {
     pushError(errors, m.id, `字段 version "${String(m.version)}" 不是 semver（x.y.z）`)
   }
 
@@ -179,6 +179,15 @@ export function collectManifestIssues(
   } else for (const path of market.screenshots) {
     if (!isPluginAssetPath(path) || !path.startsWith(PLUGIN_SCREENSHOTS) || !/\.(png|webp|jpe?g)$/i.test(path)) {
       pushError(errors, m.id, '截图必须位于 assets/market/screenshots，使用 PNG/WebP/JPEG')
+    }
+  }
+  // 小组件预览图（views.panel.preview）：与 market.screenshots 同一套资源规则，
+  // 且开发态下文件必须真实存在——首页「小组件」区块按声明读取，缺文件会让卡片空白。
+  const panelPreview = (m.views as { panel?: { preview?: unknown } } | undefined)?.panel?.preview
+  if (panelPreview !== undefined) {
+    if (typeof panelPreview !== 'string' || !isPluginAssetPath(panelPreview)
+      || !panelPreview.startsWith(PLUGIN_SCREENSHOTS) || !/\.(png|webp|jpe?g)$/i.test(panelPreview)) {
+      pushError(errors, m.id, 'views.panel.preview 必须位于 assets/market/screenshots，使用 PNG/WebP/JPEG')
     }
   }
   if (m.settings !== undefined) pushError(errors, m.id, 'settings HTML 入口已移除，请使用 contributes.settings 或入口内设置页面')
@@ -256,6 +265,7 @@ export async function installFromDirectory(dir: string, options: { source?: bool
     if (pkg.name !== manifest.id.split('.').pop() || pkg.version !== manifest.version || pkg.type !== 'module') throw new Error('package.json name（id 末段）/version/type 必须与插件工程契约一致')
   }
   const resources = [manifest.icon!, manifest.market!.readme!, ...(manifest.market?.screenshots ?? [])]
+  if (manifest.views?.panel?.preview) resources.push(manifest.views.panel.preview)
   if (!(source && manifest.development?.main)) resources.push(PLUGIN_ENTRY)
   for (const path of resources) {
     if (!await resolvePluginFile(dir, path, source)) throw new Error(`插件资源缺失或越界: ${path}`)
@@ -314,11 +324,13 @@ export async function installFromFolder(
     const version = manifest.version || '0.0.0'
     const dest = join(destRoot, manifest.id, version)
     await mkdir(destRoot, { recursive: true })
+    await existingOwnedDirectory(dirname(destRoot), basename(destRoot))
     const stage = await mkdtemp(join(destRoot, '.staging-'))
     const backup = join(destRoot, `.backup-${randomUUID()}`)
     let movedOld = false
     let committed = false
-    let release: void | (() => void) = undefined
+    let replaced = false, restorable = true
+    let release: void | ((restorable: boolean) => void) = undefined
     try {
       onProgress?.(35, '准备插件文件')
       await cp(srcDir, stage, { recursive: true, force: true, dereference: false })
@@ -330,36 +342,44 @@ export async function installFromFolder(
       }
       const buildRevision = await writePluginBuildRevision(stage)
       assertInstallCurrent(manifest.id, operation)
+      await existingOwnedDirectory(destRoot, manifest.id, version)
       // The old renderer must release files before Windows can replace an installed build.
       release = await lifecycleHooks.beforeReplace?.(manifest.id, dest)
       assertInstallCurrent(manifest.id, operation)
       await mkdir(join(destRoot, manifest.id), { recursive: true })
-      if (existsSync(dest)) {
+      if (await existingOwnedDirectory(destRoot, manifest.id, version)) {
         await rename(dest, backup)
         movedOld = true
       }
       try {
         await rename(stage, dest)
+        replaced = true
+        await lifecycleHooks.afterReplace?.(manifest.id, dest)
+        assertInstallCurrent(manifest.id, operation)
+        const result = { manifest, dest, buildRevision }
+        onPublished?.(result)
         committed = true
+        onProgress?.(90, '写入完成')
+        logInfo('install', `installed ${manifest.id}@${version} → ${dest}`)
+        return result
       } catch (error) {
-        if (movedOld) await rename(backup, dest)
-        movedOld = false
+        if (!committed) {
+          restorable = false
+          if (replaced) await rename(dest, stage)
+          if (movedOld) await rename(backup, dest)
+          restorable = true
+        }
         throw error
       }
-      await lifecycleHooks.afterReplace?.(manifest.id, dest)
-      const result = { manifest, dest, buildRevision }
-      onPublished?.(result)
-      onProgress?.(90, '写入完成')
-      logInfo('install', `installed ${manifest.id}@${version} → ${dest}`)
-      return result
     } finally {
-      if (typeof release === 'function') release()
-      await rm(stage, { recursive: true, force: true }).catch(() => {})
-      if (committed && movedOld) {
-        await rm(backup, { recursive: true, force: true }).catch((error: Error) => {
-          logWarn('install', `cleanup previous build failed: ${error.message}`)
-        })
-      }
+      try {
+        await rm(stage, { recursive: true, force: true }).catch(() => {})
+        if (committed && movedOld) {
+          await rm(backup, { recursive: true, force: true }).catch((error: Error) => {
+            logWarn('install', `cleanup previous build failed: ${error.message}`)
+          })
+        }
+      } finally { if (typeof release === 'function') release(restorable) }
     }
   })
 }
@@ -390,7 +410,7 @@ export async function installFromZip(
     }
     return await installFromFolder(pluginRoot, destRoot, (percent, step) => {
       onProgress?.(40 + Math.round(percent * 0.55), step)
-    }, operation, onPublished)
+    }, operation, onPublished, expected)
   } finally {
     await rm(tmp, { recursive: true, force: true }).catch(() => {
       logWarn('install', `cleanup temp failed: ${tmp}`)

@@ -5,13 +5,15 @@ import { session, type Session } from 'electron'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { pluginFileResponse } from '@main/plugin/pluginFileResponse'
 import { resolvePluginFile } from '@main/plugin/pluginPaths'
+import { registerEnestProtocolForSession } from '@main/plugin/pluginProtocol'
 import { fetchMarketResource } from '@main/plugin/marketResources'
 import {
   CATALOG_README_LIMIT, catalogResourceKey, catalogResourceMime, type CatalogResource
 } from '@main/plugin/catalogResources'
 import { resolveAppearanceResource } from '@main/theme/appearanceResources'
+import { PROTOCOL } from '@shared/constants'
 import { BUILT_IN_HOME_SOURCE, validateHomeContribution } from './homeContract'
-import type { ResolvedHomePage } from './homeRegistry'
+import { isHomeBuildCurrent, type ResolvedHomePage } from './homeRegistry'
 import { isInsideDirectory } from './homeSecurity'
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -36,7 +38,16 @@ const CONTENT_TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8'
 }
 const RESOURCE_LIMIT_BYTES = 16 * 1024 * 1024
-const HOME_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' enest-home: data:; media-src enest-home://appearance; font-src 'self' enest-home://appearance; connect-src 'self' enest-home://catalog enest-home://appearance; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+/*
+ * 首页 CSP，经响应头下发（优先级高于文档里的 <meta>，改 meta 不生效）。
+ *
+ * `img-src` / `media-src` 必须带 `enest:`：插件图标与插件贡献的媒体资源由主进程
+ * 以 enest://plugin/<id>/... 提供。缺这条时浏览器直接拦截，PluginIcon 收到 onError
+ * 后回退成字形字符——用户看到的就是"首页 Tab / 卡片只有字母没有图标"。
+ * 注意首页是独立分区，光放 CSP 不够，还要给该 session 挂 enest:// 处理器并放行
+ * webRequest（见 createHomeSession 里另外两处）。
+ */
+const HOME_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' enest: enest-home: data:; media-src 'self' enest: enest-home://appearance; font-src 'self' enest-home://appearance; connect-src 'self' enest-home://catalog enest-home://appearance; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 const cleanups = new WeakMap<Session, () => void>()
 
 function homeCsp(page: ResolvedHomePage): string {
@@ -100,6 +111,8 @@ function catalogSlot(parts: string[]): CatalogResource | null {
   if (kind === 'icon' && parts.length === 2) return resources.icon ?? null
   if (kind === 'readme' && parts.length === 2) return resources.readme ?? null
   if (kind === 'screenshot' && parts.length === 3 && /^(?:0|[1-7])$/.test(index)) return resources.screenshots[Number(index)] ?? null
+  // 小组件预览图：`views.panel.preview` 声明的单张资源，不占 screenshots 槽位。
+  if (kind === 'panel-preview' && parts.length === 2) return resources.panelPreview ?? null
   return null
 }
 
@@ -185,16 +198,46 @@ function builtinDevOrigin(page: ResolvedHomePage): URL | null {
 
 export function createHomeSession(page: ResolvedHomePage, generation: number): Session {
   const ses = session.fromPartition(`enest-home-${generation}-${randomUUID()}`, { cache: false })
-  ses.protocol.handle('enest-home', request => serveHomeResource(page, request))
+  const current = () => isHomeBuildCurrent(page.contribution.source, page.buildRevision)
+  ses.protocol.handle('enest-home', async request => {
+    if (!current()) return new Response(null, { status: 410 })
+    const response = await serveHomeResource(page, request)
+    if (current()) return response
+    await response.body?.cancel()
+    return new Response(null, { status: 410 })
+  })
+  /*
+   * 首页是独立分区，默认 session / shell 分区上注册的 enest:// 处理器在这里不存在。
+   * 首页自绘 Tab 条要显示插件清单图标（enest://plugin/<id>/<icon>），
+   * 不挂这个 handler 的话请求 404，PluginIcon 回退成字形字符——就是
+   * "首页 Tab 显示字体而不是图标"。处理器本身只读插件资源目录，沿用默认 session 的实现。
+   */
+  registerEnestProtocolForSession(ses)
   const dev = builtinDevOrigin(page)
   const entry = homeEntryUrl(page)
   ses.webRequest.onBeforeRequest((details, callback) => {
+    if (!current()) { callback({ cancel: true }); return }
     let allowed = false
     try {
       const url = new URL(details.url)
       const segments = safePathSegments(url)
       if (url.protocol === 'enest-home:' && segments && ['surface', 'catalog', 'appearance'].includes(url.hostname)) {
         allowed = details.resourceType !== 'subFrame' && (details.resourceType !== 'mainFrame' || url.href === entry)
+      } else if (url.protocol === 'enest:') {
+        /*
+         * 插件图标与插件贡献的媒体资源（enest://plugin/<id>/...、enest://appearance/...）。
+         *
+         * 首页自绘 Tab 条会显示清单图标；不放行时请求被静默 cancel，<img> 触发
+         * onError，PluginIcon 回退成字形字符——就是"首页 Tab 只有字母没有图标"。
+         *
+         * 这里**不能按 resourceType 过滤**：enest: 是 standard 自定义协议，
+         * Chromium 对它的资源类型判定不稳定（常见为 other 而非 image），
+         * 按 image 放行会漏掉真实请求。改为按 host 限定：只允许 plugin / appearance
+         * 两个 host，主帧和子帧仍然拒绝，且协议处理器本身只读插件资源目录与外观资源，
+         * 越界路径返回 403。
+         */
+        allowed = url.hostname === 'plugin' || url.hostname === 'appearance'
+        if (details.resourceType === 'mainFrame' || details.resourceType === 'subFrame') allowed = false
       } else if (dev && url.host === dev.host && !url.username && !url.password) {
         allowed = url.protocol === dev.protocol || (dev.protocol === 'https:' ? url.protocol === 'wss:' : url.protocol === 'ws:')
         if (details.resourceType === 'mainFrame') allowed = url.href === new URL('home.html', `${dev.href.replace(/\/$/, '')}/`).href
@@ -210,6 +253,9 @@ export function createHomeSession(page: ResolvedHomePage, generation: number): S
   ses.on('will-download', refuseDownload)
   cleanups.set(ses, () => {
     ses.protocol.unhandle('enest-home')
+    // 分区是临时的（每次 generation 新建），退出时把两个协议处理器都摘掉，
+    // 避免 partition 复用/销毁时残留闭包。
+    try { ses.protocol.unhandle(PROTOCOL) } catch { /* 未注册 */ }
     ses.webRequest.onBeforeRequest((_details, callback) => callback({ cancel: true }))
     ses.removeListener('will-download', refuseDownload)
   })

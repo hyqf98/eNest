@@ -1,80 +1,63 @@
-/** macOS uses the running bundle's declarations and authoritative LaunchServices queries. */
-import { execFile } from 'node:child_process'
-import { join } from 'node:path'
-import { app, shell } from 'electron'
-import { detectDarwinAssociation, getDarwinBundleAssociations, refreshDarwinAssociation } from './darwinAssociations'
-import { registrationAvailable, type OpenWithKind, type OpenWithRegistrar } from './registrar'
+import { constants } from 'node:fs'
+import { access, stat } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { app } from 'electron'
+import { detectDarwinAssociation, getDarwinBundleAssociations } from './darwinAssociations'
+import { registrationAvailable, run, type OpenWithKind, type OpenWithRegistrar } from './registrar'
 
-/** Fixed helper path: packaged resources or the build output, never a PATH lookup. */
-function helperPath(): string {
-  const dir = app.isPackaged ? join(process.resourcesPath, 'native') : join(app.getAppPath(), 'native/bin')
-  return join(dir, 'open-with-helper')
+const finderGuide = '在 Finder 中选中此类型的文件 → 显示简介 → 打开方式 → 选择 eNest → 全部更改。'
+
+async function fileHelper(): Promise<string | undefined> {
+  if (!process.resourcesPath || !(Number.parseInt(process.getSystemVersion?.() ?? '', 10) >= 12)) return undefined
+  const path = join(process.resourcesPath, 'native', 'open-with-helper')
+  try {
+    await access(path, constants.X_OK)
+    return (await stat(path)).isFile() ? path : undefined
+  } catch { return undefined }
 }
 
-interface HelperResult { ok: boolean; message?: string }
+async function declared(kind: OpenWithKind, value: string): Promise<boolean> {
+  const bundle = await getDarwinBundleAssociations()
+  return (kind === 'ext' ? bundle?.extensions : kind === 'scheme' ? bundle?.schemes : undefined)?.includes(value) ?? false
+}
 
-/**
- * macOS 12+ exposes NSWorkspace default-handler setters, but they take a completion
- * block that JXA cannot construct, so the switch runs through a small fixed helper.
- */
-function setDefaultViaHelper(kind: OpenWithKind, value: string): Promise<HelperResult> {
-  return new Promise((resolve) => {
-    execFile(helperPath(), [kind, value, app.getPath('exe').replace(/\/Contents\/MacOS\/[^/]+$/, '')], {
-      timeout: 12_000, windowsHide: true, maxBuffer: 64 * 1024
-    }, (error, stdout) => {
-      if (error && !stdout) { resolve({ ok: false, message: error.message }); return }
-      try {
-        const parsed = JSON.parse(String(stdout).trim()) as { status?: unknown; message?: unknown }
-        if (parsed.status === 'ok') { resolve({ ok: true }); return }
-        resolve({ ok: false, message: typeof parsed.message === 'string' ? parsed.message : '系统未接受默认打开方式变更' })
-      } catch { resolve({ ok: false, message: '无法解析系统返回结果' }) }
-    })
-  })
+async function requestFileDefault(value: string): Promise<string | undefined> {
+  const helper = await fileHelper()
+  if (!helper) return '当前安装包不能直接切换文件的默认打开方式'
+  const bundlePath = dirname(dirname(dirname(app.getPath('exe'))))
+  const result = await run(helper, ['ext', value, bundlePath], 12_000)
+  try {
+    const answer = JSON.parse(result.stdout)
+    if (result.code === 0 && answer?.status === 'ok') return undefined
+    if (typeof answer?.message === 'string' && answer.message) return answer.message
+  } catch {}
+  return '系统未接受文件默认打开方式变更'
 }
 
 export const darwinRegistrar: OpenWithRegistrar = {
-  caps() {
-    // 文件类型与 URL scheme 在 macOS 12+ 都可程序化切换；更早系统回退为引导。
-    return registrationAvailable()
-      ? { canSetDefault: true, needsSystemSettings: false }
-      : { canSetDefault: false, needsSystemSettings: true }
+  async caps(kind, value) {
+    if (!await declared(kind, value)) return { canSetDefault: false, needsSystemSettings: false }
+    const canSetDefault = kind === 'scheme' || Boolean(await fileHelper())
+    return { canSetDefault, needsSystemSettings: !canSetDefault }
   },
 
-  /** Candidate registration belongs to the installed bundle, not a plugin manifest at runtime. */
-  async registerCandidate(): Promise<void> {},
-
   async setDefault(kind, value) {
-    if (!registrationAvailable()) {
-      return { ok: false, error: '开发态未注册打开方式，仅在安装版可用' }
-    }
-    const bundle = await getDarwinBundleAssociations()
-    if (!bundle) return { ok: false, error: '无法读取当前安装包的打开方式声明，系统状态未知' }
-    // Only a type the installed bundle actually declares can become its default.
-    const declared = kind === 'scheme' ? bundle.schemes.includes(value) : bundle.extensions.includes(value)
-    if (!declared) {
-      return {
-        ok: false,
-        status: await detectDarwinAssociation(kind, value),
-        error: kind === 'scheme'
-          ? '当前安装包未声明该 URL scheme，插件声明不会自动修改安装包'
-          : '当前安装包尚未声明此文件类型；新增类型需要更新壳安装包',
-      }
-    }
-    const result = await setDefaultViaHelper(kind, value)
-    const status = await refreshDarwinAssociation(kind, value)
-    if (result.ok && status !== 'unregistered') return { ok: true, status }
-    if (result.ok) return { ok: true, status, hint: '系统已接受变更，但未能确认生效；请在系统设置中核实' }
-    return {
-      ok: false,
-      status,
-      error: result.message,
-      hint: kind === 'ext' ? '也可在 Finder 中右键该文件 → 显示简介 → 打开方式 → 全部更改' : undefined,
-    }
+    if (!registrationAvailable()) return { ok: false, error: '开发态不能设置系统默认打开方式' }
+    if (!await declared(kind, value)) return { ok: false, error: '无法确认当前安装包声明了此类型，不能设置系统默认' }
+    let error: string | undefined
+    try {
+      if (kind === 'ext') error = await requestFileDefault(value)
+      else if (!app.setAsDefaultProtocolClient(value)) error = '系统未接受链接默认打开方式变更'
+    } catch { error = '无法请求系统更改默认打开方式' }
+    const status = await detectDarwinAssociation(kind, value)
+    if (status === 'default') return { ok: true, status }
+    return { ok: false, status, error: error ?? '系统未确认 eNest 为默认打开方式', hint: kind === 'ext' ? finderGuide : undefined }
   },
 
   detect: detectDarwinAssociation,
 
-  async openSystemSettings(): Promise<void> {
-    await shell.openExternal('x-apple.systempreferences:com.apple.ExtensionsPreferences')
+  async openSystemSettings() {
+    const { dialog } = await import('electron')
+    await dialog.showMessageBox({ type: 'info', message: '在 Finder 中设置文件的打开方式', detail: finderGuide })
   }
 }

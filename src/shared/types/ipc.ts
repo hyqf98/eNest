@@ -92,6 +92,10 @@ export const ShellGoHome = 'shell:go-home'
 export const ShellSetView = 'shell:set-view'
 /** 圆轨 rail 视图展开/收起：主进程切换 WebContentsView 宽度 */
 export const ShellSetOrbRailExpanded = 'shell:set-orb-rail-expanded'
+/** 圆轨停靠边：overlay 拖动把手换边后请求宿主持久化并重排原生视图 */
+export const ShellSetOrbDock = 'shell:set-orb-dock'
+/** 圆轨悬停名称浮层：临时拓宽原生视图，让名称画在视图内部而非溢出被裁 */
+export const ShellSetOrbRailCaption = 'shell:set-orb-rail-caption'
 export const ShellGetTheme = 'shell:get-theme'
 export const ShellSetTheme = 'shell:set-theme'
 export const ShellGetAppearance = 'shell:get-appearance'
@@ -218,6 +222,7 @@ export const QuickSearch = 'quick:search'
 export const QuickOpen = 'quick:open'
 export const QuickScanApps = 'quick:scan-apps'
 export const QuickGetConfig = 'quick:get-config'
+export const QuickGetLocale = 'quick:get-locale'
 export const QuickThemeGetConfig = 'quick:theme-get-config'
 export const QuickThemeAuthorize = 'quick:theme-authorize'
 export const QuickProviderState = 'quick:provider-state'
@@ -241,6 +246,8 @@ export const HomeRefresh = 'home:refresh'
 export const HomeAction = 'home:action'
 export const HomeGetAppearance = 'home:get-appearance'
 export const HomeGetConfig = 'home:get-config'
+/** classic 模式首页自绘 Tab 条：启动/重载时主动拉一次投影。 */
+export const HomeGetTabs = 'home:get-tabs'
 export const HomeEvent = 'home:event'
 export const PluginHomeRegister = 'plugin:home-register'
 
@@ -370,6 +377,8 @@ export const IpcChannels = {
   ShellGoHome,
   ShellSetView,
   ShellSetOrbRailExpanded,
+  ShellSetOrbDock,
+  ShellSetOrbRailCaption,
   ShellGetTheme,
   ShellSetTheme,
   ShellGetAppearance,
@@ -461,6 +470,7 @@ export const IpcChannels = {
   QuickOpen,
   QuickScanApps,
   QuickGetConfig,
+  QuickGetLocale,
   QuickThemeGetConfig,
   QuickThemeAuthorize,
   QuickProviderState,
@@ -479,6 +489,7 @@ export const IpcChannels = {
   HomeAction,
   HomeGetAppearance,
   HomeGetConfig,
+  HomeGetTabs,
   HomeEvent,
   PluginHomeRegister,
   WindowMinimize,
@@ -664,7 +675,10 @@ export type OrbRailSyncRequest = OrbRailProjection & {
 }
 
 /** shell:orb-event 负载：主进程 → 悬浮窗 */
-export type OrbEventPayload = { type: 'orb-state'; state: OrbRailState }
+export type OrbEventPayload =
+  | { type: 'orb-state'; state: OrbRailState }
+  /** 宿主光标看门狗判定已离开轨道：overlay 收起名称浮层（宽度已由主进程还原）。 */
+  | { type: 'orb-caption-close' }
 
 /** shell:test-proxy 负载 */
 export interface ProxyTestResult {

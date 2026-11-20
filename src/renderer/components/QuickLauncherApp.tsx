@@ -58,6 +58,7 @@ export function QuickLauncherApp() {
   const [directory, setDirectory] = useState<DirectoryState>({ revision: 0, records: [] })
   const [items, setItems] = useState<QuickThemeItem[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const explicitSelection = useRef<string | null>(null)
   const [expanded, setExpanded] = useState(false)
   const [hiddenCount, setHiddenCount] = useState(0)
   const [emptyMarket, setEmptyMarket] = useState(false)
@@ -113,19 +114,39 @@ export function QuickLauncherApp() {
     ;(themeReadyRef.current ? remoteView : defaultView).current?.focus(selectAll)
   }, [])
 
+  const retireProviders = useCallback(() => {
+    const previous = current.current
+    const retired = new Set(previous.directory.records.filter(record => record.command.group === 'provider').map(record => record.id))
+    if (!retired.size) return
+    const directory = { revision: previous.directory.revision + 1, records: previous.directory.records.filter(record => !retired.has(record.id)) }
+    const items = previous.items.filter(item => !retired.has(item.id))
+    const selectedId = previous.selectedId && retired.has(previous.selectedId) ? items[0]?.id ?? null : previous.selectedId
+    if (explicitSelection.current && retired.has(explicitSelection.current)) explicitSelection.current = null
+    current.current = { directory, items, selectedId }
+    setDirectory(directory); setItems(items); setSelectedId(selectedId)
+  }, [])
+
+  const selectItem = useCallback((id: string) => {
+    if (!current.current.items.some(item => item.id === id)) return false
+    explicitSelection.current = id
+    if (current.current.selectedId !== id) {
+      current.current = { ...current.current, selectedId: id }
+      setSelectedId(id)
+    }
+    return true
+  }, [])
+
   const invalidate = useCallback(() => {
+    explicitSelection.current = null
     queryRevision.current++
     searchSequence.current++
     void shellApi.quickSearch?.('', 0, undefined, 'cancel').catch(() => undefined)
-    const previous = current.current.directory
-    const records = previous.records.filter(record => record.command.group !== 'provider')
-    const next = records.length === previous.records.length ? previous : { revision: previous.revision + 1, records }
+    retireProviders()
     // Retire authority synchronously, before another queued theme action can run.
-    current.current = { directory: next, items: [], selectedId: null }
-    if (next !== previous) setDirectory(next)
+    current.current = { ...current.current, items: [], selectedId: null }
     setItems([]); setSelectedId(null); setExpanded(false); setHiddenCount(0); setEmptyMarket(false)
     setCatalogLoading(!nativeCatalog.current); setProvidersLoading(false); setError(null)
-  }, [])
+  }, [retireProviders])
 
   const refreshSources = useCallback((dropCatalog = false) => {
     catalogCache.invalidate()
@@ -155,6 +176,8 @@ export function QuickLauncherApp() {
 
   const applyContext = useCallback((items: QuickImageContext[] | undefined) => {
     const next = Array.isArray(items) ? items.slice(0, 12) : []
+    if (next.length === contextRef.current.length && next.every((item, index) => item.id === contextRef.current[index].id)) return
+    explicitSelection.current = null
     contextRef.current = next
     setInputContext(next)
     // Media changes rerank the existing catalog; clearing it would leave an empty
@@ -256,7 +279,13 @@ export function QuickLauncherApp() {
     const read = catalogCache.read(refresh, async () => {
       const result = await shellApi.quickSearch?.('', 65_536, undefined, 'catalog')
       if (!result || !Array.isArray(result.items)) throw new Error('Quick catalog is unavailable')
-      const commands = result.items.filter(command => command.group !== 'provider')
+      const commands = result.items.filter(command => command.group !== 'provider').map<QuickCommand>(command => {
+        const titleOnlyIndex = command.entryId && !command.aliases?.length
+        const implicitTitle = command.aliases === undefined && command.textInput?.trigger === 'prefix'
+        if (!titleOnlyIndex && !implicitTitle) return command
+        return { ...command, aliases: [command.title],
+          ...(command.textInput?.trigger === 'prefix' ? { textInput: { type: 'text', trigger: 'none' } } : {}) }
+      })
       return { commands, signature: JSON.stringify(commands) }
     })
     const isCurrent = () => !disposed && read.isCurrent()
@@ -279,25 +308,24 @@ export function QuickLauncherApp() {
 
   useEffect(() => {
     const sequence = ++searchSequence.current
+    retireProviders()
     if (!visible || pluginMode || composing || !query.trim() || filter && filter !== 'plugin') { setProvidersLoading(false); return }
     setProvidersLoading(true)
     const timer = setTimeout(async () => {
       try {
         const providers = await shellApi.quickSearch?.(query, 100, 'plugin', 'providers')
-        if (sequence !== searchSequence.current) return
-        if (providers?.items.length) {
-          const previous = current.current.directory
-          const next = { revision: previous.revision + 1,
-            records: cachedRecords(updateQuickCatalog([...previous.records.filter(record => record.command.group !== 'provider').map(record => record.command), ...providers.items], catalogNonce.current, previous.records)) }
-          current.current = { ...current.current, directory: next }
-          setDirectory(next)
-        }
+        if (sequence !== searchSequence.current || !providers?.items.length) return
+        const previous = current.current.directory
+        const next = { revision: previous.revision + 1,
+          records: cachedRecords(updateQuickCatalog([...previous.records.map(record => record.command), ...providers.items], catalogNonce.current, previous.records)) }
+        current.current = { ...current.current, directory: next }
+        setDirectory(next)
       } catch {
         if (sequence === searchSequence.current) setError('部分搜索来源暂时不可用，请重试。')
       } finally { if (sequence === searchSequence.current) setProvidersLoading(false) }
     }, 80)
     return () => { clearTimeout(timer); searchSequence.current++; void shellApi.quickSearch?.('', 0, undefined, 'cancel').catch(() => undefined) }
-  }, [query, filter, pluginMode, composing, refresh, shown, themeConfig?.key, visible])
+  }, [query, filter, pluginMode, composing, refresh, shown, themeConfig?.key, visible, retireProviders])
 
   const execute = useCallback(async (request: QuickOpenRequest): Promise<boolean> => {
     if (openingRef.current) return false
@@ -307,7 +335,14 @@ export function QuickLauncherApp() {
     openingRef.current = true; setOpening(true); setError(null)
     try {
       const result = await shellApi.quickOpen?.(request)
-      if (!result?.ok) { setError('无法打开，请稍后重试。'); return false }
+      if (!result?.ok) {
+        // 后端的 error 是唯一能定位失败原因的信息（启动目标失效、布局未适配、
+        // 插件未启用…），之前一律吞掉只留一句"请稍后重试"，用户和日志都无从下手。
+        // 只有 cancelled（用户中途关掉了 Quick）才用泛化文案——那不是故障。
+        const detail = typeof result?.error === 'string' && result.error && !/cancelled/i.test(result.error) ? result.error : ''
+        setError(detail ? `无法打开：${detail}` : '无法打开，请稍后重试。')
+        return false
+      }
       if (request.kind === 'plugin' && request.input && inputEpoch === contextEpoch.current && inputRevision === contextReadRevision.current) {
         resetContext()
       }
@@ -318,7 +353,11 @@ export function QuickLauncherApp() {
       }
       if (request.kind === 'action' && request.action === 'refresh-apps') refreshSources(true)
       return true
-    } catch { setError('无法打开，请稍后重试。'); return false }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : ''
+      setError(detail ? `无法打开：${detail}` : '无法打开，请稍后重试。')
+      return false
+    }
     finally { openingRef.current = false; setOpening(false) }
   }, [refreshSources, resetContext])
 
@@ -494,12 +533,12 @@ export function QuickLauncherApp() {
     }
     if (!customSearchRef.current && !input.meta && !input.ctrl && !input.alt) {
       const id = defaultView.current?.navigate(input.key, input.shift)
-      if (id && current.current.items.some(item => item.id === id)) { setSelectedId(id); return { ok: true } }
+      if (id && selectItem(id)) return { ok: true }
     }
     if (input.key !== 'Enter' || input.alt || input.shift || !await authorizeCurrent()) return { ok: false }
     if (current.current.selectedId) return { ok: await openHandle(current.current.selectedId, input.meta || input.ctrl ? 'shell' : undefined) }
     return emptyMarket ? { ok: await execute({ kind: 'action', action: 'open-market', query }) } : { ok: false }
-  }, [authorized, changeQuery, emptyMarket, escapePlugin, execute, filter, focus, inputSession, invalidate, mutateContext, openHandle, query, resetContext])
+  }, [authorized, changeQuery, emptyMarket, escapePlugin, execute, filter, focus, inputSession, invalidate, mutateContext, openHandle, query, resetContext, selectItem])
   useEffect(() => shellApi.onQuickThemeKey?.(input => { if (themeReadyRef.current) void keyAction({ type: 'key', ...input }, true) }), [keyAction])
 
   const action = useCallback(async (request: QuickThemeAction, trusted = false): Promise<QuickThemeActionResult> => {
@@ -517,7 +556,10 @@ export function QuickLauncherApp() {
     }
     if (request.type === 'query') return { ok: request.query === query || changeQuery(request.query.slice(0, 4_096)) }
     if (request.type === 'composition') {
-      if (composingRef.current !== request.active) searchSequence.current++
+      if (composingRef.current !== request.active) {
+        searchSequence.current++
+        if (request.active) retireProviders()
+      }
       composingRef.current = request.active; setComposing(request.active); return { ok: true }
     }
     if (request.type === 'filter') { if (request.kind !== filter) { invalidate(); setFilter(request.kind) }; return { ok: true } }
@@ -529,18 +571,19 @@ export function QuickLauncherApp() {
     if (request.type === 'results') {
       const visible = projectQuickThemeResults(catalog, request, { queryRevision: queryRevision.current, catalogRevision: current.current.directory.revision })
       if (!visible) return { ok: false }
-      const seen = new Set(visible.map(item => item.id))
       if (!trusted) { customSearchRef.current = true; setCustomSearch(true) }
-      setItems(previous => sameItems(previous, visible) ? previous : visible)
-      setSelectedId(previous => request.selectedId !== undefined ? request.selectedId && seen.has(request.selectedId) ? request.selectedId : null : previous && seen.has(previous) ? previous : visible[0]?.id ?? null)
+      const previous = current.current, keep = trusted ? explicitSelection.current : previous.selectedId
+      const selectedId = request.selectedId !== undefined ? request.selectedId
+        : keep && visible.some(item => item.id === keep) ? keep : visible[0]?.id ?? null
+      if (explicitSelection.current !== selectedId) explicitSelection.current = null
+      const items = sameItems(previous.items, visible) ? previous.items : visible
+      current.current = { ...previous, items, selectedId }
+      setItems(items); setSelectedId(selectedId)
       setHiddenCount(request.hiddenCount ?? 0); setEmptyMarket(request.emptyMarket === true)
       if (request.expanded !== undefined) setExpanded(request.expanded)
       return { ok: true }
     }
-    if (request.type === 'select') {
-      if (!current.current.items.some(item => item.id === request.id)) return { ok: false }
-      setSelectedId(request.id); return { ok: true }
-    }
+    if (request.type === 'select') return { ok: selectItem(request.id) }
     if (request.type === 'expand') { setExpanded(request.expanded); return { ok: true } }
     if (request.type === 'input-clear') {
       if (!request.id) resetContext()
@@ -571,7 +614,7 @@ export function QuickLauncherApp() {
       return { ok: result?.ok === true }
     }
     return { ok: false }
-  }, [authorized, catalog, changeQuery, escapePlugin, execute, filter, invalidate, keyAction, mutateContext, openHandle, pasteFromClipboard, query, refreshSources, refreshTheme, resetContext, restorePluginInput, themeConfig])
+  }, [authorized, catalog, changeQuery, escapePlugin, execute, filter, invalidate, keyAction, mutateContext, openHandle, pasteFromClipboard, query, refreshSources, refreshTheme, resetContext, restorePluginInput, retireProviders, selectItem, themeConfig])
 
   const snapshot = useMemo<QuickThemeSnapshot>(() => ({
     version: 1, revision: ++snapshotRevision.current, query, filter, searching: Boolean(query.trim()), loading, busy: opening, composing,
@@ -592,7 +635,7 @@ export function QuickLauncherApp() {
     style={{ '--quick-bar-h': `${QUICK_BAR_AREA_H}px`, '--quick-radius': `${QUICK_CORNER_RADIUS}px` } as CSSProperties}>
     <div className="quick-default-provider" hidden={themeReady}>
       <Suspense fallback={<div role="status" aria-label="正在加载快捷启动" />}>
-        <DefaultQuickSurface ref={defaultView} snapshot={snapshot} active={visible && !themeReady} searchActive={!themeReady || !customSearch}
+        <DefaultQuickSurface ref={defaultView} snapshot={snapshot} active={visible && !themeReady} searchActive={!themeReady || !customSearch} catalogPending={catalogLoading}
           retryRevision={refresh} privateState={defaultPrivateState} onAction={request => action(request, true)} />
       </Suspense>
     </div>

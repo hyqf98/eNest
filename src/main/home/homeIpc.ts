@@ -15,6 +15,7 @@ import {
   type HomeActionContext
 } from './homeDataService'
 import type { HomeSurfaceManager } from './HomeSurfaceManager'
+import { buildHomeTabsSnapshot } from '@main/window/orbRailViews'
 import { normalizeWorkspaceRoute } from './workspaceRoute'
 
 class HomeStateError extends Error {}
@@ -85,13 +86,26 @@ export function registerHomeIpc(manager: HomeSurfaceManager): void {
     return result
   })
   handle(IpcChannels.HomeRefresh, (event, request) => readCurrent(event, () => getHomeCatalog(request?.reason === 'boot' ? 'boot' : 'manual')))
+  /** 首页自绘 Tab 条：只读投影，不需要 active 门禁（首页可能正在切换路由）。 */
+  handle(IpcChannels.HomeGetTabs, event => {
+    assertCurrent(contextFor(event))
+    return buildHomeTabsSnapshot()
+  })
   handle(IpcChannels.HomeAction, async (event, action: HomeAction) => {
     const passive = action?.type === 'searchState' || action?.type === 'cancelSearch'
       || action?.type === 'searchInput' && action.operation !== 'read-clipboard'
-    if ((!passive && !manager.isContentsActive(event.sender.id)) || getTrustedSurfaceRole(event.sender.id) !== 'home') {
+    /**
+     * 窗口控制只作用于主窗，和首页处于哪个路由、是否刚 ACK 完无关。
+     * 沿用 isContentsActive（要求 visible && 路由已提交）会让用户在详情页
+     * 或切换路由的瞬间点关闭被判 "surface not active" 而静默失败。
+     * 这里只要求 sender 确实是首页表面——授权边界仍是「首页视图自己」。
+     */
+    const windowControl = action?.type === 'window'
+    if ((!passive && !windowControl && !manager.isContentsActive(event.sender.id))
+      || getTrustedSurfaceRole(event.sender.id) !== 'home') {
       throw new HomeStateError('Home surface is not active')
     }
-    const context = contextFor(event, !passive)
+    const context = contextFor(event, !passive && !windowControl)
     assertCurrent(context)
     return runHomeAction(action, context)
   })
