@@ -22,6 +22,9 @@
 .widget-card {
   display: flex;
   flex-direction: column;
+  /* 各小组件宽高比不同（预览区高度参差），标题钉到卡底：
+     同一行网格卡片等高（默认 stretch），名称因此对齐同一条底边基准线。 */
+  justify-content: space-between;
   gap: 8px;
   padding: 0;
   border: 1px solid var(--border);
