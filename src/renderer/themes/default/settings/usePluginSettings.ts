@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { shellApi } from '@renderer/services/shellApi'
 import { notify } from '@renderer/services/notifyService'
+import { t } from '@renderer/i18n'
 import type { ShellSettingsSection as PluginSettingsSection } from '@shared/types/shell'
 
 /** Keep native snapshots, pending drafts and serialized writes in the same page lifetime. */
@@ -91,7 +92,7 @@ export function usePluginSettings() {
           confirmedPluginSettings.current = { ...confirmedPluginSettings.current,
             [pluginId]: { ...confirmedPluginSettings.current[pluginId], [key]: value } }
         } catch {
-          if (pluginSettingsMounted.current) notify.error('插件设置未保存，已保留上次确认的值。')
+          if (pluginSettingsMounted.current) notify.error(t('settings.pluginSettingsSection.saveFailed'))
         } finally {
           pluginSettingReadRevision.current++
           if (pendingPluginSettings.current.get(identity)?.revision === revision) pendingPluginSettings.current.delete(identity)

@@ -22,10 +22,9 @@ export function TabBarFields() {
   const appearance = useAppearanceStore((s) => s.appearance)
   const packs = useAppearanceStore((s) => s.packs)
   const hydrated = useAppearanceStore((s) => s.hydrated)
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const [readFailed, setReadFailed] = useState(false)
   const [readAttempt, setReadAttempt] = useState(0)
-  const en = locale === 'en-US'
 
   useEffect(() => {
     let cancelled = false
@@ -43,12 +42,12 @@ export function TabBarFields() {
   if (!hydrated) {
     return (
       <p className="desc appearance-inline-status" role="status">
-        {readFailed ? (en ? 'Could not load appearance settings.' : '无法读取外观设置。') : t('common.loading')}
-        {readFailed && <Button variant="ghost" size="sm" onClick={() => { setReadFailed(false); setReadAttempt(value => value + 1) }}>{en ? 'Retry' : '重试'}</Button>}
+        {readFailed ? t('settings.tabbar.readFailed') : t('common.loading')}
+        {readFailed && <Button variant="ghost" size="sm" onClick={() => { setReadFailed(false); setReadAttempt(value => value + 1) }}>{t('settings.tabbar.retry')}</Button>}
       </p>
     )
   }
-  if (!pack) return <p className="desc appearance-inline-status" role="status">{en ? 'Host navigation settings are unavailable. Please reload settings.' : '宿主导航设置暂不可用，请重新读取设置。'}</p>
+  if (!pack) return <p className="desc appearance-inline-status" role="status">{t('settings.tabbar.unavailable')}</p>
   return (
     <TabBarControls
       key={JSON.stringify([pack.source, pack.id, pack.version, pack.settings.version])}
@@ -64,8 +63,7 @@ function TabBarControls({ identity, fields }: {
   fields: ThemeSettingsField[]
 }) {
   const appearance = useAppearanceStore((s) => s.appearance)
-  const { t, locale } = useI18n()
-  const en = locale === 'en-US'
+  const { t } = useI18n()
   const fieldFor = (key: string, type: ThemeSettingsField['type']) => fields.find(field => field.binding.target === 'layout' && field.binding.key === key && field.type === type)
   const styleField = fieldFor('tabStyle', 'select')
   const autoHideField = fieldFor('tabAutoHide', 'switch')
@@ -99,7 +97,7 @@ function TabBarControls({ identity, fields }: {
     })
   }, [identity])
 
-  const autoHideLabel = en ? 'Auto-hide' : '自动隐藏'
+  const autoHideLabel = t('settings.tabbar.autoHide')
   return (
     <>
       <Field
@@ -118,7 +116,7 @@ function TabBarControls({ identity, fields }: {
         />
       </Field>
       {isClassic && (
-        <Field label={autoHideLabel} desc={en ? 'Hide the top bar when the pointer leaves; move to the top edge to reveal it.' : '指针离开后收起标题栏，移到窗口顶部边缘即展开。'}>
+        <Field label={autoHideLabel} desc={t('settings.tabbar.autoHideDesc')}>
           <Switch
             aria-label={autoHideLabel}
             checked={appearance.layout.tabAutoHide === true}
@@ -127,8 +125,8 @@ function TabBarControls({ identity, fields }: {
           />
         </Field>
       )}
-      {(!styleField || (isClassic && !autoHideField)) && <p className="desc">{en ? 'Some host navigation settings are unavailable.' : '部分宿主导航设置暂不可用。'}</p>}
-      {saveFailed && <p className="desc" role="alert">{en ? 'Settings were not saved. The last confirmed appearance has been restored.' : '设置未保存，已恢复到宿主确认的外观。'}</p>}
+      {(!styleField || (isClassic && !autoHideField)) && <p className="desc">{t('settings.tabbar.partialUnavailable')}</p>}
+      {saveFailed && <p className="desc" role="alert">{t('settings.tabbar.saveFailed')}</p>}
     </>
   )
 }

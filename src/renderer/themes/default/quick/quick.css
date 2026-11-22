@@ -23,6 +23,8 @@
   font-family: var(--font);
   position: relative;
   width: 100%;
+  /* 填满原生窗口：外壳圆角始终与窗口边界对齐，不被内容高度差切掉底角。 */
+  height: 100%;
 }
 .quick-root.has-quick-theme { height: 100%; }
 .quick-root.has-quick-theme > .quick-shell { visibility: hidden; pointer-events: none; }
@@ -30,16 +32,19 @@
   position: relative;
   isolation: isolate;
   overflow: hidden;
+  height: 100%;
   border-radius: var(--quick-radius);
   background: var(--surface, #fafaf9);
-  box-shadow: inset 0 0 0 1px var(--border-strong), 0 18px 48px color-mix(in srgb, var(--text) 14%, transparent);
+  /* 透明窗口里不画外阴影：外阴影会填满圆角之外的窗口矩形角落，
+     在白色/浅色背景上就是一圈灰角。窗口自身 hasShadow 提供系统投影。 */
+  box-shadow: inset 0 0 0 1px var(--border-strong);
   transition: clip-path var(--quick-feedback) ease, box-shadow var(--quick-feedback) ease;
 }
 .quick-root[data-mode='plugin'],
 .quick-root[data-mode='plugin'] .quick-shell { height: 100%; }
 .quick-root[data-mode='plugin'] .quick-shell { display: grid; grid-template-rows: var(--quick-bar-h) minmax(0, 1fr); }
 /* The same outer corners survive list/plugin transitions; the join has no corners. */
-.quick-shell:focus-within { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--link) 34%, var(--border)), 0 18px 48px color-mix(in srgb, var(--text) 14%, transparent); }
+.quick-shell:focus-within { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--link) 34%, var(--border)); }
 .quick-root .ambient-particles.ambient-flow { position: absolute; inset: 0; height: 100%; opacity: 0.3; }
 .quick-search-bar {
   position: relative;

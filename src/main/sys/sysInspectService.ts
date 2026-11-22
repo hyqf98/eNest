@@ -138,6 +138,48 @@ export function parseSsOutput(stdout: string): SysPortInfo[] {
 }
 
 /**
+ * 解析 Windows `Get-NetTCPConnection -State Listen` + `Get-Process` 合并输出
+ * （win32）。ConvertTo-Json 单对象/数组均可能出现，统一按数组处理。
+ * 字段映射：LocalAddress/LocalPort/PID/Name（进程名）；protocol 固定 TCP（该命令
+ * 默认仅返回 TCP 监听）；user 与 darwin 的 lsof 同语义不可得，置空串。
+ */
+export function parseNetTcpConnections(stdout: string): SysPortInfo[] {
+  const text = stdout.trim()
+  if (!text) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return []
+  }
+  const rows = Array.isArray(parsed) ? parsed : [parsed]
+  const out: SysPortInfo[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const r = row as Record<string, unknown>
+    const pid = Number(r.PID)
+    const port = Number(r.LocalPort)
+    if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(port) || port <= 0) continue
+    const address = String(r.LocalAddress ?? '').replace(/^\[|\]$/g, '') || '0.0.0.0'
+    const key = `${pid}/${address}:${port}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const name = String(r.Name ?? '')
+    out.push({
+      command: name,
+      pid,
+      user: '',
+      protocol: address.includes(':') ? 'TCP6' : 'TCP',
+      address,
+      port,
+      name: `${address}:${port}`
+    })
+  }
+  return out
+}
+
+/**
  * 解析 Windows PowerShell `Get-Process | Select-Object Id,ProcessName,CPU,WS,Path |
  * ConvertTo-Json -Compress` 输出（win32）。ConvertTo-Json 单对象/数组均可能出现，统一按数组处理。
  * 字段映射（对齐 parsePsOutput 语义）：
@@ -200,6 +242,16 @@ export async function sysPorts(): Promise<SysPortInfo[]> {
   return cachedSample('ports', async () => {
     if (process.platform === 'darwin') {
       return parseLsofOutput(await run('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN']))
+    }
+    if (process.platform === 'win32') {
+      // Get-NetTCPConnection 无 UDP；监听表只取 TCP 与 darwin/Linux 口径一致。
+      // UTF-8 输出避免非 ASCII 进程名（中文服务名）乱码。
+      const text = await run(windowsPowerShell(), [
+        ...POWERSHELL_ARGS,
+        '-Command',
+        '[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-NetTCPConnection -State Listen | ForEach-Object { $p = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; [PSCustomObject]@{ LocalAddress=$_.LocalAddress; LocalPort=$_.LocalPort; PID=$_.OwningProcess; Name=$p.ProcessName } } | ConvertTo-Json -Compress'
+      ])
+      return parseNetTcpConnections(text)
     }
     if (process.platform === 'linux') {
       try {

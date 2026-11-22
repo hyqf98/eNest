@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { IS_MAC, IS_WINDOWS } from '@shared/platform'
+import { useI18n } from '@renderer/hooks/useI18n'
 import { shellApi } from '@renderer/services/shellApi'
 import { ShortcutCapture, formatAccelerator } from './shortcutCapture'
 
 /** Clicking or focusing the field captures a chord; only key release commits the draft. */
-export function ShortcutRecorder({ value, onChange, disabled = false, label = '快捷键', compact = false, autoStart = false, onRecordingChange }: {
+export function ShortcutRecorder({ value, onChange, disabled = false, label, compact = false, autoStart = false, onRecordingChange }: {
   value: string
   onChange(value: string): void
   disabled?: boolean
@@ -15,6 +16,7 @@ export function ShortcutRecorder({ value, onChange, disabled = false, label = '�
   autoStart?: boolean
   onRecordingChange?(active: boolean): void
 }) {
+  const { t } = useI18n()
   const [phase, setPhase] = useState<'idle' | 'starting' | 'recording' | 'restoring'>('idle')
   const [preview, setPreview] = useState('')
   const [error, setError] = useState('')
@@ -29,12 +31,14 @@ export function ShortcutRecorder({ value, onChange, disabled = false, label = '�
       onPhase: next => { setPhase(next); callbacks.current.onRecordingChange?.(next !== 'idle') },
       onPreview: setPreview,
       onValue: next => { setError(''); callbacks.current.onChange(next) },
-      onError: cause => setError(cause instanceof Error ? cause.message : '录制失败，请重试'),
+      onError: cause => setError(cause instanceof Error ? cause.message : t('settings.shortcutRecorder.recordFailed')),
       platform: IS_MAC ? 'darwin' : IS_WINDOWS ? 'win32' : 'linux',
       target: window
     })
     capture.current = session
     return () => { session.dispose(); callbacks.current.onRecordingChange?.(false) }
+    // t 随 locale 变化但录制错误文案无需响应语言切换，此处不重建录制会话。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => { if (disabled) void capture.current?.stop() }, [disabled])
   // 卡片点击进入录制：挂载后由用户手势直接开始，无需再点输入框。
@@ -50,14 +54,14 @@ export function ShortcutRecorder({ value, onChange, disabled = false, label = '�
       <div className="shortcut-recorder-input">
         <input aria-label={label} aria-describedby={compact ? undefined : hintId} aria-invalid={!!error} readOnly
           value={formatAccelerator(active ? preview : value)} disabled={disabled}
-          placeholder={phase === 'starting' ? '正在准备…' : active ? '请按组合键…' : '点击录制组合键'}
+          placeholder={phase === 'starting' ? t('settings.shortcutRecorder.preparing') : active ? t('settings.shortcutRecorder.pressKeys') : t('settings.shortcutRecorder.clickToRecord')}
           autoComplete="off" spellCheck={false} onFocus={start} onClick={start}
           onBlur={() => void capture.current?.stop()} />
         <span className="shortcut-recorder-indicator" aria-hidden="true">{active ? '●' : '⌨'}</span>
       </div>
-      {!compact && <p className="desc" id={hintId} role="status">{phase === 'restoring' ? '正在检查组合键…'
-        : phase === 'starting' ? '正在准备录制…' : active ? '正在录制 · 松开主键完成 · Esc 取消'
-          : '点击重新录制，需包含 Ctrl、Alt、Command 或 Super 等修饰键'}</p>}
+      {!compact && <p className="desc" id={hintId} role="status">{phase === 'restoring' ? t('settings.shortcutRecorder.restoring')
+        : phase === 'starting' ? t('settings.shortcutRecorder.preparingRecord') : active ? t('settings.shortcutRecorder.recording')
+          : t('settings.shortcutRecorder.idleHint')}</p>}
       {error && <p className="shortcut-error" role="alert">{error}</p>}
     </div>
   )

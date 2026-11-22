@@ -230,7 +230,9 @@
 
 /* —— 多关联列表形态：每类型一行，声明插件全部展示 —— */
 .open-with-section { --open-with-list-max-h: 340px; --open-with-icon-size: 32px; }
-.open-with-head { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 12px; }
+/* 卡片标题行：标题与右侧图标操作（+/系统设置）同一行 */
+.s-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 20px; }
+.page-settings .s-card .s-card-head h2 { margin: 0; }
 .open-with-head-actions { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 /* 图标按钮：+ 与系统默认应用设置同尺寸，和 .btn-ghost 同语言但压成方块 */
 .open-with-section .open-with-icon-btn.btn {
@@ -251,7 +253,6 @@
   color: var(--text);
   border-color: color-mix(in srgb, var(--border-strong) 70%, var(--accent) 30%);
 }
-.open-with-hint { margin: 0 0 12px; color: var(--text-3); font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.5; }
 .open-with-list {
   display: flex;
   flex-direction: column;
@@ -406,3 +407,6 @@
 .open-with-row.is-draft .open-with-providers { justify-content: flex-start; }
 .open-with-note { margin: 4px 0 0; font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.5; }
 .open-with-note.is-error { color: var(--danger); }
+/* 设置页懒加载区块占位：只保留高度，不渲染文字（避免进入设置时左上角闪「加载中」） */
+.settings-section-loading { min-height: 240px; }
+

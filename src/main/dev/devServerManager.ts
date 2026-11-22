@@ -1,8 +1,11 @@
 /**
  * Dev server 自动拉起与进程回收。
  * 自建进程从 spawn 返回起即登记；用户手动启动的服务只复用、不接管。
+ * 新检出仓库没有 node_modules 时先自动执行一次包管理器 install，再拉起开发服务。
  */
 import { createServer } from 'node:net'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type { ChildProcess } from 'node:child_process'
 import { net } from 'electron'
 import { sendShellEvent } from '@main/window/createShellWindow'
@@ -11,6 +14,7 @@ import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRun
 import { registerPluginProcess } from '@main/plugin/pluginOwnedProcesses'
 import type { DevCommandSpec, PluginManifest } from '@shared/types/plugin'
 import { buildSpawnCandidates, formatPortArgs, killTree, pipeOutput, spawnCommand } from './devSpawn'
+import { detectPackageManager } from './devCommandResolver'
 
 const READY_TIMEOUT_MS = 20_000
 const POLL_INTERVAL_MS = 500
@@ -20,6 +24,10 @@ const RETRY_COOLDOWN_MS = 60_000
 const PORT_SCAN_RANGE = 32
 /** Only new process startup is bounded; already-running services never wait for a slot. */
 const MAX_CONCURRENT_STARTS = 2
+/** 自动依赖安装的最长等待：新机器冷装大依赖可能要几分钟，超时只放弃当次拉起 */
+const INSTALL_TIMEOUT_MS = 10 * 60_000
+/** 同一源码目录的自动安装只做一次（成功与否），失败留待用户手动处理后重试 */
+const installedRoots = new Map<string, Promise<boolean>>()
 
 export interface DevServerEnsureOptions {
   signal?: AbortSignal
@@ -288,6 +296,12 @@ async function launchAndWait(pluginId: string, sourcePath: string, declaredUrl: 
     emitLog(pluginId, 'info', `声明端口 ${declaredPort} 被其它进程占用，改用 ${port}`)
   }
   if (cancelled(launch)) return null
+  // 新检出的源码没有 node_modules：先自动安装依赖，再拉服务（10 分钟上限）。
+  if (!await ensureDependenciesInstalled(pluginId, sourcePath, start, launch)) {
+    if (!cancelled(launch)) lastFailedAt.set(pluginId, Date.now())
+    return null
+  }
+  if (cancelled(launch)) return null
   emitLog(pluginId, 'info', `开发服务未运行，正在启动 ${start.label} …`)
   logInfo('dev', `${pluginId}: dev server starting reason=${launch.reason} active=${activeStarts}/${MAX_CONCURRENT_STARTS} queued=${startQueue.length} queueMs=${launch.queueMs}`)
   const env = { ...process.env, ...start.env, ENEST_DEV_PORT: String(targetPort) }
@@ -333,6 +347,100 @@ function canListen(port: number): Promise<boolean> {
     probe.once('error', () => resolve(false))
     probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)))
   })
+}
+
+/**
+ * 依赖就位检测：插件目录声明了 package.json 依赖却没有可解析的 node_modules。
+ * workspace 成员的依赖装在持锁的仓库根（向上 4 级与锁文件检测层级一致）。
+ */
+function dependenciesInstalled(sourcePath: string, start: DevCommandSpec): boolean {
+  if (!existsSync(join(sourcePath, 'package.json'))) return true
+  let current: string | null = sourcePath
+  for (let level = 0; level <= 4 && current; level++) {
+    if (existsSync(join(current, 'node_modules'))) return true
+    const parent = dirnameOf(current)
+    if (parent === current) break
+    current = parent
+  }
+  // raw 命令自带完整命令行；script 型（npm run dev）必须有 node_modules 才能执行。
+  return start.kind === 'raw'
+}
+
+/** 只取父目录的纯计算，兼容 Windows 分隔符。 */
+function dirnameOf(path: string): string {
+  const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return index <= 0 ? '.' : path.slice(0, index)
+}
+
+/** 与 devCommandResolver 的锁文件名保持一致；这里只用于定位安装根目录。 */
+const LOCKFILE_NAMES = ['pnpm-lock.yaml', 'yarn.lock', 'bun.lockb', 'bun.lock', 'package-lock.json', 'npm-shrinkwrap.json'] as const
+
+/** 持锁的 workspace 根（向上 4 级）；找不到锁文件时退回插件目录本身。 */
+function installRootOf(sourcePath: string): string {
+  let current = sourcePath
+  for (let level = 0; level <= 4; level++) {
+    if (LOCKFILE_NAMES.some(name => existsSync(join(current, name)))) return current
+    const parent = dirnameOf(current)
+    if (parent === current) break
+    current = parent
+  }
+  return sourcePath
+}
+
+/**
+ * 新检出源码的依赖自动安装：在持锁目录执行 `<manager> install`。同一目录并发请求
+ * 共享一次安装；成功后记住（后续直接跳过），失败不缓存——用户手动修复后重试会再试。
+ */
+function ensureDependenciesInstalled(pluginId: string, sourcePath: string, start: DevCommandSpec, launch: Launch): Promise<boolean> {
+  if (dependenciesInstalled(sourcePath, start)) return Promise.resolve(true)
+  const existing = installedRoots.get(sourcePath)
+  if (existing) return existing
+  const manager = start.manager ?? detectPackageManager(sourcePath)
+  const installRoot = installRootOf(sourcePath)
+  const attempt = (async (): Promise<boolean> => {
+    emitLog(pluginId, 'info', `首次使用该源码目录，正在 ${installRoot} 执行 ${manager} install 安装依赖…`)
+    logInfo('dev', `${pluginId}: auto install dependencies root=${installRoot} manager=${manager}`)
+    const child = await spawnCommand(installRoot, buildSpawnCandidates(
+      // raw 型直接执行 `npm install`（script 型会拼成 `npm run install`，仅当包声明了 install 脚本才有效）。
+      { kind: 'raw', command: `${manager} install`, label: `${manager} install` }, []
+    ), { ...process.env }, warn => emitLog(pluginId, 'warn', warn), {
+      signal: launch.controller.signal,
+      onChild: child => {
+        const unregister = registerPluginProcess({
+          pluginId, generation: launch.scope?.owner.generation, kind: 'development',
+          getPid: () => child.pid,
+          stop: () => { killTree(child) }
+        })
+        child.once('close', () => unregister())
+      }
+    })
+    if (!child) return false
+    pipeOutput(child, (level, text) => emitLog(pluginId, level, text))
+    const exited = new Promise<number | null>(resolve => { child.once('close', () => resolve(child.exitCode)) })
+    const timer = setTimeout(() => killTree(child), INSTALL_TIMEOUT_MS)
+    timer.unref()
+    const abort = () => killTree(child)
+    launch.controller.signal.addEventListener('abort', abort, { once: true })
+    try {
+      const code = await exited
+      if (launch.controller.signal.aborted) return false
+      if (code === 0) {
+        emitLog(pluginId, 'info', '依赖安装完成，正在启动开发服务…')
+        return true
+      }
+      emitLog(pluginId, 'warn', `依赖安装未成功（退出码 ${code ?? 'unknown'}）；请在该目录手动运行 ${manager} install 后重试`)
+      return false
+    } finally {
+      clearTimeout(timer)
+      launch.controller.signal.removeEventListener('abort', abort)
+    }
+  })()
+  void attempt.then(ok => {
+    if (ok) installedRoots.set(sourcePath, attempt)
+    else installedRoots.delete(sourcePath)
+  }, () => installedRoots.delete(sourcePath))
+  installedRoots.set(sourcePath, attempt)
+  return attempt
 }
 
 async function pickFreePort(base: number, signal: AbortSignal): Promise<number | null> {

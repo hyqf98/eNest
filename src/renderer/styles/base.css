@@ -43,6 +43,19 @@ body {
   background: var(--bg);
 }
 
+/*
+ * Quick 是透明原生窗口：画布必须始终透明，否则 body 背景会传播到 canvas
+ * （忽略 border-radius），把圆角外壳的四个角填成灰色方块，并在首帧闪一块灰矩形。
+ * 这里用 !important 压过上面的主题背景规则；只作用于 quick 表面。
+ */
+:root[data-surface='quick'],
+:root[data-surface='quick'] body,
+:root[data-surface='quick'] #root {
+  background: transparent !important;
+  border-radius: 0;
+}
+
+
 #root {
   height: 100%;
 }

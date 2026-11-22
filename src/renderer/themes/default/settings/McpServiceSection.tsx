@@ -16,11 +16,11 @@ import type { McpCatalogTool, McpStatus } from '@shared/types/mcpSettings'
 import type { PluginSummary } from '@shared/types/plugin'
 import { SettingsPluginRow } from './SettingsPluginRow'
 
-const STATE_KEYS: Record<McpStatus['state'], { zh: string; en: string; cls: string }> = {
-  disabled: { zh: '未启用', en: 'Disabled', cls: 'mcp-state-off' },
-  starting: { zh: '启动中', en: 'Starting', cls: 'mcp-state-warn' },
-  running: { zh: '运行中', en: 'Running', cls: 'mcp-state-on' },
-  error: { zh: '启动失败', en: 'Error', cls: 'mcp-state-error' },
+const STATE_KEYS: Record<McpStatus['state'], { key: string; cls: string }> = {
+  disabled: { key: 'settings.mcpState.disabled', cls: 'mcp-state-off' },
+  starting: { key: 'settings.mcpState.starting', cls: 'mcp-state-warn' },
+  running: { key: 'settings.mcpState.running', cls: 'mcp-state-on' },
+  error: { key: 'settings.mcpState.error', cls: 'mcp-state-error' },
 }
 
 function formatTime(ts: number): string {
@@ -61,8 +61,7 @@ function McpPluginTools({ pluginId, plugin, tools }: { pluginId: string; plugin?
 }
 
 export function McpServiceSection() {
-  const { t, locale } = useI18n()
-  const en = locale === 'en-US'
+  const { t } = useI18n()
   const plugins = useShellStore(state => state.plugins)
   const [status, setStatus] = useState<McpStatus | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -153,7 +152,7 @@ export function McpServiceSection() {
   const handleToggle = (checked: boolean) => {
     const port = Math.trunc(Number(portDraft))
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      notify.error(en ? 'Invalid port: enter an integer between 1 and 65535.' : '端口无效：请输入 1–65535 的整数。')
+      notify.error(t('settings.mcpState.portInvalid'))
       return
     }
     void applyConfig(checked, port)
@@ -162,7 +161,7 @@ export function McpServiceSection() {
   const handleApplyPort = () => {
     const port = Math.trunc(Number(portDraft))
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      notify.error(en ? 'Invalid port: enter an integer between 1 and 65535.' : '端口无效：请输入 1–65535 的整数。')
+      notify.error(t('settings.mcpState.portInvalid'))
       void refresh()
       return
     }
@@ -175,7 +174,7 @@ export function McpServiceSection() {
     setBusy(true)
     try {
       await shellApi.copyMcpConnectionConfig()
-      notify.success(en ? 'Connection config copied to clipboard.' : '连接配置已复制到剪贴板。')
+      notify.success(t('settings.mcpState.connectionCopied'))
     } catch (error) {
       notify.error(error instanceof Error ? error.message : String(error))
     } finally {
@@ -214,7 +213,7 @@ export function McpServiceSection() {
               title={t('mcp.enable')}
             />
             {stateMeta ? (
-              <span className={`mcp-state ${stateMeta.cls}`}>{en ? stateMeta.en : stateMeta.zh}</span>
+              <span className={`mcp-state ${stateMeta.cls}`}>{t(stateMeta.key)}</span>
             ) : <span className="desc">…</span>}
           </div>
         </div>

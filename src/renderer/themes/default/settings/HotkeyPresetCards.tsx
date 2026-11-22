@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useI18n } from '@renderer/hooks/useI18n'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import { formatAccelerator } from './shortcutCapture'
 import { useShortcutProbe } from './useShortcutProbe'
@@ -20,6 +21,7 @@ export function HotkeyPresetCards({ hotkeys, activeHotkey, registered, forced = 
   systemConfirmationRequired?: boolean
   onChange(hotkeys: string[], activeHotkey: string, overrideToken?: string, force?: boolean): void
 }) {
+  const { t } = useI18n()
   const custom = hotkeys.find(key => !PRESETS.includes(key)) ?? ''
   const [draft, setDraft] = useState(custom)
   const [recording, setRecording] = useState(false)
@@ -37,8 +39,8 @@ export function HotkeyPresetCards({ hotkeys, activeHotkey, registered, forced = 
   const cardState = (key: string) => ({
     active: activeHotkey === key,
     forced: forced.includes(key),
-    badge: systemConfirmationRequired && activeHotkey === key ? '待确认'
-      : registered.includes(key) ? (forced.includes(key) ? '强制生效' : '生效中') : undefined
+    badge: systemConfirmationRequired && activeHotkey === key ? t('settings.hotkeyCards.badgePending')
+      : registered.includes(key) ? (forced.includes(key) ? t('settings.hotkeyCards.badgeForced') : t('settings.hotkeyCards.badgeActive')) : undefined
   })
   return (
     <>
@@ -51,37 +53,37 @@ export function HotkeyPresetCards({ hotkeys, activeHotkey, registered, forced = 
               disabled={disabled || recording} aria-pressed={state.active}
               onClick={() => onChange([...PRESETS, ...(custom ? [custom] : [])], key)}>
               <span className="hotkey-card-top">
-                <span className="hotkey-card-slot">预设 {index === 0 ? 'A' : 'B'}</span>
+                <span className="hotkey-card-slot">{t('settings.hotkeyCards.presetSlot', { slot: index === 0 ? 'A' : 'B' })}</span>
                 {state.badge && <span className="hotkey-card-badge">{state.badge}</span>}
               </span>
               <span className="hotkey-card-acc">{formatAccelerator(key)}</span>
               <span className="hotkey-card-foot">{state.active
-                ? systemConfirmationRequired ? '请在系统中确认'
-                  : registered.includes(key) ? '当前生效' : '已选择 · 尚未生效'
-                : '点击切换'}</span>
+                ? systemConfirmationRequired ? t('settings.hotkeyCards.confirmInSystem')
+                  : registered.includes(key) ? t('settings.hotkeyCards.activeNow') : t('settings.hotkeyCards.selectedNotActive')
+                : t('settings.hotkeyCards.clickToSwitch')}</span>
             </button>
           )
         })}
         {/* 自定义卡片：默认与预设卡同样式；点击原位切换为录制，实时显示按下的组合键。 */}
         {editing || recording ? (
           <div className={`hotkey-card hotkey-card-custom is-recording${cardState(custom).active ? ' active' : ''}`}>
-            <span className="hotkey-card-top"><span className="hotkey-card-slot">自定义</span>
+            <span className="hotkey-card-top"><span className="hotkey-card-slot">{t('settings.hotkeyCards.custom')}</span>
               {cardState(custom).badge && <span className="hotkey-card-badge">{cardState(custom).badge}</span>}</span>
-            <ShortcutRecorder value={draft} onChange={setDraft} disabled={disabled} label="小窗口自定义快捷键" autoStart
+            <ShortcutRecorder value={draft} onChange={setDraft} disabled={disabled} label={t('settings.hotkeyCards.customAria')} autoStart
               onRecordingChange={active => { setRecording(active); if (!active) setEditing(false) }} compact />
-            <span className="hotkey-card-foot">{recording ? '正在录制 · 松开主键完成 · Esc 取消' : '请按下组合键…'}</span>
+            <span className="hotkey-card-foot">{recording ? t('settings.hotkeyCards.recordingHint') : t('settings.hotkeyCards.pressKeys')}</span>
           </div>
         ) : (
           <button type="button"
             className={`hotkey-card hotkey-card-custom${cardState(custom).active ? ' active' : ''}${cardState(custom).forced ? ' is-forced' : ''}`}
             disabled={disabled} aria-pressed={cardState(custom).active && !!custom}
             onClick={() => { setDraft(custom); setEditing(true) }}>
-            <span className="hotkey-card-top"><span className="hotkey-card-slot">自定义</span>
+            <span className="hotkey-card-top"><span className="hotkey-card-slot">{t('settings.hotkeyCards.custom')}</span>
               {cardState(custom).badge && <span className="hotkey-card-badge">{cardState(custom).badge}</span>}</span>
-            <span className="hotkey-card-acc">{custom ? formatAccelerator(custom) : '自定义组合键'}</span>
+            <span className="hotkey-card-acc">{custom ? formatAccelerator(custom) : t('settings.hotkeyCards.customPlaceholder')}</span>
             <span className="hotkey-card-foot">{custom
-              ? cardState(custom).active ? '当前生效 · 点击修改' : '点击修改'
-              : '点击设置组合键'}</span>
+              ? cardState(custom).active ? t('settings.hotkeyCards.activeEditHint') : t('settings.hotkeyCards.clickToEdit')
+              : t('settings.hotkeyCards.clickToSet')}</span>
           </button>
         )}
       </div>

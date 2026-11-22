@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import type { BackgroundConfig, CustomFontMeta } from '@shared/types/plugin'
 import type { ResolvedAppearance, ThemeBackgroundPaletteDeclaration, ThemeSettingValue, ThemeSettingsField, ThemeSettingsSchema } from '@shared/types/appearance'
 import { themeSettingsPresentation } from '@shared/theme/settingsPresentation'
+import { useI18n } from '@renderer/hooks/useI18n'
 import { Button } from '@renderer/components/ui/Button'
 import { Select } from '@renderer/components/ui/Select'
 import { Slider } from '@renderer/components/ui/Slider'
@@ -52,27 +53,28 @@ interface ThemeSettingsFieldsProps {
   onResetColors?: () => void
 }
 
-const formatValue = (value: number) => Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
-
 /** 滑杆读数：字号比例显示成百分比并标出实际基准；其余沿用数值。 */
-function sliderText(field: ThemeSettingsField, value: number): string {
+function sliderText(field: ThemeSettingsField, value: number, format: (v: number) => string): string {
   if (field.binding.target === 'font' && field.binding.key === 'scale') {
     return `${Math.round(value * 100)}% (${Number((14 * value).toFixed(1))}px)`
   }
-  return formatValue(value)
+  return format(value)
 }
 
 /** 字体示例按槽位取文：英文槽看拉丁字形，中文槽看汉字，等宽槽看代码与数字。 */
-function fontSpecimen(field: ThemeSettingsField): string {
+function fontSpecimen(field: ThemeSettingsField, t: ReturnType<typeof useI18n>['t']): string {
   const key = field.binding.target === 'font' ? field.binding.key : ''
-  if (key === 'cjk') return '山海可期 · 永字八法 · 中文字形'
-  if (key === 'mono') return 'const nest = "eNest" // 0123456789'
-  return 'The quick brown fox · AaBbCc 0123'
+  if (key === 'cjk') return t('settings.themeFields.fontSpecimenCjk')
+  if (key === 'mono') return t('settings.themeFields.fontSpecimenMono')
+  return t('settings.themeFields.fontSpecimenLatin')
 }
 
 export function ThemeSettingsFields({ schema, appearance, values, customFonts, importingFont, palettes, disabled, embedded, onChange, onCommit, onPickMedia, onImportFont, onRemoveFont, onPreviewSplash, onResetColors }: ThemeSettingsFieldsProps) {
+  const { t, locale } = useI18n()
   const fields = schema.groups.flatMap(group => group.fields)
   const commit = (field: ThemeSettingsField, value: ThemeSettingValue) => { onChange(field, value); onCommit() }
+
+  const formatValue = (value: number) => Number(value).toLocaleString(locale, { maximumFractionDigits: 2 })
 
   const renderSlider = (field: ThemeSettingsField) => {
     const value = themeFieldValue(field, appearance, values)
@@ -90,8 +92,8 @@ export function ThemeSettingsFields({ schema, appearance, values, customFonts, i
     const media = field.type === 'media' && value && typeof value === 'object' ? value as BackgroundConfig : null
     // 「主题默认」必须落回字段默认值本身：等宽字段的默认值非空，写空串会丢掉主题字体栈。
     const fontOptions = field.type === 'font' ? [...new Map([
-      { label: String(value) || '主题默认', value: String(value) },
-      { label: '主题默认', value: String(field.default) },
+      { label: String(value) || t('settings.themeFields.themeDefault'), value: String(value) },
+      { label: t('settings.themeFields.themeDefault'), value: String(field.default) },
       ...(field.options ?? []).map(option => ({ label: option.label, value: String(option.value) })),
       ...customFonts.map(font => ({ label: font.name, value: `"${font.family}", sans-serif` })),
     ].map(option => [option.value, option])).values()] : []
@@ -104,23 +106,23 @@ export function ThemeSettingsFields({ schema, appearance, values, customFonts, i
       <div>
         <div className="label">{field.label}</div>
         {selectedOption?.description && <p className="desc">{selectedOption.description}</p>}
-        {field.type === 'font' && <p className="appearance-font-preview" style={{ fontFamily: String(value || 'var(--font)') }}>{fontSpecimen(field)}</p>}
-        {field.type === 'media' && <p className="desc">{media ? media.type === 'video' ? '已选择视频背景' : '已选择图片背景' : '尚未选择媒体'}</p>}
+        {field.type === 'font' && <p className="appearance-font-preview" style={{ fontFamily: String(value || 'var(--font)') }}>{fontSpecimen(field, t)}</p>}
+        {field.type === 'media' && <p className="desc">{media ? media.type === 'video' ? t('settings.themeFields.videoSelected') : t('settings.themeFields.imageSelected') : t('settings.themeFields.noMedia')}</p>}
         {field.help && <p className="desc">{field.help}</p>}
-        {field.binding.target === 'splash' && field.binding.key === 'type' && appearance.background.effect !== 'none' && <p className="desc">当前背景动效会统一铺到启动画面；关闭「背景动效」后这里的选择才生效。</p>}
-        {field.binding.target === 'splash' && field.binding.key === 'type' && appearance.background.effect === 'none' && appearance.background.media?.type === 'color' && <p className="desc">主题色沿用当前氛围背景；自定义启动图片优先显示。</p>}
-        {field.type === 'media' && field.binding.target === 'background' && appearance.background.effect !== 'none' && <p className="desc">图片和视频在关闭背景动效后显示。</p>}
+        {field.binding.target === 'splash' && field.binding.key === 'type' && appearance.background.effect !== 'none' && <p className="desc">{t('settings.themeFields.splashEffectNote')}</p>}
+        {field.binding.target === 'splash' && field.binding.key === 'type' && appearance.background.effect === 'none' && appearance.background.media?.type === 'color' && <p className="desc">{t('settings.themeFields.splashColorNote')}</p>}
+        {field.type === 'media' && field.binding.target === 'background' && appearance.background.effect !== 'none' && <p className="desc">{t('settings.themeFields.mediaEffectNote')}</p>}
       </div>
       {(field.type === 'color' || field.type === 'token') && <div className="appearance-color-control"><ColorPickerField disabled={disabled} preserveAlpha label={field.label} value={String(value)} onChange={next => onChange(field, next)} onCommit={onCommit} /><code>{String(value)}</code></div>}
-      {field.type === 'slider' && <div className="appearance-slider-row"><Slider disabled={disabled} aria-label={field.label} min={field.min} max={field.max} step={field.step} value={[Number(value)]} onValueChange={next => onChange(field, next[0] ?? Number(field.default))} onValueCommit={onCommit} /><output>{sliderText(field, Number(value))}</output></div>}
+      {field.type === 'slider' && <div className="appearance-slider-row"><Slider disabled={disabled} aria-label={field.label} min={field.min} max={field.max} step={field.step} value={[Number(value)]} onValueChange={next => onChange(field, next[0] ?? Number(field.default))} onValueCommit={onCommit} /><output>{sliderText(field, Number(value), formatValue)}</output></div>}
       {field.type === 'switch' && <Switch disabled={disabled} aria-label={field.label} checked={value === true} onCheckedChange={next => commit(field, next)} />}
       {field.type === 'select' && (presentation ? <ThemeSettingChoices label={field.label} disabled={disabled} presentation={presentation} options={field.options ?? []} palettes={palettes} value={value as string | number | boolean | null} onChange={next => commit(field, next)} /> : <Select disabled={disabled} ariaLabel={field.label} value={String(value)} onChange={selected => commit(field, field.options?.find(item => String(item.value) === selected)?.value ?? field.default)} options={(field.options ?? []).map(option => ({ label: option.label, value: String(option.value) }))} />)}
       {field.type === 'font' && <div className="appearance-font-controls">
         <Select disabled={disabled} ariaLabel={field.label} value={String(value) || '__theme-default'} onChange={selected => commit(field, selected === '__theme-default' ? String(field.default) : selected)} options={fontOptions.map(option => ({ ...option, value: option.value || '__theme-default' }))} />
-        <Button variant="ghost" size="sm" disabled={disabled || importingFont !== null} aria-label={`为${field.label}导入字体`} onClick={() => onImportFont(field)}>{importingFont === field.key ? '导入中…' : '导入字体'}</Button>
-        {selectedFont && onRemoveFont && <Button variant="ghost" size="sm" disabled={disabled} onClick={() => onRemoveFont(selectedFont)}>删除字体</Button>}
+        <Button variant="ghost" size="sm" disabled={disabled || importingFont !== null} aria-label={t('settings.themeFields.importFontAria', { label: field.label })} onClick={() => onImportFont(field)}>{importingFont === field.key ? t('settings.themeFields.importing') : t('settings.themeFields.importFont')}</Button>
+        {selectedFont && onRemoveFont && <Button variant="ghost" size="sm" disabled={disabled} onClick={() => onRemoveFont(selectedFont)}>{t('settings.themeFields.removeFont')}</Button>}
       </div>}
-      {field.type === 'media' && <div className="appearance-media-controls"><Button variant="ghost" size="sm" disabled={disabled} onClick={() => onPickMedia(field)}>{field.binding.target === 'splash' ? '选择图片' : '选择图片／视频'}</Button>{media && <Button variant="ghost" size="sm" disabled={disabled} onClick={() => commit(field, null)}>移除</Button>}</div>}
+      {field.type === 'media' && <div className="appearance-media-controls"><Button variant="ghost" size="sm" disabled={disabled} onClick={() => onPickMedia(field)}>{field.binding.target === 'splash' ? t('settings.themeFields.pickImage') : t('settings.themeFields.pickMedia')}</Button>{media && <Button variant="ghost" size="sm" disabled={disabled} onClick={() => commit(field, null)}>{t('settings.themeFields.removeMedia')}</Button>}</div>}
     </div>
   }
 
@@ -138,8 +140,8 @@ export function ThemeSettingsFields({ schema, appearance, values, customFonts, i
           <h3 className="appearance-group-title">{group.title}</h3>
           {(resetColorsAction || previewSplashAction) && (
             <div className="appearance-group-tools">
-              {resetColorsAction && <Button variant="ghost" size="sm" disabled={disabled} onClick={onResetColors}>恢复配色</Button>}
-              {previewSplashAction && <Button variant="ghost" size="sm" disabled={disabled} onClick={onPreviewSplash}>重播启动画面</Button>}
+              {resetColorsAction && <Button variant="ghost" size="sm" disabled={disabled} onClick={onResetColors}>{t('settings.themeFields.resetColors')}</Button>}
+              {previewSplashAction && <Button variant="ghost" size="sm" disabled={disabled} onClick={onPreviewSplash}>{t('settings.themeFields.replaySplash')}</Button>}
             </div>
           )}
         </div>

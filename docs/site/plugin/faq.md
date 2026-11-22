@@ -8,6 +8,9 @@ A：不必。可以使用原生 HTML/JavaScript，但开发工程仍须符合[�
 **Q：必须用 npm 吗？**
 A：不必。壳子按插件 `package.json` 解析启动命令：锁文件自动检测 pnpm / yarn / bun / npm，或用 `enest.dev.manager` 显式声明；非 node 工具链写 `enest.dev.command` 原始命令。见[开发加载](debug.md)。
 
+**Q：`dist` 和 `node_modules` 需要提交吗？**
+A：不需要，两者都由构建或依赖安装生成并应忽略。开发态缺 `dist` 时：纯前端插件走框架 dev server 或源码静态预览；声明 `backend` / `background` 的插件在首次打开或重载时由壳按 `package.json` 的构建命令自动构建一次，失败仍可打开但相关调用会报缺失产物。新克隆缺依赖时，壳在拉起开发服务前会自动执行一次包管理器 install，也可手动安装。
+
 **Q：`window.enest` 和 `window.zapi` 什么关系？**
 A：同一对象的两个名字。`zapi` 是保留兼容的 deprecated 历史别名，新代码直接用 `window.enest`，不要依赖尚未发布的移除版本承诺。
 

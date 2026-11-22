@@ -4,6 +4,7 @@ import type { CustomFontMeta, ThemeMode } from '@shared/types/plugin'
 import type { ResolvedAppearance, ThemeIdentity, ThemeProfilePatch, ThemeSettingValue, ThemeSettingsField } from '@shared/types/appearance'
 import { appearanceStyleProperties, composeFontStacks, themeProfileKey } from '@shared/theme/appearance'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
+import { useI18n } from '@renderer/hooks/useI18n'
 import { shellApi } from '@renderer/services/shellApi'
 import { Button } from '@renderer/components/ui/Button'
 import { Segmented } from '@renderer/components/ui/Segmented'
@@ -42,6 +43,7 @@ function previewField(appearance: ResolvedAppearance, field: ThemeSettingsField,
 export function AppearanceSettingsSection() {
   const appearance = useAppearanceStore(useShallow(({ appearance, profile, packs, customFonts, hydrated }) => ({ appearance, profile, packs, customFonts, hydrated })))
   const panel = usePanelAppearance()
+  const { t } = useI18n()
   const [drafts, setDrafts] = useState<Record<string, ThemeSettingValue>>({})
   const [switching, setSwitching] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -89,7 +91,7 @@ export function AppearanceSettingsSection() {
         await useAppearanceStore.getState().updateThemeProfile(patch)
         setError(undefined)
       } catch {
-        setError('设置未保存，已恢复到宿主确认的外观。')
+        setError(t('settings.appearance.saveFailedRestore'))
       } finally {
         saveCount.current--
         setSaving(saveCount.current > 0)
@@ -102,9 +104,9 @@ export function AppearanceSettingsSection() {
   flushRef.current = flush
 
   useEffect(() => {
-    void useAppearanceStore.getState().hydrate().catch(() => setError('无法读取外观设置，请重试。'))
+    void useAppearanceStore.getState().hydrate().catch(() => setError(t('settings.appearance.readFailed')))
     return () => { void flushRef.current() }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     setDrafts({})
@@ -146,14 +148,14 @@ export function AppearanceSettingsSection() {
     setSwitching(key)
     await flush()
     try { await useAppearanceStore.getState().activateTheme(identity); setError(undefined) }
-    catch { setError('主题切换失败，仍保留已确认的主题。') }
+    catch { setError(t('settings.appearance.themeSwitchFailed')) }
     finally { setSwitching(current => current === key ? null : current) }
   }
 
   const setMode = async (mode: ThemeMode) => {
     await flush()
     try { await useAppearanceStore.getState().setMode(mode) }
-    catch { setError('颜色模式未保存，请重试。') }
+    catch { setError(t('settings.appearance.modeSaveFailed')) }
   }
 
   const pickMedia = async (field: ThemeSettingsField) => {
@@ -163,7 +165,7 @@ export function AppearanceSettingsSection() {
       if (!shellApi.pickAppearanceMedia) throw new Error('native media import unavailable')
       const media = await shellApi.pickAppearanceMedia({ imageOnly: field.binding.target === 'splash' })
       if (media) await useAppearanceStore.getState().updateThemeProfile({ theme, values: mediaValues(field, media) })
-    } catch { setError('背景导入失败，原背景未更改。') }
+    } catch { setError(t('settings.appearance.mediaImportFailed')) }
   }
 
   const importFont = async (field: ThemeSettingsField) => {
@@ -177,7 +179,7 @@ export function AppearanceSettingsSection() {
         await useAppearanceStore.getState().refresh()
         await useAppearanceStore.getState().updateThemeProfile({ theme, values: { [field.key]: `"${font.family}", sans-serif` } })
       }
-    } catch { setError('字体导入失败，当前字体未更改。') }
+    } catch { setError(t('settings.appearance.fontImportFailed')) }
     finally { setImportingFont(null) }
   }
 
@@ -187,7 +189,7 @@ export function AppearanceSettingsSection() {
       if (!shellApi.removeAppearanceFont) throw new Error('native font management unavailable')
       await shellApi.removeAppearanceFont(font.id)
       await useAppearanceStore.getState().refresh()
-    } catch { setError('字体未删除，请重试。') }
+    } catch { setError(t('settings.appearance.fontRemoveFailed')) }
   }
 
   const resetColors = async () => {
@@ -195,72 +197,71 @@ export function AppearanceSettingsSection() {
     try {
       const colors = Object.fromEntries(Object.keys(appearance.profile.colors[appearance.appearance.mode] ?? {}).map(key => [key, null]))
       await useAppearanceStore.getState().updateThemeProfile({ theme: appearance.profile.identity, colors: { [appearance.appearance.mode]: colors } })
-    } catch { setError('当前配色未恢复，请重试。') }
+    } catch { setError(t('settings.appearance.colorsResetFailed')) }
   }
 
   const reload = () => {
     setError(undefined)
-    void useAppearanceStore.getState().refresh().catch(() => setError('无法读取外观设置，请重试。'))
+    void useAppearanceStore.getState().refresh().catch(() => setError(t('settings.appearance.readFailed')))
   }
 
   return (
     <div className="appearance-settings-stack">
       {/* 主题配置卡：主题选择 + 自由面板外观（壳级 general.panelAppearance）。 */}
-      <section className="s-card appearance-settings appearance-card appearance-card-switch" aria-busy={Boolean(switching)} aria-label="主题配置">
+      <section className="s-card appearance-settings appearance-card appearance-card-switch" aria-busy={Boolean(switching)} aria-label={t('settings.appearance.configCardAria')}>
         <div className="appearance-card-head">
           <div className="appearance-card-head-copy">
-            <h2>主题配置</h2>
+            <h2>{t('settings.appearance.configTitle')}</h2>
             <p className="hint">
               {appearance.packs.length > 1
-                ? `已安装 ${appearance.packs.length} 个主题，安装插件带来的主题也会出现在这里，选中即刻生效。`
-                : '当前只有内置主题；安装带主题的插件后，它会出现在这里，选中即可切换。'}
+                ? t('settings.appearance.configHintMany', { count: String(appearance.packs.length) })
+                : t('settings.appearance.configHintSingle')}
             </p>
           </div>
-          <Segmented ariaLabel="颜色模式" value={appearance.appearance.requestedMode} onChange={mode => void setMode(mode)} options={[
-            { value: 'light', label: '浅色' }, { value: 'dark', label: '深色' }, { value: 'system', label: '跟随系统' },
+          <Segmented ariaLabel={t('settings.appearance.modeAria')} value={appearance.appearance.requestedMode} onChange={mode => void setMode(mode)} options={[
+            { value: 'light', label: t('settings.appearance.modeLight') }, { value: 'dark', label: t('settings.appearance.modeDark') }, { value: 'system', label: t('settings.appearance.modeSystem') },
           ]} />
         </div>
         {!appearance.hydrated
-          ? <p className="desc appearance-inline-status" role="status">{error ?? '正在读取主题…'}</p>
+          ? <p className="desc appearance-inline-status" role="status">{error ?? t('settings.appearance.loadingThemes')}</p>
           : appearance.packs.length > 0
             ? <ThemeSelectionCards packs={appearance.packs} selected={appearance.profile.identity} mode={appearance.appearance.mode} pendingKey={switching} disabled={Boolean(switching) || importingFont !== null} onSelect={identity => void activate(identity)} />
             : <div className="appearance-empty" role="status">
-              <p>还没有可用的主题。</p>
-              <Button variant="ghost" size="sm" onClick={reload}>重新读取</Button>
+              <p>{t('settings.appearance.emptyThemes')}</p>
+              <Button variant="ghost" size="sm" onClick={reload}>{t('settings.appearance.reload')}</Button>
             </div>}
 
         {/* eNest 壳通用：自由面板开关 + 外观（不随主题 profile 走，写 general.freePanel / general.panelAppearance）。 */}
-        <div className="appearance-section appearance-section-panel" role="group" aria-label="自由面板">
+        <div className="appearance-section appearance-section-panel" role="group" aria-label={t('settings.panel.sectionAria')}>
           <div className="appearance-section-head">
             <div className="appearance-section-head-row">
-              <h3 className="appearance-section-title">自由面板</h3>
+              <h3 className="appearance-section-title">{t('settings.panel.sectionAria')}</h3>
               <div className="appearance-group-tools">
-                <Button variant="ghost" size="sm" disabled={panel.loading} onClick={panel.reset}>恢复默认</Button>
+                <Button variant="ghost" size="sm" disabled={panel.loading} onClick={panel.reset}>{t('settings.panel.reset')}</Button>
               </div>
             </div>
-            <p className="hint">把插件固定成桌面小组件；所有面板共用的底板材质与不透明度（材质由系统提供：毛玻璃 = 桌面级模糊，系统材质 = 更重的浮窗质感）。</p>
           </div>
           <FreePanelFields state={panel} />
         </div>
 
         {/* 壳级材质浓度：标题栏与设置卡片的透明度。归属壳，但与主题呈现放在一起更好找。 */}
-        <div className="appearance-section appearance-section-transparency" role="group" aria-label="背景透明度">
+        <div className="appearance-section appearance-section-transparency" role="group" aria-label={t('settings.transparency.sectionAria')}>
           <div className="appearance-section-head">
             <div className="appearance-section-head-row">
-              <h3 className="appearance-section-title">背景透明度</h3>
+              <h3 className="appearance-section-title">{t('settings.transparency.sectionAria')}</h3>
             </div>
-            <p className="hint">控制标题栏与设置卡片的材质浓度；越透明越能看到页面背景动效，文字与控件始终清晰。</p>
+            <p className="hint">{t('settings.transparency.sectionHint')}</p>
           </div>
           <TransparencyFields />
         </div>
 
         {/* 标签栏形态：经典顶栏 / 悬浮圆轨与自动隐藏。与透明度同属"顶栏怎么呈现"，紧随其后。 */}
-        <div className="appearance-section appearance-section-tabbar" role="group" aria-label="标签栏">
+        <div className="appearance-section appearance-section-tabbar" role="group" aria-label={t('settings.tabbar.sectionAria')}>
           <div className="appearance-section-head">
             <div className="appearance-section-head-row">
-              <h3 className="appearance-section-title">标签栏</h3>
+              <h3 className="appearance-section-title">{t('settings.tabbar.sectionAria')}</h3>
             </div>
-            <p className="hint">顶部标签与悬浮圆轨二选一；这是壳级设置，切换主题不会改变，已打开的会话也不会丢失。</p>
+            <p className="hint">{t('settings.tabbar.sectionHint')}</p>
           </div>
           <div className="appearance-panel-fields">
             <TabBarFields />
@@ -268,37 +269,37 @@ export function AppearanceSettingsSection() {
         </div>
 
         <div className="appearance-unified-footer">
-          <span className="appearance-save-status" role="status" aria-live="polite">{error || (saving || panel.saving ? '正在保存…' : '调整即时预览，保存后同步所有窗口与已开面板。')}</span>
+          <span className="appearance-save-status" role="status" aria-live="polite">{error || (saving || panel.saving ? t('settings.appearance.saving') : t('settings.appearance.savedHint'))}</span>
         </div>
       </section>
 
       {/* 主题参数是当前主题动态声明的字段，与壳级主题配置分开成卡，切换主题时内容随之变化。 */}
-      <section className="s-card appearance-settings appearance-card appearance-card-tuning" aria-busy={Boolean(switching)} aria-label="主题参数">
+      <section className="s-card appearance-settings appearance-card appearance-card-tuning" aria-busy={Boolean(switching)} aria-label={t('settings.appearance.tuningCardAria')}>
         <div className="appearance-card-head">
           <div className="appearance-card-head-copy">
-            <h2>主题参数</h2>
-            <p className="hint">{activePack ? `以下参数来自「${activePack.name}」，切换主题后会换成新主题支持的设置。` : '当前没有可调整的主题参数。'}</p>
+            <h2>{t('settings.appearance.tuningTitle')}</h2>
+            <p className="hint">{activePack ? t('settings.appearance.tuningHintActive', { name: activePack.name }) : t('settings.appearance.tuningHintEmpty')}</p>
           </div>
         </div>
-        <div className="appearance-section appearance-section-tuning" role="group" aria-label="主题参数">
-          {appearance.appearance.diagnostics.some(item => item.code === 'home.recovery') && <div className="appearance-recovery" role="status"><p>主题或配套首页暂不可用，已安全回退到默认主题；原主题的调整仍保留。</p><Button variant="ghost" size="sm" disabled={retrying} onClick={async () => {
+        <div className="appearance-section appearance-section-tuning" role="group" aria-label={t('settings.appearance.tuningCardAria')}>
+          {appearance.appearance.diagnostics.some(item => item.code === 'home.recovery') && <div className="appearance-recovery" role="status"><p>{t('settings.appearance.recoveryNotice')}</p><Button variant="ghost" size="sm" disabled={retrying} onClick={async () => {
             await flush()
             setRetrying(true)
             try {
               if (!shellApi.retryHome) throw new Error('native recovery unavailable')
               await shellApi.retryHome()
               await useAppearanceStore.getState().refresh()
-            } catch { setError('重试未成功，继续使用当前安全主题。') }
+            } catch { setError(t('settings.appearance.retryFailed')) }
             finally { setRetrying(false) }
-          }}>{retrying ? '正在重试…' : '重试原主题'}</Button></div>}
+          }}>{retrying ? t('settings.appearance.retrying') : t('settings.appearance.retryTheme')}</Button></div>}
           {activePack && tuningSchema
             ? <ThemeSettingsFields embedded schema={tuningSchema} appearance={appearance.appearance} values={mergedValues} customFonts={appearance.customFonts} importingFont={importingFont} palettes={activePack.palettes} disabled={Boolean(switching)} onChange={queue} onCommit={() => void flush()} onPickMedia={field => void pickMedia(field)} onImportFont={field => void importFont(field)} onRemoveFont={font => void removeFont(font)} onResetColors={() => void resetColors()} onPreviewSplash={() => { void flush().then(() => window.dispatchEvent(new Event('enest:preview-splash'))) }} />
-            : <p className="desc appearance-inline-status" role="status">{error ?? '正在读取主题…'}</p>}
-          {appearance.appearance.animation.requested !== appearance.appearance.animation.effective && <p className="desc appearance-inline-status">当前已按无障碍或运行性能限制减少动态效果；你保存的动画强度未改变。</p>}
+            : <p className="desc appearance-inline-status" role="status">{error ?? t('settings.appearance.loadingThemes')}</p>}
+          {appearance.appearance.animation.requested !== appearance.appearance.animation.effective && <p className="desc appearance-inline-status">{t('settings.appearance.animationReduced')}</p>}
         </div>
         <div className="appearance-unified-footer">
-          <span className="appearance-save-status" role="status" aria-live="polite">{saving ? '正在保存…' : '调整即时预览，保存后同步所有窗口与已开面板。'}</span>
-          {activePack && <Button variant="ghost" size="sm" onClick={async () => { await flush(); try { await useAppearanceStore.getState().updateThemeProfile({ theme: appearance.profile.identity, reset: true }) } catch { setError('恢复默认失败，请重试。') } }}>恢复本主题默认</Button>}
+          <span className="appearance-save-status" role="status" aria-live="polite">{saving ? t('settings.appearance.saving') : t('settings.appearance.savedHint')}</span>
+          {activePack && <Button variant="ghost" size="sm" onClick={async () => { await flush(); try { await useAppearanceStore.getState().updateThemeProfile({ theme: appearance.profile.identity, reset: true }) } catch { setError(t('settings.appearance.resetThemeFailed')) } }}>{t('settings.appearance.resetTheme')}</Button>}
         </div>
       </section>
     </div>

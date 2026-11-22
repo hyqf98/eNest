@@ -25,8 +25,7 @@ const round = (value: number) => Math.round(value * 10_000) / 10_000
 export function TransparencyFields() {
   const appearance = useAppearanceStore((s) => s.appearance)
   const packs = useAppearanceStore((s) => s.packs)
-  const { locale } = useI18n()
-  const en = locale === 'en-US'
+  const { t } = useI18n()
 
   /** 两个字段都从当前主题的 schema 里取：主题可以决定是否暴露这两个滑块。 */
   const activePack = packs.find(pack => pack.source === DEFAULT_THEME_IDENTITY.source && pack.id === DEFAULT_THEME_IDENTITY.id)
@@ -110,12 +109,12 @@ export function TransparencyFields() {
     <>
       {tabField && (
         <Field
-          label={en ? 'Titlebar transparency' : '标题栏透明度'}
-          desc={en ? 'Higher means more transparent; labels and window buttons stay opaque.' : '越往右越透明，可透出窗口背景动效；标签与窗口按钮始终清晰。'}
+          label={t('settings.transparency.titlebar')}
+          desc={t('settings.transparency.titlebarDesc')}
         >
           <div className="appearance-slider-row">
             <Slider
-              aria-label={en ? 'Titlebar transparency' : '标题栏透明度'}
+              aria-label={t('settings.transparency.titlebar')}
               min={min} max={max} step={step}
               disabled={!tabEnabled}
               value={[round(1 - tabStored)]}
@@ -131,12 +130,12 @@ export function TransparencyFields() {
       )}
       {cardField && (
         <Field
-          label={en ? 'Settings card transparency' : '设置卡片透明度'}
-          desc={en ? 'Higher means more transparent; text and controls stay readable.' : '越往右越透明，可让页面背景动效透进设置卡片；文字与控件保持清晰。'}
+          label={t('settings.transparency.card')}
+          desc={t('settings.transparency.cardDesc')}
         >
           <div className="appearance-slider-row">
             <Slider
-              aria-label={en ? 'Settings card transparency' : '设置卡片透明度'}
+              aria-label={t('settings.transparency.card')}
               min={0} max={1} step={cardField.step ?? 0.05}
               value={[round(1 - cardStored)]}
               onValueChange={([next]) => { previewCard(next) }}

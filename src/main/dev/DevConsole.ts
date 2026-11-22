@@ -1,6 +1,5 @@
 /** Source registration is independent of installation. The shell starts dev servers and owns fallback watchers. */
 import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { dialog } from 'electron'
 import { trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 import { resolveLocalUserPath } from '@main/paths/userPath'
@@ -13,6 +12,7 @@ import { logInfo, logWarn } from '@main/logs/logService'
 import { dropDevPluginRecord, readDevPluginRecords, upsertDevPluginRecord } from './devPluginsStore'
 import { devRegistrationEntry, inspectDevPluginEntry, type ResolvedDevEntry } from './devPluginEntry'
 import { forgetDevServer } from './devServerManager'
+import { ensureDevBuild } from './devBuildManager'
 import { cancelDevPluginPreparation, forgetDevPluginSource, getDevPluginSource, isDevPluginSourceCurrent,
   prepareRegisteredDevPlugin, registerDevPluginSource } from './devPluginRuntime'
 import { sendShellEvent } from '@main/window/createShellWindow'
@@ -49,18 +49,18 @@ async function publishDevSource(id: string, isCurrent: () => boolean): Promise<v
 }
 
 function describeDevPlugin(sourcePath: string, entry: ResolvedDevEntry) {
-  const { rootPath, manifest, devUrl, devSource, devKind, plan } = entry
+  const { rootPath, manifest, devUrl, devSource, devKind, plan, outputPath } = entry
   const category = manifest.category ?? '开发'
   const summary: PluginSummary = {
     id: manifest.id, name: manifest.name, version: manifest.version,
     description: manifest.description ?? '', author: manifest.author ?? '', category,
     installs: 'dev', color: pluginCategoryColor(category), glyph: manifest.name.slice(0, 1),
     permissions: manifest.permissions ?? [], installed: true,
-    rootPath, sourcePath, devUrl, devSource, dev: true,
+    rootPath, sourcePath, devUrl, devSource, dev: true, devOutputPath: outputPath,
     devKind, devCommand: devUrl ? plan.start?.label : undefined,
     ui: resolvePluginUi(manifest.ui)
   }
-  return { summary, manifest, outputPath: resolve(sourcePath, plan.output) }
+  return { summary, manifest, outputPath }
 }
 
 /** Dormant watchers only refresh local metadata; live reloads may prepare the service. */
@@ -87,6 +87,10 @@ export async function prepareDevPluginReload(
   const entry = metadataOnly ? devRegistrationEntry(source) : await prepareRegisteredDevPlugin(plugin.id, {
     isCurrent: () => current() && pluginRegistry.isEnabled(plugin.id), reason: retry ? 'reload' : 'source-change', retry
   })
+  // Backend/background entries only exist in built output; compile them before an open or reload uses them.
+  if (!metadataOnly) await ensureDevBuild({
+    id: plugin.id, sourcePath: source.sourcePath, manifest: source.manifest, plan: source.plan, outputPath: source.outputPath
+  }, { isCurrent: current, reason: retry ? 'reload' : 'source-change' })
   if (!current()) return null
   return { ...describeDevPlugin(plugin.sourcePath, entry), isCurrent: current }
 }
@@ -100,11 +104,17 @@ export async function prepareDevPluginRuntime(pluginId: string, isCurrent: () =>
   const entry = await prepareRegisteredDevPlugin(pluginId, {
     isCurrent: current, reason, retry: reason === 'load' || reason === 'open' || reason === 'quick'
   })
+  // Compile missing backend/background output once, before the native View is created.
+  await ensureDevBuild({
+    id: pluginId, sourcePath: registration.source.sourcePath, manifest: registration.source.manifest,
+    plan: registration.source.plan, outputPath: registration.source.outputPath
+  }, { isCurrent: current, reason })
   if (!current()) throw new Error('开发插件启动已取消')
   const prepared = describeDevPlugin(registration.source.sourcePath, entry)
   const previous = pluginRegistry.get(pluginId)
   if (previous && previous.rootPath === prepared.summary.rootPath
     && previous.devUrl === prepared.summary.devUrl && previous.devSource === prepared.summary.devSource
+    && previous.devOutputPath === prepared.summary.devOutputPath
     && previous.devKind === prepared.summary.devKind && previous.devCommand === prepared.summary.devCommand) return previous
   // The validated source manifest remains authoritative; only the runtime transport is selected.
   const registered = pluginRegistry.updateDevRuntime(pluginId, prepared.summary)

@@ -26,7 +26,7 @@ export function DefaultSettingsPage() {
   const settingsTab = useShellStore((s) => s.settingsTab)
   const setSettingsTab = useShellStore((s) => s.setSettingsTab)
   const plugins = useShellStore((s) => s.plugins)
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const installed = plugins.filter((p) => p.installed)
 
   const general = useGeneralSettings()
@@ -56,9 +56,9 @@ export function DefaultSettingsPage() {
 
   const TABS = [
     { id: 'general', label: t('settings.tabs.general'), icon: <SettingsIcon size={14} strokeWidth={1.7} /> },
-    { id: 'profile', label: locale === 'en-US' ? 'Account' : '个人资料', icon: <UserIcon size={14} strokeWidth={1.7} /> },
+    { id: 'profile', label: t('settings.tabs.profile'), icon: <UserIcon size={14} strokeWidth={1.7} /> },
     { id: 'appearance', label: t('settings.tabs.appearance'), icon: <PaletteIcon size={14} strokeWidth={1.7} /> },
-    { id: 'quick', label: '快捷键', icon: <KeyboardIcon size={14} strokeWidth={1.7} /> },
+    { id: 'quick', label: t('settings.tabs.quick'), icon: <KeyboardIcon size={14} strokeWidth={1.7} /> },
     { id: 'dev', label: t('settings.tabs.dev'), icon: <TerminalIcon size={14} strokeWidth={1.7} /> },
   ] as const
 
@@ -83,11 +83,13 @@ export function DefaultSettingsPage() {
           tabs={allTabs}
           active={settingsTab}
           moreLabel={t('settings.tabs.more')}
-          collapseLabel={locale === 'en-US' ? 'Collapse' : '收起'}
+          collapseLabel={t('settings.tabs.collapse')}
           onChange={setSettingsTab}
         />
 
-        <Suspense fallback={<p className="desc" role="status" aria-busy="true">{t('common.loading')}</p>}>
+        {/* 懒加载区块的占位只画空壳：首进「通用」要等三个 chunk，短暂空白无感，
+            一闪而过的「加载中」文字才会被眼睛捕获。 */}
+        <Suspense fallback={<div className="settings-section-loading" role="status" aria-busy="true" />}>
         {settingsTab === 'profile' && <ProfileSection />}
         {settingsTab === 'general' && <GeneralSettingsSection settings={general} updates={updates} />}
 

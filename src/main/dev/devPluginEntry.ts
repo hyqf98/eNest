@@ -4,7 +4,7 @@
  * 构建产物则按产物目录预览；否则走源码静态预览。识别结果（devKind）供控制台标签展示。
  */
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { installFromDirectory } from '@main/plugin/PluginInstaller'
 import { normalizePluginDevUrl } from '@shared/pluginContract'
@@ -12,8 +12,6 @@ import { ensureDevServer, matchesDevelopmentServer, type DevServerEnsureOptions 
 import { resolveDevCommandPlan } from '@main/dev/devCommandResolver'
 import { inspectDevThemeRoot } from './devThemeAssets'
 import type { DevCommandPlan, DevPluginKind, DevPluginLoadOptions, PluginManifest } from '@shared/types/plugin'
-
-export { matchesDevelopmentServer }
 
 export interface ResolvedDevEntry {
   rootPath: string
@@ -24,12 +22,15 @@ export interface ResolvedDevEntry {
   devKind: DevPluginKind
   /** 解析出的启动/构建命令与产物目录（供识别标签、离线提示与源码监听忽略产物目录） */
   plan: DevCommandPlan
+  /** 构建产物根（`enest.output`，缺省 `dist`）；后端/后台与源码监听共用这一份结果。 */
+  outputPath: string
 }
 
 export interface InspectedDevSource {
   sourcePath: string
   manifest: PluginManifest
   plan: DevCommandPlan
+  outputPath: string
   declaredUrl?: string
   options: DevPluginLoadOptions
   /** Restricted theme surfaces keep a local root independent of ordinary UI transport. */
@@ -41,13 +42,14 @@ export async function inspectDevPluginEntry(sourcePath: string, options: DevPlug
   const manifest = await installFromDirectory(sourcePath, { source: true })
   const plan = resolveDevCommandPlan(sourcePath, manifest)
   const declaredUrl = normalizePluginDevUrl(options.url ?? plan.devUrl)
+  const outputPath = resolve(sourcePath, plan.output)
   const themeRootPath = await inspectDevThemeRoot(sourcePath, manifest, plan.output)
-  return { sourcePath, manifest, plan, declaredUrl, options: { ...options }, themeRootPath }
+  return { sourcePath, manifest, plan, outputPath, declaredUrl, options: { ...options }, themeRootPath }
 }
 
 export function devRegistrationEntry(source: InspectedDevSource): ResolvedDevEntry {
   return { rootPath: source.sourcePath, manifest: source.manifest, devSource: true,
-    devKind: source.declaredUrl ? source.plan.framework : 'static', plan: source.plan }
+    devKind: source.declaredUrl ? source.plan.framework : 'static', plan: source.plan, outputPath: source.outputPath }
 }
 
 interface DevEntryPrepareOptions extends DevServerEnsureOptions {
@@ -66,11 +68,11 @@ export async function resolveDevPluginEntry(
     }
   }
   check()
-  const { manifest, plan, declaredUrl } = request.inspection ?? await inspectDevPluginEntry(sourcePath, options)
+  const { manifest, plan, declaredUrl, outputPath } = request.inspection ?? await inspectDevPluginEntry(sourcePath, options)
   check()
-  const outputDir = join(sourcePath, plan.output)
+  const outputDir = outputPath
   if (options.url !== undefined) {
-    return { rootPath: sourcePath, manifest, devSource: true, devUrl: declaredUrl, devKind: declaredUrl ? plan.framework : 'static', plan }
+    return { rootPath: sourcePath, manifest, devSource: true, devUrl: declaredUrl, devKind: declaredUrl ? plan.framework : 'static', plan, outputPath }
   }
   if (declaredUrl) {
     // The manager checks both its actual (possibly relocated) port and external services.
@@ -78,7 +80,7 @@ export async function resolveDevPluginEntry(
       ? await ensureDevServer(manifest.id, sourcePath, declaredUrl, plan.start, request)
       : await matchesDevelopmentServer(declaredUrl, manifest.id, request.signal) ? declaredUrl : null
     check()
-    if (readyUrl) return { rootPath: sourcePath, manifest, devSource: true, devUrl: readyUrl, devKind: plan.framework, plan }
+    if (readyUrl) return { rootPath: sourcePath, manifest, devSource: true, devUrl: readyUrl, devKind: plan.framework, plan, outputPath }
   }
   if (declaredUrl && existsSync(join(outputDir, 'plugin.json'))) {
     const built = await readBuiltManifest(outputDir)
@@ -91,14 +93,14 @@ export async function resolveDevPluginEntry(
       throw new Error(`${manifest.name} 的构建产物声明与源码不一致，请在插件目录运行 ${plan.build?.label ?? '构建命令'}`)
     }
     // 服务离线但已有匹配产物：按产物目录预览（识别仍是框架类型，标签按运行态区分）
-    if (built) return { rootPath: outputDir, manifest: built, devSource: false, devUrl: undefined, devKind: plan.framework, plan }
+    if (built) return { rootPath: outputDir, manifest: built, devSource: false, devUrl: undefined, devKind: plan.framework, plan, outputPath }
   }
   if (declaredUrl) {
     const startHint = plan.start ? `请启动该插件的开发服务（${plan.start.label}）` : 'package.json 未声明可用的启动脚本'
     const buildHint = plan.build ? `，或在插件目录运行 ${plan.build.label} 预生成产物` : ''
     throw new Error(`${manifest.name} 的开发服务未启动或端口属于其它项目；${startHint}${buildHint}`)
   }
-  return { rootPath: sourcePath, manifest, devSource: true, devUrl: undefined, devKind: 'static', plan }
+  return { rootPath: sourcePath, manifest, devSource: true, devUrl: undefined, devKind: 'static', plan, outputPath }
 }
 
 async function readBuiltManifest(outputDir: string): Promise<PluginManifest | null> {

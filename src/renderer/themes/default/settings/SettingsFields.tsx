@@ -18,10 +18,13 @@ export function Field({
   )
 }
 
-export function Card({ title, hint, children, className }: { title: string; hint?: string; children: React.ReactNode; className?: string }) {
+export function Card({ title, hint, actions, children, className }: { title: string; hint?: string; actions?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
     <div className={`s-card${className ? ` ${className}` : ''}`}>
-      <h2>{title}</h2>
+      <div className="s-card-head">
+        <h2>{title}</h2>
+        {actions}
+      </div>
       {hint ? <p className="hint">{hint}</p> : null}
       {children}
     </div>

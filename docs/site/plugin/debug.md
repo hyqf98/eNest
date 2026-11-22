@@ -21,14 +21,15 @@
 | dev 服务 URL | `enest.dev.url` → `plugin.json development.main` | 无（纯静态源码预览） |
 | 启动命令 | `enest.dev.command`（原始命令逃生舱）→ `enest.dev.manager` + `enest.dev.script` → 锁文件检测包管理器 + `scripts.dev` → `scripts.start` | npm |
 | 端口漂移参数 | `enest.dev.portArgs` 模板（`{port}` 占位） | `["--","--port={port}"]` |
+| 环境变量 | `enest.dev.env` / `enest.build.env`（字符串键值对） | 仅 dev 注入 `ENEST_DEV_PORT` |
 | 构建命令 | `enest.build.command` / `manager` + `script` → 锁文件检测 + `scripts.build` → `scripts.pack` | npm |
 | 产物目录 | `enest.output` | `dist` |
 
 - **包管理器**：优先看 `enest.dev.manager` 显式声明；否则按锁文件检测（插件目录向上最多 4 级找 `pnpm-lock.yaml`→pnpm、`yarn.lock`→yarn、`bun.lockb|bun.lock`→bun、`package-lock.json`→npm，兼容 workspace 根持锁），都找不到按 npm。npm / yarn / pnpm / bun 四种统一走 `<manager> run <script>`。
 - **原始命令逃生舱**：非 node 工具链（如 `deno task dev`、`make dev`）写 `enest.dev.command`，整行交给系统 shell 执行；命令里的 `{port}` 占位符在端口漂移时替换为实际端口。
-- **环境变量**：实际端口始终注入 `ENEST_DEV_PORT`，任意工具链的启动脚本都可读取。
+- **环境变量**：`enest.dev.env` / `enest.build.env` 的字符串键值会与宿主环境合并后传给子进程；实际端口始终注入 `ENEST_DEV_PORT`，任意工具链的启动脚本都可读取。
 - **零配置即可用**：不写 `enest` 段时，`development.main` + `scripts.dev`（或 `scripts.start`）+ 锁文件检测就是完整声明；官方插件全部如此工作。
-- **纯静态 HTML 插件**：没有 `package.json` 或没有可用脚本时不拉服务，直接源码静态预览 + 文件变更自动重载。
+- **纯静态 HTML 插件**：`package.json` 仍是源码工程必需（`name` 为 id 末段、`version` 一致、`type` 为 `module`），但没有可用启动脚本时不拉服务，直接源码静态预览 + 文件变更自动重载。
 
 ```jsonc
 // package.json（可选扩展，全部字段可省略）
@@ -40,9 +41,10 @@
       "manager": "pnpm",
       "script": "dev",
       "portArgs": ["--port", "{port}"],
-      "command": "deno task dev --port {port}"
+      "command": "deno task dev --port {port}",
+      "env": { "VITE_APP_ENV": "development" }
     },
-    "build": { "script": "build" },
+    "build": { "script": "build", "env": { "NODE_ENV": "production" } },
     "output": "dist"
   }
 }
@@ -55,6 +57,7 @@
 开发者控制台只有开发模式：壳后台自动识别插件源码形态，列表区分「待启动 · Vite / 对应框架」「开发服务 · Vite / 对应框架」「静态 HTML」「构建产物」，没有 dev/prod 切换，也没有「重新构建」按钮。
 
 - **有开发服务声明**（`development.main` 或 `enest.dev.url`）：启动恢复后先显示「待启动」。实际运行时优先连接已在运行且身份匹配的服务；未运行时按解析出的启动命令自动拉起并等待就绪，走框架 HMR。调试快捷键（仅 dev 插件与壳窗口响应）：插件页内 **F12 / ⌘⌥I / Ctrl+Shift+I** 开关 DevTools，**⌘R / Ctrl+R** 重载插件（开发服务掉线时重载会自动重新拉起）。
+- **声明了后端或后台页**：首次打开或重载时，若产物目录里对应入口缺失，先按 `package.json` 的构建命令自动构建一次（输出显示在开发者页），完成后再创建插件页。构建失败不阻止打开，`backend.call` / `background.call` 会提示缺失产物与构建命令。产物已存在时不会重复构建，修改后端代码后仍需重新构建并重载。
 - **服务无法连接或自动启动失败，但已有匹配的构建产物**：按 `enest.output`（缺省 `dist`）产物目录预览，标签显示「构建产物」。除插件 ID 和版本相同外，产物 manifest 必须与源码 manifest 去掉 `development` 后完整一致，避免准备运行入口时替换功能声明或权限。版本或声明不一致时拒绝加载并提示构建命令；需在插件目录重新运行构建脚本（如 `npm run build`）。
 - **无服务声明**：源码静态预览（保存后自动重载），标签显示「静态 HTML」。
 
@@ -65,7 +68,7 @@
 1. 在插件目录执行依赖安装（首次）。
 2. 壳设置 → 开发者，选择含 `plugin.json` 的源码目录；开发服务未运行也没关系，壳会按解析出的命令自动拉起。
 3. 默认读取 `development.main`（或 `enest.dev.url`），端口与启动脚本一致，避免与其它插件开发服务冲突；不要把某个仓库的端口范围当作宿主协议。
-4. 加载后立即打开壳内插件页，HMR 由 Vite 处理；纯前端插件无需已有 `dist`。声明 Node 后端的插件必须先构建 `dist/backend`，后端入口不会由 Vite 开发服务器提供。
+4. 加载后立即打开壳内插件页，HMR 由 Vite 处理；纯前端插件无需已有产物。声明 Node 后端的插件，产物目录下的 `backend`（`enest.output`，缺省 `dist`）只能由构建生成；首次打开或重载时若缺失，宿主会按 `package.json` 解析出的构建命令自动构建一次，输出显示在开发者页。构建失败不会阻止打开，后端调用会提示缺失产物与构建命令。后端代码修改后仍需重新构建（产物已存在时宿主不会重复构建），再重载插件以创建新进程。
 
 ```json
 {

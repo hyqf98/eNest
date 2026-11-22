@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ShortcutProbeResult } from '@shared/types/shortcuts'
+import { useI18n } from '@renderer/hooks/useI18n'
 import { shellApi } from '@renderer/services/shellApi'
 
 /** A probe belongs to one completed chord; stale replies never authorize a different input. */
 export function useShortcutProbe(value: string, recording: boolean, target: 'quick' | 'plugin', excludeId?: string) {
+  const { t } = useI18n()
   const [revision, setRevision] = useState(0)
   const [state, setState] = useState<{ key: string; probe?: ShortcutProbeResult; error?: string }>({ key: '' })
   /** best-effort 外部占用者识别结果；label 为空表示已检查但无法识别 */
@@ -22,7 +24,7 @@ export function useShortcutProbe(value: string, recording: boolean, target: 'qui
       try {
         let probe: ShortcutProbeResult
         if (target === 'quick') {
-          if (!shellApi.quickProbeHotkey) throw new Error('当前版本不支持快捷键检查')
+          if (!shellApi.quickProbeHotkey) throw new Error(t('settings.shortcutProbe.probeUnsupported'))
           const result = await shellApi.quickProbeHotkey(value)
           probe = result.conflict ?? { accelerator: result.acc, status: result.free ? 'free' : 'system', hint: result.hint }
         } else {
@@ -30,11 +32,11 @@ export function useShortcutProbe(value: string, recording: boolean, target: 'qui
         }
         if (!cancelled) setState({ key, probe })
       } catch (cause) {
-        if (!cancelled) setState({ key, error: cause instanceof Error ? cause.message : '检查失败，请重试' })
+        if (!cancelled) setState({ key, error: cause instanceof Error ? cause.message : t('settings.shortcutProbe.probeFailed') })
       }
     })()
     return () => { cancelled = true }
-  }, [key, value, recording, target, excludeId])
+  }, [key, value, recording, target, excludeId, t])
   const current = !recording && value && state.key === key ? state : undefined
   const matched = ownerHint && current?.probe && current.probe.status === 'system'
     && ownerHint.accelerator === current.probe.accelerator ? ownerHint : undefined

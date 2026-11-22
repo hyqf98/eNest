@@ -1,15 +1,26 @@
 import type { ShortcutProbeResult } from '@shared/types/shortcuts'
+import { useI18n } from '@renderer/hooks/useI18n'
 import { formatAccelerator } from './shortcutCapture'
 
-export function describeShortcutProbe(probe: ShortcutProbeResult): string {
-  const owner = probe.ownerLabel || probe.ownerPluginId
-  if (probe.status === 'free') return probe.hint || '未发现快捷键冲突'
-  if (probe.status === 'quick') return '此组合键已用于小窗口呼出键。'
-  if (probe.status === 'shortcut') return `此组合键已用于${owner ? `「${owner}」` : '另一条插件'}的快捷键。`
-  if (probe.status === 'runtime') return `此组合键由插件${owner ? `「${owner}」` : ''}运行时使用，请换一个组合键。`
-  // system：forceable 时提示可强制接管；识别出占用者时给出具体指引。
-  if (owner) return `此组合键可能被「${owner}」占用。${probe.hint ?? ''}`
-  return probe.hint || (probe.status === 'invalid' ? '组合键无效，请重新录制。' : '此组合键已被系统或其他应用占用，请换一个组合键。')
+export function useDescribeShortcutProbe(): (probe: ShortcutProbeResult) => string {
+  const { t } = useI18n()
+  return (probe: ShortcutProbeResult) => {
+    const owner = probe.ownerLabel || probe.ownerPluginId
+    const ownerText = owner ? `「${owner}」` : ''
+    if (probe.status === 'free') return probe.hint || t('settings.shortcutProbe.free')
+    if (probe.status === 'quick') return t('settings.shortcutProbe.occupiedByQuick')
+    if (probe.status === 'shortcut') return owner
+      ? t('settings.shortcutProbe.occupiedByPlugin', { owner: ownerText })
+      : t('settings.shortcutProbe.occupiedByPluginUnnamed')
+    if (probe.status === 'runtime') return owner
+      ? t('settings.shortcutProbe.occupiedByRuntime', { owner: ownerText })
+      : t('settings.shortcutProbe.occupiedByRuntimeUnnamed')
+    // system：forceable 时提示可强制接管；识别出占用者时给出具体指引。
+    if (owner) return t('settings.shortcutProbe.systemOwnerKnown', { owner: ownerText, hint: probe.hint ?? '' })
+    return probe.hint || (probe.status === 'invalid'
+      ? t('settings.shortcutProbe.invalidKeys')
+      : t('settings.shortcutProbe.systemOccupied'))
+  }
 }
 
 export function ShortcutProbeFeedback({ probe, checking, error, inactive = false, disabled = false, ownerIdentified = false, ownerChecked = false, onConfirm, onForce, onRetry }: {
@@ -27,23 +38,27 @@ export function ShortcutProbeFeedback({ probe, checking, error, inactive = false
   onForce?(): void
   onRetry?(): void
 }) {
-  if (checking) return <p className="shortcut-probe" role="status">正在检查快捷键占用…</p>
-  if (error) return <div className="shortcut-probe is-conflict" role="alert">{error}{onRetry && <button type="button" className="btn btn-ghost" onClick={onRetry}>重新检查</button>}</div>
+  const { t } = useI18n()
+  const describe = useDescribeShortcutProbe()
+  if (checking) return <p className="shortcut-probe" role="status">{t('settings.shortcutProbe.checking')}</p>
+  if (error) return <div className="shortcut-probe is-conflict" role="alert">{error}{onRetry && <button type="button" className="btn btn-ghost" onClick={onRetry}>{t('settings.shortcutProbe.recheck')}</button>}</div>
   if (!probe) return null
-  if (probe.status === 'free') return <p className="shortcut-probe is-free" role="status">{probe.hint || '未发现快捷键冲突'}</p>
+  if (probe.status === 'free') return <p className="shortcut-probe is-free" role="status">{probe.hint || t('settings.shortcutProbe.free')}</p>
   const isSystem = probe.status === 'system'
   const canForce = isSystem && !!probe.forceable && !!onForce && !disabled
   return <div className="shortcut-probe is-conflict" role="alert">
-    <div><strong>{formatAccelerator(probe.accelerator)} · {describeShortcutProbe(probe)}</strong>
-      {isSystem && !ownerIdentified && !ownerChecked && <p>正在尝试识别占用该组合键的程序…{onRetry && <button type="button" className="btn btn-ghost" onClick={onRetry}>重新检查</button>}</p>}
-      {isSystem && !ownerIdentified && ownerChecked && <p>系统不提供占用该组合键的程序名称，无法读取具体窗口或进程。可逐个关闭可疑程序后点「重新检查」{canForce ? '，或直接强制覆盖接管。' : '。'}{onRetry && <button type="button" className="btn btn-ghost" onClick={onRetry}>重新检查</button>}</p>}
-      {isSystem && ownerIdentified && !probe.forceable && <p>在对方程序中关闭该热键后，点「重新检查」即可在此启用。{onRetry && <button type="button" className="btn btn-ghost" onClick={onRetry}>重新检查</button>}</p>}
-      {canForce && <p>强制接管将用系统级键盘钩子拦截此组合键：占用它的程序将不再收到按键，点「恢复默认快捷键」或更换组合键即释放。</p>}
-      {probe.overrideToken && <p>{inactive ? '当前绑定已关闭，保存不会覆盖；启用时需重新确认。'
-        : probe.status === 'quick' ? '确认后将关闭原小窗口呼出键，并将此组合键用于当前设置。'
-          : '确认后将停用原快捷键绑定，保留其配置，并将此组合键用于当前设置。'}</p>}</div>
-    {canForce && <button type="button" className="btn btn-primary" onClick={onForce}>强制覆盖</button>}
+    <div><strong>{formatAccelerator(probe.accelerator)} · {describe(probe)}</strong>
+      {isSystem && !ownerIdentified && !ownerChecked && <p>{t('settings.shortcutProbe.identifyingOwner')}{onRetry && <button type="button" className="btn btn-ghost" onClick={onRetry}>{t('settings.shortcutProbe.recheck')}</button>}</p>}
+      {isSystem && !ownerIdentified && ownerChecked && <p>{t('settings.shortcutProbe.ownerUnknown', {
+        suffix: canForce ? t('settings.shortcutProbe.ownerUnknownForceSuffix') : t('settings.shortcutProbe.ownerUnknownEnd')
+      })}{onRetry && <button type="button" className="btn btn-ghost" onClick={onRetry}>{t('settings.shortcutProbe.recheck')}</button>}</p>}
+      {isSystem && ownerIdentified && !probe.forceable && <p>{t('settings.shortcutProbe.closeOwnerHint')}{onRetry && <button type="button" className="btn btn-ghost" onClick={onRetry}>{t('settings.shortcutProbe.recheck')}</button>}</p>}
+      {canForce && <p>{t('settings.shortcutProbe.forceExplain')}</p>}
+      {probe.overrideToken && <p>{inactive ? t('settings.shortcutProbe.confirmInactive')
+        : probe.status === 'quick' ? t('settings.shortcutProbe.confirmQuick')
+          : t('settings.shortcutProbe.confirmPlugin')}</p>}</div>
+    {canForce && <button type="button" className="btn btn-primary" onClick={onForce}>{t('settings.shortcutProbe.forceOverride')}</button>}
     {!inactive && probe.overrideToken && onConfirm && <button type="button" className="btn btn-primary" disabled={disabled}
-      onClick={() => onConfirm(probe.overrideToken!)}>确认覆盖并保存</button>}
+      onClick={() => onConfirm(probe.overrideToken!)}>{t('settings.shortcutProbe.confirmOverride')}</button>}
   </div>
 }

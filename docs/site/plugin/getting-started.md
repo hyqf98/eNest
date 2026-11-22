@@ -66,7 +66,7 @@ document.querySelector('#save').addEventListener('click', async () => {
 
 ## 开发与发布
 
-执行 `npm run dev`（手工加载源码时壳也会按 package.json 自动拉起），在壳开发者页选择源码目录，页面自动打开。Vite HMR 保留当前视图；开发者控制台只有开发模式，按 `package.json` 自动识别框架或静态 HTML。要验证构建产物，先 `npm run build`；运行时服务无法连接且自动启动失败，壳才尝试产物预览。明确验证发布行为应安装构建出的插件包，详情见[开发加载](debug.md)。构建需 `base: './'`、`outDir: 'dist'`，并将去掉 development 的 manifest 写入 dist。仓库构建器会完成这些步骤。
+执行 `npm run dev`（手工加载源码时壳也会按 package.json 自动拉起），在壳开发者页选择源码目录，页面自动打开。Vite HMR 保留当前视图；开发者控制台只有开发模式，按 `package.json` 自动识别框架或静态 HTML。声明 Node 后端或后台页的插件，首次打开时若产物缺失，壳会按 `package.json` 的构建命令自动构建一次；之后修改后端代码仍需重新构建并重载。要验证构建产物，先 `npm run build`；运行时服务无法连接且自动启动失败，壳才尝试产物预览。明确验证发布行为应安装构建出的插件包，详情见[开发加载](debug.md)。构建需 `base: './'`、`outDir: 'dist'`，并将去掉 development 的 manifest 写入 dist。仓库构建器会完成这些步骤。
 
 发布前补真实截图，执行 manifest、产物和包校验，在壳内验证 Quick 与主窗、浅深主题、授权拒绝及重新进入。运行截图放在 `public/assets/market/screenshots/` 并声明到 manifest；不要用设计稿替代实际功能截图。
 

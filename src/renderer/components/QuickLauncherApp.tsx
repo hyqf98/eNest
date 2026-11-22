@@ -136,15 +136,22 @@ export function QuickLauncherApp() {
     return true
   }, [])
 
-  const invalidate = useCallback(() => {
+  /**
+   * keepItems：呼出时刷新数据但保留上一帧可见结果，避免「先显示旧内容 → 空白 →
+   * 再显示新内容」的二次出现感。查询变更仍走默认清空路径。
+   */
+  const invalidate = useCallback((options?: { keepItems?: boolean }) => {
     explicitSelection.current = null
     queryRevision.current++
     searchSequence.current++
     void shellApi.quickSearch?.('', 0, undefined, 'cancel').catch(() => undefined)
     retireProviders()
     // Retire authority synchronously, before another queued theme action can run.
-    current.current = { ...current.current, items: [], selectedId: null }
-    setItems([]); setSelectedId(null); setExpanded(false); setHiddenCount(0); setEmptyMarket(false)
+    if (!options?.keepItems) {
+      current.current = { ...current.current, items: [], selectedId: null }
+      setItems([]); setSelectedId(null)
+    }
+    setExpanded(false); setHiddenCount(0); setEmptyMarket(false)
     setCatalogLoading(!nativeCatalog.current); setProvidersLoading(false); setError(null)
   }, [retireProviders])
 
@@ -429,7 +436,8 @@ export function QuickLauncherApp() {
       }
     })
     const offShown = shellApi.onQuickShown?.(() => {
-      setQuery(inputSession.snapshot.value); setFilter(null); invalidate(); setShown(value => value + 1)
+      // 保留上一帧结果直到新数据回来：清空 items 会让窗口在呼出瞬间闪成空白态。
+      setQuery(inputSession.snapshot.value); setFilter(null); invalidate({ keepItems: true }); setShown(value => value + 1)
       // 主进程在隐藏时清空上下文，呼出后镜像必须与宿主对齐。
       resetContext()
       void refreshContext().catch(() => undefined)

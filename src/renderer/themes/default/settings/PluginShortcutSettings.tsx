@@ -3,21 +3,19 @@ import type { PluginShortcutBinding, PluginShortcutInput, PluginShortcutState, P
 import { shellApi } from '@renderer/services/shellApi'
 import { notify } from '@renderer/services/notifyService'
 import { useShellStore } from '@renderer/stores/shellStore'
+import { useI18n } from '@renderer/hooks/useI18n'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import { PluginIcon } from '@renderer/components/PluginIcon'
 import { formatAccelerator } from './shortcutCapture'
 import { useShortcutProbe } from './useShortcutProbe'
-import { ShortcutProbeFeedback, describeShortcutProbe } from './ShortcutProbeFeedback'
+import { ShortcutProbeFeedback, useDescribeShortcutProbe } from './ShortcutProbeFeedback'
 import { Switch } from '@renderer/components/ui/Switch'
 import { Checkbox } from '@renderer/components/ui/Checkbox'
 import { Segmented } from '@renderer/components/ui/Segmented'
 
-const statusLabels: Record<PluginShortcutState['status'], string> = {
-  registered: '已生效', disabled: '已关闭', 'plugin-disabled': '插件已禁用',
-  'plugin-missing': '插件已移除', conflict: '未生效', suspended: '录制期间暂停', 'pending-system': '等待系统确认'
-}
-
 export function PluginShortcutSettings() {
+  const { t } = useI18n()
+  const describeShortcutProbe = useDescribeShortcutProbe()
   const plugins = useShellStore(state => state.plugins)
   const filter = useShellStore(state => state.shortcutPluginFilter)
   const setFilter = useShellStore(state => state.setShortcutPluginFilter)
@@ -36,6 +34,13 @@ export function PluginShortcutSettings() {
   const draftProbe = useShortcutProbe(draft?.accelerator ?? '', recording, 'plugin', draft?.id)
   const canSaveDraft = !!draft?.accelerator && !!draftProbe.probe && !draftProbe.checking
     && (draftProbe.probe.status === 'free' || (!draft.enabled && draftProbe.probe.status !== 'invalid'))
+
+  const statusLabels: Record<PluginShortcutState['status'], string> = {
+    registered: t('settings.pluginShortcut.statusRegistered'), disabled: t('settings.pluginShortcut.statusDisabled'),
+    'plugin-disabled': t('settings.pluginShortcut.statusPluginDisabled'), 'plugin-missing': t('settings.pluginShortcut.statusPluginMissing'),
+    conflict: t('settings.pluginShortcut.statusConflict'), suspended: t('settings.pluginShortcut.statusSuspended'),
+    'pending-system': t('settings.pluginShortcut.statusPendingSystem')
+  }
 
   const refresh = async (): Promise<void> => {
     const revision = ++request.current
@@ -64,7 +69,7 @@ export function PluginShortcutSettings() {
       const result = await shellApi.savePluginShortcut(input)
       if (result.snapshot) setSnapshot(result.snapshot)
       if (!result.ok) {
-        const message = result.error || (result.probe && result.probe.status !== 'free' ? describeShortcutProbe(result.probe) : '保存失败')
+        const message = result.error || (result.probe && result.probe.status !== 'free' ? describeShortcutProbe(result.probe) : t('settings.pluginShortcut.saveFailed'))
         if (closeEditor) { setDraftError(message); draftProbe.recheck() }
         else if (result.probe && input.enabled) { setDraft({ ...input, overrideToken: undefined }); setDraftError(message) }
         else setError(message)
@@ -73,7 +78,7 @@ export function PluginShortcutSettings() {
       if (closeEditor) setDraft(null)
       if (!result.snapshot) await refresh()
       const state = result.snapshot?.states.find(item => item.id === result.binding?.id)
-      notify.success(state?.status === 'registered' ? '插件快捷键已生效' : '插件快捷键已保存')
+      notify.success(state?.status === 'registered' ? t('settings.pluginShortcut.savedActive') : t('settings.pluginShortcut.savedInactive'))
     } catch (cause) {
       if (closeEditor) setDraftError((cause as Error).message); else setError((cause as Error).message)
     } finally { busy.current = false; setBusyId(null) }
@@ -83,10 +88,10 @@ export function PluginShortcutSettings() {
     busy.current = true; setBusyId(id); setError('')
     try {
       const result = await shellApi.removePluginShortcut(id)
-      if (!result.ok) throw new Error(result.error || '删除失败')
+      if (!result.ok) throw new Error(result.error || t('settings.pluginShortcut.removeFailed'))
       if (result.snapshot) setSnapshot(result.snapshot); else await refresh()
       if (draft?.id === id) setDraft(null)
-      notify.success('快捷键绑定已删除')
+      notify.success(t('settings.pluginShortcut.removed'))
     } catch (cause) { setError((cause as Error).message) }
     finally { busy.current = false; setBusyId(null) }
   }
@@ -110,19 +115,19 @@ export function PluginShortcutSettings() {
     setDraftError('')
     setDraft({ pluginId, accelerator: '', mode: 'quick', enabled: true })
   }
-  const editor = draft && <form className="shortcut-editor" aria-label={draft.id ? '编辑插件快捷键' : '新增插件快捷键'} onSubmit={event => { event.preventDefault(); if (!recording && canSaveDraft) void save(draft, true) }}>
+  const editor = draft && <form className="shortcut-editor" aria-label={draft.id ? t('settings.pluginShortcut.editorEditAria') : t('settings.pluginShortcut.editorNewAria')} onSubmit={event => { event.preventDefault(); if (!recording && canSaveDraft) void save(draft, true) }}>
     <div className="shortcut-editor-fields">
-      <div><span>组合键</span><ShortcutRecorder value={draft.accelerator} onChange={accelerator => { setDraftError(''); setDraft({ ...draft, accelerator }) }}
-        disabled={!!busyId} label="插件快捷键组合" onRecordingChange={setRecording} /></div>
-      <div><span>启动位置</span><Segmented className="shortcut-mode" role="radiogroup" ariaLabel="启动位置" value={draft.mode}
+      <div><span>{t('settings.pluginShortcut.editorKeys')}</span><ShortcutRecorder value={draft.accelerator} onChange={accelerator => { setDraftError(''); setDraft({ ...draft, accelerator }) }}
+        disabled={!!busyId} label={t('settings.pluginShortcut.editorKeysAria')} onRecordingChange={setRecording} /></div>
+      <div><span>{t('settings.pluginShortcut.editorMode')}</span><Segmented className="shortcut-mode" role="radiogroup" ariaLabel={t('settings.pluginShortcut.editorMode')} value={draft.mode}
         disabled={!!busyId || recording} onChange={mode => setDraft({ ...draft, mode })}
-        options={[{ value: 'quick' as const, label: '小窗口' }, { value: 'shell' as const, label: '主窗口' }]} /></div>
+        options={[{ value: 'quick' as const, label: t('settings.pluginShortcut.editorModeQuick') }, { value: 'shell' as const, label: t('settings.pluginShortcut.editorModeShell') }]} /></div>
     </div>
     <div className="shortcut-editor-actions">
       <label className="shortcut-enabled-label"><Checkbox checked={draft.enabled} disabled={!!busyId || recording}
-        onCheckedChange={enabled => setDraft({ ...draft, enabled: enabled === true })} />启用此绑定</label>
-      <button type="button" className="btn btn-ghost" disabled={!!busyId} onClick={() => { setDraft(null); setDraftError('') }}>取消</button>
-      <button type="submit" className="btn btn-primary" disabled={!!busyId || recording || !draft.pluginId || !canSaveDraft}>{busyId ? '保存中…' : '保存'}</button>
+        onCheckedChange={enabled => setDraft({ ...draft, enabled: enabled === true })} />{t('settings.pluginShortcut.editorEnable')}</label>
+      <button type="button" className="btn btn-ghost" disabled={!!busyId} onClick={() => { setDraft(null); setDraftError('') }}>{t('settings.pluginShortcut.editorCancel')}</button>
+      <button type="submit" className="btn btn-primary" disabled={!!busyId || recording || !draft.pluginId || !canSaveDraft}>{busyId ? t('settings.pluginShortcut.editorSaving') : t('settings.pluginShortcut.editorSave')}</button>
     </div>
     <ShortcutProbeFeedback {...draftProbe} inactive={!draft.enabled} disabled={!!busyId || recording}
       onRetry={draftProbe.recheck} onConfirm={overrideToken => void save({ ...draft, overrideToken }, true)} />
@@ -135,16 +140,16 @@ export function PluginShortcutSettings() {
     return <li key={binding.id} className="shortcut-binding">
       <div className="shortcut-binding-main">
         <kbd className="shortcut-keys">{formatAccelerator(binding.accelerator)}</kbd>
-        <span className="shortcut-binding-mode">{binding.mode === 'quick' ? '小窗口' : '主窗口'}</span>
+        <span className="shortcut-binding-mode">{binding.mode === 'quick' ? t('settings.pluginShortcut.modeQuick') : t('settings.pluginShortcut.modeShell')}</span>
         <div className="shortcut-binding-state" data-status={state?.status ?? 'conflict'}>
-          <span>{state ? statusLabels[state.status] : '正在检查'}</span>{state?.error && <small title={state.error}>{state.error}</small>}
+          <span>{state ? statusLabels[state.status] : t('settings.pluginShortcut.statusChecking')}</span>{state?.error && <small title={state.error}>{state.error}</small>}
         </div>
-        <Switch checked={binding.enabled} className="switch" aria-label={`${binding.enabled ? '关闭' : '启用'} ${plugin?.name ?? binding.pluginId} 的 ${formatAccelerator(binding.accelerator)}`}
+        <Switch checked={binding.enabled} className="switch" aria-label={t(binding.enabled ? 'settings.pluginShortcut.toggleOffAria' : 'settings.pluginShortcut.toggleOnAria', { name: plugin?.name ?? binding.pluginId, keys: formatAccelerator(binding.accelerator) })}
           disabled={!!busyId || !!draft} onCheckedChange={() => void save({ ...binding, enabled: !binding.enabled })} />
       </div>
       <div className="shortcut-binding-actions">
-        <button type="button" className="btn btn-ghost" disabled={!!busyId || !!draft || !plugin} onClick={() => { setDraft({ ...binding }); setDraftError('') }}>编辑</button>
-        <button type="button" className="btn btn-ghost" disabled={!!busyId || !!draft} onClick={() => void remove(binding.id)}>删除</button>
+        <button type="button" className="btn btn-ghost" disabled={!!busyId || !!draft || !plugin} onClick={() => { setDraft({ ...binding }); setDraftError('') }}>{t('settings.pluginShortcut.edit')}</button>
+        <button type="button" className="btn btn-ghost" disabled={!!busyId || !!draft} onClick={() => void remove(binding.id)}>{t('settings.pluginShortcut.remove')}</button>
       </div>
       {draft?.id === binding.id && editor}
     </li>
@@ -160,14 +165,14 @@ export function PluginShortcutSettings() {
     if ((plugin?.name ?? '').toLowerCase().includes(needle) || id.toLowerCase().includes(needle)) return true
     return snapshot.bindings.some(binding => binding.pluginId === id && binding.accelerator.toLowerCase().includes(needle))
   }) : allGroups
-  return <section className="s-card" aria-label="插件快捷键">
-    <div className="shortcut-section-head"><div><h2>插件快捷键 <span className="shortcut-count">{installed.length}</span></h2>
-      <p className="hint">同一插件可分别设置小窗口和主窗口快捷键。</p></div>
+  return <section className="s-card" aria-label={t('settings.pluginShortcut.cardAria')}>
+    <div className="shortcut-section-head"><div><h2>{t('settings.pluginShortcut.title')} <span className="shortcut-count">{installed.length}</span></h2>
+      <p className="hint">{t('settings.pluginShortcut.hint')}</p></div>
     </div>
-    {filter && <div className="shortcut-location">已定位到 {plugins.find(plugin => plugin.id === filter)?.name ?? filter}
-      <button type="button" className="btn btn-ghost" onClick={() => setFilter(null)}>取消定位</button></div>}
-    {error && <p className="shortcut-error" role="alert">{error} <button type="button" className="btn btn-ghost" disabled={!!busyId} onClick={() => void refresh()}>刷新状态</button></p>}
-    {loading ? <p className="shortcut-empty" role="status">正在读取插件绑定…</p> : <>
+    {filter && <div className="shortcut-location">{t('settings.pluginShortcut.located', { name: plugins.find(plugin => plugin.id === filter)?.name ?? filter })}
+      <button type="button" className="btn btn-ghost" onClick={() => setFilter(null)}>{t('settings.pluginShortcut.cancelLocate')}</button></div>}
+    {error && <p className="shortcut-error" role="alert">{error} <button type="button" className="btn btn-ghost" disabled={!!busyId} onClick={() => void refresh()}>{t('settings.pluginShortcut.refreshState')}</button></p>}
+    {loading ? <p className="shortcut-empty" role="status">{t('settings.pluginShortcut.loading')}</p> : <>
       {/* 搜索框固定在滚动区外面：列表滚到哪儿都能改关键词。 */}
       <div className="shortcut-search">
         <input
@@ -175,29 +180,29 @@ export function PluginShortcutSettings() {
           className="shortcut-search-input"
           value={query}
           onChange={event => setQuery(event.target.value)}
-          placeholder="搜索插件或快捷键…"
-          aria-label="搜索插件快捷键"
+          placeholder={t('settings.pluginShortcut.searchPlaceholder')}
+          aria-label={t('settings.pluginShortcut.searchAria')}
         />
       </div>
       {groups.length ? <div className="shortcut-plugin-groups" data-scrollbar="auto-hide">
       {groups.map(({ id, plugin }) => {
         const bindings = snapshot.bindings.filter(binding => binding.pluginId === id)
         return <section key={id} className={`shortcut-plugin-group${filter === id ? ' is-located' : ''}`} data-plugin-id={id}
-          aria-label={`${plugin?.name ?? id} 快捷键`} ref={node => { if (node) groupRefs.current.set(id, node); else groupRefs.current.delete(id) }}>
+          aria-label={t('settings.pluginShortcut.groupAria', { name: plugin?.name ?? id })} ref={node => { if (node) groupRefs.current.set(id, node); else groupRefs.current.delete(id) }}>
           <header className="shortcut-plugin-head">
             <PluginIcon src={plugin?.icon} glyph={plugin?.glyph ?? '?'} size={36} />
             <div className="shortcut-plugin"><strong>{plugin?.name ?? id}</strong>
-              <span>{!plugin ? '插件已移除 · 可删除保留的绑定' : plugin.enabled === false ? '插件已禁用' : bindings.length ? `${bindings.length} 组快捷键` : '未设置快捷键'}</span></div>
+              <span>{!plugin ? t('settings.pluginShortcut.pluginRemoved') : plugin.enabled === false ? t('settings.pluginShortcut.pluginDisabled') : bindings.length ? t('settings.pluginShortcut.bindingsCount', { count: String(bindings.length) }) : t('settings.pluginShortcut.noShortcut')}</span></div>
             <div className="shortcut-plugin-actions">
               {plugin && <button type="button" className="btn btn-ghost shortcut-add" disabled={!!busyId || !!draft}
-                onClick={() => newBinding(id)}><span aria-hidden="true">＋</span> 添加快捷键</button>}
+                onClick={() => newBinding(id)}><span aria-hidden="true">＋</span> {t('settings.pluginShortcut.addShortcut')}</button>}
             </div>
           </header>
           {bindings.length > 0 && <ul className="shortcut-bindings">{bindings.map(renderRow)}</ul>}
           {draft?.pluginId === id && !draft.id && editor}
         </section>
       })}
-    </div> : <div className="shortcut-empty"><strong>{needle ? '没有匹配的插件' : '还没有安装插件'}</strong><p>{needle ? '换个关键词，或清空搜索查看全部。' : '安装后会自动出现在这里，随时添加快捷键。'}</p></div>}
+    </div> : <div className="shortcut-empty"><strong>{needle ? t('settings.pluginShortcut.emptySearchTitle') : t('settings.pluginShortcut.emptyInstalledTitle')}</strong><p>{needle ? t('settings.pluginShortcut.emptySearchDesc') : t('settings.pluginShortcut.emptyInstalledDesc')}</p></div>}
     </>}
   </section>
 }

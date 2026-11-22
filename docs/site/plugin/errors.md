@@ -29,6 +29,8 @@
 | `only http(s)/mailto/tel urls allowed` | `shell.openExternal` 传入非 http(s)/mailto/tel URL | 只允许 `http://` / `https://` / `mailto:` / `tel:`；`file://` 等会被拒 |
 | `net.fetch timeout` | `net.fetch` 超时（默认 15s，上限 120s），或在途请求被终止 | 核对生命周期及目标可达性，不盲目重放有副作用的请求 |
 | `plugin call failed` | preload 侧兜底：IPC 返回 `{ ok: false }` 但无 error 字符串 | 查看 DevTools 与主进程日志 |
+| `…的本机后端尚未构建：缺少 …` | 开发态声明了 `backend`，但产物目录没有后端入口（首次构建失败或产物被清理） | 按消息中的源码目录运行构建命令后重载；首次打开或重载时宿主会先自动构建一次 |
+| `Background requires matching built output` | 开发态声明了 `background`，但产物目录缺少匹配的后台页面 | 运行构建命令并确认 `background.entry` 已进入产物；重载插件 |
 
 ### net.fetch 系列约束
 

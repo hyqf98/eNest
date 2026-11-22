@@ -777,11 +777,11 @@ private removeThemePackContributions(pluginId: string): void {
   }
 
   /** Runtime transport does not replace source declarations or retire the launch that requested it. */
-  updateDevRuntime(id: string, runtime: Pick<PluginSummary, 'rootPath' | 'devUrl' | 'devSource' | 'devKind' | 'devCommand'>): PluginSummary {
+  updateDevRuntime(id: string, runtime: Pick<PluginSummary, 'rootPath' | 'devUrl' | 'devSource' | 'devOutputPath' | 'devKind' | 'devCommand'>): PluginSummary {
     const previous = this.dev.get(id)
     if (!previous) throw new Error('development source is no longer registered')
-    this.dev.set(id, { ...previous, rootPath: runtime.rootPath, devUrl: runtime.devUrl,
-      devSource: runtime.devSource, devKind: runtime.devKind, devCommand: runtime.devCommand })
+    this.dev.set(id, { ...previous, rootPath: runtime.rootPath, devUrl: runtime.devUrl, devSource: runtime.devSource,
+      devOutputPath: runtime.devOutputPath, devKind: runtime.devKind, devCommand: runtime.devCommand })
     this.changed()
     return this.get(id)!
   }

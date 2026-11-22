@@ -6,6 +6,7 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 |---|---|
 | id | 反向域名，保留 `com.github.eNest` 的大小写；源码目录名与末段一致；不能使用宿主保留标识 enest.builtin |
 | name / description / version | 非空名称、功能描述、semver 版本 |
+| author / homepage | 可选；作者与项目主页，仅用于展示 |
 | category | 效率、开发、设计、媒体、其它 |
 | main | 固定 index.html，相对于运行根 |
 | icon | 固定 assets/market/icon.svg |
@@ -13,11 +14,15 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 | market.screenshots | assets/market/screenshots 下的相对路径；发布 1–8 张 PNG/JPEG/WebP |
 | market.tags / featured | 市场标签及推荐展示 |
 | backend.entry | 可选；包内 backend/ 下的 .cjs/.mjs/.js 入口，需 backend.node；构建工具输出 backend/index.cjs |
+| background | 可选；声明式后台页 `{ entry: assets/*.html, events?, eventSettings? }`，在隐藏视图中按事件运行，见 [API 参考](api.md) 的 background 段 |
+| activation | 可选；`indexSync`、`resident` 等声明式激活与常驻策略，见 [launch 段](api.md) |
+| net | 可选；`allowInsecure: true` 时 `net.fetch` 允许明文 http://，缺省仅 https |
 | permissions | 需要用户授权的敏感能力；基础存储/UI/设置/主题等无需声明 |
 | engines.enest | 支持 `*`、精确版本、`^x.y.z`、`>=x.y.z` |
 | development.main | 仅源码开发使用的无凭据 HTTP(S) URL，发布时移除；优先级低于 package.json `enest.dev.url`，启动命令解析见[开发加载](debug.md) |
 | window | 内容尺寸建议；宿主按可用屏幕区域限制，不是 CSS 固定尺寸 |
 | ui | chrome、themeAware、background、preferredColorScheme |
+| views | 可选；适配的 quick/shell/panel 布局、回退默认与面板尺寸，见[小窗、主窗、面板与 UI](#小窗主窗面板与-ui) |
 | features | code、explain、cmds 声明启动指令；cmds 支持触发词、regex/over 文本内容与 img/files 粘贴上下文，见[触发词与内容指令](#触发词与内容指令) |
 | contributes | settings、homeCards、railEntries、themePacks、homePages、openWith 等声明式扩展；homePages 仅在来源插件已安装、已启用且与当前 manifest 精确匹配时运行，见[完整首页](home.md) |
 
@@ -61,7 +66,7 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 
 ## 可选 Node 后端
 
-带后端的插件声明 `"backend": { "entry": "backend/index.cjs" }`，在 `permissions` 中列出 `backend.node`，并设置 `"engines": { "enest": ">=0.0.1" }`。`main` 仍是浏览器页面 `index.html`。后端入口不是 preload，也不会通过页面资源协议暴露。用户授权后运行完整 Node.js 代码，不能按页面沙箱理解其权限边界。源码入口和依赖收集配置放在 `package.json.enestBackend`，协议与示例见[插件本机后端](backend.md)。
+带后端的插件声明 `"backend": { "entry": "backend/index.cjs" }`，在 `permissions` 中列出 `backend.node`，并设置 `"engines": { "enest": ">=0.0.1" }`。`main` 仍是浏览器页面 `index.html`。后端入口不是 preload，也不会通过页面资源协议暴露。用户授权后运行完整 Node.js 代码，不能按页面沙箱理解其权限边界。源码入口和依赖收集配置放在 `package.json.enestBackend`，协议与示例见[插件本机后端](backend.md)。开发态后端只从产物目录（`enest.output`，缺省 `dist`）解析；首次打开或重载时入口缺失，宿主按 `package.json` 的构建命令自动构建一次，构建失败不阻止页面打开。
 
 ## 小窗、主窗、面板与 UI
 

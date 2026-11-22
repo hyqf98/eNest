@@ -53,7 +53,7 @@ function configuration(pluginId: string, includeStopped = false): Configuration 
     if (cached?.identity === identity) root = cached.root
     else {
       try {
-        root = join(item.rootPath, 'dist')
+        root = pluginRegistry.get(pluginId)?.devOutputPath ?? join(item.rootPath, 'dist')
         const directory = lstatSync(root), metadata = lstatSync(join(root, 'plugin.json'))
         if (directory.isSymbolicLink() || !directory.isDirectory() || metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 1024 * 1024) return null
         const built = JSON.parse(readFileSync(join(root, 'plugin.json'), 'utf8')) as PluginManifest
@@ -344,10 +344,16 @@ class BackgroundRuntime {
   }
 }
 
+/** Dev background pages run the compiled copy in the resolved output directory. */
+function missingBuiltOutput(pluginId: string): string {
+  const outputPath = pluginRegistry.get(pluginId)?.devOutputPath
+  return `Background requires matching built output${outputPath ? ` in ${outputPath}` : ''}; build the plugin and reload it`
+}
+
 function runtime(pluginId: string): BackgroundRuntime {
   const config = configuration(pluginId)
   if (stopping || !config || !authorized(config, false)) {
-    if (!config && pluginRegistry.get(pluginId)?.devSource === true) throw new Error('Background requires matching built output in dist; build the plugin and reload it')
+    if (!config && pluginRegistry.get(pluginId)?.devSource === true) throw new Error(missingBuiltOutput(pluginId))
     throw new Error('Background is undeclared, disabled, stopped, or unauthorized')
   }
   let entry = entries.get(pluginId)
@@ -362,7 +368,7 @@ function runtime(pluginId: string): BackgroundRuntime {
 export function requiredBackgroundPermissions(pluginId: string): PluginPermission[] {
   const config = configuration(pluginId, true)
   if (!config) {
-    if (pluginRegistry.get(pluginId)?.devSource === true) throw new Error('Background requires matching built output in dist; build the plugin and reload it')
+    if (pluginRegistry.get(pluginId)?.devSource === true) throw new Error(missingBuiltOutput(pluginId))
     throw new Error('Plugin has no available background declaration')
   }
   return permissions(config)
@@ -375,7 +381,7 @@ export function callPluginBackground(pluginId: string, method: unknown, args: un
   if (typeof timeout !== 'number' || !Number.isFinite(timeout) || timeout < 250 || timeout > 86_400_000) throw new Error('Invalid background timeout')
   const config = configuration(pluginId, true)
   if (stopping || !config || !authorized(config, false)) {
-    if (!config && pluginRegistry.get(pluginId)?.devSource === true) throw new Error('Background requires matching built output in dist; build the plugin and reload it')
+    if (!config && pluginRegistry.get(pluginId)?.devSource === true) throw new Error(missingBuiltOutput(pluginId))
     throw new Error('Background is undeclared, disabled, blocked, or unauthorized')
   }
   size({ kind: 'call', method, args })

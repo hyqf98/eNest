@@ -13,12 +13,12 @@ interface Props {
   tabs: SettingsTabItem[]
   active: string
   moreLabel: string
-  collapseLabel?: string
+  collapseLabel: string
   onChange: (id: string) => void
 }
 
 /** 默认单行；「更多」在原位展开。独立的非交互测量行始终按折叠布局计算。 */
-export function SettingsTabs({ tabs, active, moreLabel, collapseLabel = '收起', onChange }: Props) {
+export function SettingsTabs({ tabs, active, moreLabel, collapseLabel, onChange }: Props) {
   const tabsId = useId()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const measureRef = useRef<HTMLDivElement | null>(null)

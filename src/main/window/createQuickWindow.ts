@@ -11,7 +11,9 @@ import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
  */
 import { capturePasteTarget } from '@main/clipboard/nativeClipboard'
 import { clearQuickInputContext } from '@main/launcher/quickInputContext'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { app, BaseWindow, screen, View, WebContentsView } from 'electron'
 import {
   QUICK_BAR_AREA_H,
@@ -39,12 +41,21 @@ class QuickWindow extends BaseWindow {
       icon: resolveWindowIcon(),
       width: QUICK_WIDTH, height: QUICK_HOME_HEIGHT, show: false, frame: false,
       resizable: false, maximizable: false, minimizable: false, fullscreenable: false,
-      skipTaskbar: true, alwaysOnTop: true, transparent: true, hasShadow: true,
+      skipTaskbar: true, alwaysOnTop: true, transparent: true,
+      // Windows 的 DWM 阴影会在透明窗口的圆角内侧留下灰色填充（白底背景上形成灰角）；
+      // 圆角表面改由 CSS 内描边表现，macOS 保留系统阴影。
+      hasShadow: process.platform === 'darwin',
       roundedCorners: false, backgroundColor: '#00000000', title: 'eNest Quick'
     })
+    // 双保险：即使构造选项被忽略，也在创建后显式关闭 Windows 阴影。
+    if (process.platform !== 'darwin') {
+      try { this.setHasShadow(false) } catch { /* 旧版本无此能力时忽略 */ }
+    }
     this.shellView = new WebContentsView({ webPreferences: {
       preload: resolvePreload('quickPreload.js'), contextIsolation: true,
-      nodeIntegration: false, sandbox: true, partition: SHELL_PARTITION
+      nodeIntegration: false, sandbox: true, partition: SHELL_PARTITION,
+      // 隐藏期间仍渲染：呼出时首帧就是已清空/已更新的界面，避免露出上一次的旧帧造成二次出现。
+      backgroundThrottling: false
     } })
     this.shellView.setBackgroundColor('#00000000')
     this.webContents = this.shellView.webContents
@@ -61,12 +72,42 @@ let quickWindow: QuickWindow | null = null
 let quickPluginSurface: View | null = null
 const quickRendererUrls = new WeakMap<QuickWindow, string>()
 
+/** 圆角矩形 → 原生窗口区域（每像素一条横向矩形带，四角平滑内收）。 */
+function roundedShapeRects(width: number, height: number, radius: number): Electron.Rectangle[] {
+  const r = Math.max(0, Math.min(Math.round(radius), Math.floor(Math.min(width, height) / 2)))
+  if (r <= 0) return [{ x: 0, y: 0, width, height }]
+  const rects: Electron.Rectangle[] = []
+  if (height - 2 * r > 0) rects.push({ x: 0, y: r, width, height: height - 2 * r })
+  for (let y = 0; y < r; y++) {
+    const dy = r - y - 0.5
+    const inset = Math.round(r - Math.sqrt(Math.max(0, r * r - dy * dy)))
+    const stripWidth = width - inset * 2
+    if (stripWidth <= 0) continue
+    rects.push({ x: inset, y, width: stripWidth, height: 1 })
+    rects.push({ x: inset, y: height - 1 - y, width: stripWidth, height: 1 })
+  }
+  return rects
+}
+
+/**
+ * Windows：把原生窗口裁成与 CSS 外壳一致的圆角矩形。
+ * 否则 DWM 阴影会透过 CSS 透明的四个角画在背景上——白底时就是一圈灰角。
+ */
+function applyQuickWindowShape(win: QuickWindow): void {
+  if (process.platform !== 'win32') return
+  try {
+    const { width, height } = win.getContentBounds()
+    win.setShape(roundedShapeRects(width, height, QUICK_CORNER_RADIUS))
+  } catch { /* 旧版本或不支持的桌面组合忽略 */ }
+}
+
 /** One native outer contour; the plugin's own top edge must stay square. */
 export function getQuickPluginParent(): View | null { return quickPluginSurface }
 
 function layoutQuickContents(): void {
   if (!quickWindow || quickWindow.isDestroyed()) return
   const { width, height } = quickWindow.getContentBounds()
+  applyQuickWindowShape(quickWindow)
   quickWindow.shellView.setBounds({ x: 0, y: 0, width, height })
   layoutQuickSurface()
 }
@@ -375,7 +416,9 @@ function presentAndFocus(win: QuickWindow, options: { refocusOnly?: boolean; com
   if (!options.refocusOnly) {
     keepDockIconVisible()
     step('position', () => positionOnCursorScreen(win))
-    step('show', () => win.show())
+    // Windows：先无激活显示再单独 focus，避开 show() 自带的激活动画/首次合成，
+    // 否则透明窗口会先以未合成帧出现一次再正确显示（一次呼出看起来出现两次）。
+    step('show', () => process.platform === 'win32' ? win.showInactive() : win.show())
   }
   if (win.isDestroyed() || !win.isVisible()) return false
   step('moveTop', () => win.moveTop())
@@ -415,6 +458,17 @@ function presentAndFocus(win: QuickWindow, options: { refocusOnly?: boolean; com
 }
 
 export function getQuickShowRevision(): number { return showRevision }
+
+/** 临时诊断（ENEST_QUICK_DEBUG=1）：把带 alpha 的 Quick 画面写到临时目录，用于定位透明圆角问题。 */
+function captureDebugFrame(win: QuickWindow): void {
+  if (process.env.ENEST_QUICK_DEBUG !== '1') return
+  setTimeout(() => {
+    if (win.isDestroyed() || !win.isVisible()) return
+    void win.webContents.capturePage().then(image => {
+      try { writeFileSync(join(tmpdir(), 'enest-quick-frame.png'), image.toPNG()) } catch { /* 诊断输出失败不影响运行 */ }
+    }).catch(() => undefined)
+  }, 500)
+}
 
 function waitForQuickRenderer(win: QuickWindow, resolve: (ready: boolean) => void, timeoutMs?: number): void {
   const wc = win.webContents
@@ -500,6 +554,7 @@ export async function showQuickWindow(canShow: () => boolean = () => true): Prom
     const present = () => presentAndFocus(win, { commit: () => {
       wc.send(IpcChannels.QuickShown)
       applyQuickHeightAfterShow()
+      captureDebugFrame(win)
     } })
     if (isQuickRendererReady(win)) return present()
     waitForQuickRenderer(win, ready => {

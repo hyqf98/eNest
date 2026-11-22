@@ -505,6 +505,8 @@ export interface PluginSummary {
   devUrl?: string
   /** 开发者控制台按源码目录加载（静态预览 assets/* → public/assets/*）；构建产物加载为 false */
   devSource?: boolean
+  /** dev 运行时的构建产物根（package.json `enest.output`，缺省 `dist`）；后端与后台页从这里加载 */
+  devOutputPath?: string
   /** Original source folder, retained when the dev plugin runs from its dist directory. */
   sourcePath?: string
   /** 开发态插件（开发者控制台加载，未复制到 userData） */

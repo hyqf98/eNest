@@ -76,7 +76,7 @@ try {
 | 宿主 → 后端 | `{ type: 'shutdown', reason, deadlineAt }` | 停止接收新任务、取消工作并在截止时间内退出 |
 | 后端 → 宿主 | `{ type: 'shutdown.complete', ok?, error? }` | 可选关闭确认；不能代替进程真正退出 |
 
-`context` 的版本 1 形状如下。`packagePath` 是本次加载的包根；`appDataPath` 是当前宿主数据目录，并不是只读挂载或插件文件沙箱。路径只作为运行上下文，不应硬编码用户目录。后端必须校验支持的协议版本，不能在缺少上下文时静默改用旧的宿主专用实现。
+`context` 的版本 1 形状如下。`packagePath` 是本次加载的包根（开发态为构建产物目录，而不是源码根）；`appDataPath` 是当前宿主数据目录，并不是只读挂载或插件文件沙箱。路径只作为运行上下文，不应硬编码用户目录。后端必须校验支持的协议版本，不能在缺少上下文时静默改用旧的宿主专用实现。
 
 ```ts
 interface BackendContext {
@@ -258,7 +258,7 @@ node scripts/build-plugin.mjs ssh remote-desktop
 
 构建与打包入口都接受源码目录短名或精确的完整 manifest ID，例如 `ssh` 与 `com.github.eNest.ssh`；完整 ID 不做前缀剥离、大小写折叠或末段猜测，未知或歧义标识直接报错。两种写法解析到同一源码和产物，归档仍使用 `<短名>@<version>.enestplugin`，不会修改安装、权限或存储身份。
 
-连接 Vite 开发服务器时，前端可以 HMR，后端仍从源码根的 **`dist/backend/index.cjs`** 加载，因此必须先构建。后端修改后在插件目录重新运行构建命令（如 `npm run build`），再关闭/重载插件以创建新进程；Vite HMR 不会替换已经运行的后端。开发者控制台没有 dev/prod 切换：验证完整发布行为时让开发服务离线，壳会按 `enest.output` 产物目录以生产 CSP 预览。不要使用「静态源码」预览直接运行 TypeScript 后端。
+连接 Vite 开发服务器时，前端可以 HMR，后端仍从源码根产物目录（`enest.output`，缺省 `dist`）的 **`backend/index.cjs`** 加载，因此需要构建产物；首次打开或重载时产物缺失，宿主会按 `package.json` 的构建命令自动构建一次，构建失败仍可打开并提示命令。后端修改后在插件目录重新运行构建命令（如 `npm run build`），再关闭/重载插件以创建新进程；产物已存在时宿主不会重复构建，Vite HMR 也不会替换已经运行的后端。开发者控制台没有 dev/prod 切换：验证完整发布行为时让开发服务离线，壳会按 `enest.output` 产物目录以生产 CSP 预览。不要使用「静态源码」预览直接运行 TypeScript 后端。
 
 `.enestplugin` 的根仍是 `dist` 的直接内容，包含声明的 `backend/**`。普通市场下载上限统一为 **256 MiB**，安装解压总量上限为 **2 GiB**；这些上限不豁免身份、摘要、路径和符号链接检查。
 

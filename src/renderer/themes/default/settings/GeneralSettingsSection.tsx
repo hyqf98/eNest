@@ -144,7 +144,7 @@ export function GeneralSettingsSection({ settings, updates }: {
                 ? t('settings.general.updateAvailableDesc', {
                     version: updateState.latestVersion ?? ''
                   })
-                : `${locale === 'en-US' ? 'Version' : '当前版本'} ${updateState?.currentVersion ?? '—'}`
+                : t('settings.general.currentVersion', { version: updateState?.currentVersion ?? '—' })
         }
       >
         <div className="path-actions">

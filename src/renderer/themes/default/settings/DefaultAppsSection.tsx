@@ -115,10 +115,10 @@ function ProviderList({ providers, defaultId, selected, disabled, selectable = f
   selectable?: boolean
   onToggle?: (pluginId: string) => void
   onSetDefault: (pluginId: string) => void
-  labels: { setDefault: string; isDefault: string; off: string; toggleFirst: string; associate: string; list?: string }
+  labels: { setDefault: string; isDefault: string; off: string; toggleFirst: string; associate: string; list: string }
 }) {
   return (
-    <ul className="open-with-providers" aria-label={labels.list ?? '关联插件'}>
+    <ul className="open-with-providers" aria-label={labels.list}>
       {providers.map(provider => {
         const isDefault = provider.pluginId === defaultId
         const checked = !selectable || (selected ?? []).includes(provider.pluginId)
@@ -215,6 +215,7 @@ function MappedRow({ row, list, busy, selected, onToggle, onSetDefault, onRemove
               off: t(copy + 'disabledPlugin'),
               toggleFirst: t(copy + 'toggleFirst'),
               associate: t(copy + 'associate'),
+              list: t(copy + 'plugin'),
             }}
           />
         </div>
@@ -487,6 +488,7 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
                 off: t(copy + 'disabledPlugin'),
                 toggleFirst: t(copy + 'toggleFirst'),
                 associate: t(copy + 'associate'),
+                list: t(copy + 'plugin'),
               }}
             />
           </div>
@@ -647,8 +649,8 @@ export function DefaultAppsSection() {
   const isEmpty = !mappedRows.length && !drafts.length
 
   return (
-    <Card className="open-with-section" title={t(copy + 'title')} hint={t(copy + 'listIntro')}>
-      <div className="open-with-head">
+    <Card className="open-with-section" title={t(copy + 'title')}
+      actions={
         <span className="open-with-head-actions">
           <Button
             variant="ghost"
@@ -670,8 +672,7 @@ export function DefaultAppsSection() {
             <SettingsIcon size={16} />
           </Button>
         </span>
-      </div>
-
+      }>
       {loading ? (
         <p className="desc" role="status">{t('common.loading')}</p>
       ) : !data ? (
@@ -682,9 +683,6 @@ export function DefaultAppsSection() {
         </p>
       ) : (
         <>
-          {mappedRows.length > 0 && (
-            <p className="open-with-hint">{t(copy + 'listHint')}</p>
-          )}
           <ul className="open-with-list">
             {mappedRows.map(row => (
               <MappedRow

@@ -88,21 +88,6 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   const showResults = !plugin
   const query = snapshot.query, kind = snapshot.filter
   const hasQuery = Boolean(query.trim())
-  /** 键盘已进入网格导航（下/上/Tab 移动过选中）：此后左右键归网格而不是输入框光标；查询变化即重置。 */
-  const gridNavigatedRef = useRef(false)
-  /**
-   * 同一状态的可渲染镜像：输入框仍然持有焦点（这样才能继续打字），
-   * 但光标不该再闪——用户此刻在网格里选项，闪烁的竖线是干扰。
-   * 用 state 才能驱动 `caret-color`；ref 不触发渲染。
-   */
-  const [gridNavigated, setGridNavigated] = useState(false)
-  const gridEpoch = snapshot.queryRevision
-  const gridEpochRef = useRef(gridEpoch)
-  if (gridEpochRef.current !== gridEpoch) {
-    gridEpochRef.current = gridEpoch
-    gridNavigatedRef.current = false
-    if (gridNavigated) setGridNavigated(false)
-  }
   const inputItems = snapshot.input?.items ?? []
   const media = useMemo(() => matchDefaultQuickMedia(snapshot.catalog, snapshot.input?.items), [snapshot.catalog, snapshot.input])
   const searching = snapshot.searching || (media.mediaPresent && media.matches.size > 0)
@@ -145,19 +130,13 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
     recordOpened,
     layout: value => setColumns(Math.max(1, Math.min(8, Math.round(value)))),
     navigate: (key, shift) => {
-      if (!searchActive || plugin || snapshot.busy || !visibleItems.length
+      if (!searchActive || plugin || !visibleItems.length
         || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab'].includes(key)
-        || shift && key !== 'Tab'
-        || query && ['ArrowLeft', 'ArrowRight'].includes(key) && !gridNavigatedRef.current) return null
-      if (key === 'ArrowDown' || key === 'ArrowUp' || key === 'Tab') {
-        gridNavigatedRef.current = true
-        // 与键盘路径保持一致：进入网格选项就隐藏输入光标。
-        setGridNavigated(true)
-      }
+        || shift && key !== 'Tab') return null
       const next = moveQuickGridSelection(index, groups.map(group => group.items.length), columns, key as QuickGridKey, shift)
       return visibleItems[next].id
     }
-  }), [focus, recordOpened, searchActive, plugin, snapshot.busy, visibleItems, query, index, groups, columns])
+  }), [focus, recordOpened, searchActive, plugin, visibleItems, query, index, groups, columns])
 
   useLayoutEffect(() => {
     if (!searchActive || plugin || snapshot.composing || hasQuery && policyPending) return
@@ -245,9 +224,6 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   const select = (next: number) => { if (visibleItems[next]) void dispatch({ type: 'select', id: visibleItems[next].id }) }
   const open = (item: QuickThemeItem, mainWindow = false) => dispatch({ type: 'open', id: item.id, ...(mainWindow ? { container: 'shell' as const } : {}) })
   const changeQuery = (value: string) => {
-    // 一开始打字就退出网格导航态：光标要回来，左右键也该恢复成编辑光标。
-    // queryRevision 变化也会重置一次，这里显式做是为了不在"输入同样的字"时依赖它。
-    if (gridNavigatedRef.current) { gridNavigatedRef.current = false; setGridNavigated(false) }
     void dispatch({ type: 'query', query: value })
   }
   const onPaste = (event: { clipboardData: DataTransfer | null; preventDefault(): void }) => {
@@ -300,22 +276,20 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
       event.preventDefault(); select(event.shiftKey ? Math.max(0, visibleItems.length - 1) : 0); focus(); return
     }
     const inGrid = event.target instanceof Element && Boolean(event.target.closest('[data-quick-command]'))
-    if ((!inInput && !inGrid) || snapshot.busy || !showResults) return
+    if ((!inInput && !inGrid) || !showResults) return
     const navigation: QuickGridKey[] = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab']
     if (navigation.includes(event.key as QuickGridKey)) {
-      // 查询文本存在时左右键默认编辑光标；一旦用下/上/Tab 进入网格导航，左右键改归网格选择。
-      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey && event.key !== 'Tab'
-        || inInput && query && ['ArrowLeft', 'ArrowRight'].includes(event.key) && !gridNavigatedRef.current || !visibleItems.length) return
+      // 上下左右随时切换图标：输入框保留焦点与光标，随时可以继续打字；
+      // 左右键不再移动文本光标（用户明确要求方向键永远用于选择）。
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey && event.key !== 'Tab' || !visibleItems.length) return
       event.preventDefault()
-      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
-        gridNavigatedRef.current = true
-        // 进入网格选项：输入框保留焦点（还能继续打字），但隐藏闪烁光标。
-        setGridNavigated(true)
-      }
       if (event.key === 'Tab' && moreRef.current && (event.shiftKey ? index === 0 : index === visibleItems.length - 1)) { moreRef.current.focus(); return }
       select(moveQuickGridSelection(index, groups.map(group => group.items.length), columns, event.key as QuickGridKey, event.shiftKey)); focus()
     }
-    if (event.key === 'Enter' && !event.altKey && !event.shiftKey) { event.preventDefault(); if (selected) void open(selected, event.metaKey || event.ctrlKey) }
+    if (event.key === 'Enter' && !event.altKey && !event.shiftKey) {
+      event.preventDefault()
+      if (!snapshot.busy && selected) void open(selected, event.metaKey || event.ctrlKey)
+    }
   }
   const modifier = IS_MAC ? '⌘' : 'Ctrl'
 
@@ -325,9 +299,6 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
       <DefaultQuickBackground active={active} />
       <div className="quick-search-bar" role="search" data-tools={plugin ? 'plugin' : categoriesOpen ? 'expanded' : 'collapsed'}>
         <SearchField value={query} onChange={changeQuery} inputRef={inputRef}
-          // 网格键盘导航时隐藏输入光标：用户此刻在用方向键选项，闪烁竖线是干扰。
-          // 焦点仍留在输入框，随时可以继续打字（打字/点击会清掉这个标记）。
-          caretHidden={gridNavigated && !plugin}
           placeholder={plugin ? plugin.placeholder : kind === 'app' ? '搜索软件…' : kind === 'plugin' ? '搜索插件…' : kind === 'action' ? '搜索系统操作…' : '搜索应用、插件与指令…'}
           leading={plugin ? <>
             <button type="button" className="quick-search-leading quick-plugin-back" onClick={() => void dispatch({ type: 'plugin-back' })} title={`返回全局搜索 · ${plugin.title}（Esc）`} aria-label="返回全局搜索"><ChevronLeftIcon size={20} /></button>
@@ -359,11 +330,8 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
             </span>
           </>}
           inputProps={{ role: 'combobox', readOnly: Boolean(plugin && !plugin.acceptsInput), 'aria-expanded': showResults, 'aria-controls': showResults ? 'quick-results' : undefined, 'aria-activedescendant': showResults && selected && !snapshot.busy ? `quick-item-${index}` : undefined,
-            // 一旦真的选中/点击输入框、或开始输入法组合，就退出网格导航态、恢复光标。
-            onSelect: () => { if (gridNavigated) { gridNavigatedRef.current = false; setGridNavigated(false) } },
-            onClick: () => { if (gridNavigated) { gridNavigatedRef.current = false; setGridNavigated(false) } },
             onPaste: event => onPaste(event),
-            onCompositionStart: () => { composing.current = true; if (gridNavigated) { gridNavigatedRef.current = false; setGridNavigated(false) } void dispatch({ type: 'composition', active: true }) },
+            onCompositionStart: () => { composing.current = true; void dispatch({ type: 'composition', active: true }) },
             onCompositionEnd: () => { composing.current = false; void dispatch({ type: 'composition', active: false }) } }} />
         {!plugin && <div className="quick-categories-slot" id="quick-categories" aria-hidden={!categoriesOpen}><div className="quick-categories" aria-label="搜索范围">
           {FILTERS.map(filter => <button key={filter.kind} type="button" className="quick-category" tabIndex={categoriesOpen ? 0 : -1} aria-label={filter.label} aria-pressed={kind === filter.kind}

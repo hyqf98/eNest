@@ -52,7 +52,7 @@ resolve({ ok: true, data })
 
 **能力与授权分开**：私有存储、插件 UI、设置、声明式入口、主题和私有密钥保存是基础能力，无需声明或单项授权。其它敏感能力需要在 manifest 声明，并使用按插件保存的 `allow / ask / deny`（默认 `ask`）；`ask` 时由主进程原生对话框询问，超时拒绝。设置页可随时调整敏感授权，撤权会关闭当前实例并回收资源。插件可以自行实现任意前端业务，权限清单只约束敏感资源访问，见 [权限说明](permissions.md)。
 
-?> **开发态差异**：开发者控制台只有开发模式，壳按 `package.json` 自动识别源码形态（框架 HMR / 静态源码 / 离线产物预览），没有 dev/prod 切换。连接开发服务时放宽 script CSP 并放行该 origin 的 HMR WebSocket；静态源码或按产物目录预览时使用与正式安装一致的生产 CSP 与标准产物路径。开发服务下可用的内联脚本等宽松行为，只有在按产物目录预览（或解包 `.enestplugin`）时才会被生产 CSP 拒绝，从而暴露问题。启动命令解析与自动识别见[开发加载](debug.md)。
+?> **开发态差异**：开发者控制台只有开发模式，壳按 `package.json` 自动识别源码形态（框架 HMR / 静态源码 / 离线产物预览），没有 dev/prod 切换。连接开发服务时放宽 script CSP 并放行该 origin 的 HMR WebSocket；静态源码或按产物目录预览时使用与正式安装一致的生产 CSP 与标准产物路径。开发服务下可用的内联脚本等宽松行为，只有在按产物目录预览（或解包 `.enestplugin`）时才会被生产 CSP 拒绝，从而暴露问题。声明 `backend` 或 `background` 的插件，首次打开或重载时若产物入口缺失，壳会按 `package.json` 的构建命令自动构建一次；构建失败不阻止页面打开，`backend.call` / `background.call` 返回缺失产物与构建命令。启动命令解析与自动识别见[开发加载](debug.md)。
 
 ---
 
@@ -882,7 +882,31 @@ manifest 的 `background` 声明包内生产 HTML、原生事件、可选的布�
 
 前台 `background.call(method,args?,{timeoutMs?}?)` 返回后台结果；默认超时30秒，可设250毫秒至24小时，仍受消息、并发与队列限制，不是无限期保活授权。后台可空闲回收并从私有文档重建。无授权、禁用、撤权或手动停止后不由设置刷新/Quick 查询偷偷唤醒；性能面板停止后，显式前台调用、禁用再启用或构建更新可以重新启用。关闭前台不等于关闭已获持久观察授权的事件订阅。
 
-源码预览的后台也必须有匹配 manifest 的 `dist/assets/background.html` 及构建后的脚本；缺失时明确失败，不以 Node、宽松网络或直接执行源码兜底。它与需完整本机信任的 `backend.node` 是不同机制。
+源码预览的后台也必须有匹配 manifest 的 `dist/assets/background.html` 及构建后的脚本；首次加载或重载时缺失，宿主会先按 `package.json` 的构建命令自动构建一次，构建失败或产物仍缺失才明确失败，不以 Node、宽松网络或直接执行源码兜底。它与需完整本机信任的 `backend.node` 是不同机制。
+
+---
+
+## backend — 本机 Node 后端
+
+声明 `backend.entry` 并取得 `backend.node` 后，插件可用独立的 utility process 运行完整 Node.js 代码；页面本身仍在沙箱中。协议、配额、关闭流程与宿主控制能力见[插件本机后端](backend.md)。
+
+| 方法 | 说明 |
+|------|------|
+| `call(method, args?, { timeoutMs? }?)` | 调用本插件自己的后端方法。`args` 默认 `[]`，默认超时 30 秒，可设 250 毫秒至 24 小时；请求、响应和事件都受体积、并发与实例生命周期约束。 |
+| `stop()` | 终止本实例后端与在途请求；确认回收后才可重新创建，不能停止其它插件。 |
+
+```js
+const onEvent = ({ event, data }) => { if (event === 'job.progress') render(data) }
+enest.on('backend.event', onEvent)
+try {
+  const result = await enest.backend.call('text.sha256', ['hello'])
+  // result 由插件自己的后端定义；宿主不做业务驱动回退
+} finally {
+  enest.off('backend.event', onEvent)
+}
+```
+
+开发态后端只从产物目录（`enest.output`，缺省 `dist`）加载。首次打开或重载时入口缺失，宿主会按 `package.json` 的构建命令自动构建一次；构建失败不阻止页面打开，`backend.call` 会返回缺失产物与构建命令。产物已存在时宿主不会重复构建，修改后端代码后仍需重新构建并重载实例。开发态的 `context.packagePath` 就是该产物目录，插件不要按源码根解析 `runtime/` 等附件。
 
 ---
 

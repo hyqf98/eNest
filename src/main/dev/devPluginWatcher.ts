@@ -7,6 +7,8 @@ import { logWarn } from '@main/logs/logService'
 const RELOAD_DEBOUNCE_MS = 400
 const RETRY_DELAY_MS = 2000
 const MAX_WATCH_RETRIES = 5
+/** 被监视子目录消失（dist 清空重建等）后的快速重挂间隔 */
+const POLL_REATTACH_MS = 300
 const IGNORED_SEGMENTS = new Set(['node_modules', '.git', 'dist', 'out', 'build', 'coverage', '.vite', '.cache', '.turbo', '.next'])
 /** 插件子构建产物落在 public 下（如 auxiliary 受限资产），是 dev server 启动的副产物而非源码编辑。 */
 const IGNORED_PREFIXES = ['public/assets/vendor/']
@@ -79,7 +81,8 @@ async function refreshRegistration(state: WatchState, pluginId: string, manifest
     if (!pluginRegistry.get(pluginId)?.dev) return
     const declarationChanged = !isDeepStrictEqual(pluginRegistry.getManifest(pluginId), prepared.manifest)
     const needsRuntimeReload = !prepared.summary.devUrl || manifestChanged || previous.devUrl !== prepared.summary.devUrl
-      || previous.rootPath !== prepared.summary.rootPath || declarationChanged
+      || previous.rootPath !== prepared.summary.rootPath || previous.devOutputPath !== prepared.summary.devOutputPath
+      || declarationChanged
     if (!runtime || needsRuntimeReload) pluginRegistry.addDevPlugin(prepared.summary, prepared.manifest)
     if (declarationChanged) {
       const { sendShellEvent } = await import('@main/window/createShellWindow')
@@ -174,6 +177,18 @@ function attach(state: WatchState, pluginId: string): void {
 function scheduleRetry(state: WatchState, pluginId: string, error: unknown): void {
   if (!isCurrent(state, pluginId) || state.retryTimer) return
   const detail = error instanceof Error ? error.message : String(error)
+  // 构建脚本 emptyOutDir 清空 dist / 依赖安装器删建目录是开发常态：被监视树里的
+  // 子目录消失会让递归 watcher 报 ENOENT/EPERM。这不是源码事件，也不该计入重试
+  // 上限——立即重挂即可，目录回来后继续正常监听。
+  if (error instanceof Error && ((error as NodeJS.ErrnoException).code === 'ENOENT'
+    || (error as NodeJS.ErrnoException).code === 'EPERM')) {
+    state.retryTimer = setTimeout(() => {
+      state.retryTimer = null
+      attach(state, pluginId)
+    }, POLL_REATTACH_MS)
+    state.retryTimer.unref()
+    return
+  }
   if (state.retries >= MAX_WATCH_RETRIES) {
     logWarn('dev', `watch ${pluginId}: ${detail}，重试次数已达上限，请重新加载源码目录`)
     return
