@@ -139,10 +139,27 @@ function SettingsFrame({ config, snapshot, onNative, refresh, onFailure }: {
  * （getThemeSettingsConfig → getThemeSettingsSnapshot）才拿到数据。
  * 只靠组件内 state 的话，每次回到设置页都会先渲染一次"加载中"——
  * 用户看到的就是左上角一闪而过的过渡。
- * 用模块级缓存把上次结果带过来：重新进入时直接出内容，同时在后台静默刷新。
+ *
+ * 三层防闪：
+ *  - 模块加载即预热：用户点开设置前几秒就开始拉 config/snapshot，
+ *    首进大概率直接命中（原生设置页的懒加载 chunk 一并预取）；
+ *  - `resolved` 记录"首趟 IPC 已结算"：主题没有设置页时 config 恒为
+ *    null，那也是有效结果，不能每次挂载都退回 loading；
+ *  - loading 分支只渲染空壳容器，不画「加载中」文字——短暂的空白
+ *    不会被抓到眼睛，一闪而过的文字才会。
  */
 let cachedConfig: ThemeSettingsConfig | null = null
 let cachedSnapshot: ThemeSettingsSnapshot | null = null
+let resolved = false
+
+void import('@renderer/themes/default/settings/DefaultSettingsPage').catch(() => undefined)
+void (async () => {
+  try {
+    const next = await shellApi.getThemeSettingsConfig()
+    const state = next ? await shellApi.getThemeSettingsSnapshot(next.key) : null
+    if (!resolved) { resolved = true; cachedConfig = next; cachedSnapshot = state }
+  } catch { /* 预热失败不打断：挂载后的 refresh 会重试 */ }
+})()
 
 /** Chooses the selected theme's presentation; native account/security dialogs never enter its realm. */
 export function SettingsSurfaceController() {
@@ -150,8 +167,8 @@ export function SettingsSurfaceController() {
   const en = locale === 'en-US'
   const [config, setConfig] = useState<ThemeSettingsConfig | null>(cachedConfig)
   const [snapshot, setSnapshot] = useState<ThemeSettingsSnapshot | null>(cachedSnapshot)
-  // 有缓存时不再进入 loading 分支：直接渲染上次内容，refresh 在后台静默补齐。
-  const [loading, setLoading] = useState(cachedConfig === null)
+  // 预热/上一次已结算过就不再进入 loading 分支：直接渲染内容，refresh 在后台静默补齐。
+  const [loading, setLoading] = useState(!resolved)
   const [failed, setFailed] = useState(false)
   const settingsTab = useShellStore(state => state.settingsTab)
   const previousTab = useRef(settingsTab)
@@ -165,6 +182,7 @@ export function SettingsSurfaceController() {
       const state = next ? await shellApi.getThemeSettingsSnapshot(next.key) : null
       if (sequence !== request.current) return
       if (key.current !== next?.key) { key.current = next?.key ?? null; setFailed(false) }
+      resolved = true
       cachedConfig = next; cachedSnapshot = state
       setConfig(next); setSnapshot(state)
     } catch { if (sequence === request.current) setFailed(true) }
@@ -191,8 +209,10 @@ export function SettingsSurfaceController() {
     useShellStore.getState().setSettingsTab(section === 'theme' ? 'appearance' : section)
     setNative(true)
   }, [])
-  const fallback = <Suspense fallback={<div role="status">{t('common.loading')}</div>}><DefaultSettingsPage /></Suspense>
-  if (loading) return <div className="settings-surface-status" role="status">{t('common.loading')}</div>
+  // 懒加载 fallback 与 loading 分支都只渲染空壳：短暂空白无感，一闪而过的
+  // 「加载中」文字才会被眼睛捕获（用户反馈的左上角闪烁就是它们）。
+  const fallback = <Suspense fallback={<div className="settings-surface-controller" role="status" aria-busy="true" />} ><DefaultSettingsPage /></Suspense>
+  if (loading) return <div className="settings-surface-controller" role="status" aria-busy="true" />
   if (!config && !failed) return fallback
   if (failed || !config || !snapshot) return <div className="settings-surface-controller">
     <div className="settings-surface-toolbar" role="status">
