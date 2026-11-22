@@ -201,6 +201,8 @@ export interface QuickHotkeyConfig {
   lastUsedHotkey?: string
   /** Actual OS registrations; selection alone does not imply availability. */
   registered?: string[]
+  /** 当前通过低级键盘钩子强制接管的组合键 */
+  forced?: string[]
   error?: string
 }
 
@@ -209,6 +211,10 @@ export interface QuickHotkeyPatch {
   hotkeys?: string[]
   activeHotkey?: string
   overrideToken?: string
+  /** 用户明确要求强制接管被外部占用的组合键 */
+  force?: boolean
+  /** 恢复默认：清空强制接管记录并按传入的预设键重新注册 */
+  reset?: boolean
 }
 
 export interface QuickHotkeyApplyResult {
@@ -218,6 +224,8 @@ export interface QuickHotkeyApplyResult {
   hotkeys: string[]
   /** 实际注册成功的 accelerator（互斥模型下最多 1 个） */
   registered: string[]
+  /** 当前通过低级键盘钩子强制接管的组合键 */
+  forced?: string[]
   failed: string[]
   /** 当前生效键 */
   activeHotkey?: string

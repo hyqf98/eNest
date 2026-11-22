@@ -6,9 +6,6 @@
 .shortcut-settings button:disabled { opacity: .5; cursor: not-allowed; }
 .shortcut-settings .hotkey-card { text-align: left; font: inherit; }
 .shortcut-settings .hotkey-card:disabled:hover { transform: none; }
-.quick-custom-shortcut { margin-top: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
-.quick-custom-shortcut-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; font-size: 12px; }
-.quick-custom-shortcut-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 10px; }
 .shortcut-recorder { min-width: 0; }
 .shortcut-recorder-input { display: flex; gap: 6px; }
 .shortcut-recorder-input input { width: 100%; min-width: 0; min-height: 36px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); padding: 8px 10px; font-family: var(--font-mono, monospace); font-size: 12px; }
@@ -77,8 +74,6 @@
   .shortcut-binding-main { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
   .shortcut-binding-state { grid-column: 1; grid-row: 2; }
   .shortcut-binding-main > .switch { grid-column: 2; grid-row: 2; }
-  .quick-custom-shortcut-fields { grid-template-columns: minmax(0, 1fr); }
-  .quick-custom-shortcut-fields > .btn { justify-self: end; }
   .shortcut-plugin-head { flex-wrap: wrap; }
   .shortcut-plugin-actions { margin-left: auto; }
 }

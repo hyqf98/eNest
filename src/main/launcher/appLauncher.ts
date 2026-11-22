@@ -6,12 +6,14 @@
  * 安全：只允许启动扫描缓存中的应用路径，拒绝任意路径。
  */
 import { execFile, spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { app, nativeImage, shell } from 'electron'
 import { getCachedApps } from './appScanner'
+import { extractWindowsIcon } from './iconExtractor'
 import { logError, logInfo, logWarn } from '@main/logs/logService'
 
 /** 将 Linux Exec 字符串拆成 [cmd, ...args] */
@@ -319,19 +321,33 @@ export async function getAppIconDataUrl(path: string, iconName?: string): Promis
         // must not hide a missing .desktop icon or prevent a later theme retry.
         if (!url && iconName) logWarn('quick', `linux desktop icon not found: ${iconName}`)
       } else {
-        let target = path
+        let file = path
+        let index = -1
         if (extname(path).toLowerCase() === '.lnk') {
           try {
             const shortcut = shell.readShortcutLink(path)
-            if (shortcut.icon && /\.(?:ico|png|jpe?g)$/i.test(shortcut.icon)) {
-              url = boundedImageUrl(nativeImage.createFromPath(shortcut.icon))
+            // IconLocation 形如 "C:\App\app.exe,0" / "C:\icons\a.ico"：拆出文件与索引。
+            const iconMatch = shortcut.icon ? shortcut.icon.match(/^(.*?)(?:,\s*(-?\d+)\s*)?$/) : null
+            const iconFile = iconMatch?.[1]?.trim() ?? ''
+            const iconIndex = iconMatch?.[2] !== undefined ? Number(iconMatch[2]) : -1
+            if (iconFile && /\.(?:ico|png|jpe?g)$/i.test(iconFile)) {
+              url = boundedImageUrl(nativeImage.createFromPath(iconFile))
+            } else if (iconFile && /\.(?:exe|dll)$/i.test(iconFile) && existsSync(iconFile)) {
+              // IconLocation 是资源管理器显示的权威图标来源（含索引），优先于 .lnk 解析；
+              // Electron 的 getFileIcon 对部分 EXE 只返回通用图标。
+              file = iconFile
+              index = Number.isFinite(iconIndex) ? iconIndex : -1
+            } else if (shortcut.target && existsSync(shortcut.target)) {
+              file = shortcut.target
             }
-            // A resource icon's index belongs to the shortcut; let Windows
-            // resolve it rather than reading the first icon of its DLL/EXE.
-            target = shortcut.icon ? path : shortcut.target || path
           } catch { /* The system can still resolve a shortcut that cannot be read. */ }
         }
-        if (!url) url = boundedImageUrl(await app.getFileIcon(target, { size: 'large' }))
+        // Shell ExtractIconEx/ExtractAssociatedIcon（常驻辅助进程），失败再退回 Electron。
+        if (!url) {
+          const base64 = await extractWindowsIcon(file, index)
+          if (base64) url = `data:image/png;base64,${base64}`
+        }
+        if (!url) url = boundedImageUrl(await app.getFileIcon(file, { size: 'large' }))
       }
     } catch { /* Short negative caching allows transient extraction failures to recover. */ }
     iconCache.delete(key)

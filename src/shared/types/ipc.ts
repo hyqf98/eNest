@@ -583,6 +583,8 @@ export type ShellEventPayload =
   /** 快捷键注册失败（至少部分占用） */
   | { type: 'quick-hotkey-failed'; failed: string[]; registered: string[] }
   | { type: 'quick-hotkey-used'; acc: string }
+  /** 外部程序占用者识别完成（best-effort；渲染层刷新冲突提示文本） */
+  | { type: 'system-hotkey-owner-identified'; accelerator: string; label: string; hint: string }
   /** 快捷启动配置变更 */
   | { type: 'quick-config-changed'; enabled: boolean; hotkeys: string[]; activeHotkey?: string }
   /** 某插件的快捷启动配置变更（启动方式/热键/触发词）；渲染层据此刷新命令面与详情 */

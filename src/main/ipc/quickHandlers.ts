@@ -32,6 +32,7 @@ import {
   getQuickHotkeyConfig,
   probeHotkey
 } from '@main/hotkey/quickHotkey'
+import { onSystemHotkeyOwnerIdentified } from '@main/hotkey/shortcutConflicts'
 import { scanApplications } from '@main/launcher/appScanner'
 import {
   cancelQuickProviderSession, getLaunchDirectorySnapshot, onLaunchDirectoryChanged,
@@ -244,6 +245,11 @@ async function handleOpen(event: IpcMainInvokeEvent, req: QuickOpenRequest): Pro
 }
 
 export function registerQuickHandlers(): void {
+  // 外部占用者识别完成 → 广播给设置页刷新提示（owner=null 表示已检查但无法识别）
+  onSystemHotkeyOwnerIdentified((accelerator, owner) => {
+    sendShellEvent({ type: 'system-hotkey-owner-identified', accelerator,
+      label: owner?.label ?? '', hint: owner?.hint ?? '' })
+  })
   handleShellIpc(IpcChannels.QuickInput, (event, message?: QuickInputMessage) => {
     if (event.sender.id !== getQuickWindow()?.webContents.id) throw new Error('Quick input sender rejected')
     if (message && message.pluginId !== pluginHost.getQuickPlugin()) throw new Error('Quick input owner rejected')

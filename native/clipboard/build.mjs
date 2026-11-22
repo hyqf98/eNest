@@ -12,6 +12,10 @@ await buildProcessMemoryHelper({ root, outputDir: dir })
 await buildOpenWithHelper({ root, outputDir: dir })
 // The Windows helper is portable source, including when producing Windows packages on macOS.
 await cp(join(root, 'native/clipboard/windows.ps1'), join(dir, 'clipboard-helper.ps1'))
+// Force-override hotkey helper (WH_KEYBOARD_LL); only Windows consumes it, but copying is harmless elsewhere.
+await cp(join(root, 'native/hotkey-hook/hotkey-hook.ps1'), join(dir, 'hotkey-hook.ps1'))
+// Shell icon extractor (ExtractIconEx by IconLocation index); Windows-only consumer.
+await cp(join(root, 'native/icon-extract/icon-extract.ps1'), join(dir, 'icon-extract.ps1'))
 if (process.platform === 'darwin') {
   const source = join(root, 'native/clipboard/mac.m'), output = join(dir, 'clipboard-helper')
   const fresh = await Promise.all([stat(source), stat(output).catch(() => null)])

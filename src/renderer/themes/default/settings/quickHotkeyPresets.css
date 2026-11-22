@@ -1,6 +1,15 @@
-/* —— Quick 呼出键：固定预设与已保存的自定义组合 —— */
+/* —— 小窗口呼出键：预设 A/B 与自定义三卡等宽栅格 —— */
+.quick-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.quick-section-head h2 { margin: 0; }
+.quick-reset-btn { flex-shrink: 0; }
 .quick-hotkey-block {
-  padding: 14px 0 4px;
+  padding: 16px 0 6px;
   border-top: 1px solid var(--border);
 }
 .quick-hotkey-head {
@@ -15,13 +24,11 @@
   color: var(--text-3);
   font-size: calc(12px * var(--appearance-font-scale, 1));
 }
-/* 预设 A、预设 B 与自定义组合键始终横向排列。 */
+/* 三张卡片始终等宽同高；窄容器下改为单列，避免组合键文本被挤压。 */
 .hotkey-cards {
-  display: flex !important;
-  flex-direction: row !important;
-  flex-wrap: nowrap !important;
-  align-items: stretch;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
   width: 100%;
 }
 
@@ -29,51 +36,49 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  flex: 1 1 0;
+  gap: 6px;
   min-width: 0;
-  min-height: 88px;
-  max-height: 120px;
-  padding: 12px 14px 10px;
-  border-radius: 14px;
+  min-height: 116px;
+  padding: 14px 16px 12px;
+  border-radius: 16px;
   border: 1px solid var(--border);
   background: linear-gradient(160deg, var(--surface-2), var(--surface));
   cursor: pointer;
   user-select: none;
   overflow: hidden;
-  transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s;
+  text-align: left;
+  font: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s, background 0.15s;
 }
-.hotkey-card:hover {
+.hotkey-card:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   transform: translateY(-1px);
 }
 .hotkey-card.active {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  background:
-    linear-gradient(
-      160deg,
-      color-mix(in srgb, var(--accent) 10%, var(--surface-2)),
-      var(--surface)
-    );
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 10%, var(--surface-2)), var(--surface));
   box-shadow:
     0 0 0 1.5px color-mix(in srgb, var(--accent) 28%, transparent),
     0 8px 20px color-mix(in srgb, var(--accent) 8%, transparent);
 }
-
-.hotkey-card-badge {
-  font-size: calc(10px * var(--appearance-font-scale, 1));
-  font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 999px;
-  color: #fff;
-  background: var(--accent);
+/* 强制接管：琥珀色标识，与普通「生效中」区分。 */
+.hotkey-card.is-forced {
+  border-color: color-mix(in srgb, #f59e0b 55%, var(--border));
 }
+.hotkey-card.is-forced.active {
+  background: linear-gradient(160deg, color-mix(in srgb, #f59e0b 9%, var(--surface-2)), var(--surface));
+  box-shadow:
+    0 0 0 1.5px color-mix(in srgb, #f59e0b 32%, transparent),
+    0 8px 20px color-mix(in srgb, #f59e0b 8%, transparent);
+}
+.hotkey-card.is-forced .hotkey-card-badge { background: #d97706; }
 
 .hotkey-card-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-height: 18px;
 }
 .hotkey-card-slot {
   font-size: calc(11px * var(--appearance-font-scale, 1));
@@ -82,10 +87,23 @@
   color: var(--text-3);
   text-transform: uppercase;
 }
+.hotkey-card-badge {
+  flex-shrink: 0;
+  font-size: calc(10px * var(--appearance-font-scale, 1));
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--accent);
+  white-space: nowrap;
+}
 .hotkey-card-acc {
-  font-size: clamp(calc(13px * var(--appearance-font-scale, 1)), calc(1.4vw * var(--appearance-font-scale, 1)), calc(16px * var(--appearance-font-scale, 1)));
+  display: block;
+  margin-top: 2px;
+  font-size: clamp(calc(15px * var(--appearance-font-scale, 1)), calc(1.55vw * var(--appearance-font-scale, 1)), calc(19px * var(--appearance-font-scale, 1)));
   font-weight: 650;
   letter-spacing: 0.01em;
+  line-height: 1.35;
   color: var(--text);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -93,6 +111,51 @@
   text-overflow: ellipsis;
 }
 .hotkey-card-foot {
+  margin-top: auto;
   font-size: calc(11px * var(--appearance-font-scale, 1));
   color: var(--text-3);
+}
+
+/* —— 自定义卡片：默认与预设卡同构；点击原位切换为录制 —— */
+.hotkey-card-custom { cursor: default; }
+.hotkey-card-custom.is-recording {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.hotkey-card-custom .shortcut-recorder { min-width: 0; margin-top: 2px; }
+.hotkey-card-custom .shortcut-recorder-input input {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 34px 6px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-mono, monospace);
+  font-size: calc(12.5px * var(--appearance-font-scale, 1));
+}
+.hotkey-card-custom .shortcut-recorder.is-recording input {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.hotkey-card-custom .shortcut-recorder-indicator {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--text-3);
+  font-size: 14px;
+}
+.hotkey-card-custom .shortcut-recorder.is-recording .shortcut-recorder-indicator {
+  color: var(--accent);
+  font-size: 9px;
+}
+.hotkey-card-custom .shortcut-error { margin: 2px 0 0; }
+
+@media (max-width: 760px) {
+  .hotkey-cards { grid-template-columns: minmax(0, 1fr); }
+  .hotkey-card { min-height: 96px; }
 }

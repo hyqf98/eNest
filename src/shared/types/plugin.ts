@@ -740,6 +740,8 @@ export interface QuickLauncherSettings {
   hotkeys: string[]
   /** 当前唯一生效的 accelerator；空/缺失时回退 hotkeys[0] */
   activeHotkey?: string
+  /** 用户确认强制接管（低级键盘钩子吞键）的组合键；仅 Windows 可用 */
+  forcedHotkeys?: string[]
 }
 
 /** 启动 Splash 背景类型：brand 品牌色 / none 主题色 / image 自定义图 */

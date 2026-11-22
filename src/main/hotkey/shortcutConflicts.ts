@@ -4,6 +4,8 @@ import type { ShortcutProbeResult } from '@shared/types/shortcuts'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { getHotkeyOwner, probeNativeHotkey, type HotkeyOwner } from './hotkeyRegistry'
+import { identifySystemHotkeyOwner } from './systemHotkeyOwners'
+import { canForceHotkey } from './forceHotkey'
 
 const confirmations = new Map<string, { signature: string; expires: number }>()
 
@@ -54,7 +56,7 @@ export function probeShortcutConflict(value: string, excludeId?: string, exclude
   // A real runtime owner takes priority over stale configured bindings and can never be replaced.
   if (owner?.kind === 'runtime') return { accelerator, status: 'runtime', ownerPluginId: owner.pluginId,
     ownerLabel: label(owner.pluginId), hint: '插件运行时快捷键不能直接覆盖，请先在该插件中关闭或修改。' }
-  if (owner?.kind === 'quick' && !excludeQuick) return confirmable({ accelerator, status: 'quick', ownerLabel: '快捷启动（Quick）' })
+  if (owner?.kind === 'quick' && !excludeQuick) return confirmable({ accelerator, status: 'quick', ownerLabel: '小窗口' })
   const configured = settingsStore.getPluginShortcuts().find(binding => {
     const plugin = pluginRegistry.get(binding.pluginId)
     return binding.id !== excludeId && binding.enabled && plugin?.installed && plugin.enabled !== false
@@ -68,7 +70,23 @@ export function probeShortcutConflict(value: string, excludeId?: string, exclude
   if (owner) return { accelerator, status: owner.kind, ownerBindingId: owner.kind === 'shortcut' ? owner.id : undefined,
     ownerPluginId: owner.pluginId, ownerLabel: label(owner.pluginId), hint: '该快捷键的归属状态已变化，请刷新后重试。' }
   const native = probeNativeHotkey(accelerator)
-  return { accelerator, status: native.free && !native.ours ? 'free' : 'system',
-    ...(native.hint ? { hint: native.free && !native.ours ? native.hint : `${native.hint}；系统或其他应用的快捷键无法由 eNest 覆盖。` }
-      : native.ours ? { hint: '已被 eNest 其他功能占用，不能直接覆盖。' } : {}) }
+  if (native.free && !native.ours) {
+    // 外部占用者识别是异步 best-effort：先返回通用结论，识别完成（含未识别到）后推送事件。
+    void identifySystemHotkeyOwner(accelerator).then(owner => {
+      shortcutOwnerListeners.forEach(listener => listener(accelerator, owner ?? null))
+    }).catch(() => undefined)
+  }
+  const force = canForceHotkey(accelerator)
+  if (native.free && !native.ours) return { accelerator, status: 'free', ...(native.hint ? { hint: native.hint } : {}) }
+  // 已被 eNest 其他功能注册的键不能接管（钩子会吞掉它自己的功能键）。
+  // 是否提供「强制覆盖」按钮由各设置页决定；探测只报告能力，不在提示里承诺按钮。
+  return { accelerator, status: 'system', forceable: force.ok && !native.ours,
+    hint: native.hint ?? (native.ours ? '已被 eNest 其他功能占用，不能直接覆盖。' : '已被系统或其他应用占用。') }
+}
+
+/** 外部占用者识别完成的通知（owner=null 表示已检查但无法识别）。 */
+const shortcutOwnerListeners = new Set<(accelerator: string, owner: { label: string; hint: string } | null) => void>()
+export function onSystemHotkeyOwnerIdentified(listener: (accelerator: string, owner: { label: string; hint: string } | null) => void): () => void {
+  shortcutOwnerListeners.add(listener)
+  return () => shortcutOwnerListeners.delete(listener)
 }

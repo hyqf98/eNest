@@ -129,7 +129,7 @@ win:
       to: window-icons/icon-light.ico
     - from: native/bin
       to: native
-      filter: [clipboard-helper.ps1, process-memory-helper.ps1]
+      filter: [clipboard-helper.ps1, process-memory-helper.ps1, hotkey-hook.ps1, icon-extract.ps1]
   target:
     - target: nsis
       arch: [x64]

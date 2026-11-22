@@ -51,8 +51,9 @@ export function defaultQuickHotkeys(_platform: NodeJS.Platform = process.platfor
   return ['Alt+Space', 'Control+Space']
 }
 
+/** 小窗口呼出键默认关闭：全局热键是用户主动开启的能力，新装不抢占 Alt+Space / Ctrl+Space。 */
 export function defaultQuickLauncher(): QuickLauncherSettings {
-  return { enabled: true, hotkeys: defaultQuickHotkeys() }
+  return { enabled: false, hotkeys: defaultQuickHotkeys() }
 }
 
 export interface SettingsData {
@@ -350,7 +351,7 @@ export class SettingsStore {
   }
 
   /** Quick's native key and saved selection must commit as one user operation. */
-  setQuickHotkeys(config: { enabled: boolean; hotkeys: string[]; activeHotkey: string }): void {
+  setQuickHotkeys(config: { enabled: boolean; hotkeys: string[]; activeHotkey: string; forcedHotkeys?: string[] }): void {
     this.ensureLoaded()
     this.commitSettings({ ...this.data, general: {
       ...this.data.general,
@@ -365,7 +366,7 @@ export class SettingsStore {
   }
 
   /** Confirmed shortcut replacement persists both owners in the same durable write. */
-  setShortcutConfiguration(bindings: PluginShortcutBinding[], quick?: { enabled: boolean; hotkeys: string[]; activeHotkey: string }): void {
+  setShortcutConfiguration(bindings: PluginShortcutBinding[], quick?: { enabled: boolean; hotkeys: string[]; activeHotkey: string; forcedHotkeys?: string[] }): void {
     this.ensureLoaded()
     this.commitSettings({ ...this.data, pluginShortcuts: structuredClone(bindings),
       ...(quick ? { general: { ...this.data.general,

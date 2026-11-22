@@ -11,6 +11,7 @@ import { disposeNativeClipboard } from '@main/clipboard/nativeClipboard'
  * PluginRegistry、PluginHost、SettingsStore、createShellWindow。
  */
 import { app, BaseWindow, globalShortcut, Notification } from 'electron'
+import { join } from 'node:path'
 import { APP_NAME } from '@shared/constants'
 if (process.env.ENEST_TEST_USER_DATA) app.setPath('userData', process.env.ENEST_TEST_USER_DATA)
 // macOS Dock 的名称来自开发 bundle 的 Info.plist；Electron API/菜单另行统一。
@@ -56,6 +57,7 @@ import { registerPluginWindowHandlers } from '@main/ipc/pluginWindowHandlers'
 import { cancelPluginWindowDrag } from '@main/window/pluginWindowDrag'
 import { destroyAllDetachedWindows } from '@main/window/detachedPluginWindows'
 import { initQuickHotkeys, disposeQuickHotkeys } from '@main/hotkey/quickHotkey'
+import { initForceHotkeys } from '@main/hotkey/forceHotkey'
 import {
   initPluginLaunchHotkeys,
   releaseAllPluginLaunchHotkeys
@@ -429,6 +431,8 @@ void app.whenReady().then(async () => {
 
     // 快捷启动：注册全局热键 + 后台扫描；小窗懒创建（首次呼出时）
     // 不要在这里 ensureQuickWindow()：透明小窗按需创建，避免启动阶段并发初始化原生窗口。
+    // 强制接管被外部占用的组合键：Windows 低级键盘钩子辅助进程（打包为 Resources/native）
+    initForceHotkeys(app.isPackaged ? join(process.resourcesPath, 'native') : join(app.getAppPath(), 'native/bin'))
     initQuickHotkeys()
     // 用户插件绑定（settings.pluginShortcuts；不随插件关闭或休眠释放）
     initPluginLaunchHotkeys()

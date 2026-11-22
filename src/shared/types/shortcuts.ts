@@ -29,6 +29,8 @@ export interface ShortcutProbeResult {
   ownerPluginId?: string
   ownerLabel?: string
   hint?: string
+  /** system 占用是否可强制接管（Windows 低级键盘钩子；系统保留键不可） */
+  forceable?: boolean
   /** Short-lived confirmation for replacing this exact user-owned conflict. Never supplied for OS/runtime keys. */
   overrideToken?: string
 }
