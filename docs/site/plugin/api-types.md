@@ -363,6 +363,12 @@ export interface EnestPluginApi {
             dataUrl: string;
         }): Promise<PluginFileSaveResult | null>;
         openExternal(url: string): Promise<boolean>;
+        /**
+         * 在应用内窗口登录外部站点（需 `web.login` 权限，且站点在 manifest `net.loginOrigins` 里声明）。
+         * 窗口里加载 `url`，用户登录；主框架到达 `successUrlPrefix` 开头的地址即成功，
+         * 这次会话的全部 cookie 交回本页面。用户中途关窗时 `ok` 为 false。
+         */
+        login(request: WebLoginRequest): Promise<WebLoginResult>;
         saveTextFile(payload: {
             defaultName?: string;
             filename?: string;
@@ -1105,6 +1111,38 @@ export interface PluginStorageApi extends PluginKeyValueStorageApi {
 export interface VaultSetResult {
     secretRef: string;
 }
+
+/**
+ * 网页登录窗口：插件让用户在一个独立会话的窗口里登录某个外部站点。
+ *
+ * 安全边界（宿主保证）：
+ * - 窗口里加载的是外部站点，其页面脚本不可信：窗口不挂任何 preload，没有 enest 桥接、没有 IPC；
+ * - 只接受 https，且主机必须是插件 manifest 里为 web.login 声明过的 origin；
+ * - 会话是这次登录专用的（不落宿主磁盘、不与壳和其它插件共享），窗口关闭即销毁；
+ * - 登录页面的 cookie 只交回发起调用的那个插件页面，宿主不留存。
+ */
+export interface WebLoginRequest {
+    /** 登录页地址，必须是 https 且主机已声明 */
+    url: string;
+    /** 登录成功后页面会跳到的地址前缀；主框架导航到它开头的地址即视为成功 */
+    successUrlPrefix: string;
+    title?: string;
+    width?: number;
+    height?: number;
+}
+
+export type WebLoginResult =
+/** 登录成功：带上这次会话里的全部 cookie */
+{
+    ok: true;
+    url: string;
+    cookies: WebLoginCookie[];
+}
+/** 用户在登录成功前关掉了窗口 */
+ | {
+    ok: false;
+    reason: 'cancelled';
+};
 
 export interface HomeAppearanceSnapshot {
     appearance: HomeResolvedAppearance;
@@ -2058,6 +2096,17 @@ export interface PluginStorageCommitReceipt {
     committedKeys: number;
 }
 
+export interface WebLoginCookie {
+    name: string;
+    value: string;
+    domain: string;
+    path: string;
+    /** 过期时间（Unix 秒）；会话 cookie 没有这个值 */
+    expirationDate?: number;
+    secure: boolean;
+    httpOnly: boolean;
+}
+
 /**
  * The home renderer gets rendering values only. Theme/profile bags, custom-font
  * metadata, diagnostics, and local media paths remain host-private.
@@ -2132,7 +2181,7 @@ export interface HomeCatalogItem {
 }
 
 /** 宿主能力标识；基础能力直接可用，敏感能力需在 manifest 声明并取得用户授权。 */
-export type PluginPermission = 'backend.node' | 'clipboard.read' | 'clipboard.write' | 'clipboard.readImage' | 'clipboard.writeImage' | 'clipboard.history' | 'clipboard.paste' | 'timer.background' | 'screen.capture' | 'screen.record' | 'pin.create' | 'net.fetch' | 'shell.openExternal' | 'storage.local' | 'notify' | 'ui.setTitle' | 'ui.setIcon' | 'ui.setBadge' | 'ui.resize' | 'ui.toast' | 'settings.register' | 'settings.page' | 'hotkey' | 'contribute' | 'vault.write' | 'net.database' | 'net.database.query' | 'net.database.schema' | 'net.messaging' | 'net.messaging.read' | 'net.messaging.admin' | 'net.socket' | 'fs.rename' | 'fs.read' | 'fs.write' | 'sys.control' | 'sys.sshAgent' | 'sys.inspect' | 'theme';
+export type PluginPermission = 'backend.node' | 'clipboard.read' | 'clipboard.write' | 'clipboard.readImage' | 'clipboard.writeImage' | 'clipboard.history' | 'clipboard.paste' | 'timer.background' | 'screen.capture' | 'screen.record' | 'pin.create' | 'net.fetch' | 'shell.openExternal' | 'web.login' | 'storage.local' | 'notify' | 'ui.setTitle' | 'ui.setIcon' | 'ui.setBadge' | 'ui.resize' | 'ui.toast' | 'settings.register' | 'settings.page' | 'hotkey' | 'contribute' | 'vault.write' | 'net.database' | 'net.database.query' | 'net.database.schema' | 'net.messaging' | 'net.messaging.read' | 'net.messaging.admin' | 'net.socket' | 'fs.rename' | 'fs.read' | 'fs.write' | 'sys.control' | 'sys.sshAgent' | 'sys.inspect' | 'theme';
 
 export interface HomeSearchEntry {
     handle: string;

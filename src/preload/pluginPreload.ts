@@ -6,6 +6,7 @@ import type { QuickEnterInput } from '@shared/types/quick'
 import type { VaultSetResult } from '@shared/types/vault'
 import type { LocalFileHandle } from '@shared/types/local-files'
 import type { PluginToastOptions } from '@shared/types/notification'
+import type { WebLoginRequest, WebLoginResult } from '@shared/types/webLogin'
 import type { ShellNotice, ShellNoticeDataMap, ShellNoticeTopic, SaveRequestedEvent } from '@shared/types/notice'
 import * as IpcChannels from '@shared/types/ipc'
 import type { ResolvedAppearance } from '@shared/types/appearance'
@@ -379,6 +380,11 @@ const api: EnestPluginApi = {
   shell: {
     saveFile: input => call('shell.saveFile', [input]),
     openExternal: (url: string) => call<boolean>('shell.openExternal', [url]),
+    /**
+     * 在应用内窗口登录外部站点：窗口里加载登录页，用户登录后宿主把会话 cookie 交回本页面。
+     * 只能登录 manifest `net.loginOrigins` 里声明过的站点；用户中途关窗则 ok 为 false。
+     */
+    login: (request: WebLoginRequest) => call<WebLoginResult>('web.login', [request]),
     /** 导出落盘：系统保存对话框 + 写文件 */
     saveTextFile: (payload: { defaultName?: string; filename?: string; content: string }) =>
       call<{ ok: boolean; path: string } | null>('shell.saveTextFile', [payload]),

@@ -16,6 +16,7 @@ export type PluginPermission =
   | 'pin.create'
   | 'net.fetch'
   | 'shell.openExternal'
+  | 'web.login'
   | 'storage.local'
   | 'notify'
   | 'ui.setTitle'
@@ -62,6 +63,7 @@ export const PLUGIN_PERMISSIONS: readonly PluginPermission[] = [
   'pin.create',
   'net.fetch',
   'shell.openExternal',
+  'web.login',
   'storage.local',
   'notify',
   'ui.setTitle',
@@ -455,8 +457,10 @@ export interface PluginManifest {
    * 网络能力声明（可选）：
    * - allowInsecure: true 时 net.fetch 允许明文 http:// URL（含重定向逐跳）；
    *   缺省 false 仅 https。PluginInstaller 安装时校验形状，运行时按 manifest 读取。
+   * - loginOrigins: web.login 登录窗口允许加载的站点（origin，如 https://cloud.189.cn）。
+   *   只能在这些站点里登录，防止插件把登录窗口指向仿冒站点骗取用户凭据。
    */
-  net?: { allowInsecure?: boolean }
+  net?: { allowInsecure?: boolean; loginOrigins?: string[] }
   permissions?: PluginPermission[]
   /** 兼容旧插件的内容尺寸建议（CSS px）；Quick 使用固定视口，仅随屏幕工作区缩小，主窗由用户控制。 */
   window?: { width?: number; height?: number; minWidth?: number; minHeight?: number }

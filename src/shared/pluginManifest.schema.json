@@ -74,6 +74,7 @@
           "pin.create",
           "net.fetch",
           "shell.openExternal",
+          "web.login",
           "storage.local",
           "notify",
           "ui.setTitle",
@@ -115,11 +116,21 @@
     },
     "net": {
       "type": "object",
-      "description": "网络能力声明；net.fetch 的明文 http 放行开关",
+      "description": "网络能力声明；net.fetch 的明文 http 放行开关，以及 web.login 登录窗口允许的站点",
       "properties": {
         "allowInsecure": {
           "type": "boolean",
           "description": "为 true 时 net.fetch 允许明文 http:// URL（重定向逐跳仍按此规则校验）；缺省 false 仅 https"
+        },
+        "loginOrigins": {
+          "type": "array",
+          "description": "web.login 登录窗口允许加载的站点 origin（如 https://cloud.189.cn）；登录页与其跳转目标都必须属于这里列出的站点",
+          "items": {
+            "type": "string",
+            "pattern": "^https://[A-Za-z0-9.-]+(:[0-9]+)?$"
+          },
+          "maxItems": 16,
+          "uniqueItems": true
         }
       },
       "additionalProperties": false

@@ -72,6 +72,8 @@ export async function withInstallLock<T>(id: string, action: () => Promise<T>): 
 
 /** engines.enest 支持的范围语法：* / ^x.y.z / >=x.y.z / 精确 x.y.z（* 需独立分支） */
 const ENGINE_RANGE_PATTERN = /^(\*|(\^|>=)?\d+\.\d+\.\d+)$/
+/** web.login 允许的站点：只接受 https origin（主机 + 可选端口，不带路径、查询串或凭据） */
+const LOGIN_ORIGIN_PATTERN = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?$/
 
 function pushError(errors: string[], rawId: unknown, msg: string): void {
   errors.push(typeof rawId === 'string' && rawId ? `${rawId}: ${msg}` : `(unknown id): ${msg}`)
@@ -142,13 +144,30 @@ export function collectManifestIssues(
   }
 
   // net.allowInsecure：只影响宿主 net.fetch，页面直连仍受 session 策略约束。
+  // net.loginOrigins：web.login 登录窗口允许加载的站点；声明了 web.login 权限就必须给出，否则安装期即报错，
+  // 不等到用户点登录时才发现无处可登。
   if (m.net !== undefined) {
-    const netCfg = m.net as { allowInsecure?: unknown }
+    const netCfg = m.net as { allowInsecure?: unknown; loginOrigins?: unknown }
     if (typeof netCfg !== 'object' || netCfg === null || Array.isArray(netCfg)) {
-      pushError(errors, m.id, '字段 net 若存在必须是对象 { allowInsecure?: boolean }')
-    } else if (netCfg.allowInsecure !== undefined && typeof netCfg.allowInsecure !== 'boolean') {
-      pushError(errors, m.id, '字段 net.allowInsecure 若存在必须是 boolean')
+      pushError(errors, m.id, '字段 net 若存在必须是对象 { allowInsecure?: boolean; loginOrigins?: string[] }')
+    } else {
+      if (netCfg.allowInsecure !== undefined && typeof netCfg.allowInsecure !== 'boolean') {
+        pushError(errors, m.id, '字段 net.allowInsecure 若存在必须是 boolean')
+      }
+      const origins = netCfg.loginOrigins
+      if (origins !== undefined) {
+        if (!Array.isArray(origins) || origins.length > 16 || !origins.every(item => typeof item === 'string' && LOGIN_ORIGIN_PATTERN.test(item))) {
+          pushError(errors, m.id, '字段 net.loginOrigins 必须是最多 16 个 https origin 的数组（如 https://cloud.189.cn，不含路径）')
+        } else if (new Set(origins).size !== origins.length) {
+          pushError(errors, m.id, '字段 net.loginOrigins 不能有重复项')
+        }
+      }
+      if (Array.isArray(m.permissions) && m.permissions.includes('web.login') && !Array.isArray(origins)) {
+        pushError(errors, m.id, '声明了 web.login 权限的插件必须同时声明 net.loginOrigins（登录窗口允许的站点）')
+      }
     }
+  } else if (Array.isArray(m.permissions) && m.permissions.includes('web.login')) {
+    pushError(errors, m.id, '声明了 web.login 权限的插件必须同时声明 net.loginOrigins（登录窗口允许的站点）')
   }
 
   // engines.enest：支持 * / ^x.y.z / >=x.y.z / 精确；复杂范围直接拒绝安装

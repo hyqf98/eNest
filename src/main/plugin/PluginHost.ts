@@ -175,6 +175,7 @@ import {
   getPanelContentParent, getPanelWindow, isPanelWindowVisible, releasePluginViewChrome
 } from '@main/window/panelWindows'
 import { broadcastAuxiliaryTheme, closeStaleAuxiliaryWindows } from '@main/window/pluginAuxiliaryWindows'
+import { closeWebLoginWindows } from '@main/window/webLoginWindow'
 
 /** beforeClose 等待插件 ack 的上限；超时直接销毁，避免挂死关闭流程 */
 const BEFORE_CLOSE_ACK_TIMEOUT = BEFORE_CLOSE_ACK_TIMEOUT_MS
@@ -2039,6 +2040,8 @@ export class PluginHost {
     // 换代后，上一代遗留的辅助窗口（桌面悬浮球、画布等）既不能收发消息也不属于
     // 新实例，留着就是点不动也关不掉的僵尸窗口。这里同步收掉，让新实例重建。
     closeStaleAuxiliaryWindows(pluginId)
+    // 上一代打开的登录窗口同理：它的结果只属于旧实例，留着只会让用户白登录一次
+    closeWebLoginWindows(pluginId)
     const prepare = summary?.dev && summary.sourcePath
       ? import('@main/dev/DevConsole').then(module => module.prepareDevPluginReload(summary,
         () => !operation.cancelled && !this.shuttingDown && !this.barriers.has(pluginId) && isEnabledSync(pluginId)))

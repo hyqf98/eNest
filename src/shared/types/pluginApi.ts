@@ -450,6 +450,12 @@ export interface EnestPluginApi {
   shell: {
     saveFile(input: { defaultName: string; dataUrl: string }): Promise<PluginFileSaveResult | null>
     openExternal(url: string): Promise<boolean>
+    /**
+     * 在应用内窗口登录外部站点（需 `web.login` 权限，且站点在 manifest `net.loginOrigins` 里声明）。
+     * 窗口里加载 `url`，用户登录；主框架到达 `successUrlPrefix` 开头的地址即成功，
+     * 这次会话的全部 cookie 交回本页面。用户中途关窗时 `ok` 为 false。
+     */
+    login(request: import('./webLogin').WebLoginRequest): Promise<import('./webLogin').WebLoginResult>
     saveTextFile(payload: {
       defaultName?: string
       filename?: string

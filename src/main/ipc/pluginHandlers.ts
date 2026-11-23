@@ -8,6 +8,7 @@ import { callPluginBackend, stopPluginBackend } from '@main/plugin/pluginBackend
 import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
 import { callPluginBackground, refreshPluginBackgrounds, requiredBackgroundPermissions, stopPluginBackground } from '@main/plugin/pluginBackgroundRuntime'
 import { isResidentSettingKey } from '@main/launcher/pluginActivation'
+import { openWebLoginWindow, parseWebLoginRequest, webLoginOrigins } from '@main/window/webLoginWindow'
 /**
  * pluginHandlers — 插件 IPC 调用分发器
  * 职责：接收插件 preload 发起的 `plugin:call`，校验发送者身份与权限，按 method 分发到具体实现；
@@ -177,6 +178,8 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'screen.displays': null,
   'net.fetch': 'net.fetch',
   'shell.openExternal': 'shell.openExternal',
+  // 在应用内窗口登录外部站点：窗口里是外部页面，会话 cookie 交回插件，属敏感能力
+  'web.login': 'web.login',
   notify: 'notify',
   'theme.register': 'theme',
   // 主题 Token 读取：所有插件可用（无需权限声明），用于主题感知绘制
@@ -809,6 +812,12 @@ async function dispatch(
       const url = String(args[0] ?? '')
       await openExternalWithPermission(pluginId, manifest, url)
       return true
+    }
+    case 'web.login': {
+      // 只能在插件的页面（主框架）里发起：登录窗口是它的子窗口，cookie 也只交回给它
+      const scope = getRuntimeScope(pluginId)
+      if (!scope) throw new Error('plugin runtime is closing')
+      return await openWebLoginWindow(pluginId, scope.owner.wcId, scope, parseWebLoginRequest(asObj(args)), webLoginOrigins(manifest))
     }
     case 'notify': {
       assertInteractive(pluginId)

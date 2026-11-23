@@ -16,7 +16,7 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 | backend.entry | 可选；包内 backend/ 下的 .cjs/.mjs/.js 入口，需 backend.node；构建工具输出 backend/index.cjs |
 | background | 可选；声明式后台页 `{ entry: assets/*.html, events?, eventSettings? }`，在隐藏视图中按事件运行，见 [API 参考](api.md) 的 background 段 |
 | activation | 可选；`indexSync`、`resident` 等声明式激活与常驻策略，见 [launch 段](api.md) |
-| net | 可选；`allowInsecure: true` 时 `net.fetch` 允许明文 http://，缺省仅 https |
+| net | 可选；`allowInsecure: true` 时 `net.fetch` 允许明文 http://，缺省仅 https。`loginOrigins: string[]` 声明 `web.login` 登录窗口允许加载的站点（https origin，不含路径，最多 16 个）；声明了 `web.login` 权限的插件必须同时给出它 |
 | permissions | 需要用户授权的敏感能力；基础存储/UI/设置/主题等无需声明 |
 | engines.enest | 支持 `*`、精确版本、`^x.y.z`、`>=x.y.z` |
 | development.main | 仅源码开发使用的无凭据 HTTP(S) URL，发布时移除；优先级低于 package.json `enest.dev.url`，启动命令解析见[开发加载](debug.md) |

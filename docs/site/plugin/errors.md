@@ -27,6 +27,9 @@
 | `unknown settings key: <key>` | `settings.set` 写入未注册或 `page` 项 | 写入键须来自当前插件可写声明；`get` 对未保存且无默认值的合法键返回 `undefined` |
 | `storage quota exceeded` | 每插件超过 1000 键，或单值超过 512KB | 拆分存储 / 精简数据；超大二进制不要放 storage |
 | `only http(s)/mailto/tel urls allowed` | `shell.openExternal` 传入非 http(s)/mailto/tel URL | 只允许 `http://` / `https://` / `mailto:` / `tel:`；`file://` 等会被拒 |
+| `web.login: url origin is not declared in net.loginOrigins (<origin>)` / `web.login: successUrlPrefix origin is not declared in net.loginOrigins` | `shell.login` 的起始地址或成功前缀不在声明的站点内 | 在 manifest 的 `net.loginOrigins` 里加入该站点的 https origin；登录过程中跳到未声明的站点同样会被拦下并按取消处理 |
+| `web.login: successUrlPrefix must be an https URL with a path` | 成功前缀不是 https 地址，或只给到域名没有路径 | 给出含路径的前缀，如 `https://cloud.example/web/main` |
+| `web.login: too many login windows` | 同一插件同时打开了多于 2 个登录窗口 | 等已有窗口关闭后再开 |
 | `net.fetch timeout` | `net.fetch` 超时（默认 15s，上限 120s），或在途请求被终止 | 核对生命周期及目标可达性，不盲目重放有副作用的请求 |
 | `plugin call failed` | preload 侧兜底：IPC 返回 `{ ok: false }` 但无 error 字符串 | 查看 DevTools 与主进程日志 |
 | `…的本机后端尚未构建：缺少 …` | 开发态声明了 `backend`，但产物目录没有后端入口（首次构建失败或产物被清理） | 按消息中的源码目录运行构建命令后重载；首次打开或重载时宿主会先自动构建一次 |

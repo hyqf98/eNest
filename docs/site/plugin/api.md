@@ -132,6 +132,7 @@ AI 配置、局域网分享、数据库、中间件和 SSH 使用插件自己的
 | `localFiles` | `prepareDrag(input)` / `startDrag(exportId)` / `endDrag()` | 基础能力，仍校验当前实例 | 为已授权句柄准备并启动系统拖出，结束后回收拖出状态 |
 | `sys` | `processes()` / `ports()` / `kill(pid, opts)` | `sys.inspect` / `sys.control` | 本机进程 / 端口 / 结束确认 |
 | `shell` | `openExternal(url)` | `shell.openExternal` | 系统浏览器打开 |
+| `shell` | `login(request)` | `web.login` + `net.loginOrigins` | 应用内窗口登录外部站点，会话 cookie 交回插件 |
 | `shell` | `saveFile(payload)` / `saveTextFile(payload)` | 基础能力 | 用户经原生对话框选定保存位置后写入 |
 | `shell` | `resolvePath(input)` | 基础能力 | 本地路径词法归一与存在性探测；不读取文件内容、不授予读写能力 |
 | `deadlineTasks` | `start/get/pause/resume/skip/cancel/onChange` | 基础能力 | 插件自定义持久化步骤计划；不含业务周期/统计；通知单独校验 `notify` |
@@ -1121,6 +1122,42 @@ await enest.openWith.unregister('notes')
 ```js
 await enest.shell.openExternal('https://github.com')
 ```
+
+### `shell.login(request)`
+
+在应用内窗口里登录一个外部站点，并把登录会话交回插件页面。适合目标站点只提供网页登录、没有可供第三方使用的登录接口的情况。
+
+| | |
+|--|--|
+| **权限** | `web.login`；同时必须在 manifest 的 `net.loginOrigins` 里声明允许登录的站点 |
+| **参数** | `request: { url: string; successUrlPrefix: string; title?: string; width?: number; height?: number }` |
+| **返回** | `Promise<{ ok: true; url: string; cookies: Cookie[] } \| { ok: false; reason: 'cancelled' }>` |
+| **错误** | `permission denied: web.login`；`web.login: url must be an https URL`；`web.login: url origin is not declared in net.loginOrigins (<origin>)`；`web.login: successUrlPrefix must be an https URL with a path`；`web.login: successUrlPrefix origin is not declared in net.loginOrigins`；`web.login: too many login windows` |
+
+宿主弹出一个独立窗口加载 `url`，用户在**目标站点自己的页面**里完成登录。主框架导航到以 `successUrlPrefix` 开头的地址时视为登录成功，宿主读出这次会话的全部 cookie 交给插件。用户在登录成功前关掉窗口、页面离开已声明的站点、加载失败或超过 10 分钟，都按取消处理。
+
+```js
+const manifest = {
+  permissions: ['web.login'],
+  net: { loginOrigins: ['https://cloud.example'] }
+}
+const result = await enest.shell.login({
+  url: 'https://cloud.example/web/login',
+  successUrlPrefix: 'https://cloud.example/web/main'
+})
+if (result.ok) {
+  await enest.vault.set('cloud.session', JSON.stringify(result.cookies))
+}
+```
+
+边界：
+
+- **只接受 https，且必须落在 `net.loginOrigins` 声明的站点内**。起始地址、成功前缀，以及登录过程中的每一次跳转都会校验；跳到未声明的站点时窗口立即关闭并按取消处理，用户不会在不该出现的站点里输入凭据。
+- **窗口里没有任何宿主能力**：不挂 preload，没有 `window.enest`、没有 IPC，也不能申请摄像头、麦克风、定位、通知，不能下载、不能新开窗口、不能嵌入 `<webview>`。
+- **会话是这次登录专用的**：cookie 不写入宿主磁盘，不与壳、其它插件或其它登录共用；结果交出后会话立即销毁。
+- cookie 只交回发起调用的插件页面。宿主不保存、不记录；会话凭据属于敏感数据，应经 `vault.set` 存放，不要写进 `storage` 或日志。
+- 每个插件同时最多 2 个登录窗口。插件关闭或重载时，它打开的登录窗口随之关闭。
+- `successUrlPrefix` 是**前缀匹配**，请给出足够具体的地址（含路径），不要只给到域名。
 
 ### `shell.saveTextFile(payload)`
 

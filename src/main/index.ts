@@ -71,6 +71,7 @@ import { startPluginBackgrounds, disposePluginBackgrounds } from '@main/plugin/p
 import { stopClipboardChanges } from '@main/clipboard/clipboardNativeEvents'
 import { disposePluginInstallWorkers } from '@main/plugin/pluginInstallTasks'
 import { registerAuxiliaryHandlers, disposeAuxiliaryWindows } from '@main/window/pluginAuxiliaryWindows'
+import { closeAllWebLoginWindows } from '@main/window/webLoginWindow'
 import { disposeFileStreams } from '@main/plugin/pluginFileStreams'
 import {
   destroyHomeSurface,
@@ -523,6 +524,7 @@ app.on('before-quit', (event) => {
     .catch((error) => logWarn('main', `shutdown cleanup failed: ${String(error)}`))
     .then(() => {
       disposeAuxiliaryWindows()
+      closeAllWebLoginWindows()
       return disposeFileStreams()
     })
     .then(() => {
