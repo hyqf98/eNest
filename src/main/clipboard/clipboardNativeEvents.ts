@@ -275,9 +275,18 @@ export function writeClipboardImage(dataUrl: string, signal?: AbortSignal): Prom
     if (width * height > MAX_PIXELS) throw new Error('Clipboard image dimensions exceed limit')
     const png = image.toPNG()
     if (png.length > MAX_IMAGE_BYTES) throw new Error('Clipboard image exceeds 8 MiB')
-    writeBytes -= reservation.bytes - png.length
-    reservation.bytes = png.length
-    return writeClipboard(() => clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(png)], { type: 'image/png' }) })]), `image:${fingerprint(png)}`, reservation, signal)
+    // GIF 动图双写：PNG 静帧保静态粘贴兼容，原始 GIF 字节保动画（微信/QQ 等取 image/gif）
+    const gifMatch = /^data:image\/gif[a-z0-9.+-]*;base64,(.*)$/s.exec(dataUrl)
+    let gif: Uint8Array | undefined
+    if (gifMatch) {
+      const gifBytes = new Uint8Array(Buffer.from(gifMatch[1], 'base64'))
+      if (gifBytes.length > 0 && gifBytes.length <= MAX_IMAGE_BYTES) gif = gifBytes
+    }
+    writeBytes -= reservation.bytes - png.length - (gif ? Buffer.byteLength(gif) : 0)
+    reservation.bytes = png.length + (gif ? Buffer.byteLength(gif) : 0)
+    const formats: Record<string, Blob> = { 'image/png': new Blob([new Uint8Array(png)], { type: 'image/png' }) }
+    if (gif) formats['image/gif'] = new Blob([gif], { type: 'image/gif' })
+    return writeClipboard(() => clipboard.write([new ClipboardItem(formats)]), `image:${fingerprint(png)}${gif ? `+${fingerprint(Buffer.from(gif))}` : ''}`, reservation, signal)
   } catch (error) { if (reservation) releaseWrite(reservation); return Promise.reject(error) }
 }
 

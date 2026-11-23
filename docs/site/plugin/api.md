@@ -939,7 +939,7 @@ const shot = await enest.screen.capture({ displayId, bounds: { x, y, width, heig
 
 普通插件用 `auxiliary.open({entry,data?,...})` 打开本插件 `assets/` 内的 HTML，返回 `{windowId}`；`send(windowId,data,options?)` 传消息或更新窗口，`close(windowId)` 关闭，`list()` 返回当前实例的 `{windowId,entry}[]`。几何、显示器和样式选项见自动生成的 `AuxiliaryOpen` / `AuxiliaryUpdate`。辅助页只有 `enestAux.getContext/onMessage/post/close`，`getContext()` 仅可消费一次；它不能调用主页面的剪贴板、设置、文件或完整 `enest`。前台通过 `auxiliary.message` / `auxiliary.closed` / `auxiliary.changed` 接收带 `windowId` 的事件。
 
-`focus:false` 以不抢焦方式显示；`interaction:'passthrough'` 由原生窗口将鼠标穿透给其他应用，不能用 CSS `pointer-events` 替代。显式切换到 `capture` 或请求聚焦仍需当前交互资格。`parentWindowId` 仅接受本实例的现存非捕获辅助窗口，可让工具栏保持在画布之上。`placement:'display'` 的尺寸只由宿主管理，普通窗口可通过 `send` 的 `bounds` 更新到可见工作区。非捕获窗口默认选择光标所在屏幕，子窗口跟随父窗口的屏幕；录制保留默认主屏行为。
+`focus:false` 以不抢焦方式显示；`interaction:'passthrough'` 由原生窗口将鼠标穿透给其他应用，不能用 CSS `pointer-events` 替代。显式切换到 `capture` 或请求聚焦仍需当前交互资格。`contentProtection:true` 只把该辅助窗口排除出屏幕捕获：Windows 10 2004+ 使用 `WDA_EXCLUDEFROMCAPTURE` 完全移除，macOS 设置 `NSWindowSharingNone`（基于 ScreenCaptureKit 的工具仍可能看到），Linux 无等效能力。它不授予额外捕获权限；控制条和范围框仍应优先放在裁剪区域之外。`parentWindowId` 仅接受本实例的现存非捕获辅助窗口，可让工具栏保持在画布之上。`placement:'display'` 的尺寸只由宿主管理，普通窗口可通过 `send` 的 `bounds` 更新到可见工作区。非捕获窗口默认选择光标所在屏幕，子窗口跟随父窗口的屏幕；录制保留默认主屏行为。
 
 窗口移动、缩放和屏幕变化后，主页面收到 `auxiliary.changed`（`state.bounds/display/interaction`），辅助页收到 `onMessage` 的 `{type:'enest:surface-changed',state}`。非录制全屏辅助页收到 Esc 时，宿主直接恢复鼠标穿透，不依赖页面响应。移除或重排屏幕时，全屏辅助页也先恢复鼠标穿透并校正位置；捕获窗口关闭。插件应同步取消未完成的指针操作，并保留可关闭的工具栏。
 

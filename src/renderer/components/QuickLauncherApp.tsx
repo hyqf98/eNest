@@ -414,6 +414,9 @@ export function QuickLauncherApp() {
   useEffect(() => {
     const offEvent = shellApi.onEvent?.(event => {
       if (event.type === 'quick-plugin-mode') {
+        // 已经在列表态又收到 null 时，宿主只是重复通知（无插件可恢复也会发）。
+        // 跳过这次重置，避免与随后的 QuickShown 刷新叠加。
+        if (event.mode === null && modeRef.current === null) return
         modeRef.current = event.mode; setPluginMode(event.mode)
         restorePluginInput(event.mode?.pluginId ?? null)
         setFilter(null); invalidate(); setOpening(false)

@@ -28,6 +28,7 @@ import { IpcChannels } from '@shared/types/ipc'
 import { ensureShellSessionProtocol } from '@main/plugin/pluginProtocol'
 import { registerQuickThemeWebContentsPolicy } from '@main/theme/quickThemeProtocol'
 import { logError, logInfo } from '@main/logs/logService'
+import { roundedShapeRects } from './windowShape'
 import { getMainWindow, keepDockIconVisible, resolvePreload, setQuickEventSink } from './createShellWindow'
 import { resolveWindowIcon } from './applicationIcon'
 
@@ -72,32 +73,21 @@ let quickWindow: QuickWindow | null = null
 let quickPluginSurface: View | null = null
 const quickRendererUrls = new WeakMap<QuickWindow, string>()
 
-/** 圆角矩形 → 原生窗口区域（每像素一条横向矩形带，四角平滑内收）。 */
-function roundedShapeRects(width: number, height: number, radius: number): Electron.Rectangle[] {
-  const r = Math.max(0, Math.min(Math.round(radius), Math.floor(Math.min(width, height) / 2)))
-  if (r <= 0) return [{ x: 0, y: 0, width, height }]
-  const rects: Electron.Rectangle[] = []
-  if (height - 2 * r > 0) rects.push({ x: 0, y: r, width, height: height - 2 * r })
-  for (let y = 0; y < r; y++) {
-    const dy = r - y - 0.5
-    const inset = Math.round(r - Math.sqrt(Math.max(0, r * r - dy * dy)))
-    const stripWidth = width - inset * 2
-    if (stripWidth <= 0) continue
-    rects.push({ x: inset, y, width: stripWidth, height: 1 })
-    rects.push({ x: inset, y: height - 1 - y, width: stripWidth, height: 1 })
-  }
-  return rects
-}
-
 /**
  * Windows：把原生窗口裁成与 CSS 外壳一致的圆角矩形。
  * 否则 DWM 阴影会透过 CSS 透明的四个角画在背景上——白底时就是一圈灰角。
  */
+/** 每个窗口最近一次应用的区域尺寸；同尺寸重复 setShape 会触发 DWM 重合成闪烁。 */
+const appliedShape = new WeakMap<QuickWindow, string>()
+
 function applyQuickWindowShape(win: QuickWindow): void {
   if (process.platform !== 'win32') return
   try {
     const { width, height } = win.getContentBounds()
+    const key = `${width}x${height}`
+    if (appliedShape.get(win) === key) return
     win.setShape(roundedShapeRects(width, height, QUICK_CORNER_RADIUS))
+    appliedShape.set(win, key)
   } catch { /* 旧版本或不支持的桌面组合忽略 */ }
 }
 
@@ -413,22 +403,28 @@ function presentAndFocus(win: QuickWindow, options: { refocusOnly?: boolean; com
     }
   }
 
+  const maskFirstFrame = process.platform === 'win32' && !options.refocusOnly
   if (!options.refocusOnly) {
     keepDockIconVisible()
     step('position', () => positionOnCursorScreen(win))
-    // Windows：先无激活显示再单独 focus，避开 show() 自带的激活动画/首次合成，
-    // 否则透明窗口会先以未合成帧出现一次再正确显示（一次呼出看起来出现两次）。
-    step('show', () => process.platform === 'win32' ? win.showInactive() : win.show())
+    // Windows：透明窗口复用时的首帧合成可能露出旧帧/空白帧——先以 opacity=0
+    // 无激活显示，等渲染层完成布局（实测 6~10ms）后再亮起并聚焦。
+    if (maskFirstFrame) step('mask', () => win.setOpacity(0))
+    step('show', () => maskFirstFrame ? win.showInactive() : win.show())
   }
   if (win.isDestroyed() || !win.isVisible()) return false
   step('moveTop', () => win.moveTop())
   // 注：不要在 show 后立刻 setAlwaysOnTop(level)——macOS 26/27 对刚显示的透明窗重设
   // level 会触发原生崩溃（SIGTRAP 无 JS 日志）；创建时已设 alwaysOnTop，无需重申。
-  step('focusWin', () => win.focus())
-  step('focusWc', () => {
+  const revealAndFocus = (): void => {
+    if (win.isDestroyed() || !win.isVisible()) return
+    if (maskFirstFrame) step('reveal', () => win.setOpacity(1))
+    step('focusWin', () => win.focus())
     const wc = win.webContents
-    if (!wc.isDestroyed()) wc.focus()
-  })
+    step('focusWc', () => { if (!wc.isDestroyed()) wc.focus() })
+  }
+  if (maskFirstFrame) setTimeout(revealAndFocus, 80)
+  else revealAndFocus()
   logInfo('quick', `present done visible=${win.isVisible()} bounds=${JSON.stringify(win.getBounds())}`)
 
   // macOS：app 激活时主窗可能抢 key，保护期内重试把焦点钉回 Quick
@@ -612,6 +608,10 @@ export function hideQuickWindow(reason = 'explicit'): void {
       `quick`,
       `hide (${reason}) focused=${quickWindow.isFocused()} bounds=${JSON.stringify(quickWindow.getBounds())}`
     )
+    // 若在 80ms 遮罩期内被收起，恢复不透明度，避免下次呼出一直全透明。
+    if (process.platform === 'win32') {
+      try { quickWindow.setOpacity(1) } catch { /* 已销毁 */ }
+    }
     quickWindow.hide()
     quickPluginHiddenHook?.()
   }

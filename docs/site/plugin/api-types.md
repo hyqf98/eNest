@@ -1793,6 +1793,12 @@ export interface AuxiliaryOpen {
     focus?: boolean;
     /** Native mouse routing; CSS pointer-events cannot pass clicks to other apps. */
     interaction?: 'capture' | 'passthrough';
+    /**
+     * Exclude this surface from screen capture. Windows 10 2004+ uses
+     * WDA_EXCLUDEFROMCAPTURE; macOS sets NSWindowSharingNone (ScreenCaptureKit
+     * tools may still see it). Linux has no equivalent and ignores this flag.
+     */
+    contentProtection?: boolean;
     /** A live auxiliary window of this same runtime, never another plugin's window. */
     parentWindowId?: string;
     capture?: {

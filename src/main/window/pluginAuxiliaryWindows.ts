@@ -303,6 +303,10 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
     })
     surface.win = win
     setInteraction(surface, surface.interaction)
+    // Overlay controls must be able to stay visible on the desktop without
+    // appearing in the capture they drive. Apply before the window is shown:
+    // Electron documents that the exclusion takes effect on the next composition.
+    if (input.contentProtection === true) win.setContentProtection(true)
     surface.wcId = win.webContents.id
     senders.set(win.webContents.id, surface)
     const grantInput = (): void => {

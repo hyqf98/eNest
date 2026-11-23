@@ -33,7 +33,9 @@
  */
 .workspace-window-controls {
   position: absolute;
-  top: 18px;
+  /* 与 26px Tab 条同一个垂直中心：标题栏高度减去自身高度再对半。
+     原先写死 18px，按钮中心比 Tab 低 7px，Windows 下肉眼可见。 */
+  top: calc((var(--titlebar-h, 36px) - 14px) / 2);
   left: 20px;
   /* 高于页面内容的一切：卡片与动效蒙层都在个位数，详情弹层是 150。 */
   z-index: 200;
@@ -57,15 +59,18 @@
   place-items: center;
   cursor: pointer;
   color: rgb(0 0 0 / 0.55);
-  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.14);
-  transition: filter 0.12s ease;
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.22), 0 0.5px 1.5px rgb(0 0 0 / 0.12);
+  transition: filter 0.12s ease, box-shadow 0.12s ease;
   pointer-events: auto;
   -webkit-app-region: no-drag;
 }
 .workspace-window-btn.r { background: #ff5f57; }
 .workspace-window-btn.y { background: #febc2e; }
 .workspace-window-btn.g { background: #28c840; }
-.workspace-window-btn:hover { filter: brightness(0.92); }
+.workspace-window-btn:hover {
+  filter: brightness(0.92);
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.3), 0 1px 2px rgb(0 0 0 / 0.16);
+}
 .workspace-window-btn:active { filter: brightness(0.82); }
 /* 图标默认藏起来，悬停时显出。
    `pointer-events: none` 是必须的：图标 opacity 0 时仍然参与命中测试，
