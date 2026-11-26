@@ -396,7 +396,7 @@ function ipcInventory(preloads, mainFiles) {
 function restrictedRoles(requests) {
   const roles = {
     install: 'installPreload', notification: 'notificationPreload', home: 'homePreload',
-    detached: 'detachedPluginPreload', modal: 'modalPreload', panel: 'panelPreload', region: 'regionPreload',
+    detached: 'detachedPluginPreload', modal: 'modalPreload',
     quick: 'quickPreload', orb: 'railPreload', dock: 'dockPreload'
   }
   const security = load(securityPath)

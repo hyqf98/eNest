@@ -62,6 +62,15 @@ test('invalid structures, duplicate feature identities and command typos report 
   }
 })
 
+test('feature display titles are optional, single-line and limited to 128 code points', () => {
+  for (const title of ['截图', 'Base64 编解码', '𠮷'.repeat(128)]) {
+    assert.deepEqual(api.collectPluginFeatureIssues(feature(['jt'], { title })), [])
+  }
+  for (const title of [null, 1, '', '  ', '截图\n录屏', 'a\u0000b', 'a\u2028b', '𠮷'.repeat(129)]) {
+    assert.match(api.collectPluginFeatureIssues(feature(['jt'], { title })).join('\n'), /features\[0\]\.title/)
+  }
+})
+
 test('length ranges are safe integers and include effective defaults', () => {
   for (const minLength of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '1']) {
     assert.match(api.collectPluginFeatureIssues(feature([{ type: 'regex', label: 'x', match: '/x/', minLength }])).join('\n'), /minLength/)

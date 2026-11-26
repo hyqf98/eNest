@@ -164,6 +164,7 @@ export class HomeSurfaceManager {
     const view = new WebContentsView({
       webPreferences: {
         preload: resolvePreload('homePreload.js'),
+        additionalArguments: page.contribution.source === BUILT_IN_HOME_SOURCE ? ['--enest-builtin-workspace'] : [],
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,

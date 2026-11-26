@@ -11,28 +11,21 @@ export function useSettingsUpdates() {
   const [updateState, setUpdateState] = useState<UpdateStatePayload | null>(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const checkingRef = useRef(false)
+  const stateRevision = useRef(0)
   const openUpdateDialog = useUpdateDialogStore((s) => s.openDialog)
   const restartAfterSave = useUpdateDialogStore((s) => s.restartAfterSave)
 
   /** 订阅主进程 update-status 推送，并拉取一次当前状态 */
   useEffect(() => {
-    let cancelled = false
-    if (shellApi.getUpdateState) {
-      void shellApi.getUpdateState().then((s) => {
-        if (!cancelled && s) setUpdateState(s)
-      })
-    }
+    const initialRevision = stateRevision.current
     const off = shellApi.onEvent((payload) => {
       if (payload.type === 'update-status' && payload.state) {
+        stateRevision.current++
         setUpdateState(payload.state)
         const st = payload.state.status
         // 通知只在事件侧提示一次，避免与 handleCheckUpdate 结果回调重复
-        if (st === 'available') {
-          // 弹框接管：展示 Release Notes + 用户点击「立即更新」后才开始下载
-          openUpdateDialog()
-        } else if (st === 'not-available' && checkingRef.current) {
+        if (st === 'not-available' && checkingRef.current) {
           toastStore.getState().push(t('toasts.updateNone'))
-          checkingRef.current = false
         } else if (st === 'downloaded') {
           toastStore.getState().push(t('toasts.updateReady'))
         } else if (st === 'error' && payload.state.error) {
@@ -40,21 +33,25 @@ export function useSettingsUpdates() {
         }
       }
     })
+    void shellApi.getUpdateState?.().then(state => {
+      if (stateRevision.current === initialRevision) setUpdateState(state)
+    }).catch(() => undefined)
     return () => {
-      cancelled = true
+      stateRevision.current++
       off()
     }
-  }, [t, openUpdateDialog])
+  }, [t])
 
   const handleCheckUpdate = useCallback(() => {
     const check = shellApi.checkForUpdates
-    if (!check) return
+    if (!check || checkingRef.current) return
+    const revision = ++stateRevision.current
     checkingRef.current = true
     setCheckingUpdate(true)
     void (async () => {
       try {
         const result = await check()
-        if (result) setUpdateState(result)
+        if (result && revision === stateRevision.current) setUpdateState(result)
       } catch {
         toastStore.getState().push(t('toasts.updateError'))
       } finally {

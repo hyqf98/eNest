@@ -23,6 +23,7 @@ import { executePluginCommand } from '@main/launcher/pluginLauncher'
 import {
   getQuickShowRevision,
   getQuickWindow,
+  acquireQuickInteraction,
   hideQuickWindow,
   setQuickContentHeight,
   toggleQuickWindow
@@ -43,11 +44,15 @@ import {
 } from '@main/launcher/quickInputContext'
 import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { launchLocalApp } from '@main/launcher/appLauncher'
+import { handleFileSearch, cancelFileSearch } from '@main/launcher/fileSearchService'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { settingsStore } from '@main/settings/SettingsStore'
-import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
+import { getMainWindow, getShellWebContents, sendShellEvent } from '@main/window/createShellWindow'
+import { openNativeModal } from '@main/window/modalSurface'
+import { getUpdateState } from '@main/update/updateService'
+import { availableUpdateVersion } from '@shared/updateAvailability'
 import { logError, logInfo } from '@main/logs/logService'
-import { consumeQuickThemeGesture, getQuickThemeConfig, getQuickThemeStateOwner } from '@main/theme/quickThemeProtocol'
+import { claimQuickThemeFileShortcut, consumeQuickThemeGesture, getQuickThemeConfig, getQuickThemeStateOwner } from '@main/theme/quickThemeProtocol'
 import { quickProviderStates } from '@main/theme/quickStateService'
 import type { QuickProviderStateRequest, QuickProviderStateSnapshot } from '@shared/types/quickTheme'
 
@@ -61,6 +66,7 @@ interface QuickSession {
   searchRevision: number
   cancelRevision: number
   openRevision: number
+  fileGestureAt: number
   retire: () => void
 }
 
@@ -76,12 +82,29 @@ function captureQuickSession(event: IpcMainInvokeEvent): QuickSession {
   quickSession?.retire()
   const session: QuickSession = {
     id: `quick:${contents.id}`, window, revision, controller: new AbortController(),
-    searchRevision: 0, cancelRevision: 0, openRevision: 0, retire: () => {}
+    searchRevision: 0, cancelRevision: 0, openRevision: 0, fileGestureAt: 0, retire: () => {}
   }
   const navigate = (_event: Electron.Event, _url: string, _inPlace: boolean, mainFrame: boolean) => {
     if (mainFrame) session.retire()
   }
+  let mouseDown = 0
+  const eligible = () => !window.isDestroyed() && window.isVisible() && contents.isFocused() && contents.focusedFrame === contents.mainFrame && !pluginHost.getQuickPlugin()
+  const keyGesture = (event: Electron.Event, input: Electron.Input) => {
+    if (input.type !== 'keyDown' || input.isComposing || input.isAutoRepeat) return
+    if (['Enter', ' '].includes(input.key) && eligible()) session.fileGestureAt = performance.now()
+    if (!input.alt && input.shift && (process.platform === 'darwin' ? input.meta : input.control) && input.key.toLowerCase() === 'f'
+      && getQuickShowRevision() === revision && !pluginHost.getQuickPlugin() && !listQuickInputContext().length && settingsStore.getFileSearchSettings()?.enabled && claimQuickThemeFileShortcut(contents)) {
+      event.preventDefault(); contents.send(IpcChannels.ShellEvent, { type: 'quick-file-search' })
+    }
+  }
+  const mouseGesture = (_event: Electron.Event, input: Electron.MouseInputEvent) => {
+    if (input.button !== 'left') return
+    if (input.type === 'mouseDown') { session.fileGestureAt = 0; mouseDown = eligible() ? performance.now() : 0 }
+    if (input.type === 'mouseUp') { if (mouseDown && performance.now() - mouseDown <= 1500 && eligible()) session.fileGestureAt = performance.now(); mouseDown = 0 }
+  }
+  const clearGesture = () => { mouseDown = 0; session.fileGestureAt = 0 }
   session.retire = () => {
+    cancelFileSearch(contents.id)
     session.controller.abort()
     session.openController?.abort()
     if (quickSession === session) {
@@ -93,12 +116,18 @@ function captureQuickSession(event: IpcMainInvokeEvent): QuickSession {
     contents.removeListener('destroyed', session.retire)
     contents.removeListener('render-process-gone', session.retire)
     contents.removeListener('did-start-navigation', navigate)
+    contents.removeListener('before-input-event', keyGesture)
+    contents.removeListener('before-mouse-event', mouseGesture)
+    contents.removeListener('blur', clearGesture)
   }
   window.on('hide', session.retire)
   window.on('closed', session.retire)
   contents.on('destroyed', session.retire)
   contents.on('render-process-gone', session.retire)
   contents.on('did-start-navigation', navigate)
+  contents.on('before-input-event', keyGesture)
+  contents.on('before-mouse-event', mouseGesture)
+  contents.on('blur', clearGesture)
   quickSession = session
   return session
 }
@@ -149,6 +178,14 @@ async function handleOpen(event: IpcMainInvokeEvent, req: QuickOpenRequest): Pro
     if (!current()) return { ok: false, error: 'Quick session retired' }
     if (!await validateQuickOpenTarget(req)) return { ok: false, error: 'Quick target is unavailable' }
     if (!current()) return { ok: false, error: 'Quick session retired' }
+    if (req.kind === 'open-update') {
+      const owner = getShellWebContents()
+      if (!owner || owner.isDestroyed() || !availableUpdateVersion(getUpdateState())) return { ok: false, error: '软件更新暂不可用' }
+      hideQuickWindow()
+      focusMainWindow()
+      void openNativeModal(owner, { kind: 'update' }).catch(error => logError('update', String(error)))
+      return { ok: true }
+    }
     if (req.kind === 'app') {
       await launchLocalApp(req.path)
       if (current()) hideQuickWindow()
@@ -265,6 +302,17 @@ export function registerQuickHandlers(): void {
     return { ok: true }
   })
 
+  handleShellIpc(IpcChannels.QuickFiles, async (event, request) => {
+    const session = captureQuickSession(event), epoch = getQuickInputEpoch()
+    if (request?.operation === 'open' || request?.operation === 'reveal') {
+      const at = session.fileGestureAt; session.fileGestureAt = 0
+      if (!at || performance.now() - at > 1500) return { status: 'stale' }
+    }
+    const release = request?.operation === 'open' ? acquireQuickInteraction() : undefined
+    try { return await handleFileSearch(event.sender.id, request, () => isQuickSessionCurrent(session, event) && !pluginHost.getQuickPlugin() && getQuickInputEpoch() === epoch && !listQuickInputContext().length) }
+    finally { release?.() }
+  })
+
   handleShellIpc(IpcChannels.QuickSearch, async (event, payload: QuickSearchRequest): Promise<QuickSearchResult> => {
     const session = captureQuickSession(event)
     if (payload?.phase === 'cancel') {
@@ -299,6 +347,7 @@ export function registerQuickHandlers(): void {
   })
 
   handleShellIpc(IpcChannels.QuickGetLocale, () => settingsStore.getLocale())
+  handleShellIpc(IpcChannels.QuickGetUpdateVersion, () => availableUpdateVersion(getUpdateState()))
   handleShellIpc(IpcChannels.QuickGetConfig, () => {
     return getQuickHotkeyConfig()
   })
@@ -349,6 +398,7 @@ export function registerQuickHandlers(): void {
     if (event.sender.id !== getQuickWindow()?.webContents.id) return { ok: false, error: 'Quick context sender rejected' }
     if (!payload || typeof payload !== 'object') return { ok: false, error: 'Invalid context request' }
     try {
+      if (payload.operation === 'read-clipboard' || payload.operation === 'clear') cancelFileSearch(event.sender.id)
       if ((payload.operation === 'read-clipboard' || payload.operation === 'clear') && quickSession?.openInputEpoch !== undefined) {
         quickSession.openController?.abort()
       }

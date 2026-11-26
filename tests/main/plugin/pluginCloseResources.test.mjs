@@ -7,7 +7,7 @@ const source = ts.createSourceFile('PluginHost.ts', readFileSync(new URL('../../
 const hostClass = source.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === 'PluginHost')
 assert.ok(hostClass, 'PluginHost class must exist')
 const methods = [
-  'ensureResourceOwner', 'stopAllPluginResources', 'closePlugin', 'openPlugin', 'capturePanelPluginClose',
+  'ensureResourceOwner', 'stopAllPluginResources', 'closePlugin', 'openPlugin',
   'getPlacement', 'getLayoutMode', 'getPlacementRevision', 'bumpPlacement', 'releaseQuickSession'
 ].map(name => {
   const method = hostClass.members.find(node => ts.isMethodDeclaration(node) && node.name.getText(source) === name)
@@ -32,8 +32,8 @@ function settlement(promise) {
 }
 
 // Resource coordination executes verbatim; native views, IPC and leaf cleanup are controlled adapters.
-function fixture({ withEntry = true, panel = false } = {}) {
-  const pluginId = 'resource-plugin', panelId = 'panel-one', generation = 19, wcId = 31
+function fixture({ withEntry = true } = {}) {
+  const pluginId = 'resource-plugin', generation = 19, wcId = 31
   const calls = { instanceStops: [], fullStops: [], devStops: [], disposals: [], invalidations: [], shell: [], sessionClears: [], snapshots: [], creates: 0 }
   const hooks = { invalidate: undefined }
   const disposing = deferred()
@@ -45,7 +45,7 @@ function fixture({ withEntry = true, panel = false } = {}) {
   const adapters = {
     toPluginId: id => id.startsWith('t-') ? id.slice(2) : id,
     toTabId: id => `t-${id}`,
-    clearQuickInput() {}, forgetQuickEnterInput() {}, destroyDetachedWindow() {}, forgetPanelPlugin() {},
+    clearQuickInput() {}, forgetQuickEnterInput() {}, destroyDetachedWindow() {},
     sendShellEvent: event => calls.shell.push(event),
     BEFORE_CLOSE_ACK_TIMEOUT: 1600,
     permissionService: { cancelFor() {} },
@@ -66,7 +66,7 @@ function fixture({ withEntry = true, panel = false } = {}) {
     'layoutModes', 'tabPresentation', 'suspending', 'pendingAcks', 'hibernated', 'byWcId', 'pendingEnter', 'states',
     'restoringDetached', 'barriers'
   ]) host[name] = new Map()
-  for (const name of ['mcpBackgroundPlugins', 'restoredSessionIds', 'lazyDetached', 'panelSuppressed', 'enterSent']) host[name] = new Set()
+  for (const name of ['mcpBackgroundPlugins', 'restoredSessionIds', 'lazyDetached', 'enterSent']) host[name] = new Set()
   Object.assign(host, {
     shuttingDown: false, activeTabId: null, quickPluginId: null,
     quickSession: { release: () => false, hide() {} },
@@ -81,7 +81,7 @@ function fixture({ withEntry = true, panel = false } = {}) {
     },
     createPlugin() { calls.creates++; throw new Error('Native creation must remain behind the cleanup guard') }
   })
-  host.placements.set(pluginId, panel ? { kind: 'panel', panelId } : { kind: 'shell' })
+  host.placements.set(pluginId, { kind: 'shell' })
   host.logicalTabs.set(pluginId, { title: 'Resource owner', tabSessionId: 'logical-session' })
   const entry = withEntry ? {
     pluginId, generation, layoutMode: 'shell', rootPath: '/fixture/resource-plugin',
@@ -91,7 +91,7 @@ function fixture({ withEntry = true, panel = false } = {}) {
   if (entry) { host.entries.set(pluginId, entry); host.byWcId.set(wcId, pluginId) }
   const release = list => { for (const gate of list) gate.resolve() }
   return {
-    host, pluginId, panelId, entry, calls, hooks, disposing,
+    host, pluginId, entry, calls, hooks, disposing,
     releaseInstance() { release(calls.instanceStops); release(calls.disposals) },
     releaseFull() { release(calls.fullStops); release(calls.devStops) },
     releaseAll() { release(calls.instanceStops); release(calls.disposals); release(calls.fullStops); release(calls.devStops) }
@@ -208,13 +208,11 @@ for (const fail of [false, true]) {
   })
 }
 
-test('entryless failure keeps the captured owner retryable and prevents a cold open until resources stop', { timeout: 5000 }, async t => {
-  const f = fixture({ withEntry: false, panel: true })
+test('entryless failure keeps the owner retryable and prevents a cold open until resources stop', { timeout: 5000 }, async t => {
+  const f = fixture({ withEntry: false })
   t.after(() => f.releaseAll())
-  const capturedClose = f.host.capturePanelPluginClose(f.pluginId, f.panelId)
-  const owner = f.host.resourceOwners.get(f.pluginId)
-  const first = capturedClose()
-  assert.equal(capturedClose(), first, 'the captured closer also joins its in-flight attempt')
+  const owner = f.host.ensureResourceOwner(f.pluginId)
+  const first = f.host.closePlugin(f.pluginId, 'tab-close')
   const waitingOpen = f.host.openPlugin(f.pluginId)
   const outcomes = Promise.allSettled([first, waitingOpen])
   const failure = new Error('owned process is still alive')
@@ -230,11 +228,10 @@ test('entryless failure keeps the captured owner retryable and prevents a cold o
   assert.equal(owner.closing, true)
   assert.equal(f.host.entries.size, 0)
   assert.equal(f.host.closingEntries.size, 0)
-  assert.equal(f.host.getPlacement(f.pluginId).kind, 'shell', 'retry cannot rely on the former panel placement')
   await assert.rejects(f.host.openPlugin(f.pluginId), /resource cleanup is still pending/)
   assert.equal(f.calls.creates, 0)
 
-  const retry = capturedClose()
+  const retry = f.host.closePlugin(f.pluginId, 'tab-close')
   assert.equal(f.host.resourceOwners.get(f.pluginId), owner, 'retry must keep the failed resource token')
   assert.equal(f.calls.fullStops.length, 2)
   assert.equal(f.calls.devStops.length, 2)
@@ -243,7 +240,5 @@ test('entryless failure keeps the captured owner retryable and prevents a cold o
   assert.equal(f.host.resourceOwners.has(f.pluginId), false)
   assert.equal(f.host.closing.has(f.pluginId), false)
   assert.equal(f.host.finalClosing.has(f.pluginId), false)
-  await capturedClose()
-  assert.equal(f.calls.fullStops.length, 2, 'a completed captured close cannot stop a later incarnation')
   assert.equal(f.calls.creates, 0)
 })

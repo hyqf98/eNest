@@ -29,7 +29,7 @@ const names = binding => ts.isIdentifier(binding) ? [binding.text] : binding.ele
 const bindings = ['headerRef', 'level', 'reducedMotion', 'callbacks', 'shown', 'motion', 'motionContext']
 const statements = component.body.statements.filter(s =>
   (ts.isVariableStatement(s) && s.declarationList.declarations.some(d => names(d.name).some(name => bindings.includes(name)))) ||
-  (ts.isExpressionStatement(s) && ts.isCallExpression(s.expression) && s.expression.expression.getText(ast) === 'useLayoutEffect') ||
+  (ts.isExpressionStatement(s) && ts.isCallExpression(s.expression) && s.expression.expression.getText(ast) === 'useLayoutEffect' && s.getText(ast).includes('motionContext')) ||
   (ts.isExpressionStatement(s) && ts.isBinaryExpression(s.expression) && s.expression.left.getText(ast) === 'callbacks.current'))
 assert.equal(statements.length, bindings.length + 3, 'extract both real motion effects and current callbacks')
 // Only hook plumbing is replaced. No JSX, hover timers or native runtime is evaluated.

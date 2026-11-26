@@ -7,7 +7,8 @@ precision highp float;
 #else
 precision mediump float;
 #endif
- uniform vec2 resolution,pointer;
+ uniform vec4 pixelToScene;
+ uniform vec2 pointer;
  uniform float time,opening;
  uniform vec3 baseColor,palette0,palette1,palette2;
  uniform float customPalette,lightTheme;
@@ -87,8 +88,6 @@ precision mediump float;
   col*=vignette;
   return col;
  }
- // Positions are centered and normalized to canvas height.
-
 // Wide, overlapping silk ribbons: jade body, teal shadow, pale-gold grazing light.
 vec3 auroraBackground(vec2 p, float t, float reveal) {
     float entrance = smoothstep(0.0, 1.0, clamp(reveal, 0.0, 1.0));
@@ -255,7 +254,7 @@ vec3 orbitBackground(vec2 p, float t, float reveal) {
   return c*(1.-.25*smoothstep(.4,1.5,r));
  }
  void main(){
-  vec2 p=(gl_FragCoord.xy/resolution-.5)*vec2(resolution.x/resolution.y,1.);
+  vec2 p=gl_FragCoord.xy*pixelToScene.xy+pixelToScene.zw;
   p-=pointer*.012;
   vec3 c;
   if(mode<.5)c=foldBackground(p);

@@ -15,6 +15,7 @@ import { readdir, rm, rmdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DATA_SUBDIR, PLUGINS_DIR, pluginPartition, pluginPartitionDirName } from '@shared/constants'
 import { clearPluginStorage } from '@main/db/pluginStorage'
+import { kvDelete } from '@main/db/sqliteService'
 import { logError, logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, getAppPathsGeneration, pluginStorageFile, retainAppPaths } from '@main/paths/pathsService'
 import { existingOwnedDirectory } from '@main/paths/ownedDirectory'
@@ -203,6 +204,13 @@ async function uninstallLocked(id: string, tree: OwnedInstallTree | null): Promi
     logInfo('uninstall', `cleared plugin settings and permissions ${id}`)
   } catch (err) {
     const msg = `clear plugin settings failed: ${(err as Error).message}`
+    errors.push(msg)
+    logWarn('uninstall', `${id} ${msg}`)
+  }
+  try {
+    kvDelete(`launcher.pinned:${id}`)
+  } catch (err) {
+    const msg = `clear launcher targets failed: ${(err as Error).message}`
     errors.push(msg)
     logWarn('uninstall', `${id} ${msg}`)
   }

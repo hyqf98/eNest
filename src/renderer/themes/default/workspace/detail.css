@@ -457,7 +457,9 @@
 }
 .detail-gallery-stage {
   width: 100%;
-  aspect-ratio: 16 / 10;
+  /* 官方截图标准比例（1200×800）。max-height 触发时容器比素材更扁，
+     由 cover 铺满而不露底色。 */
+  aspect-ratio: 3 / 2;
   max-height: min(360px, 40dvh);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -474,6 +476,13 @@
   cursor: zoom-in;
 }
 .detail-gallery-open:disabled { cursor: progress; }
+.detail-gallery-stage .detail-gallery-image {
+  object-fit: cover;
+}
+/* 大图预览用于看清完整界面：等比完整显示，不裁切。 */
+.detail-gallery-preview-stage .detail-gallery-image {
+  object-fit: contain;
+}
 .detail-gallery-image {
   display: block;
   width: 100%;
@@ -526,7 +535,7 @@
 .detail-gallery-thumbnail {
   position: relative;
   width: 76px;
-  height: 52px;
+  height: 54px;
   flex: 0 0 auto;
   padding: 3px;
   border: 2px solid transparent;
@@ -540,7 +549,8 @@
 }
 .detail-gallery-thumbnail:hover { border-color: var(--border-strong); }
 .detail-gallery-thumbnail[aria-pressed="true"] { border-color: var(--link); background: color-mix(in srgb, var(--link) 10%, var(--surface)); }
-.detail-gallery-thumbnail > img { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 3px; }
+/* 3px 内边距 + 2px 边框后的内容盒是 66×44，即官方截图标准比例 3:2。 */
+.detail-gallery-thumbnail > img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 3px; }
 .detail-gallery-thumbnail-number { position: absolute; right: 3px; bottom: 2px; padding: 0 4px; border-radius: 3px; background: var(--surface); color: var(--text-2); font-size: calc(10px * var(--appearance-font-scale, 1)); line-height: 16px; font-variant-numeric: tabular-nums; }
 .detail-gallery-thumbnail-error { display: grid; place-items: center; height: 100%; color: var(--text-3); font-size: calc(16px * var(--appearance-font-scale, 1)); }
 

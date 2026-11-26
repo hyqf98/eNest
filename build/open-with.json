@@ -18,6 +18,8 @@
     { "ext": "webp", "name": "WebP 图片", "role": "Viewer", "mimeType": "image/webp" },
     { "ext": "gif", "name": "GIF 图片", "role": "Viewer", "mimeType": "image/gif" },
     { "ext": "txt", "name": "文本文件", "role": "Viewer", "mimeType": "text/plain" },
-    { "ext": "log", "name": "日志文件", "role": "Viewer", "mimeType": "text/plain" }
+    { "ext": "log", "name": "日志文件", "role": "Viewer", "mimeType": "text/plain" },
+    { "ext": "sql", "name": "SQL 脚本", "role": "Editor", "mimeType": "application/sql" },
+    { "ext": "csv", "name": "CSV 文件", "role": "Editor", "mimeType": "text/csv" }
   ]
 }

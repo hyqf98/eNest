@@ -5,14 +5,14 @@ import { build } from 'esbuild'
 
 async function fixture() {
   const sources = {
-    fixture: `export const state={text:'initial',files:[],image:null,source:null,sourceGate:null,writeGate:null,writeFail:false,reads:0,clock:1700000000000,logs:[],timers:new Map(),writeCalls:[],activeWrites:0,peakWrites:0,imageDecodes:0,imageThrow:false};`,
+    fixture: `export const state={text:'initial',files:[],image:null,source:null,sourceGate:null,fileGate:null,writeGate:null,writeFail:false,reads:0,changeCount:null,fileReads:0,imageReads:0,clock:1700000000000,logs:[],timers:new Map(),writeCalls:[],activeWrites:0,peakWrites:0,imageDecodes:0,imageThrow:false};`,
     electron: `import {state} from 'fixture'; export class ClipboardItem { constructor(value){Object.assign(this,value)} }; export const clipboard={
-      read:async()=>state.image?[{types:['image/png'],getType:async()=>new Blob([state.image],{type:'image/png'})}]:[],
+      read:async()=>state.image?[{types:['image/png'],getType:async()=>{state.imageReads++;return new Blob([state.image],{type:'image/png'})}}]:[],
       readText:async()=>{state.reads++;return state.text},
       writeText:async value=>{state.writeCalls.push(value);state.activeWrites++;state.peakWrites=Math.max(state.peakWrites,state.activeWrites);try{if(state.writeGate)await state.writeGate;if(state.writeFail)throw Error('fixture write failed');state.text=value;state.image=null;state.files=[]}finally{state.activeWrites--}},
       write:async items=>{state.image=Buffer.from(await items[0]['image/png'].arrayBuffer());state.text='';state.files=[]}
     }; export const nativeImage={createFromBuffer:buffer=>({isEmpty:()=>false,getSize:()=>({width:1,height:1}),toPNG:()=>buffer}),createFromDataURL:url=>{state.imageDecodes++;if(state.imageThrow)throw Error('fixture image conversion failed');return{isEmpty:()=>false,getSize:()=>({width:1,height:1}),toPNG:()=>Buffer.from(url.split(',')[1],'base64')}}};`,
-    native: `import {state} from 'fixture'; export const readNativeFiles=async()=>state.files; export const writeNativeFiles=async paths=>{state.files=paths;state.image=null;state.text=''}; export const nativeClipboardSource=async()=>{if(state.sourceGate)await state.sourceGate;return state.source}; export const isNativeClipboardBusy=()=>false;`,
+    native: `import {state} from 'fixture'; export const readNativeClipboardChangeCount=async()=>state.changeCount; export const readNativeFiles=async()=>{state.fileReads++;if(state.fileGate)await state.fileGate;return state.files}; export const writeNativeFiles=async paths=>{state.files=paths;state.image=null;state.text=''}; export const nativeClipboardSource=async()=>{if(state.sourceGate)await state.sourceGate;return state.source}; export const isNativeClipboardBusy=()=>false;`,
     logs: `import {state} from 'fixture'; export const logWarn=(_source,message)=>state.logs.push(message);`
   }
   const result = await build({
@@ -33,6 +33,42 @@ async function fixture() {
 }
 
 const tick = () => new Promise(resolve => setImmediate(resolve))
+
+test('unchanged OS counters skip payload reads and an unavailable counter falls back to content comparison', async () => {
+  const api = await fixture(), events = [], { state } = api
+  state.changeCount = 0
+  state.image = Buffer.from('original')
+  const off = api.subscribeClipboardChanges({ current: () => true, publish: value => events.push(value) })
+  try {
+    await tick(); await api.pollClipboardChanges(); await api.pollClipboardChanges()
+    assert.deepEqual([state.fileReads, state.imageReads, events.length], [1, 1, 0])
+    state.changeCount++; await api.pollClipboardChanges()
+    assert.deepEqual([state.fileReads, state.imageReads, events.length], [2, 2, 0])
+    state.changeCount = null; state.image = Buffer.from('new image')
+    await api.pollClipboardChanges(); await api.pollClipboardChanges()
+    state.changeCount = 8; await api.pollClipboardChanges(); await api.pollClipboardChanges()
+    assert.deepEqual([state.fileReads, state.imageReads, events.length], [5, 5, 1])
+  } finally { off() }
+})
+
+test('a copy during baseline or source lookup is not mistaken for an already observed clipboard version', async () => {
+  const api = await fixture(), events = [], { state } = api
+  state.changeCount = 1
+  let release
+  state.fileGate = new Promise(resolve => { release = resolve })
+  const off = api.subscribeClipboardChanges({ current: () => true, publish: value => events.push(value.text) })
+  try {
+    await tick(); state.changeCount++; state.text = 'first external'; release(); await tick()
+    await api.pollClipboardChanges()
+    assert.deepEqual(events, ['first external'])
+    state.sourceGate = new Promise(resolve => { release = resolve })
+    state.changeCount++; state.text = 'superseded'
+    const reading = api.pollClipboardChanges()
+    await tick(); state.changeCount++; state.text = 'latest'; release(); await reading
+    await api.pollClipboardChanges(); await api.pollClipboardChanges()
+    assert.deepEqual(events, ['first external', 'latest'])
+  } finally { release(); off() }
+})
 
 test('one native observer seeds the current value and publishes changes without owning history', async () => {
   const f = await fixture(), events = []

@@ -39,6 +39,12 @@ export function ChevronLeftIcon(props: IconProps) {
   )
 }
 
+export function ArrowUpFromLineIcon(props: IconProps) {
+  return <svg {...baseProps(props)}>
+    <path d="M12 16V4m-5 5 5-5 5 5M5 20h14" />
+  </svg>
+}
+
 /** Lucide chevron-right */
 export function ChevronRightIcon(props: IconProps) {
   return (

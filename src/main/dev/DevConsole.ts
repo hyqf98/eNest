@@ -9,7 +9,7 @@ import type { DevPluginLoadOptions, PluginSummary } from '@shared/types/plugin'
 import { resolvePluginUi } from '@shared/types/plugin'
 import { pluginCategoryColor } from '@shared/constants'
 import { logInfo, logWarn } from '@main/logs/logService'
-import { dropDevPluginRecord, readDevPluginRecords, upsertDevPluginRecord } from './devPluginsStore'
+import { dropDevPluginRecord, lastDevPluginParentDir, readDevPluginRecords, upsertDevPluginRecord } from './devPluginsStore'
 import { devRegistrationEntry, inspectDevPluginEntry, type ResolvedDevEntry } from './devPluginEntry'
 import { forgetDevServer } from './devServerManager'
 import { ensureDevBuild } from './devBuildManager'
@@ -165,7 +165,12 @@ export async function loadDevPlugin(dirPath: string, options: DevPluginLoadOptio
 export async function pickAndLoadDevPlugin(dirPath?: string, options: DevPluginLoadOptions = {}): Promise<PluginSummary | null> {
   let dir = dirPath?.trim()
   if (!dir) {
-    const result = await trackNativeInteraction(dialog.showOpenDialog({ title: '选择含 plugin.json 的插件源码目录', properties: ['openDirectory'] }))
+    // 从上次加载的插件目录的上一级开始选：同一批插件通常并排放着，不必每次都从系统默认位置翻起
+    const defaultPath = lastDevPluginParentDir(await readDevPluginRecords())
+    const result = await trackNativeInteraction(dialog.showOpenDialog({
+      title: '选择含 plugin.json 的插件源码目录', properties: ['openDirectory'],
+      ...(defaultPath ? { defaultPath } : {})
+    }))
     if (result.canceled || !result.filePaths[0]) return null
     dir = result.filePaths[0]
   }
@@ -204,7 +209,7 @@ export async function forgetDevPlugin(id: string): Promise<void> {
       return
     }
     const { pluginHost } = await import('@main/plugin/PluginHost')
-    // Views, MCP runtime, backend/background processes, panel and session-tab references all
+    // Views, MCP runtime, backend/background processes and session-tab references all
     // retire through the same close chain the uninstaller uses.
     try { await pluginHost.closePlugin(id, 'uninstall') }
     catch (error) { logWarn('dev', `${id}: close view: ${(error as Error).message}`) }

@@ -128,20 +128,28 @@
     "icon": "assets/plugins/env-vars.svg"
   },
   {
+    "id": "com.github.eNest.free-canvas",
+    "name": "自由画布",
+    "description": "在屏幕上框出工作区，摆放自己的时钟、便签、待办、番茄钟、计算器和进程概览。",
+    "category": "效率",
+    "slug": "free-canvas",
+    "icon": "assets/plugins/free-canvas.svg"
+  },
+  {
+    "id": "com.github.eNest.free-desktop",
+    "name": "自由桌面",
+    "description": "用可退出的桌面工作区整理文件、便签和常用程序。",
+    "category": "效率",
+    "slug": "free-desktop",
+    "icon": "assets/plugins/free-desktop.svg"
+  },
+  {
     "id": "com.github.eNest.hash",
     "name": "哈希与加密",
     "description": "多算法同屏哈希（SHA 家族/MD5）、文件哈希进度反馈、校验对比 diff、HMAC、AES-GCM 与 RSA 加解密签名、JWT 解码、hex/base64 输出。",
     "category": "开发",
     "slug": "hash",
     "icon": "assets/plugins/hash.svg"
-  },
-  {
-    "id": "com.github.eNest.image-tools",
-    "name": "图片工具箱",
-    "description": "图片压缩、格式转换、批量缩放、裁剪旋转、文字水印、EXIF 查看、色板提取与贴图预览。",
-    "category": "媒体",
-    "slug": "image-tools",
-    "icon": "assets/plugins/image-tools.svg"
   },
   {
     "id": "com.github.eNest.json-tools",

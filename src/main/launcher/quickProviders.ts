@@ -66,9 +66,10 @@ export function resolveQuickQuery(pluginId: string, reqId: string, items: unknow
  */
 export async function queryQuickProviders(
   query: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  nativeFiles = false
 ): Promise<Array<{ pluginId: string; providerId: string; items: QuickProviderItem[] }>> {
-  const registered = contributionRegistry.getQuickProviders()
+  const registered = contributionRegistry.getQuickProviders().filter(provider => !nativeFiles || provider.fallbackFor !== 'file-names')
   const offset = registered.length ? providerOffset % registered.length : 0
   const providers = [...registered.slice(offset), ...registered.slice(0, offset)]
   providerOffset += Math.min(4, providers.length)

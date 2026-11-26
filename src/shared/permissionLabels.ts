@@ -19,6 +19,7 @@ export const PERMISSION_LABELS: Record<PluginPermission, string> = {
   'pin.create': '创建贴图窗口',
   'net.fetch': '访问网络（HTTP/HTTPS）',
   'shell.openExternal': '打开外部链接',
+  'launcher.access': '呼出快捷搜索与启动用户固定的程序',
   'web.login': '在应用内窗口登录外部网站',
   'storage.local': '插件私有数据存储',
   notify: '系统通知',

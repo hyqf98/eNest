@@ -11,6 +11,15 @@
 ```ts
 /** Generated from the eNest preload and shared API types. Do not edit. */
 export interface EnestPluginApi {
+    launcher: {
+        authorizeSession(): Promise<boolean>;
+        endSession(): Promise<void>;
+        showQuick(): Promise<boolean>;
+        showWorkspace(): Promise<boolean>;
+        pickTarget(): Promise<LauncherTarget | null>;
+        activateTarget(id: string): Promise<boolean>;
+        forgetTarget(id: string): Promise<void>;
+    };
     launch: PluginLaunchApi;
     /** Register exactly the manifest-declared tools after business initialization. */
     mcp: {
@@ -453,27 +462,23 @@ export interface EnestPluginApi {
     getEnterCode(): string | undefined;
     /**
      * 当前启动方式：quick = Quick 小窗内嵌（小窗适配样式）/ shell = 主窗大窗
-     * （桌面适配样式）/ panel = 自由面板小组件（组件适配样式）。初始值来自
-     * URL ?mode=，容器迁移（固定到主窗、移入/移出面板等）时经 mode-change
+     * （桌面适配样式）。初始值来自
+     * URL ?mode=，容器迁移时经 mode-change
      * 事件实时更新——插件据此在多套入口样式间切换。
      */
     getLaunchMode(): PluginLaunchMode;
-    /** 启动方式变更（quick / shell / panel 间迁移，不重载页面）；立即生效后回调 */
+    /** 启动方式变更（quick / shell 间迁移，不重载页面）；立即生效后回调 */
     onModeChange(cb: (mode: PluginLaunchMode) => void): Unsubscribe;
 }
 
 /** Present only in a dedicated Home WebContentsView, never an ordinary business plugin. */
-export interface EnestHomeApi {
+export interface EnestHomeApi extends WorkspaceCatalogReader {
     ready(payload?: HomeReadyPayload): Promise<void>;
     ackNavigation(payload: WorkspaceNavigationAck): Promise<void>;
     getAppearance(): Promise<HomeAppearanceSnapshot>;
     getConfig(): Promise<HomeRuntimeConfig>;
-    getCatalog(): Promise<HomeCatalog>;
-    getDetail(id: string): Promise<HomeDetail | null>;
     search(request: HomeSearchRequest): Promise<HomeSearchResult>;
-    refresh(request?: {
-        reason?: 'manual' | 'boot';
-    }): Promise<HomeCatalog>;
+    openFileSearch?(): Promise<boolean>;
     action(request: HomeAction): Promise<HomeActionResponse>;
     /** classic 模式首页自绘 Tab 条：启动/重载时主动拉一次当前投影。 */
     getTabs(): Promise<HomeTabsSnapshot>;
@@ -549,6 +554,8 @@ export type McpErrorCode = 'busy' | 'needs-consent' | 'permission-denied' | 'int
  */
 export interface OpenWithContribution {
     id: string;
+    /** 设置页里这条声明的显示名（如「SQL 脚本」）；缺省回退为扩展名列表 */
+    label?: string;
     /** 小写、不含点的文件扩展名，如 'md' */
     extensions?: string[];
     /** MIME 类型，如 'text/markdown' */
@@ -572,6 +579,16 @@ export interface OpenWithEnterPayload {
     handles?: LocalFileHandle[];
     /** open-url 时的完整 URL */
     url?: string;
+}
+
+export interface PluginFeature {
+    code: string;
+    title?: string;
+    explain?: string;
+    cmds: PluginFeatureCommand[];
+    /** Omitted: an unrestricted over declaration enables compatible prefix input; other names stay unchanged. */
+    input?: PluginFeatureInput;
+    activation?: PluginFeatureActivation;
 }
 
 /** V1 fields remain present as a compatibility view for older consumers. */
@@ -815,7 +832,7 @@ export interface ScreenBounds {
     height: number;
 }
 
-/** 截图结果：PNG dataURL */
+/** 截图结果：PNG dataURL 和实际编码的像素尺寸。 */
 export interface ScreenCaptureResult {
     dataUrl: string;
     width: number;
@@ -825,8 +842,8 @@ export interface ScreenCaptureResult {
 
 export interface CaptureDisplay {
     id: number;
-    bounds: ScreenBounds;
-    workArea: ScreenBounds;
+    bounds: DesktopDipBounds;
+    workArea: DesktopDipBounds;
     scaleFactor: number;
     primary: boolean;
 }
@@ -835,13 +852,12 @@ export interface CaptureDisplay {
  * 插件布局模式，与宿主窗口位置分离：
  * - quick：Quick 小窗内嵌，渲染在输入框下方（小窗适配样式）
  * - shell：主窗大窗 Tab / 独立窗口（桌面适配样式）
- * - panel：自由面板小组件（组件适配样式）
  * 不再有「大小插件」类型区分：同一插件多套入口样式并存，
  * 壳子启动时经 URL ?mode= / onEnter 载荷 / getLaunchMode() 传给插件，插件自选渲染样式。
- * 拖出独立窗口保留原模式；收回 Quick / 主窗 / 面板时切换为接收位置的布局；
- * 普通启动未适配目标布局时回落 manifest views.default；加入面板必须显式适配 panel。
+ * 拖出独立窗口保留原模式；收回 Quick / 主窗时切换为接收位置的布局；
+ * 普通启动未适配目标布局时回落 manifest views.default。
  */
-export type PluginLaunchMode = 'quick' | 'shell' | 'panel';
+export type PluginLaunchMode = 'quick' | 'shell';
 
 /** 声明式设置 section（manifest.contributes.settings；持久化，重启即显示） */
 export interface SettingsSectionContribution {
@@ -893,7 +909,7 @@ export interface PluginPathResolveResult {
 
 export type Listener = (data: unknown) => void;
 
-/** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗 / panel 面板组件） */
+/** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗） */
 export type PluginEnterEvent = PluginEnterPayload & {
     tabId: string;
     mode: PluginLaunchMode;
@@ -947,6 +963,7 @@ export type PluginQuickQueryItem = {
 
 /** Quick provider 注册元数据 */
 export type PluginQuickProviderMeta = {
+    fallbackFor?: 'file-names';
     id: string;
     explain?: string;
     schemaVersion?: string;
@@ -1043,6 +1060,13 @@ export type SysPortInfo = {
 };
 
 export type Unsubscribe = () => void;
+
+export interface LauncherTarget {
+    id: string;
+    title: string;
+    kind: 'app' | 'plugin';
+    icon?: string;
+}
 
 /** Public searchable text and a private, small business reference; never credentials. */
 export interface PluginLaunchIndexEntry {
@@ -1155,34 +1179,6 @@ export interface HomeAppearanceSnapshot {
     };
 }
 
-export interface HomeCatalog {
-    items: HomeCatalogItem[];
-    revision: number;
-}
-
-export interface HomeDetail {
-    pluginId: string;
-    name: string;
-    description?: string;
-    category?: string;
-    author?: string;
-    version?: string;
-    latestVersion?: string;
-    installs?: string;
-    installed?: boolean;
-    enabled?: boolean;
-    icon?: string | null;
-    color?: string;
-    glyph?: string;
-    tags?: string[];
-    permissions?: PluginPermission[];
-    packageSize?: number;
-    readmeUrl?: string;
-    /** Authored README image references mapped only to declared screenshot resource slots. */
-    readmeImages?: Record<string, string>;
-    screenshots?: string[];
-}
-
 export interface HomeSearchResult {
     items: HomeSearchEntry[];
     revision: number;
@@ -1207,7 +1203,16 @@ export interface HomeSearchRequest {
     queryRevision?: number;
 }
 
+export interface WorkspaceCatalogReader {
+    getCatalog(): Promise<HomeCatalog>;
+    getDetail(id: string): Promise<HomeDetail | null>;
+    refresh(request?: {
+        reason?: 'manual' | 'boot';
+    }): Promise<HomeCatalog>;
+}
+
 export interface HomeRuntimeConfig {
+    fileSearchEnabled?: boolean;
     locale: 'zh-CN' | 'en-US';
     installedFirst: boolean;
     offline: boolean;
@@ -1376,6 +1381,7 @@ export interface QuickStateSnapshot {
 }
 
 export interface QuickThemeSnapshot {
+    fileSearchEnabled?: boolean;
     version: 1;
     revision: number;
     query: string;
@@ -1390,16 +1396,16 @@ export interface QuickThemeSnapshot {
     catalogRevision: number;
     queryRevision: number;
     shown: number;
+    availableUpdateVersion?: string | null;
     selectedId: string | null;
     expanded: boolean;
     hiddenCount: number;
     emptyMarket: boolean;
-    plugin: {
-        title: string;
+    plugin: (QuickPluginPresentation & {
         loading: boolean;
         placeholder: string;
         acceptsInput: boolean;
-    } | null;
+    }) | null;
     /**
      * Host-held paste context (bounded thumbnails only; full bytes stay in main).
      * Null when nothing is attached. Items ≤12.
@@ -1413,12 +1419,15 @@ export interface QuickThemeSnapshot {
         width: number;
         height: number;
         inputHeight: number;
+        pluginGripSize?: number;
     };
     opened?: QuickThemeOpenedReceipt | null;
 }
 
 export type QuickThemeAction = {
     type: 'state-read';
+} | {
+    type: 'open-files';
 } | {
     type: 'state-write';
     expectedRevision: number;
@@ -1467,11 +1476,15 @@ export type QuickThemeAction = {
     type: 'input-clear';
     id?: string;
 } | {
-    type: 'open-market' | 'open-settings' | 'refresh-apps' | 'retry' | 'hide' | 'plugin-back' | 'plugin-pin' | 'plugin-focus' | 'plugin-detach';
+    type: 'open-market' | 'open-settings' | 'open-update' | 'refresh-apps' | 'retry' | 'hide' | 'plugin-back' | 'plugin-pin' | 'plugin-focus' | 'plugin-detach';
 } | {
     type: 'layout';
     columns: number;
     height: number;
+    pluginGrip?: {
+        x: number;
+        y: number;
+    };
 } | {
     type: 'key';
     key: string;
@@ -1632,14 +1645,11 @@ export interface PluginBackgroundHandlers {
 export interface AuxiliaryContext {
     windowId: string;
     data: unknown;
-    display: {
+    display: DesktopDipBounds & {
         id: number;
-        x: number;
-        y: number;
-        width: number;
-        height: number;
         scaleFactor: number;
     };
+    viewportBounds?: DesktopDipBounds;
     capture?: {
         withAudio: boolean;
     };
@@ -1656,6 +1666,47 @@ export interface McpToolAnnotations {
     idempotentHint?: boolean;
     openWorldHint?: boolean;
 }
+
+/** 声明式内容处理指令；字符串指令继续保持兼容。img/files 对应 Quick 粘贴的图片/文件上下文。 */
+export type PluginFeatureCommand = string | {
+    type: 'regex';
+    label: string;
+    match?: string;
+    regex?: string;
+    minLength?: number;
+} | {
+    type: 'over';
+    label: string;
+    exclude?: string;
+    minLength?: number;
+    maxLength?: number;
+} | {
+    type: 'img';
+    label: string;
+    extensions?: string[];
+} | {
+    type: 'files';
+    label: string;
+    extensions?: string[];
+    minCount?: number;
+    maxCount?: number;
+    allowDirectory?: boolean;
+};
+
+/** Text input semantics are independent of feature activation and window placement. */
+export interface PluginFeatureInput {
+    type: 'text';
+    /** prefix consumes an exact declared alias followed by whitespace and nonempty text. */
+    trigger: 'prefix' | 'none';
+}
+
+/** Execution is independent of the layout used when a view is actually presented. */
+export type PluginFeatureActivation = {
+    type: 'view';
+    target?: PluginLaunchTarget;
+} | {
+    type: 'command';
+};
 
 export type AppearanceColorMode = 'light' | 'dark';
 
@@ -1948,6 +1999,13 @@ export interface NotificationOptions {
     duration?: number;
 }
 
+export interface DesktopDipBounds {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
 /** 设置 section 贡献项：manifest、主进程设置桥和动态渲染共用。 */
 export interface SettingsSectionContributionItem {
     key: string;
@@ -2148,41 +2206,6 @@ export interface HomeResolvedAppearance {
     };
 }
 
-export interface HomeCatalogItem {
-    pluginId: string;
-    name: string;
-    description?: string;
-    category?: string;
-    author?: string;
-    version?: string;
-    installed?: boolean;
-    enabled?: boolean;
-    icon?: string | null;
-    color?: string;
-    glyph?: string;
-    tags?: string[];
-    featured?: boolean;
-    screenshots?: string[];
-    packageSize?: number;
-    installs?: string;
-    latestVersion?: string;
-    /**
-     * 自由面板小组件预览图（`views.panel.preview` 声明的包内路径，已由宿主解析为可加载 URL）。
-     * 只有声明了 panel 布局的插件才有；首页「小组件」区块据此展示真实渲染效果。
-     */
-    panelPreview?: string;
-    /** 小组件默认外框尺寸（DIP），来自 `views.panel.size`。 */
-    panelSize?: {
-        width: number;
-        height: number;
-    };
-    /** At most 16 validated cards from this installed, enabled plugin. */
-    homeCards?: HomeCatalogCard[];
-}
-
-/** 宿主能力标识；基础能力直接可用，敏感能力需在 manifest 声明并取得用户授权。 */
-export type PluginPermission = 'backend.node' | 'clipboard.read' | 'clipboard.write' | 'clipboard.readImage' | 'clipboard.writeImage' | 'clipboard.history' | 'clipboard.paste' | 'timer.background' | 'screen.capture' | 'screen.record' | 'pin.create' | 'net.fetch' | 'shell.openExternal' | 'web.login' | 'storage.local' | 'notify' | 'ui.setTitle' | 'ui.setIcon' | 'ui.setBadge' | 'ui.resize' | 'ui.toast' | 'settings.register' | 'settings.page' | 'hotkey' | 'contribute' | 'vault.write' | 'net.database' | 'net.database.query' | 'net.database.schema' | 'net.messaging' | 'net.messaging.read' | 'net.messaging.admin' | 'net.socket' | 'fs.rename' | 'fs.read' | 'fs.write' | 'sys.control' | 'sys.sshAgent' | 'sys.inspect' | 'theme';
-
 export interface HomeSearchEntry {
     handle: string;
     stateKey?: string;
@@ -2205,6 +2228,34 @@ export interface HomeSearchEntry {
 }
 
 export type HomeSearchScope = 'all' | 'installed' | 'market' | 'action' | 'app' | 'plugin';
+
+export interface HomeCatalog {
+    items: HomeCatalogItem[];
+    revision: number;
+}
+
+export interface HomeDetail {
+    pluginId: string;
+    name: string;
+    description?: string;
+    category?: string;
+    author?: string;
+    version?: string;
+    latestVersion?: string;
+    installs?: string;
+    installed?: boolean;
+    enabled?: boolean;
+    icon?: string | null;
+    color?: string;
+    glyph?: string;
+    tags?: string[];
+    permissions?: PluginPermission[];
+    packageSize?: number;
+    readmeUrl?: string;
+    /** Authored README image references mapped only to declared screenshot resource slots. */
+    readmeImages?: Record<string, string>;
+    screenshots?: string[];
+}
 
 /**
  * Opaque selection of host-held paste-context entries sent with an open request.
@@ -2255,6 +2306,12 @@ export type WorkspacePage = 'catalog' | 'detail';
  * 被 main/hotkey、main/launcher、quickHandlers、preload、Quick 渲染层共同引用。
  */
 export type QuickCommandKind = 'app' | 'plugin' | 'action';
+
+export interface QuickPluginPresentation {
+    title: string;
+    glyph?: string;
+    icon?: string;
+}
 
 export interface QuickThemeAppearance {
     mode: AppearanceColorMode;
@@ -2357,6 +2414,9 @@ export interface PluginBackgroundSearchContext {
     };
     onCancel(callback: () => void): () => void;
 }
+
+/** 普通启动入口的原生目标。 */
+export type PluginLaunchTarget = 'quick' | 'shell';
 
 export interface ThemeSettingsField {
     key: string;
@@ -2517,22 +2577,6 @@ export interface PluginBlob {
     bytes: number;
 }
 
-/** Public presentation only; the host resolves the current declaration's launch code. */
-export interface HomeCatalogCard {
-    id: string;
-    title: string;
-    glyph?: string;
-    color?: string;
-    explain?: string;
-}
-
-/** Text input semantics are independent of feature activation and window placement. */
-export interface PluginFeatureInput {
-    type: 'text';
-    /** prefix consumes an exact declared alias followed by whitespace and nonempty text. */
-    trigger: 'prefix' | 'none';
-}
-
 export type QuickActionId = 'open-market' | 'open-settings' | 'refresh-apps';
 
 export interface QuickContentMatch {
@@ -2549,6 +2593,31 @@ export interface QuickContentMatch {
     minCount?: number;
     maxCount?: number;
 }
+
+export interface HomeCatalogItem {
+    pluginId: string;
+    name: string;
+    description?: string;
+    category?: string;
+    author?: string;
+    version?: string;
+    installed?: boolean;
+    enabled?: boolean;
+    icon?: string | null;
+    color?: string;
+    glyph?: string;
+    tags?: string[];
+    featured?: boolean;
+    screenshots?: string[];
+    packageSize?: number;
+    installs?: string;
+    latestVersion?: string;
+    /** At most 16 validated cards from this installed, enabled plugin. */
+    homeCards?: HomeCatalogCard[];
+}
+
+/** 宿主能力标识；基础能力直接可用，敏感能力需在 manifest 声明并取得用户授权。 */
+export type PluginPermission = 'backend.node' | 'clipboard.read' | 'clipboard.write' | 'clipboard.readImage' | 'clipboard.writeImage' | 'clipboard.history' | 'clipboard.paste' | 'timer.background' | 'screen.capture' | 'screen.record' | 'pin.create' | 'net.fetch' | 'shell.openExternal' | 'launcher.access' | 'web.login' | 'storage.local' | 'notify' | 'ui.setTitle' | 'ui.setIcon' | 'ui.setBadge' | 'ui.resize' | 'ui.toast' | 'settings.register' | 'settings.page' | 'hotkey' | 'contribute' | 'vault.write' | 'net.database' | 'net.database.query' | 'net.database.schema' | 'net.messaging' | 'net.messaging.read' | 'net.messaging.admin' | 'net.socket' | 'fs.rename' | 'fs.read' | 'fs.write' | 'sys.control' | 'sys.sshAgent' | 'sys.inspect' | 'theme';
 
 export type ThemeSettingValue = string | number | boolean | BackgroundConfig | null;
 
@@ -2626,7 +2695,7 @@ export type McpContentBlock = ({
     annotations?: McpContentAnnotations;
 };
 
-export type PluginActivationReason = 'quick' | 'workspace' | 'shortcut' | 'settings' | 'open-with' | 'mcp' | 'index-sync' | 'resident-restore' | 'resident-setting';
+export type PluginActivationReason = 'quick' | 'workspace' | 'shortcut' | 'settings' | 'open-with' | 'launcher' | 'mcp' | 'index-sync' | 'resident-restore' | 'resident-setting';
 
 /** Function-based cancellation survives Electron's isolated contextBridge. */
 export interface PluginActivationSignal {
@@ -2634,9 +2703,6 @@ export interface PluginActivationSignal {
     throwIfAborted(): void;
     onAbort(callback: () => void): () => void;
 }
-
-/** 普通启动入口的原生目标；自由面板需用户指定 panelId，不是直接启动目标。 */
-export type PluginLaunchTarget = 'quick' | 'shell';
 
 export interface PluginStoredFile {
     id: string;
@@ -2658,6 +2724,15 @@ export type PluginAssetMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image
 
 /** Validated declaration, not an evaluated match. The selected theme owns matching. */
 export type QuickContentType = 'text' | 'regex' | 'over' | 'img' | 'files';
+
+/** Public presentation only; the host resolves the current declaration's launch code. */
+export interface HomeCatalogCard {
+    id: string;
+    title: string;
+    glyph?: string;
+    color?: string;
+    explain?: string;
+}
 
 export type ThemeLayoutKey = 'density' | 'gap' | 'sidebarWidth' | 'contentWidth' | 'columns' | 'tabStyle' | 'cardOpacity' | ThemeTabStripKey | ThemeOrbKey;
 

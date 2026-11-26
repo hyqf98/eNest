@@ -16,7 +16,8 @@ const adapters = {
     }
     export class WebContentsView { webContents=new WC(); visible=true; bounds={}; boundsHistory=[]; constructor(){f.views.push(this);this.webContents.once('destroyed',()=>{this.webContents=undefined})};setVisible(v){this.visible=v};setBorderRadius(){};setBackgroundColor(){};getBounds(){return {...this.bounds}};setBounds(bounds){this.bounds={...bounds};this.boundsHistory.push({...bounds})} }
     export const nativeTheme=new EventEmitter(); export const session={fromPartition:()=>({})};`,
-  '@main/window/createShellWindow': `import {f} from 'fixture'; export const getMainWindow=()=>({isDestroyed:()=>false,isMinimized:()=>false,show(){},focus(){},contentView:{addChildView:v=>f.children.add(v),removeChildView:v=>f.children.delete(v)}}); export const getPluginContentBounds=()=>({...f.shellBounds}); export const resolvePreload=x=>x; export const sendShellEvent=e=>f.events.push(e);`,
+  '@main/window/createShellWindow': `import {f} from 'fixture'; export const getMainWindow=()=>({isDestroyed:()=>false,isMinimized:()=>false,show(){},focus(){},contentView:{addChildView:v=>f.children.add(v),removeChildView:v=>f.children.delete(v)}}); export const getPluginContentBounds=()=>({...f.shellBounds}); export const resolvePreload=x=>x; export const sendShellEvent=e=>f.events.push(e); export const sendQuickEvent=sendShellEvent;`,
+  '@main/launcher/catalogIcons': `import {f} from 'fixture'; export const getCatalogPluginIcon=async id=>f.quickIcon?.(id);`,
   '@main/window/createQuickWindow': `
     import {f} from 'fixture';
     const surface={addChildView:v=>f.quickChildren.add(v),removeChildView:v=>f.quickChildren.delete(v)};
@@ -345,6 +346,35 @@ test('Quick plugins use a fixed height independent of manifest and resize, and d
     assert.ok(c.f.quickSizeRequests.every(size=>Object.keys(size).length===1&&[248,545].includes(size.height)), 'only host-owned home and plugin heights are requested')
     assert.equal(c.f.quickReveals,0, 'plugin entry cannot clip the shared surface down to the input bar')
   } finally {await c.host.destroyAll()}
+})
+
+test('Quick icon completion belongs to the current plugin and never re-enters input mode', async () => {
+  const context = await fixture()
+  let finishFirst
+  const firstIcon = new Promise(resolve => { finishFirst = resolve })
+  const icon = 'data:image/png;base64,AA=='
+  context.f.quickIcon = id => id === 'one' ? firstIcon : icon
+  const artwork = () => context.f.events.filter(event => event.type === 'quick-plugin-presentation')
+  try {
+    await context.host.openPlugin('one', undefined, { container: 'quick' })
+    const first = context.f.events.filter(event => event.type === 'quick-plugin-mode').at(-1).mode
+    assert.equal(first.packageIcon, 'enest://plugin/one/assets/market/icon.svg')
+    assert.equal(first.glyph, undefined)
+    await context.host.openPlugin('two', undefined, { container: 'quick' })
+    await tick()
+    assert.equal(artwork().at(-1).presentation.icon, icon)
+    const entries = context.f.events.filter(event => event.type === 'quick-plugin-mode').length
+    context.host.setIcon('two', '★')
+    finishFirst(icon)
+    await tick()
+    assert.ok(artwork().every(event => event.pluginId === 'two'))
+    assert.deepEqual(artwork().at(-1).presentation, { title: 'two', glyph: '★' })
+    context.f.quickIcon = () => undefined
+    context.host.setIcon('two', '')
+    await tick()
+    assert.deepEqual(artwork().at(-1).presentation, { title: 'two', packageIcon: 'enest://plugin/two/assets/market/icon.svg' })
+    assert.equal(context.f.events.filter(event => event.type === 'quick-plugin-mode').length, entries)
+  } finally { await context.host.destroyAll() }
 })
 
 test('Quick plugin layout follows actual native bounds after display changes and container migration',async()=>{

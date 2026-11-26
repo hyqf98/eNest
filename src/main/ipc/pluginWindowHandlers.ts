@@ -4,6 +4,7 @@ import { handleShellIpc, onShellIpc } from '@main/ipc/ipcSecurity'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { getQuickInputState, handleQuickInput } from '@main/plugin/quickInputService'
 import { getDetachedState, getDetachedWindow, getPluginForDetachedSender, toggleDetachedAlwaysOnTop } from '@main/window/detachedPluginWindows'
+import { applyWindowControl } from '@main/window/desktopWindowFrame'
 import {
   armPluginWindowDrag, beginPluginWindowDrag, canSurfaceManagePlugin, endPluginWindowDrag,
   registerPluginDropTargets, updatePluginWindowDrag
@@ -37,9 +38,8 @@ export function registerPluginWindowHandlers(): void {
       switch (command.action) {
         case 'activate': await pluginHost.openPlugin(id, undefined, { trustedUserNavigation: true }); break
         case 'toggle-always-on-top': toggleDetachedAlwaysOnTop(id); break
-        case 'minimize': win.minimize(); break
-        case 'maximize': if (win.isMaximized()) win.unmaximize(); else win.maximize(); break
-        case 'close': win.close(); break
+        case 'minimize': case 'close': return { ok: applyWindowControl(win, command.action) }
+        case 'maximize': return { ok: applyWindowControl(win, 'zoom') }
         case 'retry': await pluginHost.reloadPlugin(id); break
         case 'focus-plugin': return { ok: pluginHost.focusPlugin(id) }
         case 'focus-search': return { ok: pluginHost.focusSearch(id) }

@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
-import { MarkdownView } from '@renderer/components/MarkdownView'
+import { ReleaseNotes } from './ReleaseNotes'
 import { useUpdateDialogStore } from '@renderer/stores/updateDialogStore'
 import { playUpdateDialogIn, playUpdateDialogOut } from '@renderer/gsap/marketMotion'
 import { shellApi } from '@renderer/services/shellApi'
@@ -134,7 +134,6 @@ export function UpdateDialog() {
   if (!open) return null
 
   const progress = Math.min(100, Math.max(0, Math.round(updateState?.progress ?? 0)))
-  const notes = updateState?.releaseNotes?.trim()
   const dirtyNames = (dirtyItems ?? []).filter((item) => item.dirty).map((item) => item.name)
 
   return (
@@ -164,18 +163,14 @@ export function UpdateDialog() {
 
         <div className="update-body" data-update-body>
           <h3 className="update-notes-title">{t('update.dialog.notesTitle')}</h3>
-          {notes ? (
-            <div className="update-notes">
-              <MarkdownView source={notes} />
-            </div>
-          ) : (
-            <p className="update-notes-empty">
+          <div className="update-notes">
+            <ReleaseNotes source={updateState?.releaseNotes} fallback={<p className="update-notes-empty">
               {t('update.dialog.notesEmpty')}
               <a href={RELEASES_URL} target="_blank" rel="noreferrer">
                 {t('update.dialog.releaseLink')}
               </a>
-            </p>
-          )}
+            </p>} />
+          </div>
         </div>
 
         <div className="update-status" data-update-status>

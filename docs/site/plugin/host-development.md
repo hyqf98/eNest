@@ -26,7 +26,7 @@ SSH、数据库、中间件和 DSH 的协议驱动、业务 DTO 与后端路由�
 
 参考 `PluginRuntimeScope` 将连接和在途操作绑定当前代次；等待原生授权后再次检查代次，不能把旧调用交给新页面。文件从 `localFiles` 获取带用途句柄，不接受 renderer 提供的本地绝对路径授权。权限表、分类快照和插件 schema 随 SDK 生成检查，不能只更新文档。
 
-`ipcSecurity` 注册 shell、Quick、orb、panel、region 等窗口身份和允许通道。插件 IPC 另外校验运行实例与主 frame。preload 打成自包含 CJS，生产 Electron sandbox 必须开启。浏览器能力限制在 `pluginSessionPolicy`；改变策略需覆盖跨插件、非法 origin、localhost 端口及撤权测试。
+`ipcSecurity` 注册 shell、Quick、orb、detached 等窗口身份和允许通道。插件 IPC 另外校验运行实例与主 frame。preload 打成自包含 CJS，生产 Electron sandbox 必须开启。浏览器能力限制在 `pluginSessionPolicy`；改变策略需覆盖跨插件、非法 origin、localhost 端口及撤权测试。
 
 ## 原生视图与响应式
 
@@ -36,7 +36,7 @@ Grid/Flex 的可缩项设置 `min-width:0` / `min-height:0`，控制滚动拥有
 
 外观由主进程 `appearanceService` 解析，页面只消费 `ResolvedAppearance`；主题设置按 Schema 投影到主题 Tab，提交以宿主持久化的 revision 为准，不建立另一份可写外观 store。主题工作区只使用 `enestWorkspace` 的目录、外观与动作；设置描述符属于独立 `enestSettings` 桥，两者都不获得完整 `shellApi`。契约见[主题包规范](themes.md)、[主题工作区](home.md)与[设置页面](settings-and-windows.md)。
 
-默认 Workspace、Quick 策略、设置布局和启动编排分别留在 `src/renderer/themes/default/` 的对应目录；源码内置默认主题随宿主编译，是保底主题，不是磁盘中必须安装的业务插件。公共控件、语义 Token 应用、背景引擎、原生几何与安全控制器仍是共享设施，不应复制到每个主题。主题通知只能改变受限外观，不能改写来源、内容、关闭和计时语义。自由面板复用插件 View 与主机拖动能力，详见[自由面板](panels.md)。
+默认 Workspace、Quick 策略、设置布局和启动编排分别留在 `src/renderer/themes/default/` 的对应目录；源码内置默认主题随宿主编译，是保底主题，不是磁盘中必须安装的业务插件。公共控件、语义 Token 应用、背景引擎、原生几何与安全控制器仍是共享设施，不应复制到每个主题。主题通知只能改变受限外观，不能改写来源、内容、关闭和计时语义。
 
 ## 扩展公共 API 的完整链路
 
@@ -53,7 +53,7 @@ Grid/Flex 的可缩项设置 `min-width:0` / `min-height:0`，控制滚动拥有
 | 包内辅助页面 | `enestAux` | `AuxiliaryPageApi`；当前辅助窗口上下文与消息 |
 | 插件 Node 后端 | `process.parentPort` | [后端协议](backend.md)中的业务 RPC、宿主控制请求与关闭消息 |
 
-壳窗口、面板 chrome、安装、通知、模态框和选区覆盖层的桥属于可信内部表面，不是普通插件的可选权限。SDK 能描述某个类型，不代表该页面会得到对应对象。MCP 的工具处理器通过普通插件 API 注册，服务启停、令牌与连接配置仍只在可信设置中管理，不能向主题或插件开放全量管理桥。
+壳窗口、独立窗 chrome、安装、通知和模态框的桥属于可信内部表面，不是普通插件的可选权限。SDK 能描述某个类型，不代表该页面会得到对应对象。MCP 的工具处理器通过普通插件 API 注册，服务启停、令牌与连接配置仍只在可信设置中管理，不能向主题或插件开放全量管理桥。
 
 1. 先定义共享 DTO、输入边界、资源预算、权限分类和失效语义；不要在 preload、主进程与插件 SDK 各写一份请求类型。
 2. 接通 preload、IPC 分发和真实处理器；声明存在但调用落入 `unknown method` 不算实现。只读接口也必须校验真实调用者，不能信任参数中的插件 ID。
@@ -84,13 +84,15 @@ node /path/to/eNest_plugin/scripts/sync-developer-docs.mjs --host-root /path/to/
 node /path/to/eNest_plugin/scripts/sync-developer-docs.mjs --host-root /path/to/eNest --check
 ```
 
+`generate-api-types.mjs` 只生成类型和 `api-types.md`；其余指南由 `sync-developer-docs.mjs` 从本目录发布到插件仓库的 `docs/developer/` 和 AI 技能 `skills/enest-development/references/`，两处都是生成副本。修改契约或指南只在本目录进行，然后依次运行生成与同步，不要在副本中修改。
+
 `audit:contracts` 静态核对 preload 方法、权限映射、主进程分发与 IPC 接收端；`audit:source` 扫描物理文件、语法树依赖和可选构建产物。两者都不执行应用或测试，不能替代原生授权、跨窗口或资源回收验收。公开类型与 SDK 还需通过 typecheck 和生成一致性检查。
 
 浏览器预览样例及页面组合都在 `tests/fixtures/browser-preview/`，图标生成器也只能写入该目录。开发服务通过 `/preview/` 提供独立预览入口，`/preview/?surface=quick` 预览 Quick；正常 `/` 仍是正式壳入口，不导入浏览器市场页。预览入口不在生产构建输入中，原生视图、系统关联、快捷键与性能不能用浏览器样例代替验收。开发源码通过开发注册加载，不作为市场安装失败后的本地源码兜底；安装器只处理明确选定的发行包或已确认的市场来源，并再次核对完整清单身份。
 
 仅在用户明确要求时运行测试。使用临时 `ENEST_TEST_DATA_ROOT` 和独立 `ENEST_TEST_USER_DATA`，不要让测试读取用户真实剪贴板、SSH 密钥、数据库或配置。这两个变量对应的三个原生路径/启动隔离点保留在宿主，也保护打包应用验证。原生 smoke 脚本在 `tests/main/plugin/`、`tests/main/window/`，按各文件开头说明启用；默认跳过不能报告为实测通过。常规主进程测试用 `node --test tests/main/<模块>/<相关.test.mjs>`。
 
-生命周期策略为后台 3 分钟、6 个实例软上限与 LRU；可见独立窗口、自由面板组件、活动任务 lease 和开发调试有各自保留条件。先读 [生命周期](lifecycle.md)，新功能不得自行添加无法回收的轮询。性能改动记录同机同场景的数据，不以代码缓存的存在推导固定加速比例。
+生命周期策略为后台 3 分钟、6 个实例软上限与 LRU；可见独立窗口、活动任务 lease 和开发调试有各自保留条件。先读 [生命周期](lifecycle.md)，新功能不得自行添加无法回收的轮询。性能改动记录同机同场景的数据，不以代码缓存的存在推导固定加速比例。
 
 性能统计只归属已确认的 PID 与启动身份，不按进程名猜测所有者，也不收集命令行或凭据。共享进程和宿主无法细分的内存单独标注；未知指标显示不可用，不用零值伪装成功。平台内存口径不同，不能把 macOS physical footprint、Windows private bytes 与 Linux RSS 当作完全等价的数据。停止资源须等待实际退役，不能从界面移除行后就宣布操作完成。
 

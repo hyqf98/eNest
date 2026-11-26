@@ -1,5 +1,13 @@
 /* Shared Markdown presentation for plugin README and host update notes. */
 /* ========== Markdown (GitHub-like) ========== */
+.release-notes-html :is(h2, h3, h4) { margin: 1em 0 .4em; color: var(--text); font-size: 1.08em; }
+.release-notes-html :is(ul, ol) { padding-inline-start: 1.5em; margin-block: .5em; }
+.release-notes-html ul { list-style: disc; }
+.release-notes-html ol { list-style: decimal; }
+.release-notes-html p { margin: 0 0 .65em; }
+.release-notes-html pre { white-space: pre-wrap; }
+.release-notes-html > :first-child { margin-top: 0; }
+.release-notes-html > :last-child { margin-bottom: 0; }
 .markdown-body {
   color: var(--text-2);
   font-size: calc(13.5px * var(--appearance-font-scale, 1));

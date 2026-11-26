@@ -35,16 +35,30 @@
   height: 100%;
   border-radius: var(--quick-radius);
   background: var(--surface, #fafaf9);
-  /* 透明窗口里不画外阴影：外阴影会填满圆角之外的窗口矩形角落，
-     在白色/浅色背景上就是一圈灰角。窗口自身 hasShadow 提供系统投影。 */
-  box-shadow: inset 0 0 0 1px var(--border-strong);
-  transition: clip-path var(--quick-feedback) ease, box-shadow var(--quick-feedback) ease;
 }
 .quick-root[data-mode='plugin'],
 .quick-root[data-mode='plugin'] .quick-shell { height: 100%; }
 .quick-root[data-mode='plugin'] .quick-shell { display: grid; grid-template-rows: var(--quick-bar-h) minmax(0, 1fr); }
 /* The same outer corners survive list/plugin transitions; the join has no corners. */
-.quick-shell:focus-within { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--link) 34%, var(--border)); }
+.quick-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border: var(--quick-border-w) solid var(--border-strong);
+  border-radius: inherit;
+  pointer-events: none;
+  transition: border-color var(--quick-feedback) ease;
+}
+.quick-shell:focus-within::after { border-color: color-mix(in srgb, var(--link) 34%, var(--border)); }
+.quick-root .quick-shell > .app-bg {
+  position: absolute;
+  background-size: var(--quick-max-w) var(--quick-max-h);
+}
+.quick-shell > .app-bg > :not(canvas) {
+  min-width: var(--quick-max-w);
+  min-height: var(--quick-max-h);
+}
 .quick-root .ambient-particles.ambient-flow { position: absolute; inset: 0; height: 100%; opacity: 0.3; }
 .quick-search-bar {
   position: relative;
@@ -98,9 +112,27 @@
 :root[data-anim="low"] .quick-input-chips, :root[data-anim="low"] .quick-input-chip { animation: none; }
 .quick-plugin-back:hover { background: var(--surface-2); }
 .quick-plugin-back:hover svg { color: var(--link); }
-.quick-plugin-grip { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 28px; max-width: 108px; height: 30px; padding: 0 5px; border-radius: 6px; cursor: grab; color: var(--text-2); touch-action: none; }
-.quick-plugin-grip span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-.quick-plugin-grip:hover { background: var(--surface-2); }
+.quick-plugin-grip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(24%, 160px);
+  height: 30px;
+  padding: 0 10px 0 6px;
+  border: 1px solid color-mix(in srgb, var(--link) 16%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--link) 5%, var(--surface));
+  color: var(--text);
+  cursor: grab;
+  touch-action: none;
+  transition: background var(--quick-feedback) ease, border-color var(--quick-feedback) ease;
+}
+.quick-plugin-grip .quick-plugin-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .875rem; font-weight: 550; line-height: 1.2; }
+.quick-plugin-grip:hover, .quick-plugin-grip:active { border-color: color-mix(in srgb, var(--link) 40%, var(--border)); background: color-mix(in srgb, var(--link) 10%, var(--surface)); }
+.quick-plugin-grip:active, .quick-plugin-grip.plugin-drag-source { cursor: grabbing; }
+.quick-plugin-grip:focus-visible, .quick-plugin-back:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 .quick-search-bar.plugin-drop-ready::after { content: '松手收回小窗口'; position: absolute; pointer-events: none; left: 50%; bottom: 2px; transform: translateX(-50%); color: var(--accent); background: var(--surface); padding: 1px 8px; border-radius: 4px; font-size: 10px; line-height: 14px; }
 /* Reserve every accessory slot, including while the provider spinner is idle. */
 .quick-search-bar .search-shortcut,
@@ -120,6 +152,9 @@
 .quick-tool:hover { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); }
 .quick-tool:active { transform: scale(var(--quick-press)); }
 .quick-tool:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.quick-tool.quick-update { width: 30px; height: 30px; color: var(--link); background: color-mix(in srgb, var(--link) 10%, var(--surface)); }
+.quick-update svg { color: inherit; }
+.quick-tool.quick-update:hover { background: color-mix(in srgb, var(--link) 18%, var(--surface)); }
 .quick-access { position: relative; flex: 0 0 38px; width: 38px; height: 38px; -webkit-app-region: no-drag; }
 .quick-access .btn { min-height: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
 .quick-root .quick-search-bar .quick-access .btn { transition: background var(--quick-feedback) ease, color var(--quick-feedback) ease, transform var(--quick-feedback) ease; }
@@ -257,7 +292,7 @@
 .quick-item:disabled { cursor: progress; }
 /* 图标 32 + 单行名称 14 + 间距 2 + 上下 padding 6 = 54，留一点余量取 60。
    之前 72 是按两行名称算的，现在多出来的会变成图标上下的空档。 */
-.quick-result { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; height: 60px; padding: 2px 1px; text-align: center; }
+.quick-result { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; height: 60px; padding: 3px 7px; text-align: center; }
 .quick-icon-tile { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 7px; background: var(--surface-2); color: var(--text-2); font-size: 18px; font-weight: 600; }
 .quick-icon-tile.has-icon { background: transparent; }
 .quick-icon-tile img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
@@ -331,6 +366,9 @@
   background: transparent;
   color: var(--text-3);
   font-size: 13px;
+  /* 转圈在上、文字在下。横排时居中的是「转圈 + 文字」这一组，转圈作为组内首项
+     永远落在窗口中线左侧半个文字宽（实测 60px），看起来就是没居中。 */
+  flex-direction: column;
 }
 
 /* Snapshot-backed inner materials; native outer radius, docking and grid geometry stay host-owned. */
@@ -339,7 +377,6 @@
 :where(:root[data-surface='quick'][data-appearance-legacy='false']) .quick-root .quick-categories-slot { border-radius: var(--appearance-panel-radius); }
 :where(:root[data-surface='quick'][data-appearance-legacy='false']) .quick-root :is(.quick-item, .quick-category, .quick-categories-slot, .quick-error, .quick-access-actions) { border-width: var(--appearance-border-width); }
 /* Rem units follow the shared 14px font baseline without scaling native window dimensions. */
-.quick-root .quick-plugin-grip span:last-child { font-size: 0.785714rem; }
 .quick-root .quick-search-bar.plugin-drop-ready::after,
 .quick-root .quick-search-bar .search-shortcut { font-size: 0.714286rem; }
 .quick-root .quick-access .quick-access-action,

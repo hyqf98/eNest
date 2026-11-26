@@ -17,6 +17,7 @@ import type { PluginManifest } from '@shared/types/plugin'
 import { PLUGIN_PERMISSIONS } from '@shared/types/plugin'
 import { collectPluginActivationIssues, collectPluginFeatureIssues } from '@shared/pluginCommands'
 import { collectMcpToolDeclarationIssues } from '@shared/mcpTools'
+import { pluginIconIssues, pluginScreenshotIssues, type MarketAssetIssue } from '@shared/pluginMarketAssets'
 import { isPluginAssetPath, isPluginBackendPath, normalizePluginDevUrl, PLUGIN_ENTRY, PLUGIN_ICON, PLUGIN_README, PLUGIN_SCREENSHOTS } from '@shared/pluginContract'
 import { resolvePluginFile } from './pluginPaths'
 import { resolveBackendFile } from './pluginBackendPath'
@@ -200,15 +201,6 @@ export function collectManifestIssues(
       pushError(errors, m.id, '截图必须位于 assets/market/screenshots，使用 PNG/WebP/JPEG')
     }
   }
-  // 小组件预览图（views.panel.preview）：与 market.screenshots 同一套资源规则，
-  // 且开发态下文件必须真实存在——首页「小组件」区块按声明读取，缺文件会让卡片空白。
-  const panelPreview = (m.views as { panel?: { preview?: unknown } } | undefined)?.panel?.preview
-  if (panelPreview !== undefined) {
-    if (typeof panelPreview !== 'string' || !isPluginAssetPath(panelPreview)
-      || !panelPreview.startsWith(PLUGIN_SCREENSHOTS) || !/\.(png|webp|jpe?g)$/i.test(panelPreview)) {
-      pushError(errors, m.id, 'views.panel.preview 必须位于 assets/market/screenshots，使用 PNG/WebP/JPEG')
-    }
-  }
   if (m.settings !== undefined) pushError(errors, m.id, 'settings HTML 入口已移除，请使用 contributes.settings 或入口内设置页面')
   if (!source && m.development !== undefined) pushError(errors, m.id, '发布包不得包含 development')
   try { normalizePluginDevUrl((m.development as { main?: unknown } | undefined)?.main) }
@@ -269,6 +261,16 @@ export async function installFromDirectory(dir: string, options: { source?: bool
   } catch {
     throw new Error('invalid plugin.json: not valid JSON')
   }
+  if (parsed && typeof parsed === 'object' && 'views' in parsed && parsed.views && typeof parsed.views === 'object') {
+    const views = parsed.views as Record<string, unknown>
+    if (Array.isArray(views.layouts) && views.layouts.includes('panel')) {
+      const layouts = views.layouts.filter(layout => layout !== 'panel')
+      if (!layouts.length) throw new Error('此插件仅提供已停用的 panel 布局，请升级到提供 shell 或 quick 入口的版本。')
+      const { panel: _retired, ...current } = views
+      parsed = { ...parsed, views: { ...current, layouts,
+        ...(views.default === 'panel' ? { default: layouts.includes('shell') ? 'shell' : layouts[0] } : {}) } }
+    }
+  }
   const { app } = await import('electron')
   const errors = collectManifestIssues(parsed, dir, app.getVersion(), options.source === true)
   if (errors.length > 0) {
@@ -284,15 +286,37 @@ export async function installFromDirectory(dir: string, options: { source?: bool
     if (pkg.name !== manifest.id.split('.').pop() || pkg.version !== manifest.version || pkg.type !== 'module') throw new Error('package.json name（id 末段）/version/type 必须与插件工程契约一致')
   }
   const resources = [manifest.icon!, manifest.market!.readme!, ...(manifest.market?.screenshots ?? [])]
-  if (manifest.views?.panel?.preview) resources.push(manifest.views.panel.preview)
   if (!(source && manifest.development?.main)) resources.push(PLUGIN_ENTRY)
   for (const path of resources) {
     if (!await resolvePluginFile(dir, path, source)) throw new Error(`插件资源缺失或越界: ${path}`)
+  }
+  // 素材标准（图标结构、截图 1200×800）：发布包不合规直接拒绝安装；
+  // 源码态只告警，开发中的素材不该让插件加载不了。
+  const assetIssues = (await validateMarketAssets(dir, manifest, source)).map(issue => `${issue.path}: ${issue.message}`)
+  if (assetIssues.length) {
+    if (source) for (const issue of assetIssues) logWarn('install', `${manifest.id} ${issue}`)
+    else throw new Error(`invalid market assets:\n  - ${assetIssues.join('\n  - ')}`)
   }
   if (!source && manifest.backend) resolveBackendFile(dir, manifest.backend.entry)
   if (!source) await validatePluginDistribution(dir)
   if (!source && !options.metadataOnly) await validatePublishedFiles(dir, manifest)
   return manifest
+}
+
+/** 图标与截图的内容校验，读取的是与资源存在性检查相同的文件。 */
+async function validateMarketAssets(dir: string, manifest: PluginManifest, source: boolean): Promise<MarketAssetIssue[]> {
+  const issues: MarketAssetIssue[] = []
+  const read = async (path: string): Promise<Buffer | null> => {
+    const file = await resolvePluginFile(dir, path, source)
+    return file ? readFile(file) : null
+  }
+  const icon = await read(manifest.icon)
+  if (icon) for (const message of pluginIconIssues(icon.toString('utf8'))) issues.push({ path: manifest.icon, message })
+  for (const path of manifest.market.screenshots) {
+    const image = await read(path)
+    if (image) issues.push(...pluginScreenshotIssues(image, path))
+  }
+  return issues
 }
 
 /**

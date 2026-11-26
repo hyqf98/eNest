@@ -72,5 +72,8 @@ assets/icons/AppIcon.iconset/
 .wf-scratch/
 .zcodeignore
 
+# 编辑器 / agent 的本地会话状态（changelist 等）
+.openidea/
+
 # Bundled native helper build output
 /native/bin/

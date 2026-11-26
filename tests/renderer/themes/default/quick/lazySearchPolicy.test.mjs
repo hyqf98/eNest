@@ -86,7 +86,7 @@ test('first name searches share one pending dictionary load and retain pinyin, a
   assert.equal(policy.rankDefaultQuickCatalog(catalog, 'bj')[0].id, 'notes')
   assert.equal(policy.rankDefaultQuickCatalog(catalog, 'biji')[0].id, 'notes')
   assert.equal(policy.rankDefaultQuickCatalog(catalog, 'ＥＤＩＴＯＲ')[0].id, 'editor')
-  assert.equal(policy.rankDefaultQuickCatalog(catalog, 'edit')[0].id, 'editor')
+  assert.equal(policy.rankDefaultQuickCatalog(catalog, 'edit')[0].id, 'exact')
   assert.deepEqual(plain(policy.rankDefaultQuickCatalog(catalog, '设置').map(item => [item.id, item.title])), [['settings', '打开设置']])
   for (const kind of [undefined, 'app', 'plugin', 'action']) {
     assert.deepEqual(plain(policy.rankDefaultQuickCatalog(catalog, '', kind)), plain(f.home.rankDefaultQuickHome(catalog, kind)))

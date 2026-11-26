@@ -19,6 +19,26 @@ test('plugin browser requests stay within own package or explicitly configured d
   assert.equal(api.pluginRequestAllowed(dev, 'http://192.168.1.8:5173@evil.example/a', 'script'), false)
 })
 
+test('content security policy reserves loopback for media like it does for connect and frames', () => {
+  const csp = api.getPluginContentSecurityPolicy({ pluginId: 'tools.media' })
+  const directive = name => csp.split(';').map(part => part.trim()).find(part => part.startsWith(name + ' ')) ?? ''
+  // A host-minted loopback media endpoint is the only way a plugin plays proxied video; without the
+  // reservation <video src="http://127.0.0.1:…"> is blocked even when onBeforeRequest would allow it.
+  for (const name of ['connect-src', 'media-src', 'frame-src']) {
+    assert.match(directive(name), /http:\/\/127\.0\.0\.1:\*/, name)
+    assert.match(directive(name), /http:\/\/localhost:\*/, name)
+    assert.equal(directive(name).includes('*;') || /\s\*(\s|$)/.test(directive(name)), false, name + ' must not be a wildcard')
+  }
+  assert.match(directive('media-src'), /'self' blob:/)
+  // The reservation is not an authorisation: loopback media still needs a live endpoint grant.
+  const policy = { pluginId: 'tools.media' }
+  assert.equal(api.pluginRequestAllowed(policy, 'http://127.0.0.1:53867/mwthz88udbx13t', 'media'), false)
+  api.allowPluginEndpoint(policy.pluginId, 'http://127.0.0.1:53867/?token=host', 'subFrame')
+  assert.equal(api.pluginRequestAllowed(policy, 'http://127.0.0.1:53867/mwthz88udbx13t', 'media'), true)
+  api.releasePluginEndpoints(policy.pluginId)
+  assert.equal(api.pluginRequestAllowed(policy, 'http://127.0.0.1:53867/mwthz88udbx13t', 'media'), false)
+})
+
 test('dynamic host endpoints are owner scoped, transport scoped and revocable', () => {
   const policy = { pluginId: 'tools.remote' }
   assert.throws(() => api.allowPluginEndpoint(policy.pluginId, 'https://example.com', 'subFrame'), /loopback/)

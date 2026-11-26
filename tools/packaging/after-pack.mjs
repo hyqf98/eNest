@@ -1,7 +1,7 @@
-import { access, copyFile, mkdir, readdir, writeFile } from 'node:fs/promises'
+import { access, copyFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join, normalize, relative } from 'node:path'
-import { extractFile, listPackage } from '@electron/asar'
+import { extractFile, listPackage, uncache } from '@electron/asar'
 import { Arch } from 'builder-util'
 import { verifyPackagedNative } from './native-release.mjs'
 
@@ -17,6 +17,7 @@ const retiredPluginIpc = [
   'plugin:recorder-started', 'plugin:recorder-failed', 'plugin:recorder-audio-unavailable',
   'plugin:recorder-chunk', 'plugin:recorder-stopped'
 ]
+const macElectronLicenses = [['LICENSE', 'LICENSE.electron.txt'], ['LICENSES.chromium.html', 'LICENSES.chromium.html']]
 
 export function verifyShellArchiveEntries(entries) {
   const paths = entries.map(path => path.replaceAll('\\', '/').replace(/^\//, ''))
@@ -24,6 +25,7 @@ export function verifyShellArchiveEntries(entries) {
     if (path.endsWith('.map')) throw new Error(`Source map leaked into release: ${path}`)
     if (/^out\/renderer\/assets\/(?:mockShellApi|MarketPage)-[^/]+\.js$/.test(path)) throw new Error(`Development preview chunk leaked into release: ${path}`)
     if (/(?:^|\/)node_modules\/json-schema-traverse\/spec(?:\/|$)/.test(path)) throw new Error(`Dependency test fixture leaked into release: ${path}`)
+    if (/(?:^|\/)node_modules\/zod\/src(?:\/|$)/.test(path) || /(?:^|\/)node_modules\/.*\.d\.[cm]ts$/.test(path)) throw new Error(`Development dependency files leaked into release: ${path}`)
     for (const match of path.matchAll(/(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)/g)) {
       if (pluginPackages.has(match[1]) || match[1].startsWith('@duckdb/')) throw new Error(`Plugin driver leaked into shell: ${match[1]}`)
     }
@@ -43,18 +45,28 @@ export function verifyShellBundleSource(path, source) {
 }
 
 export function verifyShellArchive(archive) {
-  const entries = listPackage(archive)
-  verifyShellArchiveEntries(entries)
-  for (const entry of entries) {
-    const path = entry.replaceAll('\\', '/').replace(/^\//, '')
-    // ASAR lookup uses the build platform's path separator, unlike the policy checks.
-    if (/^out\/.*\.(?:[cm]?js|html)$/.test(path)) verifyShellBundleSource(path, extractFile(archive, normalize(path)).toString('utf8'))
-  }
+  uncache(archive)
+  try {
+    const entries = listPackage(archive)
+    verifyShellArchiveEntries(entries)
+    for (const entry of entries) {
+      const path = entry.replaceAll('\\', '/').replace(/^\//, '')
+      // ASAR lookup uses the build platform's path separator, unlike the policy checks.
+      if (/^out\/.*\.(?:[cm]?js|html)$/.test(path)) verifyShellBundleSource(path, extractFile(archive, normalize(path)).toString('utf8'))
+    }
+  } finally { uncache(archive) }
 }
 
 async function verifyLocales(directory, extension, expected, optional = []) {
   const actual = (await readdir(directory)).filter(file => file.endsWith(extension)).map(file => file.slice(0, -extension.length)).sort()
   if (JSON.stringify(actual.filter(locale => !optional.includes(locale))) !== JSON.stringify([...expected].sort())) throw new Error(`Unexpected Electron locales in ${directory}: ${actual.join(', ')}`)
+}
+
+async function hasLicense(path) {
+  try {
+    const file = await stat(path)
+    return file.isFile() && file.size > 0
+  } catch (error) { if (error.code === 'ENOENT') return false; throw error }
 }
 
 export async function verifyElectronResources({ platform, appOutDir, resourcesDir }) {
@@ -65,7 +77,9 @@ export async function verifyElectronResources({ platform, appOutDir, resourcesDi
     await access(join(framework, 'Electron Framework'))
     await access(join(framework, 'Libraries/libffmpeg.dylib'))
     if (!(await readdir(frameworkResources)).some(file => /^v8_context_snapshot(?:\.[^.]+)?\.bin$/.test(file))) throw new Error('Missing V8 snapshot')
-    for (const file of ['LICENSE.electron.txt', 'LICENSES.chromium.html']) await access(join(resourcesDir, 'licenses/Electron', file))
+    for (const [, file] of macElectronLicenses) {
+      if (!await hasLicense(join(resourcesDir, file))) throw new Error(`Missing or empty Electron license: ${file}`)
+    }
     const baseLocales = ['en', 'zh_CN', 'zh_TW']
     // Chromium adds grammatical-gender resources; these never replace required base locales.
     const genderVariants = [...baseLocales, 'en_GB'].flatMap(locale =>
@@ -84,16 +98,15 @@ export async function verifyElectronResources({ platform, appOutDir, resourcesDi
 async function preserveMacElectronLicenses(appOutDir, resourcesDir) {
   // Newer builders move ZIP licenses into Resources before this hook runs.
   const require = createRequire(import.meta.url)
-  const installedDist = join(dirname(require.resolve('electron/package.json')), 'dist')
-  const target = join(resourcesDir, 'licenses/Electron')
-  await mkdir(target, { recursive: true })
-  for (const [sourceName, targetName] of [['LICENSE', 'LICENSE.electron.txt'], ['LICENSES.chromium.html', 'LICENSES.chromium.html']]) {
-    let copied = false
-    for (const source of [join(resourcesDir, targetName), join(appOutDir, targetName), join(appOutDir, sourceName), join(installedDist, sourceName)]) {
-      try { await copyFile(source, join(target, targetName)); copied = true; break }
-      catch (error) { if (error.code !== 'ENOENT') throw error }
+  for (const [sourceName, targetName] of macElectronLicenses) {
+    const target = join(resourcesDir, targetName)
+    if (await hasLicense(target)) continue
+    const installedDist = join(dirname(require.resolve('electron/package.json')), 'dist')
+    for (const source of new Set([join(appOutDir, targetName), join(appOutDir, sourceName), join(installedDist, sourceName)])) {
+      if (!await hasLicense(source)) continue
+      await copyFile(source, target)
+      break
     }
-    if (!copied) throw new Error(`Electron license missing from downloaded distribution: ${sourceName}`)
   }
 }
 

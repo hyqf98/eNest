@@ -135,7 +135,7 @@ async function buildSession(serviceRevision: number): Promise<Session> {
       const pluginId = String(input.pluginId ?? '')
       const descriptor = pluginRegistry.getInstalledDescriptors().find(item => item.id === pluginId)
       if (!descriptor) return protocolResult({ content: [{ type: 'text', text: `Unknown plugin: ${pluginId}` }], isError: true } as CallToolResult)
-      const features = (descriptor.manifest.features ?? []).map(feature => ({ code: feature.code, explain: feature.explain ?? '',
+      const features = (descriptor.manifest.features ?? []).map(feature => ({ code: feature.code, ...(feature.title ? { title: feature.title.trim() } : {}), explain: feature.explain ?? '',
         cmds: (feature.cmds ?? []).filter((name): name is string => typeof name === 'string').slice(0, 16),
         ...(feature.activation ? { activation: feature.activation.type } : {}) }))
       const launchEntries = launchIndexEntries().filter(item => item.pluginId === pluginId)

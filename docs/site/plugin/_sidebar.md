@@ -15,7 +15,7 @@
   * [自绘设置与窗口边界](settings-and-windows.md)
   * [TypeScript 类型](api-types.md)
   * [生命周期](lifecycle.md)
-  * [自由面板](panels.md)
+  * [旧布局迁移](panels.md)
   * [后台步骤计划](deadline-tasks.md)
   * [UI 集成标准](ui-standard.md)
   * [双模式工具接口](dual-mode-tools.md)

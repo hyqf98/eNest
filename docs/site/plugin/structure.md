@@ -26,7 +26,7 @@ plugins/notes/
 
 源码根必须包含 `package.json`，其 `name` 等于 manifest.id 的末段、`version` 与 manifest.version 一致，且 `type` 为 `module`。宿主、源码校验器和打包器使用同一份 manifest schema；manifest 必须是普通文件，大小不超过 256 KiB。共享 schema 的修改随 SDK 生成同步到宿主，检查模式不写文件。
 
-图标固定 `assets/market/icon.svg`，详情固定 `assets/market/README.md`，截图位于 `assets/market/screenshots/`。开发期截图数组可以为空，发布必须有 1–8 张 PNG/JPEG/WebP 实际界面截图。README 图片相对于自身位置，例如 `![主界面](./screenshots/01-main.png)`。
+图标固定 `assets/market/icon.svg`（正方形 viewBox 的 SVG），详情固定 `assets/market/README.md`，截图位于 `assets/market/screenshots/`。开发期截图数组可以为空，发布必须有 1–8 张 PNG/JPEG/WebP 实际界面截图，每张固定 1200×800；完整规格见 [plugin.json 契约](manifest.md#图标与截图规格)。README 图片相对于自身位置，例如 `![主界面](./screenshots/01-main.png)`。
 
 ## 构建与打包
 

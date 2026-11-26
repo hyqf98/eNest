@@ -1,6 +1,7 @@
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { EnestWorkspaceApi } from '@shared/types/home'
+import type { SearchFiles } from '@shared/types/fileSearch'
 import { useI18nStore } from '@renderer/i18n'
 import { applyAppearanceToDom, releaseAppearanceResources } from '@renderer/services/appearanceDom'
 import { installScrollActivity } from '@renderer/services/scrollActivity'
@@ -27,6 +28,7 @@ if (!bridge) {
   const view = createRoot(container)
   const afterPaint = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
   const controller = createDefaultWorkspaceController(bridge, {
+    searchFiles: (window as Window & { enestWorkspaceFiles?: { searchFiles: SearchFiles } }).enestWorkspaceFiles?.searchFiles,
     applyAppearance: snapshot => applyAppearanceToDom({ ...snapshot.appearance, resources: snapshot.resources }),
     applyConfig: config => {
       root.lang = config.locale

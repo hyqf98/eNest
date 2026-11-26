@@ -30,7 +30,7 @@ import type {
 
 export type Listener = (data: unknown) => void
 
-/** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗 / panel 面板组件） */
+/** enter 事件载荷；mode = 本次进入的启动方式（quick 小窗 / shell 主窗） */
 export type PluginEnterEvent = PluginEnterPayload & {
   tabId: string
   mode: PluginLaunchMode
@@ -83,6 +83,7 @@ export type PluginQuickQueryItem = {
 
 /** Quick provider 注册元数据 */
 export type PluginQuickProviderMeta = {
+  fallbackFor?: 'file-names'
   id: string
   explain?: string
   schemaVersion?: string
@@ -177,7 +178,23 @@ export type SysPortInfo = {
 
 export type Unsubscribe = () => void
 
+export interface LauncherTarget {
+  id: string
+  title: string
+  kind: 'app' | 'plugin'
+  icon?: string
+}
+
 export interface EnestPluginApi {
+  launcher: {
+    authorizeSession(): Promise<boolean>
+    endSession(): Promise<void>
+    showQuick(): Promise<boolean>
+    showWorkspace(): Promise<boolean>
+    pickTarget(): Promise<LauncherTarget | null>
+    activateTarget(id: string): Promise<boolean>
+    forgetTarget(id: string): Promise<void>
+  }
   launch: PluginLaunchApi
   /** Register exactly the manifest-declared tools after business initialization. */
   mcp: {
@@ -514,11 +531,11 @@ export interface EnestPluginApi {
   getEnterCode(): string | undefined
   /**
    * 当前启动方式：quick = Quick 小窗内嵌（小窗适配样式）/ shell = 主窗大窗
-   * （桌面适配样式）/ panel = 自由面板小组件（组件适配样式）。初始值来自
-   * URL ?mode=，容器迁移（固定到主窗、移入/移出面板等）时经 mode-change
+   * （桌面适配样式）。初始值来自
+   * URL ?mode=，容器迁移时经 mode-change
    * 事件实时更新——插件据此在多套入口样式间切换。
    */
   getLaunchMode(): PluginLaunchMode
-  /** 启动方式变更（quick / shell / panel 间迁移，不重载页面）；立即生效后回调 */
+  /** 启动方式变更（quick / shell 间迁移，不重载页面）；立即生效后回调 */
   onModeChange(cb: (mode: PluginLaunchMode) => void): Unsubscribe
 }

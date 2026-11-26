@@ -16,8 +16,10 @@ import type {
   HomeTabsSnapshot
 } from '@shared/types/home'
 import type { WorkspaceNavigationAck } from '@shared/types/workspace'
+import type { SearchFiles } from '@shared/types/fileSearch'
 
 const api: EnestHomeApi = {
+  openFileSearch: () => ipcRenderer.invoke(IpcChannels.HomeFiles, { operation: 'present' }),
   ready(payload: HomeReadyPayload = {}): Promise<void> {
     return ipcRenderer.invoke(IpcChannels.HomeReady, payload)
   },
@@ -77,3 +79,7 @@ const api: EnestHomeApi = {
 
 contextBridge.exposeInMainWorld('enestHome', api)
 contextBridge.exposeInMainWorld('enestWorkspace', api)
+if (process.argv.includes('--enest-builtin-workspace')) {
+  const searchFiles: SearchFiles = request => ipcRenderer.invoke(IpcChannels.HomeFiles, request)
+  contextBridge.exposeInMainWorld('enestWorkspaceFiles', { searchFiles })
+}

@@ -148,6 +148,8 @@ function fixture() {
   const dispatch = (surface, action) => invoke(surface, contract.ThemeChromeChannels.Action, action)
   function orb(platform = 'darwin', environment = {}) {
     return load('src/main/window/orbRailViews.ts', { electron, '@main/window/transientViews': transients,
+      './classicDockReveal': load('src/main/window/classicDockReveal.ts', { '@shared/constants': constants }, { setTimeout: timer, clearTimeout: entry => timers.delete(entry) }),
+      './linuxWindowSystem': load('src/main/window/linuxWindowSystem.ts', { electron }, { process: { platform, env: environment } }),
       '@main/ipc/ipcSecurity': security, '@shared/constants': constants, '@shared/types/ipc': ipc,
       '@main/window/createShellWindow': windowService, '@main/settings/SettingsStore': { settingsStore: { getAll: () => ({ general: { animationLevel: 'low' } }) } },
       '@main/theme/resolveThemeCss': { resolveThemeTokens: () => ({ mode: 'light', tokens: {}, appearance: { layout: { orbDock: env.dock }, animation: { effective: 'low' } } }) },
@@ -558,6 +560,39 @@ test('classic status is host ACK-driven, replays on sync, and restores inline fa
   assert.equal(latest().ready, false)
   assert.equal(classic.webContents.isDestroyed(), true)
   orb.destroyOrbRailViews()
+})
+
+test('classic dock releases native hit bounds on leave, but not while keyboard-focused', () => {
+  const fixtureState = fixture(), orb = fixtureState.orb()
+  fixtureState.env.appearance.theme.source = 'enest.builtin'
+  orb.applyOrbRailVisibility('classic', true)
+  const [dock] = fixtureState.views
+  const mouse = type => dock.webContents.emit('before-mouse-event', {}, { type })
+  const width = () => dock.getBounds().width
+  assert.equal(width(), constants.ORB_DOCK_REVEAL_W)
+  mouse('mouseEnter')
+  assert.equal(width(), constants.ORB_DOCK_VIEW_W)
+  mouse('mouseLeave')
+  mouse('mouseEnter')
+  assert.equal(fixtureState.timers.size, 0)
+  mouse('mouseDown')
+  dock.webContents.emit('focus')
+  mouse('mouseLeave')
+  assert.equal(fixtureState.timers.size, 1)
+  const [retract] = fixtureState.timers
+  retract.callback()
+  assert.equal(width(), constants.ORB_DOCK_REVEAL_W)
+  dock.webContents.emit('blur')
+  dock.webContents.emit('focus')
+  mouse('mouseLeave')
+  assert.equal(width(), constants.ORB_DOCK_VIEW_W)
+  assert.equal(fixtureState.timers.size, 0)
+  const resume = orb.suspendOrbRailViews()
+  assert.equal(dock.getVisible(), false)
+  resume()
+  assert.equal(width(), constants.ORB_DOCK_REVEAL_W)
+  orb.destroyOrbRailViews()
+  assert.equal(fixtureState.mainWindow.listenerCount('hide'), 0)
 })
 
 test('builtin-only classic creates no extra top-tab renderer and style switching releases inactive native views', () => {

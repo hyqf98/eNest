@@ -70,13 +70,6 @@ export interface HomeCatalogItem {
   packageSize?: number
   installs?: string
   latestVersion?: string
-  /**
-   * 自由面板小组件预览图（`views.panel.preview` 声明的包内路径，已由宿主解析为可加载 URL）。
-   * 只有声明了 panel 布局的插件才有；首页「小组件」区块据此展示真实渲染效果。
-   */
-  panelPreview?: string
-  /** 小组件默认外框尺寸（DIP），来自 `views.panel.size`。 */
-  panelSize?: { width: number; height: number }
   /** At most 16 validated cards from this installed, enabled plugin. */
   homeCards?: HomeCatalogCard[]
 }
@@ -156,16 +149,20 @@ export interface HomeSearchRequest {
 
 export type HomeSearchScope = 'all' | 'installed' | 'market' | 'action' | 'app' | 'plugin'
 
+export interface WorkspaceCatalogReader {
+  getCatalog(): Promise<HomeCatalog>
+  getDetail(id: string): Promise<HomeDetail | null>
+  refresh(request?: { reason?: 'manual' | 'boot' }): Promise<HomeCatalog>
+}
+
 /** Present only in a dedicated Home WebContentsView, never an ordinary business plugin. */
-export interface EnestHomeApi {
+export interface EnestHomeApi extends WorkspaceCatalogReader {
   ready(payload?: HomeReadyPayload): Promise<void>
   ackNavigation(payload: WorkspaceNavigationAck): Promise<void>
   getAppearance(): Promise<HomeAppearanceSnapshot>
   getConfig(): Promise<HomeRuntimeConfig>
-  getCatalog(): Promise<HomeCatalog>
-  getDetail(id: string): Promise<HomeDetail | null>
   search(request: HomeSearchRequest): Promise<HomeSearchResult>
-  refresh(request?: { reason?: 'manual' | 'boot' }): Promise<HomeCatalog>
+  openFileSearch?(): Promise<boolean>
   action(request: HomeAction): Promise<HomeActionResponse>
   /** classic 模式首页自绘 Tab 条：启动/重载时主动拉一次当前投影。 */
   getTabs(): Promise<HomeTabsSnapshot>
@@ -175,6 +172,7 @@ export interface EnestHomeApi {
 }
 
 export interface HomeRuntimeConfig {
+  fileSearchEnabled?: boolean
   locale: 'zh-CN' | 'en-US'
   installedFirst: boolean
   offline: boolean

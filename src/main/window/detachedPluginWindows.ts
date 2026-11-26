@@ -1,4 +1,4 @@
-import { app, BaseWindow, nativeTheme, screen, WebContentsView, type View, type WebContents } from 'electron'
+import { app, type BaseWindow, nativeTheme, screen, WebContentsView, type View, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { SHELL_PARTITION } from '@shared/constants'
@@ -9,6 +9,7 @@ import { normalizeDetachedWindowSession } from '@shared/windowState'
 import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
 import { resolvePreload, setDetachedAppearanceSink } from '@main/window/createShellWindow'
 import { resolveWindowIcon } from './applicationIcon'
+import { createDesktopWindow } from './desktopWindowFrame'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { resolveThemeTokens } from '@main/theme/resolveThemeCss'
 import { themePackRegistry } from '@main/theme/themePacks'
@@ -159,9 +160,9 @@ export async function createDetachedWindow(
   const restored = normalizeDetachedWindowSession(options?.restored)
   if (restored) mode = restored.mode
   const bounds = constrainDetachedBounds(restored?.bounds ?? { x: point.x - 100, y: point.y - 18, width: Math.max(360, size.width), height: Math.max(240, size.height + chromeHeight(mode)) })
-  const win = new BaseWindow({ ...bounds, icon: resolveWindowIcon(), minWidth: Math.min(360, bounds.width), minHeight: Math.min(240, bounds.height),
-    show: false, frame: false, roundedCorners: true, hasShadow: true, alwaysOnTop: restored?.alwaysOnTop === true,
-    backgroundColor: theme.theme === 'dark' ? '#182126' : '#f6f8fa', title: 'eNest' })
+  const win = createDesktopWindow({ ...bounds, icon: resolveWindowIcon(), minWidth: Math.min(360, bounds.width), minHeight: Math.min(240, bounds.height),
+    show: false, alwaysOnTop: restored?.alwaysOnTop === true,
+    backgroundColor: theme.theme === 'dark' ? '#182126' : '#f6f8fa', title: 'eNest' }, 'right')
   let chrome: WebContentsView | null = null
   let chromeContents: WebContents | null = null
   try {

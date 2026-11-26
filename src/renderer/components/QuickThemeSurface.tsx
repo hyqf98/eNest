@@ -8,12 +8,15 @@ import type {
   QuickThemeSnapshot
 } from '@shared/types/quickTheme'
 import { readQuickStateSnapshot, readQuickStateValue } from './quickStateValidation'
+import { QuickPluginGrip } from './QuickPluginGrip'
 import './QuickThemeSurface.css'
 
 export interface QuickThemeSurfaceProps {
   config: QuickThemeConfig
   snapshot: QuickThemeSnapshot
+  gripIcon?: string
   onAction: (action: QuickThemeAction) => Promise<QuickThemeActionResult>
+  onDetach: () => void
   onReady: (ready: boolean) => void
   onFailure: () => void
 }
@@ -55,7 +58,14 @@ function isKind(value: unknown): value is QuickCommandKind {
   return value === 'app' || value === 'plugin' || value === 'action'
 }
 
-function readAction(value: unknown): QuickThemeAction | null {
+type GripPosition = NonNullable<Extract<QuickThemeAction, { type: 'layout' }>['pluginGrip']>
+
+function gripFits(point: GripPosition, bounds: QuickThemeSnapshot['bounds']): boolean {
+  const size = bounds.pluginGripSize
+  return !!size && point.x >= 0 && point.y >= 0 && point.x + size <= bounds.width && point.y + size <= bounds.inputHeight
+}
+
+function readAction(value: unknown, snapshot?: QuickThemeSnapshot): QuickThemeAction | null {
   if (!isRecord(value)) return null
   switch (value.type) {
     case 'state-read':
@@ -116,6 +126,8 @@ function readAction(value: unknown): QuickThemeAction | null {
         ? { type: 'input-clear', ...(value.id !== undefined ? { id: value.id } : {}) } : null
     case 'open-market':
     case 'open-settings':
+    case 'open-files':
+    case 'open-update':
     case 'refresh-apps':
     case 'retry':
     case 'hide':
@@ -124,13 +136,18 @@ function readAction(value: unknown): QuickThemeAction | null {
     case 'plugin-focus':
     case 'plugin-detach':
       return hasOnlyKeys(value, ['type']) ? { type: value.type } : null
-    case 'layout':
-      return hasOnlyKeys(value, ['type', 'columns', 'height'])
-        && typeof value.columns === 'number' && Number.isInteger(value.columns)
-        && value.columns >= 1 && value.columns <= 8
-        && typeof value.height === 'number' && Number.isFinite(value.height)
-        && value.height >= 64 && value.height <= 545
-        ? { type: 'layout', columns: value.columns, height: value.height } : null
+    case 'layout': {
+      if (!hasOnlyKeys(value, ['type', 'columns', 'height', 'pluginGrip'])
+        || typeof value.columns !== 'number' || !Number.isInteger(value.columns) || value.columns < 1 || value.columns > 8
+        || typeof value.height !== 'number' || !Number.isFinite(value.height) || value.height < 64 || value.height > 545) return null
+      const layout = { type: 'layout' as const, columns: value.columns, height: value.height }
+      if (value.pluginGrip === undefined) return layout
+      const point = value.pluginGrip
+      if (!snapshot?.plugin || !isRecord(point) || !hasOnlyKeys(point, ['x', 'y']) || typeof point.x !== 'number' || typeof point.y !== 'number'
+        || !Number.isSafeInteger(point.x) || !Number.isSafeInteger(point.y)) return null
+      const pluginGrip = { x: point.x, y: point.y }
+      return gripFits(pluginGrip, snapshot.bounds) ? { ...layout, pluginGrip } : null
+    }
     case 'key': {
       if (!hasOnlyKeys(value, ['type', 'key', 'shift', 'meta', 'ctrl', 'alt']) || !isString(value.key, 32)) return null
       const action: Extract<QuickThemeAction, { type: 'key' }> = { type: 'key', key: value.key }
@@ -156,13 +173,14 @@ function readResult(value: unknown): QuickThemeActionResult {
 }
 
 const QuickThemeFrame = forwardRef<QuickThemeSurfaceHandle, QuickThemeSurfaceProps>(function QuickThemeFrame(
-  { config, snapshot, onAction, onReady, onFailure }, ref
+  { config, snapshot, gripIcon, onAction, onDetach, onReady, onFailure }, ref
 ) {
   const [session] = useState(() => {
     const generation = crypto.randomUUID()
     return { key: config.key, generation, src: `${config.url}#generation=${generation}` }
   })
   const [phase, setPhase] = useState<'loading' | 'ready' | 'failed'>('loading')
+  const [grip, setGrip] = useState<GripPosition | null>(null)
   const frameRef = useRef<HTMLIFrameElement>(null)
   const bridgeRef = useRef<ThemeBridge | null>(null)
   const pendingFocusRef = useRef<boolean | null>(false)
@@ -260,7 +278,10 @@ const QuickThemeFrame = forwardRef<QuickThemeSurfaceHandle, QuickThemeSurfacePro
       try {
         // A key request is not proof of a trusted gesture; the host callback authorizes actions.
         const result = await latestRef.current.onAction(action)
-        if (!disposed) send({ type: 'action-result', id, result: readResult(result) })
+        if (!disposed) {
+          if (result.ok && action.type === 'layout') setGrip(action.pluginGrip ?? null)
+          send({ type: 'action-result', id, result: readResult(result) })
+        }
       } catch {
         if (!disposed) send({ type: 'action-result', id, result: { ok: false, error: '主题操作未能完成。' } })
       } finally {
@@ -292,7 +313,7 @@ const QuickThemeFrame = forwardRef<QuickThemeSurfaceHandle, QuickThemeSurfacePro
         const oldest = recentActions.values().next().value
         if (oldest !== undefined) recentActions.delete(oldest)
       }
-      const action = readAction(message.action)
+      const action = readAction(message.action, latestRef.current.snapshot)
       if (!action) {
         send({ type: 'action-result', id, result: { ok: false, error: '无效的主题操作。' } })
         return
@@ -404,7 +425,10 @@ const QuickThemeFrame = forwardRef<QuickThemeSurfaceHandle, QuickThemeSurfacePro
     }
   }, [session])
 
-  useLayoutEffect(() => { bridgeRef.current?.publishState() }, [snapshot])
+  useLayoutEffect(() => {
+    if (!snapshot.plugin) setGrip(null)
+    bridgeRef.current?.publishState()
+  }, [snapshot])
   useLayoutEffect(() => {
     if (phase === 'ready') bridgeRef.current?.flushFocus()
   }, [phase])
@@ -414,6 +438,9 @@ const QuickThemeFrame = forwardRef<QuickThemeSurfaceHandle, QuickThemeSurfacePro
     {phase !== 'failed' && <iframe ref={frameRef} className="quick-theme-surface-frame" src={session.src}
       sandbox="allow-scripts" referrerPolicy="no-referrer" title="快捷启动主题界面（隔离沙箱）"
       aria-hidden={phase !== 'ready'} tabIndex={phase === 'ready' ? 0 : -1} />}
+    {phase === 'ready' && snapshot.plugin && grip && gripFits(grip, snapshot.bounds) &&
+      <QuickPluginGrip className="quick-theme-plugin-grip" plugin={snapshot.plugin} gripIcon={gripIcon} onDetach={onDetach}
+        style={{ left: grip.x, top: grip.y, width: snapshot.bounds.pluginGripSize, height: snapshot.bounds.pluginGripSize }} />}
   </div>
 })
 

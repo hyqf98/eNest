@@ -1,3 +1,5 @@
+@import '@renderer/components/windowControls.css';
+
 #home-root { width: 100%; height: 100%; }
 .default-workspace { position: relative; width: 100%; height: 100%; overflow: hidden; isolation: isolate; background: var(--bg); }
 :root.has-bg-media .default-workspace { background: transparent; }
@@ -17,7 +19,7 @@
 .workspace-drag-band {
   position: absolute;
   top: 0;
-  left: 84px;
+  left: var(--window-controls-width);
   right: 0;
   height: var(--titlebar-h, 36px);
   /* 低于按钮簇（200），避免与之重叠时抢先；两者横向本就不相交。 */
@@ -25,80 +27,12 @@
   -webkit-app-region: drag;
 }
 
-/* ========== 左上角窗口控件（Windows/Linux；macOS 用系统原生红绿灯） ==========
- * 首页铺满整窗、盖住主壳标题栏，非 macOS 又没有等价的原生按钮，
- * 所以这三个按钮由首页自己画（见 DefaultWorkspace.tsx）。
- * 绝对定位悬浮在左上角：不占布局、不铺底板，视觉上就是三个圆点浮在背景上。
- * 平时只显示圆点，悬停才显出图标并浮出功能名。
- */
-.workspace-window-controls {
+.default-workspace > .window-controls {
   position: absolute;
-  /* 与 26px Tab 条同一个垂直中心：标题栏高度减去自身高度再对半。
-     原先写死 18px，按钮中心比 Tab 低 7px，Windows 下肉眼可见。 */
-  top: calc((var(--titlebar-h, 36px) - 14px) / 2);
-  left: 20px;
-  /* 高于页面内容的一切：卡片与动效蒙层都在个位数，详情弹层是 150。 */
+  top: 0;
+  left: 0;
   z-index: 200;
-  isolation: isolate;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 14px;
-  pointer-events: auto;
-  -webkit-app-region: no-drag;
 }
-.workspace-window-btn {
-  position: relative;   /* 功能名气泡的定位基准 */
-  width: 12px;
-  height: 12px;
-  flex: 0 0 auto;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  color: rgb(0 0 0 / 0.55);
-  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.22), 0 0.5px 1.5px rgb(0 0 0 / 0.12);
-  transition: filter 0.12s ease, box-shadow 0.12s ease;
-  pointer-events: auto;
-  -webkit-app-region: no-drag;
-}
-.workspace-window-btn.r { background: #ff5f57; }
-.workspace-window-btn.y { background: #febc2e; }
-.workspace-window-btn.g { background: #28c840; }
-.workspace-window-btn:hover {
-  filter: brightness(0.92);
-  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.3), 0 1px 2px rgb(0 0 0 / 0.16);
-}
-.workspace-window-btn:active { filter: brightness(0.82); }
-/* 图标默认藏起来，悬停时显出。
-   `pointer-events: none` 是必须的：图标 opacity 0 时仍然参与命中测试，
-   点在它上面虽然会冒泡，但 hover 目标变成 svg 而不是 button，
-   按钮自身的 hover 样式在部分时序下不会刷新。 */
-.workspace-window-btn svg { opacity: 0; pointer-events: none; transition: opacity 0.12s ease; }
-.workspace-window-btn:hover svg,
-.workspace-window-btn:focus-visible svg { opacity: 1; }
-
-/* 功能名气泡：悬停即刻出现（原生 title 有约 0.5s 延迟，这三个钮需要即时反馈）。 */
-.workspace-window-hint {
-  position: absolute;
-  top: calc(100% + 7px);
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 2px 7px;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--text) 88%, transparent);
-  color: #fff;
-  font-size: 11px;
-  line-height: 15px;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-.workspace-window-btn:hover .workspace-window-hint,
-.workspace-window-btn:focus-visible .workspace-window-hint { opacity: 1; }
 
 /* ========== 顶部 Tab 条（classic 模式，首页自绘） ==========
  * 视觉规则与主壳 classicTabs.css 对齐：高度 26px、圆角 7px、宽度跟随内容
@@ -113,7 +47,7 @@
   /* 垂直方向按标题栏高度居中，不能写 top:50%——那是相对整个工作区居中，
      Tab 条会掉到页面中部。这里用标题栏高度的一半再回退自身一半。 */
   top: calc((var(--titlebar-h, 36px) - 26px) / 2);
-  left: 84px;
+  left: var(--window-controls-width);
   z-index: 195;
   display: flex;
   align-items: center;

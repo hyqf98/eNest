@@ -4,6 +4,7 @@ import type { QuickCommand, QuickCommandKind, QuickImageContext, QuickInputConte
 import type { QuickProviderStateRequest, QuickThemeAction, QuickThemeActionResult, QuickThemeConfig, QuickThemeItem, QuickThemeOpenedReceipt, QuickThemeSnapshot } from '@shared/types/quickTheme'
 import { QUICK_BAR_AREA_H, QUICK_CORNER_RADIUS } from '@shared/constants'
 import { DEFAULT_THEME_IDENTITY } from '@shared/theme/builtinThemes'
+import { isPublishedIconDataUrl } from '@shared/iconSource'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
 import { shellApi } from '@renderer/services/shellApi'
 import { bindPluginDragSource, bindPluginDropTarget } from '@renderer/services/pluginWindowDrag'
@@ -17,9 +18,11 @@ import '@renderer/styles/plugin-window-drag.css'
 import './quickHost.css'
 
 const DefaultQuickSurface = lazy(() => import('@renderer/themes/default/quick/DefaultQuickSurface').then(module => ({ default: module.DefaultQuickSurface })))
+const QuickFileSearch = lazy(() => import('@renderer/themes/default/quick/QuickFileSearch').then(module => ({ default: module.QuickFileSearch })))
 type ThemeKey = Extract<QuickThemeAction, { type: 'key' }>
 interface DirectoryState { revision: number; records: QuickCatalogRecord[] }
 interface NativeCatalog { commands: QuickCommand[]; signature: string }
+const quickBounds = () => ({ width: innerWidth, height: innerHeight, inputHeight: QUICK_BAR_AREA_H, pluginGripSize: window.enestWindows ? 28 : undefined })
 const catalogIconCache = new Map<string, string>()
 const iconKey = (record: QuickCatalogRecord) => record.command.icon ?? record.command.id
 const providerState = (request: QuickProviderStateRequest) => {
@@ -52,6 +55,16 @@ export function QuickLauncherApp() {
   const root = useRef<HTMLDivElement>(null)
   const nativeBar = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
+  const [filesEnabled, setFilesEnabled] = useState(false)
+  const [fileInput, setFileInput] = useState<string | null>(null)
+  const [fileSurface, setFileSurface] = useState<string | null>(null)
+  const fileSurfaceRef = useRef<string | null>(null)
+  const previousFileHeight = useRef(0)
+  const setFileMode = useCallback((initial: string | null) => {
+    if (initial !== null && fileSurfaceRef.current === null) previousFileHeight.current = innerHeight
+    if (initial === null && fileSurfaceRef.current !== null && previousFileHeight.current && !document.hidden) shellApi.quickResize?.(previousFileHeight.current)
+    fileSurfaceRef.current = initial; setFileSurface(initial)
+  }, [])
   const [filter, setFilter] = useState<QuickCommandKind | null>(null)
   const [composing, setComposing] = useState(false)
   const composingRef = useRef(false)
@@ -70,6 +83,7 @@ export function QuickLauncherApp() {
   const [refresh, setRefresh] = useState(0)
   const [themeRefresh, setThemeRefresh] = useState(0)
   const [shown, setShown] = useState(0)
+  const [availableUpdateVersion, setAvailableUpdateVersion] = useState<string | null>(null)
   const [visible, setVisible] = useState(() => !document.hidden)
   const [pluginMode, setPluginMode] = useState<QuickPluginModeInfo | null>(null)
   const modeRef = useRef(pluginMode)
@@ -89,7 +103,7 @@ export function QuickLauncherApp() {
   const openingRef = useRef(false)
   const escaping = useRef<Promise<boolean> | null>(null)
   const snapshotRevision = useRef(0)
-  const [bounds, setBounds] = useState({ width: innerWidth, height: innerHeight, inputHeight: QUICK_BAR_AREA_H })
+  const [bounds, setBounds] = useState(quickBounds)
   const current = useRef({ directory, items, selectedId })
   current.current = { directory, items, selectedId }
   const defaultPrivateState = useMemo<DefaultQuickStateClient>(() => ({
@@ -111,6 +125,7 @@ export function QuickLauncherApp() {
   }), [])
 
   const focus = useCallback((selectAll = false) => {
+    if (fileSurfaceRef.current !== null) return
     ;(themeReadyRef.current ? remoteView : defaultView).current?.focus(selectAll)
   }, [])
 
@@ -171,6 +186,7 @@ export function QuickLauncherApp() {
 
   const applyThemeConfig = useCallback((config: QuickThemeConfig | null) => {
     if (themeKey.current !== config?.key) {
+      setFileInput(null)
       themeKey.current = config?.key
       themeReadyRef.current = false; setThemeReady(false)
       customSearchRef.current = false; setCustomSearch(false)
@@ -227,11 +243,26 @@ export function QuickLauncherApp() {
   useEffect(() => {
     const sync = () => {
       setVisible(!document.hidden)
-      if (document.hidden) { invalidate(); resetContext() }
+      if (document.hidden) { setFileInput(null); setFileMode(null); invalidate(); resetContext() }
     }
     document.addEventListener('visibilitychange', sync)
     return () => document.removeEventListener('visibilitychange', sync)
-  }, [invalidate, resetContext])
+  }, [invalidate, resetContext, setFileMode])
+
+  useEffect(() => {
+    let version = 0
+    const read = () => {
+      const token = ++version
+      void shellApi.searchFiles?.({ operation: 'status' }).then(result => {
+        if (token !== version) return
+        const enabled = result.status === 'ready'; setFilesEnabled(enabled)
+        if (!enabled) { setFileInput(null); setFileMode(null) }
+      }).catch(() => { if (token === version) { setFilesEnabled(false); setFileMode(null) } })
+    }
+    read()
+    const off = shellApi.onEvent?.(event => { if (event.type === 'settings-changed' && event.generalKeys.some(key => key === 'fileSearch' || key === 'dataRoot')) { setFileInput(null); read() } })
+    return () => { version++; off?.() }
+  }, [setFileMode, shown])
 
   useEffect(() => {
     if (!appearanceHydrated) {
@@ -263,7 +294,7 @@ export function QuickLauncherApp() {
   }, [appearance.revision, appearance.quick, appearance.theme.source, appearance.theme.id, appearanceHydrated, themeRefresh, shown, applyThemeConfig, themeCache])
 
   useEffect(() => {
-    const resize = () => setBounds({ width: innerWidth, height: innerHeight, inputHeight: QUICK_BAR_AREA_H })
+    const resize = () => setBounds(quickBounds())
     window.addEventListener('resize', resize)
     return () => window.removeEventListener('resize', resize)
   }, [])
@@ -316,11 +347,11 @@ export function QuickLauncherApp() {
   useEffect(() => {
     const sequence = ++searchSequence.current
     retireProviders()
-    if (!visible || pluginMode || composing || !query.trim() || filter && filter !== 'plugin') { setProvidersLoading(false); return }
+    if (!visible || fileSurface !== null || pluginMode || composing || !query.trim() || filter && filter !== 'plugin') { setProvidersLoading(false); return }
     setProvidersLoading(true)
     const timer = setTimeout(async () => {
       try {
-        const providers = await shellApi.quickSearch?.(query, 100, 'plugin', 'providers')
+        const providers = await shellApi.quickSearch?.(query, 100, filter ?? undefined, 'providers')
         if (sequence !== searchSequence.current || !providers?.items.length) return
         const previous = current.current.directory
         const next = { revision: previous.revision + 1,
@@ -332,7 +363,7 @@ export function QuickLauncherApp() {
       } finally { if (sequence === searchSequence.current) setProvidersLoading(false) }
     }, 80)
     return () => { clearTimeout(timer); searchSequence.current++; void shellApi.quickSearch?.('', 0, undefined, 'cancel').catch(() => undefined) }
-  }, [query, filter, pluginMode, composing, refresh, shown, themeConfig?.key, visible, retireProviders])
+  }, [query, filter, fileSurface, filesEnabled, pluginMode, composing, refresh, shown, themeConfig?.key, visible, retireProviders])
 
   const execute = useCallback(async (request: QuickOpenRequest): Promise<boolean> => {
     if (openingRef.current) return false
@@ -412,8 +443,13 @@ export function QuickLauncherApp() {
   }, [applyPluginInput, inputSession, invalidate])
 
   useEffect(() => {
+    let acceptInitialUpdate = true
     const offEvent = shellApi.onEvent?.(event => {
-      if (event.type === 'quick-plugin-mode') {
+      if (event.type === 'quick-update-version') {
+        acceptInitialUpdate = false
+        setAvailableUpdateVersion(event.version)
+      } else if (event.type === 'quick-plugin-mode') {
+        setFileInput(null); setFileMode(null)
         // 已经在列表态又收到 null 时，宿主只是重复通知（无插件可恢复也会发）。
         // 跳过这次重置，避免与随后的 QuickShown 刷新叠加。
         if (event.mode === null && modeRef.current === null) return
@@ -421,6 +457,9 @@ export function QuickLauncherApp() {
         restorePluginInput(event.mode?.pluginId ?? null)
         setFilter(null); invalidate(); setOpening(false)
         requestAnimationFrame(() => focus())
+      } else if (event.type === 'quick-plugin-presentation') {
+        const { title, glyph, icon, packageIcon } = event.presentation
+        setPluginMode(mode => mode?.pluginId === event.pluginId ? { ...mode, title, glyph, icon, packageIcon } : mode)
       } else if (event.type === 'quick-input') {
         applyPluginInput(inputSession.receive(event.state))
       } else if (event.type === 'plugin-ready' && modeRef.current?.pluginId === event.pluginId) {
@@ -428,6 +467,7 @@ export function QuickLauncherApp() {
       } else if (event.type === 'plugin-error' && modeRef.current?.pluginId === event.pluginId) {
         setPluginMode(mode => mode ? { ...mode, loading: false } : mode); setError('插件暂时无法启动，请重试。')
       } else if (event.type === 'quick-focus-search') focus(true)
+      else if (event.type === 'quick-file-search' && !modeRef.current && !contextRef.current.length && !composingRef.current) setFileMode('')
       else if (event.type === 'plugins-changed' || event.type === 'plugin-launch-changed' || event.type === 'launch-directory-changed') {
         refreshSources(true)
         if (event.type === 'plugins-changed') refreshTheme()
@@ -438,7 +478,11 @@ export function QuickLauncherApp() {
         if (event.generalKeys.includes('dataRoot')) refreshSources(true)
       }
     })
+    void shellApi.quickGetUpdateVersion?.().then(version => {
+      if (acceptInitialUpdate) setAvailableUpdateVersion(version)
+    }).catch(() => undefined)
     const offShown = shellApi.onQuickShown?.(() => {
+      setFileInput(null); setFileMode(null)
       // 保留上一帧结果直到新数据回来：清空 items 会让窗口在呼出瞬间闪成空白态。
       setQuery(inputSession.snapshot.value); setFilter(null); invalidate({ keepItems: true }); setShown(value => value + 1)
       // 主进程在隐藏时清空上下文，呼出后镜像必须与宿主对齐。
@@ -446,8 +490,8 @@ export function QuickLauncherApp() {
       void refreshContext().catch(() => undefined)
       requestAnimationFrame(() => focus())
     })
-    return () => { inputSession.restore(null); contextEpoch.current++; contextReadRevision.current++; offEvent?.(); offShown?.() }
-  }, [applyPluginInput, focus, inputSession, invalidate, refreshContext, refreshSources, refreshTheme, resetContext, restorePluginInput])
+    return () => { acceptInitialUpdate = false; inputSession.restore(null); contextEpoch.current++; contextReadRevision.current++; offEvent?.(); offShown?.() }
+  }, [applyPluginInput, focus, inputSession, invalidate, refreshContext, refreshSources, refreshTheme, resetContext, restorePluginInput, setFileMode])
 
   const catalog = useMemo(() => publicQuickCatalog(directory.records), [directory.records])
   useEffect(() => {
@@ -550,9 +594,18 @@ export function QuickLauncherApp() {
     if (current.current.selectedId) return { ok: await openHandle(current.current.selectedId, input.meta || input.ctrl ? 'shell' : undefined) }
     return emptyMarket ? { ok: await execute({ kind: 'action', action: 'open-market', query }) } : { ok: false }
   }, [authorized, changeQuery, emptyMarket, escapePlugin, execute, filter, focus, inputSession, invalidate, mutateContext, openHandle, query, resetContext, selectItem])
-  useEffect(() => shellApi.onQuickThemeKey?.(input => { if (themeReadyRef.current) void keyAction({ type: 'key', ...input }, true) }), [keyAction])
+  useEffect(() => shellApi.onQuickThemeKey?.(input => { if (themeReadyRef.current && fileSurfaceRef.current === null) void keyAction({ type: 'key', ...input }, true) }), [keyAction])
+
+  const detachPlugin = useCallback(async (): Promise<QuickThemeActionResult> => {
+    const mode = modeRef.current
+    if (!mode) return { ok: false }
+    const result = await window.enestWindows?.command({ action: 'detach', pluginId: mode.pluginId }).catch(() => undefined)
+    if (!result?.ok) setError('无法创建独立窗口，请重试。')
+    return { ok: result?.ok === true }
+  }, [])
 
   const action = useCallback(async (request: QuickThemeAction, trusted = false): Promise<QuickThemeActionResult> => {
+    if (fileSurfaceRef.current !== null) return { ok: false }
     const privateStateAction = request.type === 'state-read' || request.type === 'state-write'
     if (trusted ? !privateStateAction && themeReadyRef.current && (request.type !== 'results' || customSearchRef.current)
       : !themeReadyRef.current || !themeConfig || themeConfig.key !== themeKey.current) return { ok: false }
@@ -565,7 +618,10 @@ export function QuickLauncherApp() {
         return { ok: true, state: { revision: result.revision, value: result.value } }
       } catch { return { ok: false, error: '无法读写主题的私有状态，请重试。' } }
     }
-    if (request.type === 'query') return { ok: request.query === query || changeQuery(request.query.slice(0, 4_096)) }
+    if (request.type === 'query') {
+      setFileInput(trusted && !modeRef.current ? request.query : null)
+      return { ok: request.query === query || changeQuery(request.query.slice(0, 4_096)) }
+    }
     if (request.type === 'composition') {
       if (composingRef.current !== request.active) {
         searchSequence.current++
@@ -608,7 +664,12 @@ export function QuickLauncherApp() {
     const before = queryRevision.current, modeBefore = modeRef.current?.pluginId, providerBefore = themeKey.current
     if (!await authorized(trusted)) return { ok: false, error: '请通过点击或按键执行此操作。' }
     if (queryRevision.current !== before || modeRef.current?.pluginId !== modeBefore || themeKey.current !== providerBefore) return { ok: false }
+    if (request.type === 'open-files') {
+      if (!filesEnabled || modeBefore || contextRef.current.length || composingRef.current) return { ok: false }
+      setFileMode(trusted && fileInput === query ? query : ''); return { ok: true }
+    }
     if (request.type === 'open') return { ok: await openHandle(request.id, request.container) }
+    if (request.type === 'open-update') return { ok: await execute({ kind: 'open-update' }) }
     if (request.type === 'paste') return pasteFromClipboard()
     if (request.type === 'open-market' || request.type === 'open-settings' || request.type === 'refresh-apps') {
       return { ok: await execute({ kind: 'action', action: request.type, query }) }
@@ -619,20 +680,21 @@ export function QuickLauncherApp() {
     if (request.type === 'plugin-back') return { ok: await escapePlugin() }
     if (request.type === 'plugin-pin') return { ok: await execute({ kind: 'plugin-pin', pluginId: mode.pluginId }) }
     if (request.type === 'plugin-focus') { await shellApi.quickOpen?.({ kind: 'plugin-tab', pluginId: mode.pluginId }); return { ok: true } }
-    if (request.type === 'plugin-detach') {
-      const result = await window.enestWindows?.command({ action: 'detach', pluginId: mode.pluginId })
-      if (!result?.ok) setError('无法创建独立窗口，请重试。')
-      return { ok: result?.ok === true }
-    }
+    if (request.type === 'plugin-detach') return detachPlugin()
     return { ok: false }
-  }, [authorized, catalog, changeQuery, escapePlugin, execute, filter, invalidate, keyAction, mutateContext, openHandle, pasteFromClipboard, query, refreshSources, refreshTheme, resetContext, restorePluginInput, retireProviders, selectItem, themeConfig])
+  }, [authorized, catalog, changeQuery, detachPlugin, escapePlugin, execute, fileInput, filesEnabled, filter, invalidate, keyAction, mutateContext, openHandle, pasteFromClipboard, query, refreshSources, refreshTheme, resetContext, restorePluginInput, retireProviders, selectItem, setFileMode, themeConfig])
 
+  const icon = pluginMode?.icon
+  const pluginIcon = useMemo(() => isPublishedIconDataUrl(icon) ? icon : undefined, [icon])
+  const packageIcon = pluginMode?.packageIcon
+  const gripIcon = safeQuickIcon(packageIcon) ? packageIcon : undefined
   const snapshot = useMemo<QuickThemeSnapshot>(() => ({
+    fileSearchEnabled: filesEnabled,
     version: 1, revision: ++snapshotRevision.current, query, filter, searching: Boolean(query.trim()), loading, busy: opening, composing,
     error, items, catalog, catalogRevision: directory.revision, queryRevision: queryRevision.current, shown,
     opened: providerOpened && providerOpened.owner === themeConfig?.key ? providerOpened.receipt : null,
-    selectedId, expanded, hiddenCount, emptyMarket,
-    plugin: pluginMode ? { title: pluginMode.title, loading: pluginMode.loading === true,
+    selectedId, expanded, hiddenCount, emptyMarket, availableUpdateVersion,
+    plugin: pluginMode ? { title: pluginMode.title, glyph: pluginMode.glyph, icon: pluginIcon, loading: pluginMode.loading === true,
       placeholder: pluginInput.input?.placeholder?.slice(0, 256) || (pluginInput.status === 'hydrating' ? '正在恢复插件输入…'
         : pluginInput.status === 'ready' ? '输入内容…' : '按 Esc 或返回按钮回到搜索'),
       acceptsInput: pluginInput.status === 'hydrating' || pluginInput.status === 'ready' } : null,
@@ -640,26 +702,28 @@ export function QuickLauncherApp() {
     appearance: themeConfig?.appearance ?? { mode: appearance.mode, tokens: appearance.tokens, fonts: appearance.fonts,
       components: appearance.components, animation: appearance.animation.effective, resources: { fonts: [] } }, bounds
   }), [query, filter, loading, opening, composing, error, items, catalog, directory.revision, queryRevision.current,
-    shown, providerOpened, themeConfig, selectedId, expanded, hiddenCount, emptyMarket, pluginMode, pluginInput, inputContext, appearance, bounds])
+    shown, providerOpened, themeConfig, selectedId, expanded, hiddenCount, emptyMarket, availableUpdateVersion, pluginMode, pluginIcon, pluginInput, inputContext, appearance, bounds, filesEnabled])
 
   return <div ref={root} className="quick-host" data-mode={pluginMode ? 'plugin' : 'list'}
     style={{ '--quick-bar-h': `${QUICK_BAR_AREA_H}px`, '--quick-radius': `${QUICK_CORNER_RADIUS}px` } as CSSProperties}>
-    <div className="quick-default-provider" hidden={themeReady}>
+    <div className="quick-default-provider" hidden={themeReady || fileSurface !== null}>
       <Suspense fallback={<div role="status" aria-label="正在加载快捷启动" />}>
-        <DefaultQuickSurface ref={defaultView} snapshot={snapshot} active={visible && !themeReady} searchActive={!themeReady || !customSearch} catalogPending={catalogLoading}
+        <DefaultQuickSurface ref={defaultView} snapshot={snapshot} gripIcon={gripIcon} active={visible && !themeReady && fileSurface === null} searchActive={fileSurface === null && (!themeReady || !customSearch)} catalogPending={catalogLoading} fileInput={fileInput} fileSearch={shellApi.searchFiles}
           retryRevision={refresh} privateState={defaultPrivateState} onAction={request => action(request, true)} />
       </Suspense>
     </div>
-    {themeConfig && <QuickThemeSurface key={themeConfig.key} ref={remoteView} config={themeConfig} snapshot={snapshot}
+    {themeConfig && <div hidden={fileSurface !== null}><QuickThemeSurface key={themeConfig.key} ref={remoteView} config={themeConfig} snapshot={snapshot} gripIcon={gripIcon} onDetach={detachPlugin}
       onAction={request => action(request)} onReady={ready => {
         if (themeKey.current !== themeConfig.key) return
-        themeReadyRef.current = ready; setThemeReady(ready); if (ready) requestAnimationFrame(() => remoteView.current?.focus())
+        themeReadyRef.current = ready; setThemeReady(ready); if (ready) requestAnimationFrame(() => { if (fileSurfaceRef.current === null) remoteView.current?.focus() })
       }}
       onFailure={() => {
         if (themeKey.current !== themeConfig.key) return
         themeCache.invalidate()
         applyThemeConfig(null); requestAnimationFrame(() => defaultView.current?.focus())
-      }} />}
+      }} /></div>}
+    {fileSurface !== null && !pluginMode && <Suspense fallback={null}><QuickFileSearch initial={fileSurface} search={shellApi.searchFiles} resize={shellApi.quickResize} hide={() => shellApi.quickHide?.()}
+      back={() => { setFileMode(null); requestAnimationFrame(() => focus()) }} /></Suspense>}
     <div ref={nativeBar} className="quick-host-native-bar" aria-hidden />
   </div>
 }

@@ -40,10 +40,12 @@ export interface OpenWithRoutes {
   ext: Record<string, string>
   /** `scheme:enest-md` → pluginId */
   scheme: Record<string, string>
+  /** 用户关闭的清单声明项：pluginId → 声明项 id 列表。不在表里即启用，升级零行为变化 */
+  disabled: Record<string, string[]>
 }
 
 export function emptyOpenWithRoutes(): OpenWithRoutes {
-  return { ext: {}, scheme: {} }
+  return { ext: {}, scheme: {}, disabled: {} }
 }
 
 /** 系统默认状态（按平台检测得出的结论，三值如实呈现） */
@@ -59,6 +61,8 @@ export interface OpenWithRow {
   /** 声明该类型的插件（可能多个候选） */
   providers: Array<{
     pluginId: string
+    /** 命中该类型的清单声明项 id；运行时登记为 undefined */
+    entryId?: string
     /** 插件显示名（壳注入） */
     pluginName: string
     /** 插件 icon（runtime-relative，壳解析后给渲染层） */
@@ -84,12 +88,33 @@ export interface OpenWithRow {
   }
 }
 
+/**
+ * 设置页「可注册的打开方式」里的一条清单声明项（开关的最小粒度）。
+ * label 缺省时由渲染层回退为扩展名列表。
+ */
+export interface OpenWithEntryRow {
+  pluginId: string
+  pluginName: string
+  entryId: string
+  label?: string
+  /** 展示用：扩展名不带点、协议带 :// */
+  targets: string[]
+  icon?: string
+  glyph?: string
+  color?: string
+  /** 插件整体被停用：条目置灰，开关不可操作 */
+  pluginEnabled: boolean
+  enabled: boolean
+}
+
 /** IPC list() 响应：所有候选可选；只有 inspectedKey 对应行包含本次查询的系统能力与状态。 */
 export interface OpenWithListResult {
   platform: NodeJS.Platform
   /** dev 态下 scheme 注册不可靠（macOS）：true 时状态列显示"仅打包可用" */
   packaged: boolean
   rows: OpenWithRow[]
+  /** 全部清单声明项（含被关闭的），供设置页渲染开关 */
+  entries: OpenWithEntryRow[]
   inspectedKey?: OpenWithKey
 }
 
@@ -124,10 +149,14 @@ export interface OpenWithEnterPayload {
 export function readOpenWithContribution(value: unknown): OpenWithContribution {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid openWith declaration')
   const entry = value as Record<string, unknown>
-  if (Object.keys(entry).some(key => !['id', 'extensions', 'schemes', 'mimeTypes', 'role', 'schemaVersion'].includes(key))) throw new Error('Unknown openWith field')
+  if (Object.keys(entry).some(key => !['id', 'label', 'extensions', 'schemes', 'mimeTypes', 'role', 'schemaVersion'].includes(key))) throw new Error('Unknown openWith field')
   if (typeof entry.id !== 'string' || !entry.id.trim() || entry.id.length > 64 || /[\x00-\x1f\x7f]/.test(entry.id)) throw new Error('Invalid openWith id')
   if (entry.schemaVersion !== undefined && entry.schemaVersion !== CONTRIB_SCHEMA_VERSION) throw new Error('Unsupported openWith schema version')
   const result: OpenWithContribution = { id: entry.id }
+  if (entry.label !== undefined) {
+    if (typeof entry.label !== 'string' || !entry.label.trim() || entry.label.length > 40 || /[\x00-\x1f\x7f]/.test(entry.label)) throw new Error('Invalid openWith label')
+    result.label = entry.label.trim()
+  }
   if (entry.role !== undefined) {
     if (entry.role !== 'Editor' && entry.role !== 'Viewer' && entry.role !== 'Browser') throw new Error('Invalid openWith role')
     result.role = entry.role

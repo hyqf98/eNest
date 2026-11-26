@@ -1,6 +1,6 @@
 import type { AppearanceColorMode, AppearanceComponents, AppearanceFonts } from './appearance'
 import type { AnimationLevel } from './plugin'
-import type { QuickActionId, QuickCommandKind, QuickContentMatch, QuickImageContext } from './quick'
+import type { QuickActionId, QuickCommandKind, QuickContentMatch, QuickImageContext, QuickPluginPresentation } from './quick'
 
 /** Package-relative entry owned by the declaring theme. The host owns native geometry. */
 export interface ThemeQuickReference { version: 1; entry: string }
@@ -53,6 +53,7 @@ export interface QuickThemeCatalogItem extends Omit<QuickThemeItem, 'group'> {
   provider?: boolean
 }
 export interface QuickThemeSnapshot {
+  fileSearchEnabled?: boolean
   version: 1
   revision: number
   query: string
@@ -67,22 +68,24 @@ export interface QuickThemeSnapshot {
   catalogRevision: number
   queryRevision: number
   shown: number
+  availableUpdateVersion?: string | null
   selectedId: string | null
   expanded: boolean
   hiddenCount: number
   emptyMarket: boolean
-  plugin: { title: string; loading: boolean; placeholder: string; acceptsInput: boolean } | null
+  plugin: (QuickPluginPresentation & { loading: boolean; placeholder: string; acceptsInput: boolean }) | null
   /**
    * Host-held paste context (bounded thumbnails only; full bytes stay in main).
    * Null when nothing is attached. Items ≤12.
    */
   input: { items: QuickImageContext[]; hasText: boolean } | null
   appearance: QuickThemeAppearance
-  bounds: { width: number; height: number; inputHeight: number }
+  bounds: { width: number; height: number; inputHeight: number; pluginGripSize?: number }
   opened?: QuickThemeOpenedReceipt | null
 }
 export type QuickThemeAction =
   | { type: 'state-read' }
+  | { type: 'open-files' }
   | { type: 'state-write'; expectedRevision: number; value: unknown }
   | { type: 'query'; query: string }
   | { type: 'filter'; kind: QuickCommandKind | null }
@@ -96,8 +99,8 @@ export type QuickThemeAction =
   | { type: 'paste' }
   /** Remove one paste-context entry by opaque id; omit id to clear the whole context. */
   | { type: 'input-clear'; id?: string }
-  | { type: 'open-market' | 'open-settings' | 'refresh-apps' | 'retry' | 'hide' | 'plugin-back' | 'plugin-pin' | 'plugin-focus' | 'plugin-detach' }
-  | { type: 'layout'; columns: number; height: number }
+  | { type: 'open-market' | 'open-settings' | 'open-update' | 'refresh-apps' | 'retry' | 'hide' | 'plugin-back' | 'plugin-pin' | 'plugin-focus' | 'plugin-detach' }
+  | { type: 'layout'; columns: number; height: number; pluginGrip?: { x: number; y: number } }
   | { type: 'key'; key: string; shift?: boolean; meta?: boolean; ctrl?: boolean; alt?: boolean }
 export interface QuickThemeActionResult { ok: boolean; error?: string; state?: QuickStateSnapshot }
 /** Only available inside an isolated ThemePackV2.quick page, never an ordinary plugin page. */

@@ -16,7 +16,7 @@ import type {
   UserProfile
 } from './plugin'
 import type { ResolvedAppearance } from './appearance'
-import type { QuickPluginModeInfo } from './quick'
+import type { QuickHostPluginPresentation, QuickPluginModeInfo } from './quick'
 import type { QuickInputState, QuickInputAction } from './plugin-tools'
 import type { ShellNotice } from './notice'
 import type { PluginShortcutsSnapshot } from './shortcuts'
@@ -116,6 +116,8 @@ export const ModalState = 'modal:state'
 export const ModalRespond = 'modal:respond'
 export const ShellLoadDevPlugin = 'shell:load-dev-plugin'
 export const ShellForgetDevPlugin = 'shell:forget-dev-plugin'
+/** 开发者控制台：登记了但已无法加载的开发插件（目录被移走、清单读不出或 id 变了），只读，不进 registry */
+export const ShellListMissingDevPlugins = 'shell:list-missing-dev-plugins'
 /** 开发者控制台：切换 dev 插件「退出到后台立即结束运行」（对齐 uTools） */
 export const ShellSetDevKillOnHide = 'shell:set-dev-kill-on-hide'
 export const ShellReloadPlugin = 'shell:reload-plugin'
@@ -123,6 +125,7 @@ export const ShellOpenDevTools = 'shell:open-devtools'
 export const ShellGetSettings = 'shell:get-settings'
 export const ShellOpenExternal = 'shell:open-external'
 export const ShellSetSettings = 'shell:set-settings'
+export const FileSearchPreferences = 'shell:file-search-preferences'
 /** 壳子设置页：拉取插件已注册的设置 section 列表 */
 export const ShellGetSettingsSections = 'shell:get-settings-sections'
 /** 壳子设置页：写入单个插件设置项（同步 Bridge + SettingsStore） */
@@ -133,6 +136,8 @@ export const ShellOpenWithList = 'shell:open-with-list'
 export const ShellOpenWithSetDefault = 'shell:open-with-set-default'
 export const ShellOpenWithClearDefault = 'shell:open-with-clear-default'
 export const ShellOpenWithRoute = 'shell:open-with-route'
+/** 设置页开关：启用/停用某插件的清单声明项（只影响 eNest 内候选，不改系统默认） */
+export const ShellOpenWithSetEnabled = 'shell:open-with-set-enabled'
 export const ShellOpenWithOpenSystemSettings = 'shell:open-with-open-system-settings'
 
 /** 路径与数据 */
@@ -219,10 +224,12 @@ export const NotificationOpenLink = 'notification:open-link'
 export const QuickToggle = 'quick:toggle'
 export const QuickHide = 'quick:hide'
 export const QuickSearch = 'quick:search'
+export const QuickFiles = 'quick:files'
 export const QuickOpen = 'quick:open'
 export const QuickScanApps = 'quick:scan-apps'
 export const QuickGetConfig = 'quick:get-config'
 export const QuickGetLocale = 'quick:get-locale'
+export const QuickGetUpdateVersion = 'quick:get-update-version'
 export const QuickThemeGetConfig = 'quick:theme-get-config'
 export const QuickThemeAuthorize = 'quick:theme-authorize'
 export const QuickProviderState = 'quick:provider-state'
@@ -242,6 +249,7 @@ export const HomeAck = 'home:ack'
 export const HomeGetCatalog = 'home:get-catalog'
 export const HomeGetDetail = 'home:get-detail'
 export const HomeSearch = 'home:search'
+export const HomeFiles = 'home:files'
 export const HomeRefresh = 'home:refresh'
 export const HomeAction = 'home:action'
 export const HomeGetAppearance = 'home:get-appearance'
@@ -296,32 +304,7 @@ export const OsOpenScreenSettings = 'shell:os-open-screen-settings'
 /** 主进程 → Quick 渲染层：窗口已显示，请求聚焦输入框 */
 export const QuickShown = 'quick:shown'
 
-/** —— 自由面板（小组件）：面板 chrome surface ↔ 主进程 —— */
-/** 面板 chrome → 主进程：读取面板状态快照 */
-export const PanelGetState = 'panel:get-state'
-/** 面板 chrome → 主进程：统一命令入口（添加/移除组件、拖动、关闭面板等） */
-export const PanelCommand = 'panel:command'
-/** 面板 chrome → 主进程：拖动进行中的保活与节流触发（主进程自行读光标） */
-export const PanelDragHeartbeat = 'panel:drag-heartbeat'
-/** 主进程 → 面板 chrome：状态快照变更 */
-export const PanelState = 'panel:state'
-/** 主进程 → 面板 chrome：拖动反馈（吸附后的矩形与辅助线） */
-export const PanelDrag = 'panel:drag'
-/** 主进程 → 可信面板 chrome：有界组件快照，仅用于临时隐藏原生视图时的预览 */
-export const PanelPreview = 'panel:preview'
-/** 壳渲染层 → 主进程：列出活动面板（设置页/入口展示） */
-export const PanelList = 'panel:list'
-/** 壳渲染层 → 主进程：新建面板（先框选） */
-export const PanelCreate = 'panel:create'
-/** 壳渲染层 → 主进程：关闭指定面板 */
-export const PanelClose = 'panel:close'
-/** 壳渲染层 → 主进程：保存面板呼出快捷键并立即重注册（返回注册结果，镜像 quick:set-hotkeys） */
-export const PanelSetHotkey = 'panel:set-hotkey'
-
-/** 区域选择 surface ↔ 主进程 */
-export const RegionConfirm = 'panel-region:confirm'
-export const RegionCancel = 'panel-region:cancel'
-export const RegionState = 'panel-region:state'
+export const ExportLegacyCanvas = 'shell:export-legacy-canvas'
 
 /** Compatibility map for dynamic enumeration. Preloads use static namespace members for tree shaking. */
 export const IpcChannels = {
@@ -399,18 +382,21 @@ export const IpcChannels = {
   ModalRespond,
   ShellLoadDevPlugin,
   ShellForgetDevPlugin,
+  ShellListMissingDevPlugins,
   ShellSetDevKillOnHide,
   ShellReloadPlugin,
   ShellOpenDevTools,
   ShellGetSettings,
   ShellOpenExternal,
   ShellSetSettings,
+  FileSearchPreferences,
   ShellGetSettingsSections,
   ShellSetPluginSetting,
   ShellOpenWithList,
   ShellOpenWithSetDefault,
   ShellOpenWithClearDefault,
   ShellOpenWithRoute,
+  ShellOpenWithSetEnabled,
   ShellOpenWithOpenSystemSettings,
   ShellGetPaths,
   ShellOpenPath,
@@ -467,10 +453,12 @@ export const IpcChannels = {
   QuickToggle,
   QuickHide,
   QuickSearch,
+  QuickFiles,
   QuickOpen,
   QuickScanApps,
   QuickGetConfig,
   QuickGetLocale,
+  QuickGetUpdateVersion,
   QuickThemeGetConfig,
   QuickThemeAuthorize,
   QuickProviderState,
@@ -485,6 +473,7 @@ export const IpcChannels = {
   HomeGetCatalog,
   HomeGetDetail,
   HomeSearch,
+  HomeFiles,
   HomeRefresh,
   HomeAction,
   HomeGetAppearance,
@@ -514,19 +503,7 @@ export const IpcChannels = {
   PermissionGrantsSet,
   OsOpenScreenSettings,
   QuickShown,
-  PanelGetState,
-  PanelCommand,
-  PanelDragHeartbeat,
-  PanelState,
-  PanelDrag,
-  PanelPreview,
-  PanelList,
-  PanelCreate,
-  PanelClose,
-  PanelSetHotkey,
-  RegionConfirm,
-  RegionCancel,
-  RegionState,
+  ExportLegacyCanvas,
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]
@@ -570,6 +547,7 @@ export type ShellEventPayload =
   | { type: 'uninstall-result'; pluginId: string; name: string; ok: boolean; error?: string }
   /** 自动更新状态变更（检查 / 下载进度 / 就绪 / 错误） */
   | { type: 'update-status'; state: UpdateStatePayload }
+  | { type: 'quick-update-version'; version: string | null }
   /** GitHub 个人资料变化（登录成功 / 启动刷新 / 退出）；轨道头像与设置页即时更新 */
   | { type: 'profile-changed'; profile: UserProfile | null }
   /** Provider-neutral account progress; retained GitHub event below supports older clients. */
@@ -598,7 +576,9 @@ export type ShellEventPayload =
    * 注意：该事件对主壳渲染层无意义（payload 事件桥过滤），仅 Quick 表面消费。
    */
   | { type: 'quick-plugin-mode'; mode: QuickPluginModeInfo | null }
+  | { type: 'quick-plugin-presentation'; pluginId: string; presentation: QuickHostPluginPresentation }
   | { type: 'quick-focus-search' }
+  | { type: 'quick-file-search' }
   /**
    * 插件贡献点变更（注册/卸载/覆盖）：渲染层据此刷新对应插槽消费
    * （home-cards 区块、rail-entries、settings sections 等）。
@@ -606,8 +586,6 @@ export type ShellEventPayload =
   | { type: 'contributions-changed'; slot: string; source: string }
   /** 原生授权对话框或设置页更新敏感权限后，同步设置 UI。基础能力不进入此表。 */
   | { type: 'permission-grants-changed'; pluginId: string; grants: Partial<Record<PluginPermission, PluginPermissionGrant>> }
-  /** 自由面板集合变化（创建/关闭/组件增删）；壳子据此刷新入口与设置页状态。 */
-  | { type: 'panels-changed' }
   /** 外部打开无人接手或启动失败：渲染层提示用户（toast） */
   | { type: 'open-with-unhandled'; kind: 'ext' | 'scheme'; value: string; reason: 'no-provider' | 'launch-failed' }
   /**
@@ -813,6 +791,20 @@ export interface PluginCallTraceEntry {
   ok: boolean
   durationMs: number
   error?: string
+}
+
+/** 开发插件失效原因：目录不存在 / plugin.json 读不出或没有 id / 其中的 id 与登记的不一致 */
+export type MissingDevPluginReason = 'directory-missing' | 'manifest-unreadable' | 'id-changed'
+
+/** 开发者控制台里置灰展示的失效开发插件；记录仍在 dev.json，用户可移除或把目录放回原处后重启恢复 */
+export interface MissingDevPlugin {
+  /** 登记时的插件 id */
+  id: string
+  /** 登记时的源码目录（绝对路径） */
+  path: string
+  reason: MissingDevPluginReason
+  /** 目录里现在实际声明的 id（仅 reason 为 id-changed 时有值） */
+  actualId?: string
 }
 
 /** shell:permission-response 载荷：弹窗三按钮决策 */

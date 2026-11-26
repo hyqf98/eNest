@@ -14,6 +14,7 @@ import type {
   HomeSearchResult
 } from '@shared/types/home'
 import type { WorkspaceRoute } from '@shared/types/workspace'
+import { publicLaunchAliases } from '@shared/search'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import type { CatalogResources } from '@main/plugin/catalogResources'
 import { settingsStore } from '@main/settings/SettingsStore'
@@ -27,12 +28,14 @@ import { quickProviderStates } from '@main/theme/quickStateService'
 import { IpcChannels } from '@shared/types/ipc'
 import { refreshPluginBackgrounds, stopPluginBackground } from '@main/plugin/pluginBackgroundRuntime'
 import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
+import { applyWindowControl } from '@main/window/desktopWindowFrame'
 import type { WebContents } from 'electron'
 import type { QuickCommand, QuickInputSelection } from '@shared/types/quick'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { uninstallPlugin } from '@main/plugin/PluginUninstaller'
 import { cancelPluginDeadlineTasks } from '@main/timer/deadlineTaskService'
+import { cancelFileSearch } from '@main/launcher/fileSearchService'
 import { applyPluginLaunchHotkeys, clearPluginLaunch, releasePluginLaunchHotkey } from '@main/hotkey/pluginLaunchHotkeys'
 import { publicAppearanceFonts, publicAppearanceMedia } from '@main/theme/appearanceResources'
 import { declaredPalettePaints } from '@shared/theme/appearance'
@@ -168,6 +171,7 @@ export function getHomeConfig(): HomeRuntimeConfig {
   const general = settingsStore.getAll().general
   return {
     locale: general.locale === 'en-US' ? 'en-US' : 'zh-CN',
+    fileSearchEnabled: general.fileSearch?.enabled === true,
     installedFirst: true,
     ...offlineStatus(),
     warmInstall: false,
@@ -240,8 +244,6 @@ function catalogItem(id: string): HomeCatalogItem | null {
     screenshots: resources.screenshots.map((_resource, index) => homeCatalogResourceUrl(id, 'screenshot', index)),
     // 只有真的提供了 preview 资源的插件才带这两个字段；
     // 首页「小组件」区块据此判断该插件能否作为小组件列出。
-    ...(resources.panelPreview ? { panelPreview: homeCatalogResourceUrl(id, 'panel-preview') } : {}),
-    ...(resources.panelPreview && resources.panelSize ? { panelSize: resources.panelSize } : {}),
     homeCards: declaredHomeCards(id).map(({ card }) => card),
   }
 }
@@ -299,6 +301,13 @@ interface HomeSearchSession {
 }
 const homeSearchSessions = new Map<number, HomeSearchSession>()
 const homePasteGestures = new Map<number, number>()
+const homeFileGestures = new Map<number, number>()
+export function consumeHomeFileGesture(id: number): boolean {
+  const recent = homeFileGestures.get(id)
+  homeFileGestures.delete(id)
+  return recent !== undefined && performance.now() - recent <= 1000
+}
+export function hasHomeSearchMedia(id: number): boolean { return !!homeSearchSessions.get(id)?.input.list().length }
 function searchSession(context: Pick<HomeActionContext, 'wcId' | 'generation'>): HomeSearchSession {
   let session = homeSearchSessions.get(context.wcId)
   if (!session || session.generation !== context.generation) {
@@ -324,10 +333,12 @@ function pruneSearchHandles(now = Date.now()): void {
 }
 
 export function invalidateHomeSearchHandles(wcId?: number): void {
+  if (wcId !== undefined) cancelFileSearch(wcId)
   for (const [handle, flight] of searchHandles) {
     if (wcId === undefined || flight.wcId === wcId) searchHandles.delete(handle)
   }
   for (const [id, session] of homeSearchSessions) if (wcId === undefined || id === wcId) {
+    cancelFileSearch(id)
     session.opening?.abort(); session.input.clear(); cancelQuickProviderSession(session.id); homeSearchSessions.delete(id); homePasteGestures.delete(id)
   }
 }
@@ -341,6 +352,8 @@ function cancelHomeProviders(session: HomeSearchSession): void {
 
 /** Hiding a Workspace retires paste/provider authority, not its immutable name directory. */
 export function suspendHomeSearch(wcId: number): void {
+  homeFileGestures.delete(wcId)
+  cancelFileSearch(wcId)
   const session = homeSearchSessions.get(wcId)
   if (session) { session.opening?.abort(); cancelHomeProviders(session); session.input.clear() }
   homePasteGestures.delete(wcId)
@@ -390,7 +403,7 @@ function publicSearchItem(item: QuickCommand, handle: string, appIcon?: string):
     enabled,
     disabled: item.kind === 'plugin' ? enabled === false : undefined,
     tags: publicTags(summary?.tags),
-    aliases: item.aliases?.slice(0, 32).map(alias => publicText(alias, 256)).filter((alias): alias is string => !!alias),
+    aliases: publicLaunchAliases(item.aliases ?? [item.title]),
     action: item.action,
     content: item.content,
     textInput: item.textInput
@@ -406,7 +419,7 @@ export async function searchHome(
   request: { query?: unknown; scope?: unknown; limit?: unknown; phase?: unknown; ids?: unknown; knownRevision?: unknown; queryRevision?: unknown },
   context: Pick<HomeActionContext, 'wcId' | 'generation' | 'isCurrent'>
 ): Promise<HomeSearchResult> {
-  if (!context.isCurrent()) return { items: [], revision: nextRevision() }
+  if (!context.isCurrent() || request?.scope === 'files') return { items: [], revision: nextRevision() }
   const session = searchSession(context)
   const current = () => context.isCurrent() && homeSearchSessions.get(context.wcId) === session
   const query = typeof request?.query === 'string' ? request.query.slice(0, 4096) : ''
@@ -417,7 +430,7 @@ export async function searchHome(
     session.queryRevision = sequence
     cancelHomeProviders(session)
     const providerEpoch = session.providerEpoch
-    const commands = query.trim() ? await searchQuickCommands(query, 100, 'plugin', 'providers', undefined, { sessionId: session.id }) : []
+    const commands = query.trim() ? await searchQuickCommands(query, 100, request.scope === 'plugin' || request.scope === 'installed' ? 'plugin' : undefined, 'providers', undefined, { sessionId: session.id }) : []
     if (!current() || sequence !== session.queryRevision || providerEpoch !== session.providerEpoch) return { items: [], revision: nextRevision(), queryRevision: sequence }
     const items = commands.slice(0, 100).map(command => {
       const handle = makeSearchHandle()
@@ -774,14 +787,7 @@ export async function runHomeAction(action: HomeAction, context: HomeActionConte
       if (action.control !== 'close' && action.control !== 'minimize' && action.control !== 'zoom') {
         return { ok: false, error: 'unsupported window control' }
       }
-      const win = getMainWindow()
-      if (!win || win.isDestroyed()) return { ok: false, error: 'main window unavailable' }
-      if (action.control === 'close') win.close()
-      else if (action.control === 'minimize') win.minimize()
-      // zoom 与 macOS 绿钮一致：已最大化则还原，否则最大化。
-      else if (win.isMaximized()) win.unmaximize()
-      else win.maximize()
-      return { ok: true }
+      return applyWindowControl(getMainWindow(), action.control) ? { ok: true } : { ok: false, error: 'main window unavailable' }
     }
     /**
      * 首页自绘 Tab 条：激活 / 关闭。首页拿不到任意窗口或插件句柄，
@@ -812,6 +818,7 @@ export function bindHomeContents(contents: WebContents, isActive: () => boolean)
   const eligible = () => !contents.isDestroyed() && isActive() && contents.isFocused() && contents.focusedFrame === contents.mainFrame
   let mouseDown = 0
   contents.on('before-input-event', (_event, input) => {
+    if (input.type === 'keyDown' && !input.isAutoRepeat && !input.isComposing && ['Enter', ' '].includes(input.key) && eligible()) homeFileGestures.set(id, performance.now())
     const command = input.meta || process.platform !== 'darwin' && input.control
     if (input.type === 'keyDown' && !input.isAutoRepeat && !input.isComposing && command && input.key.toLowerCase() === 'v' && eligible()) {
       homePasteGestures.set(id, performance.now())
@@ -821,15 +828,15 @@ export function bindHomeContents(contents: WebContents, isActive: () => boolean)
     if (input.button !== 'left') return
     if (input.type === 'mouseDown') { homePasteGestures.delete(id); mouseDown = eligible() ? performance.now() : 0 }
     else if (input.type === 'mouseUp') {
-      if (mouseDown && performance.now() - mouseDown <= 1000 && eligible()) homePasteGestures.set(id, performance.now())
+      if (mouseDown && performance.now() - mouseDown <= 1000 && eligible()) { homePasteGestures.set(id, performance.now()); homeFileGestures.set(id, performance.now()) }
       mouseDown = 0
     }
   })
-  const clearGesture = () => { homePasteGestures.delete(id); mouseDown = 0 }
+  const clearGesture = () => { homePasteGestures.delete(id); homeFileGestures.delete(id); mouseDown = 0 }
   contents.on('blur', clearGesture)
   contents.on('did-start-navigation', clearGesture)
   const unsubscribe = onLaunchDirectoryChanged(() => {
     if (!contents.isDestroyed()) contents.send(IpcChannels.HomeEvent, { command: { type: 'searchDirectoryChanged' } })
   })
-  contents.once('destroyed', () => { unsubscribe(); invalidateHomeSearchHandles(id) })
+  contents.once('destroyed', () => { clearGesture(); unsubscribe(); invalidateHomeSearchHandles(id) })
 }

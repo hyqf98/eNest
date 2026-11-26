@@ -18,7 +18,7 @@ import { logWarn } from '@main/logs/logService'
 export interface PluginLaunchRequest {
   pluginId: string
   mode?: PluginLaunchTarget
-  source: 'shortcut' | 'quick' | 'workspace' | 'settings' | 'open-with' | 'mcp'
+  source: 'shortcut' | 'quick' | 'workspace' | 'settings' | 'open-with' | 'mcp' | 'launcher'
   enter?: PluginEnterPayload
   /** Host-owned request validity; checked through preparation, before native presentation commits. */
   guard?: () => boolean
@@ -179,7 +179,7 @@ export function launchPlugin(request: PluginLaunchRequest): Promise<PluginLaunch
   const placement = pluginHost.getPlacement(pluginId)
   // Ordinary search focuses resident surfaces. Explicit destinations still move the View.
   const residentSearch = request.source === 'quick' && request.mode === undefined
-    && (placement.kind === 'detached' || placement.kind === 'panel')
+    && placement.kind === 'detached'
   const key = `${request.source}:${pluginId}:${residentSearch ? 'resident' : target}:${layoutMode}`
   const now = Date.now()
   if (!request.enter && lastRequest?.key === key && lastRequest.revision === intentRevision
@@ -224,7 +224,7 @@ export function launchPlugin(request: PluginLaunchRequest): Promise<PluginLaunch
           if (!prepared[1]) throw new Error('快捷小窗暂时无法打开，请重试')
         }
         if (!current()) return { ok: false, cancelled: true }
-        await pluginHost.launchPluginIn(pluginId, target, request.enter, current, layoutMode, request.source !== 'mcp')
+        await pluginHost.launchPluginIn(pluginId, target, request.enter, current, layoutMode, request.source !== 'mcp' && request.source !== 'launcher')
       }
       // A committed launch may deliberately deactivate its source (for example Workspace).
       // The external guard governs preparation, not a post-commit visibility observation.

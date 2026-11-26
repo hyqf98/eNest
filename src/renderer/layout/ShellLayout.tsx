@@ -56,7 +56,7 @@ export function ShellLayout() {
   const layoutVersion = useRef(0)
   const mounted = useRef(true)
   const motionHidden = useRef(false)
-  const autoHide = appearanceTabStyle !== 'orb' && appearanceTabAutoHide === true && !chromeSyncFailed
+  const autoHide = view !== 'home' && appearanceTabStyle !== 'orb' && appearanceTabAutoHide === true && !chromeSyncFailed
   const requested = useRef({ autoHide, revealed: titleBarRevealed })
   requested.current = { autoHide, revealed: titleBarRevealed }
   const revealed = !autoHide || (titleBarRevealed && nativeTitlebarReady)

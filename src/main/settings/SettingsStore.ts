@@ -29,7 +29,6 @@ import { getDefaultSettingsPath, setAppPathsRoot } from '@main/paths/pathsServic
 import { resolveLocalUserPath } from '@main/paths/userPath'
 import { kvStore } from '@main/db/sqliteService'
 import { sendShellEvent } from '@main/window/createShellWindow'
-import { DEFAULT_PANEL_APPEARANCE, type PersistedPanel } from '@shared/types/panel'
 import { filterPermissionGrants, isBuiltinCapability } from '@shared/pluginPermissionPolicy'
 import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
 import type { PluginShortcutBinding } from '@shared/types/shortcuts'
@@ -66,8 +65,7 @@ export interface SettingsData {
   pluginShortcuts: PluginShortcutBinding[]
   /** 个人资料段（GitHub OAuth 配置 + 已连接账号；token 不在此处） */
   profile: ProfileSettings
-  /** 自由面板布局；只由主进程写（renderer 写入在 shell:set-settings 被剥离）。 */
-  panels: PersistedPanel[]
+  panels?: unknown[]
   /** 「打开方式」路由表（类型/scheme → pluginId）；只由主进程写。 */
   openWith: OpenWithRoutes
 }
@@ -91,15 +89,12 @@ const DEFAULTS: SettingsData = {
     sessionActivePluginId: '',
     proxy: { type: 'system' },
     quickLauncher: defaultQuickLauncher(),
-    splashBackground: { type: 'brand', opacity: 0.55 },
-    freePanel: { enabled: false },
-    panelAppearance: { ...DEFAULT_PANEL_APPEARANCE }
+    splashBackground: { type: 'brand', opacity: 0.55 }
   },
   plugins: {},
   pluginLaunch: {},
   pluginShortcuts: [],
   profile: {},
-  panels: [],
   openWith: emptyOpenWithRoutes()
 }
 
@@ -124,6 +119,15 @@ function normalizeOpenWithRoutes(raw: unknown): OpenWithRoutes {
       out[kind][value] = pluginId
     }
   }
+  // 已关闭的清单声明项：pluginId → 声明项 id；空列表的整体丢弃（等同全部启用）
+  const disabled = (raw as Record<string, unknown>).disabled
+  if (disabled && typeof disabled === 'object' && !Array.isArray(disabled)) {
+    for (const [pluginId, ids] of Object.entries(disabled as Record<string, unknown>)) {
+      if (!pluginId.trim() || !Array.isArray(ids)) continue
+      const list = Array.from(new Set(ids.filter((id): id is string => typeof id === 'string' && !!id && id.length <= 64)))
+      if (list.length) out.disabled[pluginId] = list
+    }
+  }
   return out
 }
 
@@ -144,7 +148,7 @@ function isLegacyFullSettings(raw: Partial<SettingsData> | null): boolean {
   if (raw.theme !== undefined) return true
   if (raw.plugins !== undefined && Object.keys(raw.plugins).length > 0) return true
   if (raw.pluginLaunch !== undefined || raw.pluginShortcuts !== undefined) return true
-  if (raw.panels !== undefined && raw.panels.length > 0) return true
+  if (Array.isArray(raw.panels) && raw.panels.length > 0) return true
   const generalKeys = Object.keys(raw.general ?? {})
   return generalKeys.some((k) => k !== 'dataRoot')
 }
@@ -281,7 +285,7 @@ export class SettingsStore {
       pluginLaunch: migrated.pluginLaunch,
       pluginShortcuts: migrated.pluginShortcuts,
       profile: { ...DEFAULTS.profile, ...raw.profile },
-      panels: Array.isArray(raw.panels) ? raw.panels : [],
+      ...(Array.isArray(raw.panels) ? { panels: raw.panels } : {}),
       openWith: normalizeOpenWithRoutes(raw.openWith)
     }
   }
@@ -308,6 +312,11 @@ export class SettingsStore {
   getQuickLauncherSettings(): QuickLauncherSettings {
     this.ensureLoaded()
     return structuredClone(this.data.general.quickLauncher ?? defaultQuickLauncher())
+  }
+
+  getFileSearchSettings(): GeneralSettings['fileSearch'] {
+    this.ensureLoaded()
+    return structuredClone(this.data.general.fileSearch)
   }
 
   /** Small appearance snapshot for native plugin documents; excludes history, grants and window state. */
@@ -357,12 +366,6 @@ export class SettingsStore {
       ...this.data.general,
       quickLauncher: { ...this.data.general.quickLauncher, ...structuredClone(config) }
     } })
-  }
-
-  setPanelHotkey(accelerator: string): void {
-    this.ensureLoaded()
-    this.commitSettings({ ...this.data, general: { ...this.data.general, panelHotkey: accelerator } })
-    sendShellEvent({ type: 'settings-changed', generalKeys: ['panelHotkey'] })
   }
 
   /** Confirmed shortcut replacement persists both owners in the same durable write. */
@@ -437,6 +440,12 @@ export class SettingsStore {
     appearance.legacy = { ...appearance.legacy, general: this.legacyAppearanceGeneral(general) }
     this.commitSettings({ ...this.data, general, appearance })
     sendShellEvent({ type: 'settings-changed', generalKeys: ['customFonts', 'fontFamily', 'fontFamilyEn'] })
+  }
+
+  commitFileSearch(fileSearch: NonNullable<GeneralSettings['fileSearch']>): void {
+    this.ensureLoaded()
+    this.commitSettings({ ...this.data, general: { ...this.data.general, fileSearch } })
+    sendShellEvent({ type: 'settings-changed', generalKeys: ['fileSearch'] })
   }
 
   /** The workspace receives descriptors, not permission to replace a settings bag. */
@@ -568,8 +577,6 @@ export class SettingsStore {
       const { user: _incomingUser, ...rest } = partial.profile
       next.profile = { ...next.profile, ...rest, user: next.profile.user }
     }
-    // panels 整体替换：面板布局是主进程独占的完整快照，逐条合并会留下已删面板。
-    if (partial.panels) next.panels = structuredClone(partial.panels)
     if (!isDeepStrictEqual(previousAppearance, appearanceInputs(next))) this.appearanceInputRevision++
     this.schedulePersist()
     if (partial.pluginLaunch) this.pluginLaunchRevision++
@@ -644,7 +651,7 @@ export class SettingsStore {
     return this.getOpenWithRoutes()
   }
 
-  /** 卸载/禁用插件：清掉指向它的全部路由 */
+  /** 卸载/禁用插件：清掉指向它的全部路由与声明项开关 */
   async removeOpenWithRoutesForPlugin(pluginId: string): Promise<void> {
     this.ensureLoaded()
     let changed = false
@@ -656,7 +663,23 @@ export class SettingsStore {
         }
       }
     }
+    if (Object.hasOwn(this.data.openWith.disabled, pluginId)) {
+      delete this.data.openWith.disabled[pluginId]
+      changed = true
+    }
     if (changed) this.schedulePersist()
+  }
+
+  /** 设置页开关：启用/停用某插件的清单声明项。只影响该插件自己的声明，不触碰路由与系统默认 */
+  async setOpenWithEntryEnabled(pluginId: string, entryId: string, enabled: boolean): Promise<OpenWithRoutes> {
+    this.ensureLoaded()
+    if (!pluginId.trim() || !entryId || entryId.length > 64) throw new Error('invalid openWith entry')
+    const current = this.data.openWith.disabled[pluginId] ?? []
+    const next = enabled ? current.filter(id => id !== entryId) : Array.from(new Set([...current, entryId]))
+    if (next.length) this.data.openWith.disabled[pluginId] = next
+    else delete this.data.openWith.disabled[pluginId]
+    this.schedulePersist()
+    return this.getOpenWithRoutes()
   }
 
   // —— 运行时权限授权（壳层三态；存 plugins[pluginId].permissionGrants）——

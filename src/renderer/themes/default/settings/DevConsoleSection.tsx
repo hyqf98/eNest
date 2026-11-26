@@ -9,8 +9,13 @@ import { useEffect, useRef, useState } from 'react'
 import { useShellStore } from '@renderer/stores/shellStore'
 import { notify } from '@renderer/services/notifyService'
 import { confirmAction } from '@renderer/services/confirmAction'
+import { shellApi } from '@renderer/services/shellApi'
+import type { MissingDevPlugin } from '@shared/types/ipc'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { SettingsPluginRow } from './SettingsPluginRow'
+
+/** 失效的开发插件读不到显示名，用 id 末段代替（与源码目录名一致）。 */
+const shortId = (id: string) => id.slice(id.lastIndexOf('.') + 1) || id
 
 export function DevConsoleSection() {
   const devLogs = useShellStore((s) => s.devLogs)
@@ -25,6 +30,8 @@ export function DevConsoleSection() {
   const [loading, setLoading] = useState(false)
   const [debuggingId, setDebuggingId] = useState<string | null>(null)
   const [devQuery, setDevQuery] = useState('')
+  // 登记还在但已无法加载的开发插件（目录被移走 / 清单读不出 / id 变了）：置灰展示，只允许移出
+  const [missingPlugins, setMissingPlugins] = useState<MissingDevPlugin[]>([])
   const logRef = useRef<HTMLDivElement>(null)
   const { t } = useI18n()
 
@@ -32,13 +39,21 @@ export function DevConsoleSection() {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
   }, [devLogs])
 
+  // 浏览器预览没有原生桥（listMissingDevPlugins 为可选方法），此时视为没有失效项
+  const refreshMissing = async () => {
+    try { setMissingPlugins(await shellApi.listMissingDevPlugins?.() ?? []) }
+    catch { setMissingPlugins([]) }
+  }
+  useEffect(() => { void refreshMissing() }, [plugins])
+
   const devPlugins = plugins.filter((p) => p.dev === true)
   // 搜索按名称 / 插件 ID / 本地路径匹配：路径片段常是找开发插件最快的入口。
   const devNeedle = devQuery.trim().toLowerCase()
-  const visibleDevPlugins = devNeedle ? devPlugins.filter(p =>
-    p.name.toLowerCase().includes(devNeedle)
-    || p.id.toLowerCase().includes(devNeedle)
-    || (p.rootPath ?? '').toLowerCase().includes(devNeedle)) : devPlugins
+  const matches = (name: string, id: string, path: string | undefined) => !devNeedle
+    || name.toLowerCase().includes(devNeedle) || id.toLowerCase().includes(devNeedle) || (path ?? '').toLowerCase().includes(devNeedle)
+  const visibleDevPlugins = devPlugins.filter(p => matches(p.name, p.id, p.rootPath))
+  // 失效项排在正常插件之后：它们是待处理的问题，不该压在正在开发的插件上面
+  const visibleMissing = missingPlugins.filter(m => matches(shortId(m.id), m.id, m.path))
   const openIds = new Set(tabs.map((t) => t.pluginId))
 
   const load = async (path?: string) => {
@@ -68,6 +83,24 @@ export function DevConsoleSection() {
     if (!await confirmAction({ title: t('devConsole.remove'), message: t('devConsole.removeConfirm', { name }), confirmLabel: t('devConsole.remove') })) return
     await removeDevPlugin(id)
     setDebuggingId((cur) => (cur === id ? null : cur))
+  }
+
+  /** 失效的开发插件没有视图、服务或监听可释放，移出只是去掉登记。 */
+  const handleRemoveMissing = async (item: MissingDevPlugin) => {
+    const name = shortId(item.id)
+    if (!await confirmAction({ title: t('devConsole.remove'), message: t('devConsole.removeMissingConfirm', { name }), confirmLabel: t('devConsole.remove') })) return
+    try {
+      await removeDevPlugin(item.id)
+      await refreshMissing()
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const missingReason = (item: MissingDevPlugin) => {
+    if (item.reason === 'directory-missing') return t('devConsole.missingDirectory')
+    if (item.reason === 'id-changed') return t('devConsole.missingIdChanged', { id: shortId(item.actualId ?? '') })
+    return t('devConsole.missingManifest')
   }
 
   const copyLogs = async () => {
@@ -135,7 +168,7 @@ export function DevConsoleSection() {
 
       <div className="s-card">
         <h2>{t('devConsole.developing')}</h2>
-        {devPlugins.length === 0 ? (
+        {devPlugins.length === 0 && missingPlugins.length === 0 ? (
           <p className="desc">{t('devConsole.emptyDesc')}</p>
         ) : (
           <>
@@ -150,7 +183,7 @@ export function DevConsoleSection() {
                 aria-label={t('devConsole.searchPlaceholder')}
               />
             </div>
-            {visibleDevPlugins.length === 0 ? <p className="desc" role="status">{t('devConsole.searchEmpty')}</p> : (
+            {visibleDevPlugins.length === 0 && visibleMissing.length === 0 ? <p className="desc" role="status">{t('devConsole.searchEmpty')}</p> : (
               <div className="dev-plugin-list" data-scrollbar="auto-hide">
                 {visibleDevPlugins.map((p) => {
                   const running = openIds.has(p.id)
@@ -211,6 +244,24 @@ export function DevConsoleSection() {
                     </SettingsPluginRow>
                   )
                 })}
+                {visibleMissing.map((item) => (
+                  <SettingsPluginRow
+                    key={`missing:${item.id}`}
+                    unavailable
+                    plugin={{ id: item.id, name: shortId(item.id) }}
+                    detail={`${item.path} · ${missingReason(item)}`}
+                  >
+                    <div className="dev-plugin-actions">
+                      <button
+                        className="btn btn-danger btn-sm"
+                        type="button"
+                        onClick={() => void handleRemoveMissing(item)}
+                      >
+                        {t('devConsole.remove')}
+                      </button>
+                    </div>
+                  </SettingsPluginRow>
+                ))}
               </div>
             )}
           </>

@@ -218,6 +218,7 @@ test('classic replacement hides only the mounted tab fallback after host ACK and
     react: { useEffect: effect => effects.push(effect), useLayoutEffect: effect => layoutEffects.push(effect),
       useRef: current => ({ current }), useState: () => [ready, value => { ready = value }] },
     gsap: {}, '@renderer/themes/default/chrome/TabStrip': { TabStrip() {} },
+    '@renderer/components/WindowControls': { WindowControls() {} }, '@renderer/components/PluginIcon': { PluginIcon() {} },
     '@renderer/services/shellApi': { shellApi: { onEvent(receive) { listener = receive; return () => { unsubscribed++ } } } },
     '@renderer/hooks/useAnimationLevel': { useAnimationLevel: () => ({ level: 'low' }), useReducedMotion: () => false },
     '@renderer/hooks/useAppearance': { useAppearanceStore: select => select({ appearance: { layout: { tabStyle: 'classic' } } }) },
@@ -234,8 +235,8 @@ test('classic replacement hides only the mounted tab fallback after host ACK and
   const render = () => {
     const tree = module.exports.TitleBar({})
     const header = tree.props.children[0], [traffic, tabs] = header.props.children
-    assert.equal(traffic.props.className, 'traffic', 'native window buttons stay mounted')
-    assert.equal(tabs.props.children.type, imports['@renderer/themes/default/chrome/TabStrip'].TabStrip, 'fallback is never unmounted')
+    assert.equal(traffic.type, imports['@renderer/components/WindowControls'].WindowControls, 'host controls stay mounted')
+    assert.equal(tabs.props.children[0].type, imports['@renderer/themes/default/chrome/TabStrip'].TabStrip, 'fallback is never unmounted')
     return tabs
   }
   assert.equal(render().props['aria-hidden'], undefined)

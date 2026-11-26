@@ -1,4 +1,5 @@
 import type { QuickActionId, QuickCommandKind, QuickContentMatch, QuickImageContext } from '@shared/types/quick'
+import type { QuickNameRow } from './nameSearchTypes'
 
 export interface DefaultSearchEntry {
   id: string
@@ -54,8 +55,16 @@ export function namesOf(entry: DefaultSearchEntry): string[] {
   return entry.action ? ACTION_COPY[entry.action]?.aliases ?? [] : entry.aliases ?? [entry.title]
 }
 
+export function asQuickNameMatch<T extends DefaultSearchEntry>(item: T, prefix = false): DefaultQuickMatch<T> {
+  return { ...item, title: item.action ? ACTION_COPY[item.action].title : item.title, group: 'best', ...(prefix ? { prefix } : {}) }
+}
+
 export function allowsQuickTextPrefix(entry: DefaultSearchEntry): entry is DefaultSearchEntry & { aliases: string[] } {
   return entry.kind === 'plugin' && entry.textInput?.trigger === 'prefix' && Boolean(entry.aliases?.length)
+}
+
+export function quickNameRow(entry: DefaultSearchEntry): QuickNameRow {
+  return { key: entry.id, kind: entry.kind, title: entry.title, names: namesOf(entry), prefix: allowsQuickTextPrefix(entry) }
 }
 
 export function rankDefaultQuickMedia<T extends DefaultSearchEntry>(
@@ -127,7 +136,7 @@ export function rankDefaultQuickHome<T extends DefaultSearchEntry>(
     const aUsed = Boolean(a.lastUsedTs || a.useCount), bUsed = Boolean(b.lastUsedTs || b.useCount)
     if (aUsed !== bUsed) return aUsed ? -1 : 1
     return score(b) - score(a) || order[a.kind] - order[b.kind] || a.title.localeCompare(b.title, 'zh-CN')
-  }).slice(0, cap).map(item => ({ ...item, title: item.action ? ACTION_COPY[item.action].title : item.title, group: 'best' as const }))
+  }).slice(0, cap).map(item => asQuickNameMatch(item))
   return [...rankDefaultQuickMedia(pool, mediaMatches), ...ranked].slice(0, cap)
 }
 

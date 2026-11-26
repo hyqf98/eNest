@@ -8,6 +8,8 @@ import test from 'node:test'
 import vm from 'node:vm'
 import ts from 'typescript'
 import { _electron as electron } from 'playwright-core'
+import { build } from 'esbuild'
+import { readCss } from '../fixtures/read-css.mjs'
 
 const moduleRequire = createRequire(import.meta.url)
 function loadShared(path, mocks = {}, document, window) {
@@ -53,6 +55,8 @@ async function fixture(initialState = state()) {
     get poster() { return this.attributes.get('poster') || '' }
     set poster(value) { this.attributes.set('poster', value) }
     appendChild(child) { this.children.push(child); child.parentElement = this; return child }
+    append(...children) { children.forEach(child => this.appendChild(child)) }
+    replaceChildren(...children) { this.children = []; this.append(...children) }
     querySelector(selector) { const className = selector.match(/^:scope > \.([\w-]+)$/)?.[1]; return className ? this.children.find(child => child.className?.split(' ').includes(className)) ?? null : null }
     prepend(child) { this.children.unshift(child); child.parentElement = this }
     remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(child => child !== this); this.parentElement = null }
@@ -71,6 +75,7 @@ async function fixture(initialState = state()) {
   const elements = new Map(), pendingReads = [], commands = [], backgroundStarts = []
   const document = new Element(), window = new Element()
   document.documentElement = new Element()
+  document.documentElement.lang = 'zh-CN'
   document.body = new Element()
   const appearanceDom = loadShared('./services/appearanceDom.ts', {
     '@shared/theme/appearance': themeAppearance,
@@ -79,6 +84,11 @@ async function fixture(initialState = state()) {
   document.hidden = false
   document.hasFocus = () => true
   document.createElement = tag => { const node = new Element(); node.tagName = tag; node.ownerDocument = document; return node }
+  document.createElementNS = (_namespace, tag) => document.createElement(tag)
+  const windowControls = loadShared('./components/windowControlButtons.ts', {
+    '@shared/platform': { IS_MAC: false }, '@shared/windowFrame': loadShared('../shared/windowFrame.ts'),
+    '@renderer/i18n/windowControls': loadShared('./i18n/windowControls.ts'),
+  }, document)
   const videoPlayback = loadShared('./background/videoPlayback.ts', {}, document, window)
   const reducedMotion = new Element()
   reducedMotion.matches = false
@@ -100,7 +110,7 @@ async function fixture(initialState = state()) {
     module, exports: module.exports, window, document, URLSearchParams, location: { search: '?mode=quick' }, setTimeout: () => 1, clearTimeout() {},
     require: id => {
       if (id.endsWith('.css')) return {}
-      if (id === '@shared/platform') return { IS_MAC: false }
+      if (id === '@renderer/components/windowControlButtons') return windowControls
       if (id === '@renderer/gsap/marketMotion') return { applyLevelToDefaults() {} }
       if (id === '@renderer/services/appearanceDom') return appearanceDom
       if (id === '@shared/backgroundEffects') return backgroundEffects
@@ -236,6 +246,14 @@ test('dock controls are icon-only buttons with exact tooltips and accessible nam
     assert.match(button[2], /<svg[^>]*aria-hidden="true"[^>]*focusable="false"/)
     assert.equal(button[2].replace(/<[^>]*>/g, '').trim(), '', 'icons must not retain the old visible text labels')
   }
+})
+
+test('shared traffic lights address the detached instance through its own bridge', async () => {
+  const { commands, elements } = await fixture()
+  const buttons = elements.get('window-controls').children
+  assert.deepEqual(buttons.map(button => button.dataset.control), ['close', 'minimize', 'zoom'])
+  for (const button of buttons) button.onclick()
+  assert.deepEqual(commands.map(command => command.action), ['close', 'minimize', 'maximize'])
 })
 
 test('lazy Quick restores only a placeholder and waits for an explicit open click', async () => {
@@ -497,9 +515,11 @@ app.whenReady().then(()=>{const win=new BrowserWindow({show:false,width:720,heig
     app = await electron.launch({ executablePath: createRequire(import.meta.url)('electron'), args: [script], env, timeout: 15000 })
     const page = await app.firstWindow()
     const html = readFileSync(new URL('../../src/renderer/detached-plugin.html', import.meta.url), 'utf8').replace(/<script[^>]*>[\s\S]*?<\/script>/g, '')
-    const css = readFileSync(new URL('../../src/renderer/styles/tokens.css', import.meta.url), 'utf8') + '\n'
-      + readFileSync(new URL('../../src/renderer/detached-plugin.css', import.meta.url), 'utf8').replace(/^@import.*$/gm, '')
+    const css = readCss(new URL('../../src/renderer/detached-plugin.css', import.meta.url))
     await page.setContent(html); await page.addStyleTag({ content: css })
+    const controls = await build({ entryPoints: ['src/renderer/components/windowControlButtons.ts'], tsconfig: 'tsconfig.web.json',
+      bundle: true, write: false, format: 'iife', globalName: 'windowControlButtons', platform: 'browser' })
+    await page.addScriptTag({ content: controls.outputFiles[0].text })
     const source = readFileSync(new URL('../../src/renderer/detached-plugin.ts', import.meta.url), 'utf8').replaceAll('import.meta.hot', 'undefined')
     const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
     const videoPlayback = ts.transpileModule(readFileSync(new URL('../../src/renderer/background/videoPlayback.ts', import.meta.url), 'utf8'), {
@@ -508,7 +528,7 @@ app.whenReady().then(()=>{const win=new BrowserWindow({show:false,width:720,heig
     await page.addScriptTag({ content: `window.fixtureState={pluginId:'demo',title:'搜索插件',generation:0,status:'lazy',mode:'quick',alwaysOnTop:false};
 window.fixtureCommands=[];window.enestWindows={getState:async()=>window.fixtureState,command:async(command)=>{window.fixtureCommands.push(command);return{ok:true}},onEvent:callback=>{window.emitFixture=callback;return()=>{}}};
 const videoPlayback=(()=>{const module={exports:{}},exports=module.exports;${videoPlayback};return module.exports})();
-const module={exports:{}},exports=module.exports;const require=id=>id.endsWith('.css')?{}:id==='@shared/platform'?{IS_MAC:true}:id==='@renderer/gsap/marketMotion'?{applyLevelToDefaults(){}}:id==='@renderer/background/videoPlayback'?videoPlayback:{bindPluginDragSource:()=>()=>{}};
+const module={exports:{}},exports=module.exports;const require=id=>id.endsWith('.css')?{}:id==='@renderer/components/windowControlButtons'?windowControlButtons:id==='@renderer/gsap/marketMotion'?{applyLevelToDefaults(){}}:id==='@renderer/background/videoPlayback'?videoPlayback:{bindPluginDragSource:()=>()=>{}};
 ${compiled}` })
     await page.locator('#activate').waitFor({ state: 'visible' })
     assert.equal(await page.locator('#quick-bar').isVisible(), false)
@@ -516,19 +536,11 @@ ${compiled}` })
     await page.locator('#pin-window').click()
     assert.deepEqual(await page.evaluate(() => window.fixtureCommands.map(command => command.action)), ['toggle-always-on-top'])
     await page.evaluate(() => window.emitFixture({ type: 'state', state: { ...window.fixtureState, alwaysOnTop: true } }))
-    for (const platform of ['mac', 'other']) {
-      await page.evaluate(platform => { document.documentElement.dataset.platform = platform }, platform)
-      await page.waitForFunction(() => getComputedStyle(document.querySelector('#pin-window')).color !== getComputedStyle(document.querySelector('#dock-shell')).color)
-      assert.equal(await page.locator('#pin-window').getAttribute('aria-pressed'), 'true')
-      assert.equal(await page.locator('#pin-window').getAttribute('title'), '取消置顶')
-      if (platform === 'mac') {
-        const centers = await page.locator('.detached-controls button').evaluateAll(buttons => buttons.map(button => {
-          const rect = button.getBoundingClientRect(); return rect.y + rect.height / 2
-        }))
-        assert.ok(centers.every(center => center === centers[0]), 'pin and macOS window controls share a visual center')
-      }
-      if (process.env.ENEST_DETACHED_UI_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.ENEST_DETACHED_UI_SCREENSHOT_DIR, `enest-detached-ui-${platform}.png`) })
-    }
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('#pin-window')).color !== getComputedStyle(document.querySelector('#dock-shell')).color)
+    assert.equal(await page.locator('#pin-window').getAttribute('aria-pressed'), 'true')
+    assert.equal(await page.locator('#pin-window').getAttribute('title'), '取消置顶')
+    assert.equal(await page.locator('#window-controls button').count(), process.platform === 'darwin' ? 0 : 3)
+    if (process.env.ENEST_DETACHED_UI_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.ENEST_DETACHED_UI_SCREENSHOT_DIR, `enest-detached-ui-${process.platform}.png`) })
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(360, 240))
     const geometry = await page.evaluate(() => ({ width: innerWidth,
       buttons: [...document.querySelectorAll('header button')].filter(button => !button.hidden).map(button => ({

@@ -47,7 +47,7 @@ function browserPreview(): Plugin {
 
 /** Sandboxed windows only support a self-contained CommonJS preload. */
 function sandboxedPreloads(production: boolean): Plugin {
-  const entries = ['shellPreload', 'quickPreload', 'railPreload', 'dockPreload', 'pluginPreload', 'backgroundPreload', 'auxiliaryPreload', 'detachedPluginPreload', 'installPreload', 'notificationPreload', 'homePreload', 'modalPreload', 'themeChromePreload', 'panelPreload', 'regionPreload']
+  const entries = ['shellPreload', 'quickPreload', 'railPreload', 'dockPreload', 'pluginPreload', 'backgroundPreload', 'auxiliaryPreload', 'detachedPluginPreload', 'installPreload', 'notificationPreload', 'homePreload', 'modalPreload', 'themeChromePreload']
   return {
     name: 'enest:sandboxed-preloads',
     async generateBundle(_options, bundle) {
@@ -146,9 +146,7 @@ export default defineConfig(({ mode }) => {
           'detached-plugin': r('src/renderer/detached-plugin.html'),
           'notification-overlay': r('src/renderer/notification-overlay.html'),
           'home': r('src/renderer/home.html'),
-          'modal-overlay': r('src/renderer/modal-overlay.html'),
-          'panel': r('src/renderer/panel.html'),
-          'region-overlay': r('src/renderer/region-overlay.html')
+          'modal-overlay': r('src/renderer/modal-overlay.html')
         }
       }
     }

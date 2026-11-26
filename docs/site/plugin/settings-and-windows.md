@@ -169,7 +169,7 @@ window.addEventListener('pagehide', off, { once: true })
 
 | 公开 API | 语义 |
 |---|---|
-| `getLaunchMode()` / `onModeChange(cb)` | 当前 `quick` / `shell` / `panel` 布局；仅实际布局变化才推送，不从 URL 或窗口大小推断当前位置 |
+| `getLaunchMode()` / `onModeChange(cb)` | 当前 `quick` / `shell` 布局；仅实际布局变化才推送，不从 URL 或窗口大小推断当前位置 |
 | `ui.openInShell()` | 将本插件现有 View 固定到主窗口，不新建实例、不重载文档或重放业务请求 |
 | `ui.focus()` / `ui.focusSearch()` | 聚焦当前插件，或返回 Quick 的全局搜索 |
 | `ui.dismissQuick()` | 仅当前 Quick 挂载者可收起小窗；不等同销毁插件，没有 `quick.hide()` |
@@ -177,15 +177,15 @@ window.addEventListener('pagehide', off, { once: true })
 | `quickInput.configure/release` | 当前实例受限接管顶部输入，隐藏、迁移、返回和销毁时释放 |
 | `ui.resize(...)` / `ui.setHeight(...)` | 兼容尺寸建议，校验正有限数；成功不意味着改变 Quick 或用户窗口的尺寸 |
 
-Quick、桌面与组件布局共用页面状态、会话、编辑器 model。使用 `ResizeObserver` 和实际内容区尺寸适配，长内容在插件内部滚动；需要更多空间时提供 `ui.openInShell()` 按钮，宿主将原 View 移到主窗，再按 `views` 选择 shell 或默认布局。不要根据某个固定宽度反推模式。
+Quick 和主窗口共用页面状态、会话和编辑器 model。使用 `ResizeObserver` 和实际内容区尺寸适配，长内容在插件内部滚动；需要更多空间时提供 `ui.openInShell()` 按钮，宿主将原 View 移到主窗，再按 `views` 选择 shell 或默认布局。不要根据某个固定宽度反推模式。
 
 独立插件窗口是宿主的挂载位置，不是另一种 `PluginLaunchMode`；拖出时保留原布局。拖出、收回、窗口最小化/最大化、置顶和几何历史由可信原生标题栏控制；插件页面不获得宿主内部 `PluginWindowsApi`。这样可保证同一个 View、generation、runtime scope 在迁移中保持归属，权限对话框跟随实际容器。下节的包内辅助页是另一种受限资源，不是任意控制主窗口或独立插件容器的接口。
 
-自由面板是宿主挂载位置；只有 `views.layouts` 包含 panel 的插件才可加入，并使用其专门的 panel 布局；未声明的插件不出现在组件选择器，也不能拖入。插件保留普通 `enest` API，不获得 `enestPanel`。组件的移动、缩放、拖动预览、对齐线、显示器恢复和布局持久化由宿主处理；用户直接拖动边缘移动、拖动四角缩放，无需切换编辑模式。插件只适配实际内容区并自绘内容，见[自由面板](panels.md)。切换挂载位置不一定改变 `PluginLaunchMode`，不能依赖每次迁移都收到 `onModeChange`。
+自由画布和自由桌面是两个独立、可选的业务插件，不是主题模块或普通插件的第三种视图。它们只实现各自包内的组件；宿主不嵌入其他插件作为组件，也不根据画出的区域执行代码。
 
-启动请求只有 quick/shell 目标（`PluginLaunchTarget`）；`views.default` 仅在请求布局未适配时使用，不覆盖已适配请求。Quick、快捷键与 Workspace 打开经统一启动器按最终布局选择位置：quick 进入 Quick，其余进入主窗；请求未适配且最终回退 panel 时，才在主窗显示 panel，不自动创建自由面板。Workspace 目录、详情和首页搜索显式请求 shell；宿主主窗普通打开（`ShellOpenPlugin`）则是另一条路径，回退 quick 布局也留在主窗。
+Quick、快捷键和 Workspace 通过统一启动器解析目标：未适配请求的布局才回退到 `views.default`。普通 Quick 再次打开已独立的窗口时原地聚焦；显式目标可以移动原实例，不重新建立业务状态。
 
-已有面板组件或独立窗口从普通 Quick 搜索（未指定显式目标）或 `ShellOpenPlugin` 打开时原地聚焦；Workspace 打开、显式设置入口、快捷键目标与迁移动作可以移动现有实例。固定/拖入等迁移遵守指定位置，不因布局回退改换目标。不要为实现“展开”关闭当前组件再新建一个插件。完整入口决策见[UI 集成标准](ui-standard.md#三种布局与挂载位置)。
+已有独立窗口从普通 Quick 搜索（未指定显式目标）或 `ShellOpenPlugin` 打开时原地聚焦；Workspace 打开、显式设置入口、快捷键目标与迁移动作可以移动现有实例。固定/拖入等迁移遵守指定位置，不因布局回退改换目标。不要为实现“展开”关闭当前组件再新建一个插件。完整入口决策见[UI 集成标准](ui-standard.md#布局与挂载位置)。
 
 插件自绘弹层必须放在自己的文档内。原生 `WebContentsView` 在壳 renderer 之上，不能依靠壳 CSS `z-index` 盖住插件。
 

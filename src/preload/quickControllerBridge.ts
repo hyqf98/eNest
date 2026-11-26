@@ -8,6 +8,7 @@ import type { QuickCommandKind, QuickInputContextRequest, QuickInputContextResul
 import type { Unsubscribe } from '@shared/types/pluginApi'
 
 export const quickControllerBridge = {
+  searchFiles: request => ipcRenderer.invoke(IpcChannels.QuickFiles, request),
   getAppearance: () => ipcRenderer.invoke(IpcChannels.ShellGetAppearance) as Promise<AppearanceSnapshot>,
   readCustomFont: (fileName: string) =>
     ipcRenderer.invoke(IpcChannels.ShellReadCustomFont, fileName) as Promise<{
@@ -43,6 +44,7 @@ export const quickControllerBridge = {
   quickInput: (message?: QuickInputMessage) => ipcRenderer.invoke(IpcChannels.QuickInput, message),
   quickInputContext: (request: QuickInputContextRequest) => ipcRenderer.invoke(IpcChannels.QuickInputContext, request) as Promise<QuickInputContextResult>,
   quickGetTheme: () => ipcRenderer.invoke(IpcChannels.QuickThemeGetConfig),
+  quickGetUpdateVersion: () => ipcRenderer.invoke(IpcChannels.QuickGetUpdateVersion),
   quickAuthorizeTheme: key => ipcRenderer.invoke(IpcChannels.QuickThemeAuthorize, key),
   quickProviderState: request => ipcRenderer.invoke(IpcChannels.QuickProviderState, request)
 } satisfies Pick<NativeShellApi, typeof QUICK_HOST_METHODS[number]>

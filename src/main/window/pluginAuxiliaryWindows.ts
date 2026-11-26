@@ -9,9 +9,10 @@ import { resolvePluginFile } from '@main/plugin/pluginPaths'
 import { registerPluginProtocolForSession } from '@main/plugin/pluginProtocol'
 import { permissionService } from '@main/plugin/PermissionService'
 import { resolveThemeTokens, themeTokensToInjectScript } from '@main/theme/resolveThemeCss'
-import { captureDisplaySource, resolveCaptureDisplay } from '@main/screen/screenService'
+import { assertCaptureDisplayCurrent, captureDisplaySource, resolveCaptureDisplay } from '@main/screen/screenService'
 import { resolvePreload } from '@main/window/createShellWindow'
 import { resolveWindowIcon } from './applicationIcon'
+import { isWaylandWindowSystem } from './linuxWindowSystem'
 import { assertInteractive, assertInteractionEpoch, getInteractionEpoch, isNonInteractive, isResidentActivation, grantAuxiliaryInteraction } from '@main/plugin/pluginInteractionPolicy'
 
 interface Surface {
@@ -138,8 +139,11 @@ function fromEvent(event: IpcMainInvokeEvent): Surface {
     || event.senderFrame !== event.sender.mainFrame || event.senderFrame?.url !== surface.url) throw new Error('Retired or foreign auxiliary sender')
   return surface
 }
+function viewportBounds(surface: Surface): Electron.Rectangle | undefined {
+  return isWaylandWindowSystem() ? undefined : surface.win!.getContentBounds()
+}
 function windowState(surface: Surface): AuxiliaryWindowState {
-  return { bounds: surface.win!.getBounds(), display: surface.display, interaction: surface.interaction }
+  return { bounds: surface.win!.getBounds(), viewportBounds: viewportBounds(surface), display: surface.display, interaction: surface.interaction }
 }
 function publishGeometry(surface: Surface): void {
   clearTimeout(surface.geometryTimer)
@@ -177,7 +181,7 @@ export function registerAuxiliaryHandlers(): void {
     rate(surface, 0)
     if (surface.contextRead) throw new Error('Auxiliary context was already consumed')
     surface.contextRead = true
-    const result: AuxiliaryContext = { windowId: surface.id, data: surface.initial, display: surface.display,
+    const result: AuxiliaryContext = { windowId: surface.id, data: surface.initial, display: surface.display, viewportBounds: viewportBounds(surface),
       ...(surface.capture ? { capture: { withAudio: surface.capture.withAudio } } : {}) }
     surface.initial = undefined
     return result
@@ -242,6 +246,7 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
   try {
     if (!await resolvePluginFile(root, input.entry, summary.devSource === true)) throw new Error('Auxiliary entry not found or unsafe')
     if (!current(surface)) throw new Error('Auxiliary owner changed')
+    if (surface.placement === 'display' || surface.capture) assertCaptureDisplayCurrent(display)
     if (!passiveRestore()) assertInteractionEpoch(scope, interactionEpoch)
     assertOpen()
     if (parent && !current(parent)) throw new Error('Auxiliary parent retired')
@@ -288,7 +293,7 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
     // 不会派发给页面。悬浮球/工具栏这类 surface 用 showInactive 显示（不抢前台焦点），
     // 少了这一项第一次点击就"没反应"，用户必须先点一下激活、再点一次才生效。
     const windowOptions = {
-      ...(fullscreen ? display.bounds : { width, height, x: Math.max(area.x, Math.min(area.x + area.width - width, finite(requested.x, area.x + (area.width - width) / 2))), y: Math.max(area.y, Math.min(area.y + area.height - height, finite(requested.y, area.y + 80))) }),
+      ...(fullscreen ? { ...display.bounds, roundedCorners: false, ...(process.platform === 'darwin' ? { enableLargerThanScreen: true } : {}) } : { width, height, x: Math.max(area.x, Math.min(area.x + area.width - width, finite(requested.x, area.x + (area.width - width) / 2))), y: Math.max(area.y, Math.min(area.y + area.height - height, finite(requested.y, area.y + 80))) }),
       title: String(input.title ?? '').slice(0, 200), frame: false, transparent: input.transparent === true,
       resizable: !fullscreen && input.resizable === true, movable: !fullscreen && input.movable !== false,
       fullscreenable: false, skipTaskbar: true, alwaysOnTop: input.alwaysOnTop === true, hasShadow: false, show: false,
@@ -329,10 +334,13 @@ export async function openAuxiliaryWindow(pluginId: string, input: AuxiliaryOpen
     })
     if (input.alwaysOnTop) win.setAlwaysOnTop(true, 'screen-saver')
     if (process.platform === 'darwin') win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    if (fullscreen) win.setBounds(display.bounds)
     win.on('move', () => publishGeometry(surface))
     win.on('resize', () => publishGeometry(surface))
-    const displayChanged = (): void => {
+    const displayChanged = (_event: Electron.Event, changedDisplay: Electron.Display, metrics?: string[]): void => {
       if (!current(surface) || win.isDestroyed()) return
+      if ((fullscreen || surface.capture) && changedDisplay.id !== surface.display.id) return
+      if (metrics?.every(metric => metric === 'workArea') && (fullscreen || surface.capture)) return
       const nextDisplay = screen.getAllDisplays().find(item => item.id === surface.display.id) ?? screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
       if (surface.capture) { close(surface); return }
       // A changed screen must never leave a stale full-screen mouse interceptor behind.

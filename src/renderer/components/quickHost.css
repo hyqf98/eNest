@@ -4,7 +4,14 @@
 :root[data-theme][data-surface='quick'],
 :root[data-theme][data-surface='quick'] body { background: transparent; border-radius: 0; overflow: hidden; }
 :root[data-surface='quick'] #root { height: 100%; }
-.quick-host { position: relative; width: 100%; height: 100%; }
+.quick-host {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  clip-path: inset(0 round var(--quick-radius));
+  color-scheme: light;
+}
+:root[data-theme='dark'] .quick-host { color-scheme: dark; }
 .quick-default-provider { height: 100%; }
 .quick-host .quick-default-provider[hidden] { display: none; }
 .quick-host-native-bar { position: absolute; z-index: 5; inset: 0 0 auto; height: var(--quick-bar-h); pointer-events: none; }

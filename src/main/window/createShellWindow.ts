@@ -9,7 +9,7 @@ import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
 import { join } from 'node:path'
 import {
   app,
-  BaseWindow,
+  type BaseWindow,
   WebContentsView,
   type Rectangle,
   type WebContents
@@ -23,14 +23,14 @@ import { resolveThemeTokens } from '@main/theme/resolveThemeCss'
 import { markStartupPhase } from '@main/logs/startupTiming'
 import { logWarn } from '@main/logs/logService'
 import { resolveWindowIcon } from './applicationIcon'
+import { createDesktopWindow, setDesktopWindowBackground } from './desktopWindowFrame'
 
 let mainWindow: BaseWindow | null = null
 let shellView: WebContentsView | null = null
 let pendingDockShow: Promise<void> | null = null
 
 /**
- * 主窗口底色必须跟随主题：DOM 自带圆角，圆角外露出的就是窗口 background。
- * 固定深色会让浅色主题的四个角出现黑边。
+ * 原生窗口持有外轮廓，子视图加载、切换或重绘时露出的底色仍须跟随主题。
  */
 function resolveWindowBackgroundColor(): string {
   const { appearance, tokens } = resolveThemeTokens('auto')
@@ -43,7 +43,7 @@ function resolveWindowBackgroundColor(): string {
 /** 主题/外观变更时同步窗口底色，避免圆角外露出上一套主题的颜色。 */
 export function syncShellWindowBackground(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
-  try { mainWindow.setBackgroundColor(resolveWindowBackgroundColor()) }
+  try { setDesktopWindowBackground(mainWindow, resolveWindowBackgroundColor()) }
   catch { /* 窗口正在销毁时忽略 */ }
 }
 
@@ -75,33 +75,6 @@ export function keepDockIconVisible(): boolean {
   } catch { return false }
 }
 
-/**
- * macOS 上把系统红绿灯要回来，替掉渲染层自绘的那一组。
- *
- * 自绘方案在这里是走不通的，原因在 Electron 的命中测试实现里：
- * `native_window.cc` 的 `NonClientHitTest` 按**注册顺序**遍历所有
- * DraggableRegionProvider 并返回第一个命中（`if (hit != HTNOWHERE) return hit`），
- * 不看视图叠放次序。主壳标题栏带 `-webkit-app-region: drag`，于是那条 36px 横带
- * 永远先返回 HTCAPTION。官方文档说明 "draggable areas ignore all pointer events"，
- * 所以哪怕首页视图盖在最上层，落在该横带里的自绘按钮也收不到 hover / click。
- *
- * 官方给的正解是 `frame: false` + `setWindowButtonVisibility(true)`
- * （等价于 `titleBarStyle: 'hidden'`）：系统红绿灯画在所有内容视图之上，
- * 点击由窗口直接处理，不经过任何 renderer，也就不受拖拽区影响。
- */
-function enableNativeWindowButtons(win: BaseWindow): void {
-  if (process.platform !== 'darwin') return
-  try {
-    win.setWindowButtonVisibility(true)
-    /*
-     * 位置对齐主壳标题栏：36px 高、左内距 14px，12px 圆点居中 → y = (36-12)/2 = 12。
-     * 横向沿用系统的三钮间距（12px 点 + 8px 间隙），起点取 20px：
-     * 比左内距稍进一点，避开窗口 12px 圆角，视觉上和原来那组 DOM 按钮同一位置。
-     */
-    win.setWindowButtonPosition({ x: 20, y: 12 })
-  } catch { /* 窗口可能在创建阶段即被销毁 */ }
-}
-
 function loadRenderer(view: WebContentsView): void {
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (devUrl) {
@@ -122,22 +95,18 @@ function applyShellBounds(win: BaseWindow, view: WebContentsView): void {
 /** 创建无边框圆角壳子主窗口并挂载 shell WebContentsView，窗口就绪后显示 */
 export function createShellWindow(): BaseWindow {
   const restored = readMainWindowState()
-  const win = new BaseWindow({
+  const win = createDesktopWindow({
     width: 1200,
     height: 800,
     ...restored?.bounds,
     minWidth: 900,
     minHeight: 600,
     show: false,
-    frame: false,
-    roundedCorners: true,
-    hasShadow: true,
     backgroundColor: resolveWindowBackgroundColor(),
     icon: resolveWindowIcon(),
     title: APP_NAME
   })
   win.once('show', () => markStartupPhase('shell-window-shown'))
-  enableNativeWindowButtons(win)
 
   const view = new WebContentsView({
     webPreferences: {
@@ -183,8 +152,7 @@ export function createShellWindow(): BaseWindow {
     if (win.isDestroyed()) return
     markStartupPhase('shell-did-finish-load')
     if (restored?.maximized) win.maximize()
-    if (restored?.minimized) { win.showInactive(); win.minimize() }
-    else win.show()
+    win.show()
     trackMainWindowState(win)
   })
 
@@ -232,9 +200,13 @@ export function getPluginLeftInset(): number {
 let pluginTopInset = 0
 
 export function setPluginTopInset(px: number): void {
-  pluginTopInset = Number.isFinite(px)
+  const next = Number.isFinite(px)
     ? Math.min(TITLEBAR_HEIGHT - TITLEBAR_REVEAL_HEIGHT, Math.max(0, Math.round(px)))
     : 0
+  if (process.platform === 'darwin' && (next === 0) !== (pluginTopInset === 0) && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setWindowButtonVisibility(next === 0)
+  }
+  pluginTopInset = next
 }
 
 export function getPluginTopInset(): number {
@@ -277,6 +249,10 @@ export function setQuickEventSink(fn: ((payload: ShellEventPayload) => void) | n
   quickEventSink = fn
 }
 
+export function sendQuickEvent(payload: ShellEventPayload): void {
+  try { quickEventSink?.(payload) } catch { /* Quick wc 可能正在销毁 */ }
+}
+
 /**
  * 向壳子渲染进程推送 shell:event 事件，窗口已销毁时静默忽略。
  * Quick 插件态、目录与共享外观额外转发给 Quick 小窗 wc。
@@ -285,9 +261,6 @@ let detachedAppearanceSink: (() => void) | null = null
 export function setDetachedAppearanceSink(sink: (() => void) | null): void { detachedAppearanceSink = sink }
 let notificationAppearanceSink: (() => void) | null = null
 export function setNotificationAppearanceSink(sink: () => void): void { notificationAppearanceSink = sink }
-/** 面板 chrome 独立文档：主题/外观变化后重读 token 与材质。 */
-let panelAppearanceSink: (() => void) | null = null
-export function setPanelAppearanceSink(sink: (() => void) | null): void { panelAppearanceSink = sink }
 const appearanceSettings = new Set(['locale', 'animationLevel', 'fontFamily', 'fontFamilyEn', 'fontSizeScale', 'customFonts'])
 
 let installEventSink: ((payload: ShellEventPayload) => void) | null = null
@@ -304,7 +277,6 @@ export function sendShellEvent(payload: ShellEventPayload): void {
   if (payload.type === 'appearance-changed' || payload.type === 'theme-changed' || payload.type === 'theme-packs-changed' || payload.type === 'settings-changed' && payload.generalKeys.some(key => appearanceSettings.has(key))) {
     try { detachedAppearanceSink?.() } catch { /* independent chrome may be retiring */ }
     try { notificationAppearanceSink?.() } catch { /* notifications may be retiring */ }
-    try { panelAppearanceSink?.() } catch { /* panel chrome may be retiring */ }
     syncShellWindowBackground()
   }
   const wc = getShellWebContents()
@@ -324,10 +296,6 @@ export function sendShellEvent(payload: ShellEventPayload): void {
     payload.type === 'appearance-changed' ||
     payload.type === 'settings-changed'
   ) {
-    try {
-      quickEventSink?.(payload)
-    } catch {
-      /* Quick wc 可能正在销毁 */
-    }
+    sendQuickEvent(payload)
   }
 }

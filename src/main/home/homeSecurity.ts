@@ -12,7 +12,7 @@ export function isInsideDirectory(root: string, candidate: string): boolean {
 }
 
 /** The URL names a public manifest slot, never a caller-selected filesystem path. */
-export function homeCatalogResourceUrl(pluginId: string, kind: 'icon' | 'readme' | 'screenshot' | 'panel-preview', index?: number): string {
+export function homeCatalogResourceUrl(pluginId: string, kind: 'icon' | 'readme' | 'screenshot', index?: number): string {
   const suffix = kind === 'screenshot' ? `screenshot/${index ?? 0}` : kind
   return `enest-home://catalog/${encodeURIComponent(pluginId)}/${suffix}`
 }

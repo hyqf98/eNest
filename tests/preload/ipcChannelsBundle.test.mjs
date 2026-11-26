@@ -44,13 +44,13 @@ test('sandbox preloads access statically named channels instead of retaining the
   }
 })
 
-test('a two-channel sandbox preload stays one small CJS chunk with no unused channel catalog', async () => {
+test('a limited sandbox preload stays one small CJS chunk with no unused channel catalog', async () => {
   const result = await build({
     configFile: false, publicDir: false, logLevel: 'silent',
     resolve: { alias: { '@shared': resolve(root, 'src/shared') } },
     build: {
       write: false, minify: 'oxc', target: 'node22',
-      lib: { entry: resolve(root, 'src/preload/regionPreload.ts'), formats: ['cjs'], fileName: () => 'regionPreload.cjs' },
+      lib: { entry: resolve(root, 'src/preload/notificationPreload.ts'), formats: ['cjs'], fileName: () => 'notificationPreload.cjs' },
       rolldownOptions: { external: ['electron'], output: { codeSplitting: false } },
     },
   })
@@ -58,7 +58,7 @@ test('a two-channel sandbox preload stays one small CJS chunk with no unused cha
   assert.equal(chunks.length, 1)
   const code = chunks[0].code
   assert.ok(Buffer.byteLength(code) < 1_024, 'unused IPC names must not inflate tiny sandbox bridges')
-  assert.match(code, /panel-region:confirm/)
-  assert.match(code, /panel-region:cancel/)
+  assert.match(code, /notification:state/)
+  assert.match(code, /notification:dismiss/)
   assert.doesNotMatch(code, /plugin-background:request|shell:get-settings|require\(["']\.\//)
 })

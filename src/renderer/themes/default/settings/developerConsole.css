@@ -82,6 +82,13 @@
   border: 1px solid var(--border);
 }
 
+/* 登记还在但已无法加载的开发插件：图标与文字弱化、边框改虚线以示“断开”。
+   操作按钮不跟着降透明度——这一行唯一还能做的事就是移出，不能让它看起来也点不动。 */
+.dev-plugin-item.unavailable { border-style: dashed; }
+.dev-plugin-item.unavailable .plugin-icon,
+.dev-plugin-item.unavailable .dev-plugin-meta { opacity: .5; }
+.dev-plugin-item.unavailable .dev-plugin-name { font-weight: 500; }
+
 .dev-plugin-ico {
   width: 28px;
   height: 28px;

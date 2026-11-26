@@ -22,6 +22,8 @@ files:
   # node-gyp's local Python symlinks are build tools, not runtime dependencies.
   - '!**/node_modules/**/build/node_gyp_bins{,/**/*}'
   - '!**/node_modules/json-schema-traverse/spec{,/**/*}'
+  - '!**/node_modules/zod/src{,/**/*}'
+  - '!**/node_modules/**/*.d.{cts,mts}'
   - '!**/*.map'
 
 asar: true
@@ -100,6 +102,14 @@ fileAssociations:
     name: "日志文件"
     role: "Viewer"
     mimeType: "text/plain"
+  - ext: "sql"
+    name: "SQL 脚本"
+    role: "Editor"
+    mimeType: "application/sql"
+  - ext: "csv"
+    name: "CSV 文件"
+    role: "Editor"
+    mimeType: "text/csv"
 
 mac:
   # macOS .lproj 使用下划线；26.x 同时裁剪 app 与 Framework 中的语言包。

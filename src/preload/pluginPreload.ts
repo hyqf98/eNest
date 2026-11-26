@@ -37,6 +37,7 @@ import type {
   Unsubscribe,
   EnestPluginApi
 } from '@shared/types/pluginApi'
+import type { LauncherTarget } from '@shared/types/pluginApi'
 import { call, enterCodeFromQuery, pluginId } from './pluginRpc'
 import { bindPluginMcpBridge, registerMcpHandlers } from './pluginMcpBridge'
 import { bindPluginActivationBridge, getActivationContext, registerActivationHandlers } from './pluginActivationBridge'
@@ -376,6 +377,15 @@ const api: EnestPluginApi = {
     ports: () => call<SysPortInfo[]>('sys.ports'),
     kill: (pid: number, opts?: { signal?: 'TERM' | 'KILL' | 'INT'; confirmed?: boolean }) =>
       call<boolean>('sys.kill', [pid, opts?.signal ?? 'TERM', opts?.confirmed === true])
+  },
+  launcher: {
+    authorizeSession: () => (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive ? call<boolean>('launcher.authorizeSession', []) : Promise.resolve(false),
+    endSession: () => call<void>('launcher.endSession', []),
+    pickTarget: () => (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive ? call<LauncherTarget | null>('launcher.pickTarget', []) : Promise.resolve(null),
+    showQuick: () => call<boolean>('launcher.showQuick', []),
+    showWorkspace: () => call<boolean>('launcher.showWorkspace', []),
+    activateTarget: (id: string) => call<boolean>('launcher.activateTarget', [id]),
+    forgetTarget: (id: string) => call<void>('launcher.forgetTarget', [id])
   },
   shell: {
     saveFile: input => call('shell.saveFile', [input]),

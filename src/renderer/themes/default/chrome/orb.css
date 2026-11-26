@@ -619,14 +619,36 @@ body {
   font-weight: 500;
 }
 
-/* Only classic navigation has a separate, always-visible account dock. */
 .orb-dock {
   --orb-dock-duration: 220ms;
   position: absolute;
   left: 10px;
-  bottom: 18px;
+  top: 6px;
+  display: grid;
+  justify-items: center;
+  row-gap: 9px;
   pointer-events: auto;
   z-index: 5;
+  opacity: 0;
+  transform: translateX(calc(-100% - 12px));
+  transition: transform var(--orb-dock-duration) ease-out, opacity var(--orb-dock-duration) ease;
+}
+
+.orb-dock-grip {
+  position: absolute;
+  left: 8px;
+  top: 14px;
+  width: 3px;
+  height: 24px;
+  border-radius: 2px;
+  background: var(--text-2, #666c70);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+@media (min-width: 40px) {
+  :root:hover .orb-dock, .orb-dock:has(:focus-visible) { transform: none; opacity: 1; }
+  :root:hover .orb-dock-grip, .orb-dock:has(:focus-visible) + .orb-dock-grip { opacity: 0; }
 }
 
 .orb-dock .orb-face {
@@ -652,34 +674,21 @@ body {
 .orb-account-fallback { display: grid; place-items: center; font-size: 16px; font-weight: 650; color: var(--text-2, #5c6578); }
 .orb-dock .orb-settings.active { border-color: var(--accent, #bd542b); }
 .orb-dock-caption {
-  position: absolute;
-  left: 50%;
-  bottom: -16px;
-  transform: translate(-50%, -2px);
-  padding: 1px 5px;
+  padding: 0 5px;
   border-radius: 4px;
   color: var(--text-2, #5c6578);
   background: var(--orb-face-bg);
-  font-size: 10px;
-  line-height: 13px;
+  font-size: 11px;
+  line-height: 14px;
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  transition: opacity var(--orb-dock-duration) ease, transform var(--orb-dock-duration) ease;
+  transition: opacity var(--orb-dock-duration) ease;
 }
-/*
- * 只在**悬停**和**键盘焦点**下显示。
- *
- * 这里不能写 :focus-visible：按钮被点击后会保留焦点，Chromium 对 <button> 的
- * 持久焦点仍可能判定 focus-visible，于是鼠标移开、文字还挂着不消失
- * ——就是"左下角设置的字体没有自动隐藏"。
- * 键盘用户的可达性由 orb.ts 在 focus 时判断 modality 后补 data-kbd-focus 标记。
- */
-.orb-dock .orb-settings:is(:hover, [data-kbd-focus='1']) + .orb-dock-caption {
+.orb-dock .orb-settings:is(:hover, :focus-visible) + .orb-dock-caption {
   opacity: 1;
   visibility: visible;
-  transform: translate(-50%, 0);
 }
 
 /* Low still communicates the switch, with a short fade and minimal movement. */

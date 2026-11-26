@@ -204,16 +204,21 @@ test('native capture uses exact display IDs and checks owner/consent again after
   const scopes = load('src/main/plugin/PluginRuntimeScope.ts'), scope = scopes.createRuntimeScope({ pluginId: OWNER, generation: 1, wcId: 1 })
   t.after(() => scope.dispose())
   let allowed = true, sourceIds = ['9'], enumerate
-  const crops = [], image = { isEmpty: () => false, getSize: () => ({ width: 1600, height: 1200 }), toDataURL: () => 'data:image/png;base64,fixture', crop: bounds => { crops.push(bounds); return image } }
-  const display = { id: 9, bounds: { x: 0, y: 0, width: 800, height: 600 }, size: { width: 800, height: 600 }, workArea: {}, scaleFactor: 2 }
+  const crops = [], image = { isEmpty: () => false, getScaleFactors: () => [1], getSize: () => ({ width: 1200, height: 900 }), toDataURL: () => 'data:image/png;base64,fixture', crop: bounds => { crops.push(bounds); return image } }
+  const display = { id: 9, bounds: { x: -800, y: 100, width: 800, height: 600 }, workArea: {}, scaleFactor: 2, rotation: 0 }
   const api = load('src/main/screen/screenService.ts', {
     electron: { screen: { getPrimaryDisplay: () => display, getAllDisplays: () => [display] }, desktopCapturer: { getSources: () => enumerate ? enumerate() : Promise.resolve(sourceIds.map(display_id => ({ display_id, thumbnail: image }))) } },
     '@main/plugin/PluginRuntimeScope': scopes, '@main/plugin/PermissionService': { permissionService: { isGranted: () => allowed } },
     '@main/plugin/PluginRegistry': { pluginRegistry: { getManifest: () => ({ permissions: ['screen.capture', 'screen.record'] }) } },
-    '@main/plugin/OsPermissionChecks': { checkScreenCapture: () => ({ ok: true }) }
+    '@main/plugin/OsPermissionChecks': { assertScreenCaptureAllowed() {} },
+    '@main/plugin/pluginInteractionPolicy': { interactionError: (_code, message) => new Error(message) }
   })
-  assert.equal((await api.captureScreen(OWNER, { displayId: 9, bounds: { x: -10, y: 2, width: 40, height: 50 } })).displayId, 9)
-  assert.deepEqual(crops[0], { x: 0, y: 2, width: 40, height: 50 })
+  const shot = await api.captureScreen(OWNER, { displayId: 9, bounds: { x: -10, y: 2, width: 40, height: 50 } })
+  assert.deepEqual(crops[0], { x: 0, y: 2, width: 23, height: 37 })
+  assert.deepEqual([shot.displayId, shot.width, shot.height], [9, 23, 37])
+  const full = await api.captureScreen(OWNER, { displayId: 9 })
+  assert.deepEqual([full.width, full.height], [1200, 900])
+  await assert.rejects(api.captureScreen(OWNER, { displayId: 9, bounds: { x: 1600, y: 0, width: 10, height: 10 } }), /outside display/)
   await assert.rejects(api.captureScreen(OWNER, { displayId: 7 }), /Display unavailable/)
   sourceIds = ['10']; await assert.rejects(api.captureScreen(OWNER), /unavailable/)
   const gate = deferred(); enumerate = () => gate.promise

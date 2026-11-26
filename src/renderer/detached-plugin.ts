@@ -1,6 +1,6 @@
 import type { DetachedPluginState, PluginWindowCommand } from '@shared/types/plugin-window'
 import type { QuickInputState } from '@shared/types/plugin-tools'
-import { IS_MAC } from '@shared/platform'
+import { renderWindowControls } from '@renderer/components/windowControlButtons'
 import { applyLevelToDefaults } from '@renderer/gsap/marketMotion'
 import { applyAppearanceToDom } from '@renderer/services/appearanceDom'
 import { startBackgroundEffect } from '@renderer/background/backgroundEffect'
@@ -19,7 +19,6 @@ const root = document.documentElement
 const query = new URLSearchParams(location.search)
 root.dataset.mode = query.get('mode') === 'quick' ? 'quick' : 'shell'
 root.dataset.theme = query.get('theme') === 'dark' ? 'dark' : 'light'
-root.dataset.platform = IS_MAC ? 'mac' : 'other'
 function element<T extends HTMLElement>(id: string): T {
   const result = document.getElementById(id)
   if (!result) throw new Error(`Missing detached chrome: ${id}`)
@@ -30,6 +29,7 @@ const icon = element<HTMLImageElement>('plugin-icon'), input = element<HTMLInput
 const status = element('plugin-status'), notice = element('window-notice'), grip = element('plugin-grip')
 const pin = element('pin-window'), placeholder = element('plugin-placeholder'), quickBar = element('quick-bar')
 const focusPlugin = element<HTMLButtonElement>('focus-plugin')
+const controls = element('window-controls')
 let current: DetachedPluginState | null = null
 let composing = false, disposed = false, stateVersion = 0, inputVersion = 0
 let noticeTimer: ReturnType<typeof setTimeout> | undefined
@@ -132,6 +132,11 @@ async function command(value: PluginWindowCommand): Promise<void> {
     if (result && !result.ok) showNotice(result.error || '操作未完成，请重试')
   } catch (error) { showNotice(error instanceof Error ? error.message : '操作未完成，请重试') }
 }
+function syncWindowControls(): void {
+  if (controls.lang !== root.lang) {
+    renderWindowControls(controls, root.lang, control => void command({ action: control === 'zoom' ? 'maximize' : control }))
+  }
+}
 function setInput(next: QuickInputState | null | undefined): void {
   if (!current || next && (next.pluginId !== current.pluginId || next.generation !== current.generation)) return
   inputVersion++
@@ -190,6 +195,7 @@ function applyState(state: DetachedPluginState, preserveInput = false): void {
     const scale = Math.min(1.3, Math.max(.9, appearance.fontSizeScale ?? 1))
     root.style.setProperty('--font-size-base', `${14 * scale}px`)
     root.lang = appearance.locale || 'zh-CN'
+    syncWindowControls()
     if (appearance.resolved) applyAppearanceToDom(appearance.resolved)
   }
   syncBackground()
@@ -238,7 +244,7 @@ function bindClick(id: string, value: () => PluginWindowCommand | null): void {
 }
 icon.onload = () => { icon.hidden = !icon.naturalWidth; glyph.hidden = Boolean(icon.naturalWidth) }
 icon.onerror = () => { icon.hidden = true; glyph.hidden = false }
-for (const action of ['minimize', 'maximize', 'close'] as const) bindClick(action, () => ({ action }))
+syncWindowControls()
 bindClick('retry', () => current?.status === 'error' || current?.status === 'hibernated' ? { action: 'retry' } : null)
 bindClick('focus-plugin', () => current?.status === 'ready' ? { action: 'focus-plugin' } : null)
 bindClick('activate', () => current?.status === 'lazy' ? { action: 'activate' } : null)

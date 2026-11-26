@@ -4,6 +4,7 @@ import type {
 } from '@shared/types/shortcuts'
 import type { AccountState, AccountLoginResult } from '@shared/types/account'
 import type { QuickProviderStateSnapshot } from '@shared/types/quickTheme'
+import type { FileSearchPreferences } from '@shared/types/fileSearch'
 import type { McpStatus } from '@shared/types/mcpSettings'
 /** Browser-preview-only adapter. Loaded lazily when no native preload is present. */
 import type {
@@ -79,6 +80,10 @@ export function createMockApi(): ShellApi {
   const listeners = new Set<EventCb>()
   let theme = readMockTheme()
   let settings = readMockSettings()
+  const previewFilePreferences = (): FileSearchPreferences => {
+    const stored = readMockSettings().general?.fileSearch as Partial<FileSearchPreferences> | undefined
+    return { enabled: stored?.enabled === true, roots: [], paused: false, ...(stored?.everythingPort ? { everythingPort: stored.everythingPort } : {}) }
+  }
   const openTabs = new Map<string, PluginTab & { status: 'ready' | 'hibernated' }>()
   let activeTabId: string | null = null
   let tabRevision = 0
@@ -342,7 +347,7 @@ export function createMockApi(): ShellApi {
       return { ok: true, config: next }
     },
     async getOpenWithList() {
-      return { platform: 'darwin', packaged: false, rows: [] }
+      return { platform: 'darwin', packaged: false, rows: [], entries: [] }
     },
     async setOpenWithDefault() {
       return { ok: false, error: '浏览器预览不支持系统默认应用设置' }
@@ -351,6 +356,9 @@ export function createMockApi(): ShellApi {
       return { ok: false, error: '浏览器预览不支持系统默认应用设置' }
     },
     async routeOpenWith() {
+      return { ok: false, error: '浏览器预览不支持系统默认应用设置' }
+    },
+    async setOpenWithEnabled() {
       return { ok: false, error: '浏览器预览不支持系统默认应用设置' }
     },
     async openOpenWithSystemSettings() {
@@ -516,6 +524,9 @@ export function createMockApi(): ShellApi {
     async getPluginCallTrace() {
       return []
     },
+    async listMissingDevPlugins() {
+      return []
+    },
     async getSettings() {
       settings = readMockSettings()
       return {
@@ -526,7 +537,24 @@ export function createMockApi(): ShellApi {
         }
       }
     },
+    async fileSearchPreferences(request) {
+      const preferences = previewFilePreferences()
+      if (request.operation === 'read' || request.operation === 'clear') return preferences
+      if (request.operation === 'enable') preferences.enabled = request.value
+      else if (request.operation === 'everything' && request.port === null) delete preferences.everythingPort
+      else if (request.operation === 'everything' && Number.isInteger(request.port) && request.port !== null && request.port >= 1 && request.port <= 65535) preferences.everythingPort = request.port
+      else throw new Error('Directory selection requires the desktop application')
+      settings = readMockSettings()
+      settings.general = { ...settings.general, fileSearch: preferences }; writeMockSettings(settings)
+      emit({ type: 'settings-changed', generalKeys: ['fileSearch'] })
+      return preferences
+    },
+    async searchFiles(request) {
+      if (!previewFilePreferences().enabled) return { status: 'off' }
+      return { status: request.operation === 'status' || request.operation === 'cancel' ? 'ready' : 'unavailable' }
+    },
     async setSettings(partial) {
+      if (partial.general && 'fileSearch' in partial.general) throw new Error('File search requires the native preferences API')
       if ('mcp' in partial || 'mcpToken' in partial || partial.general && ('mcp' in partial.general || 'mcpToken' in partial.general)) {
         throw new Error('MCP security settings require the dedicated native API')
       }
@@ -882,6 +910,7 @@ export function createMockApi(): ShellApi {
     },
     quickGetConfig: async () => shortcuts.quickConfig(),
     quickGetTheme: async () => null,
+    quickGetUpdateVersion: async () => null,
     async quickProviderState(request) {
       if (request.providerKey !== null) throw new Error('Browser preview has no isolated Quick provider')
       if (request.operation === 'keys') {
@@ -913,17 +942,6 @@ export function createMockApi(): ShellApi {
       return { acc: probe.accelerator, free: probe.status === 'free', ours: false, hint: probe.hint,
         ...(probe.status === 'free' ? {} : { conflict: probe }) }
     },
-    async createPanel() {
-      return { ok: false, cancelled: true, error: 'Browser preview does not support native region selection' }
-    },
-    async listPanels() {
-      return []
-    },
-    async closePanel() {
-      return { ok: false }
-    },
-    async setPanelHotkey() {
-      return { ok: false, enabled: false, hotkey: '', error: 'Browser preview has no native hotkeys' }
-    },
+    exportLegacyCanvas: async () => false,
   }
 }

@@ -43,11 +43,11 @@ const adapters = {
   '@main/window/createQuickWindow': `import { state } from 'fixture';export const getQuickWindow=()=>state.quick;export const getQuickWebContents=()=>state.quick?.webContents??null;
     export const acquireQuickInteraction=()=>{state.locks++;return()=>{state.locks--}};`,
   '@main/window/orbRailViews': `import { state } from 'fixture';export const getOrbDragSurface=()=>null;export const acquireOrbDragExpansion=()=>{state.orbLocks++;return()=>{state.orbLocks--}};`,
-  '@main/plugin/PluginRegistry': `export const pluginRegistry={get:id=>({name:'Plugin '+id})};`,
+  '@main/launcher/catalogIcons': `import {state} from 'fixture';export const getCatalogPluginIcon=async()=>state.icon;`,
   '@main/plugin/PluginRuntimeScope': `import {state} from 'fixture';export const getRuntimeScope=()=>({owner:{generation:state.generation}});`,
   '@main/plugin/PluginHost': `import {state} from 'fixture';export const pluginHost={
     getPlacement:()=>state.placement,getPlacementRevision:()=>state.revision,getQuickPlugin:()=>state.quickPlugin??null,
-    hasShellTab:id=>id==='a'||id==='b',hasWindowInteraction:()=>state.interaction,getDetachedState:id=>({pluginId:id,title:'Plugin '+id,generation:state.generation}),
+    hasShellTab:id=>id==='a'||id==='b',hasWindowInteraction:()=>state.interaction,getWindowPresentation:id=>({title:'Plugin '+id,packageIcon:'enest://plugin/'+id+'/assets/market/icon.svg'}),
     getWebContents:()=>state.pluginContents,reorderPlugin:(id,index)=>state.moves.push(['sort',id,index]),
     dockPlugin:async(id,target,index,guard)=>{await state.moveGate;if(guard&&!guard())throw Error('move cancelled');state.moves.push(['dock',id,target,index]);state.placement={kind:target};state.revision++},
     detachPlugin:async(id,point,guard)=>{await state.moveGate;if(guard&&!guard())throw Error('move cancelled');state.moves.push(['detach',id,point]);state.placement={kind:'detached',windowId:1};state.revision++}
@@ -82,6 +82,24 @@ const tabTarget={kind:'shell',axis:'x',rect:{x:0,y:0,width:700,height:36},items:
   {pluginId:'c',rect:{x:200,y:0,width:100,height:36}}
 ]}
 const settle=()=>new Promise(resolve=>setTimeout(resolve,25))
+
+test('drag preview uses the published SVG and never shows a cancelled icon read', async context => {
+  const api = await fixture(context), sender = api.state.shell.id
+  let finish
+  api.state.icon = new Promise(resolve => { finish = resolve })
+  assert.ok(api.beginPluginWindowDrag(sender, 'a'))
+  const previous = api.state.windows.at(-1).contentView.children[0].webContents
+  api.cancelPluginWindowDrag()
+  const icon = 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3"/></svg>').toString('base64')
+  api.state.icon = icon
+  assert.ok(api.beginPluginWindowDrag(sender, 'b'))
+  finish(icon)
+  await settle()
+  const html = decodeURIComponent(api.state.windows.at(-1).contentView.children[0].webContents.url)
+  assert.ok(html.includes(`src="${icon}"`))
+  assert.ok(!html.includes('enest://plugin/'))
+  assert.equal(previous.url, undefined)
+})
 
 test('detached windows are hidden prepared native top-level windows and dispose only owned chrome',async t=>{
   const api=await fixture(t),win=await api.createDetachedWindow('a','quick',{width:720,height:400},{x:-850,y:-400})

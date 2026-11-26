@@ -6,6 +6,7 @@ import { useReducedMotion } from '@renderer/hooks/useReducedMotion'
 import { backgroundAtmosphereStyle } from '@renderer/components/backgroundAtmosphere'
 import { retainBackgroundResource, type BackgroundResource } from '@renderer/background/backgroundLifetime'
 import { bindBackgroundVideoPlayback } from '@renderer/background/videoPlayback'
+import type { BackgroundReferenceSize } from '@renderer/background/backgroundEffect'
 import { DefaultBackgroundEffect } from './DefaultBackgroundEffect'
 
 function Media({ media, paused, animate, launch }: { media: BackgroundConfig; paused: boolean; animate: boolean; launch: boolean }) {
@@ -38,18 +39,19 @@ function Media({ media, paused, animate, launch }: { media: BackgroundConfig; pa
 }
 
 /** Original eNest background engine, packaged with the default theme. */
-export function DefaultThemeBackground({ appearance, paused = false, launch = false, className = 'app-bg' }: {
+export function DefaultThemeBackground({ appearance, paused = false, launch = false, className = 'app-bg', referenceSize }: {
   appearance: Pick<HomeResolvedAppearance, 'theme' | 'background' | 'animation'>
   paused?: boolean
   launch?: boolean
   className?: string
+  referenceSize?: BackgroundReferenceSize
 }) {
   const reducedMotion = useReducedMotion()
   const identity = `${appearance.theme.source}:${appearance.theme.id}:${appearance.theme.version}`
   const effect = BUILTIN_BACKGROUND_EFFECTS.find(item => item.id === appearance.background.effect)
   const media = appearance.background.media
   if (effect) return <DefaultBackgroundEffect key={identity} effect={{ ...effect, ...(effect.renderer === 'preset' ? { speed: appearance.background.speed } : {}) }}
-    level={appearance.animation.effective} continuous={appearance.animation.continuous} background={media} launch={launch} paused={paused} className={className} />
+    level={appearance.animation.effective} continuous={appearance.animation.continuous} background={media} launch={launch} paused={paused} className={className} referenceSize={referenceSize} />
   if (!media?.value || media.type === 'none') return null
   return <div key={identity} className={className} style={{ visibility: paused ? 'hidden' : undefined }} aria-hidden>
     {media.type === 'color' ? <div className="app-bg-fill" style={backgroundAtmosphereStyle(media) ?? undefined} />

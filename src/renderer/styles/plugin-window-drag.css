@@ -1,5 +1,12 @@
 .plugin-dragging, .plugin-dragging * { cursor: grabbing !important; user-select: none !important; }
 .plugin-drag-source { opacity: .4 !important; }
+.plugin-grip-icon { display: grid; place-items: center; width: 20px; height: 20px; flex: 0 0 20px; pointer-events: none; }
+.plugin-grip-icon > *, .plugin-grip-icon::after { grid-area: 1 / 1; }
+.plugin-grip-icon .plugin-icon-glyph { color: var(--text-2); font-size: .8rem; text-shadow: none; }
+.plugin-grip-icon::after { content: ''; visibility: hidden; width: 12px; height: 18px; color: var(--link, var(--accent)); background: radial-gradient(circle, currentColor 1.4px, transparent 1.7px) 0 0 / 6px 6px; }
+.plugin-grip:is(:hover, :focus-visible, :active, .plugin-drag-source) .plugin-grip-icon > * { visibility: hidden; }
+.plugin-grip:is(:hover, :focus-visible, :active, .plugin-drag-source) .plugin-grip-icon::after { visibility: visible; }
+@media (forced-colors: active) { .plugin-grip-icon::after { forced-color-adjust: none; color: ButtonText; } }
 .plugin-drag-session .tab:active, .plugin-drag-session .orb-face:active { transform: none; }
 .plugin-drop-ready { box-shadow: inset 0 0 0 1px var(--accent, #bd542b); }
 .plugin-drop-indicator { position: fixed; z-index: 2147483647; border-radius: 2px; background: var(--accent, #bd542b); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #bd542b) 16%, transparent); pointer-events: none; }

@@ -4,6 +4,7 @@ import { BACKGROUND_FRAGMENT_SHADER, BACKGROUND_VERTEX_SHADER } from './shaders'
 import type { BackgroundResource } from './backgroundLifetime'
 
 export type BackgroundEffectPreset = 'fold' | 'aurora' | 'orbit' | 'ripple' | 'tunnel'
+export type BackgroundReferenceSize = Readonly<{ width: number; height: number }>
 
 export interface BackgroundEffectOptions {
   preset: BackgroundEffectPreset
@@ -11,6 +12,7 @@ export interface BackgroundEffectOptions {
   launch?: boolean
   reducedMotion?: boolean
   continuous?: boolean
+  referenceSize?: BackgroundReferenceSize
   /** Optional declarative palette: shadow, body and highlight. No plugin code is executed. */
   colors?: readonly string[]
   speed?: number
@@ -181,8 +183,9 @@ export function startBackgroundEffect(
 
   function onPointerMove(event: PointerEvent): void {
     if (paused || !drawable || document.hidden || !focused) return
-    targetX = Math.max(-0.5, Math.min(0.5, (event.clientX - rect.left) / rect.width - 0.5))
-    targetY = Math.max(-0.5, Math.min(0.5, 0.5 - (event.clientY - rect.top) / rect.height))
+    const reference = options.referenceSize ?? rect
+    targetX = Math.max(-0.5, Math.min(0.5, (event.clientX - rect.left) / reference.width - 0.5))
+    targetY = Math.max(-0.5, Math.min(0.5, 0.5 - (event.clientY - rect.top) / reference.height))
   }
 
   function onPointerOut(event: PointerEvent): void {
@@ -212,7 +215,15 @@ export function startBackgroundEffect(
       canvas.height = height
       gl.viewport(0, 0, width, height)
     }
-    gl.uniform2f(uniforms.resolution, width, height)
+    const reference = options.referenceSize
+    if (reference) {
+      const visibleHeight = rect.height / reference.height
+      gl.uniform4f(uniforms.pixelToScene,
+        rect.width / (width * reference.height), visibleHeight / height,
+        -reference.width / (2 * reference.height), 0.5 - visibleHeight)
+    } else {
+      gl.uniform4f(uniforms.pixelToScene, 1 / height, 1 / height, -width / (2 * height), -0.5)
+    }
     if (!document.hidden) draw()
     syncActivity()
   }
@@ -245,7 +256,7 @@ export function startBackgroundEffect(
       gl.enableVertexAttribArray(position)
       gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0)
       uniforms = Object.fromEntries([
-        'resolution', 'pointer', 'time', 'opening', 'baseColor',
+        'pixelToScene', 'pointer', 'time', 'opening', 'baseColor',
         'palette0', 'palette1', 'palette2', 'customPalette', 'lightTheme',
       ].map((key) => [key, gl!.getUniformLocation(program!, key)]))
       const palette = options.colors?.slice(0, 3).map(parseThemeColor)

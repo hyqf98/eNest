@@ -20,9 +20,6 @@ type Part = 'rail' | 'dock'
 type ThemeInfo = OrbState['theme']
 
 const PART: Part = new URLSearchParams(window.location.search).get('part') === 'dock' ? 'dock' : 'rail'
-/** 显式再声明一份非窄化引用：TS 会按初始化表达式把 PART 收窄成 'rail'|'dock' 的
- *  控制流子集，导致后续 `PART === 'dock'` 被判为恒假。这里保留一份宽松引用。 */
-const IS_DOCK_PART: boolean = PART === 'dock'
 
 /** 鼠标离开后收起缓冲（hover intent），不随动画档位缩放 */
 const COLLAPSE_DELAY_MS = 260
@@ -308,6 +305,7 @@ function buildChrome(): void {
       </button>
       <span class="orb-dock-caption" id="orb-settings-hint" role="tooltip">设置</span>
     </div>
+    <span class="orb-dock-grip" aria-hidden="true"></span>
   `
 }
 
@@ -1174,29 +1172,12 @@ function bindEvents(): void {
   const blur = (): void => {
     if (expanded && !pointerWithinChrome) scheduleClose()
   }
-  const focusIn = (event: FocusEvent): void => {
+  const focusIn = (): void => {
     if (focusExitTimer != null) { window.clearTimeout(focusExitTimer); focusExitTimer = null }
     if (panelHasFocus()) cancelClose()
-    /*
-     * dock 设置钮的"设置"文字只在悬停或**键盘**聚焦时显示。
-     * 用 data-kbd-focus 标记而不是 :focus-visible：后者对 <button> 的点击后
-     * 持久焦点仍可能为真，鼠标移开文字不消失（用户报的那个问题）。
-     * 这里按 modality 判断——键盘触发的 focus 才带 :focus-visible。
-     */
-    if (IS_DOCK_PART) {
-      const target = event.target as HTMLElement | null
-      const face = target?.closest<HTMLElement>('[data-settings]')
-      // 用 setAttribute('1') 而不是 toggleAttribute：CSS 侧按 [data-kbd-focus='1']
-      // 匹配，toggleAttribute 产生的是空值属性，选择器不会命中。
-      if (face) {
-        if (face.matches(':focus-visible')) face.setAttribute('data-kbd-focus', '1')
-        else face.removeAttribute('data-kbd-focus')
-      }
-    }
   }
   const focusOut = (): void => {
     if (focusExitTimer != null) window.clearTimeout(focusExitTimer)
-    root.querySelectorAll<HTMLElement>('[data-kbd-focus]').forEach(el => el.removeAttribute('data-kbd-focus'))
     focusExitTimer = window.setTimeout(() => {
       focusExitTimer = null
       if (disposed || !expanded) return

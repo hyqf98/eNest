@@ -1,6 +1,6 @@
 import { normalizeSearchText } from '@shared/search'
 import { matchPreparedPluginTextPrefix, preparePluginTextAliases, preparePluginTextQuery } from '@shared/pluginTextInput'
-import { matchQuickSearchNames, prepareQuickSearchNames } from './nameMatching'
+import { compareQuickNameRanks, prepareQuickSearchNames, rankQuickName } from './nameMatching'
 import type { QuickNameRow, QuickNameSearchRequest, QuickNameSearchResponse } from './nameSearchTypes'
 
 const index = new Map<string, ReturnType<typeof prepareQuickSearchNames> & { kind: QuickNameRow['kind']; prefixAliases?: string[][] }>()
@@ -29,13 +29,8 @@ worker.onmessage = ({ data }) => {
     if (!row) return []
     if (data.filter && row.kind !== data.filter) return []
     const prefix = row.prefixAliases ? matchPreparedPluginTextPrefix(textQuery, row.prefixAliases) : undefined
-    if (prefix) return [{ index: position, score: 20_000 + prefix.trigger.length, keyword: prefix.trigger, title: row.title, prefix: true }]
-    const match = matchQuickSearchNames(row, query, terms)
-    let score = match.score
-    if (row.kind === 'app' && score > 0 && score < 10_000) score = Math.min(9_999, score + 300)
-    return score > 0 ? [{ index: position, score, keyword: match.keyword, title: row.title, prefix: false }] : []
-  }).sort((a, b) => Number(b.prefix) - Number(a.prefix) || (a.prefix && b.prefix ? b.score - a.score : 0)
-    || Number(preferred.has(b.index)) - Number(preferred.has(a.index))
-    || b.score - a.score || a.title.localeCompare(b.title, 'zh-CN'))
-  worker.postMessage({ id: data.id, hits: hits.slice(0, 100).map(({ index, keyword, prefix }) => ({ index, keyword, ...(prefix ? { prefix } : {}) })) })
+    const rank = rankQuickName(row, query, terms, row.kind, preferred.has(position), prefix)
+    return rank ? [{ index: position, ...rank }] : []
+  }).sort(compareQuickNameRanks)
+  worker.postMessage({ id: data.id, hits: hits.slice(0, 100).map(({ index, prefix }) => ({ index, ...(prefix ? { prefix } : {}) })) })
 }

@@ -20,10 +20,9 @@
 | 启动画面 | 同一 Profile 的声明式启动预设与允许的媒体、外观参数 | ready/路由 ACK、失败恢复与窗口可见门禁 |
 | Quick | 隔离页面的输入/结果呈现、检索排序与提供者私有偏好 | 原始粘贴载荷、真实启动、手势校验和窗口尺寸上限 |
 | Workspace / Chrome / 设置页 | 各自专用桥允许的数据呈现与动作 | 视图归属、真实导航、原生确认和安全入口 |
-| 自由面板 | 共享语义颜色、字体与动画档位 | 面板底板材质/不透明度偏好、几何、拖动与布局记录 |
 | 通知 | `notifications` 中受限的外观字段 | 内容与来源、关闭、计时、通知位置及系统权限 |
 
-主题控制外观不等于获得任意 CSS 注入、脚本执行或全量设置权限。固定的原生几何、安全表面和平台材质回退属于宿主能力；不能把它们误当作每个主题都能替换的业务 UI。自由面板的独立容器偏好详见[面板标准](panels.md)。
+主题控制外观不等于获得任意 CSS 注入、脚本执行或全量设置权限。固定的原生几何、安全表面和平台材质回退属于宿主能力；不能把它们误当作每个主题都能替换的业务 UI。
 
 ## 源码内置主题包
 
@@ -84,7 +83,13 @@ api.ready()
 window.addEventListener('pagehide', () => { offState(); offFocus() }, { once: true })
 ```
 
-`getState/onState` 提供 `QuickThemeSnapshot`，`onFocus` 请求输入框聚焦。`action` 支持 `query/composition/filter/results/select/open/expand/open-market/open-settings/refresh-apps/retry/hide/paste/input-clear/plugin-back/plugin-pin/plugin-focus/plugin-detach/layout/key`，完整参数以 SDK 的 `EnestQuickApi` 为准。结果 `id` 是当前目录有效的不透明句柄，不得持久化或用作应用路径；执行仍经过宿主校验。打开、隐藏、固定、`paste` 等动作需要当前真实鼠标或键盘输入（⌘V/⌘X 同样确认手势但不拦截按键），主题自行发送 `key` 不构成授权。`open-market` 打开桌面主窗插件市场，不在小窗加载市场。
+`getState/onState` 提供 `QuickThemeSnapshot`，`onFocus` 请求输入框聚焦。`action` 支持 `query/composition/filter/results/select/open/expand/open-market/open-settings/open-update/refresh-apps/retry/hide/paste/input-clear/plugin-back/plugin-pin/plugin-focus/plugin-detach/layout/key`，完整参数以 SDK 的 `EnestQuickApi` 为准。结果 `id` 是当前目录有效的不透明句柄，不得持久化或用作应用路径；执行仍经过宿主校验。打开、隐藏、固定、`paste` 等动作需要当前真实鼠标或键盘输入（⌘V/⌘X 同样确认手势但不拦截按键），主题自行发送 `key` 不构成授权。`open-market` 打开桌面主窗插件市场，不在小窗加载市场。
+
+`availableUpdateVersion` 是 **eNest 软件本身**已检测到的新版本号，下载中和下载完成后仍保留；为 `null` 或缺失（旧宿主）时不显示升级图标。主题可在输入框右侧显示入口，用户点击后调用 `action({ type: 'open-update' })` 打开主窗口的宿主更新对话框。读取快照不会发起联网检查；主题不接收发布说明、下载地址，也不能借此下载、安装或重启应用。
+
+插件态的 `plugin.title` 是当前插件标题。宿主拖动手柄进入插件时即使用清单图标；隔离主题收到的 `plugin.icon` 是同一图片的 data URL，可能稍后到达，不含包路径。`plugin.glyph` 只表示插件通过 `ui.setIcon` 明确设置的替代字形。图片缺失或加载失败时使用通用插件标记，不截取标题首字。
+
+要支持拖出插件，在输入条内预留一个边长为 `bounds.pluginGripSize` 的空槽，向 `layout` 附上 `pluginGrip: { x, y }`（槽左上角相对 iframe 视口的整数 CSS 像素，位置变化时重报）。宿主在槽内显示插件图标；悬停或键盘聚焦时原位显示六点，拖动可分离，点击也可分离。主题只指定位置，不能选择拖动目标或模拟手势。槽必须完整位于输入条内；省略 `pluginGrip` 的下一次 `layout` 可撤下手柄。旧宿主未提供 `pluginGripSize` 时不要留空或上报。标题仍可独立使用 `plugin-focus` 聚焦内容。
 
 快照 `input` 描述宿主保管的粘贴上下文：`{ items: QuickImageContext[], hasText: boolean }` 或 null。`items` 最多 12 项，每项只含不透明 `id`、`kind`（image/file/directory）、展示元数据与不超过 64KB 的 PNG `thumbnail`（文件/目录为内置占位图）；图片原始字节与文件真实路径不进入主题。`action({ type: 'paste' })` 请求宿主读取系统剪贴板图片/文件并入上下文，成功与否以 `ok` 为准，最新上下文在随后的 `onState` 快照 `input` 中到达（没有新内容时保持原上下文）；`action({ type: 'input-clear', id })` 移除单项，省略 `id` 清空全部，同样经快照同步。目录中 `content.type` 为 `img`/`files` 的行只在对应上下文存在时命中；不接管检索的主题沿用默认策略的同一门控。成功启动时上下文由宿主直接组装进插件 `onEnter.input`，主题不经手启动载荷。
 
@@ -100,6 +105,8 @@ const saved = await api.state.write({ schemaVersion: 1, favorites: [] }, previou
 只接受 null、布尔、有限数字、字符串、稠密数组和普通 JSON 对象；禁止 `__proto__/constructor/prototype` 键、非 JSON 值、循环和自定义实例。深度最多 20、最多 10000 个节点，持久记录含 revision 外壳不超过 128KiB。`id` 每次目录重建可能改变；`catalog[].stateKey` 是跨重建/重启稳定的不透明身份，仅供存储关联，不能用于 `open`，也无法从中还原本地路径。
 
 静态目录按原生 revision 缓存，名称、别名、已持久化启动条目变化时才更新；普通 query 变动不重建目录描述符。宿主与隔离 iframe 之间增量传递目录，但 `getState/onState` 的 V1 API 仍提供完整、可变且互相隔离的快照，主题不需要理解内部 delta 协议。内置默认 Quick 的名称/拼音/多关键词索引与默认 Workspace 使用同一 Worker 实现；仅变更的索引行重新准备，最近使用与内容匹配由默认主题自身处理，不是宿主排序策略。
+
+名称结果展示目录项的 `title`，不以命中词替换。静态功能的标题来自 `features[].title` 或[旧包回退规则](manifest.md#触发词与内容指令)。例如 `jt` 可命中「截图」，结果仍显示「截图」；同一别名命中不同功能时，各自保留标题和启动句柄。Quick 和首页的原生启动目录每项最多公开 100 个去重别名，不发布绝对路径、含控制字符或超过 256 个 UTF-16 码元的词。持久启动条目的声明上限仍是 32 个别名。只有显式触发词可消费下文，单独匹配展示名或自动派生的全拼、首字母不会改变启动参数。
 
 ### 文本触发词与启动参数
 
@@ -339,3 +346,5 @@ addEventListener('pagehide', off, { once: true })
 4. 浅深色、系统模式、字体/媒体/布局/Tab 样式同步主窗、Quick、独立窗、Orb 和主题感知插件。
 5. 自定义首页完成 ready 握手；禁用/卸载/崩溃可回到默认首页，无原生层遮挡设置/选择页。
 6. 隐藏停帧、减少动态效果、资源释放与业务草稿保留通过真实应用测试。
+
+自由画布与自由桌面不属于主题标准。主题可提供[宿主文件检索入口](home.md#文件检索入口)，但不会收到系统文件结果。

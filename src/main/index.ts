@@ -29,7 +29,7 @@ import { markStartupPhase } from '@main/logs/startupTiming'
 import { kvStore } from '@main/db/sqliteService'
 import { flushAll } from '@main/db/pluginStorage'
 import { themePackRegistry } from '@main/theme/themePacks'
-import { createShellWindow, setPanelAppearanceSink, getMainWindow, getShellWebContents, keepDockIconVisible } from '@main/window/createShellWindow'
+import { createShellWindow, getMainWindow, getShellWebContents, keepDockIconVisible } from '@main/window/createShellWindow'
 import { flushMainWindowState } from '@main/window/mainWindowState'
 import {
   destroyOrbRailViews,
@@ -80,24 +80,12 @@ import {
   prewarmHomeSurface
 } from '@main/home/HomeSurfaceManager'
 import { registerHomeIpc } from '@main/home/homeIpc'
+import { resetFileSearch } from '@main/launcher/fileSearchService'
 import { initDeadlineTasks, shutdownDeadlineTasks, shutdownDeadlineTasksSync } from '@main/timer/deadlineTaskService'
 import { permissionService } from '@main/plugin/PermissionService'
 import { registerThemeSettingsHandlers } from '@main/theme/themeSettingsSurface'
-import { registerPanelHandlers } from '@main/ipc/panelHandlers'
 import { registerMcpHandlers } from '@main/ipc/mcpHandlers'
 import { mcpService } from '@main/mcp/mcpService'
-import { registerRegionSurfaceHandlers } from '@main/panel/regionSelection'
-import {
-  applyAppearanceToPanels,
-  disposePanels,
-  preparePanelShutdown,
-  refreshPanelThemes,
-  registerPanelWindowHost,
-  restorePanels,
-  syncFreePanelSetting
-} from '@main/panel/PanelManager'
-import { isFreePanelEnabled } from '@main/panel/panelStore'
-import { applyPanelHotkeys, disposePanelHotkeys } from '@main/hotkey/panelHotkey'
 
 registerSchemesAsPrivileged()
 
@@ -164,7 +152,6 @@ function handleFatalSignal(sig: NodeJS.Signals | string): void {
     /* ignore */
   }
   try {
-    preparePanelShutdown()
     shutdownDeadlineTasksSync()
     pluginHost.prepareSessionShutdown()
     flushAll()
@@ -416,14 +403,6 @@ void app.whenReady().then(async () => {
     registerAuxiliaryHandlers()
     registerThemeSettingsHandlers()
     registerHomeIpc(homeSurfaceManager)
-    registerPanelHandlers()
-    registerRegionSurfaceHandlers()
-    registerPanelWindowHost()
-    // 主题/外观变化 → 面板 chrome 重读 token 与材质（独立文档不随主壳 data-* 联动）。
-    setPanelAppearanceSink(() => {
-      refreshPanelThemes()
-      applyAppearanceToPanels()
-    })
     logInfo('main', 'ipc ok')
     void mcpService.initialize().catch(error => logWarn('mcp', `initialization failed: ${String(error)}`))
     // 监控开关已持久化：启动即按上次状态生效，关闭时不再空跑采样循环。
@@ -442,13 +421,6 @@ void app.whenReady().then(async () => {
 
     startPluginBackgrounds()
     logInfo('main', 'plugin backgrounds ready (lazy)')
-
-    // 自由面板：功能开启时先建窗口（只画占位条），再按并发上限逐个冷启动组件插件。
-    if (isFreePanelEnabled()) {
-      void restorePanels().catch(error => logWarn('panel', `restore failed: ${String(error)}`))
-    }
-    // 面板快捷键（功能关闭时内部自行不注册）。
-    applyPanelHotkeys()
 
     initUpdateService()
     logInfo('main', 'update service ok')
@@ -485,6 +457,7 @@ app.on('window-all-closed', () => {
 
 // Electron 文档推荐：退出前注销全部全局快捷键；同时回收壳子拉起的插件 dev server
 app.on('will-quit', () => {
+  resetFileSearch()
   releaseAllGlobalShortcutsSync()
   stopAllDevServers()
 })
@@ -496,7 +469,6 @@ app.on('before-quit', (event) => {
   quitPhase = 'draining'
   beginShutdown('before-quit')
   pluginHost.prepareSessionShutdown()
-  preparePanelShutdown()
   cancelPluginWindowDrag()
   // Plugins receive the same bounded lifecycle grace; no business-specific shutdown services run in main.
   const forceTimer = setTimeout(() => {
@@ -508,7 +480,6 @@ app.on('before-quit', (event) => {
   forceTimer.unref?.()
 
   disposeQuickHotkeys()
-  disposePanelHotkeys()
   // 每插件启动热键显式簿记释放（releaseAllGlobalShortcutsSync 兜底仍生效）
   releaseAllPluginLaunchHotkeys()
   releaseAllGlobalShortcutsSync()
@@ -530,8 +501,6 @@ app.on('before-quit', (event) => {
     .then(() => {
       destroyQuickWindow()
       destroyAllDetachedWindows()
-      // 面板内插件已由 pluginHost.destroyAll 释放，这里只销毁面板窗口本身。
-      disposePanels()
       // 托盘最后销毁：清理链跑完之前，用户仍能从这里看到应用还在。
       destroyTray()
     })

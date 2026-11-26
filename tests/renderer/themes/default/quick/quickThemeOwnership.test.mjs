@@ -39,7 +39,7 @@ test('default renderer owns name, pinyin, fullwidth, preference and recent polic
   assert.deepEqual(plain(rank(catalog, '', 'action').map(item => item.id)), ['settings'])
   const preferred = [{ id: 'exact', kind: 'plugin', title: 'edit', aliases: ['edit'] },
     { id: 'preference', kind: 'app', title: 'Editor', aliases: ['Editor'], preferred: true }]
-  assert.equal(rank(preferred, 'edit')[0].id, 'preference')
+  assert.equal(rank(preferred, 'edit')[0].id, 'exact')
 })
 
 test('content matching executes in a renderer worker and default policy groups every source', async () => {
@@ -99,29 +99,41 @@ test('theme result projections reject stale, unknown and duplicate capabilities'
 
 test('main supplies a neutral directory and generic background results, never default search policy', async () => {
   const manifest = { id: 'fixture.provider', name: 'Fixture', description: 'A fixture', icon: 'icon.png',
-    features: [{ code: 'text', cmds: ['Fixture', { type: 'regex', label: 'Email', match: '/@/' }] }] }
+    features: [{ code: 'text', title: '截图', cmds: ['jt', 'screenshot', { type: 'regex', label: 'Email', match: '/@/' }] },
+      { code: 'old', cmds: ['b64', '/用户/目录', 'Base64 编解码'] }, { code: 'content', title: '只在粘贴时出现', cmds: [{ type: 'img', label: '压缩图片' }] },
+      { code: 'internal', title: '内部入口', cmds: [], activation: { type: 'command' } }] }
   let enabled = true
   const fixture = { calls: [], apps: { apps: [{ name: 'Fixture App', path: '/fixture/App.app' }] },
     registry: { getInstalledRevision: () => 1, getInstalledDescriptors: () => enabled ? [{ id: manifest.id, enabled, manifest }] : [],
-      getManifest: id => id === manifest.id ? manifest : undefined, isEnabled: id => id === manifest.id && enabled } }
+      getManifest: id => id === manifest.id ? manifest : undefined, isEnabled: id => id === manifest.id && enabled, getBuildRevision: () => 'build' } }
   const stubs = {
     '@main/plugin/PluginRegistry': 'export const pluginRegistry = globalThis.__quickFixture.registry',
+    '@main/logs/logService': 'export const logWarn=()=>{}',
     '@main/hotkey/pluginLaunchHotkeys': 'export const getPluginLaunchAliases=()=>[]; export const getPluginLaunchAliasRevision=()=>0',
     '@main/plugin/pluginBackgroundRuntime': `export const searchAll=async(query,limit)=>{globalThis.__quickFixture.calls.push([query,limit]);return [{pluginId:'fixture.provider',items:[{id:'record',title:'Provider title',code:'open',payload:{record:7}}]}]}`,
-    './appScanner': 'export const getCachedApps=()=>globalThis.__quickFixture.apps; export const scanApplications=async()=>globalThis.__quickFixture.apps',
+    './appScanner': 'export const getCachedApps=()=>globalThis.__quickFixture.apps; export const scanApplications=async()=>globalThis.__quickFixture.apps; export const onApplicationsChanged=()=>()=>{}',
     './appLauncher': 'export const getAppIconDataUrl=async()=>"data:image/png;base64,AA=="',
     './quickProviders': 'export const queryQuickProviders=async()=>[]',
     './catalogIcons': 'export const getCatalogPluginIcon=async()=>"data:image/png;base64,AA=="',
+    './launchIndex': `export const getLaunchIndexRevision=()=>1, initializeLaunchIndex=()=>{}, onLaunchIndexChanged=()=>()=>{}, resolveLaunchIndexEntry=()=>null;
+      export const launchIndexEntries=()=>[{pluginId:'fixture.provider',buildRevision:'build',indexRevision:1,entry:{id:'record',code:'internal',title:'保存的条目',aliases:[]}}]`,
     '@main/theme/quickStateService': 'export const quickProviderStates = { encodeIdentities: identities => identities.map((_, index) => "sk-" + index) }',
   }
   const source = await bundle('src/main/launcher/commandIndex.ts', [{ name: 'native-fixtures', setup(build) {
     build.onResolve({ filter: /.*/ }, args => args.path in stubs ? { path: args.path, namespace: 'fixture' } : undefined)
     build.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ contents: stubs[args.path], loader: 'js' }))
   } }])
-  const api = evaluate(source, { __quickFixture: fixture })
+  const api = evaluate(source, { __quickFixture: fixture, Buffer })
   const directory = await api.searchQuickCommands('does-not-match', 1, undefined, 'catalog')
   assert.ok(directory.some(item => item.kind === 'app'))
   assert.ok(directory.some(item => item.content?.type === 'regex'))
+  const text = directory.find(item => item.code === 'text' && !item.content)
+  assert.equal(text.title, '截图')
+  assert.ok(text.aliases.includes('jt') && !text.aliases.includes('截图'))
+  assert.equal(directory.find(item => item.code === 'old').title, 'Base64 编解码')
+  assert.deepEqual(plain(directory.filter(item => item.code === 'content').map(item => item.title)), ['压缩图片'])
+  assert.ok(!directory.some(item => item.code === 'internal' && !item.entryId))
+  assert.deepEqual(plain(directory.find(item => item.entryId === 'record').aliases), ['保存的条目'])
   assert.equal(directory[0].title, 'open-market', 'default action copy is not part of main')
   assert.deepEqual(plain((await api.searchQuickCommands('anything-else', 1, undefined, 'static')).map(item => item.id)), plain(directory.map(item => item.id)))
   assert.deepEqual(plain(await api.searchQuickCommands('', 20, undefined, 'enriched', ['unknown'])), [])

@@ -85,6 +85,7 @@ Linux 当前仅接受已识别的 `gnome_libsecret`、`kwallet`、`kwallet5`、`
 | `fs.rename` | 同目录改名；需要可写句柄，批量操作需宿主确认 |
 | `sys.inspect` / `sys.control` | 查看进程、端口 / 结束具体进程 |
 | `shell.openExternal` | 系统浏览器打开 http、https、mailto、tel 链接 |
+| `launcher.access` | 由用户在宿主选择程序或插件，使用所有者绑定的 ID 启动；后台启动栏另需用户当次同意，不开放应用枚举或任意命令 |
 | `web.login` | 在应用内窗口登录外部站点并把会话 cookie 交回插件；站点必须在 manifest `net.loginOrigins` 里声明，窗口内无任何宿主能力 |
 | `notify` | 操作系统通知 |
 | `hotkey` | 注册影响其它应用的全局热键 |

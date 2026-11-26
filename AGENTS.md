@@ -16,7 +16,7 @@ eNest 是插件化桌面壳，不是把一组业务工具写在一起的桌面�
 - 本文件：宿主性质、工程边界与开发约束。根 `README.md`：项目入口与常用命令。
 - 不再建立 `docs/engineering/`、`docs/TASK_STATES/` 或重复的架构/阶段/审计报告。修复过程和当次验证结论留在任务回复、PR 或 Git 记录；只有用户明确要求交付独立文档时再创建。
 - 长期有效的契约直接更新对应官方指南，不能只写在过程报告中。产品页不把开发版本称为已发布版本，不把源码、截图、静态检查或构建通过称为原生验收。
-- `docs/site/plugin/api-types.md` 与插件 SDK 类型由脚本生成，不手改；`eNest_plugin/docs/developer/` 是官方指南的同步副本，不另立一套标准。
+- `docs/site/plugin/api-types.md` 与插件 SDK 类型由脚本生成，不手改；`eNest_plugin/docs/developer/` 和 AI 技能 `eNest_plugin/skills/enest-development/references/` 是同一批官方指南的同步副本，不另立一套标准，也不在副本中修改。`docs/site/plugin/` 供网页版显示并作为唯一编辑点，改完运行同步命令，两处副本同时更新。
 - 工具自己的必要使用说明紧邻工具保存；运行报告、截图和性能输出使用被忽略的 `.cache/verification/`，不得回写 `docs/`，任务临时产物用完清理。
 
 ## 工程目录与导入
@@ -77,10 +77,9 @@ eNest 是插件化桌面壳，不是把一组业务工具写在一起的桌面�
 
 - 插件使用原生 `WebContentsView`，位于 shell DOM 之上；模态、菜单和拖动不能仅靠 CSS z-index。classic/orb 共享会话，orb 原生导航在插件挂载后保持置顶，启动可见性由 `App` 统一控制。
 - 标题栏几何与 `TITLEBAR_HEIGHT` / `--titlebar-h` 保持一致；折叠、展开同步原生内容 bounds，不在页面重复补高度。
-- 插件切换主窗、Quick、独立窗、自由面板必须走宿主 placement/生命周期，不重造业务实例来伪装移动。全局快捷键统一处理归属、冲突、录制租约、注册结果与持久化回滚；不能先保存再忽略系统注册失败。
-- 自由面板默认关闭。面板组件常驻可见，免于空闲休眠/LRU；布局由主进程写独立 `panels` 段，不混入 `windowSession/sessionTabs`，renderer 不能直接提交该段。
-- 面板拖动/缩放由主进程读光标与 `setBounds` 驱动，不逐帧 React setState/IPC，不使用 `-webkit-app-region: drag`；覆盖层期间隐藏该面板插件原生视图，结束恢复。
-- 关闭面板走完整插件关闭链路；关闭功能保留布局。恢复先建窗口再限并发装载，多屏丢失时映射到可见工作区；恢复/关闭串行、代次失效立即生效，退出不能用空活动表覆盖保存布局。
+- 插件切换主窗、Quick、独立窗必须走宿主 placement/生命周期，不重造业务实例来伪装移动。全局快捷键统一处理归属、冲突、录制租约、注册结果与持久化回滚；不能先保存再忽略系统注册失败。
+- 自由画布、自由桌面各自按需安装、保存自己的布局和组件；不是宿主主题或第三种插件视图。不自动恢复旧 `panels`、安装插件、读取其他插件业务数据或运行用户画出的代码。旧布局只经用户显式导出和导入。
+- 内置文件名检索默认关闭、按需查询，使用会话绑定的结果 ID；不向普通插件、主题或 MCP 提供文件枚举。原生程序选择和启动需按插件归属验证，桌面 helper 的消息不能充当用户手势。
 
 ## 开发与交付
 
@@ -94,7 +93,7 @@ npm run build
 npm run audit:source -- --build-output
 ```
 
-公共契约或指南变更后，从宿主根目录同步并检查：
+公共契约或指南变更后，从宿主根目录同步并检查。前两条更新类型和 `api-types.md`，后两条把全部指南同步到插件仓的 `docs/developer/` 与 AI 技能的 `references/`：
 
 ```bash
 node eNest_plugin/scripts/generate-api-types.mjs --host-root .

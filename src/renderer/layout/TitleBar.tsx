@@ -3,11 +3,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { TabStrip } from '@renderer/themes/default/chrome/TabStrip'
 import { PluginIcon } from '@renderer/components/PluginIcon'
+import { WindowControls } from '@renderer/components/WindowControls'
 import { shellApi } from '@renderer/services/shellApi'
 import { useAnimationLevel, useReducedMotion } from '@renderer/hooks/useAnimationLevel'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
 import { useShellStore } from '@renderer/stores/shellStore'
-import { IS_MAC } from '@shared/platform'
+import type { WindowControl } from '@shared/windowFrame'
 import { d, dy, ease } from '@renderer/gsap/marketMotion'
 import { createTitlebarHover } from './titlebarHover'
 
@@ -22,6 +23,12 @@ interface TitleBarProps {
   onMotionComplete?: (shown: boolean) => void
 }
 
+function controlWindow(control: WindowControl): void {
+  if (control === 'close') shellApi.closeWindow?.()
+  else if (control === 'minimize') shellApi.minimizeWindow?.()
+  else shellApi.maximizeWindow?.()
+}
+
 export function TitleBar({ autoHide = false, revealed = false, onReveal, onCollapse, onMotionStart, onMotionComplete }: TitleBarProps) {
   const headerRef = useRef<HTMLElement>(null)
   const defaultTabsRef = useRef<HTMLDivElement>(null)
@@ -30,10 +37,6 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
   const activeTab = useShellStore((state) => state.view === 'plugin'
     ? state.tabs.find(tab => tab.id === state.activeTabId)
     : undefined)
-  const activePluginTitle = activeTab?.title ?? ''
-  const activePluginIcon = activeTab?.icon ?? null
-  const activePluginGlyph = activeTab?.glyph ?? ''
-  const activePluginColor = activeTab?.color
   const { level } = useAnimationLevel()
   const reducedMotion = useReducedMotion()
   const callbacks = useRef({ onReveal, onCollapse, onMotionStart, onMotionComplete })
@@ -41,15 +44,26 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
   const hover = useRef<ReturnType<typeof createTitlebarHover>>()
   hover.current ??= createTitlebarHover(() => callbacks.current.onReveal?.(), () => callbacks.current.onCollapse?.())
   const interaction = hover.current
-  const focusFrame = useRef<number>()
+  const focusOnReveal = useRef(false)
   const focusTitlebar = () => {
+    const header = headerRef.current
+    focusOnReveal.current = header?.inert === true
     interaction.focus(true)
-    cancelAnimationFrame(focusFrame.current ?? 0)
-    focusFrame.current = requestAnimationFrame(() => headerRef.current?.focus({ preventScroll: true }))
+    if (header && !header.inert) header.focus({ preventScroll: true })
   }
   const shown = !autoHide || revealed
   const motion = useRef<gsap.core.Tween>()
   const motionContext = useRef<gsap.Context>()
+
+  useLayoutEffect(() => {
+    const header = headerRef.current
+    if (!header) return
+    header.inert = !shown
+    if (shown && focusOnReveal.current) {
+      focusOnReveal.current = false
+      header.focus({ preventScroll: true })
+    }
+  }, [shown])
 
   useLayoutEffect(() => {
     const node = headerRef.current
@@ -80,11 +94,10 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
   }, [shown, level, reducedMotion])
 
   useEffect(() => {
-    const blur = () => interaction.reset()
+    const blur = () => { focusOnReveal.current = false; interaction.reset() }
     window.addEventListener('blur', blur)
     return () => {
       interaction.dispose()
-      cancelAnimationFrame(focusFrame.current ?? 0)
       window.removeEventListener('blur', blur)
     }
   }, [interaction])
@@ -108,6 +121,13 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
     autoHide ? 'titlebar-autohide' : '',
     autoHide && revealed ? 'is-revealed' : '',
   ].filter(Boolean).join(' ')
+  const pluginLabel = activeTab?.title && (
+    <span className={`titlebar-plugin-label${tabStyle === 'orb' ? ' is-centered' : ''}`} title={activeTab.title}>
+      <PluginIcon className="titlebar-plugin-label-icon" src={activeTab.icon ?? undefined} glyph={activeTab.glyph ?? ''}
+        slot="tab" size={16} alt="" style={activeTab.color ? { background: activeTab.color } : undefined} />
+      <span className="titlebar-plugin-label-text">{activeTab.title}</span>
+    </span>
+  )
 
   return (
     <div className="titlebar-region"
@@ -116,7 +136,7 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
       onPointerDownCapture={autoHide ? () => interaction.pointerDown() : undefined}
       onFocusCapture={autoHide ? event => interaction.focus(event.target.matches(':focus-visible')) : undefined}
       onBlurCapture={autoHide ? event => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) interaction.blur()
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { focusOnReveal.current = false; interaction.blur() }
       } : undefined}>
       <header
         ref={headerRef}
@@ -125,81 +145,14 @@ export function TitleBar({ autoHide = false, revealed = false, onReveal, onColla
         tabIndex={-1}
         data-autohide={autoHide ? 'true' : undefined}
       >
-        {/* macOS 上宿主用 setWindowButtonVisibility 打开了系统原生红绿灯（全局常开），
-            这里再画一组就会重叠成两套——设置页截图里"两排关闭按钮"就是这个。
-            Windows/Linux 没有等价原生按钮，仍由这里自绘。
-
-            注意不能直接不渲染：标题栏是 grid（68px / 1fr / auto），第一列一直
-            留给红绿灯。少一个子项会让后面的 Tab 条前移补进那 68px，
-            于是被原生红绿灯压住。所以 macOS 保留同宽的占位元素，列不错位。 */}
-        {IS_MAC
-          ? <div className="traffic-slot" aria-hidden="true" />
-          : <div className="traffic" role="group" aria-label="窗口控制">
-          <button
-            type="button"
-            className="traffic-btn r"
-            aria-label="关闭"
-            onClick={() => shellApi.closeWindow?.()}
-          >
-            <svg viewBox="0 0 12 12" width="8" height="8" aria-hidden>
-              <path d="M3.2 3.2l5.6 5.6M8.8 3.2L3.2 8.8" stroke="var(--titlebar-icon-stroke)" strokeWidth="1.4" strokeLinecap="round" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="traffic-btn y"
-            aria-label="最小化"
-            onClick={() => shellApi.minimizeWindow?.()}
-          >
-            <svg viewBox="0 0 12 12" width="8" height="8" aria-hidden>
-              <path d="M3 6h6" stroke="var(--titlebar-icon-stroke)" strokeWidth="1.4" strokeLinecap="round" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="traffic-btn g"
-            aria-label="最大化"
-            onClick={() => shellApi.maximizeWindow?.()}
-          >
-            <svg viewBox="0 0 12 12" width="8" height="8" aria-hidden>
-              <path d="M4 8V4h4" stroke="var(--titlebar-icon-stroke)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            </svg>
-          </button>
-        </div>}
+        <WindowControls onControl={controlWindow} />
         {tabStyle === 'orb' ? <>
           <div className="titlebar-spacer" aria-hidden="true" />
-          {activePluginTitle && (
-            <span className="titlebar-plugin-name" title={activePluginTitle}>
-              <PluginIcon
-                className="titlebar-plugin-label-icon"
-                src={activePluginIcon ?? undefined}
-                glyph={activePluginGlyph}
-                slot="tab"
-                size={16}
-                alt=""
-                style={activePluginColor ? { background: activePluginColor } : undefined}
-              />
-              <span className="titlebar-plugin-name-text">{activePluginTitle}</span>
-            </span>
-          )}
+          {pluginLabel}
         </> : <div ref={defaultTabsRef} className={`titlebar-default-tabs${customClassicReady ? ' is-replaced' : ''}`}
           aria-hidden={customClassicReady || undefined}>
           <TabStrip />
-          {/* classic 模式由壳统一显示当前插件，插件自身不再画顶栏标题行。 */}
-          {activePluginTitle && (
-            <span className="titlebar-plugin-label" title={activePluginTitle}>
-              <PluginIcon
-                className="titlebar-plugin-label-icon"
-                src={activePluginIcon ?? undefined}
-                glyph={activePluginGlyph}
-                slot="tab"
-                size={16}
-                alt=""
-                style={activePluginColor ? { background: activePluginColor } : undefined}
-              />
-              <span className="titlebar-plugin-label-text">{activePluginTitle}</span>
-            </span>
-          )}
+          {pluginLabel}
         </div>}
       </header>
       {autoHide && (

@@ -11,12 +11,14 @@ import postcss from 'postcss'
 const require = createRequire(import.meta.url)
 const root = fileURLToPath(new URL('../../../../../', import.meta.url))
 const read = path => readFileSync(join(root, path), 'utf8')
+const WindowControls = () => null
 
 function render({ ready = false, tabStyle = 'classic', autoHide = false, revealed = false } = {}) {
   const module = { exports: {} }
   const imports = {
     react: { useEffect() {}, useLayoutEffect() {}, useRef: current => ({ current }), useState: () => [ready, () => {}] },
     gsap: {}, '@renderer/themes/default/chrome/TabStrip': { TabStrip() {} }, '@renderer/services/shellApi': { shellApi: {} },
+    '@renderer/components/WindowControls': { WindowControls }, '@renderer/components/PluginIcon': { PluginIcon() {} },
     '@renderer/hooks/useAnimationLevel': { useAnimationLevel: () => ({ level: 'low' }), useReducedMotion: () => false },
     '@renderer/hooks/useAppearance': { useAppearanceStore: select => select({ appearance: { layout: { tabStyle } } }) },
     '@renderer/stores/shellStore': { useShellStore: select => select({ view: 'home', tabs: [] }) },
@@ -48,8 +50,7 @@ test('only an acknowledged classic surface gets a live no-drag region outside hi
     assert.equal(hit.props.tabIndex, undefined)
     const header = children(tree)[0], [traffic, tabs] = header.props.children
     assert.equal(header.type, 'header')
-    assert.equal(traffic.props.className, 'traffic')
-    assert.equal(traffic.props.children.length, 3, 'window controls remain untouched')
+    assert.equal(traffic.type, WindowControls, 'theme replacement must not replace the host controls')
     assert.match(tabs.props.className, /is-replaced/)
     assert.ok(children(tree).includes(hit), 'native hit region must be a sibling, not a hidden or transformed header descendant')
     if (autoHide) assert.equal(children(tree)[1].props.className, 'titlebar-hotzone', 'preserve the existing header + hotzone adjacent-selector contract')
@@ -57,7 +58,7 @@ test('only an acknowledged classic surface gets a live no-drag region outside hi
 })
 
 test('transparent hit geometry matches native classic bounds without removing traffic or trailing move regions', () => {
-  const css = postcss.parse(read('src/renderer/styles/app.css'))
+  const css = postcss.parse(read('src/renderer/styles/windowFrame.css'))
   let rule, titlebar
   css.walkRules(current => {
     if (current.selector === '.titlebar-custom-chrome-hit-region') rule = current

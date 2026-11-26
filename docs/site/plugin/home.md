@@ -59,6 +59,27 @@ if (!result.ok) console.error(result.error)
 
 `action` 支持 `navigate`、`activateSearchResult`、`searchInput`、`searchState`、`cancelSearch`、`openPlugin`、`openHomeCard`、`openMarket`、`openSettings`、`refreshApps`、`installPlugin`、`updatePlugin`、`setPluginEnabled`、`uninstallPlugin`、`refreshCatalog`、`setHomeVisible`。启动搜索结果提交 `handle`，可附带最多 4096 字符的 `query` 和本表面的不透明 `input` 选择，不能提供磁盘路径、图片字节或任意启动 payload。静态句柄随目录缓存复用，仅变更/删除的条目重签或撤销；动态来源句柄只用于本查询、一次性使用、最多两分钟到期。全部句柄绑定首页 WebContents 与运行代次，销毁后全部撤销，执行前重新校验来源构建、条目版本和插件启用状态。`openPlugin` 仅打开当前已安装且启用的插件，不能通过启动接口绕过安装确认。
 
+### 给主题注入市场数据
+
+市场源由壳统一读取。SDK 的 `WorkspaceCatalogReader` 是 `window.enestWorkspace` 已有的三个方法：`getCatalog`、`getDetail`、`refresh`，不需要另注册服务。默认主题和「素描本」使用同一份目录与详情；主题自己决定卡片、排序、分类和已安装筛选。新增市场源也应在宿主接入，主题不依赖仓库地址、`registry.json` 格式或代理设置。
+
+只展示插件的组件可以只依赖这个接口，不必依赖导航和安装动作：
+
+```ts
+import type { WorkspaceCatalogReader } from '@enest/plugin-sdk'
+
+async function installedPlugins(market: WorkspaceCatalogReader) {
+  const { items } = await market.getCatalog()
+  return items.filter(item => item.installed)
+}
+
+const workspace = window.enestWorkspace
+if (!workspace) throw new Error('请在 eNest 主题工作区打开此页面')
+const installed = await installedPlugins(workspace)
+```
+
+首屏用 `getCatalog()`；收到 `refresh` 命令要保留其 `reason`：`boot` 只重读本地快照，不能升级为联网刷新；用户点击刷新才用 `manual`。无参数 `refresh()` 兼容手动刷新，不用于初始化。详情按 `pluginId` 调用 `getDetail`，条目不存在时为 `null`；图标、截图、README 使用返回的受限资源地址，不自行拼接远端地址。安装、更新和卸载仍走 `action`，不属于读取接口。
+
 ### 默认首页与 Quick 搜索
 
 默认主题的两个入口共用名称/拼音/多关键词 Worker、内容表达式 Worker、图片/文件匹配及排序规则。目录在 revision 变化时更新，Worker 只接收名称索引的增量；输入每个字符不会重新向主进程索要整份目录或重新签发全部句柄。名称与动态来源并行，动态来源失败不移除已完成的本地结果。市场发现仍是首页额外能力，普通目录分类/已安装筛选仍在当前页完成。
@@ -179,3 +200,11 @@ addEventListener('pagehide', () => { offAppearance(); offCommand() }, { once: tr
 用户明确导入的背景与当前使用字体通过 `enest-home://appearance/media/<opaque-id>`、`font/<opaque-id>` 提供。`snapshot.resources.fonts` 只包含 family 与受控 URL，不返回文件名、本地路径或整个自定义字体列表。主题/profile 全量数据、诊断、凭据和任意宿主设置都不跨首页桥接。
 
 资源白名单及 IPC fixture 测试不是原生验收替代品。发布前仍须在真实 Electron 中验证首页隔离、弹层遮挡/焦点恢复、离线首启、崩溃/超时成对回退，以及隐藏停帧和资源释放。
+
+## 文件检索入口
+
+文件检索是通用设置中默认关闭的宿主能力，与 Anything 的安装和启用状态独立。首页与 Quick 将文件名结果与应用、插件分开；它们不参与应用排序，也不会因为稍晚返回而改变当前回车目标。文件名查询不是插件索引、MCP 工具或主题数据源。
+
+混合搜索最多列出 3 个文件；打开「文件」筛选可按文件名查找、打开或定位。macOS 使用 Spotlight，Windows 使用 Windows Search（也可在通用设置显式指定本机 Everything HTTP 端口），Linux 使用可用的 LocalSearch、Tracker 或 Baloo。系统索引不可用时，只在用户选择的备用目录内按需检索名称，不扫描全盘或读取正文。
+
+第三方 Workspace 可检查 `getConfig().fileSearchEnabled`，从真实点击或按键调用可选的 `enestHome.openFileSearch()`；Quick 主题可根据 `snapshot.fileSearchEnabled` 提交 `{ type: "open-files" }`。宿主展示文件结果并处理打开、定位，不向主题传递路径、查询接口或文件句柄。不得在初始化、定时器或恢复时自行呼出。

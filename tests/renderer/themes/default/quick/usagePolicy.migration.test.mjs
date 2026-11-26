@@ -322,6 +322,20 @@ test('the actual sandbox parser bounds state writes and strips legacy from state
   assert.equal(readResult({ ok: true, state: { revision: 1, value: Infinity } }).ok, false)
 })
 
+test('isolated themes can place one native grip only inside the active plugin input bar', async () => {
+  const { readAction } = await bridge()
+  const snapshot = { plugin: { title: '剪贴板' }, bounds: { width: 720, inputHeight: 64, pluginGripSize: 28 } }
+  const layout = { type: 'layout', columns: 1, height: 64 }
+  const action = { ...layout, pluginGrip: { x: 692, y: 36 } }
+  assert.deepEqual(plain(readAction(layout)), layout)
+  assert.deepEqual(plain(readAction(action, snapshot)), action)
+  assert.equal(readAction(action, { ...snapshot, plugin: null }), null)
+  assert.equal(readAction(action, { ...snapshot, bounds: { width: 720, inputHeight: 64 } }), null)
+  for (const pluginGrip of [{ x: 693, y: 0 }, { x: 0, y: 37 }, { x: -1, y: 0 }, { x: 0.5, y: 1 }, { x: 2, y: 3, pluginId: 'other' }]) {
+    assert.equal(readAction({ ...layout, pluginGrip }, snapshot), null)
+  }
+})
+
 test('public catalogs forward only opaque identity, never native ranking/history metadata', async () => {
   const { publicQuickCatalog, updateQuickCatalog } = await bundle('src/renderer/components/quickCatalog.ts')
   const command = { id: 'app:/private/Fixture.app', stateKey: 'opaque-identity', kind: 'app', title: 'Fixture', subtitle: '/private',

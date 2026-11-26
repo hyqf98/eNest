@@ -13,6 +13,7 @@ const pending = new Map<number, { child: ChildProcessWithoutNullStreams; resolve
 let target: { token: string; name: string; capturedAt: number } | null = null
 let captureRevision = 0
 let permissionRequest: Promise<ClipboardCapabilities> | null = null
+let changeCountRetryAt = 0
 export function isNativeClipboardBusy(): boolean { return permissionRequest !== null }
 export function getNativeClipboardProcessId(): number | undefined {
   return helper?.exitCode === null && helper.signalCode === null ? helper.pid : undefined
@@ -109,9 +110,16 @@ export async function nativeClipboardSource(): Promise<NonNullable<ClipboardNati
   if (permissionRequest) return null
   try { return await request('source') } catch { return null }
 }
+export async function readNativeClipboardChangeCount(): Promise<number | null> {
+  if (permissionRequest || (process.platform !== 'darwin' && process.platform !== 'win32') || Date.now() < changeCountRetryAt) return null
+  const count = await request<unknown>('changeCount').catch(() => null)
+  if (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0) return count
+  changeCountRetryAt = Date.now() + 5000
+  return null
+}
 export async function readNativeFiles(): Promise<string[]> {
   if (permissionRequest) return []
-  if (process.platform !== 'linux') { try { return await request<string[]>('readFiles') } catch { return [] } }
+  if (process.platform !== 'linux') return request<string[]>('readFiles')
   try {
     for (const item of await clipboard.read()) {
       for (const type of item.types) if (type === 'text/uri-list' || type === 'x-special/gnome-copied-files') {

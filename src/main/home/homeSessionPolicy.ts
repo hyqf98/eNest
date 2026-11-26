@@ -111,8 +111,6 @@ function catalogSlot(parts: string[]): CatalogResource | null {
   if (kind === 'icon' && parts.length === 2) return resources.icon ?? null
   if (kind === 'readme' && parts.length === 2) return resources.readme ?? null
   if (kind === 'screenshot' && parts.length === 3 && /^(?:0|[1-7])$/.test(index)) return resources.screenshots[Number(index)] ?? null
-  // 小组件预览图：`views.panel.preview` 声明的单张资源，不占 screenshots 槽位。
-  if (kind === 'panel-preview' && parts.length === 2) return resources.panelPreview ?? null
   return null
 }
 

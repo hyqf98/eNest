@@ -12,15 +12,18 @@ import { contributionRegistry, listOpenWithContributions } from '@main/contrib/C
 import { logWarn } from '@main/logs/logService'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { settingsStore } from '@main/settings/SettingsStore'
+import { sendShellEvent } from '@main/window/createShellWindow'
 import {
   extKey,
   schemeKey,
   readOpenWithContribution,
   type OpenWithActionResult,
+  type OpenWithEntryRow,
   type OpenWithKey,
   type OpenWithListResult,
   type OpenWithRow,
-  type OpenWithStatus
+  type OpenWithStatus,
+  type OpenWithRoutes
 } from '@shared/types/openWith'
 import { getOpenWithRegistrar, registrationAvailable, type OpenWithKind } from './registrar'
 
@@ -53,9 +56,15 @@ function providerFor(pluginId: string): OpenWithProvider | null {
   }
 }
 
+/** 该插件被用户关闭的清单声明项 id 集合 */
+function disabledEntriesFor(pluginId: string, disabled: OpenWithRoutes['disabled']): Set<string> {
+  return new Set(disabled[pluginId] ?? [])
+}
+
 /** 聚合贡献：key → providers（按 pluginId 去重；scheme 冲突先到先得） */
 function collectProviders(): Map<OpenWithKey, Candidate[]> {
   const map = new Map<OpenWithKey, Candidate[]>()
+  const disabled = settingsStore.getOpenWithRoutes().disabled
   const push = (key: OpenWithKey, provider: OpenWithProvider, declared: boolean): void => {
     const list = map.get(key) ?? []
     if (key.startsWith('scheme:') && list.length) return
@@ -66,12 +75,14 @@ function collectProviders(): Map<OpenWithKey, Candidate[]> {
   for (const entry of entries) {
     const declared = !('build' in entry)
     if (!declared && entry.build !== pluginRegistry.getOpenWithBuild(entry.source)) continue
+    // 清单声明项按声明粒度受设置页开关控制；运行时登记没有开关，始终参与
+    if (declared && disabledEntriesFor(entry.source, disabled).has(entry.id)) continue
     const provider = providerFor(entry.source)
     if (!provider) continue
     try {
       const data = readOpenWithContribution(entry.data)
-      for (const ext of data.extensions ?? []) push(extKey(ext), provider, declared)
-      for (const scheme of data.schemes ?? []) push(schemeKey(scheme), provider, declared)
+      for (const ext of data.extensions ?? []) push(extKey(ext), { ...provider, entryId: declared ? entry.id : undefined }, declared)
+      for (const scheme of data.schemes ?? []) push(schemeKey(scheme), { ...provider, entryId: declared ? entry.id : undefined }, declared)
     } catch (error) {
       logWarn('open-with', `${entry.source}/${entry.id} skipped: ${String(error)}`)
     }
@@ -140,7 +151,35 @@ export class AssociationService {
         selected.status = await detectStatus(selected.kind, selected.value)
       } catch (error) { logWarn('open-with', `system options for ${selected.key} unavailable: ${String(error)}`) }
     }
-    return { platform: process.platform, packaged: registrationAvailable(), rows, inspectedKey: selected?.key }
+    return { platform: process.platform, packaged: registrationAvailable(), rows, entries: this.listEntries(), inspectedKey: selected?.key }
+  }
+
+  /**
+   * 设置页「可注册的打开方式」：全部清单声明项，含被用户关闭的。
+   * 插件被停用时条目仍列出但置灰，便于用户知道它存在。
+   */
+  listEntries(): OpenWithEntryRow[] {
+    const disabled = settingsStore.getOpenWithRoutes().disabled
+    const out: OpenWithEntryRow[] = []
+    for (const entry of listOpenWithContributions()) {
+      const summary = pluginRegistry.get(entry.source)
+      if (!summary?.installed) continue
+      let data
+      try { data = readOpenWithContribution(entry.data) } catch { continue }
+      out.push({
+        pluginId: entry.source,
+        pluginName: summary.name || entry.source,
+        entryId: entry.id,
+        label: data.label,
+        targets: [...(data.extensions ?? []), ...(data.schemes ?? []).map(scheme => `${scheme}://`)],
+        icon: summary.icon,
+        glyph: summary.glyph,
+        color: summary.color,
+        pluginEnabled: pluginRegistry.isEnabled(entry.source),
+        enabled: !disabledEntriesFor(entry.source, disabled).has(entry.id)
+      })
+    }
+    return out
   }
 
   /** 只处理明确的系统设置请求；不覆盖用户已保存的内部选择。 */
@@ -175,6 +214,20 @@ export class AssociationService {
   async clearDefault(key: OpenWithKey): Promise<OpenWithActionResult> {
     const { kind, value } = splitKey(key)
     await settingsStore.clearOpenWithRoute(kind, value)
+    return { ok: true }
+  }
+
+  /**
+   * 设置页开关：启用/停用某插件的清单声明项。只接受清单里真实存在的声明项，
+   * 避免写入指向不存在声明的开关。停用后指向它的路由不删除，只是不再命中
+   * （resolveTarget 找不到候选即视为未指定），重新启用后恢复。
+   */
+  async setEnabled(pluginId: string, entryId: unknown, enabled: unknown): Promise<OpenWithActionResult> {
+    if (typeof entryId !== 'string' || !entryId || entryId.length > 64 || typeof enabled !== 'boolean') return { ok: false, error: '无效的打开方式声明' }
+    const declared = pluginRegistry.getManifest(pluginId)?.contributes?.openWith?.some(item => item.id === entryId)
+    if (!declared) return { ok: false, error: '该插件没有这条打开方式声明' }
+    await settingsStore.setOpenWithEntryEnabled(pluginId, entryId, enabled)
+    sendShellEvent({ type: 'contributions-changed', slot: 'open-with', source: pluginId })
     return { ok: true }
   }
 

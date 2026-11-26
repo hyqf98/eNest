@@ -1,3 +1,5 @@
+import type { DesktopDipBounds } from './plugin'
+
 /** Auxiliary pages are untrusted plugin assets, not additional plugin API surfaces. */
 export interface AuxiliaryOpen {
   entry: string
@@ -32,14 +34,16 @@ export interface AuxiliaryUpdate {
   bounds?: { x?: number; y?: number; width?: number; height?: number }
 }
 export interface AuxiliaryWindowState {
-  bounds: { x: number; y: number; width: number; height: number }
+  bounds: DesktopDipBounds
+  viewportBounds?: DesktopDipBounds
   display: AuxiliaryContext['display']
   interaction: 'capture' | 'passthrough'
 }
 export interface AuxiliaryContext {
   windowId: string
   data: unknown
-  display: { id: number; x: number; y: number; width: number; height: number; scaleFactor: number }
+  display: DesktopDipBounds & { id: number; scaleFactor: number }
+  viewportBounds?: DesktopDipBounds
   capture?: { withAudio: boolean }
 }
 export type AuxiliaryEvent =

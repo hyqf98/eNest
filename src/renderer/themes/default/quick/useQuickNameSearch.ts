@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { QuickCommandKind } from '@shared/types/quick'
-import { ACTION_COPY, allowsQuickTextPrefix, namesOf, type DefaultQuickMatch, type DefaultSearchEntry } from './catalogPolicy'
+import { allowsQuickTextPrefix, asQuickNameMatch, namesOf, quickNameRow, type DefaultQuickMatch, type DefaultSearchEntry } from './catalogPolicy'
 import type { QuickNameHit, QuickNameRow } from './nameSearchTypes'
 import { createNameSearch } from './nameSearchClient'
 
@@ -26,7 +26,7 @@ export function useQuickNameSearch<T extends DefaultSearchEntry>(
         && names.every((name, nameIndex) => name === row.names[nameIndex])
     })
     if (unchanged) return previous
-    const next = { rows: entries.map(item => ({ key: item.id, kind: item.kind, title: item.title, names: namesOf(item), prefix: allowsQuickTextPrefix(item) })), revision: previous.revision + 1 }
+    const next = { rows: entries.map(quickNameRow), revision: previous.revision + 1 }
     indexRef.current = next
     return next
   }, [entries])
@@ -62,9 +62,9 @@ export function useQuickNameSearch<T extends DefaultSearchEntry>(
   }, [enabled, visible, paused, key])
   useEffect(() => () => { client.current?.dispose(); client.current = null }, [])
 
-  const matches = useMemo(() => result.key !== key ? [] : result.hits.flatMap(({ index, keyword, prefix }): Array<DefaultQuickMatch<T>> => {
+  const matches = useMemo(() => result.key !== key ? [] : result.hits.flatMap(({ index, prefix }): Array<DefaultQuickMatch<T>> => {
     const item = entries[index]
-    return item ? [{ ...item, title: item.action ? ACTION_COPY[item.action].title : item.kind === 'plugin' ? keyword : item.title, group: 'best', ...(prefix ? { prefix } : {}) }] : []
+    return item ? [asQuickNameMatch(item, prefix)] : []
   }), [result, key, entries])
   return { matches, pending: enabled && visible && !paused && rows.length > 0 && Boolean(query.trim()) && result.key !== key,
     error: enabled && !paused && result.key === key ? result.error : undefined }

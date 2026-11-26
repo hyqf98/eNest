@@ -11,12 +11,11 @@
 按一下 Quick 就出来，用完就走；要长时间用的工具留在标签页或拆成独立窗口。
 
 [![Build](https://github.com/hyqf98/eNest/actions/workflows/build.yml/badge.svg)](https://github.com/hyqf98/eNest/actions/workflows/build.yml)
-[![Release](https://img.shields.io/github/v/release/hyqf98/eNest?color=2ec4a6)](https://github.com/hyqf98/eNest/releases)
 [![Plugins](https://img.shields.io/badge/plugins-37-2ec4a6)](https://github.com/hyqf98/eNest_plugin)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-555)](https://github.com/hyqf98/eNest/releases)
 
-[官网](https://hyqf98.github.io/eNest/) · [下载](https://github.com/hyqf98/eNest/releases) · [插件仓库](https://github.com/hyqf98/eNest_plugin) · [开发文档](https://hyqf98.github.io/eNest/plugin/) · [反馈](https://github.com/hyqf98/eNest/issues)
+[官网](https://hyqf98.github.io/eNest/) · [安装与运行](#安装与运行) · [插件仓库](https://github.com/hyqf98/eNest_plugin) · [开发文档](https://hyqf98.github.io/eNest/plugin/) · [反馈](https://github.com/hyqf98/eNest/issues)
 
 </div>
 
@@ -56,7 +55,9 @@ Quick 呼出键默认开启，可以在「设置 → 快捷键 → Quick 呼出�
 
 主窗口可以同时保留多个插件标签。想把编辑器和另一个工具并排放置，可以把插件标签拖出主窗口，变成独立窗口；从 Quick 中也可以固定到主窗口继续使用。窗口移动沿用原来的插件实例，不必重新打开一份。
 
-自由面板适合常驻的计时器等小组件。在「设置 → 主题 → 自由面板」开启后，点击「框选并新建」，选择区域、添加组件，再调整位置和大小。布局会保存；只有声明了组件视图的插件才能加入面板，并非每个插件都支持这种用法。
+开发版的「设置 → 通用 → 文件检索」默认关闭。开启后，Quick 和首页在独立分组中展示文件名结果，可打开文件或定位所在目录。完整文件工作台仍由 Anything 提供，不是轻量检索的前置依赖。
+
+自由画布、自由桌面分别按需安装。前者管理浮动区域及自己的六种组件；后者提供壁纸、文件收纳、便笺、时钟与四边程序栏。开启桌面接管需要在插件内确认，不支持的环境保留普通工作区。旧版画布布局可以手动[导出并导入](docs/site/plugin/panels.md)，原数据不会被删除。
 
 面板默认透明，不给插件再套一层卡片。已有面板如果保留了底板颜色或毛玻璃，可以在同一设置区点击「设为透明」；也可以保留自己选的材质。
 
@@ -72,18 +73,7 @@ Quick 呼出键默认开启，可以在「设置 → 快捷键 → Quick 呼出�
 
 ## 安装与运行
 
-**[eNest v0.0.1](https://github.com/hyqf98/eNest/releases/tag/v0.0.1) 已发布。** 按系统和处理器架构选择安装包；GitHub 自动生成的 Source code 压缩包是源码，不是桌面安装包。
-
-| 系统与架构 | 下载 |
-| --- | --- |
-| macOS · Apple Silicon（arm64） | [DMG](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-mac-arm64.dmg) · [ZIP](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-mac-arm64.zip) |
-| macOS · Intel（x64） | [DMG](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-mac-x64.dmg) · [ZIP](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-mac-x64.zip) |
-| Windows · x64 | [EXE 安装向导](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-win-x64.exe) · [ZIP](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-win-x64.zip) |
-| Linux · x64 | [AppImage](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-linux-x86_64.AppImage) · [deb](https://github.com/hyqf98/eNest/releases/download/v0.0.1/eNest-0.0.1-linux-amd64.deb) |
-
-本次 macOS 包没有 Apple Developer ID 签名，也未完成苹果公证；Windows 包未配置开发者代码签名。系统可能提示未知开发者或阻止打开。安装前请核对来源与发布清单中的 SHA-256，不要关闭系统的全局安全检查。
-
-这些平台已有安装附件，但不代表所有功能均已完成跨平台运行验收；系统快捷键、默认打开方式等仍受操作系统和安装方式影响。已知限制见 [v0.0.1 发布说明](https://github.com/hyqf98/eNest/releases/tag/v0.0.1)。
+当前源码版本为 `0.0.1`。公开发行已暂停，暂无桌面安装包；需要体验可从源码启动。恢复发行后，请以 [Releases](https://github.com/hyqf98/eNest/releases) 列出的实际附件为准。GitHub 自动生成的 Source code 压缩包不是桌面安装包。
 
 ### 从源码启动
 
@@ -136,7 +126,7 @@ git clone https://github.com/hyqf98/eNest_plugin.git eNest_plugin
 | [工程格式](docs/site/plugin/structure.md) / [plugin.json](docs/site/plugin/manifest.md) | 源码目录、插件清单与发布包 |
 | [API](docs/site/plugin/api.md) / [TypeScript 类型](docs/site/plugin/api-types.md) | 宿主接口与 SDK 类型 |
 | [存储](docs/site/plugin/storage.md) / [权限](docs/site/plugin/permissions.md) | 记录、图片、文件输出与授权 |
-| [多布局适配](docs/site/plugin/dual-mode-tools.md) / [生命周期](docs/site/plugin/lifecycle.md) | Quick、主窗、组件与实例回收 |
+| [多布局适配](docs/site/plugin/dual-mode-tools.md) / [生命周期](docs/site/plugin/lifecycle.md) | Quick、主窗、独立窗与实例回收 |
 | [主题](docs/site/plugin/themes.md) / [设置与窗口](docs/site/plugin/settings-and-windows.md) | 自定义呈现和设置页面 |
 | [Node 后端](docs/site/plugin/backend.md) / [MCP](docs/site/plugin/mcp.md) | 本机业务后端与工具调用 |
 

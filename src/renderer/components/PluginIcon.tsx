@@ -16,6 +16,7 @@ export type PluginIconSlot = 'card' | 'featured' | 'tab'
 interface Props {
   /** 图标 URL；缺省或加载失败时回退 glyph */
   src?: string
+  fallbackSrc?: string
   glyph: string
   /** 色块背景（渐变/底色），img 成功时仍作底层 */
   style?: CSSProperties
@@ -32,12 +33,14 @@ interface Props {
   fit?: 'cover' | 'contain'
 }
 
-export function PluginIcon({ src, glyph, style, slot = 'card', size, className, alt, fit }: Props) {
+export function PluginIcon({ src, fallbackSrc, glyph, style, slot = 'card', size, className, alt, fit }: Props) {
   const [failed, setFailed] = useState(false)
-  const showImg = Boolean(src) && !failed
+  const [failedFallback, setFailedFallback] = useState<string>()
+  const image = src && !failed ? src : fallbackSrc !== src && fallbackSrc !== failedFallback ? fallbackSrc : undefined
 
   useEffect(() => {
     setFailed(false)
+    setFailedFallback(undefined)
   }, [src])
 
   const objectFit = fit ?? PLUGIN_ICON_OBJECT_FIT
@@ -53,13 +56,14 @@ export function PluginIcon({ src, glyph, style, slot = 'card', size, className, 
 
   return (
     <span className={classes} style={sized} aria-hidden={alt ? undefined : true}>
-      {showImg && src ? (
+      {image ? (
         <img
-          src={src}
+          key={image}
+          src={image}
           alt={alt ?? ''}
-          loading="lazy"
+          loading={slot === 'tab' ? 'eager' : 'lazy'}
           draggable={false}
-          onError={() => setFailed(true)}
+          onError={() => image === src ? setFailed(true) : setFailedFallback(image)}
           style={{
             width: '100%',
             height: '100%',

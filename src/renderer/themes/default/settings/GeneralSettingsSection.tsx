@@ -4,7 +4,10 @@ import { Switch } from '@renderer/components/ui/Switch'
 import { Segmented } from '@renderer/components/ui/Segmented'
 import { Button } from '@renderer/components/ui/Button'
 import { Input } from '@renderer/components/ui/Input'
+import { ReleaseNotes } from '@renderer/components/ReleaseNotes'
+import { availableUpdateVersion } from '@shared/updateAvailability'
 import { LanguageSelect } from './LanguageSelect'
+import { FileSearchSettings } from './FileSearchSettings'
 import { Card, Field } from './SettingsFields'
 import type { NotifyPosition, useGeneralSettings } from './useGeneralSettings'
 import type { useSettingsUpdates } from './useSettingsUpdates'
@@ -21,11 +24,14 @@ export function GeneralSettingsSection({ settings, updates }: {
     handleProxyType, handleProxyFieldBlur, handleTestProxy, handleOpenDataRoot
   } = settings
   const { updateState, checkingUpdate, openUpdateDialog, handleCheckUpdate, handleInstallUpdate } = updates
+  const version = availableUpdateVersion(updateState)
+  const checking = checkingUpdate || updateState?.status === 'checking'
   return (
     <Card title={t('settings.general.title')}>
       <Field label={t('settings.general.language')}>
         <LanguageSelect value={locale} onChange={handleLocale} />
       </Field>
+      <FileSearchSettings />
       <Field label={t('settings.general.hardwareAccel')} desc={t('settings.general.hardwareAccelDesc')}>
         <Switch checked={hwAccel} onCheckedChange={handleHwAccel} aria-label={t('settings.general.hardwareAccel')} />
       </Field>
@@ -54,6 +60,10 @@ export function GeneralSettingsSection({ settings, updates }: {
           </Button>
         </div>
       </Field>
+      {settings.hasLegacyCanvas && <Field label={locale === 'en-US' ? 'Previous canvas layout' : '旧版画布布局'}
+        desc={locale === 'en-US' ? 'Export the layout, then import it in the optional Free Canvas plugin. Your original data stays here.' : '可导出布局，再到「自由画布」插件中导入。不会移动或删除原数据。'}>
+        <Button variant="ghost" size="sm" onClick={() => void settings.exportLegacyCanvas()}>{locale === 'en-US' ? 'Export JSON' : '导出 JSON'}</Button>
+      </Field>}
       <Field label={t('settings.general.closeBehavior')}>
         <Select
           ariaLabel={t('settings.general.closeBehavior')}
@@ -148,14 +158,12 @@ export function GeneralSettingsSection({ settings, updates }: {
         }
       >
         <div className="path-actions">
-          <Button variant="ghost" size="sm" onClick={handleCheckUpdate} disabled={checkingUpdate || updateState?.status === 'downloading'}>
-            {checkingUpdate || updateState?.status === 'checking'
-              ? t('settings.general.checkingUpdate')
-              : t('settings.general.checkUpdate')}
+          <Button variant="ghost" size="sm" onClick={handleCheckUpdate} disabled={checking || updateState?.status === 'downloading'}>
+            {checking ? t('settings.general.checkingUpdate') : t('settings.general.checkUpdate')}
           </Button>
-          {(updateState?.status === 'available' || updateState?.status === 'downloaded') && (
+          {version && (
             <Button variant="ghost" size="sm" onClick={openUpdateDialog}>
-              {t('settings.general.viewUpdateNotes')}
+              {t('settings.general.updateOptions')}
             </Button>
           )}
           {updateState?.status === 'downloaded' && (
@@ -165,6 +173,15 @@ export function GeneralSettingsSection({ settings, updates }: {
           )}
         </div>
       </Field>
+      {version && <div key={version} className="settings-release-notes">
+        <div className="settings-release-notes-heading">
+          <h3 id="settings-release-notes-title">{t('update.dialog.notesTitle')}</h3>
+          <span>v{version}</span>
+        </div>
+        <div className="settings-release-notes-body" role="region" aria-labelledby="settings-release-notes-title" tabIndex={0}>
+          <ReleaseNotes source={updateState?.releaseNotes} fallback={<p className="desc">{t('update.dialog.notesEmpty')}</p>} />
+        </div>
+      </div>}
     </Card>
   )
 }

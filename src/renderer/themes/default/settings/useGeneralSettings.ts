@@ -46,6 +46,7 @@ function normalizeProxyForm(
 
 /** Kept at page scope so tab switches retain drafts and the original loading lifetime. */
 export function useGeneralSettings() {
+  const [hasLegacyCanvas, setHasLegacyCanvas] = useState(false)
   const { t, setLocale } = useI18n()
   const [hwAccel, setHwAccel] = useState(true)
   const [launchAtLoginSupported, setLaunchAtLoginSupported] = useState(false)
@@ -69,6 +70,7 @@ export function useGeneralSettings() {
         const settings = await shellApi.getSettings()
         if (cancelled) return
         const general = pickGeneral(settings)
+        setHasLegacyCanvas(settings.hasLegacyCanvas === true)
         setCloseBehavior(general.closeBehavior)
         setNotifyPosition(general.notifyPosition)
         // 代理：优先专用 getProxy，回落 settings.general.proxy
@@ -298,6 +300,7 @@ export function useGeneralSettings() {
 
   return {
     hwAccel, launchAtLogin, launchAtLoginSupported, launchAtLoginError, dataRoot, closeBehavior, notifyPosition, loadingGeneral,
+    hasLegacyCanvas, exportLegacyCanvas: () => shellApi.exportLegacyCanvas?.().catch(error => toastStore.getState().push(String(error))),
     proxyType, proxyHost, proxyPort, testingProxy, setProxyHost, setProxyPort,
     handleLocale, handleHwAccel, handleLaunchAtLogin, handleCloseBehavior, handleNotifyPosition,
     handleProxyType, handleProxyFieldBlur, handleTestProxy, handleOpenDataRoot

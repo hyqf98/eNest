@@ -85,7 +85,7 @@ await enest.mcp.registerHandlers({
 | 工具 | 参数 | 结果 |
 |---|---|---|
 | `enest_list_plugins` | 可选 `query`（关键字过滤）、`limit`（默认 50，1–100） | `plugins` 数组：`pluginId`、名称、版本、分类、启用态、feature/MCP 工具计数；不启动插件 |
-| `enest_list_plugin_apis` | 必填 `pluginId` | 三段 API 面：`features`（启动 code 与指令）、`launchEntries`（持久启动索引条目，带 `entryId/buildRevision/indexRevision`）、`mcpTools`（工具 id 列表） |
+| `enest_list_plugin_apis` | 必填 `pluginId` | 三段 API 面：`features`（启动 `code`、声明的 `title`（可选）、说明与指令）、`launchEntries`（持久启动索引条目，带 `entryId/buildRevision/indexRevision`）、`mcpTools`（工具 id 列表） |
 | `enest_execute` | 必填 `pluginId`、`code`；可选 `entryId`（配 `buildRevision`/`indexRevision`）、`query`、`target`（`quick`/`shell`） | 以 `reason: 'mcp'` 调度已启用插件的功能；返回 `dispatched` 与展示位置，不授予用户手势 |
 
 `enest_execute` 可以展示视图入口。命令返回 `done` 时不改变窗口；命令返回 `view` 时，只有调用方显式指定了相同的 `target` 才展示。命令、`prepareView` 和由 MCP 发起的展示不等同于用户点击，不能弹授权或选文件。`enest_call_tool` 始终不展示界面，返回插件的结构化业务结果。

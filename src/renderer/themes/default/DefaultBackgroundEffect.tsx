@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ResolvedBackgroundEffect } from '@shared/backgroundEffects'
-import { startBackgroundEffect } from '@renderer/background/backgroundEffect'
+import { startBackgroundEffect, type BackgroundReferenceSize } from '@renderer/background/backgroundEffect'
 import { bindBackgroundVideoPlayback } from '@renderer/background/videoPlayback'
 import { retainBackgroundResource, type BackgroundResource } from '@renderer/background/backgroundLifetime'
 import type { AnimationLevel, BackgroundConfig } from '@shared/types/plugin'
@@ -16,10 +16,11 @@ interface Props {
   launch?: boolean
   paused?: boolean
   continuous?: boolean
+  referenceSize?: BackgroundReferenceSize
 }
 
 /** Each effect owns a fresh canvas, including React StrictMode's setup/cleanup cycle. */
-export function DefaultBackgroundEffect({ effect, level, background, className = '', launch = false, paused = false, continuous = true }: Props) {
+export function DefaultBackgroundEffect({ effect, level, background, className = '', launch = false, paused = false, continuous = true, referenceSize }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const posterRef = useRef<HTMLImageElement>(null)
@@ -48,7 +49,7 @@ export function DefaultBackgroundEffect({ effect, level, background, className =
       container.appendChild(canvas)
       setFailed(false)
       const effect = startBackgroundEffect(canvas, {
-        preset, level, launch: launch && !started, reducedMotion, continuous,
+        preset, level, launch: launch && !started, reducedMotion, continuous, referenceSize,
         colors: color0 && color1 && color2 ? [color0, color1, color2] : undefined,
         speed, onError: () => setFailed(true),
       })
@@ -58,7 +59,7 @@ export function DefaultBackgroundEffect({ effect, level, background, className =
     resourceRef.current = lifetime
     return () => { resourceRef.current = null; lifetime.dispose() }
   // Registry/theme refreshes recreate descriptors; only rendering inputs own GPU lifetime.
-  }, [preset, color0, color1, color2, speed, level, launch, reducedMotion, continuous])
+  }, [preset, color0, color1, color2, speed, level, launch, reducedMotion, continuous, referenceSize])
 
   useEffect(() => {
     const video = videoRef.current

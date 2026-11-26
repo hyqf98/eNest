@@ -3,7 +3,7 @@
  * 自建进程从 spawn 返回起即登记；用户手动启动的服务只复用、不接管。
  * 新检出仓库没有 node_modules 时先自动执行一次包管理器 install，再拉起开发服务。
  */
-import { createServer } from 'node:net'
+import { createConnection } from 'node:net'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ChildProcess } from 'node:child_process'
@@ -22,6 +22,8 @@ const POLL_INTERVAL_MS = 500
 const RETRY_COOLDOWN_MS = 60_000
 /** 声明端口被占时向上尝试的端口数 */
 const PORT_SCAN_RANGE = 32
+/** 端口占用探测的 connect 超时：本机回环正常在毫秒级完成，超时视为无人监听 */
+const PROBE_TIMEOUT_MS = 400
 /** Only new process startup is bounded; already-running services never wait for a slot. */
 const MAX_CONCURRENT_STARTS = 2
 /** 自动依赖安装的最长等待：新机器冷装大依赖可能要几分钟，超时只放弃当次拉起 */
@@ -339,13 +341,20 @@ async function launchAndWait(pluginId: string, sourcePath: string, declaredUrl: 
   return null
 }
 
-/** 端口当前无监听者即可绑定（插件 dev 脚本固定 --host 127.0.0.1）。 */
+/**
+ * 端口无人监听才可用（插件 dev 脚本固定 --host 127.0.0.1）。
+ * 必须用 connect 探测而不是 bind 探测：macOS 允许 127.0.0.1:port 与别的进程已绑定的 *:port 共存，
+ * bind 会“成功”而把被占端口误判为空闲，随后 --strictPort 启动才 EADDRINUSE，只能等就绪超时回退。
+ */
 function canListen(port: number): Promise<boolean> {
   return new Promise(resolve => {
-    const probe = createServer()
+    const probe = createConnection({ port, host: '127.0.0.1' })
     probe.unref()
-    probe.once('error', () => resolve(false))
-    probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)))
+    const free = () => { probe.destroy(); resolve(true) }
+    const taken = () => { probe.destroy(); resolve(false) }
+    probe.setTimeout(PROBE_TIMEOUT_MS, free)
+    probe.once('connect', taken)
+    probe.once('error', free)
   })
 }
 

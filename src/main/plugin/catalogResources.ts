@@ -23,14 +23,6 @@ export type CatalogResource = ResourceIdentity & (
 export interface CatalogResources {
   icon?: CatalogResource
   screenshots: CatalogResource[]
-  /**
-   * 自由面板小组件预览图（`views.panel.preview`）。
-   * 与 screenshots 分开：它是「小组件在面板里的样子」，语义不同于市场详情截图，
-   * 也不参与 readmeImages 别名表。
-   */
-  panelPreview?: CatalogResource
-  /** 小组件默认外框尺寸（`views.panel.size`），随 preview 一起下发供首页卡片按比例展示。 */
-  panelSize?: { width: number; height: number }
   readme?: CatalogResource
   /** Only aliases of existing screenshots, not additional fetchable resources. */
   readmeImages?: Record<string, number>
@@ -72,13 +64,9 @@ export function localCatalogResources(
     typeof path === 'string' && isPluginAssetPath(path) && path.startsWith('assets/') && catalogResourceMime(path, kind)
       ? { pluginId: manifest.id, version: manifest.version, kind, source, rootPath, path, devSource }
       : undefined
-  const panelPreview = resource(manifest.views?.panel?.preview, 'image')
   return withReadmeImages({
     icon: resource(manifest.icon, 'image'),
     screenshots: (manifest.market?.screenshots ?? []).slice(0, 8).flatMap(path => resource(path, 'image') ?? []),
-    panelPreview,
-    // 尺寸只跟 preview 一起下发：没有预览图的插件在首页不显示小组件卡，尺寸没有意义。
-    ...(panelPreview && manifest.views?.panel?.size ? { panelSize: manifest.views.panel.size } : {}),
     readme: resource(manifest.market?.readme, 'readme')
   })
 }

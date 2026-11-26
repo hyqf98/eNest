@@ -7,33 +7,15 @@
 import { app } from 'electron'
 import type { UpdateInfo, ProgressInfo } from 'electron-updater'
 import { logError, logInfo, logWarn } from '@main/logs/logService'
-import { sendShellEvent } from '@main/window/createShellWindow'
+import { sendQuickEvent, sendShellEvent } from '@main/window/createShellWindow'
 import { broadcastNotice } from '@main/plugin/shellNotices'
+import { availableUpdateVersion } from '@shared/updateAvailability'
+import type { UpdateStatePayload } from '@shared/types/ipc'
 
 let updater: typeof import('electron-updater')['autoUpdater'] | undefined
 let loading: Promise<void> | undefined
 
-export type UpdateStatus =
-  | 'idle'
-  | 'checking'
-  | 'available'
-  | 'not-available'
-  | 'downloading'
-  | 'downloaded'
-  | 'error'
-
-export interface UpdateState {
-  status: UpdateStatus
-  currentVersion: string
-  latestVersion?: string
-  releaseName?: string
-  releaseNotes?: string
-  progress?: number
-  downloaded?: boolean
-  error?: string
-  /** 是否运行在打包环境（非打包无法走 GitHub Release 更新） */
-  packaged: boolean
-}
+type UpdateState = UpdateStatePayload & { packaged: boolean }
 
 let initialized = false
 let state: UpdateState = {
@@ -44,14 +26,18 @@ let state: UpdateState = {
 }
 
 function setState(partial: Partial<UpdateState>): void {
-  state = { ...state, ...partial }
+  const previousVersion = availableUpdateVersion(state)
+  const clearRelease = partial.status === 'checking' || partial.status === 'not-available'
+  state = { ...state, ...(clearRelease ? { latestVersion: undefined, releaseName: undefined, releaseNotes: undefined } : {}), ...partial }
   sendShellEvent({ type: 'update-status', state: { ...state } })
+  const version = availableUpdateVersion(state)
+  if (version !== previousVersion) sendQuickEvent({ type: 'quick-update-version', version })
 }
 
 function formatNotes(info: UpdateInfo): string | undefined {
   const notes = info.releaseNotes
   if (notes == null) return undefined
-  if (typeof notes === 'string') return notes
+  if (typeof notes === 'string') return notes.trim() || undefined
   const joined = notes
     .map((n) => n.note)
     .filter((n): n is string => Boolean(n))
@@ -134,7 +120,7 @@ async function ensureUpdater(): Promise<typeof import('electron-updater')['autoU
         status: 'downloaded',
         latestVersion: info.version,
         releaseName: releaseName(info),
-        releaseNotes: formatNotes(info),
+        releaseNotes: formatNotes(info) ?? (state.latestVersion === info.version ? state.releaseNotes : undefined),
         progress: 100,
         downloaded: true,
         error: undefined

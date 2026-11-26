@@ -1,14 +1,10 @@
-# Quick、桌面与组件布局接口
+# Quick 与主窗布局接口
 
-同一个插件使用 `enest.getLaunchMode()` 判断 `quick` / `shell` / `panel`，通过 `onModeChange(mode)` 订阅**布局变化**，不是每次容器移动。迁移沿用同一个 WebContents、文档和业务状态。宽度断点只调整空间，不能代替模式判断。manifest `views.layouts` 声明插件适配的布局，普通启动未适配的请求按 `views.default` 回退；未适配的布局不会传给插件。自由面板只接收显式包含 panel 的插件，未适配的不出现在组件选择器，也不能拖入。
+宿主布局只有 `quick`（紧凑工具）和 `shell`（完整工作台）。独立窗口是挂载位置，不是布局。`getLaunchMode()` 读取当前布局，`onModeChange()` 只在布局改变时触发。
 
-启动请求目标只有 quick/shell，panel 不是自动新建窗口的命令。`views.default` 只在请求布局未适配时使用；即使默认 panel，已适配的 quick/shell 请求仍使用请求布局。统一启动器用于 Quick、快捷键与 Workspace 打开：最终布局为 quick 时进入 Quick，其余进入主窗；只有请求未适配且最终回退 panel 时，才在主窗呈现组件布局，不自动创建自由面板。
+Quick、快捷键和 Workspace 通过统一启动器解析目标：未适配请求的布局才回退到 `views.default`。普通 Quick 再次打开已独立的窗口时原地聚焦；显式目标可以移动原实例，不重新建立业务状态。
 
-未声明激活协议的旧插件从宿主主窗普通打开（`ShellOpenPlugin`）仍走 `openPlugin`：请求 shell 布局，回退 quick/panel 时也留在主窗。声明 `activation` 的冷启动/主窗打开经统一启动器完成命令或视图准备，避免把轻量索引后台直接显示为空白页；已有独立窗口/面板的普通无 feature 打开仍原地聚焦。Workspace 目录、详情和首页搜索默认向统一启动器请求 shell；feature 显式 `activation: { type: 'view', target: 'quick' | 'shell' }` 或命令返回的目标优先于入口默认目标。独立窗口保留原布局；显式固定到主窗/拖入 Quick 按接收位置选择已适配布局或默认布局，不因布局回退改换位置。拖入面板必须已声明 panel，不套用完整工作台兼容显示。
-
-已有面板组件或独立窗口从普通 Quick 搜索（未指定显式目标）或 `ShellOpenPlugin` 打开时原地聚焦；Workspace 打开、显式设置入口、快捷键目标和迁移动作仍可移动现有实例。完整决策见 [plugin.json](manifest.md) 与 [UI 集成标准](ui-standard.md)。
-
-业务状态、连接和后台计划应在布局之外共用。panel 是信息摘要与常用操作，不是缩小整张工作台。官方 `plugins/pomodoro` 用同一控制器驱动三布局；可选 widget CSS、透明根与原生材质边界见[自由面板](panels.md)。声明式设置与插件自己的管理页面可同时存在。
+业务状态、连接和后台计划在两个布局间共享。变化的是界面，不是实例或数据所有者。
 
 ## 接管顶部输入
 
@@ -22,7 +18,7 @@ const offAction = enest.quickInput.onAction(action => {
 await enest.quickInput.configure({ placeholder: '搜索内容…', value: draft })
 ```
 
-仅**拥有当前 Quick 会话或 quick 布局独立窗口**的插件能够配置对应顶部输入，返回 boolean 表示是否生效；`mode === 'quick'` 本身不授予其它窗口的输入权。主进程绑定插件 ID 与 runtime generation。Quick 自动隐藏保留会话、实例与接管值，重新呼出不退出插件；Esc/返回、显式关闭或销毁结束会话，迁入主窗/面板解除接管。旧实例的消息无效。未接入顶部输入的插件仍保留插件页面，使用 Esc/返回才能回全局搜索；恢复期间不因异步输入状态尚未返回而退出。中文输入法组合期间，导航与提交不执行。
+仅**拥有当前 Quick 会话或 quick 布局独立窗口**的插件能够配置对应顶部输入，返回 boolean 表示是否生效；`mode === 'quick'` 本身不授予其它窗口的输入权。主进程绑定插件 ID 与 runtime generation。Quick 自动隐藏保留会话、实例与接管值，重新呼出不退出插件；Esc/返回、显式关闭或销毁结束会话，迁入主窗后解除接管。旧实例的消息无效。未接入顶部输入的插件仍保留插件页面，使用 Esc/返回才能回全局搜索；恢复期间不因异步输入状态尚未返回而退出。中文输入法组合期间，导航与提交不执行。
 
 `Mod+K` 聚焦顶部输入，`Mod+Enter` 固定到桌面，多行执行使用 `Mod+Shift+Enter`。顶部输入栏和普通工作台中的裸 Esc、返回按钮均直接回到空白全局搜索。终端、编辑器和弹层声明相应 inputContext 后继续自行处理 Esc；输入法组合期间宿主不拦截。长按 Esc 不会在返回后继续隐藏 Quick。插件主动调用 `quickInput.escape()` 仍先清空非空查询，再返回搜索；清空按钮只清空查询。
 
@@ -57,7 +53,7 @@ enest.onEnter(async ({ code, type, payload, input }) => {
 
 已被注入的上下文可在当前 Quick 会话通过 `enest.quickInput.readContext()` 重新读取（返回同形状 `QuickEnterInput`，无则为 null）。搜索框尚未消费的粘贴队列与已交付插件的上下文是两份不同生命周期：前者隐藏时清理，后者自动隐藏后仍可读取；Esc/返回、迁出 Quick、换代或实例销毁后失效。重复激活（无新载荷的 enter）不会重放旧 input，无输入的新会话也不能读到上一会话的内容。
 
-该链路由当前宿主源码引入。更早打包的旧宿主按旧 `plugin-manifest.schema.json` 校验，`features.items.additionalProperties:false` 会直接拒绝包含 `img`/`files` 指令的包（fail-fast），属预期；新宿主接受并执行完整链路。官方参考实现见插件仓 `plugins/image-tools`（粘贴图片 → 压缩）。
+该链路由当前宿主源码引入。更早打包的旧宿主按旧 `plugin-manifest.schema.json` 校验，`features.items.additionalProperties:false` 会直接拒绝包含 `img`/`files` 指令的包（fail-fast），属预期；新宿主接受并执行完整链路。官方参考实现见插件仓 `plugins/screen-assistant`（粘贴图片 → 压缩）。
 
 ## 设置、主题和反馈
 
@@ -67,7 +63,7 @@ enest.onEnter(async ({ code, type, payload, input }) => {
 
 主题同步包括 CSS token、`data-theme`、`data-anim`、字体栈和字号比例。用户自定义字体经当前插件同源的 `__enest_fonts/<filename>` 白名单地址流式加载。插件遵守 `prefers-reduced-motion`；低动画档不要播放大幅位移动画。
 
-插件仓库 `packages/plugin-kit` 以版本化 workspace 依赖 `@enest/plugin-kit` 提供适配器，由 Vite 打入 dist；样式导入 `@enest/plugin-kit/style.css`，不要逐插件复制共享源码。kit 的 `mode/onMode` 和根节点 `data-mode` 均支持三个布局；`@enest/plugin-kit/widget.css` 只作用于显式采用 `.pk-widget` 的内容，不强制所有插件变为卡片。
+插件仓库 `packages/plugin-kit` 以版本化 workspace 依赖 `@enest/plugin-kit` 提供适配器，由 Vite 打入 dist；样式导入 `@enest/plugin-kit/style.css`，不要逐插件复制共享源码。kit 的 `mode/onMode` 和根节点 `data-mode` 区分 `quick` 与 `shell`，不提供桌面小组件布局。
 
 ## 剪贴板
 

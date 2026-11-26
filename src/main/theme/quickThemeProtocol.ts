@@ -275,6 +275,13 @@ function hasThemeFrame(policy: QuickPolicy): boolean {
   catch { return false }
 }
 
+export function claimQuickThemeFileShortcut(contents: WebContents): boolean {
+  const policy = policies.get(contents.id)
+  if (!policy || policy.contents !== contents || !policy.isActive() || !directThemeFrame(policy, contents.focusedFrame)) return false
+  policy.gesture = null
+  return true
+}
+
 function allowRequest(policy: QuickPolicy, details: Electron.OnBeforeRequestListenerDetails): boolean {
   const frame = details.frame, main = policy.contents.mainFrame
   // Missing frame identity must not turn into a shared-partition wide grant.

@@ -123,7 +123,7 @@ export function invokePluginActivation(pluginId: string, kind: PluginActivationD
     const releaseActivity = acquirePluginActivity(pluginId, `activation:${randomUUID()}`, 'Plugin feature activation')
     let releaseInteraction = () => {}
     const job: Job = { id: randomUUID(), pluginId, kind, controller: new AbortController(), cancelled: false, dispatched: false, settled: false,
-      resolve, reject, release: () => { releaseActivity(); releaseInteraction() }, releaseActivation: () => {}, detach: () => {}, settledListeners: new Set(), nonInteractive: options.reason === 'mcp' }
+      resolve, reject, release: () => { releaseActivity(); releaseInteraction() }, releaseActivation: () => {}, detach: () => {}, settledListeners: new Set(), nonInteractive: options.reason === 'mcp' || options.reason === 'launcher' }
     jobs.set(pluginId, job)
     const abort = () => cancel(job, 'Plugin activation cancelled')
     options.signal?.addEventListener('abort', abort, { once: true })
@@ -146,6 +146,16 @@ export function invokePluginActivation(pluginId: string, kind: PluginActivationD
         const registration = await waitReady(pluginId, runtime, job.controller.signal)
         job.registration = registration
         if (job.cancelled || options.guard?.() === false || !same(runtime, pluginHost.getMcpRuntime(pluginId))) throw new Error('Plugin activation retired')
+        // A freshly ready page routinely starts its own backend calls (settings, first page) before
+        // prepare-view arrives; only a view preparation may wait those out, bounded by the job timer.
+        if (kind === 'prepare-view' && !(job.nonInteractive ? hasNativeInteraction() : hasNonInteractiveLease(runtime.scope)) && getHostRpcCount(runtime.scope)) {
+          await Promise.race([whenHostRpcIdle(runtime.scope), new Promise<never>((_, reject) => {
+            const abort = () => reject(new Error('Plugin activation cancelled'))
+            if (job.controller.signal.aborted) abort()
+            else job.controller.signal.addEventListener('abort', abort, { once: true })
+          })])
+          if (job.cancelled || options.guard?.() === false || !same(runtime, pluginHost.getMcpRuntime(pluginId))) throw new Error('Plugin activation retired')
+        }
         // Do not interrupt an in-flight native dialog or a non-interactive MCP job.
         if ((job.nonInteractive ? hasNativeInteraction() : hasNonInteractiveLease(runtime.scope)) || kind !== 'index-sync' && getHostRpcCount(runtime.scope)) throw new Error('Plugin has pending native requests')
         if (!registration.handlers.has(kind)) {

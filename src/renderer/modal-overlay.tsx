@@ -6,7 +6,7 @@ import { applyAppearanceToDom } from '@renderer/services/appearanceDom'
 import { Button } from '@renderer/components/ui/Button'
 import { PluginIcon } from '@renderer/components/PluginIcon'
 import { pluginProtocolUrl } from '@shared/constants'
-import { MarkdownView } from '@renderer/components/MarkdownView'
+import { ReleaseNotes } from '@renderer/components/ReleaseNotes'
 import '@renderer/styles/tokens.css'
 import '@renderer/styles/base.css'
 import '@renderer/styles/app.css'
@@ -93,7 +93,7 @@ function NativeModal() {
             </div>
           </header>
           <div className="update-body">
-            {update?.releaseNotes?.trim() ? <MarkdownView source={update.releaseNotes} /> : <p>{text('当前版本信息由宿主更新服务提供。', 'Version information is provided by the host updater.')}</p>}
+            <ReleaseNotes source={update?.releaseNotes} fallback={<p>{text('本次更新说明暂未提供。', 'Release notes are not available yet.')}</p>} />
             <Button variant="ghost" size="sm" onClick={() => action('release')}>{text('查看发布页', 'View releases')}</Button>
           </div>
           <div className="update-status" aria-live="polite">

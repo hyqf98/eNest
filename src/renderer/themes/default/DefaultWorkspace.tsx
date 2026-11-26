@@ -8,7 +8,6 @@ import { SegmentTabs } from '@renderer/themes/default/workspace/SegmentTabs'
 import { FeaturedCarousel } from '@renderer/themes/default/workspace/FeaturedCarousel'
 import { MarketCategoryView } from '@renderer/themes/default/workspace/MarketCategoryView'
 import { PluginCardView } from '@renderer/themes/default/workspace/PluginCardView'
-import { HomeCardsView } from '@renderer/themes/default/workspace/HomeCardsView'
 import { PluginDetailView } from '@renderer/themes/default/workspace/PluginDetailView'
 import { usePluginDetailMotion } from '@renderer/themes/default/workspace/usePluginDetailMotion'
 import { RotateCwIcon } from '@renderer/components/icons'
@@ -17,39 +16,8 @@ import { DefaultThemeBackground } from './DefaultThemeBackground'
 import { DefaultWorkspaceSearch } from './DefaultWorkspaceSearch'
 import { HomeTabStrip } from '@renderer/themes/default/workspace/HomeTabStrip'
 import type { DefaultWorkspaceController, DefaultWorkspaceState } from './WorkspaceController'
-import { IS_MAC } from '@shared/platform'
+import { WindowControls } from '@renderer/components/WindowControls'
 import './defaultWorkspace.css'
-
-/**
- * 左上角窗口控件：关闭 / 最小化 / 缩放（**仅 Windows/Linux**）。
- *
- * macOS 不画这一组：那里改由宿主打开系统原生红绿灯
- * （createShellWindow 的 enableNativeWindowButtons）。原生按钮由 AppKit 画在
- * 所有内容视图之上、点击直接由窗口处理，不受拖拽区命中测试影响，行为与其它
- * macOS 应用完全一致——这才是官方文档给的方案。
- *
- * 非 macOS 没有等价的原生按钮（Window Controls Overlay 会压在标题栏的 Tab 上），
- * 所以仍然自绘。首页铺满整窗、盖住主壳标题栏，主壳那组被盖住且不可点，
- * 因此这三个按钮必须画在首页自己这一层。
- */
-const WINDOW_CONTROLS = [
-  { control: 'close' as const, tone: 'r', label: '关闭', path: 'M3.2 3.2l5.6 5.6M8.8 3.2L3.2 8.8' },
-  { control: 'minimize' as const, tone: 'y', label: '最小化', path: 'M3 6h6' },
-  { control: 'zoom' as const, tone: 'g', label: '缩放', path: 'M4 8V4h4' },
-]
-function WindowControls({ onControl }: { onControl: (control: 'close' | 'minimize' | 'zoom') => void }) {
-  return <div className="workspace-window-controls" role="group" aria-label="窗口控制">
-    {WINDOW_CONTROLS.map(item => (
-      <button key={item.control} type="button" className={`workspace-window-btn ${item.tone}`}
-        aria-label={item.label} onClick={() => onControl(item.control)}>
-        <svg viewBox="0 0 12 12" width="8" height="8" aria-hidden>
-          <path d={item.path} stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        </svg>
-        <span className="workspace-window-hint" aria-hidden="true">{item.label}</span>
-      </button>
-    ))}
-  </div>
-}
 
 const CATEGORY_I18N: Record<string, string> = {
   效率: 'market.catProductivity', 开发: 'market.catDev', 设计: 'market.catDesign',
@@ -178,7 +146,7 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
     return stableItems
   }, [state.catalog])
   const seg = state.basePage === 'installed' ? 'installed' : 'browse'
-  const searching = Boolean(state.query.trim() || state.input.length)
+  const searching = state.scope === 'files' || Boolean(state.query.trim() || state.input.length)
   const categoryKeys = useMemo(() => {
     const keys = new Set(plugins.map(plugin => plugin.category))
     return ['全部', ...Object.keys(CATEGORY_I18N).filter(key => keys.has(key)), ...Array.from(keys).filter(key => !CATEGORY_I18N[key])]
@@ -224,8 +192,7 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
     {/* 顶部拖拽带：主壳标题栏的 drag 区在首页必须关掉（否则先命中、吞掉首页的点击），
         窗口拖动改由这条带负责。left 让开左上角的按钮簇，两者才不互相吃掉。 */}
     <div className="workspace-drag-band" aria-hidden="true" />
-    {/* macOS 用系统原生红绿灯（宿主 setWindowButtonVisibility），这里不再画。 */}
-    {!IS_MAC && <WindowControls onControl={control => void controller.windowControl?.(control)} />}
+    <WindowControls onControl={controller.windowControl} />
     {/* classic 模式顶部 Tab 条：首页铺满整窗、盖住主壳标题栏，所以自己复刻一条。
         无插件 Tab 时也渲染——组件自带固定的「首页」按钮，与主壳标题栏行为一致。
         orb 模式没有 Tab 条（左侧圆轨就是导航），不渲染。 */}
@@ -245,8 +212,6 @@ export function DefaultWorkspace({ controller }: { controller: DefaultWorkspaceC
         {!searching && <DefaultWorkspaceCatalog plugins={plugins} categoryKeys={categoryKeys} category={state.category} seg={seg}
           loading={state.loading} visible={state.visible} detailOpen={detailOpen} continuous={state.appearance.appearance.animation.continuous}
           gridRef={gridRef} controller={controller} onOpen={handleOpen} onDetail={handleDetail} />}
-        {!searching && !state.loading && seg === 'browse' && state.category === '全部' && state.catalog &&
-          <HomeCardsView items={state.catalog.items} onOpen={handleDetail} onError={controller.reportError} />}
       </div>
       {detail && <DefaultWorkspaceDetail key={detail.pluginId} state={state} controller={controller} origin={originRef.current} />}
     </section>

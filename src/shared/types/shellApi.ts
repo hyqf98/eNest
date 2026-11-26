@@ -9,7 +9,7 @@ import type { ThemeSettingsConfig, ThemeSettingsSnapshot, ThemeSettingsAction, T
 import type { WorkspaceRoute } from '@shared/types/workspace'
 import type { PluginMemorySnapshot } from '@shared/types/pluginMemory'
 import type { PerformanceCaptureState, PerformanceCaptureExportResult } from '@shared/types/performanceCapture'
-import type { ShellEventPayload, OrbEventPayload, OrbRailState, OrbRailSyncRequest, InstallJobInfo, PluginCallTraceEntry, ProxyTestResult, UpdateStatePayload, PluginDirtyState, PluginSaveSummary, GithubLoginSessionPayload, GithubProfileState } from '@shared/types/ipc'
+import type { ShellEventPayload, OrbEventPayload, OrbRailState, OrbRailSyncRequest, InstallJobInfo, MissingDevPlugin, PluginCallTraceEntry, ProxyTestResult, UpdateStatePayload, PluginDirtyState, PluginSaveSummary, GithubLoginSessionPayload, GithubProfileState } from '@shared/types/ipc'
 import type { ApplicationScanResult, QuickCommandKind, QuickHotkeyApplyResult, QuickHotkeyConfig, QuickHotkeyPatch, QuickOpenRequest, QuickSearchResult } from '@shared/types/quick'
 
 /** preload 注入到渲染进程的完整 shell 能力面 */
@@ -73,6 +73,8 @@ export interface ShellApi {
   setOpenWithDefault?(key: string, pluginId: string): Promise<import('@shared/types/openWith').OpenWithActionResult>
   clearOpenWithDefault?(key: string): Promise<import('@shared/types/openWith').OpenWithActionResult>
   routeOpenWith?(key: string, pluginId: string): Promise<import('@shared/types/openWith').OpenWithActionResult>
+  /** 设置页开关：启用/停用某插件的清单声明项（只影响 eNest 内候选，不改系统默认） */
+  setOpenWithEnabled?(pluginId: string, entryId: string, enabled: boolean): Promise<import('@shared/types/openWith').OpenWithActionResult>
   openOpenWithSystemSettings?(): Promise<void>
   /** 从市场安装/更新：远程 assetUrl 入队下载；force 强制走远程更新 */
   installMarketPlugin?(
@@ -106,11 +108,15 @@ export interface ShellApi {
   openDevTools(pluginId: string): Promise<void>
   /** plugin:call 调用跟踪（Electron；mock 返回空数组） */
   getPluginCallTrace?(): Promise<PluginCallTraceEntry[]>
+  /** 开发者控制台：登记了但已无法加载的开发插件（Electron；mock 返回空数组） */
+  listMissingDevPlugins?(): Promise<MissingDevPlugin[]>
   getThemeSettingsConfig(): Promise<ThemeSettingsConfig | null>
   getThemeSettingsSnapshot(key: string): Promise<ThemeSettingsSnapshot>
   setThemeSettingsActive(input: { key?: string; active: boolean; bounds?: { x: number; y: number; width: number; height: number } }): Promise<boolean>
   dispatchThemeSettingsAction(key: string, action: ThemeSettingsAction): Promise<ThemeSettingsActionResult>
   getSettings(): Promise<ShellSettingsData>
+  fileSearchPreferences?(request: import('./fileSearch').FileSearchPreferenceRequest): Promise<import('./fileSearch').FileSearchPreferences>
+  searchFiles?: import('./fileSearch').SearchFiles
   setSettings(settings: Partial<ShellSettingsData>): Promise<void>
   /** 拉取插件已注册的设置 section 列表（Electron）；mock 返回空数组 */
   getSettingsSections?(): Promise<ShellSettingsSection[]>
@@ -208,6 +214,7 @@ export interface ShellApi {
   quickScanApps?(force?: boolean): Promise<ApplicationScanResult>
   quickGetConfig?(): Promise<QuickHotkeyConfig>
   quickGetTheme?(): Promise<import('@shared/types/quickTheme').QuickThemeConfig | null>
+  quickGetUpdateVersion?(): Promise<string | null>
   quickAuthorizeTheme?(key: string): Promise<boolean>
   quickProviderState?(request: import('@shared/types/quickTheme').QuickProviderStateRequest): Promise<import('@shared/types/quickTheme').QuickProviderStateSnapshot | { keys: string[] }>
   onQuickThemeKey?(cb: (key: { key: string; meta?: boolean; ctrl?: boolean; alt?: boolean; shift?: boolean }) => void): () => void
@@ -215,16 +222,8 @@ export interface ShellApi {
   quickProbeHotkey?(acc: string): Promise<import('@shared/types/quick').QuickHotkeyProbeResult>
   quickResize?(height: number, animate?: boolean): void
   quickInput?(message?: import('@shared/types/plugin-tools').QuickInputMessage): Promise<import('@shared/types/plugin-tools').QuickInputState | boolean | null>
-  /** 读取/维护宿主保管的粘贴上下文（剪贴板图片与文件；渲染层不提交字节或路径） */
   quickInputContext?(request: import('@shared/types/quick').QuickInputContextRequest): Promise<import('@shared/types/quick').QuickInputContextResult>
-  /** 自由面板：框选区域并创建面板。 */
-  createPanel?(): Promise<{ ok: boolean; cancelled?: boolean; id?: string; bounds?: import('@shared/types/panel').PanelBounds; error?: string }>
-  /** 自由面板：列出当前活动面板。 */
-  listPanels?(): Promise<Array<{ id: string; bounds: import('@shared/types/panel').PanelBounds; widgetCount: number }>>
-  /** 自由面板：关闭指定面板。 */
-  closePanel?(panelId: string): Promise<{ ok: boolean }>
-  /** 自由面板：保存呼出快捷键并立即重注册（返回注册结果）。 */
-  setPanelHotkey?(accelerator: string): Promise<import('@shared/types/panel').PanelHotkeyApplyResult>
+  exportLegacyCanvas?(): Promise<boolean>
   onQuickShown?(cb: () => void): () => void
 }
 
@@ -232,7 +231,8 @@ export interface ShellApi {
 export type NativeShellApi = Required<ShellApi>
 
 export const QUICK_HOST_METHODS = ['getAppearance', 'readCustomFont', 'onEvent', 'onQuickShown', 'onQuickThemeKey', 'quickSearch',
-  'quickOpen', 'quickHide', 'quickResize', 'quickInput', 'quickInputContext', 'quickGetTheme', 'quickAuthorizeTheme', 'quickProviderState'] as const
+  'searchFiles',
+  'quickOpen', 'quickHide', 'quickResize', 'quickInput', 'quickInputContext', 'quickGetTheme', 'quickGetUpdateVersion', 'quickAuthorizeTheme', 'quickProviderState'] as const
 export const DOCK_METHODS = ['getOrbState', 'onOrbEvent', 'setShellView'] as const
 export const RAIL_METHODS = [...DOCK_METHODS, 'goHome', 'activatePlugin', 'closePlugin', 'setOrbRailExpanded', 'setOrbDock', 'setOrbRailCaption', 'activateRailContribution'] as const
 

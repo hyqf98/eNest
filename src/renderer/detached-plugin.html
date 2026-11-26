@@ -7,8 +7,8 @@
   </head>
   <body>
     <header class="detached-titlebar">
-      <button id="plugin-grip" class="detached-grip" type="button" title="拖动图标或名称，收回主窗口或小窗口">
-        <span class="detached-icon"><img id="plugin-icon" alt="" draggable="false" hidden /><span id="plugin-glyph" aria-hidden="true">⌥</span></span>
+      <button id="plugin-grip" class="detached-grip plugin-grip" type="button" title="拖动图标或名称，收回主窗口或小窗口">
+        <span class="detached-icon plugin-grip-icon" aria-hidden="true"><img id="plugin-icon" alt="" draggable="false" hidden /><span id="plugin-glyph">⌥</span></span>
         <span id="plugin-title">插件</span><span id="plugin-badge" hidden></span>
       </button>
       <span class="detached-drag-space" aria-hidden="true"></span>
@@ -22,14 +22,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18M7 7.5h.01"/></svg>
         </button>
       </div>
-      <div class="detached-controls" role="group" aria-label="窗口控制">
-        <button id="pin-window" class="detached-action detached-icon-action" type="button" title="置顶窗口" aria-label="置顶窗口" aria-pressed="false">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16 9V4l1-1H7l1 1v5l-3 3v3h14v-3l-3-3ZM12 15v7"/></svg>
-        </button>
-        <button id="minimize" type="button" aria-label="最小化" title="最小化"><span>−</span></button>
-        <button id="maximize" type="button" aria-label="最大化或还原" title="最大化或还原"><span>□</span></button>
-        <button id="close" type="button" aria-label="关闭插件" title="关闭插件"><span>×</span></button>
-      </div>
+      <button id="pin-window" class="detached-action detached-icon-action" type="button" title="置顶窗口" aria-label="置顶窗口" aria-pressed="false">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16 9V4l1-1H7l1 1v5l-3 3v3h14v-3l-3-3ZM12 15v7"/></svg>
+      </button>
+      <div id="window-controls" class="window-controls"></div>
     </header>
     <div id="quick-bar" class="detached-quick-bar" role="search">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>

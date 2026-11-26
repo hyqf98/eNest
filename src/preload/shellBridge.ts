@@ -6,7 +6,7 @@ import type { ShellSettingsData } from '@shared/types/shellSettings'
 import { ipcRenderer, webUtils } from 'electron'
 import * as IpcChannels from '@shared/types/ipc'
 import type {
-  InstallJobInfo, PluginCallTraceEntry, PluginDirtyState, PluginSaveSummary,
+  InstallJobInfo, MissingDevPlugin, PluginCallTraceEntry, PluginDirtyState, PluginSaveSummary,
   GithubLoginSessionPayload, GithubProfileState, ShellEventPayload, UpdateStatePayload, ProxyTestResult
 } from '@shared/types/ipc'
 import type {
@@ -143,7 +143,11 @@ export const shellBridge: NativeShellApi = {
   getPluginCallTrace: () =>
     ipcRenderer.invoke(IpcChannels.ShellGetPluginTrace) as Promise<PluginCallTraceEntry[]>,
 
+  listMissingDevPlugins: () =>
+    ipcRenderer.invoke(IpcChannels.ShellListMissingDevPlugins) as Promise<MissingDevPlugin[]>,
+
   getSettings: () => ipcRenderer.invoke(IpcChannels.ShellGetSettings),
+  fileSearchPreferences: request => ipcRenderer.invoke(IpcChannels.FileSearchPreferences, request),
 
   setSettings: (settings: Partial<ShellSettingsData>) =>
     ipcRenderer.invoke(IpcChannels.ShellSetSettings, settings),
@@ -245,6 +249,10 @@ export const shellBridge: NativeShellApi = {
     ipcRenderer.invoke(IpcChannels.ShellOpenWithRoute, { key, pluginId }) as Promise<
       import('@shared/types/openWith').OpenWithActionResult
     >,
+  setOpenWithEnabled: (pluginId: string, entryId: string, enabled: boolean) =>
+    ipcRenderer.invoke(IpcChannels.ShellOpenWithSetEnabled, { pluginId, entryId, enabled }) as Promise<
+      import('@shared/types/openWith').OpenWithActionResult
+    >,
   openOpenWithSystemSettings: () =>
     ipcRenderer.invoke(IpcChannels.ShellOpenWithOpenSystemSettings) as Promise<void>,
   getAccountState: () => ipcRenderer.invoke(IpcChannels.ShellAccountState),
@@ -324,13 +332,6 @@ export const shellBridge: NativeShellApi = {
       import('@shared/types/quick').QuickHotkeyProbeResult
     >,
 
-  /** 自由面板：框选区域并创建面板（返回面板 id 与最终 bounds）。 */
-  createPanel: () => ipcRenderer.invoke(IpcChannels.PanelCreate) as Promise<{ ok: boolean; cancelled?: boolean; id?: string; bounds?: import('@shared/types/panel').PanelBounds; error?: string }>,
-  /** 自由面板：列出当前活动面板。 */
-  listPanels: () => ipcRenderer.invoke(IpcChannels.PanelList) as Promise<Array<{ id: string; bounds: import('@shared/types/panel').PanelBounds; widgetCount: number }>>,
-  /** 自由面板：关闭指定面板（释放其内插件）。 */
-  closePanel: (panelId: string) => ipcRenderer.invoke(IpcChannels.PanelClose, panelId) as Promise<{ ok: boolean }>,
-  /** 自由面板：保存呼出快捷键并立即重注册（返回注册结果）。 */
-  setPanelHotkey: (accelerator: string) => ipcRenderer.invoke(IpcChannels.PanelSetHotkey, accelerator) as Promise<import('@shared/types/panel').PanelHotkeyApplyResult>,
+  exportLegacyCanvas: () => ipcRenderer.invoke(IpcChannels.ExportLegacyCanvas),
 }
 

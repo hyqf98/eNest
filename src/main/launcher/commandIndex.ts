@@ -4,6 +4,7 @@ import type { PluginManifest } from '@shared/types/plugin'
 import { pluginProtocolUrl } from '@shared/constants'
 import { parsePluginCommandPattern } from '@shared/pluginCommands'
 import { resolvePluginFeatureInput } from '@shared/pluginTextInput'
+import { publicLaunchAliases } from '@shared/search'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { getPluginLaunchAliases, getPluginLaunchAliasRevision } from '@main/hotkey/pluginLaunchHotkeys'
 import { searchAll } from '@main/plugin/pluginBackgroundRuntime'
@@ -13,6 +14,8 @@ import { getCachedApps, onApplicationsChanged, scanApplications } from './appSca
 import { getAppIconDataUrl } from './appLauncher'
 import { queryQuickProviders, type QuickProviderItem } from './quickProviders'
 import { randomUUID } from 'node:crypto'
+import { basename, dirname, isAbsolute } from 'node:path'
+import { settingsStore } from '@main/settings/SettingsStore'
 import { getLaunchIndexRevision, initializeLaunchIndex, launchIndexEntries, onLaunchIndexChanged, resolveLaunchIndexEntry } from './launchIndex'
 import { getCatalogPluginIcon } from './catalogIcons'
 
@@ -66,6 +69,11 @@ function installedManifests(): PluginManifest[] {
   return pluginRegistry.getInstalledDescriptors().filter(entry => entry.enabled).map(entry => entry.manifest)
 }
 
+function legacyFeatureTitle(names: string[], pluginName: string): string {
+  const aliases = publicLaunchAliases(names)
+  return aliases.find(name => /\p{Script=Han}/u.test(name)) || aliases.find(name => !/^[a-z]{1,3}$/.test(name)) || pluginName
+}
+
 let commandCache: { registry: number; aliases: number; items: QuickCommand[] } | null = null
 let commandCacheHits = 0
 let commandCacheMisses = 0
@@ -95,26 +103,14 @@ export function buildPluginCommands(): QuickCommand[] {
     const primary = features.find(feature => feature.cmds?.some(command => typeof command === 'string' && command.trim())) ?? features[0]
     for (const feature of features) {
       if (!feature.cmds?.length && feature.activation) continue
-      const names = (feature.cmds ?? []).filter((command): command is string => typeof command === 'string' && Boolean(command.trim()))
-      /**
-       * 标题就写**功能名**，不再有「插件名 · 一句长长的说明」那种副标题小字——
-       * Quick 首页是图标网格，一格只有一句的位置，小字必然被省略号切碎
-       * （用户在截图里就是被那排半句话劝退的）。
-       *
-       * 规则：
-       *   · 主入口 / 单入口 → 插件名。它是用户认这个插件的方式，缩写（`codec` 的
-       *     explain 一按 `/` 切就只剩 `Base64`）只会让人认不出是哪个插件。
-       *   · 其它入口 → 各自的功能名，截到第一个分隔点（括号/冒号/斜杠）取主干，
-       *     让「在画板窗口里画草稿」这类长句也能塞进一格。
-       */
+      const names = (feature.cmds ?? []).filter((command): command is string => typeof command === 'string').map(name => name.trim()).filter(Boolean)
+      const title = names.length ? feature.title?.trim() || legacyFeatureTitle(names, manifest.name) : manifest.name
       const explain = feature.explain?.trim()
-      const compact = explain ? explain.split(/[（(:：/／—]/)[0].trim() : ''
-      const title = feature === primary ? manifest.name : compact || names[0] || manifest.name
-      const subtitle = explain && explain !== title ? explain : manifest.name
+      const subtitle = [manifest.name, explain].filter((part, index, parts) => part && part !== title && parts.indexOf(part) === index).join(' · ') || manifest.name
       const base: QuickCommand = {
         kind: 'plugin', id: `plugin:${pluginId}:${feature.code}`, title, subtitle,
         pluginId, code: feature.code, icon, type: 'text', buildRevision: pluginRegistry.getBuildRevision(pluginId),
-        aliases: [...names, ...(feature === primary ? [...userAliases, manifest.name, manifest.id] : [])],
+        aliases: [...new Set([...names, ...(feature === primary ? [...userAliases, manifest.name, manifest.id] : [])])],
         textInput: resolvePluginFeatureInput(feature)
       }
       items.push(base)
@@ -156,10 +152,10 @@ function nativeDirectory(): QuickCommand[] {
   // The identity store (and its secret) has the same process lifetime as this cache.
   const indexed: QuickCommand[] = launchIndexEntries().map(({ pluginId, buildRevision, indexRevision, entry }) => ({
     kind: 'plugin', id: `entry:${pluginId}:${entry.id}`, pluginId, entryId: entry.id, code: entry.code,
-    title: entry.title, subtitle: entry.subtitle ?? '', aliases: entry.aliases, payload: entry.payload,
+    title: entry.title, subtitle: entry.subtitle ?? '', aliases: entry.aliases?.length ? entry.aliases : [entry.title], payload: entry.payload,
     icon: pluginProtocolUrl(pluginId, pluginRegistry.getManifest(pluginId)!.icon), type: 'text', buildRevision, indexRevision
   }))
-  const directory = [...NATIVE_ACTIONS, ...plugins, ...apps, ...indexed]
+  const directory = [...NATIVE_ACTIONS, ...plugins.filter(item => item.content || item.aliases?.length), ...apps, ...indexed]
   if (directory.length > DIRECTORY_LIMIT) throw new Error('Launch directory exceeds the host resource budget')
   const items = withStateKeys(directory)
   directoryCache = { plugins, apps, indexRevision, items }
@@ -187,13 +183,14 @@ export function quickOpenedIdentity(request: QuickOpenRequest): string | null {
 }
 
 type ProviderResult = { pluginId: string; providerId: string; items: QuickProviderItem[] }
-function providerCommands(results: ProviderResult[]): QuickCommand[] {
+function providerCommands(results: ProviderResult[], nativeFiles = false): QuickCommand[] {
   const enabled = new Set(pluginRegistry.getInstalledDescriptors().filter(entry => entry.enabled).map(entry => entry.id))
   const items: QuickCommand[] = [], seen = new Set<string>()
   for (const result of results) {
     if (!enabled.has(result.pluginId)) continue
     const manifest = pluginRegistry.getManifest(result.pluginId)
     for (const item of result.items.slice(0, 100)) {
+      if (nativeFiles && typeof item?.id === 'string' && isAbsolute(item.id) && item.title === basename(item.id) && item.subtitle === dirname(item.id) && (item.payload as { path?: unknown } | null)?.path === item.id) continue
       const title = typeof item?.title === 'string' ? item.title.trim().slice(0, 256) : ''
       if (!title) continue
       let payload: unknown
@@ -310,7 +307,8 @@ export async function searchQuickCommands(
     context?.signal?.addEventListener('abort', abort, { once: true })
     if (context?.signal?.aborted) abort()
     try {
-      const work = Promise.allSettled([queryQuickProviders(text, controller.signal), searchAll(text, 20, controller.signal)])
+      const nativeFiles = !kind && settingsStore.getFileSearchSettings()?.enabled === true
+      const work = Promise.allSettled([queryQuickProviders(text, controller.signal, nativeFiles), searchAll(text, 20, controller.signal)])
       let onAbort = () => {}
       const cancelled = new Promise<null>(resolve => {
         onAbort = () => resolve(null)
@@ -322,7 +320,7 @@ export async function searchQuickCommands(
       const live = settled[0].status === 'fulfilled' ? settled[0].value : []
       const background = settled[1].status === 'fulfilled' ? settled[1].value.map(result => ({ ...result, providerId: 'background' })) : []
       const cap = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 20
-      return withStateKeys(signedProviderCommands(providerCommands([...live, ...background]).slice(0, cap), sessionId))
+      return withStateKeys(signedProviderCommands(providerCommands([...live, ...background], nativeFiles).slice(0, cap), sessionId))
     } finally {
       context?.signal?.removeEventListener('abort', abort)
       if (providerSearches.get(sessionId) === controller) providerSearches.delete(sessionId)
@@ -341,6 +339,7 @@ export async function searchQuickCommands(
 /** Revalidate immediately before a native open, including after plugin disable/uninstall. */
 export async function validateQuickOpenTarget(request: QuickOpenRequest): Promise<boolean> {
   if (!request || typeof request !== 'object') return false
+  if (request.kind === 'open-update') return Object.keys(request).length === 1
   if (request.kind === 'app') {
     if (typeof request.path !== 'string' || !request.path || request.path.length > 4_096) return false
     if (!getCachedApps()) await scanApplications(false)

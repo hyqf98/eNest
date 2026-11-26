@@ -1,8 +1,7 @@
 @media (max-width: 720px) {
 
   .titlebar {
-    grid-template-columns: 64px 1fr;
-    padding: 0 8px 0 10px;
+    padding-right: 8px;
   }
 
   .segmented button {

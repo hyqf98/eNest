@@ -15,7 +15,7 @@ const commands = [command('draw', '画板', { aliases: ['draw'] }), command('tex
 
 async function fixture() {
   const slots = [], effects = [], timers = new Set(), requests = [], opened = []
-  let cursor = 0, surface, shown, resolveContext
+  let cursor = 0, surface, shown, receiveEvent, resolveContext
   const memo = (factory, deps) => {
     const index = cursor++
     if (!slots[index] || deps.some((value, position) => !Object.is(value, slots[index].deps[position]))) slots[index] = { deps, value: factory() }
@@ -38,6 +38,8 @@ async function fixture() {
     }
   }
   const shellApi = {
+    onEvent(listener) { receiveEvent = listener; return () => { receiveEvent = undefined } },
+    async quickInput() { return null },
     onQuickShown(listener) { shown = listener; return () => { shown = undefined } },
     quickInputContext: () => new Promise(resolve => { resolveContext = resolve }),
     async quickSearch(query, _limit, _kind, phase) {
@@ -57,7 +59,8 @@ async function fixture() {
   const events = { addEventListener() {}, removeEventListener() {} }
   function load(name) {
     if (modules.has(name)) return modules.get(name)
-    const file = `${name}.${name === './QuickLauncherApp' ? 'tsx' : 'ts'}`
+    const file = name.startsWith('@shared/') ? new URL(`../../../src/shared/${name.slice('@shared/'.length)}.ts`, import.meta.url).href
+      : `${name}.${name === './QuickLauncherApp' ? 'tsx' : 'ts'}`
     if (!compiled.has(file)) compiled.set(file, ts.transpileModule(readFileSync(new URL(file, directory), 'utf8'), {
       fileName: file, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
     }).outputText)
@@ -74,7 +77,8 @@ async function fixture() {
   const send = request => surface.onAction(request)
   const act = async request => { const result = await send(request); await settle(); return result }
   await settle()
-  return { act, send, opened, get state() { return surface.snapshot },
+  return { act, send, opened, get state() { return surface.snapshot }, get gripIcon() { return surface.gripIcon },
+    async emit(event) { receiveEvent(event); await settle() },
     async show() { shown(); await settle(); return async items => { resolveContext({ ok: true, items }); await turn(); await settle() } },
     item: title => surface.snapshot.catalog.find(item => item.title === title),
     publish: (...items) => act({ type: 'results', queryRevision: surface.snapshot.queryRevision, catalogRevision: surface.snapshot.catalogRevision,
@@ -88,6 +92,23 @@ async function fixture() {
     }
   }
 }
+
+test('the grip gets its package icon immediately; the theme gets only published bytes', async () => {
+  const quick = await fixture(), pluginId = 'fixture', title = '剪贴板'
+  const packageIcon = `enest://plugin/${pluginId}/assets/market/icon.svg`
+  await quick.emit({ type: 'quick-plugin-mode', mode: { pluginId, title, packageIcon } })
+  assert.equal(quick.gripIcon, packageIcon)
+  assert.equal(quick.state.plugin.icon, undefined)
+  assert.ok(!JSON.stringify(quick.state.plugin).includes(packageIcon))
+  const icon = 'data:image/svg+xml;base64,PHN2Zy8+'
+  await quick.emit({ type: 'quick-plugin-presentation', pluginId, presentation: { title, packageIcon, icon } })
+  assert.equal(quick.gripIcon, packageIcon)
+  assert.equal(quick.state.plugin.icon, icon)
+  await quick.emit({ type: 'quick-plugin-presentation', pluginId, presentation: { title, glyph: '★' } })
+  assert.equal(quick.gripIcon, undefined)
+  assert.equal(quick.state.plugin.icon, undefined)
+  assert.equal(quick.state.plugin.glyph, '★')
+})
 
 test('the default follows the first current result until the user selects a visible handle', async () => {
   const quick = await fixture()

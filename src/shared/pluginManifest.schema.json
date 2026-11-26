@@ -51,7 +51,8 @@
       ]
     },
     "icon": {
-      "const": "assets/market/icon.svg"
+      "const": "assets/market/icon.svg",
+      "description": "插件图标：SVG，viewBox 必须为正方形（数值不限），不超过 64 KiB；不得包含位图、脚本、事件属性或任何外部引用。安装与构建时校验文件内容。"
     },
     "homepage": {
       "type": "string"
@@ -74,6 +75,7 @@
           "pin.create",
           "net.fetch",
           "shell.openExternal",
+          "launcher.access",
           "web.login",
           "storage.local",
           "notify",
@@ -150,6 +152,16 @@
             "minLength": 1,
             "pattern": "\\S",
             "description": "指令码，openPlugin 载荷 code 与之对应"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "\\S",
+            "not": {
+              "pattern": "[\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]"
+            },
+            "description": "功能的固定展示名称。默认名称搜索匹配标题和触发词，命中的别名不替换标题。"
           },
           "explain": {
             "type": "string",
@@ -472,55 +484,20 @@
           "items": {
             "enum": [
               "quick",
-              "shell",
-              "panel"
+              "shell"
             ]
           },
           "uniqueItems": true,
           "minItems": 1,
-          "maxItems": 3,
-          "description": "已适配的布局集合；只有显式包含 panel 才出现在组件选择器并允许加入自由面板，未声明不回退兼容视图"
+          "maxItems": 2,
+          "description": "已适配的启动布局集合"
         },
         "default": {
           "enum": [
             "quick",
-            "shell",
-            "panel"
+            "shell"
           ],
           "description": "默认视图：未适配入口的回退启动方式；必须属于 layouts，否则安装后归一为 shell/layouts 首项"
-        },
-        "panel": {
-          "type": "object",
-          "description": "panel 布局的几何偏好；仅在 layouts 含 panel 时生效",
-          "properties": {
-            "preview": {
-              "type": "string",
-              "pattern": "^assets/market/screenshots/[A-Za-z0-9._/-]+\\.(png|webp|jpe?g)$",
-              "description": "小组件预览图（包内相对路径，必须位于 assets/market/screenshots 且为 PNG/WebP/JPEG）。首页「小组件」区块按此声明展示该插件在自由面板里的真实渲染效果；构建期校验文件存在"
-            },
-            "size": {
-              "type": "object",
-              "description": "组件默认外框尺寸（DIP）：添加组件时的初始尺寸，被宿主最小尺寸（200×140）与面板内容区钳制",
-              "properties": {
-                "width": {
-                  "type": "number",
-                  "exclusiveMinimum": 0,
-                  "description": "宽（DIP）"
-                },
-                "height": {
-                  "type": "number",
-                  "exclusiveMinimum": 0,
-                  "description": "高（DIP）"
-                }
-              },
-              "required": [
-                "width",
-                "height"
-              ],
-              "additionalProperties": false
-            }
-          },
-          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -548,7 +525,7 @@
             "pattern": "^assets/market/screenshots/.+\\.([pP][nN][gG]|[jJ][pP][eE]?[gG]|[wW][eE][bB][pP])$"
           },
           "default": [],
-          "description": "有序真实产品截图，第一张为首页封面。固定在 assets/market/screenshots/，只支持 PNG/JPG/JPEG/WebP；源码初始化可为空，发布必须 1–8 张且归档包含实际文件。"
+          "description": "有序真实产品截图，第一张为首页封面。固定在 assets/market/screenshots/，只支持 PNG/JPG/JPEG/WebP，每张像素尺寸固定 1200×800（3:2），安装与构建时校验；源码初始化可为空，发布必须 1–8 张且归档包含实际文件。"
         },
         "readme": {
           "const": "assets/market/README.md"
@@ -781,6 +758,12 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 64
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "description": "这条声明在 eNest 设置页「可注册的打开方式」里的显示名（如「SQL 脚本」）；缺省显示为扩展名列表"
               },
               "extensions": {
                 "type": "array",

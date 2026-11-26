@@ -9,14 +9,18 @@
  *
  * 新增：草稿行里选插件已声明的类型（或自定义输入扩展名 / 协议名）→ 勾选要关联的插件 →
  * 指定默认 → 保存。没有插件声明的类型无法保存，避免产生悬空路由。
+ * 文件类型支持一次填多个（空格或逗号分隔），回显统一为逗号分隔；候选插件取各后缀声明者的交集。
+ * 卡片底部「可注册的打开方式」按清单声明项逐条开关；关闭的声明项不再作为任何类型的候选。
  * 模块隔离：只经 shellApi 的 open-with 通道，不触碰主进程内部状态。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   OPEN_WITH_EXT_RE,
   OPEN_WITH_SCHEME_RE,
   RESERVED_OPEN_WITH_SCHEMES,
   type OpenWithActionResult,
+  type OpenWithEntryRow,
   type OpenWithKey,
   type OpenWithListResult,
   type OpenWithRow
@@ -27,7 +31,9 @@ import { Button } from '@renderer/components/ui/Button'
 import { Checkbox } from '@renderer/components/ui/Checkbox'
 import { Input } from '@renderer/components/ui/Input'
 import { Select } from '@renderer/components/ui/Select'
+import { Switch } from '@renderer/components/ui/Switch'
 import { PluginIcon } from '@renderer/components/PluginIcon'
+import { useAnchoredPopover } from '@renderer/components/useAnchoredPopover'
 import { Card } from './SettingsFields'
 import { SettingsIcon, XIcon } from '@renderer/components/icons'
 import { useI18n } from '@renderer/hooks/useI18n'
@@ -69,6 +75,11 @@ const pluginGlyph = (provider: OpenWithProvider): string =>
 function normalizeTypeValue(kind: OpenWithKind, raw: string): string {
   const value = raw.trim().toLowerCase()
   return kind === 'ext' ? value.replace(/^\.+/, '') : value.replace(/:\/\/$/, '')
+}
+
+/** 批量输入的稳定展示形式：去重后以「, 」连接（失焦回显用） */
+function joinParts(parts: string[]): string {
+  return Array.from(new Set(parts)).join(', ')
 }
 
 function shapeErrorOf(kind: OpenWithKind, value: string, t: (k: string, v?: Record<string, string>) => string): string | null {
@@ -258,9 +269,14 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
   const [saving, setSaving] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const rowRef = useRef<HTMLLIElement>(null)
+  const inputWrapRef = useRef<HTMLSpanElement>(null)
+  const panelRef = useRef<HTMLSpanElement>(null)
+  // 建议浮层渲染到 body：草稿行在滚动列表的最底部，就地绝对定位会被列表容器裁掉
+  const popover = useAnchoredPopover(open, inputWrapRef, panelRef, undefined, 288)
 
+  // 解析即去重：保存键、校验与「保存 N 项」文案都基于它，重复输入不能算成多项
   const normalizedParts = useMemo(
-    () => normalizeTypeValue(kind, value).split(/[\s,]+/).filter(Boolean),
+    () => Array.from(new Set(normalizeTypeValue(kind, value).split(/[\s,]+/).filter(Boolean))),
     [kind, value]
   )
   /** ext 支持批量：全部形状合法才算命中；scheme 只取单值 */
@@ -272,32 +288,48 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
     }
     return null
   }, [kind, parts, t])
-  const matched = useMemo(() => {
-    if (!parts.length) return undefined
-    const first = rows.find(row => row.kind === kind && row.value === parts[0])
-    if (kind === 'ext' && parts.length > 1) {
-      // 批量模式：每个后缀都必须有插件声明，且声明集合一致才允许一次性多选
-      const all = parts.map(part => rows.find(row => row.kind === 'ext' && row.value === part))
-      if (all.some(row => !row)) return undefined
-      return all[0]
-    }
-    return first
-  }, [kind, parts, rows])
-  const batchKeys = useMemo(() => {
-    if (kind !== 'ext' || parts.length < 2 || !matched) return []
-    return parts.map(part => `ext:${part}` as OpenWithKey)
-  }, [kind, parts, matched])
+  const batch = kind === 'ext' && parts.length > 1
+  /** 每个后缀对应的声明行；没有插件声明的后缀为 undefined */
+  const partRows = useMemo(
+    () => parts.map(part => rows.find(row => row.kind === kind && row.value === part)),
+    [kind, parts, rows]
+  )
   const batchMissing = useMemo(() => {
-    if (kind !== 'ext' || parts.length < 2) return []
-    return parts.filter(part => !rows.some(row => row.kind === 'ext' && row.value === part))
-  }, [kind, parts, rows])
+    if (!batch) return []
+    return parts.filter((_part, index) => !partRows[index])
+  }, [batch, parts, partRows])
+  /**
+   * 批量时候选 = 各后缀「已启用声明者」的交集：保存时每个后缀都写同一个默认插件，
+   * 所以它必须声明了全部后缀（主进程 route 会逐条校验，否则会出现存一半）。
+   * 单后缀时沿用原声明行。
+   */
+  const matched = useMemo<OpenWithRow | undefined>(() => {
+    if (!parts.length) return undefined
+    const first = partRows[0]
+    if (!first) return undefined
+    if (!batch) return first
+    if (partRows.some(row => !row)) return undefined
+    const common = first.providers.filter(provider => provider.enabled
+      && partRows.every(row => row!.providers.some(item => item.pluginId === provider.pluginId && item.enabled)))
+    if (!common.length) return undefined
+    return { ...first, key: 'ext:' as OpenWithKey, value: '', providers: common, routedPluginId: undefined }
+  }, [batch, parts, partRows])
+  const hasCommonProvider = !!matched
+  const batchKeys = useMemo(() => {
+    if (!batch || !hasCommonProvider) return []
+    return parts.map(part => `ext:${part}` as OpenWithKey)
+  }, [batch, hasCommonProvider, parts])
+  const routedBatchKeys = useMemo(
+    () => batchKeys.filter(key => routedKeys.has(key)),
+    [batchKeys, routedKeys]
+  )
 
   // 新草稿行在列表底部：滚到可见处，避免长列表里看不到
   useEffect(() => {
     rowRef.current?.scrollIntoView({ block: 'nearest' })
   }, [])
 
-  // 命中类型变化后重置：默认全选已启用的声明者，默认项沿用已有路由或第一个
+  // 候选集合变化后重置：默认全选已启用的声明者，默认项沿用已有路由或第一个
   useEffect(() => {
     const ids = matched ? matched.providers.filter(provider => provider.enabled).map(p => p.pluginId) : []
     setSelected(ids)
@@ -311,13 +343,16 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
     if (!parts.length) return null
     if (shapeError) return shapeError
     if (batchMissing.length) return t(copy + 'batchMissing', { exts: batchMissing.map(part => `.${part}`).join(' ') })
+    if (batch) {
+      if (partRows.some(row => !row)) return t(copy + 'noDeclaration')
+      if (partRows.some(row => !row!.providers.some(provider => provider.enabled))) return t(copy + 'allDisabled')
+      if (!hasCommonProvider) return t(copy + 'batchNoCommon')
+      if (routedBatchKeys.length) return t(copy + 'someRouted')
+      return null
+    }
     if (!matched) return t(copy + 'noDeclaration')
     if (!matched.providers.some(provider => provider.enabled)) return t(copy + 'allDisabled')
-    if (kind !== 'ext' || parts.length === 1) {
-      if (routedKeys.has(matched.key)) return t(copy + 'alreadyRouted')
-    } else if (batchKeys.some(key => routedKeys.has(key))) {
-      return t(copy + 'someRouted')
-    }
+    if (routedKeys.has(matched.key)) return t(copy + 'alreadyRouted')
     return null
   })()
   const canSave = !!matched && !validationError && !!defaultId && !saving && !busy
@@ -336,6 +371,14 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
     setValue(row.value)
     setOpen(false)
     setSubmitError(null)
+  }
+
+  /** 失焦时把输入归一成「md, png」形式（仅形状全部合法时，避免吞掉用户正在改的错误输入） */
+  const normalizeOnBlur = (): void => {
+    setOpen(false)
+    if (kind !== 'ext' || !parts.length || shapeError) return
+    const next = joinParts(parts)
+    if (next !== value) setValue(next)
   }
 
   const save = async (): Promise<void> => {
@@ -379,7 +422,7 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
               {kind === 'ext' ? t(copy + 'fileKind') : t(copy + 'schemeKind')}
             </button>
           </span>
-          <span className="open-with-type-field">
+          <span className="open-with-type-field" ref={inputWrapRef}>
             <Input
               className="open-with-type-input"
               value={value}
@@ -396,6 +439,7 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
                 setSubmitError(null)
               }}
               onFocus={() => setOpen(true)}
+              onBlur={normalizeOnBlur}
               onKeyDown={event => {
                 if (event.key === 'Enter') {
                   const hit = suggestions[0]
@@ -413,23 +457,32 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
               }}
             />
             {kind === 'scheme' && <span className="open-with-type-affix" aria-hidden="true">://</span>}
-            {open && suggestions.length > 0 && (
-              <span className="open-with-suggestions" id="open-with-suggestions" role="listbox" aria-label={t(copy + 'pickType')}>
-                {suggestions.map(row => (
-                  <button
-                    type="button"
-                    key={row.key}
-                    role="option"
-                    aria-selected={row.value === normalizedParts[0]}
-                    onMouseDown={event => { event.preventDefault(); chooseSuggestion(row) }}
-                  >
-                    <span className="mono">{formatType(row.kind, row.value)}</span>
-                    <span className="open-with-suggestion-note">{t(copy + 'pluginCount', { count: String(row.providers.length) })}</span>
-                  </button>
-                ))}
-              </span>
-            )}
           </span>
+          {open && suggestions.length > 0 && createPortal(
+            <span
+              ref={panelRef}
+              className="open-with-suggestions open-with-suggestions-portal"
+              id="open-with-suggestions"
+              role="listbox"
+              aria-label={t(copy + 'pickType')}
+              style={popover}
+              onMouseDown={event => event.preventDefault()}
+            >
+              {suggestions.map(row => (
+                <button
+                  type="button"
+                  key={row.key}
+                  role="option"
+                  aria-selected={row.value === normalizedParts[0]}
+                  onMouseDown={event => { event.preventDefault(); chooseSuggestion(row) }}
+                >
+                  <span className="mono">{formatType(row.kind, row.value)}</span>
+                  <span className="open-with-suggestion-note">{t(copy + 'pluginCount', { count: String(row.providers.length) })}</span>
+                </button>
+              ))}
+            </span>,
+            document.body
+          )}
           <Select
             value={defaultChoice}
             ariaLabel={t(copy + 'defaultPlugin')}
@@ -497,6 +550,66 @@ function DraftRow({ rows, routedKeys, busy, onCancel, onSave }: {
         {message && <p className="open-with-note is-error" role="alert">{message}</p>}
       </div>
     </li>
+  )
+}
+
+/**
+ * 可注册的打开方式：按清单声明项逐条开关。关闭后该声明项声明的类型不再由这个插件
+ * 处理（设置页候选、保存校验、双击打开三处同步生效）；重新启用即恢复。
+ * 插件整体被停用时条目置灰。运行时登记没有声明项粒度，不在此列出。
+ */
+function EntrySwitchList({ entries, busyKey, onToggle }: {
+  entries: OpenWithEntryRow[]
+  busyKey: string | null
+  onToggle: (entry: OpenWithEntryRow, enabled: boolean) => void
+}) {
+  const { t } = useI18n()
+  const groups = useMemo(() => {
+    const map = new Map<string, { plugin: OpenWithEntryRow; items: OpenWithEntryRow[] }>()
+    for (const entry of entries) {
+      const group = map.get(entry.pluginId)
+      if (group) group.items.push(entry)
+      else map.set(entry.pluginId, { plugin: entry, items: [entry] })
+    }
+    return Array.from(map.values())
+  }, [entries])
+
+  return (
+    <div className="open-with-entries">
+      <p className="open-with-entries-title">{t(copy + 'entriesTitle')}</p>
+      <p className="open-with-entries-desc">{t(copy + 'entriesDesc')}</p>
+      <ul className="open-with-entry-list">
+        {groups.map(({ plugin, items }) => items.map(entry => {
+          const id = `${entry.pluginId}/${entry.entryId}`
+          const title = entry.label || entry.targets.map(target => target.endsWith('://') ? target : `.${target}`).join(', ')
+          const detail = entry.targets.length ? entry.targets.map(target => target.endsWith('://') ? target : `.${target}`).join(', ') : ''
+          return (
+            <li key={id} className={`open-with-entry${entry.pluginEnabled ? '' : ' is-off'}`}>
+              <PluginIcon
+                slot="tab"
+                size={18}
+                src={entry.icon}
+                glyph={entry.glyph ?? Array.from(entry.pluginName)[0] ?? '?'}
+                style={entry.color ? { background: entry.color } : undefined}
+              />
+              <span className="open-with-entry-text">
+                <span className="open-with-entry-label">
+                  {title}
+                  {entry.label && <span className="open-with-entry-plugin">{plugin.pluginName}</span>}
+                </span>
+                {entry.label && detail && <span className="open-with-entry-targets">{detail}</span>}
+              </span>
+              <Switch
+                checked={entry.enabled}
+                disabled={!entry.pluginEnabled || busyKey === id}
+                aria-label={`${t(copy + 'entryToggle')} ${plugin.pluginName} ${title}`}
+                onCheckedChange={next => onToggle(entry, next)}
+              />
+            </li>
+          )
+        }))}
+      </ul>
+    </div>
   )
 }
 
@@ -645,6 +758,35 @@ export function DefaultAppsSection() {
     }
   }, [applyDefault, busyKey, closeDraft, t])
 
+  /**
+   * 声明项开关：先乐观更新再落库，失败回滚。关闭只影响 eNest 内候选，不发系统默认请求。
+   * busyKey 复用为 `${pluginId}/${entryId}`，与映射行的 key（ext:/scheme:）不会冲突。
+   */
+  const toggleEntry = useCallback(async (entry: OpenWithEntryRow, enabled: boolean) => {
+    const id = `${entry.pluginId}/${entry.entryId}`
+    if (busyKey) return
+    if (!shellApi.setOpenWithEnabled) {
+      notify.error(t(copy + 'unavailable'))
+      return
+    }
+    const previous = data
+    setData(current => current && {
+      ...current,
+      entries: (current.entries ?? []).map(item => item.pluginId === entry.pluginId && item.entryId === entry.entryId ? { ...item, enabled } : item)
+    })
+    setBusyKey(id)
+    try {
+      const result = await shellApi.setOpenWithEnabled(entry.pluginId, entry.entryId, enabled)
+      if (!result?.ok) throw new Error(result?.error ?? t(copy + 'entryToggleFailed'))
+      await refresh()
+    } catch (err) {
+      if (previous) setData(previous)
+      notify.error(err instanceof Error ? err.message : t(copy + 'entryToggleFailed'))
+    } finally {
+      setBusyKey(null)
+    }
+  }, [busyKey, data, refresh, t])
+
   const declaredCount = data?.rows.length ?? 0
   const isEmpty = !mappedRows.length && !drafts.length
 
@@ -682,36 +824,37 @@ export function DefaultAppsSection() {
           {t(copy + 'emptyList', { count: String(declaredCount) })}
         </p>
       ) : (
-        <>
-          <ul className="open-with-list">
-            {mappedRows.map(row => (
-              <MappedRow
-                key={row.key}
-                row={row}
-                list={data}
-                selected={selectedFor(row)}
-                busy={busyKey === row.key}
-                onToggle={pluginId => toggleProvider(row, pluginId)}
-                onSetDefault={pluginId => {
-                  const provider = row.providers.find(item => item.pluginId === pluginId)
-                  void setDefault(row, pluginId, provider?.pluginName ?? pluginId)
-                }}
-                onRemove={() => void removeMapping(row.key, formatType(row.kind, row.value))}
-                onInspect={() => void refresh(row.key)}
-              />
-            ))}
-            {drafts.map(id => (
-              <DraftRow
-                key={id}
-                rows={data.rows}
-                routedKeys={routedKeys}
-                busy={!!busyKey}
-                onCancel={() => closeDraft(id)}
-                onSave={(key, pluginId) => saveDraft(id, key, pluginId)}
-              />
-            ))}
-          </ul>
-        </>
+        <ul className="open-with-list">
+          {mappedRows.map(row => (
+            <MappedRow
+              key={row.key}
+              row={row}
+              list={data}
+              selected={selectedFor(row)}
+              busy={busyKey === row.key}
+              onToggle={pluginId => toggleProvider(row, pluginId)}
+              onSetDefault={pluginId => {
+                const provider = row.providers.find(item => item.pluginId === pluginId)
+                void setDefault(row, pluginId, provider?.pluginName ?? pluginId)
+              }}
+              onRemove={() => void removeMapping(row.key, formatType(row.kind, row.value))}
+              onInspect={() => void refresh(row.key)}
+            />
+          ))}
+          {drafts.map(id => (
+            <DraftRow
+              key={id}
+              rows={data.rows}
+              routedKeys={routedKeys}
+              busy={!!busyKey}
+              onCancel={() => closeDraft(id)}
+              onSave={(key, pluginId) => saveDraft(id, key, pluginId)}
+            />
+          ))}
+        </ul>
+      )}
+      {data && (data.entries ?? []).length > 0 && (
+        <EntrySwitchList entries={data.entries} busyKey={busyKey} onToggle={(entry, enabled) => void toggleEntry(entry, enabled)} />
       )}
       {error && data && <p className="desc open-with-error" role="alert">{error}</p>}
     </Card>

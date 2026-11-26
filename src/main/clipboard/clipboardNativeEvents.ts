@@ -1,7 +1,7 @@
 import { ClipboardItem, clipboard, nativeImage } from 'electron'
 import { createHash } from 'node:crypto'
 import { basename } from 'node:path'
-import { readNativeFiles, writeNativeFiles, nativeClipboardSource, isNativeClipboardBusy } from './nativeClipboard'
+import { readNativeClipboardChangeCount, readNativeFiles, writeNativeFiles, nativeClipboardSource, isNativeClipboardBusy } from './nativeClipboard'
 import { logWarn } from '@main/logs/logService'
 import type { ClipboardNativeSnapshot } from '@shared/types/pluginBackground'
 
@@ -31,11 +31,12 @@ interface Delivery {
 const consumers = new Map<Consumer, Delivery>()
 let deliveryBytes = 0
 let timer: NodeJS.Timeout | null = null, polling = false, generation = 0, revision = 0
-let previousFingerprint: string | null = null, writeRevision = 0, pendingWrites = 0
+let previousFingerprints: string[] | null = null, previousChangeCount: number | null = null, writeRevision = 0, pendingWrites = 0
+interface ClipboardRead { hash: string; value?: Omit<ClipboardNativeSnapshot, 'revision' | 'capturedAt'>; retry?: boolean }
 interface WriteReservation { bytes: number; released: boolean }
 interface ClipboardWrite {
   operation?: () => Promise<void>
-  hash: string
+  hashes: string[]
   reservation: WriteReservation
   signal?: AbortSignal
   resolve(): void
@@ -45,7 +46,7 @@ interface ClipboardWrite {
 const writes: ClipboardWrite[] = []
 let writing: ClipboardWrite | undefined, writeBytes = 0
 
-const fingerprint = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex')
+const fingerprint = (value: string | Uint8Array): string => createHash('sha256').update(value).digest('hex')
 
 function currentDelivery(delivery: Delivery): boolean {
   try { return delivery.active && consumers.get(delivery.consumer) === delivery && delivery.consumer.current() }
@@ -120,7 +121,8 @@ export function subscribeClipboardChanges(consumer: Consumer): () => void {
   consumers.set(consumer, delivery)
   if (!timer) {
     generation++
-    previousFingerprint = null
+    previousFingerprints = null
+    previousChangeCount = null
     timer = setInterval(() => { void pollClipboardChanges().catch(() => {}) }, POLL_MS)
     timer.unref()
     void pollClipboardChanges().catch(() => {})
@@ -136,7 +138,49 @@ export function stopClipboardChanges(): void {
   if (timer) clearInterval(timer)
   timer = null
   for (const delivery of [...consumers.values()]) retireDelivery(delivery)
-  previousFingerprint = null
+  previousFingerprints = null
+  previousChangeCount = null
+}
+
+async function readClipboardContent(current: () => boolean, versioned: boolean): Promise<ClipboardRead | null> {
+  let files: string[]
+  try { files = await readNativeFiles() } catch { if (versioned) return null; files = [] }
+  if (!current()) return null
+  if (files.length) {
+    if (files.length > 10000) return { hash: 'unsupported' }
+    const hash = `files:${fingerprint(JSON.stringify(files))}`
+    if (!previousFingerprints || previousFingerprints.includes(hash)) return { hash }
+    return { hash, value: { type: 'files', files: files.map(path => ({ path, name: basename(path) })) } }
+  }
+  let image: Buffer | null = null, imageType = '', retry = false
+  try {
+    for (const item of await clipboard.read()) {
+      const type = item.types.find(type => type.startsWith('image/'))
+      if (!type) continue
+      const blob = await item.getType(type) as Blob
+      if (blob.size > MAX_IMAGE_BYTES) return { hash: 'unsupported' }
+      image = Buffer.from(await blob.arrayBuffer())
+      imageType = type
+      break
+    }
+  } catch { retry = true }
+  if (!current()) return null
+  if (image) {
+    const hash = `image:${fingerprint(image)}`
+    if (!previousFingerprints || previousFingerprints.includes(hash)) return { hash }
+    const native = nativeImage.createFromBuffer(image)
+    if (native.isEmpty()) return { hash }
+    const { width, height } = native.getSize()
+    if (width * height > MAX_PIXELS) return { hash }
+    const png = imageType === 'image/png' ? image : native.toPNG()
+    if (png.length > MAX_IMAGE_BYTES) return { hash }
+    return { hash, value: { type: 'image', dataUrl: `data:image/png;base64,${png.toString('base64')}`, width, height } }
+  }
+  const text = await clipboard.readText()
+  if (!current()) return null
+  if (retry && !text) return null
+  if (Buffer.byteLength(text) > MAX_TEXT_BYTES) return { hash: 'unsupported', retry }
+  return { hash: `text:${fingerprint(text)}`, value: text ? { type: 'text', text } : undefined, retry }
 }
 
 async function pollClipboardChanges(): Promise<void> {
@@ -145,56 +189,28 @@ async function pollClipboardChanges(): Promise<void> {
   if (polling || pendingWrites || isNativeClipboardBusy() || !consumers.size) return
   polling = true
   const epoch = generation, writeEpoch = writeRevision
-  const current = (): boolean => epoch === generation && writeEpoch === writeRevision && pendingWrites === 0 && consumers.size > 0
+  const current = (): boolean => epoch === generation && writeEpoch === writeRevision && pendingWrites === 0 && !isNativeClipboardBusy() && consumers.size > 0
   try {
-    let value: Omit<ClipboardNativeSnapshot, 'revision' | 'capturedAt'> | null = null, hash = ''
-    const files = await readNativeFiles()
+    const count = await readNativeClipboardChangeCount()
+    if (!current() || (count !== null && count === previousChangeCount)) return
+    previousChangeCount = null
+    const content = await readClipboardContent(current, count !== null)
+    if (!content || !current()) return
+    // A fresh observer aligns with the current clipboard instead of importing content from its disabled period.
+    const value = previousFingerprints && !previousFingerprints.includes(content.hash) ? content.value : undefined
+    const sourceApp = value ? await nativeClipboardSource() : null
     if (!current()) return
-    if (files.length) {
-      if (files.length > 10000) return
-      value = { type: 'files', files: files.map(path => ({ path, name: basename(path) })) }
-      hash = `files:${fingerprint(JSON.stringify(files))}`
-    } else {
-      let image: Buffer | null = null, imageType = ''
-      try {
-        for (const item of await clipboard.read()) {
-          const type = item.types.find(type => type.startsWith('image/'))
-          if (!type) continue
-          const blob = await item.getType(type) as Blob
-          if (blob.size > MAX_IMAGE_BYTES) return
-          image = Buffer.from(await blob.arrayBuffer())
-          imageType = type
-          break
-        }
-      } catch { /* Clipboard formats may change while the OS read is pending. */ }
+    if (count !== null) {
+      const confirmedCount = await readNativeClipboardChangeCount()
       if (!current()) return
-      if (image) {
-        hash = `image:${fingerprint(image)}`
-        if (hash === previousFingerprint) return
-        const native = nativeImage.createFromBuffer(image)
-        if (native.isEmpty()) return
-        const { width, height } = native.getSize()
-        if (width * height > MAX_PIXELS) return
-        const png = imageType === 'image/png' ? image : native.toPNG()
-        if (png.length > MAX_IMAGE_BYTES) return
-        value = { type: 'image', dataUrl: `data:image/png;base64,${png.toString('base64')}`, width, height }
-      } else {
-        const text = await clipboard.readText()
-        if (!current()) return
-        if (Buffer.byteLength(text) > MAX_TEXT_BYTES) return
-        hash = `text:${fingerprint(text)}`
-        if (text) value = { type: 'text', text }
+      if (confirmedCount !== count) {
+        if (confirmedCount !== null) previousFingerprints ??= []
+        return
       }
     }
-    if (!current() || hash === previousFingerprint) return
-    const baseline = previousFingerprint === null
-    // A fresh observer aligns with the current clipboard instead of importing content from its disabled period.
-    if (baseline || !value) { previousFingerprint = hash; return }
-    const sourceApp = await nativeClipboardSource()
-    if (!current()) return
-    const snapshot: ClipboardNativeSnapshot = { ...value, revision: ++revision, capturedAt: Date.now(), ...(sourceApp ? { sourceApp } : {}) }
-    enqueueSnapshot(snapshot)
-    if (current()) previousFingerprint = hash
+    if (!content.retry) previousChangeCount = count
+    if (!previousFingerprints?.includes(content.hash)) previousFingerprints = [content.hash]
+    if (value) enqueueSnapshot({ ...value, revision: ++revision, capturedAt: Date.now(), ...(sourceApp ? { sourceApp } : {}) })
   } finally { polling = false }
 }
 
@@ -222,7 +238,8 @@ function pumpWrites(): void {
     job.signal?.throwIfAborted()
     await operation()
     // A native write can succeed after cancellation; it is still our own clipboard change.
-    previousFingerprint = job.hash
+    previousFingerprints = job.hashes
+    previousChangeCount = null
     job.resolve()
   }).catch(error => job.reject(error)).finally(() => {
     job.detach()
@@ -232,9 +249,9 @@ function pumpWrites(): void {
   })
 }
 /** Reservations precede conversion. Cancelling a queued write releases its payload without waiting for another consumer. */
-function writeClipboard(operation: (() => Promise<void>) | undefined, hash: string, reservation: WriteReservation, signal?: AbortSignal): Promise<void> {
+function writeClipboard(operation: (() => Promise<void>) | undefined, hashes: string[], reservation: WriteReservation, signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const job: ClipboardWrite = { operation, hash, reservation, signal, resolve, reject, detach: () => {} }
+    const job: ClipboardWrite = { operation, hashes, reservation, signal, resolve, reject, detach: () => {} }
     operation = undefined
     const cancel = (): void => {
       if (writing !== job) {
@@ -260,7 +277,7 @@ export function writeClipboardText(text: string, _options: { excludeFromHistory?
   try {
     if (typeof text !== 'string' || Buffer.byteLength(text) > MAX_TEXT_BYTES) throw new Error('Clipboard text exceeds 8 MiB')
     reservation = reserveWrite(Buffer.byteLength(text), signal)
-    return writeClipboard(() => clipboard.writeText(text), `text:${fingerprint(text)}`, reservation, signal)
+    return writeClipboard(() => clipboard.writeText(text), [`text:${fingerprint(text)}`], reservation, signal)
   } catch (error) { if (reservation) releaseWrite(reservation); return Promise.reject(error) }
 }
 
@@ -286,7 +303,9 @@ export function writeClipboardImage(dataUrl: string, signal?: AbortSignal): Prom
     reservation.bytes = png.length + (gif ? Buffer.byteLength(gif) : 0)
     const formats: Record<string, Blob> = { 'image/png': new Blob([new Uint8Array(png)], { type: 'image/png' }) }
     if (gif) formats['image/gif'] = new Blob([gif], { type: 'image/gif' })
-    return writeClipboard(() => clipboard.write([new ClipboardItem(formats)]), `image:${fingerprint(png)}${gif ? `+${fingerprint(Buffer.from(gif))}` : ''}`, reservation, signal)
+    const hashes = [`image:${fingerprint(png)}`]
+    if (gif) hashes.push(`image:${fingerprint(gif)}`)
+    return writeClipboard(() => clipboard.write([new ClipboardItem(formats)]), hashes, reservation, signal)
   } catch (error) { if (reservation) releaseWrite(reservation); return Promise.reject(error) }
 }
 
@@ -301,6 +320,6 @@ export function writeClipboardFiles(paths: string[], signal?: AbortSignal): Prom
       if (bytes > MAX_FILE_PATH_BYTES) throw new Error('Clipboard file paths exceed 8 MiB')
     }
     reservation = reserveWrite(bytes, signal)
-    return writeClipboard(() => writeNativeFiles(paths, signal), `files:${fingerprint(JSON.stringify(paths))}`, reservation, signal)
+    return writeClipboard(() => writeNativeFiles(paths, signal), [`files:${fingerprint(JSON.stringify(paths))}`], reservation, signal)
   } catch (error) { if (reservation) releaseWrite(reservation); return Promise.reject(error) }
 }

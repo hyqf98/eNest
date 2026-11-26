@@ -55,6 +55,10 @@ export function collectPluginFeatureIssues(features: unknown): string[] {
     if (!isNonemptyString(feature.code)) issues.push(`${featurePath}.code 必须是非空字符串`)
     else if (codes.has(feature.code)) issues.push(`${featurePath}.code 重复`)
     else codes.add(feature.code)
+    if (feature.title !== undefined && (!isNonemptyString(feature.title) || [...feature.title].length > 128
+      || /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(feature.title))) {
+      issues.push(`${featurePath}.title 必须是非空的单行功能名称，不含控制字符，最多 128 个字符`)
+    }
     if (feature.explain !== undefined && typeof feature.explain !== 'string') issues.push(`${featurePath}.explain 必须是字符串`)
     if (feature.input !== undefined && (!isRecord(feature.input) || feature.input.type !== 'text'
       || !['prefix', 'none'].includes(String(feature.input.trigger))

@@ -4,9 +4,11 @@ import { assertSurfaceSender, getTrustedSurfaceRole } from '@main/ipc/ipcSecurit
 import { logWarn } from '@main/logs/logService'
 import type { HomeAction } from '@shared/types/home'
 import type { WorkspaceNavigationAck } from '@shared/types/workspace'
-import { sendShellEvent } from '@main/window/createShellWindow'
+import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
 import {
   bindHomeContents,
+  consumeHomeFileGesture,
+  hasHomeSearchMedia,
   getHomeCatalog,
   getHomeConfig,
   getHomeDetail,
@@ -17,11 +19,26 @@ import {
 import type { HomeSurfaceManager } from './HomeSurfaceManager'
 import { buildHomeTabsSnapshot } from '@main/window/orbRailViews'
 import { normalizeWorkspaceRoute } from './workspaceRoute'
+import { BUILT_IN_HOME_SOURCE } from './homeContract'
+import { cancelFileSearch, fileSearchPreferences, handleFileSearch } from '@main/launcher/fileSearchService'
+import { pluginHost } from '@main/plugin/PluginHost'
 
 class HomeStateError extends Error {}
 
 export function registerHomeIpc(manager: HomeSurfaceManager): void {
-  manager.onContents(contents => bindHomeContents(contents, () => manager.isContentsActive(contents.id)))
+  manager.onContents(contents => {
+    const id = contents.id
+    const window = getMainWindow(), hide = () => cancelFileSearch(id)
+    window?.on('hide', hide); window?.on('minimize', hide)
+    contents.once('destroyed', () => { window?.removeListener('hide', hide); window?.removeListener('minimize', hide) })
+    bindHomeContents(contents, () => manager.isContentsActive(id))
+    contents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown' || input.isAutoRepeat || input.isComposing || input.alt || !input.shift || !(process.platform === 'darwin' ? input.meta : input.control) || input.key.toLowerCase() !== 'f' || !contents.isFocused() || contents.focusedFrame !== contents.mainFrame) return
+      const generation = manager.getContentsGeneration(id), activity = manager.getContentsActivityRevision(id)
+      const current = () => !contents.isDestroyed() && manager.isContentsActive(id) && manager.getContentsGeneration(id) === generation && manager.getContentsActivityRevision(id) === activity && !hasHomeSearchMedia(id) && fileSearchPreferences().enabled
+      if (current()) { event.preventDefault(); void pluginHost.showQuickSearch(current, true).catch(() => undefined) }
+    })
+  })
   const handle = (channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void => {
     ipcMain.handle(channel, async (event, ...args) => {
       assertSurfaceSender(event, channel)
@@ -76,6 +93,17 @@ export function registerHomeIpc(manager: HomeSurfaceManager): void {
     return manager.getAppearanceForContents(event.sender.id)
   })
   handle(IpcChannels.HomeGetConfig, event => readCurrent(event, getHomeConfig))
+  handle(IpcChannels.HomeFiles, (event, request) => {
+    const context = contextFor(event, true), window = getMainWindow()
+    const current = () => context.isCurrent() && !!window && !window.isDestroyed() && window.isVisible() && !window.isMinimized() && !hasHomeSearchMedia(context.wcId)
+    if (request?.operation === 'present') {
+      if (!current() || !consumeHomeFileGesture(context.wcId) || !fileSearchPreferences().enabled) return false
+      return pluginHost.showQuickSearch(() => context.isCurrent() && fileSearchPreferences().enabled, true)
+    }
+    if (context.stateOwner?.source !== BUILT_IN_HOME_SOURCE) throw new HomeStateError('Only the built-in workspace can read file results')
+    if ((request?.operation === 'open' || request?.operation === 'reveal') && !consumeHomeFileGesture(context.wcId)) return { status: 'stale' }
+    return handleFileSearch(context.wcId, request, current)
+  })
   handle(IpcChannels.HomeGetCatalog, event => readCurrent(event, () => getHomeCatalog('boot')))
   handle(IpcChannels.HomeGetDetail, (event, id) => readCurrent(event, () => getHomeDetail(id)))
   handle(IpcChannels.HomeSearch, async (event, request) => {
@@ -106,6 +134,7 @@ export function registerHomeIpc(manager: HomeSurfaceManager): void {
       throw new HomeStateError('Home surface is not active')
     }
     const context = contextFor(event, !passive && !windowControl)
+    if (action?.type === 'searchInput' && action.operation !== 'list') cancelFileSearch(context.wcId)
     assertCurrent(context)
     return runHomeAction(action, context)
   })

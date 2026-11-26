@@ -35,6 +35,10 @@ window.addEventListener('pagehide', unsubscribe, { once: true });
 
 `ready()` acknowledges a usable first frame. The host keeps the default rail/dock during preparation and restores defaults on crash, load failure or a five-second readiness timeout. Classic tabs retain an inline fallback. Native traffic controls and a narrow move region cannot be covered by the custom classic surface.
 
+Switching classic/orb changes navigation, not the desktop window frame. Do not draw a second set of close/minimize/zoom buttons in a chrome entry or round the plugin document to match the outer window. The host clips the frame around the plugin and its background together. macOS supplies the native traffic lights; on Windows and Linux the built-in workspace, shell and detached plugin windows share the same controls. Detached controls act only on their own window.
+
+In classic mode the host collapses the settings dock to a 12 DIP strip at the lower-left edge. Pointer entry or keyboard focus expands it to 80 × 72 DIP; leaving returns the covered area to the underlying page or plugin. A custom dock can use a CSS width media query to draw a hint when narrow and its settings button when wide. Keep the button keyboard-focusable in both layouts. No resize action or polling is required.
+
 Snapshots include surface (`classic`, `rail`, `dock`), view, tab style, active tab, tab title/glyph/color/badge/lazy/crashed flags, animation level, theme color tokens and registered rail contribution IDs. `contribEntries[].id` is an opaque host-issued key bound to the declaring plugin, not the local `contributes.railEntries[].id` in its manifest. Different plugins may reuse the same local ID. Use the ID from the current snapshot unchanged; do not construct, parse or persist it. Ordinary tab IDs keep their existing meaning. Custom renderers do **not** receive account/profile data, settings, credentials, command lines, filesystem paths or arbitrary plugin resource URLs. Optional `profile` and full `theme.appearance` in the TypeScript contract are internal compatibility fields for the trusted built-in adapter, not custom grants.
 
 ## Actions

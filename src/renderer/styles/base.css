@@ -27,7 +27,6 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   user-select: none;
-  border-radius: 12px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -54,6 +53,7 @@ body {
   background: transparent !important;
   border-radius: 0;
 }
+:root[data-surface='quick'] { color-scheme: normal !important; }
 
 
 #root {

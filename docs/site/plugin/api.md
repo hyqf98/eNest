@@ -146,7 +146,7 @@ AI 配置、局域网分享、数据库、中间件和 SSH 使用插件自己的
 | — | `setDirty(dirty)` | 基础能力 | 上报未保存数据标记（更新重启前脏检测与一键保存） |
 | — | `onNotice(topic?, cb)` | 无 | 订阅壳统一通知（ShellNotice 标准信封） |
 | — | `onSaveRequested(cb)` | 无 | 壳请求立即保存数据（回调可返回 Promise） |
-| — | `getLaunchMode()` / `onModeChange(cb)` | 无 | 读 / 订阅布局模式（quick / shell / panel），不是原生挂载位置 |
+| — | `getLaunchMode()` / `onModeChange(cb)` | 无 | 读 / 订阅布局模式（quick / shell），不是原生挂载位置 |
 | — | `getPluginId()` / `getEnterCode()` | 无 | 插件身份 |
 
 顶层还保留兼容扁平别名：`enest.setTitle` ≡ `enest.ui.setTitle`（icon / badge / resize 同理）。
@@ -221,7 +221,7 @@ await enest.ui.setBadge('') // 清除
 | **参数** | `size: { width?: number; height?: number }` |
 | **返回** | `Promise<boolean>` |
 
-进入插件后，Quick 外框统一展开为 720 × 545px，顶部输入区 64px，插件内容区为 718 × 480px，仅在显示器工作区不足时缩小。此接口保留参数校验和成功返回，不改变 Quick、主窗或自由面板组件尺寸；manifest 的 `window` 尺寸建议也不会改变 Quick。面板组件的 `views.panel.size` 只影响首次添加，后续由用户拉伸与保存布局决定。插件应按实际 viewport 响应式布局，超出部分内部滚动；width / height 必须是正有限数。
+进入插件后，Quick 外框统一展开为 720 × 545px，顶部输入区 64px，插件内容区为 718 × 480px，仅在显示器工作区不足时缩小。此接口保留参数校验和成功返回，不改变 Quick、主窗或独立窗口尺寸；manifest 的 `window` 尺寸建议也不会改变 Quick。插件应按实际 viewport 响应式布局，超出部分内部滚动；width / height 必须是正有限数。
 
 ```js
 await enest.ui.resize({ width: 960, height: 640 })
@@ -240,7 +240,7 @@ await enest.ui.resize({ width: 960, height: 640 })
 | **返回** | `Promise<boolean>` |
 | **错误** | `invalid height`（非正数） |
 
-?> 调用成功表示参数已接受，不表示窗口高度改变。Quick 插件态保持固定内容区，主窗和面板组件尺寸由用户控制。
+?> 调用成功表示参数已接受，不表示窗口高度改变。Quick 插件态保持固定内容区，主窗尺寸由用户控制。
 
 ```js
 await enest.ui.setHeight(420)
@@ -588,10 +588,12 @@ dirty、构建不匹配、已禁用或已卸载的来源不参与目录查询，
 | | |
 |--|--|
 | **权限** | `contribute`（接收 Quick 全局搜索文本） |
-| **参数** | `meta: { id: string; explain?: string; schemaVersion?: string }` |
+| **参数** | `meta: { id: string; explain?: string; schemaVersion?: string; fallbackFor?: 'file-names' }` |
 | **返回** | `Promise<{ ok: true } \| { ok: false; error?: string }>` — 失败不 reject |
 
 `id` 为1–64位字母数字、点、下划线或短横线（首位必须字母数字）；每插件最多8个 provider，全局最多64个。只查询已存活且有权接收文本的运行时 provider，不为本地名称搜索启动它们。
+
+只提供本机文件名匹配的 provider 可声明 `fallbackFor: 'file-names'`。宿主文件检索开启时，混合搜索不再向该 provider 派发重复查询；关闭开关后恢复。插件自己的页面、命令、插件分类搜索和 MCP 不受影响。这不是订阅宿主文件结果的接口。
 
 ### `contribute.unregisterQuickProvider(providerId)`
 
@@ -923,7 +925,7 @@ try {
 |--|--|
 | **权限** | `screen.capture` |
 | **参数** | `opts?: { displayId?: number; bounds?: ScreenBounds }` — 缺省主屏全屏；`bounds` 为设备像素（相对该 display），越界部分自动裁交 |
-| **返回** | `Promise<{ dataUrl: string; width: number; height: number; displayId?: number }>` — PNG dataURL、裁剪后尺寸与当前显示器 ID |
+| **返回** | `Promise<{ dataUrl: string; width: number; height: number; displayId?: number }>` — PNG dataURL、PNG 实际像素宽高与当前显示器 ID；系统提供较小的画面时不强制放大 |
 | **错误** | `permission denied: screen.capture`、`os permission denied: screen`、`Requested display capture unavailable` 等 |
 
 ```js
@@ -932,7 +934,7 @@ const shot = await enest.screen.capture({ displayId, bounds: { x, y, width, heig
 
 ### `screen.displays()`
 
-基础能力，无需敏感权限；返回 `Promise<Array<{id,bounds,workArea,scaleFactor,primary}>>`。显示器几何是 Electron 的桌面逻辑坐标（DIP），截图 `bounds` 是相对目标截图的设备像素，不要直接混用。显示器移除后旧 ID 可能失效，应重新读取。
+基础能力，无需敏感权限；返回 `Promise<Array<{id,bounds,workArea,scaleFactor,primary}>>`。显示器的 `bounds` 和 `workArea` 都是桌面全局逻辑坐标（DIP），副屏原点可能为负。`screen.capture` 的 `bounds` 则从目标屏左上角 `(0,0)` 起算，整屏设备像素尺寸是 `round(bounds.width × scaleFactor)`、`round(bounds.height × scaleFactor)`。这是选区的参考系，不是 PNG 或视频流实际分辨率；自行裁切时应把两端边界投影到实际画面。选区完全在屏外或捕获期间屏幕几何改变会失败，请重新选择，不要改抓主屏。
 
 ---
 
@@ -942,7 +944,9 @@ const shot = await enest.screen.capture({ displayId, bounds: { x, y, width, heig
 
 `focus:false` 以不抢焦方式显示；`interaction:'passthrough'` 由原生窗口将鼠标穿透给其他应用，不能用 CSS `pointer-events` 替代。显式切换到 `capture` 或请求聚焦仍需当前交互资格。`contentProtection:true` 只把该辅助窗口排除出屏幕捕获：Windows 10 2004+ 使用 `WDA_EXCLUDEFROMCAPTURE` 完全移除，macOS 设置 `NSWindowSharingNone`（基于 ScreenCaptureKit 的工具仍可能看到），Linux 无等效能力。它不授予额外捕获权限；控制条和范围框仍应优先放在裁剪区域之外。`parentWindowId` 仅接受本实例的现存非捕获辅助窗口，可让工具栏保持在画布之上。`placement:'display'` 的尺寸只由宿主管理，普通窗口可通过 `send` 的 `bounds` 更新到可见工作区。非捕获窗口默认选择光标所在屏幕，子窗口跟随父窗口的屏幕；录制保留默认主屏行为。
 
-窗口移动、缩放和屏幕变化后，主页面收到 `auxiliary.changed`（`state.bounds/display/interaction`），辅助页收到 `onMessage` 的 `{type:'enest:surface-changed',state}`。非录制全屏辅助页收到 Esc 时，宿主直接恢复鼠标穿透，不依赖页面响应。移除或重排屏幕时，全屏辅助页也先恢复鼠标穿透并校正位置；捕获窗口关闭。插件应同步取消未完成的指针操作，并保留可关闭的工具栏。
+`placement:'display'` 按目标屏的完整 `bounds` 放置，不按菜单栏或 Dock 扣除后的 `workArea` 拉伸内容。`getContext().viewportBounds` 是辅助页**实际内容区**在全局桌面上的 DIP 矩形；`display` 是目标屏，不是内容区。将全局 DIP 映射到页面时，先减内容区原点，再按 `innerWidth / viewportBounds.width` 和 `innerHeight / viewportBounds.height` 缩放。Wayland 不提供窗口的全局位置，旧宿主也可能不返回 `viewportBounds`，不能把 `(0,0)` 当成实测的副屏原点。
+
+窗口移动、缩放和屏幕变化后，主页面收到 `auxiliary.changed`（`state.bounds/viewportBounds/display/interaction`），辅助页收到 `onMessage` 的 `{type:'enest:surface-changed',state}`。非录制全屏辅助页收到 Esc 时，宿主直接恢复鼠标穿透，不依赖页面响应。目标屏移除、重排、旋转或改变缩放时，全屏辅助页也先恢复鼠标穿透并校正位置；捕获窗口关闭。其他屏幕的变化或单纯的工作区变化不打断本屏的选区或录制。插件应同步取消未完成的指针操作，并保留可关闭的工具栏。
 
 声明 `activation.resident` 的插件可恢复已授权的非捕获辅助窗口，但必须 `focus:false`；全屏页还必须鼠标穿透，不能在开机恢复时自动接管桌面。辅助页真实原生点击/按键提供短时、绑定当前实例的交互资格；MCP 和索引回填不会继承该资格。文件选择/保存对话框优先附着本插件可见的辅助窗口，不为弹出对话框而拉起主窗口。停止、禁用、卸载、升级与退出回收整个实例的所有辅助窗口。
 
@@ -1104,6 +1108,8 @@ await enest.openWith.unregister('notes')
 
 `register` 成功后返回 `void`；同一登记 ID 再调用会替换该项。宿主按调用实例绑定来源，每插件最多 8 项运行时登记；非法输入、保留协议、他人已占用的协议或与本插件清单重名的 ID 会拒绝。`unregister` 只撤销本插件运行时登记，实际移除返回 `true`，不存在返回 `false`。登记保存在本机：关掉插件后仍可冷启动打开；停用、卸载或替换插件构建会撤销旧登记。
 
+清单里的声明项不归 `unregister` 管：它们是否参与候选由用户在宿主设置 → 通用 → 默认打开方式里按声明项开关，插件不必（也不能）替用户切换。
+
 登记只增加 **eNest 内的候选插件**，不改变操作系统默认，也不直接授予文件访问权。未选过插件时，多个候选或仅来自运行时的候选会先请用户选择。系统打开 eNest 后，选中的插件通过 `onEnter` 收到 `code: 'open-file' | 'open-url'` 及 `payload: { paths?, handles?, url? }`；文件内容通过 `localFiles.read({ handleId })` 读取。系统默认只由用户在宿主设置 → 通用 → 默认打开方式明确操作；是否生效以目标平台检测为准。
 
 ### `shell.openExternal(url)`
@@ -1247,7 +1253,7 @@ const offAction = enest.quickInput.onAction(action => {
 })
 ```
 
-Quick 自动隐藏只改变可见性，不退出已进入的插件，也不清除其接管值；再次呼出复用同一实例，恢复期间不把临时未就绪的输入状态当成退出请求。Esc/返回、显式关闭、禁用或卸载结束会话；迁入主窗或面板解除顶部接管，迁入 quick 布局独立窗口可保留字段值。旧 generation 的消息无效。未配置顶部输入的插件不会因用户在顶栏打字而退出，返回全局搜索须使用 Esc/返回。`onChange` 收到宿主输入框的实时文本，`onAction` 收到 `next / previous / submit / clear`（方向键、Enter、清空）。完整键盘语义见[多布局工具接口 — 接管顶部输入](dual-mode-tools.md#接管顶部输入)。
+Quick 自动隐藏只改变可见性，不退出已进入的插件，也不清除其接管值；再次呼出复用同一实例，恢复期间不把临时未就绪的输入状态当成退出请求。Esc/返回、显式关闭、禁用或卸载结束会话；迁入主窗解除顶部接管，迁入 quick 布局独立窗口可保留字段值。旧 generation 的消息无效。未配置顶部输入的插件不会因用户在顶栏打字而退出，返回全局搜索须使用 Esc/返回。`onChange` 收到宿主输入框的实时文本，`onAction` 收到 `next / previous / submit / clear`（方向键、Enter、清空）。完整键盘语义见[多布局工具接口 — 接管顶部输入](dual-mode-tools.md#接管顶部输入)。
 
 ### `quickInput.readContext()`
 
@@ -1295,7 +1301,7 @@ enest.off('enter', onEnter)
 | `out` | 切到其它 Tab / Quick 退场 | `{ isKill: false }` |
 | `beforeClose` | 即将销毁 | `{ reason }` |
 | `destroy` | 关闭已开始 | `undefined` |
-| `mode-change` | 布局值变化（quick / shell / panel；不重载页面，同布局的容器迁移不发送） | `{ mode }` |
+| `mode-change` | 布局值变化（quick / shell；不重载页面，同布局的容器迁移不发送） | `{ mode }` |
 | `theme-change` | 主题变更 | `{ mode, tokens }` |
 | `hotkey` | 插件注册的全局热键被按下 | `{ accelerator }` |
 | `locale-change` | 壳子界面语言变更 | `{ locale }` |
@@ -1439,7 +1445,7 @@ try {
 
 | | |
 |--|--|
-| **参数** | `cb: (event: { tabId: string; code?: string; type?: 'text' \| 'regex' \| 'over' \| 'img' \| 'files'; payload?: unknown; input?: QuickEnterInput; mode: 'quick' \| 'shell' \| 'panel' }) => void` |
+| **参数** | `cb: (event: { tabId: string; code?: string; type?: 'text' \| 'regex' \| 'over' \| 'img' \| 'files'; payload?: unknown; input?: QuickEnterInput; mode: 'quick' \| 'shell' }) => void` |
 | **返回** | `() => void` — 取消订阅 |
 
 ```js
@@ -1452,7 +1458,7 @@ enest.onEnter(({ tabId, code, type, payload, input, mode }) => {
 })
 ```
 
-`code` / `payload` 来自宿主重新核验后的进入载荷，对应 `features[].code`；普通文本/regex/over 入口传当前输入文本，持久目录条目与实时 provider 传来源私有引用 payload。`input` 为本次启动的文本、查询来源与附件上下文（有界）；主窗与 Quick 的已确认启动都可携带，图片/文件权限仍绑定当前插件实例。`mode` 为本次进入的布局（quick / shell / panel），与 `getLaunchMode()` 一致，但不代表当前原生容器。command 功能不是先 `onEnter` 再假装执行，见 launch 契约。完整交互见[多布局工具接口 — 输入上下文](dual-mode-tools.md#输入上下文)；重复激活不重放旧 `payload`/`input`。实际拥有 Quick 输入资格期间可用 `enest.quickInput.readContext()` 重取本次上下文。
+`code` / `payload` 来自宿主重新核验后的进入载荷，对应 `features[].code`；普通文本/regex/over 入口传当前输入文本，持久目录条目与实时 provider 传来源私有引用 payload。`input` 为本次启动的文本、查询来源与附件上下文（有界）；主窗与 Quick 的已确认启动都可携带，图片/文件权限仍绑定当前插件实例。`mode` 为本次进入的布局（quick / shell），与 `getLaunchMode()` 一致，但不代表当前原生容器。command 功能不是先 `onEnter` 再假装执行，见 launch 契约。完整交互见[多布局工具接口 — 输入上下文](dual-mode-tools.md#输入上下文)；重复激活不重放旧 `payload`/`input`。实际拥有 Quick 输入资格期间可用 `enest.quickInput.readContext()` 重取本次上下文。
 
 文本功能可声明 `features[].input: { type: 'text', trigger: 'prefix' }`。默认主题识别“精确功能别名 + 空白 + 非空正文”，宿主重新核验后将正文放入 `input.text`，原始查询和命中的别名放入 `input.query.raw/trigger`；同次启动的字符串 `payload` 也使用正文，兼容旧文本插件。例：`fy Hello world` 交付 `payload: 'Hello world'`、`input: { text: 'Hello world', query: { raw: 'fy Hello world', trigger: 'fy' } }`。未命中前缀不剥离输入；`trigger: 'none'` 明确保留全文。未声明 input 但同一功能有不含 exclude 的 `over` 时兼容前缀输入；普通名称或仅 regex/media 功能不会隐式启用。正文/原查询最多 4096 个 UTF-16 码元，持久索引与实时 provider 的私有 payload 不被改写。完整声明与排序见[主题包规范 — 文本触发词与启动参数](themes.md#文本触发词与启动参数)。
 
@@ -1504,40 +1510,39 @@ enest.onBeforeClose(async ({ reason }) => {
 
 ## 布局模式（launch mode）
 
-`PluginLaunchMode` 表示插件的三种呈现布局：quick 紧凑工具、shell 完整工作台、panel 组件摘要。它由打开入口、用户启动偏好与 manifest `views` 共同选择。普通启动请求布局未声明时用 `views.default`，不会把不支持的布局传给插件；加入自由面板则必须显式声明 panel，不走兼容回退。
+宿主布局只有 `quick`（紧凑工具）和 `shell`（完整工作台）。独立窗口是挂载位置，不是布局。`getLaunchMode()` 读取当前布局，`onModeChange()` 只在布局改变时触发。
 
-启动请求目标 `PluginLaunchTarget` 只有 quick/shell。Quick、快捷键与 Workspace 经统一启动器解析；功能显式 view target 或 command 返回的 target 先于入口缺省值，未声明时 Workspace 请求 shell，普通 Quick 沿用用户启动偏好。最终 quick 布局进入 Quick，其余布局在主窗显示；`views.default` 仅在请求布局未适配时使用，不覆盖已适配的 quick/shell 请求。回退 panel 仅在主窗呈现组件布局，不自动创建自由面板。
+Quick、快捷键和 Workspace 通过统一启动器解析目标：未适配请求的布局才回退到 `views.default`。普通 Quick 再次打开已独立的窗口时原地聚焦；显式目标可以移动原实例，不重新建立业务状态。
 
-宿主普通打开（`ShellOpenPlugin`）保留旧插件兼容路径：未采用 activation 的页面仍请求 shell 并保留主窗位置，即使布局回退 quick。采用 activation 的新入口先经 command/prepareView ACK，再按功能目标与布局呈现；只有没有功能级 activation 且实例已在面板/独立窗时，沿用原地聚焦，不重复引导已存在的业务 UI。
+宿主普通打开（`ShellOpenPlugin`）保留旧插件兼容路径：未采用 activation 的页面仍请求 shell 并保留主窗位置，即使布局回退 quick。采用 activation 的新入口先经 command/prepareView ACK，再按功能目标与布局呈现；只有没有功能级 activation 且实例已在独立窗时，沿用原地聚焦，不重复引导已存在的业务 UI。
 
-用户明确固定到主窗或拖入 Quick 时保留指定位置，再选择 shell/quick 或默认布局。加入自由面板先检查 `views.layouts` 包含 panel，否则不显示候选并拒绝挂载；通过后始终选择 panel。独立窗口保留原布局，因此 mode 不能作为原生位置探测 API。
+用户固定到主窗或拖入 Quick 时，保留指定位置，再选择已适配或默认布局。独立窗口沿用原布局。
 
-已有面板组件或独立窗口从普通 Quick 搜索（未指定显式目标，功能也未指定 target）或宿主兼容聚焦路径打开时原地聚焦，新载荷正常交付；Workspace、功能显式目标、设置入口、快捷键目标或原生迁移动作仍可移动实例。不能把所有主窗按钮都视为原地聚焦入口。面板、主窗、独立窗共用业务状态，普通插件不读取宿主完整设置，也不操纵父窗口。入口决策与实际内容区的适配见 [UI 集成标准](ui-standard.md#三种布局与挂载位置) 和 [自由面板](panels.md)。
+原生窗口归宿主管理。插件只能通过受限入口请求启动、移动自己的视图，不操纵父窗口，也不读取完整宿主设置。
 
 ### `getLaunchMode()`
 
 | | |
 |--|--|
-| **返回** | `'quick' \| 'shell' \| 'panel'` — 当前布局模式 |
+| **返回** | `'quick' \| 'shell'` — 当前布局模式 |
 | **同步** | 是，不走 IPC（URL 初始值 + 事件实时更新） |
 
 ```js
 const mode = enest.getLaunchMode()
 if (mode === 'quick') renderCompact()
-else if (mode === 'panel') renderWidget()
 else renderFull()
 ```
 
-URL query 中的 `?mode=quick|shell|panel`（与 `?pid` / `?code` 并列）只是**初始值**，首个脚本可同步读取；容器迁移后 URL 不再代表当前值，运行时一律以 `getLaunchMode()` / `onModeChange` 为准。
+URL query 中的 `?mode=quick|shell`（与 `?pid` / `?code` 并列）只是**初始值**，首个脚本可同步读取；容器迁移后 URL 不再代表当前值，运行时一律以 `getLaunchMode()` / `onModeChange` 为准。
 
 ### `onModeChange(cb)`
 
-订阅布局模式变更。容器迁移（⌘Enter 固定到主窗、移入/移出自由面板等）**不重载页面**，仅当最终布局值变化时推送本事件。独立窗口沿用原布局，或主窗承载的 panel 布局移入面板时，迁移可能没有模式事件；尺寸变化另用 `ResizeObserver`，不要靠 onEnter 重建业务。
+订阅布局模式变更。容器迁移不重载页面；只有最终布局值变化才推送。尺寸变化另用 `ResizeObserver`。
 
 | | |
 |--|--|
 | **权限** | 无 |
-| **参数** | `cb: (mode: 'quick' \| 'shell' \| 'panel') => void` |
+| **参数** | `cb: (mode: 'quick' \| 'shell') => void` |
 | **返回** | `() => void` — 取消订阅 |
 
 ```js
@@ -1554,7 +1559,7 @@ enest.on('mode-change', ({ mode }) => applyMode(mode))
 
 | 事件 | 数据 |
 |------|------|
-| `mode-change` | `{ mode: 'quick' \| 'shell' \| 'panel' }` |
+| `mode-change` | `{ mode: 'quick' \| 'shell' }` |
 
 ---
 
@@ -1646,3 +1651,9 @@ offMessage()
 存储排队写入、HTTP 分片、SSE、socket 帧和发送队列都有字节预算；超限 reject，调用方应显示错误并允许缩小数据或重试，不应无界积累缓冲。完整返回类型以 [生成的 API 类型](api-types.md) 为准。
 
 HTTP 同时最多 8 个在途请求；流式响应（含 SSE）单次最多 32 MiB。SSE 单行最多 2 MiB、最多 65,536 个事件；读取达到预算或运行实例失效时，宿主取消上游请求并返回明确错误。
+
+## 固定程序与呼出 Quick
+
+声明 `launcher.access` 后，插件可以在可见页面的真实点击中调用 `enest.launcher.pickTarget()`。宿主原生菜单列出系统应用和已启用插件；只将选中项的 `{ id, title, kind, icon? }` 交给调用插件，而不是应用目录或路径。取消返回 `null`。每插件最多 64 个目标。
+
+`activateTarget(id)` 只接受本插件通过选择器取得的 ID；`showQuick()` 呼出宿主检索窗口，不复制搜索界面。`showWorkspace()` 回到当前插件已有的窗口或标签页，不创建新实例。`forgetTarget(id)` 取消固定。需要在切换标签后使用启动栏时，在可见页面的真实点击中调用 `authorizeSession()`，由用户在原生对话框确认。此后可回到工作区、呼出 Quick，或启动、移除已选目标；添加新目标仍须在可见页面点击并通过选择器。会话不授予文件、系统、MCP 或目标插件额外权限。停止功能时调用 `endSession()`；实例关闭或文档换代后授权失效。

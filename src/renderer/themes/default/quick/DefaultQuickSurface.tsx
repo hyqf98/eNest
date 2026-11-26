@@ -3,14 +3,19 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import gsap from 'gsap'
 import type { QuickCommandKind } from '@shared/types/quick'
 import type { QuickThemeAction, QuickThemeActionResult, QuickThemeItem, QuickThemeSnapshot } from '@shared/types/quickTheme'
-import { QUICK_BAR_AREA_H, QUICK_BORDER_WIDTH, QUICK_CONTENT_HEIGHT, QUICK_CORNER_RADIUS, QUICK_GRID_COLUMNS, QUICK_HOME_HEIGHT, QUICK_HOME_ROWS } from '@shared/constants'
+import { QUICK_BAR_AREA_H, QUICK_BORDER_WIDTH, QUICK_CONTENT_HEIGHT, QUICK_CORNER_RADIUS, QUICK_GRID_COLUMNS, QUICK_HEIGHT, QUICK_HOME_HEIGHT, QUICK_HOME_ROWS, QUICK_WIDTH } from '@shared/constants'
 import { IS_MAC } from '@shared/platform'
 import { normalizeSearchText } from '@shared/search'
 import { d, dy, ease } from '@renderer/gsap/marketMotion'
 import { useReducedMotion } from '@renderer/hooks/useReducedMotion'
+import { useI18n } from '@renderer/hooks/useI18n'
 import { Button } from '@renderer/components/ui/Button'
+import { FileMark, FileSearchResults, useFileResults } from '@renderer/themes/default/FileSearchResults'
+import { resolveFileSearchKey } from '@renderer/themes/default/fileSearchKeys'
+import type { SearchFiles } from '@shared/types/fileSearch'
 import { SearchField } from '@renderer/components/SearchField'
-import { ChevronLeftIcon, HouseIcon, RotateCwIcon, SearchIcon, SettingsIcon } from '@renderer/components/icons'
+import { QuickPluginGrip } from '@renderer/components/QuickPluginGrip'
+import { ArrowUpFromLineIcon, ChevronLeftIcon, HouseIcon, RotateCwIcon, SearchIcon, SettingsIcon } from '@renderer/components/icons'
 import { DefaultQuickBackground } from './DefaultQuickBackground'
 import { QuickAccessMenu } from './QuickAccessMenu'
 import { groupQuickCommands, moveQuickGridSelection, quickSelectionIndex, type QuickGridKey } from './grid'
@@ -24,7 +29,10 @@ import { useQuickUsage } from './useQuickUsage'
 import './quick.css'
 
 export interface DefaultQuickSurfaceProps {
+  fileSearch?: SearchFiles
+  fileInput: string | null
   snapshot: QuickThemeSnapshot
+  gripIcon?: string
   active: boolean
   /** Compatibility policy for v1 themes which only replace presentation. */
   searchActive?: boolean
@@ -45,6 +53,13 @@ export interface DefaultQuickSurfaceHandle {
 const FILTERS: { kind: QuickCommandKind; label: string }[] = [
   { kind: 'app', label: '应用' }, { kind: 'plugin', label: '插件' }, { kind: 'action', label: '操作' }
 ]
+
+const quickGeometry = {
+  '--quick-bar-h': `${QUICK_BAR_AREA_H}px`, '--quick-border-w': `${QUICK_BORDER_WIDTH}px`,
+  '--quick-home-h': `${QUICK_HOME_HEIGHT}px`, '--quick-content-max-h': `${QUICK_CONTENT_HEIGHT}px`,
+  '--quick-max-w': `${QUICK_WIDTH}px`, '--quick-max-h': `${QUICK_HEIGHT}px`,
+  '--quick-radius': `${QUICK_CORNER_RADIUS}px`, '--quick-grid-columns': QUICK_GRID_COLUMNS, '--quick-home-rows': QUICK_HOME_ROWS,
+} as CSSProperties
 
 function CategoryIcon({ kind }: { kind: QuickCommandKind }) {
   return <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -71,7 +86,7 @@ function HighlightTitle({ text, query }: { text: string; query: string }) {
 }
 
 export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, DefaultQuickSurfaceProps>(function DefaultQuickSurface(
-  { snapshot, active, searchActive = active, catalogPending = false, retryRevision = 0, privateState, onAction }, ref
+  { snapshot, gripIcon, active, searchActive = active, catalogPending = false, retryRevision = 0, privateState, onAction, fileSearch, fileInput }, ref
 ) {
   const rootRef = useRef<HTMLDivElement>(null), inputRef = useRef<HTMLInputElement>(null), panelRef = useRef<HTMLDivElement>(null)
   const moreRef = useRef<HTMLButtonElement>(null), marketRef = useRef<HTMLButtonElement>(null)
@@ -83,11 +98,14 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   const [categoriesOpen, setCategoriesOpen] = useState(false)
   const [columns, setColumns] = useState(QUICK_GRID_COLUMNS)
   const reducedMotion = useReducedMotion()
+  const { t, locale } = useI18n()
+  const english = locale === 'en-US'
   const composing = useRef(false)
   const plugin = snapshot.plugin
   const showResults = !plugin
   const query = snapshot.query, kind = snapshot.filter
   const hasQuery = Boolean(query.trim())
+  const files = useFileResults(fileSearch, query, Boolean(snapshot.fileSearchEnabled && active && !plugin && !kind && !snapshot.composing && !snapshot.input?.items.length && fileInput === query), false)
   const inputItems = snapshot.input?.items ?? []
   const media = useMemo(() => matchDefaultQuickMedia(snapshot.catalog, snapshot.input?.items), [snapshot.catalog, snapshot.input])
   const searching = snapshot.searching || (media.mediaPresent && media.matches.size > 0)
@@ -124,6 +142,7 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
   const busy = snapshot.loading || policyPending || content.pending
   const showMarketEmpty = searching && !kind && showResults && !busy && !snapshot.composing && !displayError
     && !ranked.some(item => item.kind === 'app' || item.kind === 'plugin')
+  const showMarketSuggestion = showMarketEmpty && !files.pending && !files.items.length
 
   useImperativeHandle(ref, () => ({
     focus,
@@ -246,6 +265,7 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
       return
     }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); focus(true); return }
+    if (!event.altKey && (IS_MAC ? event.metaKey : event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'f' && snapshot.fileSearchEnabled && !plugin && !inputItems.length) { event.preventDefault(); void dispatch({ type: 'open-files' }); return }
     if (event.key === 'F6' && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault()
       if (inInput) rootRef.current?.querySelector<HTMLButtonElement>('.quick-access-trigger')?.focus()
@@ -259,9 +279,13 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
       else void nativeKey(event)
       return
     }
-    if (showMarketEmpty && !visibleItems.length && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    if (event.target instanceof Element && event.target.closest('.file-search-group')) return
+    if (inInput && !hasSelection && resolveFileSearchKey(event.key, { filesOnly: false, count: files.items.length, index: 0, regularCount: visibleItems.length, regularIndex: index, modified: event.altKey || event.ctrlKey || event.metaKey || event.shiftKey })) {
+      event.preventDefault(); rootRef.current?.querySelector<HTMLButtonElement>('[data-file-result]')?.focus(); return
+    }
+    if (showMarketSuggestion && !visibleItems.length && !event.metaKey && !event.ctrlKey && !event.altKey) {
       if (inInput && !event.shiftKey) {
-        if (event.key === 'Enter') { event.preventDefault(); void dispatch({ type: 'open-market' }); return }
+        if (event.key === 'Enter' && !files.active) { event.preventDefault(); void dispatch({ type: 'open-market' }); return }
         if (event.key === 'ArrowDown' || event.key === 'Tab') { event.preventDefault(); marketRef.current?.focus(); return }
       }
       if (event.target === marketRef.current && (event.key === 'Tab' || event.key === 'ArrowUp' && !event.shiftKey)) { event.preventDefault(); focus(); return }
@@ -292,19 +316,20 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
     }
   }
   const modifier = IS_MAC ? '⌘' : 'Ctrl'
+  const updateLabel = snapshot.availableUpdateVersion ? t('update.quickOpen', { version: snapshot.availableUpdateVersion }) : null
 
   return <div ref={rootRef} className="quick-root" data-mode={plugin ? 'plugin' : 'list'} data-expanded="true" data-home={!searching && !plugin}
-    style={{ '--quick-bar-h': `${QUICK_BAR_AREA_H}px`, '--quick-border-w': `${QUICK_BORDER_WIDTH}px`, '--quick-home-h': `${QUICK_HOME_HEIGHT}px`, '--quick-content-max-h': `${QUICK_CONTENT_HEIGHT}px`, '--quick-radius': `${QUICK_CORNER_RADIUS}px`, '--quick-grid-columns': QUICK_GRID_COLUMNS, '--quick-home-rows': QUICK_HOME_ROWS } as CSSProperties} onKeyDown={onKeyDown}>
+    style={quickGeometry} onKeyDown={onKeyDown}>
     <div className="quick-shell">
       <DefaultQuickBackground active={active} />
       <div className="quick-search-bar" role="search" data-tools={plugin ? 'plugin' : categoriesOpen ? 'expanded' : 'collapsed'}>
         <SearchField value={query} onChange={changeQuery} inputRef={inputRef}
-          placeholder={plugin ? plugin.placeholder : kind === 'app' ? '搜索软件…' : kind === 'plugin' ? '搜索插件…' : kind === 'action' ? '搜索系统操作…' : '搜索应用、插件与指令…'}
+          placeholder={plugin ? plugin.placeholder : kind === 'app' ? '搜索软件…' : kind === 'plugin' ? '搜索插件…' : kind === 'action' ? '搜索系统操作…' : snapshot.fileSearchEnabled && !inputItems.length ? english ? 'Search apps, plugins and files…' : '搜索应用、插件与文件…' : '搜索应用、插件与指令…'}
           leading={plugin ? <>
             <button type="button" className="quick-search-leading quick-plugin-back" onClick={() => void dispatch({ type: 'plugin-back' })} title={`返回全局搜索 · ${plugin.title}（Esc）`} aria-label="返回全局搜索"><ChevronLeftIcon size={20} /></button>
-            <button type="button" className="quick-plugin-grip" data-quick-native-drag title={`拖出「${plugin.title}」成为独立窗口；点击也可分离`} aria-label={`将${plugin.title}独立显示`} onClick={() => void dispatch({ type: 'plugin-detach' })}>
-              <span aria-hidden="true">⠿</span><span>{plugin.title}</span>
-            </button>
+            <QuickPluginGrip className="quick-plugin-grip" plugin={plugin} gripIcon={gripIcon} onDetach={() => void dispatch({ type: 'plugin-detach' })}>
+              <span className="quick-plugin-name">{plugin.title}</span>
+            </QuickPluginGrip>
           </> : <>
             {inputItems.length > 0 && <span className="quick-input-chips" role="list" aria-label="粘贴内容">
               {inputItems.slice(0, 4).map(chip => <span key={chip.id} className={`quick-input-chip kind-${chip.kind}`} role="listitem" title={chip.name ?? (chip.kind === 'image' ? '图片' : '文件')}>
@@ -327,6 +352,8 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
                   {kind ? <CategoryIcon kind={kind} /> : <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden><path d="M4 7h9m4 0h3M4 17h3m4 0h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>}
                 </Button>}
               </QuickAccessMenu>
+              {updateLabel && <button type="button" className="quick-tool quick-update" title={updateLabel} aria-label={updateLabel}
+                onClick={() => void dispatch({ type: 'open-update' })}><ArrowUpFromLineIcon size={18} /></button>}
             </span>
           </>}
           inputProps={{ role: 'combobox', readOnly: Boolean(plugin && !plugin.acceptsInput), 'aria-expanded': showResults, 'aria-controls': showResults ? 'quick-results' : undefined, 'aria-activedescendant': showResults && selected && !snapshot.busy ? `quick-item-${index}` : undefined,
@@ -336,6 +363,7 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
         {!plugin && <div className="quick-categories-slot" id="quick-categories" aria-hidden={!categoriesOpen}><div className="quick-categories" aria-label="搜索范围">
           {FILTERS.map(filter => <button key={filter.kind} type="button" className="quick-category" tabIndex={categoriesOpen ? 0 : -1} aria-label={filter.label} aria-pressed={kind === filter.kind}
             title={`${filter.label}${kind === filter.kind ? ' · 点击查看全部' : ''}`} onClick={() => { void dispatch({ type: 'filter', kind: kind === filter.kind ? null : filter.kind }); setCategoriesOpen(false); focus() }}><CategoryIcon kind={filter.kind} /></button>)}
+          {snapshot.fileSearchEnabled && !snapshot.input?.items.length && <button type="button" className="quick-category" tabIndex={categoriesOpen ? 0 : -1} aria-label={english ? 'Files' : '文件'} title={english ? 'Search by file name' : '按文件名检索'} onClick={() => { setCategoriesOpen(false); void dispatch({ type: 'open-files' }) }}><FileMark directory /></button>}
         </div></div>}
       </div>
       {displayError && <div className="quick-error" role="alert">{displayError}<button type="button" onClick={() => void dispatch({ type: 'retry' })}>重试</button></div>}
@@ -358,14 +386,16 @@ export const DefaultQuickSurface = forwardRef<DefaultQuickSurfaceHandle, Default
               </button>
             })}</div>
           </div>)}
+          <FileSearchResults files={files} more={() => void dispatch({ type: 'open-files' })} onOpen={() => void dispatch({ type: 'hide' })} />
         </div>
         {searching && overflowCount > 0 && <div className="quick-results-disclosure"><Button ref={moreRef} className="quick-results-more" variant="ghost" size="sm" aria-expanded={snapshot.expanded} aria-controls="quick-results"
           aria-label={snapshot.expanded ? '收起搜索结果' : `展开全部搜索结果，另有 ${overflowCount} 项`} onClick={() => {
             if (snapshot.expanded) { select(0); if (panelRef.current) panelRef.current.scrollTop = 0 }
             void dispatch({ type: 'expand', expanded: !snapshot.expanded }); focus()
           }}>{snapshot.expanded ? '收起' : `更多 ${overflowCount}`}</Button></div>}
-        {showMarketEmpty && <div className="quick-empty"><span role="status">没有找到插件或本机应用，可以到插件市场找找</span><Button ref={marketRef} className="quick-empty-market" variant="ghost" size="sm" disabled={snapshot.busy} onClick={() => void dispatch({ type: 'open-market' })}>去插件市场</Button></div>}
-        {!displayError && !showMarketEmpty && !visibleItems.length && <div className="quick-empty"><span>{busy ? '正在查找应用与插件…' : searching ? '没有找到匹配项' : '暂时没有常用应用或插件'}</span><small>{busy ? '正在补齐搜索结果，请稍候' : searching ? '试试应用名称、插件名或指令关键词' : '搜索并打开后会显示在这里'}</small>
+        {showMarketSuggestion && <div className="quick-empty"><span role="status">没有找到插件或本机应用，可以到插件市场找找</span><Button ref={marketRef} className="quick-empty-market" variant="ghost" size="sm" disabled={snapshot.busy} onClick={() => void dispatch({ type: 'open-market' })}>去插件市场</Button></div>}
+        {files.pending && !visibleItems.length && !busy && <div className="quick-empty" role="status">{english ? 'Looking up file names…' : '正在查找文件名…'}</div>}
+        {!displayError && !showMarketEmpty && !visibleItems.length && !files.items.length && !files.pending && <div className="quick-empty"><span>{busy ? '正在查找应用与插件…' : searching ? '没有找到匹配项' : '暂时没有常用应用或插件'}</span><small>{busy ? '正在补齐搜索结果，请稍候' : searching ? '试试应用名称、插件名或指令关键词' : '搜索并打开后会显示在这里'}</small>
           {!busy && <button type="button" onClick={() => void dispatch({ type: 'refresh-apps' })}>重新扫描应用</button>}</div>}
       </div>}
       {nameTip && <div className="quick-name-tip" ref={tipRef} role="tooltip">{nameTip.title}</div>}

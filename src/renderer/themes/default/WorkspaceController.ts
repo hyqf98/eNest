@@ -4,10 +4,11 @@ import type {
 } from '@shared/types/home'
 import type { QuickCommandKind, QuickImageContext } from '@shared/types/quick'
 import type { WorkspaceRoute } from '@shared/types/workspace'
+import type { WindowControl } from '@shared/windowFrame'
 import { normalizeSearchText } from '@shared/search'
 import { buildQuickInputSelection } from '@renderer/components/quickCatalog'
 import { loadWorkspaceReadme } from '@renderer/services/workspaceReadme'
-import { ACTION_COPY, assembleDefaultQuickResults, matchDefaultQuickMedia, namesOf, rankDefaultQuickHome, type DefaultQuickMatch } from '@renderer/themes/default/quick/catalogPolicy'
+import { asQuickNameMatch, assembleDefaultQuickResults, matchDefaultQuickMedia, quickNameRow, rankDefaultQuickHome, type DefaultQuickMatch } from '@renderer/themes/default/quick/catalogPolicy'
 import { createNameSearch } from '@renderer/themes/default/quick/nameSearchClient'
 import type { QuickNameRow } from '@renderer/themes/default/quick/nameSearchTypes'
 import { matchDefaultQuickContent } from '@renderer/themes/default/quick/patternMatching'
@@ -15,6 +16,7 @@ import { defaultQuickPreferredKey, emptyDefaultQuickUsage, projectDefaultQuickUs
 import { createDefaultQuickUsageSession } from '@renderer/themes/default/quick/usageState'
 
 type WorkspaceCommand = HomeSearchEntry & { id: string; kind: QuickCommandKind; lastUsedTs?: number; useCount?: number }
+export type WorkspaceSearchScope = HomeSearchScope | 'files'
 
 export interface DefaultWorkspaceState {
   appearance?: HomeAppearanceSnapshot
@@ -27,7 +29,7 @@ export interface DefaultWorkspaceState {
   basePage: 'catalog' | 'installed'
   query: string
   category: string
-  scope: HomeSearchScope
+  scope: WorkspaceSearchScope
   results?: HomeSearchResult
   searching: boolean
   searchError?: string
@@ -43,6 +45,7 @@ export interface DefaultWorkspaceState {
 }
 
 interface Callbacks {
+  searchFiles?: import('@shared/types/fileSearch').SearchFiles
   applyAppearance?: (snapshot: HomeAppearanceSnapshot) => void
   applyConfig?: (config: HomeRuntimeConfig) => void
   afterPaint?: () => Promise<void>
@@ -84,6 +87,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
   let disposed = false
   let bootstrapping = true
   let searchSequence = 0
+  let configSequence = 0
   let detailSequence = 0
   let navigationSequence = 0
   let refreshSequence = 0
@@ -210,9 +214,9 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
         directoryItems = result.items
         updateUsageCatalog()
         nameEntries = directoryItems.filter(item => !item.content && !item.provider)
-        nameRows = nameEntries.map(item => ({ key: item.handle, kind: item.kind ?? 'plugin', title: item.title,
-          prefix: item.textInput?.trigger === 'prefix',
-          names: item.kind === 'market' ? [item.title, ...(item.aliases ?? [])] : namesOf({ ...item, id: item.handle, kind: item.kind ?? 'plugin' }) }))
+        nameRows = nameEntries.map(item => item.kind === 'market'
+          ? { key: item.handle, kind: 'market', title: item.title, names: [item.title, ...(item.aliases ?? [])] }
+          : quickNameRow({ ...item, id: item.handle, kind: item.kind ?? 'plugin' }))
         statePositions = new Map()
         nameEntries.forEach((item, index) => { if (item.stateKey) statePositions.set(item.stateKey, [...(statePositions.get(item.stateKey) ?? []), index]) })
         nameRevision++
@@ -235,6 +239,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
   }
 
   async function runSearch(query = state.query) {
+    if (state.scope === 'files') return
     if (disposed || !state.visible || composing || !query.trim() && !state.input.length) return
     const sequence = ++searchSequence, scope = state.scope, generation = state.runtimeGeneration
     searchController?.abort()
@@ -311,7 +316,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
           if (entry.kind === 'market') market.push(entry)
           else {
             const item = nativeByHandle.get(entry.handle)
-            if (item) named.push({ ...item, title: item.action ? ACTION_COPY[item.action].title : item.kind === 'plugin' ? hit.keyword : item.title, group: 'best', ...(hit.prefix ? { prefix: true } : {}) })
+            if (item) named.push(asQuickNameMatch(item, hit.prefix))
           }
         }
       }
@@ -329,7 +334,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
     searchController?.abort()
     clearTimeout(searchTimer)
     void bridge.action({ type: 'cancelSearch', queryRevision: sequence }).catch(() => undefined)
-    const requested = Boolean(query.trim() || state.input.length)
+    const requested = scope !== 'files' && Boolean(query.trim() || state.input.length)
     patch({ query, scope, results: undefined, searching: requested && !paused && state.visible, searchError: undefined })
     if (requested && !paused && state.visible) searchTimer = setTimeout(() => void runSearch(query), 80)
   }
@@ -346,8 +351,9 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
       const latest = await bridge.action({ type: 'searchInput', operation: 'list' })
       if (disposed || epoch !== inputEpoch || revision !== inputReadRevision) return
       if (!latest.ok) throw new Error(message('粘贴内容不可用，请重试。', 'Paste context unavailable. Please retry.'))
-      patch({ input: latest.input ?? [] })
-      queueSearch(state.query, state.scope, composing)
+      const input = latest.input ?? []
+      patch({ input })
+      queueSearch(state.query, state.scope === 'files' && input.length ? 'all' : state.scope, composing)
     } catch (error) {
       if (!disposed && epoch === inputEpoch) patch({ message: error instanceof Error ? error.message : message('无法读取剪贴板。', 'Unable to read the clipboard.') })
     } finally { if (epoch === inputEpoch) { pendingInputs--; patch({ inputBusy: pendingInputs > 0 }) } }
@@ -390,7 +396,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
    * 失败必须报出来：静默 catch 会让用户点完毫无反馈、也无从判断原因
    * （宿主可能拒绝、可能首页视图被判非 active），所以把原因落到页面提示上。
    */
-  async function windowControl(control: 'close' | 'minimize' | 'zoom'): Promise<void> {
+  async function windowControl(control: WindowControl): Promise<void> {
     try { await action({ type: 'window', control }) }
     catch (error) {
       patch({ message: error instanceof Error ? error.message : message('窗口操作失败。', 'Window action failed.') })
@@ -484,7 +490,13 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
       if (command.pluginId) void showDetail(command.pluginId)
     } else if (command.type === 'refresh') void refreshCatalog(command.reason)
     else if (command.type === 'settingsChanged') {
-      void bridge.getConfig().then(config => { if (!disposed) { patch({ config }); callbacks.applyConfig?.(config) } }).catch(() => undefined)
+      const sequence = ++configSequence
+      void bridge.getConfig().then(config => {
+        if (disposed || sequence !== configSequence) return
+        const filesChanged = Boolean(config.fileSearchEnabled) !== Boolean(state.config?.fileSearchEnabled)
+        patch({ config }); callbacks.applyConfig?.(config)
+        if (filesChanged && state.scope === 'all' && state.query.trim()) queueSearch(state.query, state.scope, composing)
+      }).catch(() => undefined)
     } else if (command.type === 'install') {
       if (command.pluginId) {
         const busy = new Set(state.busy)
@@ -547,6 +559,7 @@ export function createDefaultWorkspaceController(bridge: EnestWorkspaceApi, call
 
   return {
     getState: () => state,
+    searchFiles: callbacks.searchFiles,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
     start, dispose, showDetail, queueSearch, runSearch, refreshCatalog, action, navigate, manage, setBasePage, openSearchResult,
     windowControl,

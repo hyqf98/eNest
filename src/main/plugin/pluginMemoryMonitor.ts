@@ -29,7 +29,7 @@ const history = new Map<string, History>()
 const trackedDescendants = new Map<number, { startedAt: number; owners: Ownership[] }>()
 const noticeOwner = {}
 let timer: ReturnType<typeof setTimeout> | undefined
-let flight: Promise<void> | undefined
+let flight: { epoch: number; done: Promise<void> } | undefined
 let active = false
 let epoch = 0
 let lastErrorAt = 0
@@ -44,11 +44,11 @@ function sumKnown(processes: PluginMemoryProcess[]): number | null {
   return processes.some(item => item.memoryBytes === null) ? null : processes.reduce((sum, item) => sum + item.memoryBytes!, 0)
 }
 
-function rendererOwners() {
-  return [...pluginHost.getMemoryOwners(), ...homeSurfaceManager.getMemoryOwners(), ...getBackgroundMemoryOwners(), ...getAuxiliaryMemoryOwners()]
+function rendererOwners(workspaces = homeSurfaceManager.getMemoryOwners()) {
+  return [...pluginHost.getMemoryOwners(), ...workspaces, ...getBackgroundMemoryOwners(), ...getAuxiliaryMemoryOwners()]
 }
 
-function rootsForSample(): Map<number, Ownership[]> {
+function rootsForSample(renderers = rendererOwners(), children = getPluginOwnedProcesses()): Map<number, Ownership[]> {
   const roots = new Map<number, Ownership[]>()
   const add = (pid: number, owner: Ownership) => {
     if (!Number.isInteger(pid) || pid <= 0) return
@@ -56,7 +56,7 @@ function rootsForSample(): Map<number, Ownership[]> {
     if (!owners.some(item => item.pluginId === owner.pluginId && item.kind === owner.kind)) owners.push(owner)
     roots.set(pid, owners)
   }
-  for (const owner of rendererOwners()) {
+  for (const owner of renderers) {
     const wc = webContents.fromId(owner.wcId)
     if (!wc || wc.isDestroyed()) continue
     try {
@@ -66,7 +66,7 @@ function rootsForSample(): Map<number, Ownership[]> {
       if (tools && !tools.isDestroyed()) add(tools.getOSProcessId(), { pluginId: owner.pluginId, kind: 'renderer', identity: `wc:${owner.wcId}` })
     } catch { /* Navigation may detach a frame during this sample. */ }
   }
-  for (const child of getPluginOwnedProcesses()) add(child.pid, { pluginId: child.pluginId, kind: child.kind, identity: `${child.kind}:${child.generation ?? 'dev'}:${child.pid}` })
+  for (const child of children) add(child.pid, { pluginId: child.pluginId, kind: child.kind, identity: `${child.kind}:${child.generation ?? 'dev'}:${child.pid}` })
   return roots
 }
 
@@ -123,19 +123,20 @@ function alertCandidates(candidates: AlertCandidate[], now: number): void {
   }
 }
 
-async function collect(sampleEpoch: number, diagnostic = false): Promise<void> {
+async function collect(sampleEpoch: number, diagnostic: boolean, roots: Map<number, Ownership[]>): Promise<void> {
   let settings = preferences()
   if (!settings.enabled && !diagnostic) { history.clear(); trackedDescendants.clear(); snapshot = { ...emptySnapshot(), settings }; return }
-  const roots = rootsForSample()
   const runtimeGenerations = new Map([...roots.values()].flat().map(owner => [owner.pluginId, getRuntimeScope(owner.pluginId)?.owner.generation]))
   const metrics = app.getAppMetrics()
   const clipboardPid = getNativeClipboardProcessId()
   const hostNativePids = new Set(clipboardPid ? [clipboardPid] : [])
   const samples = await sampleProcessMemory([...new Set([...roots.keys(), ...trackedDescendants.keys(), ...metrics.map(item => item.pid), ...hostNativePids])])
-  if (!active || sampleEpoch !== epoch) return
+  if (sampleEpoch !== epoch || (!active && !diagnostic)) return
   settings = preferences()
   if (!settings.enabled && !diagnostic) { history.clear(); trackedDescendants.clear(); snapshot = { ...emptySnapshot(), settings }; return }
-  const currentRoots = rootsForSample()
+  const workspaces = homeSurfaceManager.getMemoryOwners()
+  const runtimeOwners = rendererOwners(workspaces)
+  const currentRoots = rootsForSample(runtimeOwners)
   if (getNativeClipboardProcessId() !== clipboardPid) hostNativePids.clear()
   // Do not reattribute a late sample to a plugin instance that closed while the OS was sampling.
   for (const [pid, owners] of roots) roots.set(pid, owners.filter(owner => currentRoots.get(pid)?.some(current => current.pluginId === owner.pluginId && current.identity === owner.identity)))
@@ -171,7 +172,7 @@ async function collect(sampleEpoch: number, diagnostic = false): Promise<void> {
     return []
   }
   const hostSharedPids = new Set<number>()
-  const pluginContents = new Set(rendererOwners().map(owner => owner.wcId))
+  const pluginContents = new Set(runtimeOwners.map(owner => owner.wcId))
   for (const wc of webContents.getAllWebContents()) {
     if (pluginContents.has(wc.id) || wc.isDestroyed()) continue
     try { for (const frame of wc.mainFrame.framesInSubtree) hostSharedPids.add(frame.osProcessId) } catch { /* detached frame */ }
@@ -194,7 +195,6 @@ async function collect(sampleEpoch: number, diagnostic = false): Promise<void> {
       memoryBytes, residentBytes, metric: sample?.memoryBytes != null ? sample.metric : memoryBytes !== null ? 'resident' : 'unavailable' })
   }
   const now = Date.now()
-  const runtimeOwners = rendererOwners()
   const ids = new Set([...runtimeOwners.map(owner => owner.pluginId), ...processes.flatMap(item => item.pluginIds)])
   const alertQueue: AlertCandidate[] = []
   const plugins: PluginMemoryEntry[] = [...ids].map(pluginId => {
@@ -219,7 +219,7 @@ async function collect(sampleEpoch: number, diagnostic = false): Promise<void> {
     record.firstHighAt = alertLevel === 'warning' || alertLevel === 'critical' ? record.firstHighAt || now : 0
     if (alertLevel === 'normal') record.level = 'normal'
     const entry: PluginMemoryEntry = { pluginId, name: pluginRegistry.get(pluginId)?.name ?? pluginId, status,
-      canClose: !homeSurfaceManager.getMemoryOwners().some(owner => owner.pluginId === pluginId), memoryBytes, sharedMemoryBytes,
+      canClose: !workspaces.some(owner => owner.pluginId === pluginId), memoryBytes, sharedMemoryBytes,
       peakMemoryBytes: record.peak, processCount: owned.length, unmeasuredProcessCount: owned.filter(item => item.memoryBytes === null).length,
       alert: alertLevel, processes: owned }
     if (settings.enabled && settings.alertsEnabled && shouldAlert(entry, record, measured, now)) alertQueue.push({ entry, record, measured })
@@ -233,30 +233,47 @@ async function collect(sampleEpoch: number, diagnostic = false): Promise<void> {
     unavailableProcessCount: processes.filter(item => item.memoryBytes === null).length, plugins, processes }
 }
 
-async function sample(diagnostic = false): Promise<void> {
-  if (flight) return flight
+type SampleMode = 'passive' | 'inspect' | 'diagnostic'
+async function sample(mode: SampleMode): Promise<void> {
   const sampleEpoch = epoch
-  flight = collect(sampleEpoch, diagnostic).catch(error => {
-    if (!active || sampleEpoch !== epoch) return
+  if (flight) {
+    if (flight.epoch === sampleEpoch) return flight.done
+    await flight.done
+    if (sampleEpoch === epoch) return sample(mode)
+    return
+  }
+  const onError = (error: unknown) => {
+    if (sampleEpoch !== epoch || (!active && mode !== 'diagnostic')) return
     snapshot = { ...snapshot, settings: preferences(), error: String(error).slice(0, 300) }
     if (Date.now() - lastErrorAt > 60_000) { lastErrorAt = Date.now(); logWarn('plugin-memory', `sampling failed: ${String(error)}`) }
-  }).finally(() => { flight = undefined })
-  return flight
+  }
+  try {
+    const renderers = rendererOwners(), children = getPluginOwnedProcesses()
+    if (mode === 'passive' && !renderers.length && !children.length && !trackedDescendants.size) {
+      history.clear()
+      if (snapshot.plugins.length || snapshot.error) snapshot = emptySnapshot()
+      return
+    }
+    const done = collect(sampleEpoch, mode === 'diagnostic', rootsForSample(renderers, children)).catch(onError).finally(() => { flight = undefined })
+    flight = { epoch: sampleEpoch, done }
+    return done
+  } catch (error) { onError(error) }
 }
-function schedule(): void {
-  if (!active) return
-  timer = setTimeout(() => { void sample().finally(schedule) }, INTERVAL_MS)
+function schedule(loopEpoch: number): void {
+  if (!active || loopEpoch !== epoch) return
+  timer = setTimeout(() => { void sample('passive').finally(() => schedule(loopEpoch)) }, INTERVAL_MS)
   timer.unref?.()
 }
 export function startPluginMemoryMonitor(): void {
   if (active) return
-  active = true; epoch++
-  void sample().finally(schedule)
+  active = true
+  const loopEpoch = ++epoch
+  void sample('passive').finally(() => schedule(loopEpoch))
 }
 export function stopPluginMemoryMonitor(): void {
   active = false; epoch++
   if (timer) clearTimeout(timer)
-  timer = undefined; history.clear(); trackedDescendants.clear()
+  timer = undefined; history.clear(); trackedDescendants.clear(); snapshot = emptySnapshot()
 }
 
 /**
@@ -269,27 +286,19 @@ export function applyPluginMemoryMonitorSetting(): void {
   else stopPluginMemoryMonitor()
 }
 export async function refreshPluginMemoryAfterClose(): Promise<void> {
-  if (flight) await flight
-  if (active) await sample()
+  if (flight) await flight.done
+  if (active) await sample('passive')
 }
 
 export async function getPluginMemorySnapshot(force = false): Promise<PluginMemorySnapshot> {
   const settings = preferences()
-  if (active && (force || !snapshot.sampledAt || Date.now() - snapshot.sampledAt >= INTERVAL_MS || settings.enabled !== snapshot.settings.enabled)) await sample()
+  if (active && (force || !snapshot.sampledAt || Date.now() - snapshot.sampledAt >= INTERVAL_MS || settings.enabled !== snapshot.settings.enabled)) await sample('inspect')
   return structuredClone({ ...snapshot, settings })
 }
 
 /** Explicit bounded recording may sample even with alerts disabled, without changing preferences. */
 export async function getPluginMemoryDiagnosticSnapshot(): Promise<PluginMemorySnapshot> {
-  // A user-started recording must work even when the passive monitor switch is off.
-  const loopWasActive = active
-  if (!loopWasActive) { active = true; epoch++ }
-  try {
-    if (flight) await flight
-    // Share a just-completed monitor/UI sample instead of running a second OS helper back-to-back.
-    if (!snapshot.sampledAt || snapshot.error || Date.now() - snapshot.sampledAt > 1000) await sample(true)
-    return structuredClone(snapshot)
-  } finally {
-    if (!loopWasActive) { active = false; epoch++ }
-  }
+  if (flight) await flight.done
+  if (!snapshot.sampledAt || snapshot.error || Date.now() - snapshot.sampledAt > 1000) await sample('diagnostic')
+  return structuredClone(snapshot)
 }

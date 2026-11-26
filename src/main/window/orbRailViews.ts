@@ -2,11 +2,11 @@ import { raiseTransientViews } from '@main/window/transientViews'
 import { pathToFileURL } from 'node:url'
 import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
 /**
- * orbRailViews — orb 圆轨 / classic 常驻设置钮（互斥的主窗口顶层 WebContentsView）
+ * orbRailViews — orb 圆轨 / classic 设置侧签（互斥的主窗口顶层 WebContentsView）
  * 取代独立透明子窗方案：视图内是真实 DOM 鼠标事件，无穿透转发、无窗口焦点/层级问题。
  * - orb 仅显示 rail：首页 → 插件/贡献入口 → 设置，左缘窄条收起为 ORB_RAIL_COLLAPSED_W，
  *   renderer hover 经 IPC 拓宽到 ORB_RAIL_EXPANDED_W（同进程 setBounds，约 1 帧）。
- * - classic 仅显示 dock：固定 80×72 贴左下，头像设置钮常驻，18px 内间距由 CSS 提供。
+ * - classic 仅显示 dock：收起时只保留左下缘热区，进入后才拓宽原生视图。
  *   插件内容始终全宽渲染（inset 0）。
  * - z 序：WebContentsView 无显式置顶 API，插件视图挂载后需调 raiseOrbRailViews()
  *   按原生子视图顺序置顶，不摘除正在接收鼠标事件的轨道。
@@ -14,8 +14,6 @@ import { registerTrustedSurface } from '@main/ipc/ipcSecurity'
 import { app, nativeTheme, screen, WebContentsView, type WebPreferences } from 'electron'
 import { join } from 'node:path'
 import {
-  ORB_DOCK_VIEW_H,
-  ORB_DOCK_VIEW_W,
   ORB_RAIL_CAPTION_EXTRA_W,
   ORB_RAIL_COLLAPSED_W,
   ORB_RAIL_EXPANDED_W,
@@ -46,12 +44,15 @@ import { pluginHost } from '@main/plugin/PluginHost'
 import { logWarn } from '@main/logs/logService'
 import { selectThemeChrome, ThemeChromeSurface } from '@main/theme/themeChromeSurface'
 import type { ThemeChromePart } from '@shared/types/themeChrome'
+import { bindClassicDockReveal } from './classicDockReveal'
+import { isWaylandWindowSystem } from './linuxWindowSystem'
 
 let railView: WebContentsView | null = null
 let dockView: WebContentsView | null = null
 let classicView: WebContentsView | null = null
 const customSurfaces = new Map<WebContentsView, ThemeChromeSurface>()
 const pendingFallbacks = new Map<WebContentsView, WebContentsView>()
+const dockReveals = new WeakMap<WebContentsView, ReturnType<typeof bindClassicDockReveal>>()
 const failedSelections = new Map<ThemeChromePart, string>()
 let unwatchPlugins: (() => void) | null = null
 let railExpanded = false
@@ -257,16 +258,17 @@ function applyRailBounds(): void {
 }
 
 function applyDockBounds(): void {
-  if (!dockView) return
-  const b = getShellBounds()
-  // classic 原生命中区固定贴左下；按钮的 18px 内间距由 overlay CSS 提供。
-  dockView.setBounds({
-    x: 0,
-    y: Math.max(TITLEBAR_HEIGHT, b.height - ORB_DOCK_VIEW_H),
-    width: ORB_DOCK_VIEW_W,
-    height: ORB_DOCK_VIEW_H
-  })
-  pendingFallbacks.get(dockView)?.setBounds(dockView.getBounds())
+  const win = getMainWindow()
+  if (!win || win.isDestroyed() || !dockView) return
+  for (const view of [dockView, pendingFallbacks.get(dockView)]) {
+    if (!view || view.webContents.isDestroyed()) continue
+    let reveal = dockReveals.get(view)
+    if (!reveal) {
+      reveal = bindClassicDockReveal(win, view)
+      dockReveals.set(view, reveal)
+    }
+    reveal.layout()
+  }
 }
 
 /** URL query 携带 part / 动画档位 / 主题模式 / 停靠边：首帧即正确，无闪变 */
@@ -371,14 +373,8 @@ export function raiseOrbRailViews(): void {
   raiseTransientViews(win, chrome)
 }
 
-function hasGlobalRailPointer(): boolean {
-  if (process.platform !== 'linux') return true
-  const platform = app.commandLine.getSwitchValue('ozone-platform')
-  return platform === 'x11' || (platform !== 'wayland' && process.env.XDG_SESSION_TYPE !== 'wayland' && !process.env.WAYLAND_DISPLAY)
-}
-
 function readRailPointer(win: Electron.BaseWindow) {
-  if (!hasGlobalRailPointer()) return null
+  if (isWaylandWindowSystem()) return null
   try {
     const cursor = screen.getCursorScreenPoint(), area = win.getContentBounds()
     const x = cursor.x - area.x, y = cursor.y - area.y
@@ -451,7 +447,7 @@ const CAPTION_WATCH_MS = 120
 let captionWatchdog: NodeJS.Timeout | null = null
 
 function startCaptionWatchdog(): void {
-  if (captionWatchdog || !hasGlobalRailPointer()) return
+  if (captionWatchdog || isWaylandWindowSystem()) return
   captionWatchdog = setInterval(() => {
     if (!railCaptionOpen || !railView || railView.webContents.isDestroyed()) { stopCaptionWatchdog(); return }
     const bounds = railView.getBounds()
@@ -583,7 +579,13 @@ function syncChromeVisibility(): void {
   }
   // 先隐藏另一模式的视图，再创建或显示当前视图，避免切换时两者同时出现。
   if (!visible || lastState.tabStyle !== 'orb') railView?.setVisible(false)
-  if (!visible || lastState.tabStyle !== 'classic') dockView?.setVisible(false)
+  if ((!visible || lastState.tabStyle !== 'classic') && dockView) {
+    for (const view of [dockView, pendingFallbacks.get(dockView)]) {
+      if (!view) continue
+      view.setVisible(false)
+      dockReveals.get(view)?.reset()
+    }
+  }
   if (!visible || lastState.tabStyle !== 'classic') classicView?.setVisible(false)
   if (!visible) for (const fallback of pendingFallbacks.values()) fallback.setVisible(false)
   sendShellEvent({ type: 'theme-chrome-status', surface: 'classic', ready: !!classicView && customSurfaces.get(classicView)?.isReady() === true })
@@ -602,7 +604,7 @@ function syncChromeVisibility(): void {
   raiseOrbRailViews()
 }
 
-/** App 门禁控制原生 chrome；orb 仅 rail，classic 仅常驻设置 dock。 */
+/** App 门禁控制原生 chrome；orb 仅 rail，classic 仅设置 dock。 */
 export function applyOrbRailVisibility(tabStyle: 'classic' | 'orb', visible: boolean): void {
   chromeVisible = visible
   lastState = { ...lastState, tabStyle, contribEntries: readRailContribEntries() }

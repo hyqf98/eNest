@@ -1,6 +1,7 @@
 import type { ShellApi } from './shellApi'
 
 const ASYNC_METHODS = [
+  'fileSearchPreferences', 'searchFiles',
   'getMcpStatus', 'configureMcp', 'copyMcpConnectionConfig', 'listMcpTools',
   'getPlugins', 'getMarketStatus', 'getPluginDiagnostics', 'getPluginMemorySnapshot',
   'startPerformanceCapture', 'getPerformanceCaptureState', 'stopPerformanceCapture', 'exportPerformanceCapture',
@@ -9,11 +10,11 @@ const ASYNC_METHODS = [
   'activateRailContribution',
   'uninstallPlugin', 'setPluginEnabled', 'getPluginShortcuts', 'savePluginShortcut', 'removePluginShortcut',
   'probePluginShortcut', 'launchPluginShortcut', 'beginShortcutCapture', 'endShortcutCapture', 'setPluginLaunch',
-  'getOpenWithList', 'setOpenWithDefault', 'clearOpenWithDefault', 'routeOpenWith', 'openOpenWithSystemSettings',
+  'getOpenWithList', 'setOpenWithDefault', 'clearOpenWithDefault', 'routeOpenWith', 'setOpenWithEnabled', 'openOpenWithSystemSettings',
   'installMarketPlugin', 'getTheme', 'getAppearance', 'updateThemeProfile', 'activateTheme', 'setAppearanceMode',
   'setHomeVisible', 'navigateWorkspace', 'retryHome', 'getHomeState', 'pickAppearanceMedia', 'importAppearanceFont',
   'removeAppearanceFont', 'openNativeModal', 'setAppearancePerformanceLimited', 'setTheme', 'loadDevPlugin',
-  'forgetDevPlugin', 'reloadPlugin', 'setDevKillOnHide', 'openDevTools',
+  'forgetDevPlugin', 'reloadPlugin', 'setDevKillOnHide', 'openDevTools', 'listMissingDevPlugins',
   'getPluginCallTrace', 'getThemeSettingsConfig', 'getThemeSettingsSnapshot', 'setThemeSettingsActive',
   'dispatchThemeSettingsAction', 'getSettings', 'setSettings', 'getSettingsSections', 'setPluginSetting', 'getPaths',
   'pickFile', 'getPluginReadme', 'getHardwareAcceleration', 'setHardwareAcceleration', 'getLoginItem', 'setLoginItem', 'getProxy', 'setProxy',
@@ -22,8 +23,8 @@ const ASYNC_METHODS = [
   'getAccountState', 'loginAccount', 'cancelAccountLogin', 'logoutAccount', 'githubLogin', 'githubCancelLogin',
   'getGithubProfile', 'githubLogout', 'systemNotify', 'respondPermissionRequest', 'getPluginPermissionGrants',
   'setPluginPermissionGrant', 'openScreenCaptureSettings', 'openPath', 'openExternal', 'quickToggle', 'quickSearch', 'quickOpen',
-  'quickScanApps', 'quickGetConfig', 'quickGetTheme', 'quickAuthorizeTheme', 'quickProviderState', 'quickSetHotkeys', 'quickProbeHotkey', 'quickInput', 'quickInputContext',
-  'createPanel', 'listPanels', 'closePanel', 'setPanelHotkey',
+  'quickScanApps', 'quickGetConfig', 'quickGetTheme', 'quickGetUpdateVersion', 'quickAuthorizeTheme', 'quickProviderState', 'quickSetHotkeys', 'quickProbeHotkey', 'quickInput', 'quickInputContext',
+  'exportLegacyCanvas',
 ] as const satisfies ReadonlyArray<keyof ShellApi>
 const SUBSCRIPTION_METHODS = ['onEvent', 'onInstallProgress', 'onOrbEvent', 'onQuickThemeKey', 'onQuickShown'] as const satisfies ReadonlyArray<keyof ShellApi>
 const SYNC_METHODS = ['getPathForFile', 'minimizeWindow', 'maximizeWindow', 'closeWindow', 'quickHide', 'quickResize'] as const satisfies ReadonlyArray<keyof ShellApi>

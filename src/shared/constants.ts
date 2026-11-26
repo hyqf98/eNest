@@ -21,7 +21,7 @@ export const PLUGIN_BAR_HEIGHT_NONE = 0
 /**
  * 原生导航 chrome（主窗口内顶层 WebContentsView，非独立窗口）：
  * orb 仅使用 rail，收起为左缘透明窄条（仅把手可见），hover 展开拓宽；设置位于轨道末尾。
- * classic 仅使用固定尺寸 dock，左下角头像设置钮常驻，无折叠侧签。插件内容全宽渲染（inset 恒 0）。
+ * classic 使用左下缘的设置侧签，仅悬停或键盘聚焦时展开。插件内容全宽渲染（inset 恒 0）。
  */
 export const ORB_RAIL_COLLAPSED_W = 14
 export const ORB_RAIL_EXPANDED_W = 84
@@ -31,7 +31,8 @@ export const ORB_RAIL_EXPANDED_W = 84
  * 值需要覆盖 CSS 里 .orb-caption 的 max-width（220px）+ 圆球右侧间隙。
  */
 export const ORB_RAIL_CAPTION_EXTRA_W = 236
-/** classic dock 固定命中区，贴左下并容纳按钮放大与柔和阴影 */
+/** classic dock 的收起热区及展开尺寸 */
+export const ORB_DOCK_REVEAL_W = 12
 export const ORB_DOCK_VIEW_W = 80
 export const ORB_DOCK_VIEW_H = 72
 /** classic 设置钮的 CSS 左/下内间距；原生视图本身不另加外边距 */

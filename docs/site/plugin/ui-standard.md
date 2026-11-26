@@ -7,7 +7,7 @@ eNest 插件可以使用任意前端技术（HTML / CSS / Canvas / WebGL / 任�
 - **背景透明** — 透出壳子壁纸 / 动效背景
 - **配色偏好** — 强制 light/dark 或跟随壳子
 
-插件有三种**布局模式**：`quick`（紧凑工具）、`shell`（完整工作台）、`panel`（组件摘要）。`getLaunchMode()` / `onModeChange()` 返回布局，不是原生窗口位置。布局由打开入口与 manifest `views` 共同选择；用户启动偏好只提供 quick/shell 目标，不自动新建面板。详见下文「三种布局与挂载位置」。
+宿主布局只有 `quick`（紧凑工具）和 `shell`（完整工作台）。独立窗口是挂载位置，不是布局。`getLaunchMode()` 读取当前布局，`onModeChange()` 只在布局改变时触发。
 
 插件 **无需依赖壳子 DOM**，也拿不到壳子 React 树；集成面全部通过 `ui` 配置 + `enest.ui.*` / `enest.theme.*` API 完成。
 
@@ -64,7 +64,7 @@ eNest 插件可以使用任意前端技术（HTML / CSS / Canvas / WebGL / 任�
 
 壳子布局插件区时会读取 `manifest.ui.chrome`，为 **每个已打开插件单独** 计算内容区边界。多插件并存时各自使用自身 chrome 高度。
 
-上图是主窗结构，不是所有挂载位置的统一外框。Quick 有宿主输入区，自由面板没有常驻组件标题条；插件一律以实际内容视口为准，不自行补宿主标题栏高度。
+上图是主窗结构，不是所有挂载位置的统一外框。Quick 有宿主输入区；插件一律以实际内容视口为准，不自行补宿主标题栏高度。
 
 ### 沉浸式布局检查清单
 
@@ -76,37 +76,36 @@ eNest 插件可以使用任意前端技术（HTML / CSS / Canvas / WebGL / 任�
 
 ---
 
-## 三种布局与挂载位置
+## 布局与挂载位置
 
-插件不再有 manifest `form` 区分。`PluginLaunchMode` 为 `quick | shell | panel`，表示插件适配的布局；`PluginLaunchTarget` 为 `quick | shell`，表示普通启动请求的目标。原生挂载位置还包括独立窗口和自由面板，位置与布局并非一一对应。
+宿主布局只有 `quick`（紧凑工具）和 `shell`（完整工作台）。独立窗口是挂载位置，不是布局。`getLaunchMode()` 读取当前布局，`onModeChange()` 只在布局改变时触发。
 
 | 动作 | 布局与位置 |
 |---|---|
 | Quick 搜索 / 启动快捷键 | 通过统一启动器选择请求布局：显式目标优先，否则使用启动偏好（缺省 quick）；未适配时用 `views.default`。最终 quick 布局进入 Quick，其余布局进入主窗；已有常驻位置的普通 Quick 搜索见下行 |
-| 普通 Quick 搜索再次打开已有面板组件 / 独立窗口 | 未指定显式启动目标时，聚焦原位置并交付载荷，不迁移已有实例 |
-| Workspace 目录、详情中的打开 / 首页搜索结果 | 同样走统一启动器，但显式请求 shell；未适配时仍按最终布局选择 Quick 或主窗，可将已有面板组件或独立窗口移到该位置，不属于普通 Quick 搜索的原地聚焦分支 |
-| 宿主主窗普通打开（`ShellOpenPlugin`） | 不走上述启动偏好解析；请求 shell 布局并在主窗打开，回退为 quick / panel 布局时也留在主窗。已有面板组件或独立窗口则原地聚焦 |
+| 普通 Quick 搜索再次打开已有独立窗口 | 未指定显式启动目标时，聚焦原位置并交付载荷，不迁移已有实例 |
+| Workspace 目录、详情中的打开 / 首页搜索结果 | 同样走统一启动器，但显式请求 shell；未适配时仍按最终布局选择 Quick 或主窗，可将已有独立窗口移到该位置，不属于普通 Quick 搜索的原地聚焦分支 |
+| 宿主主窗普通打开（`ShellOpenPlugin`） | 不走上述启动偏好解析；请求 shell 布局并在主窗打开，回退为 quick 布局时也留在主窗。已有独立窗口则原地聚焦 |
 | 用户明确固定到主窗 / 拖入 Quick | 挂载到指定位置；布局选择 shell / quick，未适配则用 `views.default`，不再按回退布局改换目标位置 |
-| 添加组件 / 拖入自由面板 | 只有 `views.layouts` 包含 panel 才允许加入并选择 panel 布局；未适配时拒绝，不使用 default 回退 |
 | 拖出独立窗口 | 保留原布局，不把所有独立窗口强制改成 shell |
 
-`views.default` 只在普通启动请求布局未适配时使用，不覆盖已适配的请求。例如 `layouts: ["quick", "shell", "panel"], default: "panel"` 仍会按 Quick 请求呈现 quick、按首页 shell 请求呈现 shell；只有请求未适配且最终回退 panel 时，统一启动器才在主窗呈现 panel，不自动创建自由面板。只声明 shell 的插件首次从 Quick 搜索启动会打开主窗，但不能加入自由面板。
+`views.default` 仅用于未适配的目标。只声明 shell 的插件从 Quick 打开时在主窗呈现。
 
 因此，不能仅凭按钮位于主窗就推断其打开策略。Workspace 的显式 shell 启动请求、宿主 `ShellOpenPlugin` 普通打开，以及固定/拖入等指定位置的迁移，是不同路径。相关实现分别位于 `homeDataService` / `pluginLauncher`、`shellHandlers` / `PluginHost.openPlugin` 和宿主 placement 控制器；插件不调用这些内部接口。
 
-三种布局共用一个业务模型与运行实例：Quick 聚焦快速操作，shell 提供完整编辑管理，panel 呈现少量常驻信息与必要操作。迁移**不重载页面**，只在布局确实改变时发送模式事件。不要让布局组件的挂载/卸载重建网络连接、后台计划或编辑器 model。
+两种布局共用业务模型和运行实例。迁移不重载页面；不要在每次布局变化时重建连接、后台任务或编辑器。
 
 壳子负责原生窗口、输入条和插件内容区边界。插件拥有自己的页面、搜索、滚动区域、断点和宽高设置；壳子不注入插件内部布局，也不会缩放整张页面。
 
 ### 感知布局模式
 
-- URL query 携带 `?mode=quick|shell|panel`（与 `?pid` / `?code` 并列），插件首个脚本可同步读取——但这只是**初始值**。
+- URL query 携带 `?mode=quick|shell`（与 `?pid` / `?code` 并列），插件首个脚本可同步读取——但这只是**初始值**。
 - 运行时以 `enest.getLaunchMode()`（当前值）与 `enest.onModeChange(cb)`（订阅变更）为准；模式变化同时经 `mode-change` 事件推送。
-- `onEnter` 载荷也带 `mode: 'quick' | 'shell' | 'panel'`；不要依赖每次迁移重新进入业务。
+- `onEnter` 载荷也带 `mode: 'quick' | 'shell'`；不要依赖每次迁移重新进入业务。
 
 ```js
 function applyMode(mode) {
-  document.documentElement.dataset.mode = mode // 紧凑 / 完整 / 组件呈现
+  document.documentElement.dataset.mode = mode // 紧凑 / 完整
 }
 const offMode = enest.onModeChange(applyMode)
 applyMode(enest.getLaunchMode())
@@ -115,7 +114,7 @@ enest.onDestroy(offMode)
 
 模式由入口与已声明布局共同决定；CSS 容器查询处理当前模式内的宽度变化，不能仅用宽度推断入口。
 
-`@enest/plugin-kit` 已同步 `data-mode`；使用 `PluginKit.create()` 时通过 `kit.mode` 读取初值，`kit.onMode(cb)` 订阅后续变化，不需要再写一套镜像。`.quick-only`、`.shell-only`、`.panel-only` 可控制只属于一种布局的内容。专用组件表面为可选的 `@enest/plugin-kit/widget.css`，完整透明根、主题与宽高响应式示例见[自由面板](panels.md)。未声明 panel 的插件不出现在组件选择器，也不注入任何兼容小组件 UI。
+`@enest/plugin-kit` 将 `kit.mode` 同步到 `data-mode`，提供 `.quick-only` 与 `.shell-only`。插件可通过 `kit.onMode(cb)` 订阅变化。
 
 `await enest.ui.openInShell()` 将调用插件的现有视图移到主窗口，不新建实例、不重连，也不重放查询。它请求 shell 布局；未适配时保留 manifest 默认布局，因此不能以调用成功推断 `getLaunchMode()` 必为 shell。使用同一个会话与编辑器 model，分别保存各布局自己的呈现偏好。`ResizeObserver` 负责在迁移后重新布局终端和编辑器。
 
@@ -147,7 +146,7 @@ enest.onDestroy(offMode)
 
 Quick 默认呼出显示两行常用项，总高 248px；输入搜索后也先显示实际网格的两行匹配项，跨分组累计行数，超过部分通过「更多 N」展开并可收起。查询或类别改变时收起，同查询的增量结果不打断已展开状态；键盘选择只操作当前可见项。搜索随折叠/展开后的内容调整高度，最多 545px。进入插件后才统一展开为 720 × 545px：输入区 64px、内容区 480px、底边 1px。插件实际视口为 718 × 480px；屏幕工作区不足时整体缩小。manifest 的 `window.width` / `height` / `minWidth` / `minHeight` 保留兼容，不改变 Quick 外框。
 
-- `await enest.ui.resize({ width, height })`：保留兼容调用及参数校验，支持只传高度；不改变 Quick、主窗或面板组件尺寸。
+- `await enest.ui.resize({ width, height })`：保留兼容调用及参数校验，支持只传高度；不改变 Quick、主窗或独立窗尺寸。
 - `await enest.ui.setHeight(height)`：与 `resize({ height })` 等价，调用成功不改变固定视口。
 - 两个接口都是无需声明或授权的基础能力，单位均为 CSS px，参数必须是正有限数。
 - 显示器空间不足时，插件应响应实际 viewport 大小并自行滚动。不要假定 Quick 永远是 720px 宽，也不要假定同一入口只能在小窗运行。
@@ -166,7 +165,7 @@ html, body, #app { width: 100%; height: 100%; margin: 0; }
 }
 ```
 
-Canvas / 图表可监听 `ResizeObserver` 或 `window.resize`，使用实际内容区宽高重绘。主窗口放大、Quick 工作区缩小、固定到主窗或自由拉伸组件都可能改变 viewport，不一定改变 mode。`views.panel.size` 只是初始组件外框偏好，不是固定视口，也不是插件内部页面的宽高；保存布局与用户拉伸优先，详见[面板尺寸约束](panels.md#外观拖动与多屏)。
+Canvas / 图表应监听实际内容区的 `ResizeObserver` 或 `resize`，不依赖窗口外框推断尺寸。
 
 ```js
 // 需要更大工作区时，将已有插件视图固定到主窗。
@@ -355,7 +354,6 @@ document.documentElement 上的 CSS 变量
 - 插件页 **必须** 使用 `background: transparent`，否则会盖住壳子背景
 - 可透出壳子的纯色 / 图片 / 视频背景，适合动态壁纸上的小组件与可视化
 
-自由面板透出的是该面板的宿主底板与平台材质，不承诺继承主窗壁纸。`ui.background` 对整个插件生效：建议保持 html/body 透明，在 quick/shell 的内容根节点画实色背景，仅 panel 的根节点透明并由组件表面绘制半透明色调。原生桌面模糊不由插件 CSS 提供，详见[面板外观边界](panels.md#外观拖动与多屏)。
 
 ```css
 html, body {
@@ -700,8 +698,7 @@ const api = window.enest // zapi 仅作 deprecated 兼容别名
 - [ ] 次级/危险操作进入右键菜单；菜单支持 Esc 与点击外部关闭
 - [ ] FAB 右下或侧栏、z-index 正确、尊重安全边距
 - [ ] `themeAware: false` 或独立打开时，兜底调色板不「白屏/黑屏」
-- [ ] 已声明的 quick/shell/panel 布局均按实际内容区绘制，不补宿主标题栏高度；冷启动读当前 mode，后续订阅 `onModeChange`，尺寸变化另由 `ResizeObserver` 处理
-- [ ] 若声明 panel，提供真正精简的组件呈现，检查最小内容区、透明根、展开到主窗后状态保留；不创建第二份业务实例或自行控制面板拖动
+- [ ] 已声明的 quick/shell 布局均按实际内容区绘制，不补宿主标题栏高度；冷启动读当前 mode，后续订阅 `onModeChange`，尺寸变化另由 `ResizeObserver` 处理
 
 ---
 

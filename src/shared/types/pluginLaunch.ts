@@ -12,7 +12,7 @@ export interface PluginActivationDeclaration {
   resident?: { setting: string; code: string; default?: boolean }
 }
 export type PluginActivationContext = 'view' | 'command' | 'index-sync' | 'resident'
-export type PluginActivationReason = 'quick' | 'workspace' | 'shortcut' | 'settings' | 'open-with' | 'mcp' | 'index-sync' | 'resident-restore' | 'resident-setting'
+export type PluginActivationReason = 'quick' | 'workspace' | 'shortcut' | 'settings' | 'open-with' | 'launcher' | 'mcp' | 'index-sync' | 'resident-restore' | 'resident-setting'
 
 /** Public searchable text and a private, small business reference; never credentials. */
 export interface PluginLaunchIndexEntry {

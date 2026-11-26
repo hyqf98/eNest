@@ -16,6 +16,7 @@ export type PluginPermission =
   | 'pin.create'
   | 'net.fetch'
   | 'shell.openExternal'
+  | 'launcher.access'
   | 'web.login'
   | 'storage.local'
   | 'notify'
@@ -63,6 +64,7 @@ export const PLUGIN_PERMISSIONS: readonly PluginPermission[] = [
   'pin.create',
   'net.fetch',
   'shell.openExternal',
+  'launcher.access',
   'web.login',
   'storage.local',
   'notify',
@@ -111,7 +113,7 @@ export interface ScreenBounds {
   height: number
 }
 
-/** 截图结果：PNG dataURL */
+/** 截图结果：PNG dataURL 和实际编码的像素尺寸。 */
 export interface ScreenCaptureResult {
   dataUrl: string
   width: number
@@ -119,10 +121,17 @@ export interface ScreenCaptureResult {
   displayId?: number
 }
 
+export interface DesktopDipBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface CaptureDisplay {
   id: number
-  bounds: ScreenBounds
-  workArea: ScreenBounds
+  bounds: DesktopDipBounds
+  workArea: DesktopDipBounds
   scaleFactor: number
   primary: boolean
 }
@@ -143,6 +152,7 @@ export interface PluginFeatureInput {
 
 export interface PluginFeature {
   code: string
+  title?: string
   explain?: string
   cmds: PluginFeatureCommand[]
   /** Omitted: an unrestricted over declaration enables compatible prefix input; other names stay unchanged. */
@@ -199,49 +209,31 @@ export function resolvePluginUi(ui?: Partial<PluginUiConfig> | null): PluginUiCo
  * 插件布局模式，与宿主窗口位置分离：
  * - quick：Quick 小窗内嵌，渲染在输入框下方（小窗适配样式）
  * - shell：主窗大窗 Tab / 独立窗口（桌面适配样式）
- * - panel：自由面板小组件（组件适配样式）
  * 不再有「大小插件」类型区分：同一插件多套入口样式并存，
  * 壳子启动时经 URL ?mode= / onEnter 载荷 / getLaunchMode() 传给插件，插件自选渲染样式。
- * 拖出独立窗口保留原模式；收回 Quick / 主窗 / 面板时切换为接收位置的布局；
- * 普通启动未适配目标布局时回落 manifest views.default；加入面板必须显式适配 panel。
+ * 拖出独立窗口保留原模式；收回 Quick / 主窗时切换为接收位置的布局；
+ * 普通启动未适配目标布局时回落 manifest views.default。
  */
-export type PluginLaunchMode = 'quick' | 'shell' | 'panel'
+export type PluginLaunchMode = 'quick' | 'shell'
 
-/** 普通启动入口的原生目标；自由面板需用户指定 panelId，不是直接启动目标。 */
+/** 普通启动入口的原生目标。 */
 export type PluginLaunchTarget = 'quick' | 'shell'
 
-const ALL_LAUNCH_MODES: readonly PluginLaunchMode[] = ['quick', 'shell', 'panel']
-
-/** plugin.json `views.panel` 段：panel 布局（自由面板小组件）的几何偏好，全部可选。 */
-export interface PluginPanelViewConfig {
-  /** 组件默认外框尺寸（DIP）：添加组件时的初始尺寸；被宿主最小尺寸与面板内容区钳制。 */
-  size?: { width: number; height: number }
-  /**
-   * 小组件预览图：首页「小组件」区块用它展示该插件在面板里的真实渲染效果。
-   *
-   * 必须是插件包内相对路径，且落在 `assets/market/screenshots/`
-   * （与 market.screenshots 共用同一套资源校验：PNG/WebP/JPEG）。
-   * 这样构建期就能校验文件存在与格式，壳子按声明读取，**不扫目录、不猜文件名**。
-   */
-  preview?: string
-}
+const ALL_LAUNCH_MODES: readonly PluginLaunchMode[] = ['quick', 'shell']
 
 /**
  * plugin.json `views` 段（全部可选，缺省见 DEFAULT_PLUGIN_VIEWS）：
  * 声明插件适配了哪些布局、未适配入口回落到哪个默认视图。
  */
 export interface PluginViewsConfig {
-  /** 已适配的布局集合；普通启动未适配时用 default，只有包含 panel 才可加入自由面板。 */
+  /** 已适配的布局集合；普通启动未适配时用 default。 */
   layouts: PluginLaunchMode[]
   /** 默认视图：未适配布局的回退启动方式；归一后必属于 layouts。 */
   default: PluginLaunchMode
-  /** panel 布局的几何偏好；仅在 layouts 含 panel 时生效，其余字段缺省。 */
-  panel?: PluginPanelViewConfig
 }
 
 /**
  * views 缺省：历史插件 quick/shell 两种入口全部可用、默认桌面。
- * panel 需显式声明；未声明的插件不出现在组件选择器，也不能拖入面板。
  */
 export const DEFAULT_PLUGIN_VIEWS: PluginViewsConfig = { layouts: ['quick', 'shell'], default: 'shell' }
 
@@ -252,21 +244,7 @@ export function resolvePluginViews(views?: Partial<PluginViewsConfig> | null): P
   const requested = views?.default
   const fallback = requested && layouts.includes(requested) ? requested
     : layouts.includes('shell') ? 'shell' : layouts[0]
-  // panel 几何偏好只在声明了 panel 布局时生效；尺寸取整，非法值忽略（宿主几何层再钳制）。
-  const size = views?.panel?.size
-  const validSize = layouts.includes('panel') && size
-    && Number.isFinite(size.width) && size.width > 0
-    && Number.isFinite(size.height) && size.height > 0
-    ? { size: { width: Math.round(size.width), height: Math.round(size.height) } }
-    : undefined
-  // preview 与 size 独立：只声明预览图、不声明尺寸是合法的（尺寸走宿主默认）。
-  // 路径合法性（必须 assets/market/screenshots + 图片扩展名）由构建期校验负责，
-  // 这里只做类型归一，不重复实现一遍路径规则。
-  const preview = layouts.includes('panel') && typeof views?.panel?.preview === 'string' && views.panel.preview.trim()
-    ? { preview: views.panel.preview.trim() }
-    : undefined
-  const panel = validSize || preview ? { ...validSize, ...preview } : undefined
-  return { layouts, default: fallback, panel }
+  return { layouts, default: fallback }
 }
 
 /**
@@ -277,7 +255,6 @@ export interface PluginLaunchConfig {
   /**
    * 启动方式覆盖：quick 小窗启动 / shell 大窗启动；
    * 缺省 = 跟随入口（Quick 打开进小窗，主窗打开进大窗）。插件快捷键使用各自的 mode。
-   * panel 不是启动目标（面板由用户自组）；覆盖结果仍受 manifest views 布局回退约束。
    */
   mode?: PluginLaunchTarget
   /** @deprecated 只读取旧数据迁移；新绑定保存在 pluginShortcuts。 */
@@ -297,6 +274,7 @@ export const CONTRIB_SCHEMA_VERSION = '1'
  * Quick 搜索时主进程向插件 webContents 推 quick-query，插件回传结果项。
  */
 export interface QuickProviderContribution {
+  fallbackFor?: 'file-names'
   /** provider id（插件内唯一；全局键 = `${pluginId}:${id}`） */
   id: string
   /** 展示名 / 用途说明（搜索命中 provider 项时的副标题） */
@@ -362,6 +340,8 @@ export interface HomeCardContribution {
  */
 export interface OpenWithContribution {
   id: string
+  /** 设置页里这条声明的显示名（如「SQL 脚本」）；缺省回退为扩展名列表 */
+  label?: string
   /** 小写、不含点的文件扩展名，如 'md' */
   extensions?: string[]
   /** MIME 类型，如 'text/markdown' */
@@ -431,7 +411,10 @@ export interface PluginManifest {
   version: string
   description: string
   author?: string
-  /** Standard runtime-relative icon path: assets/market/icon.svg. */
+  /**
+   * Standard runtime-relative icon path: assets/market/icon.svg.
+   * 内容要求见 `pluginMarketAssets.ts`：正方形 viewBox 的 SVG，无位图、脚本与外部引用。
+   */
   icon: 'assets/market/icon.svg'
   /** 市场分类；与插件仓库 registry.json 的 category 一致 */
   category?: string
@@ -441,7 +424,10 @@ export interface PluginManifest {
   market: {
     featured?: boolean
     tags?: string[]
-    /** 有序截图，最多 8 张；包内 assets/market/screenshots 相对路径，首张为首页封面 */
+    /**
+     * 有序截图，最多 8 张；包内 assets/market/screenshots 相对路径，首张为首页封面。
+     * 每张像素尺寸固定 1200×800（3:2），安装时校验；首页精选、详情图库按同一比例渲染。
+     */
     screenshots: string[]
     /** Runtime-relative Markdown document in the packaged static assets. */
     readme: 'assets/market/README.md'
@@ -788,6 +774,7 @@ export type FontSizeScale = (typeof FONT_SIZE_SCALES)[number]
 
 /** 设置 → 通用（保持轻量） */
 export interface GeneralSettings {
+  fileSearch?: import('./fileSearch').FileSearchPreferences
   locale: 'zh-CN' | 'en-US'
   /** 关闭 GPU 加速；变更需重启生效 */
   hardwareAcceleration: boolean
@@ -824,12 +811,6 @@ export interface GeneralSettings {
   quickLauncher?: QuickLauncherSettings
   /** 启动 Splash 背景；缺省 = brand 品牌色 */
   splashBackground?: SplashBackgroundConfig
-  /** 自由面板（小组件）功能开关；缺省视为关闭。 */
-  freePanel?: { enabled: boolean }
-  /** 自由面板呼出快捷键（归一后的 accelerator）；缺省用平台默认。 */
-  panelHotkey?: string
-  /** 自由面板外观（壳级，不随主题变化）。 */
-  panelAppearance?: import('./panel').PanelAppearance
 }
 
 /** GitHub 账号个人资料（设置 profile 段 user 字段；access token 单独加密存储，不落设置） */

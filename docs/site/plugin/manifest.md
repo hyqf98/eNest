@@ -9,9 +9,9 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 | author / homepage | 可选；作者与项目主页，仅用于展示 |
 | category | 效率、开发、设计、媒体、其它 |
 | main | 固定 index.html，相对于运行根 |
-| icon | 固定 assets/market/icon.svg |
+| icon | 固定 assets/market/icon.svg；正方形 viewBox 的 SVG，不超过 64 KiB，不含位图、脚本、事件属性或外部引用 |
 | market.readme | 固定 assets/market/README.md |
-| market.screenshots | assets/market/screenshots 下的相对路径；发布 1–8 张 PNG/JPEG/WebP |
+| market.screenshots | assets/market/screenshots 下的相对路径；发布 1–8 张 PNG/JPEG/WebP，每张固定 1200×800 |
 | market.tags / featured | 市场标签及推荐展示 |
 | backend.entry | 可选；包内 backend/ 下的 .cjs/.mjs/.js 入口，需 backend.node；构建工具输出 backend/index.cjs |
 | background | 可选；声明式后台页 `{ entry: assets/*.html, events?, eventSettings? }`，在隐藏视图中按事件运行，见 [API 参考](api.md) 的 background 段 |
@@ -22,9 +22,22 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 | development.main | 仅源码开发使用的无凭据 HTTP(S) URL，发布时移除；优先级低于 package.json `enest.dev.url`，启动命令解析见[开发加载](debug.md) |
 | window | 内容尺寸建议；宿主按可用屏幕区域限制，不是 CSS 固定尺寸 |
 | ui | chrome、themeAware、background、preferredColorScheme |
-| views | 可选；适配的 quick/shell/panel 布局、回退默认与面板尺寸，见[小窗、主窗、面板与 UI](#小窗主窗面板与-ui) |
-| features | code、explain、cmds 声明启动指令；cmds 支持触发词、regex/over 文本内容与 img/files 粘贴上下文，见[触发词与内容指令](#触发词与内容指令) |
+| views | 可选；已适配的 Quick、主窗布局和回退默认值，见[布局与 UI](#小窗主窗与-ui) |
+| features | `code` 标识功能，`title` 是固定展示名，`explain` 是说明，`cmds` 提供名称别名及内容指令，见[触发词与内容指令](#触发词与内容指令) |
 | contributes | settings、homeCards、railEntries、themePacks、homePages、openWith 等声明式扩展；homePages 仅在来源插件已安装、已启用且与当前 manifest 精确匹配时运行，见[完整首页](home.md) |
+
+## 图标与截图规格
+
+图标和截图是固定规格的素材，不是自由尺寸的图片。源码校验、发布构建与宿主安装器校验同一套规则，不合规的包在安装时被拒绝；首页精选、市场卡片、详情图库与缩略图都按下面的比例预留容器，不会为了适配某张图改变版式。
+
+| 素材 | 规格 |
+|---|---|
+| 图标 | `assets/market/icon.svg`。SVG，`viewBox` 必须是正方形（`0 0 128 128`、`0 0 256 256` 等均可，数值不影响清晰度）；不超过 64 KiB；不得包含位图、`script`、`foreignObject`、事件属性、动画元素或任何外部引用，渐变等内部引用（`url(#id)`）可以使用 |
+| 截图 | 每张像素尺寸固定 **1200×800（3:2）**，PNG、JPEG 或 WebP。比例相近的尺寸（1200×764、1280×800、1280×720）同样不合规；需要高分屏清晰度时在导出前按 1200×800 逻辑视口、2 倍像素拍摄，再等比缩放到 1200×800 |
+| 数量与体积 | 1–8 张，首张为首页封面；单张不超过 16 MiB |
+
+
+尺寸不合规格时，宿主只会按 `cover` 裁切铺满容器，不会拉伸变形；所以比例偏差越大，被裁掉的内容越多。首页精选卡在窄窗口下截图区比 3:2 更接近方形，左右边缘会被裁切一部分，重要内容不要贴边。
 
 资源路径不得包含绝对路径、URL、反斜杠、点段、隐藏段、百分号编码或查询片段。`logo`、任意 main 路径和单独 settings HTML 入口已移除；设置使用 contributes.settings 或插件内页面。
 
@@ -32,19 +45,23 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 
 ## 触发词与内容指令
 
-`features[].cmds` 是 Quick 小窗唯一的可检索入口声明，对标 uTools / zTools 的 `features`。每个 feature 有稳定 `code`（进入载荷 `code` 与之对应）、可选 `explain`（副标题），以及至少一条 `cmds`。`cmds` 混合三种形状：
+Quick 和首页从 `features[]` 读取静态功能。`code` 是执行和使用记录的稳定标识，改文案不需要改 `code`。每个有字符串触发词的功能建议声明 `title`：使用单行、非空、不含控制字符的人读名称，最多 128 个 Unicode 码点，例如「截图」「Base64 编解码」。`explain` 用于补充说明，不用它截取标题。
 
-- **字符串触发词**：每个字符串独立生成一条可搜结果，首个作为该 feature 的显示名，其余作为别名。检索经 NFKC、大小写归一后，命中全拼、拼音首字母与英文缩写（`fy` 搜「翻译」、`vsc` 搜「Visual Studio Code」）。插件名、插件 id 与用户在详情里自定义的触发词与字符串指令等权并入。
+- **字符串触发词**：同一功能只有一条名称结果。`cmds` 填中文同义词、常用英文名和需要兼容的显式简称，例如 `title: "截图"`、`cmds: ["截图", "截屏", "screenshot", "jt"]`。搜 `jt`、`jietu`、`screenshot` 或 `截屏` 都显示「截图」，不会显示别名。插件名、插件 ID 和用户自定义触发词仍关联到主入口。
+- **名称匹配**：默认主题在名称索引里从标题和别名生成全拼、拼音首字母和英文词首，不必逐条抄写。多音字和习惯简称可用显式别名补充；不同功能可以同名或共用缩写，不互相覆盖。带正文的显式前缀优先；普通名称查询按完整标题/别名、完整拼音/首字母、部分匹配分档，同档再用查询偏好排序。
 - **regex 文本内容**：`{ "type": "regex", "label": "...", "match": "/source/flags", "minLength": 1 }`。`match`（或兼容字段 `regex`，同时提供时 `match` 优先）必须是 `/source/flags` 字面量，最长 2048 字符，支持 JS flags `dgimsuvy`。安装时仅编译语法、绝不执行匹配；执行在隔离 Worker，单次有 180ms 预算。命中的原始输入文本作为 `payload` 交给 `onEnter`。
 - **over 文本兜底**：`{ "type": "over", "label": "...", "minLength": 1, "maxLength": 10000, "exclude": "/^https?:/i" }`。接受任意满足长度边界、且未命中 `exclude` 的文本，归入「匹配推荐」组；适合翻译、全文搜索一类「把当前文本交给我」。
 - **img 粘贴图片**：`{ "type": "img", "label": "压缩这张图片", "extensions": ["png", "jpeg"] }`。仅当 Quick 输入框带图片上下文时命中；`extensions` 是小写无点扩展名白名单（最多 16 项，缺省接受任意图片）。图片以 `onEnter` 的 `input.images[].dataUrl` 交付。
 - **files 粘贴文件**：`{ "type": "files", "label": "批量处理文件", "extensions": ["txt", "md"], "minCount": 1, "maxCount": 20, "allowDirectory": false }`。仅当带文件上下文时命中；数量边界 `minCount`/`maxCount` 缺省 1/20，`allowDirectory` 决定是否把目录计入有效数量。文件以宿主签发的只读句柄在 `input.files[]` 交付。
+
+旧包不要求补 `title` 才能使用：在可以公开的触发词里，先取第一个含汉字的词，再取第一个不是 1–3 位小写字母简称的词，最后回退插件名。没有 `features` 时仍按插件名启动。内容指令保留自己的 `label`；给纯内容入口或 `cmds: []` 的内部激活入口写 `title` 不会额外生成名称结果。只有显式声明 `activation` 的功能可以使用空 `cmds`。发布带 `title` 的包前，应先更新宿主、SDK 和 Schema，并在 `engines.enest` 声明实际支持的最低版本；旧 Schema 不接受这个新字段。
 
 ```json
 {
   "features": [
     {
       "code": "translate",
+      "title": "翻译",
       "explain": "翻译文本",
       "cmds": [
         "翻译", "translate", "fy",
@@ -53,6 +70,7 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
     },
     {
       "code": "compress",
+      "title": "图片压缩",
       "explain": "压缩图片",
       "cmds": ["压缩", "image", { "type": "img", "label": "压缩这张图片" }]
     }
@@ -68,30 +86,27 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 
 带后端的插件声明 `"backend": { "entry": "backend/index.cjs" }`，在 `permissions` 中列出 `backend.node`，并设置 `"engines": { "enest": ">=0.0.1" }`。`main` 仍是浏览器页面 `index.html`。后端入口不是 preload，也不会通过页面资源协议暴露。用户授权后运行完整 Node.js 代码，不能按页面沙箱理解其权限边界。源码入口和依赖收集配置放在 `package.json.enestBackend`，协议与示例见[插件本机后端](backend.md)。开发态后端只从产物目录（`enest.output`，缺省 `dist`）解析；首次打开或重载时入口缺失，宿主按 `package.json` 的构建命令自动构建一次，构建失败不阻止页面打开。
 
-## 小窗、主窗、面板与 UI
+## 小窗、主窗与 UI
 
-同一插件支持 `quick` / `shell` / `panel` 三种布局模式，不定义多种包类型。`getLaunchMode()` 读取当前布局，`onModeChange()` 响应布局切换；独立窗口是挂载位置，保留原布局。宽度断点不能代替布局判断，也不能假定每次移动 View 都触发布局变化。
+宿主布局只有 `quick`（紧凑工具）和 `shell`（完整工作台）。独立窗口是挂载位置，不是布局。`getLaunchMode()` 读取当前布局，`onModeChange()` 只在布局改变时触发。
 
 用可选的 `views` 段声明插件适配了哪些布局、未适配入口回落到哪个默认视图：
 
 ```json
 {
   "views": {
-    "layouts": ["quick", "shell", "panel"],
-    "default": "shell",
-    "panel": { "size": { "width": 240, "height": 240 } }
+    "layouts": ["quick", "shell"],
+    "default": "shell"
   }
 }
 ```
 
-- `layouts`：已适配的布局集合，缺省 `["quick","shell"]`（历史插件两种入口都可用）。包含 `panel` 是小组件能力开关；未声明时不出现在「添加组件」中，也不能拖入面板。无需增加另一套开关。
-- `default`：回退布局，必须属于 `layouts`，仅在请求布局未适配时使用，不覆盖已适配的 quick/shell/panel 请求。缺省优先 shell，没有 shell 时依次选择已声明的 quick、panel；整段 `views` 缺省时为 shell。例如数据库插件只声明 `layouts: ["shell"]`，首次从 Quick 搜索启动时回退 shell 并打开主窗。只有请求未适配且最终回退 panel 时，统一启动器才在主窗承载 panel 布局，不自动创建面板；声明 `default: "panel"` 不代表每次打开都用 panel。
-- `panel.size`：组件默认外框尺寸（DIP，可选，仅 `layouts` 含 `panel` 时生效）。添加组件（选择器或拖入）按此尺寸落位，代替宿主全局默认 360×280；例如时钟可声明 240×240，资源摘要可声明 320×240。会被宿主最小尺寸（200×140）与面板内容区钳制。组件仍可被用户自由拉伸，恢复布局沿用保存的矩形，不回读该声明。
-- 声明 `panel` 后必须实现专门的简洁组件布局，不能只加配置而缩小完整工作台。实际布局变化才收到 `onModeChange('panel')`，冷启动通过 `getLaunchMode()` 获取初值。主进程在添加、拖入、挂载与恢复时检查能力；未适配的旧布局保留宿主占位，不启动兼容视图，见[自由面板](panels.md)。
+- `layouts`：已适配的布局集合，缺省 `["quick", "shell"]`。
+- `default`：必须属于 `layouts`；缺省优先 `shell`。只声明 `shell` 的插件从 Quick 启动时会打开主窗。
 
-`PluginLaunchMode` 是三种布局；启动请求目标 `PluginLaunchTarget` 只有 quick/shell。Quick、快捷键与 Workspace 打开经统一启动器解析：最终 quick 布局进入 Quick，其余进入主窗；Workspace 目录、详情和首页搜索显式请求 shell。宿主普通打开（`ShellOpenPlugin`）则请求 shell 并留在主窗，即使布局回退为 quick。调用 `ui.openInShell()` 保留主窗位置，再选择已适配的 shell 或 default，因此主窗也可能呈现 quick/panel 布局。拖入自由面板则只接受显式支持的 panel，不兼容回退到 shell。独立窗口不是第四种布局；它保留原布局。完整入口决策见[UI 集成标准](ui-standard.md#三种布局与挂载位置)。
+Quick、快捷键和 Workspace 通过统一启动器解析目标：未适配请求的布局才回退到 `views.default`。普通 Quick 再次打开已独立的窗口时原地聚焦；显式目标可以移动原实例，不重新建立业务状态。
 
-已有面板组件或独立窗口从普通 Quick 搜索（未指定显式目标）或宿主 `ShellOpenPlugin` 打开时，宿主聚焦当前位置并交付新载荷。Workspace 打开、明确的设置入口、快捷键目标和原生迁移动作仍可移动现有实例，不能概括为所有主窗入口都原地聚焦。普通插件不能通过声明或模式事件自行创建自由面板。
+已安装旧包若同时声明了 `panel` 和普通布局，宿主只读取其 Quick/主窗入口；只含旧 `panel` 的包必须更新。新源码和发布清单不要声明该布局。
 
 默认 `chrome:none`、`themeAware:true`、`background:opaque`、`preferredColorScheme:auto`。使用宿主主题 token、字体和动画档位。不同布局只调整呈现，不重复创建业务状态。
 
@@ -105,6 +120,7 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
     "openWith": [
       {
         "id": "markdown-files",
+        "label": "Markdown 文档",
         "extensions": ["md", "markdown"],
         "mimeTypes": ["text/markdown"],
         "schemes": ["enest-md"],
@@ -116,6 +132,7 @@ manifest 是插件身份、资源和能力的唯一声明。源码、发布构�
 ```
 
 - 每项需要非空 `extensions` 或 `schemes`；仅给 MIME 不能建立文件路由。扩展名用小写字母数字、无点；协议名用 2–64 个小写字母、数字、`+.-`，以字母开头且不含 `:`。系统及宿主保留协议不可用（包括 `enest`、`http`、`https`、`file`、`mailto`、`tel` 和 `ms-` / `x-apple.` 前缀）。同一扩展名可有多个插件；同一协议只有一个来源，清单声明优先于运行时登记。
+- 一项可以登记多个扩展名。`label`（可选，1–40 字符）是这条声明在设置页「可注册的打开方式」里的显示名；缺省时显示为扩展名列表。用户在宿主设置 → 通用 → 默认打开方式里按**声明项**逐条开关：关闭后这条声明声明的类型不再由该插件处理（候选列表、保存校验、双击打开同步生效），已设好的默认会保留，重新开启即恢复；插件不需要为此编写设置项或调用 `unregister`。设置页录入文件类型时可用逗号或空格一次填多个，候选插件是能处理全部这些类型的插件。
 - 用户把某类型设为默认后，双击文件 / 点击链接会打开 eNest 并唤起对应插件：`onEnter` 收到 `code: 'open-file' | 'open-url'`，`payload` 为 `{ paths?, handles?, url? }`。**文件读取必须走 `localFiles.read({ handleId })`**（基础能力，无需授权），`handles` 是宿主签发的只读句柄，`paths` 仅作展示，不能绕开句柄自行访问。
 - 文件参数按当前系统的本地路径规则处理，Windows 支持盘符绝对路径与完整 UNC 共享路径（包括由 `file://server/share/...` 转换的路径）；不接受设备命名空间、盘符相对路径或把 URL 当成本地文件名。
 - 平台能力边界：Windows 登记当前用户的候选，不覆盖受保护的系统默认选择；需要时由用户进入「默认应用」确认。macOS 只对当前安装包声明的类型请求切换，可在 Finder 用「显示简介 → 打开方式 → 全部更改」设置文件。Linux 需要已安装并声明相应 MIME 或协议的 `.desktop` 入口及相应 XDG 工具；插件运行时声明不能修改已签名的安装包或替系统创造 MIME 类型。开发版也可以选择壳内插件，但不写入操作系统关联。

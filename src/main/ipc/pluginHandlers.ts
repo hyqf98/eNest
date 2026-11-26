@@ -178,6 +178,13 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'screen.displays': null,
   'net.fetch': 'net.fetch',
   'shell.openExternal': 'shell.openExternal',
+  'launcher.authorizeSession': 'launcher.access',
+  'launcher.endSession': null,
+  'launcher.showQuick': 'launcher.access',
+  'launcher.showWorkspace': 'launcher.access',
+  'launcher.pickTarget': 'launcher.access',
+  'launcher.activateTarget': 'launcher.access',
+  'launcher.forgetTarget': 'launcher.access',
   // 在应用内窗口登录外部站点：窗口里是外部页面，会话 cookie 交回插件，属敏感能力
   'web.login': 'web.login',
   notify: 'notify',
@@ -333,7 +340,8 @@ async function dispatch(
   pluginId: string,
   method: string,
   args: unknown[],
-  manifest: PluginManifest
+  manifest: PluginManifest,
+  launcherAction?: (args: unknown[]) => Promise<unknown>
 ): Promise<unknown> {
   if (method in PLUGIN_TOOL_PERMISSIONS) {
     if (method === 'deadlineTasks.start' && Array.isArray(asObj(args).steps)
@@ -351,6 +359,15 @@ async function dispatch(
     return dispatchPluginTool(pluginId, method, args)
   }
   switch (method) {
+    case 'launcher.authorizeSession':
+    case 'launcher.endSession':
+    case 'launcher.showQuick':
+    case 'launcher.showWorkspace':
+    case 'launcher.pickTarget':
+    case 'launcher.activateTarget':
+    case 'launcher.forgetTarget':
+      if (!launcherAction) throw new Error('Launcher request was not authorized')
+      return launcherAction(args)
     case 'openWith.register': return associationService.register(pluginId, args[0])
     case 'openWith.unregister': return associationService.unregister(pluginId, args[0])
     case 'contribute.replaceLaunchIndex': return replaceLaunchIndex(pluginId, args[0])
@@ -860,13 +877,14 @@ async function dispatch(
       return unregisterRuntimeHotkey(pluginId, String(args[0] ?? ''))
     }
     case 'contribute.registerQuickProvider': {
-      const meta = (args[0] ?? {}) as { id?: string; explain?: string; schemaVersion?: string }
+      const meta = (args[0] ?? {}) as { id?: string; explain?: string; schemaVersion?: string; fallbackFor?: 'file-names' }
       if (typeof meta.id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(meta.id)
         || meta.explain !== undefined && (typeof meta.explain !== 'string' || meta.explain.length > 512)) throw new Error('Invalid Quick provider metadata')
       const providers = contributionRegistry.getQuickProviders()
       if (!providers.some(item => item.pluginId === pluginId && item.id === meta.id)
         && (providers.length >= 64 || providers.filter(item => item.pluginId === pluginId).length >= 8)) throw new Error('Quick provider registration budget exceeded')
       const result = contributionRegistry.registerQuickProvider(pluginId, {
+        ...(meta.fallbackFor === 'file-names' ? { fallbackFor: meta.fallbackFor } : {}),
         id: String(meta?.id ?? ''),
         explain: typeof meta?.explain === 'string' ? meta.explain : undefined,
         schemaVersion: meta?.schemaVersion
@@ -954,12 +972,13 @@ export function registerPluginHandlers(): void {
         if (!manifest) {
           return { ok: false, error: 'manifest not found' }
         }
-        if (!request || typeof request !== 'object' || typeof request.method !== 'string' || (request.args !== undefined && !Array.isArray(request.args))) return { ok: false, error: 'invalid plugin request' }
         const { method, args = [] } = request
         const scope = getRuntimeScope(hostPluginId)
         if (scope && isIndexSyncActivation(scope) && !['storage.get', 'storage.session.get', 'settings.get', 'theme.getTokens', 'theme.getAppearance',
           'i18n.getLocale', 'contribute.launchIndexState', 'runtime.release'].includes(method)) return { ok: false, error: 'Index synchronization may only read local plugin data' }
+        const launchDocument = method.startsWith('launcher.') ? pluginHost.getMcpRuntime(hostPluginId)?.documentEpoch : undefined
         const allowed = () => scope?.owner.wcId === senderId && scope.isCurrent() && (!scope.isClosing || CLOSE_SAFE.test(method))
+          && (!method.startsWith('launcher.') || launchDocument !== undefined && pluginHost.getMcpRuntime(hostPluginId)?.documentEpoch === launchDocument)
           && (!method.startsWith('openWith.') || pluginHost.isCurrentBuildSender(hostPluginId, senderId))
         if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
         return await runHostRpc(scope!, async (): Promise<PluginCallResult> => {
@@ -970,9 +989,11 @@ export function registerPluginHandlers(): void {
           if (required === undefined) {
             return { ok: false, error: `unknown method: ${method}` }
           }
+          if (required) assertPermission(manifest, required)
+          const launcher = method.startsWith('launcher.') ? (await import('@main/launcher/pluginLauncherAccess')).prepareLauncherCall : undefined
+          if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
+          const launcherAction = launcher?.(hostPluginId, method)
           if (required) {
-            // 基础能力无需声明；敏感能力必须声明（错误文案为插件兼容契约）。
-            assertPermission(manifest, required)
             // 基础能力免弹窗；敏感能力按壳层 grant 三态授权。
             const granted = await ensureRuntimeGrant(
               hostPluginId,
@@ -990,7 +1011,7 @@ export function registerPluginHandlers(): void {
           if (!allowed()) return { ok: false, error: 'plugin runtime is closing or stale' }
           const startedAt = Date.now()
           try {
-            const data = await dispatch(hostPluginId, method, args, manifest)
+            const data = await dispatch(hostPluginId, method, args, manifest, launcherAction)
             recordPluginCall({
               ts: startedAt,
               pluginId: hostPluginId,

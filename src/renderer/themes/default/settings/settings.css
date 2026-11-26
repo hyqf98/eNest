@@ -31,6 +31,13 @@
 }
 .page-settings .settings-shell { max-width: 960px; padding-top: 32px; }
 .page-settings { scroll-padding-top: 12px; }
+.settings-release-notes { margin-top: 8px; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--surface-2) 72%, transparent); }
+.settings-release-notes-heading { display: flex; align-items: baseline; gap: 10px; padding: 12px 16px 8px; }
+.settings-release-notes-heading h3 { margin: 0; font-size: .93rem; font-weight: 600; color: var(--text); }
+.settings-release-notes-heading span { color: var(--text-2); font: .83rem var(--mono); }
+.settings-release-notes-body { box-sizing: border-box; height: 160px; padding: 4px 16px 12px; overflow: auto; overflow-wrap: anywhere; overscroll-behavior: contain; scrollbar-gutter: stable; user-select: text; }
+.settings-release-notes-body:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+.settings-release-notes-body > .desc { margin: 0; }
 .page-settings :is(.s-card, .account-card) {
   isolation: isolate;
   border-color: var(--settings-glass-edge);
@@ -229,7 +236,17 @@
 .open-with-section .open-with-error { color: var(--danger); overflow-wrap: anywhere; }
 
 /* —— 多关联列表形态：每类型一行，声明插件全部展示 —— */
-.open-with-section { --open-with-list-max-h: 340px; --open-with-icon-size: 32px; }
+/* 列表最多完整显示 3 行，再多出滚动条。行高按实测拆解（字号缩放为 1 时共 66px）：
+   内边距 12×2 + 类型单元格 40（类型行 18 + 描述行 18 + 描述上边距 4）+ 边框 1×2 */
+.open-with-section {
+  --open-with-row-pad: 12px;
+  --open-with-row-content: 40px;
+  --open-with-row-border: 1px;
+  --open-with-row-h: calc(2 * var(--open-with-row-pad) + var(--open-with-row-content) + 2 * var(--open-with-row-border));
+  --open-with-row-gap: 8px;
+  --open-with-list-max-h: calc(3 * var(--open-with-row-h) + 2 * var(--open-with-row-gap));
+  --open-with-icon-size: 32px;
+}
 /* 卡片标题行：标题与右侧图标操作（+/系统设置）同一行 */
 .s-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 20px; }
 .page-settings .s-card .s-card-head h2 { margin: 0; }
@@ -256,7 +273,7 @@
 .open-with-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--open-with-row-gap);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -384,10 +401,11 @@
 .open-with-section .open-with-type-field { position: relative; flex: 1 1 180px; min-width: 0; display: inline-flex; align-items: center; gap: 2px; }
 .open-with-type-affix { color: var(--text-3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .open-with-type-input { flex: 1 1 auto; min-width: 0; }
-/* 已声明类型建议浮层：挂在输入框正下方，mousedown 选中避免失焦先关闭 */
+/* 已声明类型建议浮层：Portal 到 body、fixed 定位由 useAnchoredPopover 给出；
+   草稿行在滚动列表最底部，就地绝对定位会被列表容器裁掉。mousedown 选中避免失焦先关闭 */
 .open-with-suggestions {
-  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 60;
-  display: flex; flex-direction: column; padding: 4px;
+  z-index: 60;
+  display: flex; flex-direction: column; padding: 4px; overflow-y: auto;
   border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface);
   box-shadow: var(--shadow-float, 0 12px 32px rgb(0 0 0 / .14));
 }
@@ -407,6 +425,22 @@
 .open-with-row.is-draft .open-with-providers { justify-content: flex-start; }
 .open-with-note { margin: 4px 0 0; font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.5; }
 .open-with-note.is-error { color: var(--danger); }
+/* 可注册的打开方式：清单声明项逐条开关（按插件分组，一行一条） */
+.open-with-entries { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.open-with-entries-title { margin: 0; color: var(--text); font-size: calc(13px * var(--appearance-font-scale, 1)); font-weight: 550; }
+.open-with-entries-desc { margin: 4px 0 0; color: var(--text-3); font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.5; }
+.open-with-entry-list { margin: 8px 0 0; padding: 0; list-style: none; }
+.open-with-entry {
+  display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+.open-with-entry:hover { background: var(--surface-2); }
+.open-with-entry.is-off { opacity: .55; }
+.open-with-entry-text { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; }
+.open-with-entry-label { color: var(--text); font-size: calc(13px * var(--appearance-font-scale, 1)); }
+.open-with-entry-plugin { margin-left: 8px; color: var(--text-3); font-size: calc(12px * var(--appearance-font-scale, 1)); }
+.open-with-entry-targets { color: var(--text-3); font-size: calc(12px * var(--appearance-font-scale, 1)); font-family: var(--mono); overflow-wrap: anywhere; }
+.open-with-entry .switch { flex: none; }
 /* 设置页懒加载区块占位：只保留高度，不渲染文字（避免进入设置时左上角闪「加载中」） */
 .settings-section-loading { min-height: 240px; }
 

@@ -33,3 +33,8 @@
   visibility: hidden;
   pointer-events: none;
 }
+
+.quick-theme-plugin-grip { position: absolute; z-index: 1; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; background: transparent; cursor: grab; touch-action: none; -webkit-app-region: no-drag; }
+.quick-theme-plugin-grip:hover { background: var(--surface-2); }
+.quick-theme-plugin-grip:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+.quick-theme-plugin-grip:active { cursor: grabbing; }

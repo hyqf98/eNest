@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 public static class ENestClipboard {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern IntPtr GetClipboardOwner();
+  [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
@@ -35,6 +36,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
     $requestId = $request.id
     $result = $null
     switch ($request.command) {
+      'changeCount' { $count = [ENestClipboard]::GetClipboardSequenceNumber(); if ($count -ne 0) { $result = $count } }
       'capabilities' { $result = @{files=$true;sourceApp=$true;paste=$true;permissionRequired=$false} }
       'requestPermission' { $result = @{files=$true;sourceApp=$true;paste=$true;permissionRequired=$false} }
       'target' {

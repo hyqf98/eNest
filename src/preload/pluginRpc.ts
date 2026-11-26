@@ -48,13 +48,13 @@ export function enterCodeFromQuery(): string | undefined {
 }
 
 /**
- * URL query 中的启动方式（?mode=quick|shell|panel）：插件首个脚本同步读取的初始值。
+ * URL query 中的启动方式（?mode=quick|shell）：插件首个脚本同步读取的初始值。
  * 容器迁移不重载页面、URL 不变，运行时真值以 mode-change 事件更新后的
  * getLaunchMode() 为准。
  */
 export function launchModeFromQuery(): PluginLaunchMode | null {
   const mode = getQueryParam('mode')
-  return mode === 'quick' || mode === 'shell' || mode === 'panel' ? mode : null
+  return mode === 'quick' || mode === 'shell' ? mode : null
 }
 
 /** 统一调用入口：组装 PluginCallRequest，经 IPC 发送到主进程 pluginHandlers 分发 */

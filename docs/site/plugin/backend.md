@@ -4,6 +4,20 @@ eNest **0.0.1** 的插件可以在自己的发布包中携带 Node.js 后端。�
 
 纯浏览器插件无需后端。需要后端的插件必须声明并取得 **`backend.node`** 授权。此权限表示信任插件执行完整 Node.js 代码：后端具有当前用户可用的本机文件、网络和进程能力。utility process 用于隔离生命周期和故障，**不是操作系统沙箱**；Chromium 页面沙箱及细分的前端 API 权限不能限制已授权后端的直接 Node 调用。
 
+## 后端与后台页是两种机制
+
+名字相近，但不是同一回事，选型时别混用：
+
+| | `backend`（本机后端） | `background`（后台页） |
+| --- | --- | --- |
+| 运行在 | Electron `utilityProcess`（Node.js） | 宿主托管的隐藏页面（浏览器环境） |
+| 清单字段 | `backend.entry` → `backend/index.cjs` | `background.entry` → `assets/*.html` |
+| 权限 | `backend.node`（完整本机信任） | 无需额外声明；受页面沙箱与前端 API 权限约束 |
+| 源码目录约定 | `backend/` | 插件自定，构建为 `assets/` 下的静态页面 |
+| 适合 | 协议驱动、数据库客户端、本地命令、重计算 | 按事件触发的轻量任务：剪贴板历史、后台索引等 |
+
+只需要“页面关掉后还能响应事件”时用后台页，不要为此引入 Node 后端；只有确实需要 Node 模块、本地进程或不受浏览器约束的网络能力时才用后端。后台页的清单与 API 见 [manifest](manifest.md) 和 [API 参考](api.md) 的 `background` 段。
+
 ## 清单与产物
 
 在 `plugin.json` 中增加：
@@ -197,7 +211,7 @@ port.on('message', ({ data: request }) => {
 
 ## 生产依赖与原生包
 
-插件的 `package.json` 声明自己的依赖和构建配置，例如 SSH 后端：
+插件的 `package.json` 声明自己的依赖和构建配置，例如 SSH 后端。`enestBackend.entry` 指向**源码入口**（构建脚本把它编译为 `backend/index.cjs`），与 manifest 里指向**产物**的 `backend.entry` 不是同一个字段：
 
 ```json
 {

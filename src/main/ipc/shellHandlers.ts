@@ -1,4 +1,5 @@
 import { getAccountState, loginAccount, cancelAccountLogin, logoutAccount } from '@main/auth/accountAuthService'
+import { legacyCanvasExport } from '@main/settings/legacyCanvasExport'
 import { assertSurfaceSender, getTrustedSurfaceRole, handleShellIpc, onShellIpc } from '@main/ipc/ipcSecurity'
 import { activateRailContribution } from '@main/contrib/railContributions'
 import { registerShortcutHandlers } from '@main/ipc/shortcutHandlers'
@@ -11,6 +12,7 @@ import { registerShortcutHandlers } from '@main/ipc/shortcutHandlers'
  * themePacks、createShellWindow、DevConsole。
  */
 import { getPluginDiagnostics } from '@main/plugin/pluginDiagnostics'
+import { configureFileSearch } from '@main/launcher/fileSearchService'
 import { getPluginMemorySnapshot, refreshPluginMemoryAfterClose, applyPluginMemoryMonitorSetting } from '@main/plugin/pluginMemoryMonitor'
 import { startPerformanceCapture, getPerformanceCaptureState, stopPerformanceCapture, exportPerformanceCapture } from '@main/plugin/pluginPerformanceCapture'
 import { showNotification } from '@main/window/notificationOverlay'
@@ -22,10 +24,10 @@ import { IpcChannels, type OrbRailSyncRequest } from '@shared/types/ipc'
 import type { ResolvedAppearance, ThemeProfilePatch } from '@shared/types/appearance'
 import { APP_NAME, FONTS_DIR, toPluginId, toTabId } from '@shared/constants'
 import type { DevPluginLoadOptions, PluginLaunchPatch, ThemeTokens } from '@shared/types/plugin'
-import { forgetDevPlugin, pickAndLoadDevPlugin } from '@main/dev/DevConsole'
-import { setDevPluginKillOnHide } from '@main/dev/devPluginsStore'
+import { forgetDevPlugin, dropUninstalledDevRegistration, pickAndLoadDevPlugin } from '@main/dev/DevConsole'
+import { listMissingDevPlugins, readDevPluginRecords, setDevPluginKillOnHide } from '@main/dev/devPluginsStore'
 import { logInfo, logWarn } from '@main/logs/logService'
-import { getAppPaths, getAppPathsRoot } from '@main/paths/pathsService'
+import { getAppPaths, getAppPathsRoot, getAppPathsGeneration } from '@main/paths/pathsService'
 import { openLocalPath } from '@main/paths/openLocalPath'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { launchPlugin } from '@main/launcher/pluginLauncher'
@@ -54,8 +56,6 @@ import {
 import { uninstallPlugin } from '@main/plugin/PluginUninstaller'
 import { cancelPluginDeadlineTasks } from '@main/timer/deadlineTaskService'
 import { refreshPluginBackgrounds, stopPluginBackground } from '@main/plugin/pluginBackgroundRuntime'
-import { applyAppearanceToPanels, syncFreePanelSetting } from '@main/panel/PanelManager'
-import { applyPanelHotkeys } from '@main/hotkey/panelHotkey'
 import { stopPluginBackend } from '@main/plugin/pluginBackendRpc'
 import { broadcastPluginLocale, getPluginCallTrace } from '@main/ipc/pluginHandlers'
 import {
@@ -93,6 +93,7 @@ import {
   setPluginLeftInset,
   setPluginTopInset
 } from '@main/window/createShellWindow'
+import { applyWindowControl } from '@main/window/desktopWindowFrame'
 import {
   applyOrbRailVisibility,
   getOrbDragSurface,
@@ -204,7 +205,7 @@ export function registerShellHandlers(): void {
         const featureActivation = manifest?.features?.find(feature => feature.code === enter?.code)?.activation
         const activation = manifest?.activation || featureActivation
         const placement = pluginHost.getPlacement(pluginId)
-        const focusResident = !featureActivation && (placement.kind === 'detached' || placement.kind === 'panel')
+        const focusResident = !featureActivation && placement.kind === 'detached'
         let tabId: string
         if (activation && !focusResident) {
           const result = await launchPlugin({ pluginId, source: 'settings', mode: 'shell', enter })
@@ -579,8 +580,21 @@ export function registerShellHandlers(): void {
     return { ok: true }
   })
 
+  /** 登记了但已无法加载的开发插件（目录被移走 / 清单读不出 / id 变了）：只读，供设置页置灰展示。 */
+  handleShellIpc(IpcChannels.ShellListMissingDevPlugins, async () =>
+    listMissingDevPlugins(new Set(pluginRegistry.list().filter((plugin) => plugin.dev).map((plugin) => plugin.id))))
+
   handleShellIpc(IpcChannels.ShellForgetDevPlugin, async (_e, pluginId: string) => {
-    if (typeof pluginId !== 'string' || !pluginRegistry.get(pluginId)?.dev) return { ok: false, error: '开发插件不存在' }
+    if (typeof pluginId !== 'string' || !pluginId) return { ok: false, error: '开发插件不存在' }
+    // 已失效的开发插件（目录被移走 / id 变了）不在 registry 里，没有视图、服务或监听可释放，只去掉登记。
+    if (!pluginRegistry.get(pluginId)?.dev) {
+      if (!(await readDevPluginRecords()).some((record) => record.id === pluginId)) return { ok: false, error: '开发插件不存在' }
+      try {
+        await dropUninstalledDevRegistration(pluginId)
+        sendShellEvent({ type: 'plugins-changed' })
+        return { ok: true }
+      } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) } }
+    }
     try {
       await forgetDevPlugin(pluginId)
       await pluginRegistry.scan()
@@ -617,21 +631,41 @@ export function registerShellHandlers(): void {
     return { ok: true }
   })
 
-  handleShellIpc(IpcChannels.ShellGetSettings, () => settingsStore.getAll())
+  const visibleSettings = (settings: ReturnType<typeof settingsStore.getAll>) => {
+    const { panels, general, ...rest } = settings
+    const visibleGeneral = { ...general }
+    for (const key of ['freePanel', 'panelAppearance', 'panelHotkey']) Reflect.deleteProperty(visibleGeneral, key)
+    return { ...rest, general: visibleGeneral, hasLegacyCanvas: !!panels?.length }
+  }
+  handleShellIpc(IpcChannels.ShellGetSettings, () => visibleSettings(settingsStore.getAll()))
+  handleShellIpc(IpcChannels.ExportLegacyCanvas, async event => {
+    const owner = getMainWindow(), frame = event.senderFrame, rootGeneration = getAppPathsGeneration()
+    const current = () => !!owner && !owner.isDestroyed() && owner.isVisible() && !event.sender.isDestroyed()
+      && event.sender === getShellWebContents() && event.sender.mainFrame === frame && rootGeneration === getAppPathsGeneration()
+    const panels = settingsStore.getAll().panels
+    if (!current() || !owner || !panels?.length) return false
+    const result = await dialog.showSaveDialog(owner, { title: '导出旧画布布局 / Export canvas layout',
+      defaultPath: 'enest-canvas-layout.json', filters: [{ name: 'JSON', extensions: ['json'] }] })
+    if (!current() || result.canceled || !result.filePath) return false
+    await writeFile(result.filePath, JSON.stringify(legacyCanvasExport(panels), null, 2), 'utf8')
+    return true
+  })
+  handleShellIpc(IpcChannels.FileSearchPreferences, (event, request) => configureFileSearch(request, () => !event.sender.isDestroyed() && getTrustedSurfaceRole(event.sender.id) === 'shell' && getShellWebContents() === event.sender && event.senderFrame === event.sender.mainFrame))
 
   handleShellIpc(IpcChannels.ShellSetSettings, async (_e, partial) => {
+    if (partial?.general && 'fileSearch' in partial.general) throw new Error('File search requires the native preferences API')
     if (partial && typeof partial === 'object' && ('mcp' in partial || 'mcpToken' in partial
       || partial.general && typeof partial.general === 'object' && ('mcp' in partial.general || 'mcpToken' in partial.general))) {
       throw new Error('MCP security settings require the dedicated native API')
     }
     // A renderer only sees its own tab projection; it cannot overwrite the global session.
-    // panels 是主进程独占的布局快照，renderer 只能读（写入走 panel:* 通道）。
     if (partial && typeof partial === 'object' && 'panels' in partial) {
       const { panels: _panels, ...rest } = partial
       partial = rest
     }
     if (partial?.general && typeof partial.general === 'object') {
-      const { sessionTabs: _tabs, sessionActivePluginId: _active, mainWindowState: _window, ...general } = partial.general
+      const { sessionTabs: _tabs, sessionActivePluginId: _active, mainWindowState: _window,
+        freePanel: _canvas, panelHotkey: _key, panelAppearance: _appearance, ...general } = partial.general
       if (general.quickLauncher && typeof general.quickLauncher === 'object') {
         const { enabled: _enabled, hotkeys: _hotkeys, activeHotkey: _hotkey, ...preferences } = general.quickLauncher
         general.quickLauncher = { ...settingsStore.getQuickLauncherSettings(), ...preferences }
@@ -669,17 +703,7 @@ export function registerShellHandlers(): void {
     }
     // 插件内存监控开关：立即按新值启停采样循环，避免关闭后仍在后台空跑。
     if (generalPatch && 'pluginMemoryMonitor' in generalPatch) applyPluginMemoryMonitorSetting()
-    // 自由面板开关/快捷键变更：重注册热键；开启时恢复布局，关闭时释放面板内插件（保留布局记录）。
-    if (generalPatch && ('freePanel' in generalPatch || 'panelHotkey' in generalPatch)) {
-      const enabled = settingsStore.getAll().general.freePanel?.enabled === true
-      applyPanelHotkeys()
-      if ('freePanel' in generalPatch) {
-        void syncFreePanelSetting(enabled).catch(error => logWarn('panel', `sync setting failed: ${String(error)}`))
-      }
-    }
-    // 面板材质变更：立即应用到已开面板。
-    if (generalPatch && 'panelAppearance' in generalPatch) applyAppearanceToPanels()
-    return result
+    return visibleSettings(result)
   })
 
   // —— 「打开方式」：壳统一能力（插件只声明，系统写入与路由在主进程）——
@@ -711,6 +735,11 @@ export function registerShellHandlers(): void {
     const pluginId = String(req?.pluginId ?? '')
     if (!key || !pluginId) return { ok: false, error: 'invalid openWith request' }
     return associationService.route(key, pluginId)
+  })
+
+  handleShellIpc(IpcChannels.ShellOpenWithSetEnabled, (_e, req: unknown) => {
+    const body = req && typeof req === 'object' ? (req as Record<string, unknown>) : {}
+    return associationService.setEnabled(String(body.pluginId ?? ''), body.entryId, body.enabled)
   })
 
   handleShellIpc(IpcChannels.ShellOpenWithOpenSystemSettings, () => associationService.openSystemSettings())
@@ -979,12 +1008,7 @@ export function registerShellHandlers(): void {
     return { ok: true }
   })
 
-  onShellIpc(IpcChannels.WindowMinimize, () => getMainWindow()?.minimize())
-  onShellIpc(IpcChannels.WindowMaximize, () => {
-    const win = getMainWindow()
-    if (!win) return
-    if (win.isMaximized()) win.unmaximize()
-    else win.maximize()
-  })
-  onShellIpc(IpcChannels.WindowClose, () => getMainWindow()?.close())
+  onShellIpc(IpcChannels.WindowMinimize, () => applyWindowControl(getMainWindow(), 'minimize'))
+  onShellIpc(IpcChannels.WindowMaximize, () => applyWindowControl(getMainWindow(), 'zoom'))
+  onShellIpc(IpcChannels.WindowClose, () => applyWindowControl(getMainWindow(), 'close'))
 }

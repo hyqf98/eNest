@@ -14,6 +14,7 @@ static id capabilities(void) {
 static id command(NSDictionary *request) {
   NSString *op = request[@"command"];
   NSPasteboard *board = NSPasteboard.generalPasteboard;
+  if ([op isEqual:@"changeCount"]) return @(board.changeCount);
   if ([op isEqual:@"capabilities"]) return capabilities();
   if ([op isEqual:@"requestPermission"]) {
     AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)@{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @YES});

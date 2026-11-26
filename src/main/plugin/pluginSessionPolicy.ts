@@ -68,7 +68,7 @@ export function getPluginContentSecurityPolicy(policy: PluginSessionPolicy): str
   const literalHostSupported = dev && !dev.hostname.includes(':')
   const sources = literalHostSupported ? ` ${dev.origin}` : ''
   const websocket = literalHostSupported ? ` ${dev.protocol === 'https:' ? 'wss:' : 'ws:'}//${dev.host}` : ''
-  return `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${dev ? " 'unsafe-inline'" : ''}${sources}; style-src 'self' 'unsafe-inline'${sources}; img-src 'self' data: blob:${sources}; media-src 'self' blob:; font-src 'self' data:${sources}; connect-src 'self'${sources}${websocket} http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; frame-src http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; form-action 'none'`
+  return `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${dev ? " 'unsafe-inline'" : ''}${sources}; style-src 'self' 'unsafe-inline'${sources}; img-src 'self' data: blob:${sources}; font-src 'self' data:${sources}; connect-src 'self'${sources}${websocket} http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; media-src 'self' blob: http://127.0.0.1:* http://localhost:*; frame-src http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; form-action 'none'`
 }
 
 export function configurePluginSession(ses: Session, policy: PluginSessionPolicy): void {

@@ -28,7 +28,7 @@ import { IpcChannels } from '@shared/types/ipc'
 import { ensureShellSessionProtocol } from '@main/plugin/pluginProtocol'
 import { registerQuickThemeWebContentsPolicy } from '@main/theme/quickThemeProtocol'
 import { logError, logInfo } from '@main/logs/logService'
-import { roundedShapeRects } from './windowShape'
+import { trackWindowShape } from './windowShape'
 import { getMainWindow, keepDockIconVisible, resolvePreload, setQuickEventSink } from './createShellWindow'
 import { resolveWindowIcon } from './applicationIcon'
 
@@ -43,15 +43,9 @@ class QuickWindow extends BaseWindow {
       width: QUICK_WIDTH, height: QUICK_HOME_HEIGHT, show: false, frame: false,
       resizable: false, maximizable: false, minimizable: false, fullscreenable: false,
       skipTaskbar: true, alwaysOnTop: true, transparent: true,
-      // Windows 的 DWM 阴影会在透明窗口的圆角内侧留下灰色填充（白底背景上形成灰角）；
-      // 圆角表面改由 CSS 内描边表现，macOS 保留系统阴影。
-      hasShadow: process.platform === 'darwin',
+      hasShadow: false,
       roundedCorners: false, backgroundColor: '#00000000', title: 'eNest Quick'
     })
-    // 双保险：即使构造选项被忽略，也在创建后显式关闭 Windows 阴影。
-    if (process.platform !== 'darwin') {
-      try { this.setHasShadow(false) } catch { /* 旧版本无此能力时忽略 */ }
-    }
     this.shellView = new WebContentsView({ webPreferences: {
       preload: resolvePreload('quickPreload.js'), contextIsolation: true,
       nodeIntegration: false, sandbox: true, partition: SHELL_PARTITION,
@@ -73,31 +67,12 @@ let quickWindow: QuickWindow | null = null
 let quickPluginSurface: View | null = null
 const quickRendererUrls = new WeakMap<QuickWindow, string>()
 
-/**
- * Windows：把原生窗口裁成与 CSS 外壳一致的圆角矩形。
- * 否则 DWM 阴影会透过 CSS 透明的四个角画在背景上——白底时就是一圈灰角。
- */
-/** 每个窗口最近一次应用的区域尺寸；同尺寸重复 setShape 会触发 DWM 重合成闪烁。 */
-const appliedShape = new WeakMap<QuickWindow, string>()
-
-function applyQuickWindowShape(win: QuickWindow): void {
-  if (process.platform !== 'win32') return
-  try {
-    const { width, height } = win.getContentBounds()
-    const key = `${width}x${height}`
-    if (appliedShape.get(win) === key) return
-    win.setShape(roundedShapeRects(width, height, QUICK_CORNER_RADIUS))
-    appliedShape.set(win, key)
-  } catch { /* 旧版本或不支持的桌面组合忽略 */ }
-}
-
 /** One native outer contour; the plugin's own top edge must stay square. */
 export function getQuickPluginParent(): View | null { return quickPluginSurface }
 
 function layoutQuickContents(): void {
   if (!quickWindow || quickWindow.isDestroyed()) return
   const { width, height } = quickWindow.getContentBounds()
-  applyQuickWindowShape(quickWindow)
   quickWindow.shellView.setBounds({ x: 0, y: 0, width, height })
   layoutQuickSurface()
 }
@@ -290,6 +265,7 @@ export function ensureQuickWindow(): QuickWindow {
 
   logInfo('quick', 'ensureQuickWindow: creating BaseWindow')
   const win = new QuickWindow()
+  trackWindowShape(win, QUICK_CORNER_RADIUS)
   // Force a compositor layer even though no blur is applied: without a layer,
   // View border paths do not reliably clip descendant WebContentsViews on macOS.
   const surface = new View()
@@ -525,7 +501,7 @@ export function presentQuickWindowForPlugin(commit?: () => void): boolean {
   }
 }
 
-export async function showQuickWindow(canShow: () => boolean = () => true): Promise<boolean> {
+export async function showQuickWindow(canShow: () => boolean = () => true, files = false): Promise<boolean> {
   if (!canShow()) return false
   logInfo('quick', 'showQuickWindow enter')
   const revision = ++showRevision
@@ -549,6 +525,7 @@ export async function showQuickWindow(canShow: () => boolean = () => true): Prom
     if (wc.isDestroyed()) return false
     const present = () => presentAndFocus(win, { commit: () => {
       wc.send(IpcChannels.QuickShown)
+      if (files) wc.send(IpcChannels.ShellEvent, { type: 'quick-file-search' })
       applyQuickHeightAfterShow()
       captureDebugFrame(win)
     } })

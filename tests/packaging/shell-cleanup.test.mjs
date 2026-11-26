@@ -18,7 +18,7 @@ const retiredChannels = [
   'plugin:recorder-chunk', 'plugin:recorder-stopped'
 ]
 
-test('dependency filtering removes only the known json-schema-traverse spec subtree', () => {
+test('dependency filtering excludes development inputs without dropping Node runtime exports or notices', () => {
   const root = resolve('shell-cleanup-fixture')
   const matcher = getNodeModuleFileMatcher(root, `${root}-out`, value => value, {}, { config, debugLogger: { isEnabled: false } })
   const filter = (path, directory = false) => matcher.createFilter()(join(root, path), { isDirectory: () => directory })
@@ -27,7 +27,14 @@ test('dependency filtering removes only the known json-schema-traverse spec subt
     assert.equal(filter(`node_modules/ajv/node_modules/json-schema-traverse/spec/${file}`), false)
   }
   assert.equal(filter('node_modules/json-schema-traverse/spec', true), false)
+  for (const path of ['node_modules/zod/src', 'node_modules/nested/node_modules/zod/src']) {
+    assert.equal(filter(path, true), false)
+    assert.equal(filter(`${path}/v4/core/index.ts`), false)
+  }
+  for (const path of ['node_modules/zod/index.d.cts', 'node_modules/nested/node_modules/runtime/types/index.d.mts']) assert.equal(filter(path), false)
   for (const path of [
+    'node_modules/zod/index.cjs', 'node_modules/zod/v4/core/index.js', 'node_modules/zod/LICENSE',
+    'node_modules/runtime/src/runtime.js', 'node_modules/@modelcontextprotocol/server/dist/index.mjs',
     'node_modules/json-schema-traverse/index.js', 'node_modules/json-schema-traverse/package.json',
     'node_modules/json-schema-traverse/LICENSE', 'node_modules/another-runtime/spec/runtime.json',
     'node_modules/json-schema-traverse/special/runtime.json'
@@ -40,6 +47,9 @@ test('archive entry guard rejects the discarded dependency fixture on every path
     '/node_modules/json-schema-traverse/spec/fixtures/schema.js',
     '\\node_modules\\ajv\\node_modules\\json-schema-traverse\\spec\\index.spec.js'
   ]) assert.throws(() => verifyShellArchiveEntries([licenseManifest, path]), /Dependency test fixture leaked/)
+  for (const path of ['/node_modules/zod/src/index.ts', '\\node_modules\\nested\\node_modules\\zod\\src', '/node_modules/types/index.d.cts', '/node_modules/types/index.d.mts']) {
+    assert.throws(() => verifyShellArchiveEntries([licenseManifest, path]), /Development dependency files leaked/)
+  }
   assert.doesNotThrow(() => verifyShellArchiveEntries([
     licenseManifest, '/node_modules/json-schema-traverse/index.js', '/node_modules/another-runtime/spec/runtime.json'
   ]))
@@ -59,7 +69,7 @@ test('archive guard reads actual packed JavaScript and refuses stale preload pro
   const temporary = await mkdtemp(join(tmpdir(), 'enest-shell-cleanup-'))
   t.after(() => rm(temporary, { recursive: true, force: true }))
   for (const [name, source] of [['clean', 'const channel = "plugin:call";'], ['stale', 'const channel = "plugin:recorder-chunk";']]) {
-    const root = join(temporary, name), archive = join(temporary, `${name}.asar`)
+    const root = join(temporary, name), archive = join(temporary, 'app.asar')
     for (const [file, content] of [[licenseManifest, '{}'], ['out/preload/pluginPreload.cjs', source]]) {
       await mkdir(dirname(join(root, file)), { recursive: true })
       await writeFile(join(root, file), content)

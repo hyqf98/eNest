@@ -141,6 +141,7 @@ export type QuickOpenRequest =
   | { kind: 'app'; path: string; query?: string }
   | { kind: 'plugin'; pluginId: string; code?: string; entryId?: string; buildRevision?: string; indexRevision?: number; providerToken?: string; container?: QuickOpenContainer; type?: QuickContentType; payload?: unknown; query?: string; input?: QuickInputSelection }
   | { kind: 'action'; action: QuickActionId; query?: string }
+  | { kind: 'open-update' }
   | { kind: 'plugin-escape'; pluginId: string }
   | { kind: 'plugin-pin'; pluginId: string }
   | { kind: 'plugin-tab'; pluginId: string; shift?: boolean }
@@ -154,11 +155,19 @@ export interface QuickOpenResult {
   tabId?: string
 }
 
-/** Quick 渲染层插件态描述（经 shell:event `quick-plugin-mode` 推送；null 表示回列表态） */
-export interface QuickPluginModeInfo {
-  pluginId: string
-  /** 插件显示名（Tab 标题兜底） */
+export interface QuickPluginPresentation {
   title: string
+  glyph?: string
+  icon?: string
+}
+
+export interface QuickHostPluginPresentation extends QuickPluginPresentation {
+  packageIcon?: string
+}
+
+/** Quick 渲染层插件态描述（经 shell:event `quick-plugin-mode` 推送；null 表示回列表态） */
+export interface QuickPluginModeInfo extends QuickHostPluginPresentation {
+  pluginId: string
   loading?: boolean
 }
 

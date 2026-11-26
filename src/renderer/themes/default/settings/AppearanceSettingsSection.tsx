@@ -10,7 +10,6 @@ import { Button } from '@renderer/components/ui/Button'
 import { Segmented } from '@renderer/components/ui/Segmented'
 import { ThemeSelectionCards } from './ThemeSelectionCards'
 import { ThemeSettingsFields } from './ThemeSettingsFields'
-import { FreePanelFields, usePanelAppearance } from './PanelAppearanceCard'
 import { TransparencyFields } from './TransparencyFields'
 import { TabBarFields } from './TabBarFields'
 import './appearanceSettings.css'
@@ -37,12 +36,11 @@ function previewField(appearance: ResolvedAppearance, field: ThemeSettingsField,
 
 /**
  * 设置 → 外观：两张卡。
- * 1) 主题配置：深浅模式、已安装主题、自由面板外观（壳级 general.panelAppearance）。
+ * 1) 主题配置：深浅模式、已安装主题。
  * 2) 主题参数：当前主题动态声明的字段，切换主题后内容随之更换。
  */
 export function AppearanceSettingsSection() {
   const appearance = useAppearanceStore(useShallow(({ appearance, profile, packs, customFonts, hydrated }) => ({ appearance, profile, packs, customFonts, hydrated })))
-  const panel = usePanelAppearance()
   const { t } = useI18n()
   const [drafts, setDrafts] = useState<Record<string, ThemeSettingValue>>({})
   const [switching, setSwitching] = useState<string | null>(null)
@@ -207,7 +205,6 @@ export function AppearanceSettingsSection() {
 
   return (
     <div className="appearance-settings-stack">
-      {/* 主题配置卡：主题选择 + 自由面板外观（壳级 general.panelAppearance）。 */}
       <section className="s-card appearance-settings appearance-card appearance-card-switch" aria-busy={Boolean(switching)} aria-label={t('settings.appearance.configCardAria')}>
         <div className="appearance-card-head">
           <div className="appearance-card-head-copy">
@@ -230,19 +227,6 @@ export function AppearanceSettingsSection() {
               <p>{t('settings.appearance.emptyThemes')}</p>
               <Button variant="ghost" size="sm" onClick={reload}>{t('settings.appearance.reload')}</Button>
             </div>}
-
-        {/* eNest 壳通用：自由面板开关 + 外观（不随主题 profile 走，写 general.freePanel / general.panelAppearance）。 */}
-        <div className="appearance-section appearance-section-panel" role="group" aria-label={t('settings.panel.sectionAria')}>
-          <div className="appearance-section-head">
-            <div className="appearance-section-head-row">
-              <h3 className="appearance-section-title">{t('settings.panel.sectionAria')}</h3>
-              <div className="appearance-group-tools">
-                <Button variant="ghost" size="sm" disabled={panel.loading} onClick={panel.reset}>{t('settings.panel.reset')}</Button>
-              </div>
-            </div>
-          </div>
-          <FreePanelFields state={panel} />
-        </div>
 
         {/* 壳级材质浓度：标题栏与设置卡片的透明度。归属壳，但与主题呈现放在一起更好找。 */}
         <div className="appearance-section appearance-section-transparency" role="group" aria-label={t('settings.transparency.sectionAria')}>
@@ -269,7 +253,7 @@ export function AppearanceSettingsSection() {
         </div>
 
         <div className="appearance-unified-footer">
-          <span className="appearance-save-status" role="status" aria-live="polite">{error || (saving || panel.saving ? t('settings.appearance.saving') : t('settings.appearance.savedHint'))}</span>
+          <span className="appearance-save-status" role="status" aria-live="polite">{error || (saving ? t('settings.appearance.saving') : t('settings.appearance.savedHint'))}</span>
         </div>
       </section>
 
