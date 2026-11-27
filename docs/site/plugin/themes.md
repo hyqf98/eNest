@@ -219,6 +219,34 @@ await enest.theme.register(pack)
 
 示例是插件页面脚本，不是可单独发布的 manifest。正式分发建议把等价 JSON 放入 `plugin.json.contributes.themePacks`，宿主安装扫描时即可发现，首次开屏无需先打开插件。运行时 `register` 适合编辑器生成/更新主题，不会自动激活它，也不能用来写宿主设置。
 
+### 界面语言与双语文案
+
+配置字段的 `title`、`label`、`help`、`description` 以及选项的 `label` / `description` 由宿主原样渲染，宿主不翻译主题文案。界面语言为英文时，主题可以额外声明对应的 `*En` 英文字段；缺省时回退到中文字段，不会显示键名或空白：
+
+| 中文字段 | 英文字段 | 位置 |
+| --- | --- | --- |
+| `name` / `description` | `nameEn` / `descriptionEn` | 主题包（主题卡名称与说明） |
+| `title` / `description` | `titleEn` / `descriptionEn` | `settings.groups[]` |
+| `label` / `help` | `labelEn` / `helpEn` | `settings.groups[].fields[]` |
+| `label` / `description` | `labelEn` / `descriptionEn` | `fields[].options[]` |
+| `name` | `nameEn` | `palettes[]` 自定义氛围配色 |
+
+```ts
+const settings = {
+  version: 2,
+  groups: [{
+    id: 'workspace', title: '工作区', titleEn: 'Workspace',
+    fields: [
+      { key: 'gap', label: '内容间距', labelEn: 'Content gap', type: 'slider', default: 16, min: 0, max: 32, step: 1, binding: { target: 'layout', key: 'gap' } },
+      { key: 'tabs', label: '标签页样式', labelEn: 'Tab style', type: 'select', default: 'classic', options: [{ label: '顶部标签', labelEn: 'Top tabs', value: 'classic' }, { label: '左侧圆轨', labelEn: 'Left orb rail', value: 'orb' }], binding: { target: 'layout', key: 'tabStyle' } }
+    ]
+  }]
+}
+const pack = { /* … */ name: '工作室', nameEn: 'Studio' }
+```
+
+英文字段与中文字段受同样的长度与字符限制（标题/标签 96 字符，说明 160–240 字符，包说明 300 字符），只做文案，不参与 `key`、`value` 或绑定校验。源码内置默认主题已为全部动态参数提供英文。
+
 ### 控件与绑定
 
 | type | 用途 |
@@ -244,7 +272,18 @@ await enest.theme.register(pack)
 
 `layout.tabStyle / tabOpacity / tabAutoHide` 保留兼容声明，但主窗实际值以宿主默认 Profile 中用户保存的全局偏好为准，第三方主题不能覆盖。classic 显示顶部会话标签；orb 改用左侧悬浮圆轨并隐藏顶部会话标签，窗口控制与拖拽区仍保留。两种导航共享同一会话状态和全局设置入口，不同时显示两套会话导航。全局偏好只在通用设置中修改，主题参数不再提供第二套控制器。
 
-同一 Schema 中字段 key 和语义目标不能重复。最多 12 组、总计 48 字段，每个 select 最多 12 项。`visibleWhen: { field, equals }` 只能引用已声明字段，不能使用表达式或循环依赖。`help` 提供字段说明。
+同一 Schema 中字段 key 和语义目标不能重复。最多 12 组、总计 48 字段，每个 select 最多 12 项。`visibleWhen: { field, equals }` 只能引用已声明字段，不能使用表达式或循环依赖；引用与声明顺序无关，可以引用排在后面的字段。`help` 提供字段说明。
+
+`disabledWhen` 声明互斥：字段保持可见但不可编辑，已保存的值原样保留，条件解除后自动恢复。取值为单个条件或条件数组（1–8 条，任一成立即禁用），每条为 `{ field, equals, not? }`，`not: true` 表示取反。条件同样只能引用已声明字段，且不能引用自己。渲染层由命中的条件推导出提示文案（「与「X」不能同时设置；请先修改「X」」），主题不需要为互斥另写说明。例如让背景媒体与背景动效二选一：
+
+```js
+// 媒体字段：动效不是「关闭」时禁用
+{ key: 'media', /* … */ disabledWhen: { field: 'backgroundEffect', equals: 'none', not: true } }
+// 动效字段：背景类型是图片或视频时禁用
+{ key: 'backgroundEffect', /* … */ disabledWhen: [{ field: 'backgroundType', equals: 'image' }, { field: 'backgroundType', equals: 'video' }] }
+```
+
+`disabledWhen` 只约束表单。存量的矛盾配置（例如历史数据里同时选了图片和动效）需要主题在解析时自己决定优先级；源码内置的默认主题让媒体生效，并在背景类型切回其它选项时恢复动效。
 
 默认表单中，参数卡片的渲染顺序就是分组和字段的声明顺序。全部为 `token` / `color` 的组渲染成色板网格；同一组内相邻的 `slider`（语义目标为 `layout`、`component`、`notification`）合并为一个紧凑调节块，因此把圆角、间距、通知尺寸这类微调排在一起即可获得两列布局，无需额外声明。默认主题的氛围配色与背景动效使用相同的四列网格、最多两行，卡片高 100px、静态预览高 60px，组间宽高对齐。其它卡片组根据选项数扩展列数，窄屏保留最小可读宽度并允许组内横向滚动，不把名称挤成多行。隔离设置页面可用自己的布局呈现已发布描述符，不因此扩大字段范围。
 

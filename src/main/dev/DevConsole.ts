@@ -1,7 +1,6 @@
 /** Source registration is independent of installation. The shell starts dev servers and owns fallback watchers. */
 import { existsSync } from 'node:fs'
-import { dialog } from 'electron'
-import { trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
+import { openDialogWithMemory } from '@main/settings/dialogMemory'
 import { resolveLocalUserPath } from '@main/paths/userPath'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { withInstallLock } from '@main/plugin/PluginInstaller'
@@ -165,14 +164,15 @@ export async function loadDevPlugin(dirPath: string, options: DevPluginLoadOptio
 export async function pickAndLoadDevPlugin(dirPath?: string, options: DevPluginLoadOptions = {}): Promise<PluginSummary | null> {
   let dir = dirPath?.trim()
   if (!dir) {
-    // 从上次加载的插件目录的上一级开始选：同一批插件通常并排放着，不必每次都从系统默认位置翻起
+    // 从上次加载的插件目录的上一级开始选：同一批插件通常并排放着，不必每次都从系统默认位置翻起。
+    // 这个更准的猜测优先于全局记忆的位置；从没加载过插件时才回落到上次选文件的位置。
     const defaultPath = lastDevPluginParentDir(await readDevPluginRecords())
-    const result = await trackNativeInteraction(dialog.showOpenDialog({
+    const picked = await openDialogWithMemory({
       title: '选择含 plugin.json 的插件源码目录', properties: ['openDirectory'],
       ...(defaultPath ? { defaultPath } : {})
-    }))
-    if (result.canceled || !result.filePaths[0]) return null
-    dir = result.filePaths[0]
+    })
+    if (!picked[0]) return null
+    dir = picked[0]
   }
   return loadDevPlugin(dir, options)
 }

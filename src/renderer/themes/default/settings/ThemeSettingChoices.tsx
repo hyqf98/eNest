@@ -3,6 +3,8 @@ import { BUILTIN_BACKGROUND_EFFECTS, type ResolvedBackgroundEffect } from '@shar
 import { paletteById } from '@shared/theme/defaultTheme/backgroundPalettes'
 import type { ThemeBackgroundPaletteDeclaration, ThemeSettingOption } from '@shared/types/appearance'
 import type { ThemeSettingPresentation } from '@shared/theme/settingsPresentation'
+import { themeOptionLabel } from '@shared/theme/themeLabels'
+import { useI18n } from '@renderer/hooks/useI18n'
 import { Segmented } from '@renderer/components/ui/Segmented'
 import { Button } from '@renderer/components/ui/Button'
 
@@ -104,8 +106,9 @@ interface Props {
 }
 
 export function ThemeSettingChoices({ label, presentation, options, value, palettes, disabled, onChange }: Props) {
+  const { locale } = useI18n()
   const selected = options.findIndex(option => option.value === value)
-  if (presentation === 'segmented') return <Segmented className={`theme-setting-segmented${options.length > 3 ? ' theme-setting-segmented-many' : ''}`} ariaLabel={label} disabled={disabled} value={String(selected)} options={options.map((option, index) => ({ value: String(index), label: option.label }))} onChange={index => { const option = options[Number(index)]; if (option) onChange(option.value) }} />
+  if (presentation === 'segmented') return <Segmented className={`theme-setting-segmented${options.length > 3 ? ' theme-setting-segmented-many' : ''}`} ariaLabel={label} disabled={disabled} value={String(selected)} options={options.map((option, index) => ({ value: String(index), label: themeOptionLabel(option, locale) }))} onChange={index => { const option = options[Number(index)]; if (option) onChange(option.value) }} />
   // 整组都是渐变缩略图时沿用配色卡的网格与样式；否则按效果卡呈现。纯粹由数据推导，不读主题 ID。
   const gradientCards = options.every(option => option.preview?.kind === 'swatch' || (option.preview === undefined && Boolean(paletteById(option.value, palettes))))
   const gridClass = gradientCards ? 'theme-gradient-grid' : 'bg-effect-grid'
@@ -114,12 +117,15 @@ export function ThemeSettingChoices({ label, presentation, options, value, palet
   const columns = choiceColumns(options.length)
   return <div className={gridClass} role="group" aria-label={label}
     style={{ '--theme-choice-columns': columns } as CSSProperties}>
-    {options.map((option, index) => (
-      <Button key={index} disabled={disabled} className={cardClass + (option.value === value ? ' active' : '')} aria-pressed={option.value === value} onClick={() => onChange(option.value)}>
-        <OptionThumbnail option={option} palettes={palettes} gradientCards={gradientCards} />
-        <span className="bg-effect-name"><span className="bg-effect-label" title={option.label}>{option.label}</span><span className="bg-effect-check" aria-hidden="true">✓</span></span>
-      </Button>
-    ))}
+    {options.map((option, index) => {
+      const optionLabel = themeOptionLabel(option, locale)
+      return (
+        <Button key={index} disabled={disabled} className={cardClass + (option.value === value ? ' active' : '')} aria-pressed={option.value === value} onClick={() => onChange(option.value)}>
+          <OptionThumbnail option={option} palettes={palettes} gradientCards={gradientCards} />
+          <span className="bg-effect-name"><span className="bg-effect-label" title={optionLabel}>{optionLabel}</span><span className="bg-effect-check" aria-hidden="true">✓</span></span>
+        </Button>
+      )
+    })}
   </div>
 }
 

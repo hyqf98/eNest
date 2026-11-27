@@ -23,6 +23,7 @@
 | 端口漂移参数 | `enest.dev.portArgs` 模板（`{port}` 占位） | `["--","--port={port}"]` |
 | 环境变量 | `enest.dev.env` / `enest.build.env`（字符串键值对） | 仅 dev 注入 `ENEST_DEV_PORT` |
 | 构建命令 | `enest.build.command` / `manager` + `script` → 锁文件检测 + `scripts.build` → `scripts.pack` | npm |
+| 只重建后端 | `enest.backend.command` / `manager` + `script`（产物过期时优先；未声明回退到构建命令） | 无 |
 | 产物目录 | `enest.output` | `dist` |
 
 - **包管理器**：优先看 `enest.dev.manager` 显式声明；否则按锁文件检测（插件目录向上最多 4 级找 `pnpm-lock.yaml`→pnpm、`yarn.lock`→yarn、`bun.lockb|bun.lock`→bun、`package-lock.json`→npm，兼容 workspace 根持锁），都找不到按 npm。npm / yarn / pnpm / bun 四种统一走 `<manager> run <script>`。

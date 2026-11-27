@@ -173,6 +173,9 @@ window.addEventListener('pagehide', off, { once: true })
 | `ui.openInShell()` | 将本插件现有 View 固定到主窗口，不新建实例、不重载文档或重放业务请求 |
 | `ui.focus()` / `ui.focusSearch()` | 聚焦当前插件，或返回 Quick 的全局搜索 |
 | `ui.dismissQuick()` | 仅当前 Quick 挂载者可收起小窗；不等同销毁插件，没有 `quick.hide()` |
+| `ui.enterFloat(options?)` | 把本插件现有 View 迁入悬浮窗（无标题栏、可拖动缩放、不进任务栏）；请求置顶需 `pin.create`，拖动区由插件提供 |
+| `ui.exitFloat()` | 退出悬浮窗，View 迁回主窗 Tab，不重载 |
+| `ui.getPlacement()` / `ui.onPlacementChange(cb)` | 当前挂载位置 `shell` / `quick` / `detached` / `float`；位置实际变化才推送 |
 | `ui.setInputContext(...)` | 声明编辑器、终端、弹层或工作台焦点，避免宿主快捷键抢占 |
 | `quickInput.configure/release` | 当前实例受限接管顶部输入，隐藏、迁移、返回和销毁时释放 |
 | `ui.resize(...)` / `ui.setHeight(...)` | 兼容尺寸建议，校验正有限数；成功不意味着改变 Quick 或用户窗口的尺寸 |
@@ -186,6 +189,8 @@ Quick 和主窗口共用页面状态、会话和编辑器 model。使用 `Resize
 Quick、快捷键和 Workspace 通过统一启动器解析目标：未适配请求的布局才回退到 `views.default`。普通 Quick 再次打开已独立的窗口时原地聚焦；显式目标可以移动原实例，不重新建立业务状态。
 
 已有独立窗口从普通 Quick 搜索（未指定显式目标）或 `ShellOpenPlugin` 打开时原地聚焦；Workspace 打开、显式设置入口、快捷键目标与迁移动作可以移动现有实例。固定/拖入等迁移遵守指定位置，不因布局回退改换目标。不要为实现“展开”关闭当前组件再新建一个插件。完整入口决策见[UI 集成标准](ui-standard.md#布局与挂载位置)。
+
+悬浮窗（`float`）是第四种挂载位置，由插件主动请求进入：`ui.enterFloat()` 把**同一个 View** 迁入一个无标题栏、不进任务栏、可拖动缩放的窗口，不重载文档、不重建实例，布局模式保持不变。它与独立窗口的区别是没有宿主标题栏，因此拖动区必须由插件页面自己用 `-webkit-app-region: drag` 提供；与辅助页的区别是悬浮窗里就是插件主视图本身，拥有完整的 `enest` 桥。用户关闭悬浮窗等同退出悬浮窗，View 回到主窗 Tab；悬浮窗不跨重启恢复，只记住上次的位置尺寸。悬浮中的插件和独立窗口一样被视为常驻表面：普通 Quick 搜索再次打开时只聚焦，不迁回主窗。需要“边看边做别的事”的播放、监控类插件用它，不要为了小窗另开一个辅助页实例。
 
 插件自绘弹层必须放在自己的文档内。原生 `WebContentsView` 在壳 renderer 之上，不能依靠壳 CSS `z-index` 盖住插件。
 

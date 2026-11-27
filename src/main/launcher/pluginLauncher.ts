@@ -179,7 +179,7 @@ export function launchPlugin(request: PluginLaunchRequest): Promise<PluginLaunch
   const placement = pluginHost.getPlacement(pluginId)
   // Ordinary search focuses resident surfaces. Explicit destinations still move the View.
   const residentSearch = request.source === 'quick' && request.mode === undefined
-    && placement.kind === 'detached'
+    && (placement.kind === 'detached' || placement.kind === 'float')
   const key = `${request.source}:${pluginId}:${residentSearch ? 'resident' : target}:${layoutMode}`
   const now = Date.now()
   if (!request.enter && lastRequest?.key === key && lastRequest.revision === intentRevision

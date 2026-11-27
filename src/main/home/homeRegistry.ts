@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import { join } from 'node:path'
 import { realpath, stat } from 'node:fs/promises'
 import type { HomePageContribution } from '@shared/types/appearance'
@@ -84,7 +85,7 @@ export async function resolveHomePage(source: string, id: string, variant: strin
   if (!contribution) return null
   if (source === BUILT_IN_HOME_SOURCE) {
     // Renderer output is host-owned. The view cannot select a sibling file.
-    const entryPath = join(__dirname, '..', 'renderer', ...contribution.entry.split('/'))
+    const entryPath = join(app.getAppPath(), 'out', 'renderer', ...contribution.entry.split('/'))
     return { contribution, rootPath: join(entryPath, '..'), entryPath, buildRevision: 'builtin' }
   }
   const buildRevision = pluginRegistry.getBuildRevision(source)

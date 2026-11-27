@@ -10,13 +10,17 @@ export function migratePluginShortcuts(launch: PluginLaunchSettings = {}, stored
   const pluginLaunch = structuredClone(launch)
   const pluginShortcuts: PluginShortcutBinding[] = []
   const ids = new Set<string>()
-  for (const item of Array.isArray(stored) ? stored : []) {
+  for (const raw of Array.isArray(stored) ? stored : []) {
+    const item = raw as Record<string, unknown>
     if (!item || typeof item !== 'object' || typeof item.id !== 'string' || !item.id
       || typeof item.pluginId !== 'string' || !item.pluginId || typeof item.accelerator !== 'string') continue
     if (ids.has(item.id)) continue
     ids.add(item.id)
+    const enabled = item.enabled !== false
     pluginShortcuts.push({ id: item.id, pluginId: item.pluginId, accelerator: item.accelerator,
-      mode: item.mode === 'shell' ? 'shell' : 'quick', enabled: item.enabled !== false })
+      mode: item.mode === 'shell' ? 'shell' : 'quick', enabled,
+      // A disabled binding must not keep swallowing another app's chord on the next launch.
+      ...(enabled && item.forced === true ? { forced: true } : {}) })
   }
   let migrated = false
   for (const [pluginId, config] of Object.entries(pluginLaunch)) {

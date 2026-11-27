@@ -1,17 +1,22 @@
-import { net, shell } from 'electron'
+import { app, shell } from 'electron'
 import { existsSync, readFileSync, writeFileSync, unlinkSync, renameSync, rmSync } from 'node:fs'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { getAppPaths, getAppPathsGeneration } from '@main/paths/pathsService'
-import { decryptCredential, encryptCredential } from '@main/vault/secureStorage'
+import { isLegacyGithubCiphertext, openGithubCredential, sealGithubCredential } from '@main/vault/githubAccountStorage'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { getMainWindow, sendShellEvent } from '@main/window/createShellWindow'
 import { setOrbProfile } from '@main/window/orbRailViews'
 import { logInfo, logWarn } from '@main/logs/logService'
 import type { UserProfile } from '@shared/types/plugin'
+import type { AccountState } from '@shared/types/account'
 import type { GithubLoginSessionPayload, ShellEventPayload } from '@shared/types/ipc'
 import { getGithubAuthConfig } from './authConfig'
 import { listenOAuthLoopback } from './oauthLoopback'
+import { deviceCredential, parseCredential, type GithubGrant } from './githubCredential'
+import { getActiveGithubProfile, getMemoryGithubSession, setMemoryGithubSession } from './githubMemorySession'
+import { writeClipboardText } from '@main/clipboard/clipboardNativeEvents'
+import { githubRequest } from './githubTransport'
 
 const DEVICE_CODE_URL = 'https://github.com/login/device/code'
 const AUTHORIZE_URL = 'https://github.com/login/oauth/authorize'
@@ -34,6 +39,7 @@ interface CredentialContext { generation: number; rootGeneration: number; revisi
 let tokenCache: { context: CredentialContext; token: string | null } | undefined
 let tokenRead: { context: CredentialContext; promise: Promise<string | null> } | undefined
 let tokenRevision = 0
+let legacyStorage: CredentialContext | undefined
 let loginStorage: CredentialContext | null = null
 /** 登录代次：取消 / 重新登录递增，旧轮询链自检后静默退出，杜绝取消后仍写 token */
 let loginGeneration = 0
@@ -43,6 +49,16 @@ let pollingGen: number | null = null
 let loginSession: GithubLoginSessionPayload | null = null
 let activeAbort: AbortController | null = null
 let loginTimeout: ReturnType<typeof setTimeout> | null = null
+let accountLifetime = new AbortController()
+let renewal: { context: CredentialContext; task: Promise<string> } | undefined
+const authenticatedListeners = new Set<() => void>()
+
+export function onGithubAuthenticated(listener: () => void): void { authenticatedListeners.add(listener) }
+
+function invalidateAccount(): void {
+  accountLifetime.abort()
+  accountLifetime = new AbortController()
+}
 
 function tokenFile(): string {
   return join(getAppPaths().data, 'github.token')
@@ -66,6 +82,8 @@ function persistToken(file: string, encrypted: Buffer): void {
 }
 
 async function readToken(): Promise<string | null> {
+  const temporary = getMemoryGithubSession()
+  if (temporary) return temporary.token
   if (tokenCache && isCredentialCurrent(tokenCache.context)) return tokenCache.token
   if (tokenRead && isCredentialCurrent(tokenRead.context)) return tokenRead.promise
   const context = credentialContext()
@@ -76,9 +94,17 @@ async function readToken(): Promise<string | null> {
         return null
       }
       const original = readFileSync(context.file)
-      const { result, shouldReEncrypt } = await decryptCredential(original)
+      if (isLegacyGithubCiphertext(original)) {
+        legacyStorage = context
+        tokenCache = { context, token: null }
+        if (getProfileUser()) publishProfile(null)
+        else notifyProfile(null)
+        return null
+      }
+      const signal = accountLifetime.signal
+      const { result, shouldReEncrypt } = await openGithubCredential(original, signal)
       if (!isCredentialCurrent(context)) return null
-      const replacement = shouldReEncrypt ? await encryptCredential(result) : undefined
+      const replacement = shouldReEncrypt ? await sealGithubCredential(result, signal) : undefined
       if (!isCredentialCurrent(context) || !existsSync(context.file) || !readFileSync(context.file).equals(original)) return null
       if (replacement) persistToken(context.file, replacement)
       tokenCache = { context, token: result }
@@ -94,34 +120,38 @@ async function readToken(): Promise<string | null> {
   finally { if (tokenRead?.promise === promise) tokenRead = undefined }
 }
 
-function writeToken(token: string, encrypted: Buffer, context: CredentialContext): void {
+function writeToken(token: string, encrypted: Buffer | null, context: CredentialContext, user: UserProfile): void {
   if (!isCredentialCurrent(context)) throw new Error('登录已取消或数据目录已变更，请重新登录')
-  persistToken(context.file, encrypted)
+  if (encrypted) persistToken(context.file, encrypted)
+  else if (existsSync(context.file)) unlinkSync(context.file)
+  setMemoryGithubSession(encrypted ? null : { token, user })
+  legacyStorage = undefined
   tokenRevision++
   tokenCache = { context: credentialContext(), token }
 }
 
-async function encryptToken(token: string): Promise<Buffer> {
-  try { return await encryptCredential(token) }
+async function encryptToken(token: string, signal: AbortSignal | undefined): Promise<Buffer | null> {
+  try { return await sealGithubCredential(token, signal) }
   catch {
-    throw new Error('系统密钥库不可用或加密失败（safeStorage），出于安全不保存登录凭据')
+    signal?.throwIfAborted()
+    return null
   }
 }
 
 function clearToken(): void {
+  const file = tokenFile()
+  if (existsSync(file)) unlinkSync(file)
+  setMemoryGithubSession(null)
+  legacyStorage = undefined
   tokenRevision++
   tokenCache = { context: credentialContext(), token: null }
-  try {
-    const file = tokenFile()
-    if (existsSync(file)) unlinkSync(file)
-  } catch (err) {
-    logWarn('github', `clear token failed: ${(err as Error).message}`)
-  }
 }
 
 /** 资料变化统一出口：持久化 + 事件 + 轨道头像 */
 function publishProfile(user: UserProfile | null): void {
-  settingsStore.setProfileUser(user)
+  const temporary = getMemoryGithubSession()
+  if (temporary && user) temporary.user = user
+  else settingsStore.setProfileUser(user)
   notifyProfile(user)
 }
 
@@ -132,33 +162,45 @@ function notifyProfile(user: UserProfile | null): void {
   )
 }
 
+function githubResponse(url: string, init: RequestInit & { headers?: Record<string, string> }, grantErrorBody = false) {
+  return githubRequest(url, { ...init, headers: { Accept: 'application/json', ...init.headers } }, { limit: 64 * 1024, timeoutMs: REQUEST_TIMEOUT_MS, grantErrorBody })
+}
+
+function readGithubJson<T>(res: Awaited<ReturnType<typeof githubResponse>>): T {
+  if (!res.ok) throw Object.assign(new Error(`GitHub ${res.status}`), { status: res.status })
+  return JSON.parse(res.bytes.toString('utf8')) as T
+}
+
 async function githubJson<T>(url: string, init: RequestInit & { headers?: Record<string, string> }): Promise<T> {
-  const res = await net.fetch(url, {
-    ...init,
-    headers: { Accept: 'application/json', ...init.headers },
-    signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]) : AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw Object.assign(new Error(`GitHub ${res.status}`), {
-      status: res.status,
-      body: body.slice(0, 200)
-    })
+  return readGithubJson<T>(await githubResponse(url, init))
+}
+
+async function requestGrant(fields: Record<string, string>, signal: AbortSignal): Promise<GithubGrant> {
+  const response = await githubResponse(TOKEN_URL, { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields) }, true)
+  if (response.status === 400) {
+    const invalid = Object.assign(new Error('GitHub 400'), { status: response.status })
+    let error: unknown
+    try { error = JSON.parse(response.bytes.toString('utf8'))?.error }
+    catch { signal.throwIfAborted(); throw invalid }
+    if (typeof error === 'string' && /^[a-z_]{1,64}$/.test(error)) return { error }
+    throw invalid
   }
-  return (await res.json()) as T
+  const grant = readGithubJson<GithubGrant>(response)
+  return grant.error ? { error: grant.error } : grant
 }
 
 /** 拉取头像并转 data URL；失败 / 超限返回 null（渲染端不远程加载） */
 async function fetchAvatarDataUrl(avatarUrl: string, signal?: AbortSignal): Promise<string | null> {
   try {
     const sized = new URL(avatarUrl)
+    if (sized.origin !== 'https://avatars.githubusercontent.com' || sized.username || sized.password) return null
     sized.searchParams.set('s', String(AVATAR_SIZE))
-    const res = await net.fetch(sized.href, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]) : AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+    const res = await githubRequest(sized.href, { signal }, { timeoutMs: REQUEST_TIMEOUT_MS, limit: AVATAR_MAX_BYTES })
     if (!res.ok) return null
-    const buf = Buffer.from(await res.arrayBuffer())
+    const buf = res.bytes
     if (buf.byteLength === 0 || buf.byteLength > AVATAR_MAX_BYTES) return null
     const mime = res.headers.get('content-type')?.split(';')[0] || 'image/png'
-    if (!/^image\//.test(mime)) return null
+    if (!/^image\/(?:png|jpeg|webp|gif)$/.test(mime)) return null
     return `data:${mime};base64,${buf.toString('base64')}`
   } catch {
     return null
@@ -166,13 +208,14 @@ async function fetchAvatarDataUrl(avatarUrl: string, signal?: AbortSignal): Prom
 }
 
 async function fetchProfile(token: string, signal?: AbortSignal): Promise<UserProfile> {
-  const user = await githubJson<{ login: string; name: string | null; avatar_url: string; html_url: string }>(
+  const user = await githubJson<{ id: number; login: string; name: string | null; avatar_url: string; html_url: string }>(
     USER_URL,
     { signal, headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'eNest' } }
   )
+  if (!Number.isSafeInteger(user.id) || user.id <= 0 || !user.login) throw new Error('无法确认 GitHub 账号身份')
   const avatarDataUrl = user.avatar_url ? await fetchAvatarDataUrl(user.avatar_url, signal) : null
   return {
-    login: user.login,
+    githubId: user.id, login: user.login,
     name: user.name ?? null,
     avatarUrl: user.avatar_url ?? null,
     avatarDataUrl,
@@ -186,20 +229,20 @@ function publishLoginStatus(status: Omit<Extract<ShellEventPayload, { type: 'git
   sendShellEvent({ ...status, type: 'account-login-status', providerId: 'github' })
 }
 
-/** The release supplies public app configuration; the client secret stays on the publisher's server. */
 export async function startGithubLogin(): Promise<GithubLoginSessionPayload> {
   const config = getGithubAuthConfig()
   if (!config.available) throw new Error(config.availabilityError || '此版本尚未配置 GitHub 登录，请联系发布方完成登录配置。')
   if (isLoginPolling()) throw new Error('已有登录进行中，请先取消')
+  invalidateAccount()
   const generation = ++loginGeneration
   loginStorage = credentialContext()
   pollingGen = generation
   activeAbort = new AbortController()
   try {
-    if (config.exchangeUrl) return await startWebLogin(generation, config.clientId, config.exchangeUrl)
+    if (!config.deviceFlow && config.exchangeUrl) return await startWebLogin(generation, config.clientId, config.exchangeUrl)
     return await startDeviceLogin(generation, config.clientId)
   } catch (error) {
-    if (generation === loginGeneration) endPending()
+    failLogin(generation, error)
     throw error
   }
 }
@@ -228,28 +271,33 @@ async function finishLogin(generation: number, token: string): Promise<void> {
   if (generation !== loginGeneration) return
   const context = loginStorage
   if (!context || !isCredentialCurrent(context)) throw new Error('登录已取消或数据目录已变更，请重新登录')
-  const profile = await fetchProfile(token, activeAbort?.signal)
+  const profile = await fetchProfile(parseCredential(token).access, activeAbort?.signal)
   if (generation !== loginGeneration) return
   if (!isCredentialCurrent(context)) throw new Error('登录已取消或数据目录已变更，请重新登录')
-  const encrypted = await encryptToken(token)
+  const encrypted = await encryptToken(token, activeAbort?.signal)
   if (generation !== loginGeneration) return
   // No await between the guarded credential commit and profile commit/notification.
-  writeToken(token, encrypted, context)
-  try { settingsStore.setProfileUser(profile) }
+  writeToken(token, encrypted, context, profile)
+  try { settingsStore.setProfileUser(encrypted ? profile : null) }
   catch (error) { clearToken(); throw error }
   activeCallback?.complete(true)
   endPending()
-  // Credentials are stored and profile persistence is scheduled. Window teardown cannot undo login.
   try {
-    notifyProfile(profile)
-    publishLoginStatus({ phase: 'authorized' })
     const win = getMainWindow()
     if (win && !win.isDestroyed()) {
       if (win.isMinimized()) win.restore()
       win.show()
+      if (process.platform === 'darwin') app.focus({ steal: true })
       win.focus()
     }
+  } catch { logWarn('github', 'Signed in; could not activate the desktop window') }
+  try {
+    notifyProfile(profile)
+    publishLoginStatus({ phase: 'authorized' })
   } catch { logWarn('github', 'Signed in; window notification unavailable') }
+  for (const listener of authenticatedListeners) {
+    try { listener() } catch { logWarn('github', 'Post-login sync unavailable') }
+  }
   logInfo('github', `authorized as @${profile.login}`)
 }
 
@@ -288,20 +336,24 @@ async function startWebLogin(generation: number, clientId: string, exchangeUrl: 
 async function startDeviceLogin(generation: number, clientId: string): Promise<GithubLoginSessionPayload> {
   const code = await githubJson<{ device_code: string; user_code: string; verification_uri: string; expires_in: number; interval: number }>(DEVICE_CODE_URL, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: activeAbort?.signal,
-    body: JSON.stringify({ client_id: clientId, scope: SCOPE }),
+    body: JSON.stringify({ client_id: clientId }),
   })
   if (generation !== loginGeneration) throw new Error('登录已取消')
-  if (!code.device_code || !code.user_code || !Number.isFinite(code.expires_in) || code.expires_in <= 0) throw new Error('无法获取 GitHub 授权码')
+  if (!code.device_code || !/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code.user_code) || !Number.isSafeInteger(code.expires_in) || code.expires_in <= 0 || code.expires_in > 3600) throw new Error('无法获取 GitHub 授权码，请确认应用已启用 Device Flow')
   // The known GitHub page is used instead of opening a server-provided arbitrary URL.
   const session: GithubLoginSessionPayload = { mode: 'device', userCode: code.user_code,
     verificationUri: 'https://github.com/login/device', expiresInSeconds: code.expires_in }
   loginSession = session
   loginTimeout = setTimeout(() => failLogin(generation, new Error('授权码已过期，请重新登录')), code.expires_in * 1000)
   loginTimeout.unref()
-  await shell.openExternal(session.verificationUri)
+  try { await writeClipboardText(session.userCode, { excludeFromHistory: true }, activeAbort?.signal); session.copied = true }
+  catch { session.copied = false }
   if (generation !== loginGeneration) throw new Error('登录已取消')
   publishLoginStatus({ phase: 'pending' })
-  void pollForToken(generation, clientId, code.device_code, Math.max(POLL_MIN_INTERVAL_S, code.interval || 5) * 1000)
+  await shell.openExternal(session.verificationUri)
+  if (generation !== loginGeneration) throw new Error('登录已取消')
+  const interval = Number.isSafeInteger(code.interval) && code.interval > 0 && code.interval <= 300 ? code.interval : 5
+  void pollForToken(generation, clientId, code.device_code, Math.max(POLL_MIN_INTERVAL_S, interval) * 1000)
     .catch(error => failLogin(generation, error))
   return session
 }
@@ -315,12 +367,17 @@ async function pollForToken(generation: number, clientId: string, deviceCode: st
       signal.addEventListener('abort', done, { once: true })
     })
     if (generation !== loginGeneration || signal.aborted) return
-    const result = await githubJson<{ access_token?: string; error?: string }>(TOKEN_URL, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
-      body: JSON.stringify({ client_id: clientId, device_code: deviceCode, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }),
-    })
+    let result: GithubGrant
+    try {
+      result = await requestGrant({ client_id: clientId, device_code: deviceCode, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }, signal)
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      if (signal.aborted) return
+      if (status && status < 500 && status !== 429) throw error
+      intervalMs = Math.max(intervalMs, Math.min(60_000, intervalMs * 2)); continue
+    }
     if (generation !== loginGeneration) return
-    if (result.access_token) { await finishLogin(generation, result.access_token); return }
+    if (result.access_token) { await finishLogin(generation, deviceCredential(result, clientId)); return }
     if (result.error === 'slow_down') { intervalMs += 5000; continue }
     if (result.error === 'authorization_pending') continue
     throw new Error(result.error === 'access_denied' ? '已取消 GitHub 授权' : '授权未完成，请重新登录')
@@ -334,24 +391,101 @@ export function cancelGithubLogin(): void {
 }
 export function isLoginPolling(): boolean { return pollingGen !== null }
 export function getGithubLoginSession(): GithubLoginSessionPayload | null { return loginSession }
+export async function copyGithubDeviceCode(): Promise<void> {
+  if (loginSession?.mode !== 'device' || !activeAbort) throw new Error('没有待确认的设备授权')
+  await writeClipboardText(loginSession.userCode, { excludeFromHistory: true }, activeAbort.signal)
+}
+
+export function disposeGithubSession(): void {
+  invalidateAccount()
+  loginGeneration++
+  setMemoryGithubSession(null)
+  tokenCache = undefined
+  endPending()
+}
 
 export function logoutGithub(): void {
+  invalidateAccount()
   cancelGithubLogin()
   clearToken()
   publishProfile(null)
   logInfo('github', 'logged out')
 }
 
-export async function refreshProfileOnBoot(): Promise<void> {
-  const context = credentialContext()
-  const token = await readToken()
-  if (!token || !isCredentialCurrent(context)) return
+async function accessCredential() {
+  const context = credentialContext(), signal = accountLifetime.signal
+  let stored = await readToken()
+  if (!stored || !isCredentialCurrent(context)) throw new Error('无法静默读取 GitHub 凭据。请解锁本机密钥库后重试，或重新登录 GitHub。')
+  let credential = parseCredential(stored)
+  if (credential.clientId && credential.clientId !== getGithubAuthConfig().clientId) throw new Error('登录应用已变更，请重新登录')
+  if (credential.expiresAt && credential.expiresAt < Date.now() + 60_000) {
+    const { refresh, clientId } = credential
+    if (!refresh || !clientId || (credential.refreshExpiresAt ?? Infinity) <= Date.now()) throw Object.assign(new Error('GitHub 授权已过期，请重新登录'), { status: 401 })
+    if (!renewal || !isCredentialCurrent(renewal.context)) {
+      const task = (async () => {
+        const grant = await requestGrant({ client_id: clientId, grant_type: 'refresh_token', refresh_token: refresh }, signal)
+        if (grant.error === 'bad_refresh_token' || grant.error === 'expired_token' || grant.error === 'invalid_grant') throw Object.assign(new Error('GitHub 授权已失效，请重新登录'), { status: 401 })
+        const next = deviceCredential(grant, clientId)
+        const user = getProfileUser()
+        if (!user || !isCredentialCurrent(context)) throw new Error('GitHub 账号已变更')
+        const temporary = getMemoryGithubSession()
+        const encrypted = temporary ? null : await encryptToken(next, signal)
+        writeToken(next, encrypted, context, user)
+        if (!encrypted && !temporary) { settingsStore.setProfileUser(null); notifyProfile(user) }
+        return next
+      })()
+      renewal = { context, task }
+      void task.finally(() => { if (renewal?.task === task) renewal = undefined }).catch(() => {})
+    }
+    stored = await renewal.task
+    signal.throwIfAborted()
+    if (context.rootGeneration !== getAppPathsGeneration()) throw new Error('数据目录已变更')
+    credential = parseCredential(stored)
+  }
+  return { credential, context: credentialContext(), signal }
+}
+
+export async function getGithubSyncSession() {
+  let current = credentialContext()
   try {
-    const profile = await fetchProfile(token)
-    if (isCredentialCurrent(context)) publishProfile(profile)
+    const { credential, context, signal } = await accessCredential()
+    current = context
+    const profile = getProfileUser()
+    if (!credential.clientId || !profile?.githubId) throw new Error('请使用 GitHub 设备授权重新登录以启用同步')
+    const user = await githubJson<{ id: number; login: string }>(USER_URL, { signal, headers: { Authorization: `Bearer ${credential.access}`, 'User-Agent': 'eNest' } })
+    const check = () => { if (signal.aborted || !isCredentialCurrent(context) || getProfileUser()?.githubId !== user.id) throw new Error('账号或数据目录已变更') }
+    if (user.id !== profile.githubId || !/^[a-z\d][a-z\d-]{0,38}$/i.test(user.login)) throw new Error('GitHub 账号不匹配，请重新登录')
+    check()
+    return { token: credential.access, user, signal, check }
+  } catch (error) {
+    if ((error as { status?: number }).status === 401 && isCredentialCurrent(current)) { invalidateAccount(); clearToken(); publishProfile(null); throw new Error('GitHub 授权已失效，请重新登录。') }
+    throw error
+  }
+}
+
+export async function refreshProfileOnBoot(): Promise<void> {
+  let context = credentialContext()
+  try {
+    if (!await readToken() || !isCredentialCurrent(context)) {
+      if (isCredentialCurrent(context) && !existsSync(context.file) && getProfileUser()) publishProfile(null)
+      return
+    }
+    const current = await accessCredential()
+    context = current.context
+    const profile = await fetchProfile(current.credential.access, current.signal)
+    if (isCredentialCurrent(context)) {
+      const previous = getProfileUser()
+      if (previous && (previous.githubId === profile.githubId || !previous.githubId && previous.login === profile.login)) {
+        profile.connectedAt = previous.connectedAt
+        profile.avatarDataUrl ??= previous.avatarUrl === profile.avatarUrl ? previous.avatarDataUrl : null
+      }
+      publishProfile(profile)
+      for (const listener of authenticatedListeners) listener()
+    }
   } catch (err) {
     if (!isCredentialCurrent(context)) return
     if ((err as { status?: number }).status === 401) {
+      invalidateAccount()
       clearToken()
       publishProfile(null)
     } else logWarn('github', 'Profile refresh unavailable; keeping cached profile')
@@ -359,8 +493,11 @@ export async function refreshProfileOnBoot(): Promise<void> {
 }
 
 export function getProfileUser(): UserProfile | null {
-  const user = settingsStore.getAll().profile?.user
-  return user && typeof user.login === 'string' ? user : null
+  return getActiveGithubProfile()
+}
+export function getGithubCredentialNotice(): AccountState['credentialNotice'] {
+  if (getMemoryGithubSession()) return 'session-only'
+  if (legacyStorage && legacyStorage.rootGeneration === getAppPathsGeneration() && legacyStorage.file === tokenFile()) return 'reauth-required'
 }
 export async function hasGithubToken(): Promise<boolean> {
   const context = credentialContext()

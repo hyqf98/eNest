@@ -7,7 +7,7 @@ import ts from 'typescript'
 
 const require = createRequire(import.meta.url)
 function load(file, adapters, processMock = process) {
-  const output = ts.transpileModule(readFileSync(new URL(`../../${file}`, new URL("../../tools/packaging/", import.meta.url)), 'utf8'), {
+  const output = ts.transpileModule(readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true }
   }).outputText
   const module = { exports: {} }

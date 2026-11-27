@@ -32,6 +32,12 @@ async function fixture() {
   const state = { fonts: [], plugins: [], legacyMedia: undefined, legacySplash: undefined, legacyBackup: undefined, selection: { canceled: true, filePaths: [] }, dialogs: [], writes: [], dialogWait: null, afterCopy: null, afterPublish: null, beforeFontsRead: null, failWrites: false }
   const mocks = {
     electron: { dialog: { showOpenDialog: async options => { state.dialogs.push(options); if (state.dialogWait) await state.dialogWait; return state.selection } } },
+    // The picker now goes through the remembered-location wrapper. Keep the fixture on its own
+    // dialog mock by passing the call straight through, without remembering anything.
+    '@main/settings/dialogMemory': { openDialogWithMemory: async options => {
+      const result = await mocks.electron.dialog.showOpenDialog(options)
+      return result.canceled ? [] : result.filePaths
+    } },
     'node:fs': { ...require('node:fs'), linkSync: (...args) => { require('node:fs').linkSync(...args); state.afterPublish?.() } },
     'node:fs/promises': { ...require('node:fs/promises'), copyFile: async (...args) => { await require('node:fs/promises').copyFile(...args); state.afterCopy?.() } },
     '@shared/constants': { FONTS_DIR: 'fonts' },

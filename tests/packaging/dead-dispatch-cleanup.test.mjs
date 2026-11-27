@@ -3,10 +3,10 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import vm from 'node:vm'
 import ts from 'typescript'
-import { verifyShellBundleSource } from '../../tools/packaging/after-pack.mjs'
+import { verifyShellBundleSource } from '../../scripts/packaging/after-pack.mjs'
 
 async function source(relative) {
-  const url = new URL(relative, new URL("../../tools/packaging/", import.meta.url))
+  const url = new URL(relative, import.meta.url)
   return ts.createSourceFile(url.pathname, await readFile(url, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
 }
 

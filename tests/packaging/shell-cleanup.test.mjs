@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { createPackage } from '@electron/asar'
 import yaml from 'js-yaml'
-import { verifyShellArchive, verifyShellArchiveEntries, verifyShellBundleSource } from '../../tools/packaging/after-pack.mjs'
+import { verifyShellArchive, verifyShellArchiveEntries, verifyShellBundleSource } from '../../scripts/packaging/after-pack.mjs'
 
 const require = createRequire(import.meta.url)
 const { getNodeModuleFileMatcher } = require('app-builder-lib/out/fileMatcher.js')

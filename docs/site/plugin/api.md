@@ -79,6 +79,9 @@ AI 配置、局域网分享、数据库、中间件和 SSH 使用插件自己的
 | `ui` | `setInputContext(context)` | 基础能力 | 声明编辑器、终端或弹层的输入归属，避免 Quick 抢占按键 |
 | `ui` | `focus()` / `focusSearch()` | 基础能力 | 聚焦当前插件，或返回 Quick 全局搜索；不创建新实例 |
 | `ui` | `dismissQuick()` | 基础能力 | 提交即收起 Quick 小窗（仅 quick 挂载者生效） |
+| `ui` | `enterFloat(options?)` | 置顶需 `pin.create` | 把本插件现有 View 迁入悬浮窗：无标题栏、可拖动缩放、不进任务栏，见[布局与位置](settings-and-windows.md#布局模式与原生位置) |
+| `ui` | `exitFloat()` | 基础能力 | 退出悬浮窗，View 迁回主窗 Tab（不重载） |
+| `ui` | `getPlacement()` / `onPlacementChange(cb)` | 基础能力 | 当前挂载位置 `shell` / `quick` / `detached` / `float` 及其变更 |
 | `ui` | `toast({ title?, body?, format?, position?, level?, duration? })` | 基础能力 | 当前原生容器内的安全富文本通知 |
 | `ui` | `getThemeTokens()` | 无 | 读主题变量（别名） |
 | `ui` | `onThemeChange(cb)` | 无 | 订阅主题变更 |
@@ -130,7 +133,7 @@ AI 配置、局域网分享、数据库、中间件和 SSH 使用插件自己的
 | `localFiles` | `fromDrop(files)` | 基础能力，须原生确认 | 将本机拖入文件交由用户确认后签发句柄，不将路径字符串当作授权 |
 | `localFiles` | `read(input)` / `list(input)` / `reveal(handleId)` | 基础能力，仍校验句柄用途与代次 | 读取已选文件、列出授权目录或在文件管理器定位；不支持任意路径访问 |
 | `localFiles` | `prepareDrag(input)` / `startDrag(exportId)` / `endDrag()` | 基础能力，仍校验当前实例 | 为已授权句柄准备并启动系统拖出，结束后回收拖出状态 |
-| `sys` | `processes()` / `ports()` / `kill(pid, opts)` | `sys.inspect` / `sys.control` | 本机进程 / 端口 / 结束确认 |
+| `sys` | `processes()` / `ports()` / `cpuUsage()` / `kill(pid, opts)` | `sys.inspect` / `sys.control` | 本机进程 / 端口 / CPU 占用 / 结束确认 |
 | `shell` | `openExternal(url)` | `shell.openExternal` | 系统浏览器打开 |
 | `shell` | `login(request)` | `web.login` + `net.loginOrigins` | 应用内窗口登录外部站点，会话 cookie 交回插件 |
 | `shell` | `saveFile(payload)` / `saveTextFile(payload)` | 基础能力 | 用户经原生对话框选定保存位置后写入 |
@@ -269,6 +272,57 @@ await enest.ui.dismissQuick()
 ```
 
 没有 `enest.quick.hide()`。回贴使用 `enest.clipboard.paste()`：先由插件复制内容，宿主再验证原应用并按回贴流程隐藏 Quick；失败时可能恢复 Quick，插件应展示返回的 `reason`，不要无条件再次隐藏。
+
+---
+
+### `ui.enterFloat(options?)`
+
+把本插件**现有的 View** 迁入一个悬浮窗：没有标题栏、不进任务栏、可拖动、可缩放，默认位于其它应用之上。页面不重载，业务状态、会话和后台实例全部保留。
+
+| | |
+|--|--|
+| **权限** | 请求置顶时需要 `pin.create`（运行时按三态授权）；显式传 `alwaysOnTop: false` 不需要授权 |
+| **参数** | `options` 全部可选：`width` / `height` 初始外框尺寸（DIP），`minWidth` / `minHeight` 最小尺寸，`alwaysOnTop` 是否置顶（默认 `true`） |
+| **返回** | `Promise<boolean>` — 是否已处于悬浮窗 |
+
+- 尺寸由宿主钳制：最小尺寸不低于 240×160、不高于 1600×1200，初始尺寸不小于最小尺寸、不高于屏幕工作区。
+- 同一插件再次调用只应用置顶变化；从 Quick 小窗调用会先迁出小窗。
+- 上次退出悬浮窗时的位置和尺寸会被记住，下次在同一位置打开；`width` / `height` 仅在没有历史时生效。
+- 悬浮窗没有宿主标题栏。**拖动区由插件自己提供**：在页面顶部放一条 `-webkit-app-region: drag` 的区域，其中的按钮声明 `no-drag`。
+- 关闭悬浮窗（例如系统手势或插件自绘的关闭按钮）等同「退出悬浮窗」，View 迁回主窗 Tab，**不会关闭插件**。
+- 悬浮窗不跨重启恢复：应用重启后插件回到主窗 Tab，只保留上次的几何。
+- 悬浮期间布局模式不变（仍是 `shell`），用 `onPlacementChange` 而不是 `onModeChange` 感知。
+
+```js
+await enest.ui.enterFloat({ width: 480, height: 320, minWidth: 320, minHeight: 200 })
+```
+
+### `ui.exitFloat()`
+
+退出悬浮窗，View 迁回主窗口并激活对应 Tab，页面不重载。
+
+| | |
+|--|--|
+| **权限** | 基础能力，无需声明或授权 |
+| **参数** | 无 |
+| **返回** | `Promise<boolean>` — 是否因本次调用离开了悬浮窗 |
+
+非悬浮挂载时调用返回 `false`，不做任何事。
+
+### `ui.getPlacement()` / `ui.onPlacementChange(cb)`
+
+当前 View 的挂载位置：`shell`（主窗口 Tab）、`quick`（Quick 小窗）、`detached`（独立窗口）或 `float`（悬浮窗）。
+
+- `getPlacement()` 返回 `Promise<PluginPlacementKind>`，适合初始化时读取一次。
+- `onPlacementChange(cb)` 在位置实际变化后推送 `{ placement, alwaysOnTop? }`；`alwaysOnTop` 仅在 `float` 下有意义，窗口置顶状态变化时也会推送。
+- 两者都是基础能力，无需声明或授权。位置由宿主维护，不要从 `window.innerWidth` 或 URL 推断。
+
+```js
+const off = enest.ui.onPlacementChange(({ placement }) => {
+  document.documentElement.dataset.placement = placement
+})
+enest.ui.getPlacement().then(placement => { /* 初始状态 */ })
+```
 
 ---
 
@@ -445,12 +499,12 @@ await enest.theme.register({
 | | |
 |--|--|
 | **权限** | `hotkey` |
-| **参数** | `accelerator: string`；`opts?: { label?: string }`（保留） |
+| **参数** | `accelerator: string`；`opts?: { label?: string }` — `label` 是该快捷键对应的功能名，最多 48 字符 |
 | **返回** | `Promise<{ ok: boolean; error?: string }>` — 冲突/失败 **不 reject**，用 `ok: false` 携带原因 |
 | **限制** | 每插件最多 4 个；与 Quick 当前生效热键、其它插件启动热键、其它插件运行时热键及系统/其它应用占用互斥 |
 
 ```js
-const res = await enest.hotkey.register('Control+Alt+P')
+const res = await enest.hotkey.register('Control+Alt+P', { label: '切换面板' })
 if (!res.ok) console.warn('注册失败', res.error)
 
 enest.hotkey.onHotkey(({ accelerator }) => {
@@ -458,7 +512,11 @@ enest.hotkey.onHotkey(({ accelerator }) => {
 })
 ```
 
-插件运行时热键与用户配置的插件启动快捷键、Quick 快捷键共用全局热键空间。用户启动绑定统一保存在 `pluginShortcuts`，可为同一插件分别绑定小窗口 / 主窗口入口，在宿主「设置 → 快捷键」中管理；旧 `pluginLaunch[id].hotkey` 仅用于数据迁移。可信宿主在保存前探测归属并在提交时再次核验：其它用户启动绑定或 Quick 快捷键可经用户确认接管，原绑定会停用并保留配置；插件运行时键、系统及其它应用占用不能直接覆盖。插件的 `hotkey.register()` 不提供接管能力，冲突时应提示用户修改组合键或先在原归属处解除绑定。
+`label` 会显示在宿主「设置 → 快捷键」中该插件的分组下（标注为「插件注册」，只读），以及其他插件撞键时的冲突提示里，让用户知道该去哪个插件关闭。省略 `label` 时只显示插件名，所以建议始终提供。
+
+与用户在设置里手动绑定不同，`hotkey.register()` **不强制修饰键**：功能键（如 `F1`）可以单独注册。但无修饰键的字母或符号会全局吞掉普通打字，应当带上 `Ctrl` / `Alt` / `Command`。
+
+插件运行时热键与用户配置的插件启动快捷键、Quick 快捷键共用全局热键空间。用户启动绑定统一保存在 `pluginShortcuts`，可为同一插件分别绑定小窗口 / 主窗口入口，在宿主「设置 → 快捷键」中管理；旧 `pluginLaunch[id].hotkey` 仅用于数据迁移。运行时热键的生命周期属于插件：宿主只展示，不在设置页提供开关、编辑或删除，插件关闭时自动全部注销。可信宿主在保存前探测归属并在提交时再次核验：其它用户启动绑定或 Quick 快捷键可经用户确认接管，原绑定会停用并保留配置；插件运行时键、系统及其它应用占用不能直接覆盖。插件的 `hotkey.register()` 不提供接管能力，冲突时应提示用户修改组合键或先在原归属处解除绑定。
 
 ### `hotkey.unregister(accelerator)` / `hotkey.onHotkey(cb)`
 
@@ -1075,9 +1133,10 @@ ws.binaryType = 'arraybuffer'
 |------|------|
 | `sys.processes()` | 进程列表（`ps -axo pid,pcpu,pmem,rss,user,comm`；Linux 探测式回退）；1s 采样缓存 |
 | `sys.ports()` | 监听端口（`lsof -nP -iTCP -sTCP:LISTEN`；Linux 回退 `ss -ltnp` / `netstat`）；1s 采样缓存 |
+| `sys.cpuUsage()` | 两次系统计数采样之间的整机 CPU 占用，按所有逻辑核心合计，范围 0–100；1s 采样缓存。首次采样、间隔超过 30 秒或系统计数不可用时返回 `null`，不要当作 0% |
 | `sys.kill(pid, { signal?, confirmed })` | 结束进程：宿主原生对话框确认 PID / 进程目标，`confirmed` 不能代替授权；`signal` 支持 TERM（缺省）/ KILL / INT；宿主拒绝 kill 自身进程与 PID ≤ 1 |
 
-**权限**：列表使用 `sys.inspect`，结束进程使用 `sys.control`。
+**权限**：列表和 CPU 采样使用 `sys.inspect`，结束进程使用 `sys.control`。
 
 ---
 
@@ -1136,11 +1195,15 @@ await enest.shell.openExternal('https://github.com')
 | | |
 |--|--|
 | **权限** | `web.login`；同时必须在 manifest 的 `net.loginOrigins` 里声明允许登录的站点 |
-| **参数** | `request: { url: string; successUrlPrefix: string; title?: string; width?: number; height?: number }` |
+| **参数** | `request: { url: string; successUrlPrefix: string; title?: string; width?: number; height?: number; contentWidth?: number }` |
 | **返回** | `Promise<{ ok: true; url: string; cookies: Cookie[] } \| { ok: false; reason: 'cancelled' }>` |
 | **错误** | `permission denied: web.login`；`web.login: url must be an https URL`；`web.login: url origin is not declared in net.loginOrigins (<origin>)`；`web.login: successUrlPrefix must be an https URL with a path`；`web.login: successUrlPrefix origin is not declared in net.loginOrigins`；`web.login: too many login windows` |
 
-宿主弹出一个独立窗口加载 `url`，用户在**目标站点自己的页面**里完成登录。主框架导航到以 `successUrlPrefix` 开头的地址时视为登录成功，宿主读出这次会话的全部 cookie 交给插件。用户在登录成功前关掉窗口、页面离开已声明的站点、加载失败或超过 10 分钟，都按取消处理。
+宿主弹出一个独立窗口加载 `url`，用户在**目标站点自己的页面**里完成登录。主框架导航到以 `successUrlPrefix` 开头的地址时视为登录成功，宿主读出这次会话的全部 cookie 交给插件，然后**自动关闭登录窗口**。用户在登录成功前关掉窗口、页面离开已声明的站点、加载失败或超过 10 分钟，都按取消处理。
+
+**同名 cookie 原样交回，宿主不做去重**：站点常在多个子域各发一份同名 cookie（例如长期登录凭证同时出现在 `www` 与 `open.e`），服务端靠 domain 区分。宿主按名字去重会丢掉真正的那一条，插件存下来的会话反而立刻失效。每条 cookie 都带 `domain` / `path`，请按域保存并在发请求时按域名取用，不要压成 `name=value; name=value` 的字符串。
+
+**到达成功页后等 cookie 稳定再交出**：登录站通常先跳成功页，再由页面脚本下发或轮换会话 cookie。宿主会反复读取，直到连续两次快照一致（最多 3 秒）才交回，避免插件存到不完整的一组、下次启动就被判未登录。
 
 ```js
 const manifest = {
@@ -1163,6 +1226,8 @@ if (result.ok) {
 - **会话是这次登录专用的**：cookie 不写入宿主磁盘，不与壳、其它插件或其它登录共用；结果交出后会话立即销毁。
 - cookie 只交回发起调用的插件页面。宿主不保存、不记录；会话凭据属于敏感数据，应经 `vault.set` 存放，不要写进 `storage` 或日志。
 - 每个插件同时最多 2 个登录窗口。插件关闭或重载时，它打开的登录窗口随之关闭。
+- 登录窗口是**普通可缩放的子窗口**，保留系统标题栏与关闭按钮，按 Esc 也按取消处理。默认尺寸接近桌面浏览器（1200×900），并按所在显示器的可用区域收敛；`width` / `height` 只是偏好值。长登录页可拖拽放大，不必靠滚动。
+- `contentWidth` 声明**登录页按多少 CSS 像素排版**。不少站点的主容器写死宽度（如 `width:1440px; min-width:1280px`）且没有小屏断点，窗口更窄时右侧会露出空白背景并出现横向滚动条。声明后宿主在窗口窄于该值时等比缩小页面，拖大到该值以上自动恢复 1:1。它只是排版提示，不改变窗口几何；不声明则按窗口实际宽度 1:1 渲染。
 - `successUrlPrefix` 是**前缀匹配**，请给出足够具体的地址（含路径），不要只给到域名。
 
 ### `shell.saveTextFile(payload)`

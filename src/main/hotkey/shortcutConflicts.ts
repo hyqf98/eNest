@@ -3,7 +3,7 @@ import { normalizeAccelerator, normalizeUserShortcut } from '@shared/accelerator
 import type { ShortcutProbeResult } from '@shared/types/shortcuts'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
-import { getHotkeyOwner, probeNativeHotkey, type HotkeyOwner } from './hotkeyRegistry'
+import { getHotkeyOwner, getHotkeyRegistration, probeNativeHotkey, type HotkeyOwner } from './hotkeyRegistry'
 import { identifySystemHotkeyOwner } from './systemHotkeyOwners'
 import { canForceHotkey } from './forceHotkey'
 
@@ -54,8 +54,15 @@ export function probeShortcutConflict(value: string, excludeId?: string, exclude
   const owner = getHotkeyOwner(accelerator)
   const label = (id?: string) => id ? pluginRegistry.get(id)?.name ?? id : undefined
   // A real runtime owner takes priority over stale configured bindings and can never be replaced.
-  if (owner?.kind === 'runtime') return { accelerator, status: 'runtime', ownerPluginId: owner.pluginId,
-    ownerLabel: label(owner.pluginId), hint: '插件运行时快捷键不能直接覆盖，请先在该插件中关闭或修改。' }
+  // The plugin's own feature label is more actionable than its plugin name, so it wins when present.
+  if (owner?.kind === 'runtime') {
+    const registration = getHotkeyRegistration(accelerator)
+    const pluginName = label(owner.pluginId)
+    const feature = registration?.label
+    return { accelerator, status: 'runtime', ownerPluginId: owner.pluginId,
+      ownerLabel: feature && pluginName && feature !== pluginName ? `${pluginName} · ${feature}` : feature ?? pluginName,
+      hint: '插件运行时快捷键不能直接覆盖，请先在该插件中关闭或修改。' }
+  }
   if (owner?.kind === 'quick' && !excludeQuick) return confirmable({ accelerator, status: 'quick', ownerLabel: '小窗口' })
   const configured = settingsStore.getPluginShortcuts().find(binding => {
     const plugin = pluginRegistry.get(binding.pluginId)

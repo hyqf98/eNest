@@ -20,6 +20,7 @@ export function GeneralSettingsSection({ settings, updates }: {
   const {
     hwAccel, launchAtLogin, launchAtLoginSupported, launchAtLoginError, dataRoot, closeBehavior, notifyPosition, loadingGeneral,
     proxyType, proxyHost, proxyPort, testingProxy, setProxyHost, setProxyPort,
+    pendingRoot, migrating, pickNewDataRoot, cancelMigrate, handleMigrate,
     handleLocale, handleHwAccel, handleLaunchAtLogin, handleCloseBehavior, handleNotifyPosition,
     handleProxyType, handleProxyFieldBlur, handleTestProxy, handleOpenDataRoot
   } = settings
@@ -50,14 +51,41 @@ export function GeneralSettingsSection({ settings, updates }: {
           aria-label={t('settings.general.launchAtLogin')}
         />
       </Field>
-      <Field label={t('settings.general.dataRoot')}>
-        <div className="path-actions">
+      {/* 选好新目录后进入待迁移态：此时设置未变，点「迁移数据」才真正搬数据并切根 */}
+      <Field
+        label={t('settings.general.dataRoot')}
+        desc={pendingRoot ? t('settings.general.migratePending') : t('settings.general.dataRootDesc')}
+      >
+        <div className="data-root-control">
           <code className="path-text" title={dataRoot}>
             {loadingGeneral ? t('common.loading') : dataRoot || '—'}
           </code>
-          <Button variant="ghost" size="sm" onClick={handleOpenDataRoot} disabled={!dataRoot}>
-            {t('settings.general.openFolder')}
-          </Button>
+          {pendingRoot && (
+            <code className="path-text data-root-target" title={pendingRoot}>
+              <span aria-hidden="true">→</span> {pendingRoot}
+            </code>
+          )}
+          <div className="path-actions">
+            {pendingRoot ? (
+              <>
+                <Button variant="ghost" size="sm" onClick={cancelMigrate} disabled={migrating}>
+                  {t('settings.general.cancelChange')}
+                </Button>
+                <Button variant="primary" size="sm" onClick={handleMigrate} disabled={migrating} aria-busy={migrating}>
+                  {migrating ? t('settings.general.migrating') : t('settings.general.migrateAction')}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" onClick={handleOpenDataRoot} disabled={!dataRoot}>
+                  {t('settings.general.openFolder')}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => void pickNewDataRoot()} disabled={loadingGeneral || !dataRoot}>
+                  {t('settings.general.changeFolder')}
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       </Field>
       {settings.hasLegacyCanvas && <Field label={locale === 'en-US' ? 'Previous canvas layout' : '旧版画布布局'}

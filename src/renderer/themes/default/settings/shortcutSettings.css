@@ -13,13 +13,16 @@
 .shortcut-recorder .btn { flex-shrink: 0; }
 .shortcut-location { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
 /*
- * 搜索框固定在滚动区外面，列表滚动时始终可见。
+ * 工具栏（新增选择器 + 搜索框）固定在滚动区外面，列表滚动时始终可见。
  * 插件多时列表限高并内部滚动，避免整页被几十个插件组拉成一条长墙。
- * 两者都撑满卡片内宽：滚动条槽位只存在于列表内部，不影响搜索框宽度。
+ * 两者都撑满卡片内宽：滚动条槽位只存在于列表内部，不影响工具栏宽度。
  */
-.shortcut-search { display: flex; margin-bottom: 12px; }
+.shortcut-toolbar { display: flex; gap: 10px; margin-bottom: 12px; }
+.shortcut-picker { flex: 0 1 260px; min-width: 0; }
+.shortcut-search { display: flex; flex: 1 1 auto; min-width: 0; }
 .shortcut-search-input {
-  flex: 1 1 auto; min-width: 0; height: 32px; padding: 0 11px;
+  /* 与同行的 Select 触发器等高：设置页通用控件高度，不硬编码像素。 */
+  flex: 1 1 auto; min-width: 0; width: 100%; height: var(--settings-control-h, 34px); padding: 0 11px;
   border: 1px solid var(--border-strong); border-radius: 9px;
   background: var(--surface-2); color: var(--text);
   font: inherit; font-size: calc(12.5px * var(--appearance-font-scale, 1));
@@ -49,9 +52,18 @@
 .shortcut-binding-main { display: grid; grid-template-columns: minmax(100px, 1fr) auto minmax(90px, 1fr) auto; gap: 14px; align-items: center; }
 .shortcut-binding-mode { color: var(--text-2); font-size: 12px; }
 .shortcut-keys { justify-self: start; padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); font-size: 12px; overflow-wrap: anywhere; }
+/* 强制接管 tag：与小窗口卡片的琥珀色徽标同一语义、同一颜色。 */
+.shortcut-binding-keys { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; justify-self: start; }
+.shortcut-badge { flex-shrink: 0; padding: 2px 8px; border-radius: 999px; background: #d97706; color: #fff; font-size: calc(10px * var(--appearance-font-scale, 1)); font-weight: 700; white-space: nowrap; }
+.shortcut-binding.is-forced .shortcut-keys { border-color: color-mix(in srgb, #f59e0b 55%, var(--border)); }
+.shortcut-binding-state[data-status='forced'] { color: #d97706; }
 .shortcut-binding-state { display: grid; gap: 4px; color: var(--text-3); font-size: 12px; }
 .shortcut-binding-state[data-status='registered'] { color: var(--accent); }
 .shortcut-binding-state[data-status='conflict'] { color: var(--danger); }
+/* 插件运行时注册的键：只读展示，不提供开关/编辑/删除（生命周期归插件）。 */
+.shortcut-binding-state[data-status='runtime'] { color: var(--text-2); }
+.shortcut-bindings-runtime { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.shortcut-binding-runtime .shortcut-binding-main { grid-template-columns: minmax(100px, 1fr) auto minmax(90px, 1.4fr); }
 .shortcut-binding-state small { color: var(--text-3); font-size: 11px; overflow-wrap: anywhere; }
 .shortcut-binding-actions { display: flex; gap: 4px; margin-top: 8px; justify-content: flex-end; }
 .shortcut-editor { margin: 14px 0 0; padding: 14px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; }
@@ -76,6 +88,9 @@
   .shortcut-binding-main > .switch { grid-column: 2; grid-row: 2; }
   .shortcut-plugin-head { flex-wrap: wrap; }
   .shortcut-plugin-actions { margin-left: auto; }
+  /* 窄屏时选择器与搜索框上下堆叠，各自占满整行。 */
+  .shortcut-toolbar { flex-direction: column; }
+  .shortcut-picker { flex: 1 1 auto; }
 }
 .shortcut-recorder-input { position: relative; }
 .shortcut-recorder-input input { padding-right: 38px; cursor: pointer; }

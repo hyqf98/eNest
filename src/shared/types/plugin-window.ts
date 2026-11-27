@@ -8,8 +8,27 @@ export type PluginPlacement =
   | { kind: 'shell' }
   | { kind: 'quick' }
   | { kind: 'detached'; windowId: number }
+  /** Chrome-less, topmost, user-resizable window holding the plugin's own view. */
+  | { kind: 'float'; windowId: number }
 export interface WindowPoint { x: number; y: number }
 export interface WindowRect extends WindowPoint { width: number; height: number }
+/** Float window request from a plugin page; every field is optional and clamped by the host. */
+export interface FloatWindowOptions {
+  /** Initial outer size in DIP; ignored when a previous float geometry exists. */
+  width?: number
+  height?: number
+  minWidth?: number
+  minHeight?: number
+  /** Start above other applications. Requires `pin.create`; default true. */
+  alwaysOnTop?: boolean
+}
+/** Where the plugin's own view is currently mounted; mirrors PluginPlacement without host-only ids. */
+export type PluginPlacementKind = 'shell' | 'quick' | 'detached' | 'float'
+export interface PluginPlacementChangeEvent {
+  placement: PluginPlacementKind
+  /** Only meaningful while floating. */
+  alwaysOnTop?: boolean
+}
 export interface DetachedPluginState {
   pluginId: string
   title: string

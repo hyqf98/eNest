@@ -1,7 +1,11 @@
-import type { DetachedWindowSession, SessionTabRef } from '@shared/types/plugin'
-import { normalizeDetachedWindowSession } from '@shared/windowState'
+import type { DetachedWindowSession, PluginWindowGeometry, SessionTabRef } from '@shared/types/plugin'
+import { normalizeDetachedWindowSession, normalizeWindowGeometry } from '@shared/windowState'
 
-const copyTab = (tab: SessionTabRef): SessionTabRef => ({ ...tab, ...(tab.detached ? { detached: { ...tab.detached, bounds: { ...tab.detached.bounds } } } : {}) })
+const copyTab = (tab: SessionTabRef): SessionTabRef => ({
+  ...tab,
+  ...(tab.detached ? { detached: { ...tab.detached, bounds: { ...tab.detached.bounds } } } : {}),
+  ...(tab.float ? { float: { ...tab.float, bounds: { ...tab.float.bounds } } } : {})
+})
 
 export interface PluginWindowSessionSnapshot {
   sessionTabs: SessionTabRef[]
@@ -29,7 +33,9 @@ export class PluginWindowSession {
     for (const tab of Array.isArray(saved.sessionTabs) ? saved.sessionTabs : []) {
       if (typeof tab?.pluginId !== 'string' || !tab.pluginId) continue
       const detached = normalizeDetachedWindowSession(tab.detached)
-      this.tabs.set(tab.pluginId, { pluginId: tab.pluginId, title: typeof tab.title === 'string' ? tab.title : undefined, ...(detached ? { detached } : {}) })
+      const float = normalizeWindowGeometry(tab.float)
+      this.tabs.set(tab.pluginId, { pluginId: tab.pluginId, title: typeof tab.title === 'string' ? tab.title : undefined,
+        ...(detached ? { detached } : {}), ...(float ? { float } : {}) })
     }
     this.active = this.tabs.has(saved.sessionActivePluginId ?? '') ? saved.sessionActivePluginId! : ''
   }
@@ -64,6 +70,16 @@ export class PluginWindowSession {
     if (!tab?.detached) return
     const { detached: _detached, ...rest } = tab
     this.tabs.set(pluginId, rest)
+    this.schedule()
+  }
+
+  /** Remember the last float geometry so the next float opens where the user left it. */
+  setFloat(pluginId: string, value: PluginWindowGeometry): void {
+    if (this.frozen) return
+    this.load()
+    const tab = this.tabs.get(pluginId), float = normalizeWindowGeometry(value)
+    if (!tab || !float || JSON.stringify(tab.float) === JSON.stringify(float)) return
+    this.tabs.set(pluginId, { ...tab, float })
     this.schedule()
   }
 

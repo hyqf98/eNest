@@ -15,6 +15,12 @@ export interface WebLoginRequest {
   title?: string
   width?: number
   height?: number
+  /**
+   * 登录页按多少 CSS 像素排版（例如页面主容器写了 `min-width: 1280px`）。
+   * 给出时宿主在窗口更窄的情况下等比缩小页面，避免内容溢出、右侧露出空白背景。
+   * 只是布局提示，不影响窗口几何；不给则按窗口实际宽度 1:1 渲染。
+   */
+  contentWidth?: number
 }
 
 export interface WebLoginCookie {

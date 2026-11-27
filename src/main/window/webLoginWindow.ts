@@ -10,7 +10,7 @@
  * - cookie 只在登录成功那一刻读一次，交给发起调用的插件页面后随会话一起销毁。
  */
 import { randomUUID } from 'node:crypto'
-import { BrowserWindow, session, webContents } from 'electron'
+import { BrowserWindow, screen, session, webContents } from 'electron'
 import type { WebLoginCookie, WebLoginRequest, WebLoginResult } from '@shared/types/webLogin'
 import type { PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { resolveWindowIcon } from '@main/window/applicationIcon'
@@ -19,6 +19,12 @@ import { resolveWindowIcon } from '@main/window/applicationIcon'
 const MAX_WINDOWS_PER_PLUGIN = 2
 /** 一次登录的最长时长：扫码、账号密码加短信验证都够用；到点关窗并按取消处理 */
 const LOGIN_TIMEOUT_MS = 10 * 60 * 1000
+/**
+ * 到达成功页后等 cookie 稳定的时间：天翼会先跳成功页，再由页面脚本下发 / 轮换会话 cookie。
+ * 轮询间隔 250ms，连续两次快照一致就交；最多等 3s，不把登录成功拖成慢操作。
+ */
+const COOKIE_SETTLE_INTERVAL_MS = 250
+const COOKIE_SETTLE_MAX_MS = 3000
 const open = new Map<string, Set<BrowserWindow>>()
 
 function windowsOf(pluginId: string): Set<BrowserWindow> {
@@ -68,7 +74,8 @@ export function parseWebLoginRequest(input: unknown): WebLoginRequest {
     successUrlPrefix: text(record.successUrlPrefix).slice(0, 2048),
     ...(text(record.title) ? { title: text(record.title) } : {}),
     ...(size(record.width, 0) ? { width: size(record.width, 0) } : {}),
-    ...(size(record.height, 0) ? { height: size(record.height, 0) } : {})
+    ...(size(record.height, 0) ? { height: size(record.height, 0) } : {}),
+    ...(size(record.contentWidth, 0) ? { contentWidth: size(record.contentWidth, 0) } : {})
   }
 }
 
@@ -111,18 +118,39 @@ export async function openWebLoginWindow(pluginId: string, ownerWcId: number, sc
     callback({ cancel: !/^https:\/\//.test(details.url) })
   })
 
-  const width = Math.min(1280, Math.max(360, Math.round(request.width ?? 520)))
-  const height = Math.min(1024, Math.max(400, Math.round(request.height ?? 720)))
+  // 尺寸：登录页（尤其天翼云盘）是按桌面宽度排版的完整网页，窄窗里只能横向溢出加滚动。
+  // 默认给一个接近桌面浏览器的窗口，并按所在显示器的可用区域收敛，避免超出屏幕。
+  const parentBounds = parent && !parent.isDestroyed() ? parent.getBounds() : null
+  const area = parentBounds
+    ? screen.getDisplayMatching(parentBounds).workArea
+    : screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+  const width = Math.min(area.width, Math.max(360, Math.round(request.width ?? 1200)))
+  const height = Math.min(area.height, Math.max(400, Math.round(request.height ?? 900)))
+  /**
+   * 页面按 contentWidth 排版但窗口更窄时等比缩小。
+   * 天翼登录页主容器写死 width:1440px / min-width:1280px 且没有小屏断点，1:1 渲染在 1200px 窗口里
+   * 会横向溢出、右侧露出空白背景。缩放比只按内容宽度算，留 5% 余量避免恰好卡在滚动条边缘。
+   */
+  const contentWidth = request.contentWidth && request.contentWidth > 0 ? request.contentWidth : 0
+  const zoom = contentWidth > 0 && width < contentWidth
+    ? Math.max(0.5, Math.min(1, (width / contentWidth) * 0.98))
+    : 1
   const win = new BrowserWindow({
     width, height, minWidth: 360, minHeight: 400,
+    // 居中所属显示器：登录窗口与插件页并排，用户不用来回找窗口
+    ...(parentBounds ? { x: Math.round(parentBounds.x + (parentBounds.width - width) / 2), y: Math.round(parentBounds.y + (parentBounds.height - height) / 2) } : {}),
     title: String(request.title ?? '').slice(0, 120) || '登录',
-    parent, modal: parent !== undefined, show: false, resizable: true, fullscreenable: false, maximizable: false,
+    // 刻意不用 modal：macOS 上 modal 子窗口会变成无标题栏的 sheet，既没有关闭按钮也不能自由缩放，
+    // 长登录页只能靠滚动。普通子窗口保留标题栏、关闭钮和拖拽缩放。
+    parent, modal: false, show: false, resizable: true, fullscreenable: false, maximizable: true,
     autoHideMenuBar: true, icon: resolveWindowIcon(),
     webPreferences: {
       session: isolated,
       // 刻意不设 preload / nodeIntegration：外部站点拿不到任何宿主能力
       sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true,
-      spellcheck: false, navigateOnDragDrop: false
+      spellcheck: false, navigateOnDragDrop: false,
+      // 缩放属于显示设置，页面脚本不可改：登录页改写 zoom 会破坏上面的排版对齐。
+      zoomFactor: zoom
     }
   })
   /** 结果交出（或创建失败）后销毁会话：清 cookie、缓存与连接，登录凭据不在宿主内存里久留 */
@@ -144,7 +172,6 @@ export async function openWebLoginWindow(pluginId: string, ownerWcId: number, sc
     // 一个既没成功也没被关掉的窗口会一直占着该插件的名额，之后再也打不开登录窗口。
     const timeout: ReturnType<typeof setTimeout> = setTimeout(() => {
       finish({ ok: false, reason: 'cancelled' })
-      if (!win.isDestroyed()) win.destroy()
     }, LOGIN_TIMEOUT_MS)
     timeout.unref?.()
     const finish = (result: WebLoginResult): void => {
@@ -155,25 +182,63 @@ export async function openWebLoginWindow(pluginId: string, ownerWcId: number, sc
       releaseActivity()
       mine.delete(win)
       if (mine.size === 0) open.delete(pluginId)
+      // 成功也要关窗：登录已拿到会话，留着这个窗口只会让用户以为没成功、反复点。
+      // closed 事件里会再调一次 finish，靠 finished 标志挡住。
+      if (!win.isDestroyed()) win.destroy()
       settle(result)
     }
 
     /** 主框架的每一次导航（含服务端跳转）都必须落在已声明的站点内 */
     const allowed = (url: string): boolean => { const origin = originOf(url); return origin !== null && allowedOrigins.includes(origin) }
-    // 服务端跳转（will-redirect）早于导航提交，cookie 可能还没写完；结果在 did-navigate 里读
+    /**
+     * 到了成功页还不能立刻交 cookie：登录站通常先跳成功页，再由页面脚本发 XHR 下发或轮换会话 cookie。
+     * 导航提交那一刻读到的是不完整的一组，插件存下来的会话就会「刚登录就过期」。
+     * 这里反复读，直到连续两次快照完全一致（或到上限）再交出一份稳定的会话。
+     */
+    let settling = false
     const checkSuccess = (url: string): void => {
-      if (finished || !url.startsWith(successPrefix)) return
-      void readCookies(isolated).then(cookies => finish({ ok: true, url, cookies }), () => finish({ ok: false, reason: 'cancelled' }))
+      if (finished || settling || !url.startsWith(successPrefix)) return
+      settling = true
+      const deadline = Date.now() + COOKIE_SETTLE_MAX_MS
+      let previous = ''
+      const poll = (): void => {
+        if (finished) return
+        void readCookies(isolated).then(cookies => {
+          if (finished) return
+          const snapshot = cookies.map(cookie => `${cookie.domain}|${cookie.path}|${cookie.name}=${cookie.value}`).sort().join(';')
+          if (snapshot === previous || Date.now() >= deadline) { finish({ ok: true, url, cookies }); return }
+          previous = snapshot
+          setTimeout(poll, COOKIE_SETTLE_INTERVAL_MS)
+        }, () => finish({ ok: false, reason: 'cancelled' }))
+      }
+      poll()
     }
 
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     win.webContents.on('will-attach-webview', event => event.preventDefault())
+    // Esc 关闭：普通子窗口没有 sheet 那样的系统取消手势，用户放弃登录时需要一个不靠找按钮的出口。
+    // 只在窗口自身有焦点时响应，且不吞掉页面内的按键（before-input-event 只旁听）。
+    win.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown' || input.key !== 'Escape') return
+      event.preventDefault()
+      finish({ ok: false, reason: 'cancelled' })
+    })
     // 要离开已声明的站点（含被跳到别的域）就停下并结束：用户不会在不该出现的站点里输入凭据
     win.webContents.on('will-navigate', (event, url) => { if (!allowed(url)) { event.preventDefault(); finish({ ok: false, reason: 'cancelled' }) } })
     win.webContents.on('will-redirect', (event, url) => { if (!allowed(url)) { event.preventDefault(); finish({ ok: false, reason: 'cancelled' }) } })
     win.webContents.on('did-navigate', (_event, url) => checkSuccess(url))
     win.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => { if (isMainFrame) checkSuccess(url) })
     win.webContents.on('render-process-gone', () => finish({ ok: false, reason: 'cancelled' }))
+    // 窗口可缩放：用户拖大后应恢复 1:1，不要一直压着缩小内容；拖小时再按新宽度重算。
+    if (contentWidth > 0) {
+      const applyZoom = (): void => {
+        if (win.isDestroyed() || win.webContents.isDestroyed()) return
+        const [currentWidth] = win.getContentSize()
+        const next = currentWidth < contentWidth ? Math.max(0.5, Math.min(1, (currentWidth / contentWidth) * 0.98)) : 1
+        if (Math.abs(win.webContents.getZoomFactor() - next) > 0.01) win.webContents.setZoomFactor(next)
+      }
+      win.on('resize', applyZoom)
+    }
     win.once('closed', () => finish({ ok: false, reason: 'cancelled' }))
 
     void win.loadURL(startUrl).then(() => {

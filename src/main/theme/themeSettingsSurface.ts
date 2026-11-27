@@ -6,6 +6,7 @@ import { IpcChannels } from '@shared/types/ipc'
 import type { ThemePackV2 } from '@shared/types/appearance'
 import type { ThemeSettingsAction, ThemeSettingsActionResult, ThemeSettingsConfig, ThemeSettingsFieldDescriptor, ThemeSettingsSnapshot, ThemeSettingsValue } from '@shared/types/themeSettings'
 import { themeProfileKey } from '@shared/theme/appearance'
+import { themeFieldLabel, themeGroupTitle, themeOptionLabel } from '@shared/theme/themeLabels'
 import { isPluginSettingKey } from '@shared/pluginSettingsKeys'
 import { parseThemeColor } from '@shared/theme/colors'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
@@ -129,6 +130,7 @@ function snapshot(key: string): ThemeSettingsSnapshot {
   const current = live(key)
   if (!current) throw new Error('Settings surface retired')
   const all = settingsStore.getAll(), appearance = appearanceService.getAppearance(), en = all.general.locale === 'en-US'
+  const locale = en ? 'en-US' as const : 'zh-CN' as const
   const fields = new Map<string, { descriptor: ThemeSettingsFieldDescriptor; target: FieldTarget }>()
   const add = (id: string, input: Omit<ThemeSettingsFieldDescriptor, 'id'>, target: FieldTarget): ThemeSettingsFieldDescriptor => {
     // IDs are scoped by the unguessable selected surface grant and resolve only through this map.
@@ -153,9 +155,9 @@ function snapshot(key: string): ThemeSettingsSnapshot {
         if (field.visibleWhen && (stored?.values[field.visibleWhen.field] ?? pack.settings.groups.flatMap(row => row.fields).find(row => row.key === field.visibleWhen!.field)?.default) !== field.visibleWhen.equals) continue
         const value = field.binding.target === 'token' ? appearance.tokens[field.binding.key] : stored?.values[field.key] ?? field.default
         if (!safeValue(value)) continue
-        rows.push(add(`a:${field.key}`, { label: field.label, type, value, options: field.options?.map(option => ({ label: option.label, value: option.value })), min: field.min, max: field.max, step: field.step }, { type: 'appearance', source: pack.source, themeId: pack.id, key: field.key }))
+        rows.push(add(`a:${field.key}`, { label: themeFieldLabel(field, locale), type, value, options: field.options?.map(option => ({ label: themeOptionLabel(option, locale), value: option.value })), min: field.min, max: field.max, step: field.step }, { type: 'appearance', source: pack.source, themeId: pack.id, key: field.key }))
       }
-      if (rows.length) groups.push({ id: `appearance:${group.id}`, title: group.title, fields: rows })
+      if (rows.length) groups.push({ id: `appearance:${group.id}`, title: themeGroupTitle(group, locale), fields: rows })
     }
   }
   const plugins = pluginRegistry.getInstalledDescriptors().filter(item => item.enabled)

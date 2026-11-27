@@ -10,7 +10,8 @@ import type {
   GithubLoginSessionPayload, GithubProfileState, ShellEventPayload, UpdateStatePayload, ProxyTestResult
 } from '@shared/types/ipc'
 import type {
-  AppPaths, DevPluginLoadOptions, MarketInstallResult, PluginPermission, PluginPermissionGrant, PluginSummary, ProxyConfig
+  AppPaths, DataRootMigrationResult, DevPluginLoadOptions, MarketInstallResult, OrphanDataClearResult, PluginDataClearResult, PluginDataUsage,
+  PluginPermission, PluginPermissionGrant, PluginSummary, ProxyConfig
 } from '@shared/types/plugin'
 import type {
   HardwareAccelSetResult,
@@ -165,6 +166,17 @@ export const shellBridge: NativeShellApi = {
   pickFile: (options?: PickFileOptions) =>
     ipcRenderer.invoke(IpcChannels.ShellPickFile, options) as Promise<string | null>,
 
+  pickDirectory: () => ipcRenderer.invoke(IpcChannels.ShellPickDirectory) as Promise<string | null>,
+
+  // 这三个通道直接透传结果：部分失败时渲染层需要完整的成功/失败清单，不能在桥里变成异常
+  migrateDataRoot: targetRoot => ipcRenderer.invoke(IpcChannels.ShellMigrateDataRoot, targetRoot) as Promise<DataRootMigrationResult>,
+
+  getPluginDataUsage: () => ipcRenderer.invoke(IpcChannels.ShellGetPluginDataUsage) as Promise<PluginDataUsage>,
+
+  clearPluginData: pluginId => ipcRenderer.invoke(IpcChannels.ShellClearPluginData, pluginId) as Promise<PluginDataClearResult>,
+
+  clearOrphanData: () => ipcRenderer.invoke(IpcChannels.ShellClearOrphanData) as Promise<OrphanDataClearResult>,
+
   getPluginReadme: (pluginId: string) =>
     ipcRenderer.invoke(IpcChannels.ShellGetPluginReadme, pluginId) as Promise<string>,
 
@@ -256,6 +268,14 @@ export const shellBridge: NativeShellApi = {
   openOpenWithSystemSettings: () =>
     ipcRenderer.invoke(IpcChannels.ShellOpenWithOpenSystemSettings) as Promise<void>,
   getAccountState: () => ipcRenderer.invoke(IpcChannels.ShellAccountState),
+  copyGithubDeviceCode: () => ipcRenderer.invoke(IpcChannels.ShellGithubCopyCode),
+  getGithubSyncState: id => ipcRenderer.invoke(IpcChannels.ShellGithubSyncState, id),
+  discoverGithubRepositories: id => ipcRenderer.invoke(IpcChannels.ShellGithubSyncDiscover, id),
+  connectGithubRepository: (id, name) => ipcRenderer.invoke(IpcChannels.ShellGithubSyncConnect, id, name),
+  disconnectGithubRepository: (id, repo) => ipcRenderer.invoke(IpcChannels.ShellGithubSyncDisconnect, id, repo),
+  syncGithubPlugins: input => ipcRenderer.invoke(IpcChannels.ShellGithubSyncTransfer, input),
+  cancelGithubSync: (id, repo) => ipcRenderer.invoke(IpcChannels.ShellGithubSyncCancel, id, repo),
+  setGithubAutoRestore: (id, repo, enabled) => ipcRenderer.invoke(IpcChannels.ShellGithubSyncAutomatic, id, repo, enabled),
   loginAccount: (providerId) => ipcRenderer.invoke(IpcChannels.ShellAccountLogin, providerId),
   cancelAccountLogin: (providerId) => ipcRenderer.invoke(IpcChannels.ShellAccountCancel, providerId),
   logoutAccount: (providerId) => ipcRenderer.invoke(IpcChannels.ShellAccountLogout, providerId),

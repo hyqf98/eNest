@@ -7,19 +7,43 @@ export interface PluginShortcutBinding {
   accelerator: string
   mode: PluginLaunchTarget
   enabled: boolean
+  /**
+   * The user confirmed taking this chord over with the low-level keyboard hook (Windows).
+   * It is an authorization, not a promise: normal registration is still tried first on every restore.
+   */
+  forced?: boolean
 }
 
-export type PluginShortcutInput = Omit<PluginShortcutBinding, 'id'> & { id?: string; overrideToken?: string }
+/**
+ * `forced` is deliberately absent: only the main process may grant it, after an explicit `force`
+ * request actually took the chord over. Otherwise a caller could forge the authorization.
+ */
+export type PluginShortcutInput = Omit<PluginShortcutBinding, 'id' | 'forced'> & {
+  id?: string
+  overrideToken?: string
+  /** The user explicitly asked to take an externally occupied chord over with the keyboard hook. */
+  force?: boolean
+}
 
 export interface PluginShortcutState {
   id: string
-  status: 'registered' | 'pending-system' | 'disabled' | 'plugin-disabled' | 'plugin-missing' | 'conflict' | 'suspended'
+  status: 'registered' | 'pending-system' | 'disabled' | 'plugin-disabled' | 'plugin-missing' | 'conflict' | 'suspended' | 'forced'
   error?: string
+}
+
+/** A shortcut a plugin registered at runtime through `enest.hotkey.register`. Read-only for settings. */
+export interface HotkeyRuntimeEntry {
+  pluginId: string
+  accelerator: string
+  /** Feature name the plugin supplied; absent when it registered without one. */
+  label?: string
 }
 
 export interface PluginShortcutsSnapshot {
   bindings: PluginShortcutBinding[]
   states: PluginShortcutState[]
+  /** Currently registered plugin runtime shortcuts; lifecycle belongs to each plugin. */
+  runtime: HotkeyRuntimeEntry[]
 }
 
 export interface ShortcutProbeResult {

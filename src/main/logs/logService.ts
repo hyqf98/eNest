@@ -130,6 +130,15 @@ export function initLogService(): void {
   mkdirSync(dir, { recursive: true })
 }
 
+/**
+ * 数据根迁移后让日志目录缓存跟随新根。已打开的写句柄仍指向旧目录里的 main.log，
+ * 直到下次轮转或重启才切到新目录，所以迁移成功后仍提示重启。
+ */
+export function resetLogsDir(): void {
+  logsDir = null
+  initLogService()
+}
+
 /** electron-log 各级别写函数（file transport 已配置为 silly 全量落盘） */
 const levelWriters: Record<LogLevel, (text: string) => void> = {
   debug: (t) => elog.debug(t),

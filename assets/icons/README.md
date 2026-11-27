@@ -1,6 +1,6 @@
 # eNest 应用图标
 
-`enest.svg` 是唯一几何源。运行 `node tools/packaging/generate-app-icons.mjs` 从同一底板和标识导出两种配色；生成需要 macOS 自带的 `sips`、`iconutil` 和已有的 FFmpeg，正常开发、打包不需要重复生成。
+`enest.svg` 是唯一几何源。运行 `node scripts/packaging/generate-app-icons.mjs` 从同一底板和标识导出两种配色；生成需要 macOS 自带的 `sips`、`iconutil` 和已有的 FFmpeg，正常开发、打包不需要重复生成。
 
 | 使用场景 | 资源与选择规则 |
 | --- | --- |

@@ -179,6 +179,10 @@
 .page-settings :is(.bg-effect-card.btn, .theme-gradient-card.btn) { display: flex; flex-direction: column; align-items: stretch; gap: 0; min-width: 0; min-height: 100px; height: 100px; padding: 6px 6px 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); color: var(--text); white-space: normal; text-align: left; }
 .page-settings :is(.bg-effect-card.btn, .theme-gradient-card.btn):hover { border-color: var(--border-strong); background: var(--surface-3); }
 .page-settings :is(.bg-effect-card.btn, .theme-gradient-card.btn).active { border-color: var(--link, var(--accent)); background: var(--surface); }
+/* 字段被 disabledWhen 锁定：整行降不透明度说明"当前不生效"，卡片不再响应 hover。 */
+.page-settings .field.appearance-field-locked { opacity: .55; }
+.page-settings :is(.bg-effect-card.btn, .theme-gradient-card.btn):disabled:hover { border-color: var(--border); background: var(--surface-2); }
+.appearance-field-lock-note { color: var(--text-3); }
 .bg-effect-thumbnail, .theme-gradient-preview { display: block; position: relative; overflow: hidden; width: 100%; height: 60px; flex: 0 0 60px; border-radius: 7px; }
 .bg-effect-thumbnail { background: #091017; }
 .bg-effect-thumbnail svg { display: block; width: 100%; height: 100%; }

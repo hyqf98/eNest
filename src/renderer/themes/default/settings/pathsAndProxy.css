@@ -28,6 +28,29 @@
   flex-shrink: 0;
 }
 
+/* 数据目录：路径与按钮纵向排布，待迁移时上下并排显示当前目录与目标目录 */
+.data-root-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(460px, 100%);
+}
+
+.data-root-control .path-text {
+  flex: none;
+}
+
+.data-root-target {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent-soft, var(--surface-2)) 70%, transparent);
+}
+
+.data-root-control .path-actions {
+  max-width: 100%;
+}
+
 /* 代理：类型 + 主机/端口 或 自定义 URL + 测试 */
 .proxy-row {
   display: flex;

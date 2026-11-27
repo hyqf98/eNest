@@ -332,6 +332,47 @@ export function flushPluginStorage(pluginId: string): PluginStorageCommitReceipt
   return commitEntries(pluginId, pendingEntries(pluginId))
 }
 
+export type PortableStorage = [string, string][]
+
+export function validatePortableStorage(rows: unknown): PortableStorage {
+  if (!Array.isArray(rows) || rows.length > MAX_KEYS_PER_PLUGIN) throw new Error('插件键值数量超限')
+  const keys = new Set<string>()
+  return rows.map(row => {
+    if (!Array.isArray(row) || row.length !== 2 || typeof row[0] !== 'string' || typeof row[1] !== 'string' || row[0].includes('\0') || keys.has(row[0])) throw new Error('插件键值快照无效')
+    const [key, value] = row
+    validateWriteKey(key)
+    if (Buffer.byteLength(value) > MAX_VALUE_BYTES) throw new Error('单个插件数据项过大')
+    serializeJson(JSON.parse(value))
+    keys.add(key)
+    return [key, value] as [string, string]
+  }).sort(([left], [right]) => Buffer.compare(Buffer.from(left), Buffer.from(right)))
+}
+
+export function readPortableStorage(pluginId: string, limit: number): PortableStorage {
+  if (!flushDirty(pluginId)) throw new Error('插件数据尚未落盘')
+  const db = kvStore.getDatabase()
+  if (!db) throw new Error('本机数据库不可用')
+  const size = db.prepare('SELECT COUNT(*) AS count, SUM(length(CAST(key AS BLOB)) + length(CAST(value AS BLOB))) AS bytes FROM plugin_storage WHERE plugin_id=?').get(pluginId)!
+  if (Number(size.count) > MAX_KEYS_PER_PLUGIN || Number(size.bytes) > limit) throw new Error('插件数据超过同步上限')
+  const rows = db.prepare('SELECT key,value FROM plugin_storage WHERE plugin_id=? ORDER BY key').all(pluginId)
+  return validatePortableStorage(rows.map(row => [row.key, row.value]))
+}
+
+export function restorePortableStorage(pluginId: string, rows: PortableStorage, finish: () => void): void {
+  const db = kvStore.getDatabase()
+  if (!db) throw new Error('本机数据库不可用')
+  if (pendingEntries(pluginId).size) throw new Error('插件数据刚刚变化，请重新同步')
+  const { clear, upsert } = statementsFor(db)
+  ensureBarrierTable(db)
+  runInDurableTransaction(db, () => {
+    clear.run(pluginId)
+    for (const [key, value] of rows) upsert.run(pluginId, key, value)
+    db.prepare('INSERT OR REPLACE INTO plugin_storage_barriers (plugin_id,commit_id) VALUES (?,?)').run(pluginId, randomUUID())
+    finish()
+  })
+  for (const [key, item] of cache) if (item.pluginId === pluginId) evict(key)
+}
+
 /** Validate the complete batch before publishing any values or changing pending writes. */
 export function commitPluginStorage(pluginId: string, operations: PluginStorageOperation[]): PluginStorageCommitReceipt {
   if (!Array.isArray(operations) || !operations.length || operations.length > MAX_COMMIT_OPERATIONS) throw new Error('storage commit requires 1 to 100 operations')

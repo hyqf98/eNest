@@ -61,20 +61,24 @@ function fixture(platform = 'darwin') {
   const vault = load('vault/secretVault.ts', adapters, platform)
   const mcp = load('mcp/mcpCredentialStore.ts', adapters, platform)
   const callback = { result: deferred(), completed: deferred(), closed: false }
-  const auth = load('auth/githubAuthService.ts', {
-    ...adapters,
-    electron: {
+  const accountSettings = { settingsStore: { getProfileUser: () => state.user, setProfileUser: user => { state.user = user } } }
+  const electron = {
       shell: { openExternal: async () => {} },
       net: { fetch: async url => {
         if (url === 'https://publisher.example/exchange') return Response.json({ access_token: 'fixture-token' })
-        if (url === 'https://api.github.com/user') return Response.json({ login: 'fixture', name: 'Fixture', avatar_url: null, html_url: null })
+        if (url === 'https://api.github.com/user') return Response.json({ id: 17, login: 'fixture', name: 'Fixture', avatar_url: null, html_url: null })
         throw new Error(`Unexpected URL: ${url}`)
       } }
-    },
+    }
+  const auth = load('auth/githubAuthService.ts', {
+    ...adapters, electron, '@main/vault/githubAccountStorage': { sealGithubCredential: secure.encryptCredential, openGithubCredential: secure.decryptCredential, isLegacyGithubCiphertext: () => false },
+    './githubMemorySession': load('auth/githubMemorySession.ts', { ...adapters, '@main/settings/SettingsStore': accountSettings }, platform),
+    './githubTransport': load('auth/githubTransport.ts', { electron, '@main/net/boundedResponse': load('net/boundedResponse.ts') }, platform),
+    './githubCredential': load('auth/githubCredential.ts'), '@main/clipboard/clipboardNativeEvents': { writeClipboardText: async () => {} },
     './authConfig': { getGithubAuthConfig: () => ({ available: true, clientId: 'fixture', exchangeUrl: 'https://publisher.example/exchange' }) },
     './oauthLoopback': { listenOAuthLoopback: async () => ({ redirectUri: 'http://127.0.0.1:12345/callback', result: callback.result.promise,
       complete: success => callback.completed.resolve(success), close: () => { callback.closed = true } }) },
-    '@main/settings/SettingsStore': { settingsStore: { getAll: () => ({ profile: { user: state.user } }), setProfileUser: user => { state.user = user } } },
+    '@main/settings/SettingsStore': accountSettings,
     '@main/window/createShellWindow': { sendShellEvent: event => state.events.push(event), getMainWindow: () => null },
     '@main/window/orbRailViews': { setOrbProfile() {} }
   }, platform)

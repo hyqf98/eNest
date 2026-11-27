@@ -186,6 +186,11 @@ export function bindPluginEventBridge(): void {
         emit('mode-change', { mode: payload.mode } satisfies PluginModeChangeEvent)
         break
       }
+      case 'placement-change': {
+        // 挂载位置变更（shell / quick / detached / float 间迁移不重载）：通知插件切换界面形态
+        emit('placement-change', { placement: payload.placement, alwaysOnTop: payload.alwaysOnTop })
+        break
+      }
       case 'quick-query': {
         // Quick 搜索 provider 查询：enest.contribute.onQuickQuery / enest.on('quick-query')
         emit('quick-query', { reqId: payload.reqId, query: payload.query })

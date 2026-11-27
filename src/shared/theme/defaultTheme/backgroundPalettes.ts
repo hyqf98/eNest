@@ -2,17 +2,17 @@ import type { ThemeBackgroundPaletteDeclaration } from '@shared/types/appearance
 import { parseThemeColor } from '@shared/theme/colors'
 
 /** Built-in ids are the closed union; pack-declared presets add arbitrary safe ids at runtime. */
-interface BackgroundPalette { id: string; name: string; css: string; swatch: string }
+interface BackgroundPalette { id: string; name: string; nameEn: string; css: string; swatch: string }
 
 const palettes: BackgroundPalette[] = [
-  { id: 'theme', name: '随主题', css: 'radial-gradient(ellipse 90% 65% at 12% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 68%), linear-gradient(165deg, var(--bg), var(--surface-2))', swatch: 'linear-gradient(135deg, var(--accent-soft), var(--surface-2))' },
-  { id: 'dawn', name: '晨曦', css: 'radial-gradient(ellipse 90% 70% at 15% 0%, #e8c9b1 0%, transparent 65%), linear-gradient(165deg, #faf4eb 0%, #f2ebe1 55%, #e8ded2 100%)', swatch: 'linear-gradient(135deg,#e8c9b1,#f2ebe1)' },
-  { id: 'mint', name: '薄荷', css: 'radial-gradient(ellipse 80% 55% at 10% 0%, #bdd5c8 0%, transparent 60%), linear-gradient(160deg, #f0f4ee 0%, #dce8df 55%, #e9efea 100%)', swatch: 'linear-gradient(135deg,#bdd5c8,#e9efea)' },
-  { id: 'linen', name: '亚麻', css: 'radial-gradient(ellipse 75% 55% at 20% 0%, #e5ddce 0%, transparent 65%), linear-gradient(155deg, #f7f5ef 0%, #ece8df 55%, #e4e1d8 100%)', swatch: 'linear-gradient(135deg,#e5ddce,#f7f5ef)' },
-  { id: 'peach', name: '陶土', css: 'radial-gradient(ellipse 80% 60% at 0% 0%, #d9b3a0 0%, transparent 62%), linear-gradient(170deg, #f6eee6 0%, #edddd0 55%, #e4cbb9 100%)', swatch: 'linear-gradient(135deg,#d9b3a0,#f6eee6)' },
-  { id: 'ocean', name: '深海', css: 'radial-gradient(ellipse 85% 60% at 15% 0%, #39585e 0%, transparent 65%), linear-gradient(160deg, #233d43 0%, #1b2e34 55%, #192629 100%)', swatch: 'linear-gradient(135deg,#39585e,#192629)' },
-  { id: 'forest', name: '松林', css: 'radial-gradient(ellipse 70% 50% at 20% 10%, #486354 0%, transparent 62%), linear-gradient(180deg, #2a4034 0%, #21332c 55%, #1a2924 100%)', swatch: 'linear-gradient(135deg,#486354,#1a2924)' },
-  { id: 'ink', name: '石墨', css: 'radial-gradient(ellipse 70% 50% at 0% 0%, #464740 0%, transparent 65%), linear-gradient(155deg, #32332e 0%, #252622 55%, #1c1d1a 100%)', swatch: 'linear-gradient(135deg,#464740,#1c1d1a)' },
+  { id: 'theme', name: '随主题', nameEn: 'Match theme', css: 'radial-gradient(ellipse 90% 65% at 12% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 68%), linear-gradient(165deg, var(--bg), var(--surface-2))', swatch: 'linear-gradient(135deg, var(--accent-soft), var(--surface-2))' },
+  { id: 'dawn', name: '晨曦', nameEn: 'Dawn', css: 'radial-gradient(ellipse 90% 70% at 15% 0%, #e8c9b1 0%, transparent 65%), linear-gradient(165deg, #faf4eb 0%, #f2ebe1 55%, #e8ded2 100%)', swatch: 'linear-gradient(135deg,#e8c9b1,#f2ebe1)' },
+  { id: 'mint', name: '薄荷', nameEn: 'Mint', css: 'radial-gradient(ellipse 80% 55% at 10% 0%, #bdd5c8 0%, transparent 60%), linear-gradient(160deg, #f0f4ee 0%, #dce8df 55%, #e9efea 100%)', swatch: 'linear-gradient(135deg,#bdd5c8,#e9efea)' },
+  { id: 'linen', name: '亚麻', nameEn: 'Linen', css: 'radial-gradient(ellipse 75% 55% at 20% 0%, #e5ddce 0%, transparent 65%), linear-gradient(155deg, #f7f5ef 0%, #ece8df 55%, #e4e1d8 100%)', swatch: 'linear-gradient(135deg,#e5ddce,#f7f5ef)' },
+  { id: 'peach', name: '陶土', nameEn: 'Clay', css: 'radial-gradient(ellipse 80% 60% at 0% 0%, #d9b3a0 0%, transparent 62%), linear-gradient(170deg, #f6eee6 0%, #edddd0 55%, #e4cbb9 100%)', swatch: 'linear-gradient(135deg,#d9b3a0,#f6eee6)' },
+  { id: 'ocean', name: '深海', nameEn: 'Deep Sea', css: 'radial-gradient(ellipse 85% 60% at 15% 0%, #39585e 0%, transparent 65%), linear-gradient(160deg, #233d43 0%, #1b2e34 55%, #192629 100%)', swatch: 'linear-gradient(135deg,#39585e,#192629)' },
+  { id: 'forest', name: '松林', nameEn: 'Pine', css: 'radial-gradient(ellipse 70% 50% at 20% 10%, #486354 0%, transparent 62%), linear-gradient(180deg, #2a4034 0%, #21332c 55%, #1a2924 100%)', swatch: 'linear-gradient(135deg,#486354,#1a2924)' },
+  { id: 'ink', name: '石墨', nameEn: 'Graphite', css: 'radial-gradient(ellipse 70% 50% at 0% 0%, #464740 0%, transparent 65%), linear-gradient(155deg, #32332e 0%, #252622 55%, #1c1d1a 100%)', swatch: 'linear-gradient(135deg,#464740,#1c1d1a)' },
 ]
 
 /** Original atmosphere presets, not theme identities or caller-authored CSS. */

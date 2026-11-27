@@ -68,6 +68,18 @@ export interface EnestPluginApi {
         setHeight(height: number): Promise<boolean>;
         /** Move this plugin's existing view to the desktop without reloading it. */
         openInShell(): Promise<boolean>;
+        /**
+         * 把本插件现有视图迁入置顶悬浮窗（不重载、不重建实例）：无标题栏、可拖动、可缩放、
+         * 不进任务栏，默认位于其它应用之上。需要 `pin.create` 授权。
+         * 布局模式保持 shell；宿主随后推送 placement-change 事件。
+         */
+        enterFloat(options?: FloatWindowOptions): Promise<boolean>;
+        /** 退出悬浮窗，视图迁回主窗 Tab（不重载）；非悬浮挂载时为无操作。 */
+        exitFloat(): Promise<boolean>;
+        /** 当前挂载位置；事件订阅之外的同步查询入口。 */
+        getPlacement(): Promise<PluginPlacementKind>;
+        /** 订阅挂载位置变更（shell / quick / detached / float 间迁移，不重载页面）。 */
+        onPlacementChange(cb: (event: PluginPlacementChangeEvent) => void): Unsubscribe;
         openSettings(): Promise<boolean>;
         /** Focused editor/terminal/overlay owns keys that Quick otherwise intercepts. */
         setInputContext(context: PluginInputContext): Promise<boolean>;
@@ -126,8 +138,16 @@ export interface EnestPluginApi {
          * 注册全局热键。成功 resolve { ok: true }；冲突（含壳子 Quick 热键 /
          * 其它插件占用 / 系统占用）resolve { ok: false, error }，不 reject。
          * 触发经 on('hotkey') 事件推送 { accelerator }。
+         * 每个插件最多同时注册 4 个。与用户在设置里绑定不同，这里不强制修饰键：
+         * 功能键（如 F1）可单独注册，但无修饰键的字母/符号会全局吞掉普通打字，应带上 Ctrl/Alt/Command。
+         * 注册的键会只读显示在宿主「设置 → 快捷键」，插件关闭时自动全部注销。
          */
-        register(accelerator: string, opts?: {
+        register(accelerator: string,
+        /**
+         * label：该快捷键对应的功能名（最多 48 字符）。会显示在宿主「设置 → 快捷键」
+         * 及其他插件撞键时的冲突提示里，让用户知道去哪关闭；省略则只显示插件名。
+         */
+        opts?: {
             label?: string;
         }): Promise<PluginHotkeyRegisterResult>;
         /** 注销本插件已注册的热键；未注册时也返回 ok */
@@ -353,10 +373,11 @@ export interface EnestPluginApi {
             failed: number;
         }>;
     };
-    /** 本机进程与端口查看（sys.inspect，1s 缓存）/ 终止（sys.control） */
+    /** 本机进程、端口与 CPU 查看（sys.inspect，1s 缓存）/ 终止（sys.control） */
     sys: {
         processes(): Promise<SysProcessInfo[]>;
         ports(): Promise<SysPortInfo[]>;
+        cpuUsage(): Promise<number | null>;
         /**
          * 结束进程：需 sys.control 权限与宿主原生确认（保护壳子进程、父进程与 PID 1）。
          * signal：TERM（缺省）/ KILL / INT。
@@ -596,6 +617,10 @@ export interface ThemePackV2 extends ThemePack {
     schemaVersion: 2;
     version: number;
     description?: string;
+    /** English pack name; the host falls back to `name` when absent. */
+    nameEn?: string;
+    /** English pack description; falls back to `description` when absent. */
+    descriptionEn?: string;
     variants: Record<AppearanceColorMode, ThemeVariant>;
     settings: ThemeSettingsSchema;
     /** Extra atmosphere presets usable from `background.palette`; ids never shadow host presets. */
@@ -819,6 +844,26 @@ export interface ClipboardFileInspection {
     path: string;
     exists: boolean | null;
     directory?: boolean;
+}
+
+/** Float window request from a plugin page; every field is optional and clamped by the host. */
+export interface FloatWindowOptions {
+    /** Initial outer size in DIP; ignored when a previous float geometry exists. */
+    width?: number;
+    height?: number;
+    minWidth?: number;
+    minHeight?: number;
+    /** Start above other applications. Requires `pin.create`; default true. */
+    alwaysOnTop?: boolean;
+}
+
+/** Where the plugin's own view is currently mounted; mirrors PluginPlacement without host-only ids. */
+export type PluginPlacementKind = 'shell' | 'quick' | 'detached' | 'float';
+
+export interface PluginPlacementChangeEvent {
+    placement: PluginPlacementKind;
+    /** Only meaningful while floating. */
+    alwaysOnTop?: boolean;
 }
 
 /** 壳子支持的界面语言（settings.general.locale / enest.i18n） */
@@ -1153,6 +1198,12 @@ export interface WebLoginRequest {
     title?: string;
     width?: number;
     height?: number;
+    /**
+     * 登录页按多少 CSS 像素排版（例如页面主容器写了 `min-width: 1280px`）。
+     * 给出时宿主在窗口更窄的情况下等比缩小页面，避免内容溢出、右侧露出空白背景。
+     * 只是布局提示，不影响窗口几何；不给则按窗口实际宽度 1:1 渲染。
+     */
+    contentWidth?: number;
 }
 
 export type WebLoginResult =
@@ -1714,18 +1765,15 @@ export type AppearanceColorMode = 'light' | 'dark';
 export interface ThemeBackgroundPaletteDeclaration {
     id: string;
     name: string;
+    /** English label; the host falls back to `name` when absent. */
+    nameEn?: string;
     css: string;
     swatch?: string;
 }
 
 export interface ThemeSettingsSchema {
     version: number;
-    groups: Array<{
-        id: string;
-        title: string;
-        description?: string;
-        fields: ThemeSettingsField[];
-    }>;
+    groups: ThemeSettingsGroup[];
 }
 
 export interface ThemeHomeReference {
@@ -1998,6 +2046,21 @@ export interface NotificationOptions {
     /** 0 keeps the card until dismissed; otherwise 1500–60000 ms. */
     duration?: number;
 }
+
+/** Presentation mode stays compatible with the plugin SDK; placement is host-only. */
+export type PluginPlacement = {
+    kind: 'shell';
+} | {
+    kind: 'quick';
+} | {
+    kind: 'detached';
+    windowId: number;
+}
+/** Chrome-less, topmost, user-resizable window holding the plugin's own view. */
+ | {
+    kind: 'float';
+    windowId: number;
+};
 
 export interface DesktopDipBounds {
     x: number;
@@ -2418,23 +2481,15 @@ export interface PluginBackgroundSearchContext {
 /** 普通启动入口的原生目标。 */
 export type PluginLaunchTarget = 'quick' | 'shell';
 
-export interface ThemeSettingsField {
-    key: string;
-    label: string;
-    type: 'color' | 'slider' | 'switch' | 'select' | 'font' | 'media' | 'token';
-    default: ThemeSettingValue;
-    binding: ThemeSettingBinding;
-    min?: number;
-    max?: number;
-    step?: number;
-    options?: ThemeSettingOption[];
-    /** Preferred widget shape; the host validates it against the field's type and binding. */
-    presentation?: ThemeSettingPresentation;
-    help?: string;
-    visibleWhen?: {
-        field: string;
-        equals: string | number | boolean;
-    };
+export interface ThemeSettingsGroup {
+    id: string;
+    title: string;
+    /** English title; the host falls back to `title` when absent. */
+    titleEn?: string;
+    description?: string;
+    /** English description; falls back to `description` when absent. */
+    descriptionEn?: string;
+    fields: ThemeSettingsField[];
 }
 
 export type ThemeColorToken = '--bg' | '--surface' | '--surface-2' | '--surface-3' | '--text' | '--text-2' | '--text-3' | '--accent' | '--ok' | '--danger' | '--border' | '--border-strong' | '--link';
@@ -2619,47 +2674,32 @@ export interface HomeCatalogItem {
 /** 宿主能力标识；基础能力直接可用，敏感能力需在 manifest 声明并取得用户授权。 */
 export type PluginPermission = 'backend.node' | 'clipboard.read' | 'clipboard.write' | 'clipboard.readImage' | 'clipboard.writeImage' | 'clipboard.history' | 'clipboard.paste' | 'timer.background' | 'screen.capture' | 'screen.record' | 'pin.create' | 'net.fetch' | 'shell.openExternal' | 'launcher.access' | 'web.login' | 'storage.local' | 'notify' | 'ui.setTitle' | 'ui.setIcon' | 'ui.setBadge' | 'ui.resize' | 'ui.toast' | 'settings.register' | 'settings.page' | 'hotkey' | 'contribute' | 'vault.write' | 'net.database' | 'net.database.query' | 'net.database.schema' | 'net.messaging' | 'net.messaging.read' | 'net.messaging.admin' | 'net.socket' | 'fs.rename' | 'fs.read' | 'fs.write' | 'sys.control' | 'sys.sshAgent' | 'sys.inspect' | 'theme';
 
-export type ThemeSettingValue = string | number | boolean | BackgroundConfig | null;
-
-/** Declarative bindings are semantic destinations, not CSS selectors or executable expressions. */
-export type ThemeSettingBinding = {
-    target: 'token';
-    key: ThemeColorToken;
-} | {
-    target: 'layout';
-    key: ThemeLayoutKey;
-} | {
-    target: 'background';
-    key: ThemeBackgroundKey;
-} | {
-    target: 'component';
-    key: ThemeComponentKey;
-} | {
-    target: 'font';
-    key: ThemeFontKey;
-} | {
-    target: 'splash';
-    key: ThemeSplashKey;
-} | {
-    target: 'notification';
-    key: ThemeNotificationKey;
-} | {
-    target: 'animation';
-    key: 'level';
-};
-
-/**
- * Declarative widget hint. The host still owns every control, its behaviour and its styles;
- * a pack only names the shape it prefers and the host falls back when the hint is unsupported.
- */
-export type ThemeSettingPresentation = 'segmented' | 'cards' | 'slider-cluster';
-
-export interface ThemeSettingOption {
+export interface ThemeSettingsField {
+    key: string;
     label: string;
-    value: string | number | boolean;
-    description?: string;
-    /** Host-rendered thumbnail; omitted options render a text-only card. */
-    preview?: ThemeSettingOptionPreview;
+    /** English label; the host falls back to `label` when absent. */
+    labelEn?: string;
+    type: 'color' | 'slider' | 'switch' | 'select' | 'font' | 'media' | 'token';
+    default: ThemeSettingValue;
+    binding: ThemeSettingBinding;
+    min?: number;
+    max?: number;
+    step?: number;
+    options?: ThemeSettingOption[];
+    /** Preferred widget shape; the host validates it against the field's type and binding. */
+    presentation?: ThemeSettingPresentation;
+    help?: string;
+    /** English help text; falls back to `help` when absent. */
+    helpEn?: string;
+    visibleWhen?: {
+        field: string;
+        equals: string | number | boolean;
+    };
+    /**
+     * Kept visible but not editable while any listed condition holds; stored values are preserved.
+     * `not` inverts one condition, which is how mutually exclusive settings are declared.
+     */
+    disabledWhen?: ThemeFieldCondition | ThemeFieldCondition[];
 }
 
 export type McpContentBlock = ({
@@ -2734,6 +2774,65 @@ export interface HomeCatalogCard {
     explain?: string;
 }
 
+export type ThemeSettingValue = string | number | boolean | BackgroundConfig | null;
+
+/** Declarative bindings are semantic destinations, not CSS selectors or executable expressions. */
+export type ThemeSettingBinding = {
+    target: 'token';
+    key: ThemeColorToken;
+} | {
+    target: 'layout';
+    key: ThemeLayoutKey;
+} | {
+    target: 'background';
+    key: ThemeBackgroundKey;
+} | {
+    target: 'component';
+    key: ThemeComponentKey;
+} | {
+    target: 'font';
+    key: ThemeFontKey;
+} | {
+    target: 'splash';
+    key: ThemeSplashKey;
+} | {
+    target: 'notification';
+    key: ThemeNotificationKey;
+} | {
+    target: 'animation';
+    key: 'level';
+};
+
+/**
+ * Declarative widget hint. The host still owns every control, its behaviour and its styles;
+ * a pack only names the shape it prefers and the host falls back when the hint is unsupported.
+ */
+export type ThemeSettingPresentation = 'segmented' | 'cards' | 'slider-cluster';
+
+export interface ThemeSettingOption {
+    label: string;
+    /** English label; the host falls back to `label` when absent. */
+    labelEn?: string;
+    value: string | number | boolean;
+    description?: string;
+    /** English description; falls back to `description` when absent. */
+    descriptionEn?: string;
+    /** Host-rendered thumbnail; omitted options render a text-only card. */
+    preview?: ThemeSettingOptionPreview;
+}
+
+export interface ThemeFieldCondition {
+    field: string;
+    equals: string | number | boolean;
+    not?: boolean;
+}
+
+export interface McpContentAnnotations {
+    audience?: Array<'user' | 'assistant'>;
+    priority?: number;
+    lastModified?: string;
+}
+
 export type ThemeLayoutKey = 'density' | 'gap' | 'sidebarWidth' | 'contentWidth' | 'columns' | 'tabStyle' | 'cardOpacity' | ThemeTabStripKey | ThemeOrbKey;
 
 export type ThemeBackgroundKey = 'texture' | 'intensity' | 'speed' | 'direction' | 'effect' | 'media' | 'warmth' | 'grain' | 'scale' | 'wash' | 'kind' | 'palette' | 'color' | 'opacity' | 'fit';
@@ -2757,12 +2856,6 @@ export type ThemeSettingOptionPreview = {
     kind: 'asset';
     src: string;
 };
-
-export interface McpContentAnnotations {
-    audience?: Array<'user' | 'assistant'>;
-    priority?: number;
-    lastModified?: string;
-}
 
 /** Options a theme can expose for the classic top tab strip. */
 export type ThemeTabStripKey = 'tabOpacity' | 'tabAutoHide';

@@ -272,7 +272,9 @@ node scripts/build-plugin.mjs ssh remote-desktop
 
 构建与打包入口都接受源码目录短名或精确的完整 manifest ID，例如 `ssh` 与 `com.github.eNest.ssh`；完整 ID 不做前缀剥离、大小写折叠或末段猜测，未知或歧义标识直接报错。两种写法解析到同一源码和产物，归档仍使用 `<短名>@<version>.enestplugin`，不会修改安装、权限或存储身份。
 
-连接 Vite 开发服务器时，前端可以 HMR，后端仍从源码根产物目录（`enest.output`，缺省 `dist`）的 **`backend/index.cjs`** 加载，因此需要构建产物；首次打开或重载时产物缺失，宿主会按 `package.json` 的构建命令自动构建一次，构建失败仍可打开并提示命令。后端修改后在插件目录重新运行构建命令（如 `npm run build`），再关闭/重载插件以创建新进程；产物已存在时宿主不会重复构建，Vite HMR 也不会替换已经运行的后端。开发者控制台没有 dev/prod 切换：验证完整发布行为时让开发服务离线，壳会按 `enest.output` 产物目录以生产 CSP 预览。不要使用「静态源码」预览直接运行 TypeScript 后端。
+连接 Vite 开发服务器时，前端可以 HMR，后端仍从源码根产物目录（`enest.output`，缺省 `dist`）的 **`backend/index.cjs`** 加载，因此需要构建产物。**Electron 的 `utilityProcess` 没有模块重载能力**（实例上只有 `postMessage` 与 `kill`），改后端源码不可能靠 HMR 生效，只能重新编译后再换一个进程。
+
+宿主因此在每次打开/重载时检查产物与源码的新旧：产物缺失，或后端源码比产物新，都会按 `package.json` 自动构建一次，构建失败仍可打开并提示命令。`enest.backend` 可声明一条**只构建后端**的命令（如 `"backend": { "script": "backend" }`），产物过期时优先用它——完整构建还要打包前端并过市场素材校验，一处与后端无关的不合规会让整条构建失败，把后端改动一起拖下水；没有声明则回退到 `enest.build`。开发者控制台没有 dev/prod 切换：验证完整发布行为时让开发服务离线，壳会按 `enest.output` 产物目录以生产 CSP 预览。不要使用「静态源码」预览直接运行 TypeScript 后端。
 
 `.enestplugin` 的根仍是 `dist` 的直接内容，包含声明的 `backend/**`。普通市场下载上限统一为 **256 MiB**，安装解压总量上限为 **2 GiB**；这些上限不豁免身份、摘要、路径和符号链接检查。
 

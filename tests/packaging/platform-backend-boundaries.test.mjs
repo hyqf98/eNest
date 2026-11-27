@@ -10,7 +10,7 @@ import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
 function load(file, adapters = {}, processMock = process) {
-  const output = ts.transpileModule(readFileSync(new URL(`../../${file}`, new URL("../../tools/packaging/", import.meta.url)), 'utf8'), {
+  const output = ts.transpileModule(readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true }
   }).outputText
   const module = { exports: {} }
@@ -97,7 +97,7 @@ test('updater dependencies are deferred and concurrent first checks load/configu
 
 test('DSH no longer has host business imports or dedicated IPC, permission and preload API', () => {
   for (const file of ['src/main/ipc/pluginHandlers.ts', 'src/main/plugin/PluginHost.ts', 'src/preload/pluginPreload.ts', 'src/shared/types/plugin.ts']) {
-    const source = readFileSync(new URL(`../../${file}`, new URL("../../tools/packaging/", import.meta.url)), 'utf8')
+    const source = readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8')
     assert.doesNotMatch(source, /@main\/dsh|@shared\/types\/dsh-workbench|dsh\.workbench|dsh\.connect|dsh\.admin/)
   }
 })

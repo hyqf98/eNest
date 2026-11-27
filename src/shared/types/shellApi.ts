@@ -1,5 +1,6 @@
 import type { PluginShortcutInput, PluginShortcutsSnapshot, PluginShortcutMutationResult, PluginShortcutLaunchResult, ShortcutProbeResult } from '@shared/types/shortcuts'
 import type { AccountState, AccountLoginResult } from '@shared/types/account'
+import type { GithubSyncState, SyncReport, SyncTransfer } from '@shared/types/githubSync'
 import type { AppPaths, DevPluginLoadOptions, GeneralSettings, MarketInstallResult, PluginMarketStatus, PluginLaunchPatch, PluginPermission, PluginPermissionGrant, PluginSummary, ProxyConfig, ThemeMode, ThemeTokens } from '@shared/types/plugin'
 import type { HardwareAccelSetResult, HardwareAccelState, LoginItemSetResult, LoginItemState, PickFileOptions, PluginLaunchSetResult, ProxySetResult, ShellSettingsSection, ShellThemeResult } from '@shared/types/shell'
 import type { ShellSettingsData } from '@shared/types/shellSettings'
@@ -124,6 +125,13 @@ export interface ShellApi {
   setPluginSetting?(pluginId: string, key: string, value: unknown): Promise<void>
   getPaths(): Promise<AppPaths>
   pickFile(options?: PickFileOptions): Promise<string | null>
+  pickDirectory?(): Promise<string | null>
+  /** 把整个数据根迁到新目录；成功后需重启才完全生效。 */
+  migrateDataRoot?(targetRoot: string): Promise<import('./plugin').DataRootMigrationResult>
+  getPluginDataUsage?(): Promise<import('./plugin').PluginDataUsage>
+  /** 全部重置：清掉插件的存储、图片、文件、密钥、设置与授权；pluginId 省略时清理全部插件。 */
+  clearPluginData?(pluginId?: string): Promise<import('./plugin').PluginDataClearResult>
+  clearOrphanData?(): Promise<import('./plugin').OrphanDataClearResult>
   getPluginReadme(pluginId: string): Promise<string>
   getHardwareAcceleration(): Promise<HardwareAccelState>
   setHardwareAcceleration(enabled: boolean): Promise<HardwareAccelSetResult>
@@ -165,6 +173,14 @@ export interface ShellApi {
   loginAccount(providerId: string): Promise<AccountLoginResult>
   cancelAccountLogin(providerId: string): Promise<void>
   logoutAccount(providerId: string): Promise<void>
+  copyGithubDeviceCode(): Promise<void>
+  getGithubSyncState(accountId: number): Promise<GithubSyncState>
+  discoverGithubRepositories(accountId: number): Promise<string[]>
+  connectGithubRepository(accountId: number, name: string): Promise<void>
+  disconnectGithubRepository(accountId: number, repositoryId: number): Promise<void>
+  syncGithubPlugins(input: SyncTransfer): Promise<SyncReport>
+  cancelGithubSync(accountId: number, repositoryId: number): Promise<void>
+  setGithubAutoRestore(accountId: number, repositoryId: number, enabled: boolean): Promise<void>
   githubLogin?(): Promise<{ ok: true; data: GithubLoginSessionPayload } | { ok: false; error: string }>
   /** 兼容接口：取消浏览器授权或设备码登录 */
   githubCancelLogin?(): Promise<{ ok: boolean }>

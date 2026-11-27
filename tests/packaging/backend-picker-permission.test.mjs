@@ -27,7 +27,7 @@ async function until(condition) {
   assert.fail('fixture did not reach expected state')
 }
 function load(file, imports, globals = {}) {
-  const output = ts.transpileModule(readFileSync(new URL(`../../src/main/plugin/${file}.ts`, new URL("../../tools/packaging/", import.meta.url)), 'utf8'), {
+  const output = ts.transpileModule(readFileSync(new URL(`../../src/main/plugin/${file}.ts`, import.meta.url), 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS }
   }).outputText
   const module = { exports: {} }

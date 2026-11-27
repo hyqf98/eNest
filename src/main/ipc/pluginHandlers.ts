@@ -63,7 +63,7 @@ import {
   type SocketConnectInput
 } from '@main/net/socketBridge'
 import { renameLocalFile, renameLocalFiles, pickLocalSaveFile } from '@main/plugin/localFiles'
-import { sysProcesses, sysPorts, sysKill } from '@main/sys/sysInspectService'
+import { sysProcesses, sysPorts, sysCpuUsage, sysKill } from '@main/sys/sysInspectService'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { getRuntimeScope, type PluginRuntimeScope } from '@main/plugin/PluginRuntimeScope'
 import { randomUUID } from 'node:crypto'
@@ -137,6 +137,10 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'ui.resize': 'ui.resize',
   'ui.setHeight': 'ui.resize',
   'ui.openInShell': null,
+  // 悬浮窗默认置顶：与辅助窗口置顶同一敏感面；退出悬浮窗为基础能力
+  'ui.enterFloat': null,
+  'ui.exitFloat': null,
+  'ui.getPlacement': null,
   'ui.setInputContext': null,
   'ui.focus': null,
   'ui.focusSearch': null,
@@ -219,6 +223,7 @@ const METHOD_PERMISSION: Record<string, PluginPermission | null> = {
   'fs.renameBatch': 'fs.rename',
   'sys.processes': 'sys.inspect',
   'sys.ports': 'sys.inspect',
+  'sys.cpuUsage': 'sys.inspect',
   'sys.kill': 'sys.control'
 }
 
@@ -414,6 +419,15 @@ async function dispatch(
       assertInteractive(pluginId)
       pluginHost.pinToShell(pluginId)
       return true
+    case 'ui.enterFloat':
+      // 权限判定统一在 required（请求置顶 → pin.create），此处只做交互校验与迁移。
+      assertInteractive(pluginId)
+      return await pluginHost.floatPlugin(pluginId, args[0])
+    case 'ui.exitFloat':
+      assertInteractive(pluginId)
+      return await pluginHost.exitFloat(pluginId)
+    case 'ui.getPlacement':
+      return pluginHost.getPlacementKind(pluginId)
     case 'ui.setInputContext':
       pluginHost.setInputContext(pluginId, args[0] as PluginInputContext)
       return true
@@ -661,6 +675,9 @@ async function dispatch(
     case 'sys.ports': {
       return sysPorts()
     }
+    case 'sys.cpuUsage': {
+      return sysCpuUsage()
+    }
     case 'sys.kill': {
       const o = asObj(args)
       const pid = o.pid != null ? Number(o.pid) : Number(args[0])
@@ -869,9 +886,11 @@ async function dispatch(
       return appearanceService.getAppearance(ui.preferredColorScheme === 'light' || ui.preferredColorScheme === 'dark' ? ui.preferredColorScheme : 'auto')
     }
     case 'hotkey.register': {
+      // opts.label names the feature and surfaces in conflict hints; anything else is ignored.
+      const opts = args[1]
       return registerRuntimeHotkey(pluginId, String(args[0] ?? ''), (acc) => {
         sendPluginEvent(pluginId, { type: 'hotkey', accelerator: acc })
-      })
+      }, opts && typeof opts === 'object' ? (opts as { label?: unknown }).label : undefined)
     }
     case 'hotkey.unregister': {
       return unregisterRuntimeHotkey(pluginId, String(args[0] ?? ''))
@@ -985,7 +1004,8 @@ export function registerPluginHandlers(): void {
           // 权限为 null 表示该方法无需 manifest 声明（settings 由 Bridge 管控）
           const required = method === 'localFiles.pick' && asObj(args).access === 'write' ? 'fs.write'
             : method === 'auxiliary.open' && asObj(args).capture ? 'screen.record'
-            : method === 'auxiliary.open' && asObj(args).alwaysOnTop === true ? 'pin.create' : METHOD_PERMISSION[method]
+            : method === 'auxiliary.open' && asObj(args).alwaysOnTop === true ? 'pin.create'
+            : method === 'ui.enterFloat' && asObj(args).alwaysOnTop !== false ? 'pin.create' : METHOD_PERMISSION[method]
           if (required === undefined) {
             return { ok: false, error: `unknown method: ${method}` }
           }
@@ -1107,7 +1127,7 @@ export function registerPluginHandlers(): void {
       if (normalizeGrant(payload.grant) !== 'allow') {
         stopPluginBackground(id, 'permission revoked')
         if (payload.permission === 'screen.record') revokeAuxiliaryCapture(id)
-        if (payload.permission === 'pin.create') revokeAuxiliaryTopmost(id)
+        if (payload.permission === 'pin.create') { revokeAuxiliaryTopmost(id); pluginHost.revokeFloatTopmost(id) }
       }
       refreshPluginBackgrounds()
       if (normalizeGrant(payload.grant) !== 'allow') {

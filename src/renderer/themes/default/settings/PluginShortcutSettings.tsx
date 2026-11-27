@@ -12,6 +12,17 @@ import { ShortcutProbeFeedback, useDescribeShortcutProbe } from './ShortcutProbe
 import { Switch } from '@renderer/components/ui/Switch'
 import { Checkbox } from '@renderer/components/ui/Checkbox'
 import { Segmented } from '@renderer/components/ui/Segmented'
+import { Select } from '@renderer/components/ui/Select'
+
+/** `forced` is a host-granted authorization and never travels back from the page. */
+function toInput(binding: PluginShortcutBinding): PluginShortcutInput {
+  const { forced: _granted, ...input } = binding
+  return input
+}
+
+function toggleEnabled(binding: PluginShortcutBinding, enabled: boolean): PluginShortcutInput {
+  return { ...toInput(binding), enabled }
+}
 
 export function PluginShortcutSettings() {
   const { t } = useI18n()
@@ -19,7 +30,7 @@ export function PluginShortcutSettings() {
   const plugins = useShellStore(state => state.plugins)
   const filter = useShellStore(state => state.shortcutPluginFilter)
   const setFilter = useShellStore(state => state.setShortcutPluginFilter)
-  const [snapshot, setSnapshot] = useState<PluginShortcutsSnapshot>({ bindings: [], states: [] })
+  const [snapshot, setSnapshot] = useState<PluginShortcutsSnapshot>({ bindings: [], states: [], runtime: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [draft, setDraft] = useState<PluginShortcutInput | null>(null)
@@ -27,6 +38,8 @@ export function PluginShortcutSettings() {
   const [recording, setRecording] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  // 受控且恒为空：Radix Select 选中后值会停在该项，清空才能连续选同一个插件。
+  const [picker, setPicker] = useState('')
   const busy = useRef(false)
   const request = useRef(0)
   const groupRefs = useRef(new Map<string, HTMLElement>())
@@ -39,7 +52,7 @@ export function PluginShortcutSettings() {
     registered: t('settings.pluginShortcut.statusRegistered'), disabled: t('settings.pluginShortcut.statusDisabled'),
     'plugin-disabled': t('settings.pluginShortcut.statusPluginDisabled'), 'plugin-missing': t('settings.pluginShortcut.statusPluginMissing'),
     conflict: t('settings.pluginShortcut.statusConflict'), suspended: t('settings.pluginShortcut.statusSuspended'),
-    'pending-system': t('settings.pluginShortcut.statusPendingSystem')
+    'pending-system': t('settings.pluginShortcut.statusPendingSystem'), forced: t('settings.pluginShortcut.statusForced')
   }
 
   const refresh = async (): Promise<void> => {
@@ -78,7 +91,8 @@ export function PluginShortcutSettings() {
       if (closeEditor) setDraft(null)
       if (!result.snapshot) await refresh()
       const state = result.snapshot?.states.find(item => item.id === result.binding?.id)
-      notify.success(state?.status === 'registered' ? t('settings.pluginShortcut.savedActive') : t('settings.pluginShortcut.savedInactive'))
+      notify.success(state?.status === 'forced' ? t('settings.pluginShortcut.savedForced')
+        : state?.status === 'registered' ? t('settings.pluginShortcut.savedActive') : t('settings.pluginShortcut.savedInactive'))
     } catch (cause) {
       if (closeEditor) setDraftError((cause as Error).message); else setError((cause as Error).message)
     } finally { busy.current = false; setBusyId(null) }
@@ -130,51 +144,79 @@ export function PluginShortcutSettings() {
       <button type="submit" className="btn btn-primary" disabled={!!busyId || recording || !draft.pluginId || !canSaveDraft}>{busyId ? t('settings.pluginShortcut.editorSaving') : t('settings.pluginShortcut.editorSave')}</button>
     </div>
     <ShortcutProbeFeedback {...draftProbe} inactive={!draft.enabled} disabled={!!busyId || recording}
-      onRetry={draftProbe.recheck} onConfirm={overrideToken => void save({ ...draft, overrideToken }, true)} />
+      forceExplain={t('settings.pluginShortcut.forceExplain')}
+      onRetry={draftProbe.recheck} onConfirm={overrideToken => void save({ ...draft, overrideToken }, true)}
+      onForce={() => void save({ ...draft, force: true }, true)} />
     {draftError && <p className="shortcut-error" role="alert">{draftError}</p>}
   </form>
   const states = new Map(snapshot.states.map(state => [state.id, state]))
   const renderRow = (binding: PluginShortcutBinding): JSX.Element => {
     const plugin = installed.find(item => item.id === binding.pluginId)
     const state = states.get(binding.id)
-    return <li key={binding.id} className="shortcut-binding">
+    const keys = formatAccelerator(binding.accelerator)
+    // The amber tag mirrors the Quick card: this chord is being intercepted, not registered normally.
+    // Only the host's own status counts; an authorization alone says nothing about what is held.
+    const forced = state?.status === 'forced'
+    return <li key={binding.id} className={`shortcut-binding${forced ? ' is-forced' : ''}`}>
       <div className="shortcut-binding-main">
-        <kbd className="shortcut-keys">{formatAccelerator(binding.accelerator)}</kbd>
+        <span className="shortcut-binding-keys">
+          <kbd className="shortcut-keys">{keys}</kbd>
+          {forced && <span className="shortcut-badge" title={t('settings.pluginShortcut.forcedTagTitle')}>{t('settings.hotkeyCards.badgeForced')}</span>}
+        </span>
         <span className="shortcut-binding-mode">{binding.mode === 'quick' ? t('settings.pluginShortcut.modeQuick') : t('settings.pluginShortcut.modeShell')}</span>
         <div className="shortcut-binding-state" data-status={state?.status ?? 'conflict'}>
           <span>{state ? statusLabels[state.status] : t('settings.pluginShortcut.statusChecking')}</span>{state?.error && <small title={state.error}>{state.error}</small>}
         </div>
-        <Switch checked={binding.enabled} className="switch" aria-label={t(binding.enabled ? 'settings.pluginShortcut.toggleOffAria' : 'settings.pluginShortcut.toggleOnAria', { name: plugin?.name ?? binding.pluginId, keys: formatAccelerator(binding.accelerator) })}
-          disabled={!!busyId || !!draft} onCheckedChange={() => void save({ ...binding, enabled: !binding.enabled })} />
+        <Switch checked={binding.enabled} className="switch" aria-label={t(binding.enabled ? 'settings.pluginShortcut.toggleOffAria' : 'settings.pluginShortcut.toggleOnAria', { name: plugin?.name ?? binding.pluginId, keys })}
+          disabled={!!busyId || !!draft} onCheckedChange={() => void save(toggleEnabled(binding, !binding.enabled))} />
       </div>
       <div className="shortcut-binding-actions">
-        <button type="button" className="btn btn-ghost" disabled={!!busyId || !!draft || !plugin} onClick={() => { setDraft({ ...binding }); setDraftError('') }}>{t('settings.pluginShortcut.edit')}</button>
+        <button type="button" className="btn btn-ghost" disabled={!!busyId || !!draft || !plugin} onClick={() => { setDraft({ ...toInput(binding) }); setDraftError('') }}>{t('settings.pluginShortcut.edit')}</button>
         <button type="button" className="btn btn-ghost" disabled={!!busyId || !!draft} onClick={() => void remove(binding.id)}>{t('settings.pluginShortcut.remove')}</button>
       </div>
       {draft?.id === binding.id && editor}
     </li>
   }
   const missingIds = [...new Set(snapshot.bindings.filter(binding => !installed.some(plugin => plugin.id === binding.pluginId)).map(binding => binding.pluginId))]
-  const allGroups = [...installed.map(plugin => ({ id: plugin.id, plugin })), ...missingIds.map(id => ({ id, plugin: undefined }))]
+  const missing = missingIds.map(id => ({ id, plugin: undefined as (typeof installed)[number] | undefined }))
   /*
-   * 搜索按插件名、插件 ID 和已设组合键三路匹配：改过的键位也常是找人的入口。
-   * 组合键匹配用原始 accelerator，避免用户按显示格式（⌘⇧K）搜不到。
+   * 列表只列出已有绑定的插件；其余插件收进顶部「新增」选择器，不再把几十个
+   * 没设快捷键的插件逐个平铺。搜索仍按插件名、插件 ID 和已设组合键三路匹配：
+   * 改过的键位也常是找人的入口，组合键用原始 accelerator 匹配，避免按显示格式搜不到。
    */
   const needle = query.trim().toLowerCase()
-  const groups = needle ? allGroups.filter(({ id, plugin }) => {
+  const hasBindings = (id: string): boolean => snapshot.bindings.some(binding => binding.pluginId === id)
+  const runtimeOf = (id: string) => (snapshot.runtime ?? []).filter(entry => entry.pluginId === id)
+  const matches = ({ id, plugin }: { id: string; plugin?: (typeof installed)[number] }): boolean => {
+    if (!needle) return true
     if ((plugin?.name ?? '').toLowerCase().includes(needle) || id.toLowerCase().includes(needle)) return true
-    return snapshot.bindings.some(binding => binding.pluginId === id && binding.accelerator.toLowerCase().includes(needle))
-  }) : allGroups
+    if (snapshot.bindings.some(binding => binding.pluginId === id && binding.accelerator.toLowerCase().includes(needle))) return true
+    return runtimeOf(id).some(entry => entry.accelerator.toLowerCase().includes(needle) || (entry.label ?? '').toLowerCase().includes(needle))
+  }
+  // 有搜索词时把"搜得到但还没绑定"的插件也列出来，否则搜一个没设快捷键的插件会得到空结果。
+  const listed = ({ id, plugin }: { id: string; plugin?: (typeof installed)[number] }): boolean =>
+    hasBindings(id) || runtimeOf(id).length > 0 || (needle && Boolean(plugin)) || draft?.pluginId === id
+  const groups = [...installed.map(plugin => ({ id: plugin.id, plugin })), ...missing].filter(group => matches(group) && listed(group))
+  // 选择器只提供还没有任何绑定的插件；已有的在分组头部用「＋」追加。
+  const candidates = installed.filter(plugin => !hasBindings(plugin.id))
+  const pick = (pluginId: string): void => {
+    setPicker('')
+    if (pluginId) newBinding(pluginId)
+  }
   return <section className="s-card" aria-label={t('settings.pluginShortcut.cardAria')}>
-    <div className="shortcut-section-head"><div><h2>{t('settings.pluginShortcut.title')} <span className="shortcut-count">{installed.length}</span></h2>
+    <div className="shortcut-section-head"><div><h2>{t('settings.pluginShortcut.title')} <span className="shortcut-count">{snapshot.bindings.length}</span></h2>
       <p className="hint">{t('settings.pluginShortcut.hint')}</p></div>
     </div>
     {filter && <div className="shortcut-location">{t('settings.pluginShortcut.located', { name: plugins.find(plugin => plugin.id === filter)?.name ?? filter })}
       <button type="button" className="btn btn-ghost" onClick={() => setFilter(null)}>{t('settings.pluginShortcut.cancelLocate')}</button></div>}
     {error && <p className="shortcut-error" role="alert">{error} <button type="button" className="btn btn-ghost" disabled={!!busyId} onClick={() => void refresh()}>{t('settings.pluginShortcut.refreshState')}</button></p>}
     {loading ? <p className="shortcut-empty" role="status">{t('settings.pluginShortcut.loading')}</p> : <>
-      {/* 搜索框固定在滚动区外面：列表滚到哪儿都能改关键词。 */}
-      <div className="shortcut-search">
+      {/* 新增与搜索固定在滚动区外面：列表滚到哪儿都能改关键词。 */}
+      <div className="shortcut-toolbar">
+        <Select className="shortcut-picker" ariaLabel={t('settings.pluginShortcut.pickerAria')} value={picker} onChange={pick}
+          disabled={!!busyId || !!draft || !candidates.length}
+          placeholder={!installed.length ? t('settings.pluginShortcut.emptyInstalledTitle') : candidates.length ? t('settings.pluginShortcut.pickerPlaceholder') : t('settings.pluginShortcut.pickerExhausted')}
+          options={candidates.map(plugin => ({ value: plugin.id, label: plugin.name }))} />
         <input
           type="search"
           className="shortcut-search-input"
@@ -187,22 +229,43 @@ export function PluginShortcutSettings() {
       {groups.length ? <div className="shortcut-plugin-groups" data-scrollbar="auto-hide">
       {groups.map(({ id, plugin }) => {
         const bindings = snapshot.bindings.filter(binding => binding.pluginId === id)
+        const runtime = runtimeOf(id)
         return <section key={id} className={`shortcut-plugin-group${filter === id ? ' is-located' : ''}`} data-plugin-id={id}
           aria-label={t('settings.pluginShortcut.groupAria', { name: plugin?.name ?? id })} ref={node => { if (node) groupRefs.current.set(id, node); else groupRefs.current.delete(id) }}>
           <header className="shortcut-plugin-head">
             <PluginIcon src={plugin?.icon} glyph={plugin?.glyph ?? '?'} size={36} />
             <div className="shortcut-plugin"><strong>{plugin?.name ?? id}</strong>
-              <span>{!plugin ? t('settings.pluginShortcut.pluginRemoved') : plugin.enabled === false ? t('settings.pluginShortcut.pluginDisabled') : bindings.length ? t('settings.pluginShortcut.bindingsCount', { count: String(bindings.length) }) : t('settings.pluginShortcut.noShortcut')}</span></div>
+              <span>{!plugin ? t('settings.pluginShortcut.pluginRemoved') : plugin.enabled === false ? t('settings.pluginShortcut.pluginDisabled') : bindings.length ? t('settings.pluginShortcut.bindingsCount', { count: String(bindings.length) }) : runtime.length ? t('settings.pluginShortcut.runtimeCount', { count: String(runtime.length) }) : t('settings.pluginShortcut.noShortcut')}</span></div>
             <div className="shortcut-plugin-actions">
               {plugin && <button type="button" className="btn btn-ghost shortcut-add" disabled={!!busyId || !!draft}
                 onClick={() => newBinding(id)}><span aria-hidden="true">＋</span> {t('settings.pluginShortcut.addShortcut')}</button>}
             </div>
           </header>
           {bindings.length > 0 && <ul className="shortcut-bindings">{bindings.map(renderRow)}</ul>}
+          {runtime.length > 0 && <ul className="shortcut-bindings shortcut-bindings-runtime" aria-label={t('settings.pluginShortcut.runtimeAria')}>
+            {runtime.map(entry => <li key={entry.accelerator} className="shortcut-binding shortcut-binding-runtime" data-source="runtime">
+              <div className="shortcut-binding-main">
+                <kbd className="shortcut-keys">{formatAccelerator(entry.accelerator)}</kbd>
+                <span className="shortcut-binding-mode">{t('settings.pluginShortcut.runtimeSource')}</span>
+                <div className="shortcut-binding-state" data-status="runtime">
+                  <span>{entry.label ?? t('settings.pluginShortcut.runtimeUnlabeled')}</span>
+                  <small>{t('settings.pluginShortcut.runtimeHint')}</small>
+                </div>
+              </div>
+            </li>)}
+          </ul>}
           {draft?.pluginId === id && !draft.id && editor}
         </section>
       })}
-    </div> : <div className="shortcut-empty"><strong>{needle ? t('settings.pluginShortcut.emptySearchTitle') : t('settings.pluginShortcut.emptyInstalledTitle')}</strong><p>{needle ? t('settings.pluginShortcut.emptySearchDesc') : t('settings.pluginShortcut.emptyInstalledDesc')}</p></div>}
+    </div> : (() => {
+      // 三种空态各有准确说法：没装插件 / 搜索无命中 / 装了但还没绑定。
+      const [title, desc] = !installed.length
+        ? [t('settings.pluginShortcut.emptyInstalledTitle'), t('settings.pluginShortcut.emptyInstalledDesc')]
+        : needle
+          ? [t('settings.pluginShortcut.emptySearchTitle'), t('settings.pluginShortcut.emptySearchDesc')]
+          : [t('settings.pluginShortcut.emptyTitle'), t('settings.pluginShortcut.emptyDesc')]
+      return <div className="shortcut-empty"><strong>{title}</strong><p>{desc}</p></div>
+    })()}
     </>}
   </section>
 }

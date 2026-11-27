@@ -14,6 +14,7 @@ import type { ShellNotice, ShellNoticeDataMap, ShellNoticeTopic, SaveRequestedEv
 import type { ResolvedAppearance } from './appearance'
 import type { HomePageRegistrationInput, HomePageRegistrationResult } from './home'
 import type { ThemePackRegistrationInput } from './plugin'
+import type { FloatWindowOptions, PluginPlacementChangeEvent, PluginPlacementKind } from './plugin-window'
 import type {
   AppLocale,
   CaptureDisplay,
@@ -237,6 +238,18 @@ export interface EnestPluginApi {
     setHeight(height: number): Promise<boolean>
     /** Move this plugin's existing view to the desktop without reloading it. */
     openInShell(): Promise<boolean>
+    /**
+     * 把本插件现有视图迁入置顶悬浮窗（不重载、不重建实例）：无标题栏、可拖动、可缩放、
+     * 不进任务栏，默认位于其它应用之上。需要 `pin.create` 授权。
+     * 布局模式保持 shell；宿主随后推送 placement-change 事件。
+     */
+    enterFloat(options?: FloatWindowOptions): Promise<boolean>
+    /** 退出悬浮窗，视图迁回主窗 Tab（不重载）；非悬浮挂载时为无操作。 */
+    exitFloat(): Promise<boolean>
+    /** 当前挂载位置；事件订阅之外的同步查询入口。 */
+    getPlacement(): Promise<PluginPlacementKind>
+    /** 订阅挂载位置变更（shell / quick / detached / float 间迁移，不重载页面）。 */
+    onPlacementChange(cb: (event: PluginPlacementChangeEvent) => void): Unsubscribe
     openSettings(): Promise<boolean>
     /** Focused editor/terminal/overlay owns keys that Quick otherwise intercepts. */
     setInputContext(context: PluginInputContext): Promise<boolean>
@@ -289,9 +302,16 @@ export interface EnestPluginApi {
      * 注册全局热键。成功 resolve { ok: true }；冲突（含壳子 Quick 热键 /
      * 其它插件占用 / 系统占用）resolve { ok: false, error }，不 reject。
      * 触发经 on('hotkey') 事件推送 { accelerator }。
+     * 每个插件最多同时注册 4 个。与用户在设置里绑定不同，这里不强制修饰键：
+     * 功能键（如 F1）可单独注册，但无修饰键的字母/符号会全局吞掉普通打字，应带上 Ctrl/Alt/Command。
+     * 注册的键会只读显示在宿主「设置 → 快捷键」，插件关闭时自动全部注销。
      */
     register(
       accelerator: string,
+      /**
+       * label：该快捷键对应的功能名（最多 48 字符）。会显示在宿主「设置 → 快捷键」
+       * 及其他插件撞键时的冲突提示里，让用户知道去哪关闭；省略则只显示插件名。
+       */
       opts?: { label?: string }
     ): Promise<PluginHotkeyRegisterResult>
     /** 注销本插件已注册的热键；未注册时也返回 ok */
@@ -454,10 +474,11 @@ export interface EnestPluginApi {
       failed: number
     }>
   }
-  /** 本机进程与端口查看（sys.inspect，1s 缓存）/ 终止（sys.control） */
+  /** 本机进程、端口与 CPU 查看（sys.inspect，1s 缓存）/ 终止（sys.control） */
   sys: {
     processes(): Promise<SysProcessInfo[]>
     ports(): Promise<SysPortInfo[]>
+    cpuUsage(): Promise<number | null>
     /**
      * 结束进程：需 sys.control 权限与宿主原生确认（保护壳子进程、父进程与 PID 1）。
      * signal：TERM（缺省）/ KILL / INT。

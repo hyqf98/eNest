@@ -1,4 +1,5 @@
 import { getAccountState, loginAccount, cancelAccountLogin, logoutAccount } from '@main/auth/accountAuthService'
+import { cancelGithubSync, connectGithubRepository, disconnectGithubRepository, discoverGithubRepositories, githubSyncState, setGithubAutoRestore, syncGithubPlugins } from '@main/auth/githubSyncService'
 import { legacyCanvasExport } from '@main/settings/legacyCanvasExport'
 import { assertSurfaceSender, getTrustedSurfaceRole, handleShellIpc, onShellIpc } from '@main/ipc/ipcSecurity'
 import { activateRailContribution } from '@main/contrib/railContributions'
@@ -29,16 +30,20 @@ import { listMissingDevPlugins, readDevPluginRecords, setDevPluginKillOnHide } f
 import { logInfo, logWarn } from '@main/logs/logService'
 import { getAppPaths, getAppPathsRoot, getAppPathsGeneration } from '@main/paths/pathsService'
 import { openLocalPath } from '@main/paths/openLocalPath'
+import { migrateDataRoot } from '@main/paths/dataRootMigration'
+import { collectPluginDataUsage } from '@main/plugin/pluginDataUsage'
+import { clearPluginDataFor, clearOrphanData } from '@main/plugin/pluginDataClear'
+import { isPackageId } from '@main/plugin/packageIdentity'
 import { pluginHost } from '@main/plugin/PluginHost'
 import { launchPlugin } from '@main/launcher/pluginLauncher'
 import { setResidentSettingFromUser } from '@main/launcher/pluginActivation'
-import { trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
 import { broadcastNotice } from '@main/plugin/shellNotices'
 import { associationService } from '@main/openWith/associationService'
 import type { OpenWithKey, OpenWithSetRequest } from '@shared/types/openWith'
 import { validOpenWithValue } from '@shared/types/openWith'
 import {
   startGithubLogin,
+  copyGithubDeviceCode,
   cancelGithubLogin,
   logoutGithub,
   getProfileUser,
@@ -64,6 +69,7 @@ import {
   clearPluginLaunch,
   applyPluginLaunchHotkeys
 } from '@main/hotkey/pluginLaunchHotkeys'
+import { openDialogWithMemory } from '@main/settings/dialogMemory'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { getLoginItemState, setLoginItemEnabled } from '@main/settings/loginItemService'
 import { pluginSettingsBridge } from '@main/settings/PluginSettingsBridge'
@@ -205,7 +211,7 @@ export function registerShellHandlers(): void {
         const featureActivation = manifest?.features?.find(feature => feature.code === enter?.code)?.activation
         const activation = manifest?.activation || featureActivation
         const placement = pluginHost.getPlacement(pluginId)
-        const focusResident = !featureActivation && placement.kind === 'detached'
+        const focusResident = !featureActivation && (placement.kind === 'detached' || placement.kind === 'float')
         let tabId: string
         if (activation && !focusResident) {
           const result = await launchPlugin({ pluginId, source: 'settings', mode: 'shell', enter })
@@ -781,19 +787,29 @@ export function registerShellHandlers(): void {
         ? options.filters
         : 'media'
       const win = getMainWindow()
-      const result = await trackNativeInteraction(win
-        ? dialog.showOpenDialog(win as never, {
-            properties: ['openFile'],
-            filters: [PICK_FILTERS[key]]
-          })
-        : dialog.showOpenDialog({
-            properties: ['openFile'],
-            filters: [PICK_FILTERS[key]]
-          }))
-      if (result.canceled || result.filePaths.length === 0) return null
-      return result.filePaths[0]
+      const picked = await openDialogWithMemory({ properties: ['openFile'], filters: [PICK_FILTERS[key]] }, win as never)
+      return picked[0] ?? null
     }
   )
+
+  handleShellIpc(IpcChannels.ShellPickDirectory, async () => {
+    const picked = await openDialogWithMemory({ properties: ['openDirectory', 'createDirectory'] }, getMainWindow() as never)
+    return picked[0] ?? null
+  })
+
+  handleShellIpc(IpcChannels.ShellMigrateDataRoot, (_e, targetRoot: string) =>
+    migrateDataRoot(typeof targetRoot === 'string' ? targetRoot : '')
+  )
+
+  handleShellIpc(IpcChannels.ShellGetPluginDataUsage, () => collectPluginDataUsage())
+
+  /** pluginId 省略即「一键清理」全部插件 */
+  handleShellIpc(IpcChannels.ShellClearPluginData, async (_e, pluginId?: string) => {
+    if (pluginId != null && pluginId !== '' && !isPackageId(pluginId)) throw new Error('Invalid plugin identifier')
+    return clearPluginDataFor(pluginId || undefined)
+  })
+
+  handleShellIpc(IpcChannels.ShellClearOrphanData, () => clearOrphanData())
 
   handleShellIpc(IpcChannels.ShellGetPluginReadme, (_e, pluginId: string) =>
     readPluginReadme(String(pluginId ?? ''))
@@ -978,6 +994,14 @@ export function registerShellHandlers(): void {
 
   // Provider-based account bridge; legacy GitHub endpoints remain compatible.
   handleShellIpc(IpcChannels.ShellAccountState, () => getAccountState())
+  handleShellIpc(IpcChannels.ShellGithubCopyCode, () => copyGithubDeviceCode())
+  handleShellIpc(IpcChannels.ShellGithubSyncState, (_event, id) => githubSyncState(id))
+  handleShellIpc(IpcChannels.ShellGithubSyncDiscover, (_event, id) => discoverGithubRepositories(id))
+  handleShellIpc(IpcChannels.ShellGithubSyncConnect, (_event, id, name) => connectGithubRepository(id, name))
+  handleShellIpc(IpcChannels.ShellGithubSyncDisconnect, (_event, id, repo) => disconnectGithubRepository(id, repo))
+  handleShellIpc(IpcChannels.ShellGithubSyncTransfer, (_event, request) => syncGithubPlugins(request))
+  handleShellIpc(IpcChannels.ShellGithubSyncCancel, (_event, id, repo) => cancelGithubSync(id, repo))
+  handleShellIpc(IpcChannels.ShellGithubSyncAutomatic, (_event, id, repo, enabled) => setGithubAutoRestore(id, repo, enabled))
   handleShellIpc(IpcChannels.ShellAccountLogin, (_event, providerId: unknown) => loginAccount(providerId))
   handleShellIpc(IpcChannels.ShellAccountCancel, (_event, providerId: unknown) => cancelAccountLogin(providerId))
   handleShellIpc(IpcChannels.ShellAccountLogout, (_event, providerId: unknown) => logoutAccount(providerId))

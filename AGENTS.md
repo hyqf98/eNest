@@ -27,9 +27,11 @@ eNest 是插件化桌面壳，不是把一组业务工具写在一起的桌面�
 | `src/preload` | 最小 contextBridge 与事件桥接 | 业务实现、权限决策 |
 | `src/renderer` | 壳控制器、主题、React UI 和动画 | 直接访问 Node/Electron 主进程 API |
 | `src/shared` | 跨端 DTO、IPC 常量、无平台依赖的纯模型 | 原生运行时依赖 |
+| `src/native` | 平台辅助程序源码、专属编译模块与说明 | 生成的二进制、测试夹具、插件业务驱动 |
+| `scripts` | 构建入口、打包发布、静态审计和可选服务示例 | 宿主运行时代码 |
 | `tests` | 用例、mock、fixture、浏览器预览、原生探针 | 正式运行时依赖 |
 
-跨目录必须使用 `@main`、`@preload`、`@renderer`、`@shared`，分别指向 `src` 下同名目录；只有同目录可用 `./`。禁止跨目录 `../` 链。新增别名须同时维护 `electron.vite.config.ts` 和两份 `tsconfig.*.json`。
+`src/` 内跨目录导入必须使用 `@main`、`@preload`、`@renderer`、`@shared`，分别指向 `src` 下同名目录；只有同目录可用 `./`。禁止跨目录 `../` 链。新增别名须同时维护 `electron.vite.config.ts` 和两份 `tsconfig.*.json`。
 
 `@test` 指向 `tests`，只能用于验证支持。唯一允许的源码入口是 `shellApi.ts` 在 `import.meta.env.DEV` 且没有原生 preload 时动态加载浏览器预览；正式依赖图不得包含夹具，缺失 preload 必须失败而非使用假数据兜底。
 

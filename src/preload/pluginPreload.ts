@@ -38,6 +38,7 @@ import type {
   EnestPluginApi
 } from '@shared/types/pluginApi'
 import type { LauncherTarget } from '@shared/types/pluginApi'
+import type { FloatWindowOptions, PluginPlacementChangeEvent, PluginPlacementKind } from '@shared/types/plugin-window'
 import { call, enterCodeFromQuery, pluginId } from './pluginRpc'
 import { bindPluginMcpBridge, registerMcpHandlers } from './pluginMcpBridge'
 import { bindPluginActivationBridge, getActivationContext, registerActivationHandlers } from './pluginActivationBridge'
@@ -118,6 +119,14 @@ const api: EnestPluginApi = {
     resize: (size: { width?: number; height?: number }) => call<boolean>('ui.resize', [size]),
     setHeight: (height: number) => call<boolean>('ui.setHeight', [height]),
     openInShell: () => call<boolean>('ui.openInShell', []),
+    enterFloat: (options?: FloatWindowOptions) => call<boolean>('ui.enterFloat', [options]),
+    exitFloat: () => call<boolean>('ui.exitFloat', []),
+    getPlacement: () => call<PluginPlacementKind>('ui.getPlacement'),
+    onPlacementChange(cb) {
+      const handler: Listener = (data) => cb(data as PluginPlacementChangeEvent)
+      api.on('placement-change', handler)
+      return () => api.off('placement-change', handler)
+    },
     openSettings: () => call<boolean>('ui.openSettings'),
     setInputContext: (context) => call<boolean>('ui.setInputContext', [context]),
     focus: () => call<boolean>('ui.focus', []),
@@ -375,6 +384,7 @@ const api: EnestPluginApi = {
   sys: {
     processes: () => call<SysProcessInfo[]>('sys.processes'),
     ports: () => call<SysPortInfo[]>('sys.ports'),
+    cpuUsage: () => call<number | null>('sys.cpuUsage'),
     kill: (pid: number, opts?: { signal?: 'TERM' | 'KILL' | 'INT'; confirmed?: boolean }) =>
       call<boolean>('sys.kill', [pid, opts?.signal ?? 'TERM', opts?.confirmed === true])
   },

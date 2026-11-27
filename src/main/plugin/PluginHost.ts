@@ -158,7 +158,7 @@ import { releaseLocalFiles } from '@main/plugin/localFiles'
 import { resolveThemeTokens, themeTokensToInjectScript } from '@main/theme/resolveThemeCss'
 import { appearanceService } from '@main/theme/appearanceService'
 import { routeExternal, isInternalNavigation } from '@main/plugin/externalLinks'
-import type { DetachedPluginState, PluginPlacement } from '@shared/types/plugin-window'
+import type { DetachedPluginState, PluginPlacement, PluginPlacementKind } from '@shared/types/plugin-window'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { stopDevServer, stopDevServerAndWait } from '@main/dev/devServerManager'
 import { cancelDevPluginPreparation } from '@main/dev/devPluginRuntime'
@@ -169,6 +169,10 @@ import {
   getDetachedWindow, getDetachedParent, getDetachedPluginBounds, getDetachedChrome,
   sendDetachedEvent, updateDetachedState, presentRestoredDetachedWindow, getDetachedWindowSession
 } from '@main/window/detachedPluginWindows'
+import {
+  bindFloatWindowHost, createFloatWindow, destroyFloatWindow, destroyAllFloatWindows, getFloatGeometry,
+  getFloatParent, getFloatPluginBounds, getFloatWindow, normalizeFloatOptions, setFloatAlwaysOnTop, showFloatWindow
+} from '@main/window/floatPluginWindow'
 import { broadcastAuxiliaryTheme, closeStaleAuxiliaryWindows } from '@main/window/pluginAuxiliaryWindows'
 import { closeWebLoginWindows } from '@main/window/webLoginWindow'
 
@@ -356,6 +360,7 @@ export class PluginHost {
   getContainerWindow(pluginId: string) {
     const placement = this.getPlacement(pluginId)
     return placement.kind === 'detached' ? getDetachedWindow(pluginId)
+      : placement.kind === 'float' ? getFloatWindow(pluginId)
       : placement.kind === 'quick' ? getQuickWindow() : getMainWindow()
   }
 
@@ -375,7 +380,10 @@ export class PluginHost {
     for (const id of this.windowInteractions.keys()) {
       const owner = this.getPlacement(id)
       if (owner.kind !== placement.kind) continue
-      if (owner.kind === 'detached' && placement.kind === 'detached') { if (owner.windowId === placement.windowId) return true; continue }
+      if ((owner.kind === 'detached' || owner.kind === 'float') && (placement.kind === 'detached' || placement.kind === 'float')) {
+        if (owner.windowId === placement.windowId) return true
+        continue
+      }
       return true
     }
     return false
@@ -413,7 +421,8 @@ export class PluginHost {
   sendSurfaceEvent(pluginId: string, event: ShellEventPayload): void {
     const placement = this.getPlacement(pluginId)
     if (placement.kind === 'detached') sendDetachedEvent(pluginId, event)
-    else sendShellEvent(event)
+    // Float windows have no chrome renderer; shell events stay meaningful for the main window only.
+    else if (placement.kind !== 'float') sendShellEvent(event)
   }
 
   getWindowPresentation(pluginId: string): QuickHostPluginPresentation {
@@ -443,6 +452,7 @@ export class PluginHost {
         if (state) this.windowSession.setDetached(id, state)
       }
     }
+    destroyAllFloatWindows()
     this.windowSession.prepareShutdown()
     settingsStore.flushNow()
   }
@@ -460,9 +470,10 @@ export class PluginHost {
   private isPresented(pluginId: string): boolean {
     if (this.entries.get(pluginId)?.presentationPending) return false
     const placement = this.getPlacement(pluginId)
-    return placement.kind === 'detached'
-      ? this.detachedVisible.get(pluginId) === true
-      : this.isShellActive(pluginId) || this.quickPluginId === pluginId
+    if (placement.kind === 'detached') return this.detachedVisible.get(pluginId) === true
+    // A float window is its own visible surface; it stays presented while the user watches.
+    if (placement.kind === 'float') return !!getFloatWindow(pluginId)?.isVisible()
+    return this.isShellActive(pluginId) || this.quickPluginId === pluginId
   }
 
   setDetachedVisible(pluginId: string, visible: boolean): void {
@@ -545,6 +556,11 @@ export class PluginHost {
     if (placement.kind === 'detached') {
       if (!this.isPresented(pluginId)) this.activateDetached(pluginId)
       else { getDetachedWindow(pluginId)?.focus(); entry.view.webContents.focus() }
+      return true
+    }
+    if (placement.kind === 'float') {
+      if (!this.isPresented(pluginId)) showFloatWindow(placement.windowId)
+      else { getFloatWindow(placement.windowId)?.focus(); entry.view.webContents.focus() }
       return true
     }
     if (!this.isPresented(pluginId)) return false
@@ -851,6 +867,7 @@ export class PluginHost {
     const placement = this.getPlacement(pluginId)
     if (placement.kind === 'quick') return this.quickSession.retains(pluginId) && presentQuickWindowForPlugin(() => this.showQuickPlugin(pluginId))
     if (placement.kind === 'detached') { this.activateDetached(pluginId); return true }
+    if (placement.kind === 'float') { showFloatWindow(placement.windowId); entry.view.webContents.focus(); return true }
     if (!this.logicalTabs.has(pluginId)) return false
     this.activatePlugin(pluginId)
     if (win.isMinimized()) win.restore()
@@ -1220,6 +1237,15 @@ export class PluginHost {
         this.startEntryLoad(existing)
         return pluginId
       }
+      // 悬浮窗内再次打开 = 聚焦悬浮窗（不迁回主窗、不重建）。
+      const floatingPlacement = this.getPlacement(pluginId)
+      if (floatingPlacement.kind === 'float') {
+        showFloatWindow(floatingPlacement.windowId)
+        if (enter) this.pendingEnter.set(pluginId, enter)
+        this.sendEnter(pluginId)
+        existing.view.webContents.focus()
+        return pluginId
+      }
       // 容器切换（quick ↔ shell）：显式指定即迁移（同 webContents 不重载）。
       // 主窗入口缺省进入 shell；Quick 入口显式指定，避免激活隐藏的小窗。
       const target = opts?.container ?? 'shell'
@@ -1277,9 +1303,11 @@ export class PluginHost {
     // 用户入口默认桌面；Quick 与内部恢复明确传入目标容器。
     const previousPlacement = this.placements.get(pluginId)
     const detached = previousPlacement?.kind === 'detached'
-    const resumeRequested = silent || (detached && !opts?.deferPresentation)
+    // 悬浮窗内的实例重建（重载/崩溃自愈）必须留在悬浮窗，不能悄悄回到主窗 Tab。
+    const floating = previousPlacement?.kind === 'float'
+    const resumeRequested = silent || (detached && !opts?.deferPresentation) || (floating && !opts?.deferPresentation)
     const requested: PluginContainer = opts?.container ?? 'shell'
-    const retainedPlacement = opts?.resumePlacement || opts?.deferPresentation || silent || detached ? previousPlacement : undefined
+    const retainedPlacement = opts?.resumePlacement || opts?.deferPresentation || silent || detached || floating ? previousPlacement : undefined
     const mode = this.modeFor(pluginId, opts?.layoutMode ?? (resumeRequested ? this.getLayoutMode(pluginId) : requested))
     const container: PluginContainer = opts?.layoutMode !== undefined ? requested : resumeRequested
       ? (mode === 'quick' ? 'quick' : 'shell')
@@ -1381,24 +1409,29 @@ export class PluginHost {
 
     // 加载完成后注入主题 Token（themeAware 时）；透明背景在 load 后再设一次确保生效；
     // 同时推进状态机 ready → （若 active）enter
+    let finishingDocumentEpoch = 0
     view.webContents.on('did-finish-load', async () => {
-      if (this.entries.get(pluginId)?.view !== view || entry.scope.isClosing) return
+      if (this.entries.get(pluginId) !== entry || entry.scope.isClosing || !entry.documentStarted) return
+      const documentEpoch = entry.documentEpoch
+      if (finishingDocumentEpoch === documentEpoch) return
+      finishingDocumentEpoch = documentEpoch
       if (ui.background === 'transparent') {
         view.setBackgroundColor('#00000000')
       }
       if (ui.themeAware) {
         await this.injectThemeInto(view, ui)
       }
-      if (this.entries.get(pluginId)?.view !== view || entry.scope.isClosing) return
+      if (this.entries.get(pluginId) !== entry || entry.scope.isClosing || entry.documentEpoch !== documentEpoch) return
       const state = this.getState(pluginId)
-      if (state === 'closed' || state === 'uninstalled' || state === 'clearing-storage') return
-      this.applyTransition(pluginId, 'load-ok')
-      view.setVisible(this.isPresented(pluginId))
+      if (state === 'opening') this.applyTransition(pluginId, 'load-ok')
+      else if (state !== 'ready' && state !== 'active' && state !== 'background') return
+      const presented = this.isPresented(pluginId)
+      view.setVisible(presented)
       // 首次加载完成且已是目标 active（shell Tab 或 quick 挂载中）→ 立刻 enter
-      if (this.isPresented(pluginId)) {
+      if (presented) {
         this.sendEnter(pluginId)
       } else {
-        this.applyTransition(pluginId, 'deactivate')
+        if (state !== 'background') this.applyTransition(pluginId, 'deactivate')
         this.scheduleHibernate(pluginId)
       }
       sendShellEvent({ type: 'plugin-ready', pluginId, generation: entry.generation })
@@ -1460,6 +1493,19 @@ export class PluginHost {
       }
       parent.addChildView(view)
       view.setBounds(getDetachedPluginBounds(pluginId))
+    } else if (placement.kind === 'float') {
+      const parent = getFloatParent(pluginId)
+      if (!parent) {
+        if (!opts?.preparation) {
+          this.entries.delete(pluginId)
+          entry.scope.markClosing()
+          await this.disposeEntry(entry)
+        }
+        throw new Error(`${placement.kind} window no longer exists`)
+      }
+      parent.addChildView(view)
+      view.setBounds(getFloatPluginBounds(pluginId))
+      view.setVisible(true)
     } else if (placement.kind === 'quick') {
       // Quick 小窗懒创建：呼出 mini 插件时确保容器存在再挂载
       if (!getQuickWindow()) ensureQuickWindow()
@@ -1547,6 +1593,7 @@ export class PluginHost {
         this.logicalTabs.delete(pluginId)
         if (this.activeTabId === pluginId) this.activeTabId = null
         if (this.getPlacement(pluginId).kind === 'detached') destroyDetachedWindow(pluginId)
+        if (this.getPlacement(pluginId).kind === 'float') destroyFloatWindow(pluginId)
         this.placements.delete(pluginId)
         this.detachedVisible.delete(pluginId)
         this.detachedStateSignatures.delete(pluginId)
@@ -1588,6 +1635,7 @@ export class PluginHost {
     }
     if (!preserveSession) {
       if (this.getPlacement(pluginId).kind === 'detached') destroyDetachedWindow(pluginId)
+      if (this.getPlacement(pluginId).kind === 'float') destroyFloatWindow(pluginId)
       this.placements.delete(pluginId)
       this.detachedVisible.delete(pluginId)
       this.detachedStateSignatures.delete(pluginId)
@@ -1730,8 +1778,10 @@ export class PluginHost {
     }
 
     entry.presentationPending = false
-    if (this.getPlacement(pluginId).kind === 'detached') { this.activateDetached(pluginId, enter); return }
-    if (this.getPlacement(pluginId).kind === 'quick') this.migrateContainer(pluginId, 'shell')
+    const activatingPlacement = this.getPlacement(pluginId)
+    if (activatingPlacement.kind === 'detached') { this.activateDetached(pluginId, enter); return }
+    if (activatingPlacement.kind === 'float') { showFloatWindow(activatingPlacement.windowId); if (enter) this.pendingEnter.set(pluginId, enter); this.sendEnter(pluginId); return }
+    if (activatingPlacement.kind === 'quick') this.migrateContainer(pluginId, 'shell')
     this.suspending.delete(pluginId)
     this.clearHibernateTimer(pluginId)
     entry.lastActivatedAt = Date.now()
@@ -1752,7 +1802,7 @@ export class PluginHost {
     for (const [id, e] of this.entries) {
       const placement = this.getPlacement(id)
       // quick 容器 view 的可见性由 quickPluginId 管理（quick 挂载不受主窗 Tab 切换影响）
-      if (placement.kind === 'detached') continue
+      if (placement.kind === 'detached' || placement.kind === 'float') continue
       if (placement.kind === 'quick') {
         e.view.setVisible(id === this.quickPluginId && this.getState(id) !== 'opening')
         continue
@@ -1790,7 +1840,7 @@ export class PluginHost {
   layoutAll(): void {
     for (const entry of this.entries.values()) {
       const placement = this.getPlacement(entry.pluginId)
-      if (placement.kind === 'detached') continue
+      if (placement.kind === 'detached' || placement.kind === 'float') continue
       if (entry.pluginId !== this.activeTabId && entry.pluginId !== this.quickPluginId) continue
       if (placement.kind === 'quick') {
         entry.view.setBounds(getQuickPluginBounds())
@@ -2019,12 +2069,14 @@ export class PluginHost {
     const id = entry.pluginId, source = this.getPlacement(id)
     if (this.hasWindowInteraction(id) || this.hasPlacementInteraction(target)) throw new Error('finish the native dialog before moving this plugin')
     const parent = (placement: PluginPlacement) => placement.kind === 'detached' ? getDetachedParent(id)
+      : placement.kind === 'float' ? getFloatParent(id)
       : placement.kind === 'quick' ? getQuickPluginParent() : getMainWindow()?.contentView
     if (target.kind === 'quick') ensureQuickWindow()
     const sourceParent = parent(source), targetParent = parent(target)
     if (!targetParent) throw new Error('target plugin window is unavailable')
     const oldBounds = entry.view.getBounds()
     const bounds = target.kind === 'detached' ? getDetachedPluginBounds(id)
+      : target.kind === 'float' ? getFloatPluginBounds(id)
       : target.kind === 'quick' ? getQuickPluginBounds() : getPluginContentBounds(pluginChromeBarHeight(entry.ui.chrome))
     try {
       sourceParent?.removeChildView(entry.view)
@@ -2045,7 +2097,7 @@ export class PluginHost {
     this.bumpPlacement(id)
     this.setLayoutMode(id, mode)
     if (target.kind === 'shell') { clearQuickInput(id); forgetQuickEnterInput(id) }
-    // 迁出 quick（固定到主窗 / 分离）后，呼出不再把它拽回小窗
+    // 迁出 quick（固定到主窗 / 分离 / 悬浮）后，呼出不再把它拽回小窗
     if (source.kind === 'quick' && target.kind !== 'quick' && this.releaseQuickSession(id)) {
       finishQuickPluginReveal()
       setQuickContentSize({ height: QUICK_HOME_HEIGHT })
@@ -2075,7 +2127,111 @@ export class PluginHost {
       this.detachedStateSignatures.delete(id)
       destroyDetachedWindow(id)
     }
+    // 离开悬浮窗：收掉空窗并恢复主窗 Tab。浮窗期间 Tab 条上没有它，这里补回并激活。
+    if (source.kind === 'float' && target.kind !== 'float') {
+      destroyFloatWindow(id)
+      if (target.kind === 'shell') {
+        this.windowSession.retain(id, this.tabPresentation.get(id)?.title ?? pluginRegistry.get(id)?.name ?? id)
+        this.activatePlugin(id)
+        const win = getMainWindow()
+        if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus() }
+      }
+    }
+    this.sendPlacementChange(id)
     this.publishTabs()
+  }
+
+  /** 当前挂载位置（enest.ui.onPlacementChange / getPlacementKind 消费） */
+  getPlacementKind(pluginId: string): PluginPlacementKind {
+    return this.getPlacement(pluginId).kind
+  }
+
+  private sendPlacementChange(pluginId: string): void {
+    const entry = this.entries.get(pluginId)
+    if (!entry) return
+    const placement = this.getPlacement(pluginId)
+    const payload: PluginEventPayload = {
+      type: 'placement-change', placement: placement.kind,
+      ...(placement.kind === 'float' ? { alwaysOnTop: getFloatWindow(placement.windowId)?.isAlwaysOnTop() ?? false } : {})
+    }
+    try {
+      if (!entry.view.webContents.isDestroyed()) entry.view.webContents.send(IpcChannels.PluginEvent, payload)
+    } catch {
+      // webContents 可能正在销毁
+    }
+  }
+
+  /**
+   * 把插件现有视图迁入悬浮窗（不重载、不重建实例）。权限在 IPC 分发层校验。
+   * 已在悬浮窗时只应用置顶变化；在 Quick 小窗时迁出。
+   */
+  async floatPlugin(pluginId: string, rawOptions: unknown): Promise<boolean> {
+    pluginId = toPluginId(pluginId)
+    if (!this.entries.has(pluginId)) await this.openPlugin(pluginId)
+    let entered = false
+    await this.transfer(pluginId, async () => {
+      const entry = this.entries.get(pluginId)
+      if (!entry || entry.scope.isClosing || this.shuttingDown || this.barriers.has(pluginId)) throw new Error('plugin is unavailable')
+      if (this.hasWindowInteraction(pluginId)) throw new Error('finish the native dialog before moving this plugin')
+      const options = normalizeFloatOptions(rawOptions)
+      const current = this.getPlacement(pluginId)
+      if (current.kind === 'float') { setFloatAlwaysOnTop(current.windowId, options.alwaysOnTop); return }
+      const revision = this.getPlacementRevision(pluginId)
+      const win = createFloatWindow(pluginId, options, this.windowSession.get(pluginId)?.float)
+      if (this.entries.get(pluginId) !== entry || entry.scope.isClosing || this.shuttingDown || this.getPlacementRevision(pluginId) !== revision || this.hasWindowInteraction(pluginId)) {
+        destroyFloatWindow(pluginId)
+        throw new Error('plugin move was cancelled')
+      }
+      try {
+        this.moveEntry(entry, { kind: 'float', windowId: win.id }, this.getLayoutMode(pluginId))
+        showFloatWindow(win.id)
+        entry.view.webContents.focus()
+      } catch (error) {
+        if (this.getPlacement(pluginId).kind !== 'float') destroyFloatWindow(pluginId)
+        throw error
+      }
+      entered = true
+    })
+    return entered
+  }
+
+  /** 退出悬浮窗：视图迁回主窗 Tab 并激活（不重载）；非悬浮挂载时为无操作。 */
+  async exitFloat(pluginId: string): Promise<boolean> {
+    pluginId = toPluginId(pluginId)
+    if (this.getPlacement(pluginId).kind !== 'float') return false
+    let exited = false
+    await this.transfer(pluginId, async () => {
+      const entry = this.entries.get(pluginId)
+      if (!entry || this.getPlacement(pluginId).kind !== 'float') return
+      if (this.hasWindowInteraction(pluginId)) throw new Error('finish the native dialog before moving this plugin')
+      this.moveEntry(entry, { kind: 'shell' }, this.getLayoutMode(pluginId))
+      exited = true
+    })
+    return exited
+  }
+
+  /** Float window host callback: the user closed the chrome-less window. */
+  async leaveFloatByHost(pluginId: string): Promise<void> {
+    try { await this.exitFloat(pluginId) } catch (error) { logWarn('window', `${pluginId}: leave float failed: ${String(error)}`) }
+  }
+
+  /**
+   * `pin.create` revoked while floating: drop below other applications but keep
+   * the window, so a running playback is not interrupted.
+   */
+  revokeFloatTopmost(pluginId: string): void {
+    const placement = this.getPlacement(pluginId)
+    if (placement.kind !== 'float') return
+    setFloatAlwaysOnTop(placement.windowId, false)
+    this.sendPlacementChange(pluginId)
+  }
+
+  /** Float window host callback: bounds or topmost state settled. */
+  persistFloatGeometry(pluginId: string): void {
+    if (this.getPlacement(pluginId).kind !== 'float') return
+    const geometry = getFloatGeometry(pluginId)
+    if (geometry) this.windowSession.setFloat(pluginId, geometry)
+    this.sendPlacementChange(pluginId)
   }
 
   private migrateContainer(pluginId: string, container: PluginContainer, layoutMode: PluginLaunchMode = container): void {
@@ -2792,6 +2948,7 @@ export class PluginHost {
     if (this.getPlacement(entry.pluginId).kind === 'quick' && this.quickPluginId === entry.pluginId) finishQuickPluginReveal()
     const placement = this.getPlacement(entry.pluginId)
     const parent = placement.kind === 'detached' ? getDetachedParent(entry.pluginId)
+      : placement.kind === 'float' ? getFloatParent(entry.pluginId)
       : placement.kind === 'quick' ? getQuickPluginParent() : getMainWindow()?.contentView
     try { parent?.removeChildView(entry.view) } catch { /* already detached */ }
   }
@@ -2874,6 +3031,10 @@ bindDetachedWindowHost({
   snapshot: id => pluginHost.getDetachedState(id),
   activate: id => pluginHost.activateDetachedPlugin(id),
   history: (id, session) => pluginHost.updateDetachedHistory(id, session)
+})
+bindFloatWindowHost({
+  exit: id => pluginHost.leaveFloatByHost(id),
+  changed: id => pluginHost.persistFloatGeometry(id)
 })
 
 /** Explicit refresh/replacement invalidates compiled scripts; cache failures do not undo a published build. */

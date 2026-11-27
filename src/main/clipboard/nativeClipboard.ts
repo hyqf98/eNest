@@ -28,7 +28,7 @@ function rejectPending(error: Error, child?: ChildProcessWithoutNullStreams): vo
 function connect(): ChildProcessWithoutNullStreams {
   if (helper && !helper.killed) return helper
   if (Date.now() < failedUntil) throw new Error('系统剪贴板辅助程序不可用')
-  const dir = app.isPackaged ? join(process.resourcesPath, 'native') : join(app.getAppPath(), 'native/bin')
+  const dir = app.isPackaged ? join(process.resourcesPath, 'native') : join(app.getAppPath(), '.cache/native/bin')
   const file = join(dir, process.platform === 'win32' ? 'clipboard-helper.ps1' : 'clipboard-helper')
   if (!existsSync(file)) { failedUntil = Date.now() + 30000; throw new Error('系统剪贴板辅助程序未构建') }
   helper = process.platform === 'win32'

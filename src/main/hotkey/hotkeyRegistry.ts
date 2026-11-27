@@ -13,6 +13,8 @@ export interface HotkeyRegistration {
   owner: HotkeyOwner
   accelerator: string
   onFire: () => void | Promise<unknown>
+  /** Plugin-supplied feature name; shown in conflict hints and the shortcuts settings page. */
+  label?: string
 }
 export type HotkeyChange = { owner: HotkeyOwner; registration: HotkeyRegistration | null }
 export interface HotkeyApplyResult { ok: boolean; error?: string }
@@ -50,9 +52,14 @@ export function getOwnedHotkey(owner: HotkeyOwner): HotkeyRegistration | undefin
 }
 
 export function getHotkeyOwner(accelerator: string): HotkeyOwner | undefined {
+  return getHotkeyRegistration(accelerator)?.owner
+}
+
+/** Full registration for an accelerator, including the optional plugin feature label. */
+export function getHotkeyRegistration(accelerator: string): HotkeyRegistration | undefined {
   const acc = normalizeAccelerator(accelerator, process.platform)
   if (!acc) return undefined
-  return acceleratorRegistrations.get(acc)?.owner
+  return acceleratorRegistrations.get(acc)
 }
 
 export function requiresSystemShortcutConfirmation(): boolean {

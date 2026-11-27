@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import yaml from 'js-yaml'
-import { assembleRelease, fileSha512, mergeMacMetadata, releaseJobs } from '../../tools/packaging/assemble-release.mjs'
+import { assembleRelease, fileSha512, mergeMacMetadata, releaseJobs } from '../../scripts/packaging/assemble-release.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)

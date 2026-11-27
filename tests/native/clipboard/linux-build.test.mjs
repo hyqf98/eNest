@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseDependencies } from '../../../native/clipboard/linux-build.mjs'
+import { parseDependencies } from '../../../src/native/clipboard/linux-build.mjs'
 
 test('bundles transitive libraries while retaining the OS loader/glibc family', () => {
   const result = parseDependencies(`

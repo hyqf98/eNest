@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { collectBundledLicenses } from '../../tools/packaging/collect-bundled-licenses.mjs'
+import { collectBundledLicenses } from '../../scripts/packaging/collect-bundled-licenses.mjs'
 
 test('retains bundled direct and transitive notices while excluding tests and type-only imports', async t => {
   const projectDir = await mkdtemp(join(tmpdir(), 'enest-license-test-'))

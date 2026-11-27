@@ -8,6 +8,7 @@ import { confirmPluginOperation } from '@main/plugin/PluginPermissions'
  * 关键依赖：node:child_process（零新依赖）。
  */
 import { execFile } from 'node:child_process'
+import { cpus } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
 import type { SysProcessInfo, SysPortInfo } from '@shared/types/pluginApi'
@@ -235,6 +236,26 @@ export async function sysProcesses(): Promise<SysProcessInfo[]> {
     } catch {
       return parsePsOutput(await run('ps', ['-eo', 'pid,pcpu,pmem,rss,user,args']))
     }
+  })
+}
+
+let previousCpuSample: { idle: number; total: number; cores: number; at: number } | undefined
+
+export function sysCpuUsage(): Promise<number | null> {
+  return cachedSample('cpu', async () => {
+    const cores = cpus()
+    const sample = { idle: 0, total: 0, cores: cores.length, at: Date.now() }
+    for (const { times } of cores) {
+      sample.idle += times.idle
+      sample.total += times.user + times.nice + times.sys + times.idle + times.irq
+    }
+    const previous = previousCpuSample
+    previousCpuSample = sample
+    if (!previous || sample.cores === 0 || previous.cores !== sample.cores || sample.at - previous.at > 30_000) return null
+    const total = sample.total - previous.total
+    const idle = sample.idle - previous.idle
+    if (total <= 0 || idle < 0 || idle > total) return null
+    return (total - idle) * 100 / total
   })
 }
 

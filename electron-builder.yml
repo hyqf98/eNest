@@ -29,7 +29,7 @@ files:
 asar: true
 # 壳支持中英文；保留 Chromium 必需运行文件及许可证。
 electronLanguages: [en-US, zh-CN, zh-TW]
-afterPack: tools/packaging/after-pack.mjs
+afterPack: scripts/packaging/after-pack.mjs
 extraResources:
   - from: assets/icons
     to: icons
@@ -118,9 +118,9 @@ mac:
   # electron-builder 使用 build 下的 icon.icns / icon.png
   icon: build/icon.icns
   extraResources:
-    - from: native/bin
+    - from: .cache/native/bin
       to: native
-      filter: [clipboard-helper, open-with-helper, process-memory-helper]
+      filter: [account-storage.cjs, account-storage.node, clipboard-helper, open-with-helper, process-memory-helper]
   hardenedRuntime: false
   gatekeeperAssess: false
   target:
@@ -137,7 +137,7 @@ win:
       to: window-icons/icon.ico
     - from: assets/icons/light/icon.ico
       to: window-icons/icon-light.ico
-    - from: native/bin
+    - from: .cache/native/bin
       to: native
       filter: [clipboard-helper.ps1, process-memory-helper.ps1, hotkey-hook.ps1, icon-extract.ps1]
   target:
@@ -151,9 +151,11 @@ linux:
   extraResources:
     - from: assets/icons/light/enest-icon-256.png
       to: window-icons/icon-light.png
-    - from: native/bin
+    - from: .cache/native/bin
       to: native
       filter:
+        - account-storage.cjs
+        - account-storage.node
         - clipboard-helper
         - lib/**/*
         - licenses/**/*

@@ -5,7 +5,7 @@ import test from 'node:test'
 import vm from 'node:vm'
 import ts from 'typescript'
 
-const source = file => ts.transpileModule(readFileSync(new URL(`../../${file}`, new URL("../../tools/packaging/", import.meta.url)), 'utf8'), {
+const source = file => ts.transpileModule(readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText
 const controlSource = source('src/main/plugin/pluginBackendControl.ts')

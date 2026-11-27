@@ -9,8 +9,7 @@
  * 关键依赖：kvStore（同库连接）、pathsService、sendShellEvent（主题变更推送）。
  */
 import { existsSync, renameSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { dirname } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { nativeTheme } from 'electron'
 import type {
@@ -330,12 +329,19 @@ export class SettingsStore {
 
   getAppearanceInputRevision(): number { return this.appearanceInputRevision }
 
+  getProfileUser(): UserProfile | null {
+    this.ensureLoaded()
+    const user = this.data.profile?.user
+    return user && typeof user.login === 'string' ? { ...user } : null
+  }
+
   /** 写入/清除已连接账号（githubAuthService 专用；事件由服务侧发布） */
   setProfileUser(user: UserProfile | null): void {
     this.ensureLoaded()
-    if (user) this.data.profile.user = user
-    else delete this.data.profile.user
-    this.schedulePersist()
+    const profile = { ...this.data.profile }
+    if (user) profile.user = user
+    else delete profile.user
+    this.commitSettings({ ...this.data, profile })
   }
 
   getPluginLaunchSettings(): PluginLaunchSettings {
@@ -446,6 +452,20 @@ export class SettingsStore {
     this.ensureLoaded()
     this.commitSettings({ ...this.data, general: { ...this.data.general, fileSearch } })
     sendShellEvent({ type: 'settings-changed', generalKeys: ['fileSearch'] })
+  }
+
+  /** Host-only: where the last successful file pick started from. Never exposed for themes or plugins to write. */
+  getPickerDirectory(): string | undefined {
+    this.ensureLoaded()
+    const value = this.data.general.lastPickerDirectory
+    return typeof value === 'string' && value ? value : undefined
+  }
+
+  commitPickerDirectory(directory: string): void {
+    if (typeof directory !== 'string' || !directory) return
+    this.ensureLoaded()
+    // No change event: nothing displays this value, and every pick would otherwise refresh settings.
+    this.commitSettings({ ...this.data, general: { ...this.data.general, lastPickerDirectory: directory } })
   }
 
   /** The workspace receives descriptors, not permission to replace a settings bag. */
@@ -580,12 +600,10 @@ export class SettingsStore {
     if (!isDeepStrictEqual(previousAppearance, appearanceInputs(next))) this.appearanceInputRevision++
     this.schedulePersist()
     if (partial.pluginLaunch) this.pluginLaunchRevision++
-    // dataRoot 变更：锚点立即更新，并把设置行预写到新根的库，避免下次启动读到空库
+    // dataRoot 变更：锚点立即更新。数据本体的搬迁由 dataRootMigration 负责（暂停插件 → 复制整个数据根 →
+    // 切换），这里不再单独预写设置行：那条路径在恢复默认目录时会漏，且与完整迁移互相覆盖。
     const nextRoot = this.data.general.dataRoot as string | undefined
-    if (nextRoot !== prevRoot && !this.fileFallback) {
-      writeAnchor(nextRoot)
-      this.migrateRowToNewRoot(nextRoot)
-    }
+    if (nextRoot !== prevRoot && !this.fileFallback) writeAnchor(nextRoot)
     if (partial.theme) sendShellEvent({ type: 'theme-changed', mode: this.data.theme.mode })
     const generalKeys = Object.keys(partial.general ?? {})
     if (generalKeys.length) sendShellEvent({ type: 'settings-changed', generalKeys })
@@ -736,24 +754,6 @@ export class SettingsStore {
       this.data.pluginLaunch[pluginId] = preferences
     }
     this.schedulePersist()
-  }
-
-  /** dataRoot 变更时把设置行预写到新根的 enest.db（独立短连接，写完即关） */
-  private migrateRowToNewRoot(newRoot: string | undefined): void {
-    if (!newRoot) return
-    try {
-      const dbPath = join(newRoot, 'data', 'enest.db')
-      mkdirSync(dirname(dbPath), { recursive: true })
-      const db = new DatabaseSync(dbPath)
-      db.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
-      db.prepare(
-        'INSERT INTO settings (key, value) VALUES (?, ?) ' +
-          'ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-      ).run(SETTINGS_ROW_KEY, JSON.stringify(this.data))
-      db.close()
-    } catch (err) {
-      console.error('[enest] settings row migrate to new dataRoot failed', err)
-    }
   }
 
   /** 普通偏好防抖持久化；需要确认成功的外观、快捷键和插件设置使用同步提交。 */

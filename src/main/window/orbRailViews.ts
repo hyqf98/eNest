@@ -32,6 +32,7 @@ import {
   setPluginLeftInset
 } from '@main/window/createShellWindow'
 import { settingsStore } from '@main/settings/SettingsStore'
+import { getActiveGithubProfile } from '@main/auth/githubMemorySession'
 import { resolveThemeTokens, type ResolvedThemeCss } from '@main/theme/resolveThemeCss'
 import { readRailContributionEntries } from '@main/contrib/railContributions'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
@@ -130,7 +131,7 @@ function readTheme(): ResolvedThemeCss {
 /** Use the host-cached avatar; the settings surface never fetches account images. */
 function readProfile(): OrbRailState['profile'] {
   try {
-    const user = settingsStore.getAll().profile?.user
+    const user = getActiveGithubProfile()
     if (!user || typeof user.login !== 'string') return null
     return { name: user.name || user.login, avatar: user.avatarDataUrl ?? null }
   } catch {

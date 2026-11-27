@@ -1,6 +1,6 @@
 import type { AccountState, AccountLoginResult } from '@shared/types/account'
 import { getGithubAuthConfig } from './authConfig'
-import { startGithubLogin, cancelGithubLogin, logoutGithub, getProfileUser, getGithubLoginSession, isLoginPolling } from './githubAuthService'
+import { startGithubLogin, cancelGithubLogin, logoutGithub, getProfileUser, getGithubLoginSession, getGithubCredentialNotice, isLoginPolling } from './githubAuthService'
 
 // Add another provider's adapter here; Settings renders the host's provider list.
 const providers = {
@@ -18,8 +18,9 @@ export function getAccountState(): AccountState {
   const pending = entries.find(([, item]) => item.pending())
   return {
     user: connected?.[1].user() ?? null, providerId: connected?.[0] ?? null,
-    providers: entries.map(([id, item]) => ({ id, name: item.name, available: item.available() })),
+    providers: entries.map(([id, item]) => ({ id, name: item.name, available: item.available(), ...(id === 'github' && getGithubAuthConfig().deviceFlow ? { deviceFlow: true } : {}) })),
     pendingProviderId: pending?.[0] ?? null, session: pending?.[1].session() ?? null,
+    credentialNotice: getGithubCredentialNotice(),
   }
 }
 

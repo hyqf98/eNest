@@ -20,7 +20,7 @@ let failedUntil = 0
 const pending = new Map<number, PendingIcon>()
 
 function helperFile(): string {
-  const dir = app.isPackaged ? join(process.resourcesPath, 'native') : join(app.getAppPath(), 'native/bin')
+  const dir = app.isPackaged ? join(process.resourcesPath, 'native') : join(app.getAppPath(), '.cache/native/bin')
   return join(dir, 'icon-extract.ps1')
 }
 

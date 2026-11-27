@@ -90,6 +90,7 @@ function readEnestConfig(pkg: PackageJsonLike): EnestPackageConfig {
   const config: EnestPackageConfig = {}
   if (raw.dev !== undefined) config.dev = readDevSection(raw.dev)
   if (raw.build !== undefined) config.build = readCommandSection(raw.build)
+  if (raw.backend !== undefined) config.backend = readCommandSection(raw.backend)
   if (typeof raw.output === 'string' && raw.output.trim()) config.output = raw.output.trim()
   return config
 }
@@ -165,10 +166,13 @@ export function resolveDevCommandPlan(sourcePath: string, manifest?: Pick<Plugin
   const devUrl = normalizePluginDevUrl(enest.dev?.url ?? manifest?.development?.main)
   const start = resolveCommand(enest.dev, pkg, detected, DEV_SCRIPT_FALLBACKS)
   const build = resolveCommand(enest.build, pkg, detected, BUILD_SCRIPT_FALLBACKS)
+  // 只重建后端的命令是可选的：没有声明就不给，由调用方回退到 build
+  const backend = enest.backend ? resolveCommand(enest.backend, pkg, detected, []) : undefined
   return {
     ...(devUrl !== undefined ? { devUrl } : {}),
     ...(start ? { start } : {}),
     ...(build ? { build } : {}),
+    ...(backend ? { backend } : {}),
     framework: detectDevFramework(pkg, start, build),
     output: enest.output ?? 'dist',
   }

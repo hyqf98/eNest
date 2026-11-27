@@ -90,7 +90,7 @@ export function createShortcutMock({ read, write, plugins, publish: emit }: {
       if (captures.size) return { id: binding.id, status: 'suspended' }
       const occupied = probe(binding.accelerator, binding.id)
       return { id: binding.id, status: 'conflict', error: occupied.status !== 'free' ? occupied.hint : '浏览器预览无法注册系统快捷键' }
-    }) }
+    }), runtime: [] }
   }
   const publish = (): PluginShortcutsSnapshot => { const next = snapshot(); emit(next); return next }
   const save = (input: PluginShortcutInput): PluginShortcutMutationResult => {

@@ -53,13 +53,13 @@ async function inputs(expectedElectron) {
   const required = ['out/main/pluginInstallWorker.js', 'out/renderer/index.html', 'out/renderer/home.html',
     ...['shellPreload', 'pluginPreload', 'backgroundPreload', 'auxiliaryPreload', 'homePreload', 'modalPreload', 'themeChromePreload']
       .map(name => `out/preload/${name}.cjs`)]
-  if (process.platform === 'darwin') required.push('native/bin/process-memory-helper')
+  if (process.platform === 'darwin') required.push('.cache/native/bin/process-memory-helper')
   const artifacts = []
   for (const path of required) {
     const bytes = await readFile(join(root, path)), info = await stat(join(root, path))
     artifacts.push({ path, bytes: bytes.length, modifiedAt: info.mtime.toISOString(), sha256: sha(bytes) })
   }
-  if (process.platform === 'darwin') await access(join(root, 'native/bin/process-memory-helper'), 1)
+  if (process.platform === 'darwin') await access(join(root, '.cache/native/bin/process-memory-helper'), 1)
   const plugins = []
   const sourceRoot = join(root, 'eNest_plugin/plugins')
   for (const entry of (await readdir(sourceRoot, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {

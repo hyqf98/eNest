@@ -11,6 +11,7 @@ const root = fileURLToPath(new URL('../../../', import.meta.url))
 async function fixture(state) {
   globalThis.homeRegistryFixture = state
   const adapters = {
+    electron: `export const app={getAppPath:()=>'/app'};`,
     fixture: `export const state=globalThis.homeRegistryFixture;`,
     '@main/contrib/ContributionRegistry': `import {state} from 'fixture'; export const contributionRegistry={listSlot:()=>state.rows};`,
     '@main/plugin/PluginRegistry': `import {state} from 'fixture'; export const pluginRegistry={
@@ -23,7 +24,7 @@ async function fixture(state) {
   const result = await build({
     stdin: { contents: `export * from '@main/home/homeRegistry'; export const nonce=${Math.random()};`, resolveDir: root },
     bundle: true, write: false, format: 'esm', platform: 'node', tsconfig: `${root}/tsconfig.node.json`,
-    define: { __dirname: JSON.stringify('/app/out/main') },
+    define: { __dirname: JSON.stringify('/app/out/main/chunks') },
     plugins: [{ name: 'home-registry-fixture', setup(builder) {
       builder.onResolve({ filter: /.*/ }, ({ path }) => path in adapters ? { path, namespace: 'fixture' } : undefined)
       builder.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ contents: adapters[path], loader: 'js' }))
@@ -31,6 +32,15 @@ async function fixture(state) {
   })
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)
 }
+
+test('the built-in home resolves from the app root when the main bundle is split into chunks', async () => {
+  try {
+    const api = await fixture({ rows: [], installed: [] })
+    const page = await api.resolveHomePage('enest.builtin', 'home', 'default')
+    assert.equal(page.entryPath, join('/app', 'out', 'renderer', 'home.html'))
+    assert.equal(page.rootPath, join('/app', 'out', 'renderer'))
+  } finally { delete globalThis.homeRegistryFixture }
+})
 
 test('plugin homes require an enabled current manifest declaration and a contained regular entry', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'enest-home-registry-'))

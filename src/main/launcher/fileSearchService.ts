@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { basename, dirname, relative, sep } from 'node:path'
 import { dialog, shell } from 'electron'
 import { trackNativeInteraction } from '@main/plugin/pluginInteractionPolicy'
+import { openDialogWithMemory } from '@main/settings/dialogMemory'
 import { settingsStore } from '@main/settings/SettingsStore'
 import { getAppPathsGeneration } from '@main/paths/pathsService'
 import type { FileSearchItem, FileSearchPreferenceRequest, FileSearchPreferences, FileSearchRequest, FileSearchResult } from '@shared/types/fileSearch'
@@ -42,9 +43,9 @@ export async function configureFileSearch(request: FileSearchPreferenceRequest, 
     else preferences.everythingPort = request.port
   }
   else if (request?.operation === 'add-root' && preferences.enabled && preferences.roots.length < 8) {
-    const picked = await trackNativeInteraction(dialog.showOpenDialog({ title: '选择文件名检索的备用目录', properties: ['openDirectory'] }))
-    if (picked.canceled || !picked.filePaths.length) return fileSearchPreferences()
-    const root = await acceptedRoot(picked.filePaths[0])
+    const picked = await openDialogWithMemory({ title: '选择文件名检索的备用目录', properties: ['openDirectory'] })
+    if (!picked.length) return fileSearchPreferences()
+    const root = await acceptedRoot(picked[0])
     if (!root) throw new Error('请选择一个具体的文件夹，不能使用磁盘或整个用户目录')
     if (!preferences.roots.includes(root)) preferences.roots.push(root)
   } else if (request?.operation === 'remove-root' && Number.isSafeInteger(request.index) && request.index >= 0 && request.index < preferences.roots.length) preferences.roots.splice(request.index, 1)

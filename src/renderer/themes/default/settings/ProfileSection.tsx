@@ -4,6 +4,7 @@ import { useI18n } from '@renderer/hooks/useI18n'
 import type { AccountState } from '@shared/types/account'
 import { notify } from '@renderer/services/notifyService'
 import enestMark from '@renderer/assets/enest-mark.png'
+import { GithubSyncSection } from './GithubSyncSection'
 import './account.css'
 
 function ProviderIcon({ id }: { id: string }) {
@@ -55,7 +56,7 @@ export function ProfileSection() {
   const providerName = account?.providers.find(p => p.id === (account.providerId || account.pendingProviderId))?.name || 'GitHub'
   const unavailable = account && !account.providers.some(p => p.available)
 
-  return <section className="account-page" aria-label={t('settings.profile.title')}>
+  return <section className={`account-page${user ? ' is-connected' : ''}`} aria-label={t('settings.profile.title')}>
     <div className="account-card">
       <div className="account-brand"><img src={enestMark} alt="" draggable={false} /><span>eNest</span></div>
       {user ? <>
@@ -71,19 +72,22 @@ export function ProfileSection() {
         {pending ? <div className="account-pending" role="status">
           <span className="account-spinner" aria-hidden="true" />
           <p>{t('settings.profile.waiting')}</p>
-          {session?.mode === 'device' && <div className="account-device"><p>{t('settings.profile.deviceHint')}</p><button type="button" onClick={() => void navigator.clipboard.writeText(session.userCode).then(() => notify.success(t('settings.profile.codeCopied'))).catch(() => setLoginError(t('settings.profile.copyFailed')))} title={t('settings.profile.copyCode')}><code>{session.userCode}</code><span>{t('settings.profile.copyCode')}</span></button></div>}
+          {session?.mode === 'device' && <div className="account-device"><p>{t(session.copied ? 'settings.profile.deviceCopiedHint' : 'settings.profile.deviceHint')}</p><button type="button" onClick={() => void shellApi.copyGithubDeviceCode().then(() => notify.success(t('settings.profile.codeCopied'))).catch(() => setLoginError(t('settings.profile.copyFailed')))} title={t('settings.profile.copyCode')}><code>{session.userCode}</code><span>{t('settings.profile.copyCode')}</span></button></div>}
           <div className="account-pending-actions">{session && <a href={session.verificationUri} target="_blank" rel="noreferrer">{t('settings.profile.openAuthPage')}</a>}<button type="button" disabled={busy} onClick={() => void run(() => shellApi.cancelAccountLogin(account!.pendingProviderId!))}>{t('settings.profile.cancel')}</button></div>
         </div> : <div className="account-providers">
           {!account ? <p role="status">{t('settings.profile.loading')}</p> : account.providers.map(provider => <button className="account-provider" type="button" key={provider.id} disabled={busy} aria-busy={busy} onClick={() => void run(async () => {
             const result = await shellApi.loginAccount(provider.id)
             if (!result.ok) throw new Error(result.error)
           })}><ProviderIcon id={provider.id} /><span>{busy ? t('settings.profile.starting') : t('settings.profile.continueWith').replace('{provider}', provider.name)}</span><span aria-hidden="true">↗</span></button>)}
-          {unavailable && <p className="account-availability">{t('settings.profile.unavailable')}</p>}
+          {unavailable ? <p className="account-availability">{t('settings.profile.unavailable')}</p> : account?.providers.some(provider => provider.deviceFlow) && <p className="account-availability">{t('settings.profile.clipboardNote')}</p>}
         </div>}
       </>}
+      {user && account.credentialNotice === 'session-only' && <p className="account-storage-note" role="status">{t('settings.profile.sessionOnly')}</p>}
+      {!user && !pending && account?.credentialNotice === 'reauth-required' && <p className="account-storage-note" role="status">{t('settings.profile.reauthorizeStorage')}</p>}
       {loginError && <div className="account-error" role="alert">{loginError}{!account && <button type="button" onClick={() => void refresh()}>{t('settings.profile.retry')}</button>}</div>}
-      <div className="account-footer"><span aria-hidden="true">↗</span>{t('settings.profile.browserNote')}</div>
+      {!user && <div className="account-footer"><span aria-hidden="true">↗</span>{t('settings.profile.browserNote')}</div>}
     </div>
-    <p className="account-local-note">{t('settings.profile.localNote')}</p>
+    {user ? <GithubSyncSection key={user.githubId ?? user.login} accountId={user.githubId} login={user.login} />
+      : <p className="account-local-note">{t('settings.profile.localNote')}</p>}
   </section>
 }

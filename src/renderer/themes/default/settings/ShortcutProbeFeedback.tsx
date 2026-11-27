@@ -23,7 +23,7 @@ export function useDescribeShortcutProbe(): (probe: ShortcutProbeResult) => stri
   }
 }
 
-export function ShortcutProbeFeedback({ probe, checking, error, inactive = false, disabled = false, ownerIdentified = false, ownerChecked = false, onConfirm, onForce, onRetry }: {
+export function ShortcutProbeFeedback({ probe, checking, error, inactive = false, disabled = false, ownerIdentified = false, ownerChecked = false, forceExplain, onConfirm, onForce, onRetry }: {
   probe?: ShortcutProbeResult
   checking?: boolean
   error?: string
@@ -33,6 +33,8 @@ export function ShortcutProbeFeedback({ probe, checking, error, inactive = false
   ownerIdentified?: boolean
   /** 已尝试识别（无论成功与否）；未完成时显示「正在识别」 */
   ownerChecked?: boolean
+  /** How this surface releases a takeover; the default text names the Quick card's own control. */
+  forceExplain?: string
   onConfirm?(token: string): void
   /** 强制接管被外部占用的组合键（Windows 低级键盘钩子） */
   onForce?(): void
@@ -53,7 +55,7 @@ export function ShortcutProbeFeedback({ probe, checking, error, inactive = false
         suffix: canForce ? t('settings.shortcutProbe.ownerUnknownForceSuffix') : t('settings.shortcutProbe.ownerUnknownEnd')
       })}{onRetry && <button type="button" className="btn btn-ghost" onClick={onRetry}>{t('settings.shortcutProbe.recheck')}</button>}</p>}
       {isSystem && ownerIdentified && !probe.forceable && <p>{t('settings.shortcutProbe.closeOwnerHint')}{onRetry && <button type="button" className="btn btn-ghost" onClick={onRetry}>{t('settings.shortcutProbe.recheck')}</button>}</p>}
-      {canForce && <p>{t('settings.shortcutProbe.forceExplain')}</p>}
+      {canForce && <p>{forceExplain ?? t('settings.shortcutProbe.forceExplain')}</p>}
       {probe.overrideToken && <p>{inactive ? t('settings.shortcutProbe.confirmInactive')
         : probe.status === 'quick' ? t('settings.shortcutProbe.confirmQuick')
           : t('settings.shortcutProbe.confirmPlugin')}</p>}</div>

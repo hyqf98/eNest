@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { CustomFontMeta, ThemeMode } from '@shared/types/plugin'
 import type { ResolvedAppearance, ThemeIdentity, ThemeProfilePatch, ThemeSettingValue, ThemeSettingsField } from '@shared/types/appearance'
 import { appearanceStyleProperties, composeFontStacks, themeProfileKey } from '@shared/theme/appearance'
+import { themePackName } from '@shared/theme/themeLabels'
 import { useAppearanceStore } from '@renderer/hooks/useAppearance'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { shellApi } from '@renderer/services/shellApi'
@@ -41,7 +42,7 @@ function previewField(appearance: ResolvedAppearance, field: ThemeSettingsField,
  */
 export function AppearanceSettingsSection() {
   const appearance = useAppearanceStore(useShallow(({ appearance, profile, packs, customFonts, hydrated }) => ({ appearance, profile, packs, customFonts, hydrated })))
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const [drafts, setDrafts] = useState<Record<string, ThemeSettingValue>>({})
   const [switching, setSwitching] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -262,7 +263,7 @@ export function AppearanceSettingsSection() {
         <div className="appearance-card-head">
           <div className="appearance-card-head-copy">
             <h2>{t('settings.appearance.tuningTitle')}</h2>
-            <p className="hint">{activePack ? t('settings.appearance.tuningHintActive', { name: activePack.name }) : t('settings.appearance.tuningHintEmpty')}</p>
+            <p className="hint">{activePack ? t('settings.appearance.tuningHintActive', { name: themePackName(activePack, locale) }) : t('settings.appearance.tuningHintEmpty')}</p>
           </div>
         </div>
         <div className="appearance-section appearance-section-tuning" role="group" aria-label={t('settings.appearance.tuningCardAria')}>

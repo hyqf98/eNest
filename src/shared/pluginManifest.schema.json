@@ -1453,6 +1453,24 @@
         }
       }
     },
+    "themeFieldCondition": {
+      "type": "object",
+      "required": [
+        "field",
+        "equals"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,127}$"
+        },
+        "equals": {},
+        "not": {
+          "type": "boolean"
+        }
+      }
+    },
     "themeSettingsField": {
       "type": "object",
       "required": [
@@ -1530,6 +1548,22 @@
             },
             "equals": {}
           }
+        },
+        "disabledWhen": {
+          "description": "Field stays visible but cannot be edited while any listed condition holds.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/themeFieldCondition"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": {
+                "$ref": "#/$defs/themeFieldCondition"
+              }
+            }
+          ]
         }
       },
       "additionalProperties": false,

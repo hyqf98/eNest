@@ -9,6 +9,7 @@ import type {
   ThemeBackgroundPaletteDeclaration,
   ThemeColorToken,
   ThemeComponentKey,
+  ThemeFieldCondition,
   ThemeFontKey,
   ThemeLayoutKey,
   ThemeNotificationKey,
@@ -383,7 +384,7 @@ function paletteDeclarations(value: unknown, path: string): ThemeBackgroundPalet
   const seen = new Set<string>(DEFAULT_BACKGROUND_PALETTES.map(palette => palette.id))
   return value.map((raw, index) => {
     const entryPath = `${path}.${index}`
-    const bag = exactObject(raw, entryPath, new Set(['id', 'name', 'css', 'swatch']))
+    const bag = exactObject(raw, entryPath, new Set(['id', 'name', 'nameEn', 'css', 'swatch']))
     const id = safeVariantId(bag.id, `${entryPath}.id`)
     if (seen.has(id)) fail(`${entryPath}.id is duplicate or shadows a host preset`)
     seen.add(id)
@@ -391,7 +392,12 @@ function paletteDeclarations(value: unknown, path: string): ThemeBackgroundPalet
     if (!isSafePalettePaint(css)) fail(`${entryPath}.css is not a safe paint`)
     const swatch = bag.swatch === undefined ? undefined : text(bag.swatch, `${entryPath}.swatch`, 1024)
     if (swatch !== undefined && !isSafePalettePaint(swatch)) fail(`${entryPath}.swatch is not a safe paint`)
-    return { id, name: text(bag.name, `${entryPath}.name`, 96), css, ...(swatch === undefined ? {} : { swatch }) }
+    const nameEn = optionalText(bag.nameEn, `${entryPath}.nameEn`, 96)
+    return {
+      id, name: text(bag.name, `${entryPath}.name`, 96), css,
+      ...(nameEn === undefined ? {} : { nameEn }),
+      ...(swatch === undefined ? {} : { swatch }),
+    }
   })
 }
 
@@ -404,10 +410,12 @@ function settingsSchema(value: unknown, path: string, source: string, paletteIds
   const groupIds = new Set<string>()
   const fieldKeys = new Set<string>()
   const destinations = new Set<string>()
+  // Conditions reference the whole schema, so their targets are checked after every key is known.
+  const pendingRefs: Array<{ field: ThemeSettingsField; path: string; kind: 'visibleWhen' | 'disabledWhen'; conditions: ThemeFieldCondition[] }> = []
   let fieldCount = 0
   const groups = bag.groups.map((rawGroup, groupIndex) => {
     const groupPath = `${path}.groups.${groupIndex}`
-    const groupBag = exactObject(rawGroup, groupPath, new Set(['id', 'title', 'description', 'fields']))
+    const groupBag = exactObject(rawGroup, groupPath, new Set(['id', 'title', 'titleEn', 'description', 'descriptionEn', 'fields']))
     const id = safeVariantId(groupBag.id, `${groupPath}.id`)
     if (groupIds.has(id)) fail(`${groupPath}.id is duplicate`)
     groupIds.add(id)
@@ -418,7 +426,7 @@ function settingsSchema(value: unknown, path: string, source: string, paletteIds
     const fields = groupBag.fields.map((rawField, fieldIndex) => {
       const fieldPath = `${groupPath}.fields.${fieldIndex}`
       const fieldBag = exactObject(rawField, fieldPath, new Set([
-        'key', 'label', 'type', 'default', 'binding', 'min', 'max', 'step', 'options', 'presentation', 'help', 'visibleWhen',
+        'key', 'label', 'labelEn', 'type', 'default', 'binding', 'min', 'max', 'step', 'options', 'presentation', 'help', 'helpEn', 'visibleWhen', 'disabledWhen',
       ]))
       const key = safeVariantId(fieldBag.key, `${fieldPath}.key`)
       if (fieldKeys.has(key)) fail(`${fieldPath}.key is duplicate`)
@@ -432,6 +440,8 @@ function settingsSchema(value: unknown, path: string, source: string, paletteIds
         default: fieldBag.default as ThemeSettingValue,
         binding: binding(fieldBag.binding, `${fieldPath}.binding`),
       }
+      const labelEn = optionalText(fieldBag.labelEn, `${fieldPath}.labelEn`, 96)
+      if (labelEn !== undefined) field.labelEn = labelEn
       const destination = `${field.binding.target}:${field.binding.key}`
       if (destinations.has(destination)) fail(`${fieldPath}.binding is duplicate`)
       destinations.add(destination)
@@ -457,7 +467,7 @@ function settingsSchema(value: unknown, path: string, source: string, paletteIds
         const values = new Set<string | number | boolean>()
         field.options = fieldBag.options.map((option, optionIndex) => {
           const optionPath = `${fieldPath}.options.${optionIndex}`
-          const optionBag = exactObject(option, optionPath, new Set(['label', 'value', 'description', 'preview']))
+          const optionBag = exactObject(option, optionPath, new Set(['label', 'labelEn', 'value', 'description', 'descriptionEn', 'preview']))
           const value = optionBag.value
           if (!scalar(value) || values.has(value)) fail(`${optionPath}.value is invalid or duplicate`)
           if (field.type === 'select') {
@@ -473,10 +483,14 @@ function settingsSchema(value: unknown, path: string, source: string, paletteIds
           // 字体字段永远渲染成下拉加预览，缩略图没有落点；明确拒绝而不是静默丢弃。
           if (optionBag.preview !== undefined && field.type === 'font') fail(`${optionPath}.preview is not rendered for font fields`)
           const preview = optionBag.preview === undefined ? undefined : optionPreview(optionBag.preview, `${optionPath}.preview`, source)
+          const labelEn = optionalText(optionBag.labelEn, `${optionPath}.labelEn`, 96)
+          const descriptionEn = optionalText(optionBag.descriptionEn, `${optionPath}.descriptionEn`, 160)
           return {
             label: text(optionBag.label, `${optionPath}.label`, 96),
             value,
+            ...(labelEn === undefined ? {} : { labelEn }),
             ...(optionBag.description === undefined ? {} : { description: text(optionBag.description, `${optionPath}.description`, 160) }),
+            ...(descriptionEn === undefined ? {} : { descriptionEn }),
             ...(preview === undefined ? {} : { preview }),
           }
         })
@@ -487,25 +501,59 @@ function settingsSchema(value: unknown, path: string, source: string, paletteIds
         field.presentation = presentation
       }
       if (fieldBag.help !== undefined) field.help = text(fieldBag.help, `${fieldPath}.help`, 240)
+      const helpEn = optionalText(fieldBag.helpEn, `${fieldPath}.helpEn`, 240)
+      if (helpEn !== undefined) field.helpEn = helpEn
       if (fieldBag.visibleWhen !== undefined) {
         const conditionBag = exactObject(fieldBag.visibleWhen, `${fieldPath}.visibleWhen`, new Set(['field', 'equals']))
         const conditionField = safeVariantId(conditionBag.field, `${fieldPath}.visibleWhen.field`)
-        if (!fieldKeys.has(conditionField) && !Array.from(fieldKeys).includes(conditionField)) {
-          fail(`${fieldPath}.visibleWhen.field does not exist`)
-        }
         if (!scalar(conditionBag.equals)) fail(`${fieldPath}.visibleWhen.equals is invalid`)
         field.visibleWhen = { field: conditionField, equals: conditionBag.equals }
+        pendingRefs.push({ field, path: fieldPath, kind: 'visibleWhen', conditions: [field.visibleWhen] })
+      }
+      if (fieldBag.disabledWhen !== undefined) {
+        const listed = Array.isArray(fieldBag.disabledWhen)
+        const raws: unknown[] = listed ? [...fieldBag.disabledWhen as unknown[]] : [fieldBag.disabledWhen as unknown]
+        if (!raws.length || raws.length > 8) fail(`${fieldPath}.disabledWhen must contain 1 to 8 conditions`)
+        const parsed: ThemeFieldCondition[] = raws.map((raw, index) => {
+          const conditionPath = `${fieldPath}.disabledWhen${listed ? `.${index}` : ''}`
+          const conditionBag = exactObject(raw, conditionPath, new Set(['field', 'equals', 'not']))
+          const conditionField = safeVariantId(conditionBag.field, `${conditionPath}.field`)
+          if (!scalar(conditionBag.equals)) fail(`${conditionPath}.equals is invalid`)
+          if (conditionBag.not !== undefined && typeof conditionBag.not !== 'boolean') fail(`${conditionPath}.not is invalid`)
+          return conditionBag.not === undefined
+            ? { field: conditionField, equals: conditionBag.equals }
+            : { field: conditionField, equals: conditionBag.equals, not: conditionBag.not }
+        })
+        field.disabledWhen = listed ? parsed : parsed[0]
+        pendingRefs.push({ field, path: fieldPath, kind: 'disabledWhen', conditions: parsed })
       }
       if (!defaultValueMatchesField(field, field.default, source, false, paletteIds)) fail(`${fieldPath}.default is invalid`)
       return field
     })
+    const titleEn = optionalText(groupBag.titleEn, `${groupPath}.titleEn`, 96)
+    const descriptionEn = optionalText(groupBag.descriptionEn, `${groupPath}.descriptionEn`, 240)
     return {
       id,
       title: text(groupBag.title, `${groupPath}.title`, 96),
+      ...(titleEn === undefined ? {} : { titleEn }),
       ...(groupBag.description === undefined ? {} : { description: text(groupBag.description, `${groupPath}.description`, 240) }),
+      ...(descriptionEn === undefined ? {} : { descriptionEn }),
       fields,
     }
   })
+  /*
+   * 条件引用的是整张 schema 的字段，声明顺序无关：互斥的两项常常前后相邻引用，
+   * 所以必须等全部 key 收集完再校验，否则后向引用会被误拒。
+   */
+  for (const { field, path, kind, conditions } of pendingRefs) {
+    for (const condition of conditions) {
+      if (!fieldKeys.has(condition.field)) fail(`${path}.${kind}.field does not exist`)
+    }
+    // A disabledWhen list cannot depend on itself, which would lock the field permanently.
+    if (kind === 'disabledWhen' && conditions.some(condition => condition.field === field.key)) {
+      fail(`${path}.disabledWhen cannot reference itself`)
+    }
+  }
   return { version, groups }
 }
 
@@ -517,8 +565,8 @@ export function validateThemePackV2(input: unknown, source: string): ThemePackV2
   if (!SOURCE_ID.test(source)) fail('source is invalid')
   if (source === 'enest.builtin') fail('reserved theme source')
   const bag = exactObject(input, 'pack', new Set([
-    'id', 'name', 'source', 'mode', 'tokens', 'background', 'backgroundEffects', 'schemaVersion',
-    'version', 'description', 'variants', 'settings', 'palettes', 'home', 'quick', 'chrome', 'settingsPage',
+    'id', 'name', 'nameEn', 'source', 'mode', 'tokens', 'background', 'backgroundEffects', 'schemaVersion',
+    'version', 'description', 'descriptionEn', 'variants', 'settings', 'palettes', 'home', 'quick', 'chrome', 'settingsPage',
   ]))
   const id = text(bag.id, 'pack.id', 128, SAFE_ID)
   const name = text(bag.name, 'pack.name', 96)
@@ -593,6 +641,8 @@ export function validateThemePackV2(input: unknown, source: string): ThemePackV2
     schemaVersion: 2,
     version: bag.version,
     ...(optionalText(bag.description, 'pack.description', 300) === undefined ? {} : { description: optionalText(bag.description, 'pack.description', 300) }),
+    ...(optionalText(bag.nameEn, 'pack.nameEn', 96) === undefined ? {} : { nameEn: optionalText(bag.nameEn, 'pack.nameEn', 96) }),
+    ...(optionalText(bag.descriptionEn, 'pack.descriptionEn', 300) === undefined ? {} : { descriptionEn: optionalText(bag.descriptionEn, 'pack.descriptionEn', 300) }),
     variants,
     settings,
     ...(palettes === undefined ? {} : { palettes }),

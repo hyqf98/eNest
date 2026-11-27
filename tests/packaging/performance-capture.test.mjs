@@ -12,7 +12,7 @@ function fixture() {
   const setTimer = (callback, delay) => { const handle = { unref() {} }; timers.set(handle, { callback, at: now + delay }); return handle }
   const clearTimer = handle => timers.delete(handle)
   function load(file, adapters = {}) {
-    const source = ts.transpileModule(readFileSync(new URL(`../../${file}`, new URL("../../tools/packaging/", import.meta.url)), 'utf8'), {
+    const source = ts.transpileModule(readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8'), {
       compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true }
     }).outputText
     const module = { exports: {} }

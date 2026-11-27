@@ -93,7 +93,7 @@ jobs:
       # 保持 glibc 2.35 发布基线，不切换到较新的 Linux 构建镜像。
       - name: Install Linux native helper build dependencies
         if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential pkg-config libglib2.0-dev libjson-glib-dev libx11-dev libxtst-dev patchelf
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential pkg-config libglib2.0-dev libjson-glib-dev libsecret-1-dev libx11-dev libxtst-dev patchelf
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
@@ -120,6 +120,7 @@ jobs:
         run: npm run build
         env:
           ENEST_GITHUB_CLIENT_ID: ${{ vars.ENEST_GITHUB_CLIENT_ID }}
+          ENEST_GITHUB_APP_SLUG: ${{ vars.ENEST_GITHUB_APP_SLUG }}
           ENEST_GITHUB_TOKEN_EXCHANGE_URL: ${{ vars.ENEST_GITHUB_TOKEN_EXCHANGE_URL }}
           ENEST_GITHUB_DEVICE_FLOW: ${{ vars.ENEST_GITHUB_DEVICE_FLOW }}
 
@@ -149,7 +150,7 @@ jobs:
           PLATFORM='${{ matrix.platform }}'
           if [ "$PLATFORM" = mac ]; then PLATFORM=darwin; fi
           if [ "$PLATFORM" = win ]; then PLATFORM=win32; fi
-          node tools/packaging/release-manifest.mjs release "$PLATFORM" '${{ matrix.arch }}'
+          node scripts/packaging/release-manifest.mjs release "$PLATFORM" '${{ matrix.arch }}'
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -191,7 +192,7 @@ jobs:
           path: artifacts
           merge-multiple: false
       - name: Verify checksums and merge update metadata
-        run: node tools/packaging/assemble-release.mjs artifacts release-assets
+        run: node scripts/packaging/assemble-release.mjs artifacts release-assets
       - name: Upload combined update metadata
         uses: actions/upload-artifact@v4
         with:

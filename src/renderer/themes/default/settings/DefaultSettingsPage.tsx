@@ -10,13 +10,14 @@ import { useGeneralSettings } from './useGeneralSettings'
 import { usePluginSettings } from './usePluginSettings'
 import { useSettingsUpdates } from './useSettingsUpdates'
 import { PluginIcon } from '@renderer/components/PluginIcon'
-import { SettingsIcon, UserIcon, PaletteIcon, KeyboardIcon, TerminalIcon } from '@renderer/components/icons'
+import { SettingsIcon, UserIcon, PaletteIcon, KeyboardIcon, TerminalIcon, DatabaseIcon } from '@renderer/components/icons'
 import './pluginSettings.css'
 import './settings.css'
 
 const ProfileSection = lazy(() => import('./ProfileSection').then(module => ({ default: module.ProfileSection })))
 const AppearanceSettingsSection = lazy(() => import('./AppearanceSettingsSection').then(module => ({ default: module.AppearanceSettingsSection })))
 const DevConsoleSection = lazy(() => import('./DevConsoleSection').then(module => ({ default: module.DevConsoleSection })))
+const PluginDataSection = lazy(() => import('./PluginDataSection').then(module => ({ default: module.PluginDataSection })))
 const McpServiceSection = lazy(() => import('./McpServiceSection').then(module => ({ default: module.McpServiceSection })))
 const QuickSettingsSection = lazy(() => import('./QuickSettingsSection').then(module => ({ default: module.QuickSettingsSection })))
 const PluginMemorySection = lazy(() => import('./PluginMemorySection').then(module => ({ default: module.PluginMemorySection })))
@@ -60,6 +61,7 @@ export function DefaultSettingsPage() {
     { id: 'appearance', label: t('settings.tabs.appearance'), icon: <PaletteIcon size={14} strokeWidth={1.7} /> },
     { id: 'quick', label: t('settings.tabs.quick'), icon: <KeyboardIcon size={14} strokeWidth={1.7} /> },
     { id: 'dev', label: t('settings.tabs.dev'), icon: <TerminalIcon size={14} strokeWidth={1.7} /> },
+    { id: 'plugin-data', label: t('settings.tabs.pluginData'), icon: <DatabaseIcon size={14} strokeWidth={1.7} /> },
   ] as const
 
   const allTabs = [
@@ -104,6 +106,8 @@ export function DefaultSettingsPage() {
         {settingsTab === 'quick' && <QuickSettingsSection />}
 
         {settingsTab === 'dev' && <DevConsoleSection />}
+
+        {settingsTab === 'plugin-data' && <PluginDataSection />}
 
         {selectedPlugin && <PluginSettingsSection
           key={selectedPlugin.id}

@@ -37,6 +37,7 @@ import { contributionRegistry } from '@main/contrib/ContributionRegistry'
 import { clearPluginDeadlineTasks } from '@main/timer/deadlineTaskService'
 import { refreshPluginBackgrounds, stopPluginBackground } from '@main/plugin/pluginBackgroundRuntime'
 import { clearPrivateDocuments } from '@main/plugin/pluginPrivateDocuments'
+import { PRIVATE_DOCUMENTS_DIR, pluginPrivateNamespace } from '@main/plugin/pluginPrivatePaths'
 import { clearPluginFileStreams } from '@main/plugin/pluginFileStreams'
 import { clearPluginAssets } from '@main/plugin/pluginAssets'
 import { getDevPluginSource } from '@main/dev/devPluginRuntime'
@@ -68,7 +69,7 @@ export async function uninstallPlugin(pluginId: string): Promise<UninstallResult
     assertSelected()
     await Promise.all([existingOwnedDirectory(paths.root, PLUGINS_DIR, ...(installed ? [pluginId] : [])),
       existingOwnedDirectory(paths.root, DATA_SUBDIR, 'secrets', pluginId), existingOwnedDirectory(paths.root, DATA_SUBDIR, 'plugin-storage'),
-      existingOwnedDirectory(paths.root, DATA_SUBDIR, 'plugin-documents'), existingOwnedDirectory(app.getPath('userData'), 'Partitions', pluginPartitionDirName(pluginId))])
+      existingOwnedDirectory(paths.root, DATA_SUBDIR, PRIVATE_DOCUMENTS_DIR, pluginPrivateNamespace(pluginId)), existingOwnedDirectory(app.getPath('userData'), 'Partitions', pluginPartitionDirName(pluginId))])
     assertSelected()
     cancelPluginInstalls(pluginId)
     return await withInstallLock(pluginId, async () => {

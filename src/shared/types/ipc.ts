@@ -144,7 +144,15 @@ export const ShellOpenWithOpenSystemSettings = 'shell:open-with-open-system-sett
 export const ShellGetPaths = 'shell:get-paths'
 export const ShellOpenPath = 'shell:open-path'
 export const ShellPickFile = 'shell:pick-file'
+export const ShellPickDirectory = 'shell:pick-directory'
+/** 数据根迁移：暂停全部插件 → 关库 → 复制整个数据根 → 切换指针；失败回滚 */
+export const ShellMigrateDataRoot = 'shell:migrate-data-root'
 export const ShellGetPluginReadme = 'shell:get-plugin-readme'
+
+/** 插件数据占用：按插件统计 / 清理（单插件或全部）/ 清理未归属目录 */
+export const ShellGetPluginDataUsage = 'shell:get-plugin-data-usage'
+export const ShellClearPluginData = 'shell:clear-plugin-data'
+export const ShellClearOrphanData = 'shell:clear-orphan-data'
 
 /** 硬件加速（写入设置后需重启） */
 export const ShellGetHardwareAccel = 'shell:get-hardware-accel'
@@ -207,6 +215,14 @@ export const ShellAccountState = 'shell:account-state'
 export const ShellAccountLogin = 'shell:account-login'
 export const ShellAccountCancel = 'shell:account-cancel'
 export const ShellAccountLogout = 'shell:account-logout'
+export const ShellGithubCopyCode = 'shell:github-copy-device-code'
+export const ShellGithubSyncState = 'shell:github-sync-state'
+export const ShellGithubSyncDiscover = 'shell:github-sync-discover'
+export const ShellGithubSyncConnect = 'shell:github-sync-connect'
+export const ShellGithubSyncDisconnect = 'shell:github-sync-disconnect'
+export const ShellGithubSyncTransfer = 'shell:github-sync-transfer'
+export const ShellGithubSyncCancel = 'shell:github-sync-cancel'
+export const ShellGithubSyncAutomatic = 'shell:github-sync-automatic'
 export const ShellGithubLogin = 'shell:github-login'
 export const ShellGithubCancelLogin = 'shell:github-cancel-login'
 export const ShellGetProfile = 'shell:get-profile'
@@ -401,6 +417,11 @@ export const IpcChannels = {
   ShellGetPaths,
   ShellOpenPath,
   ShellPickFile,
+  ShellPickDirectory,
+  ShellMigrateDataRoot,
+  ShellGetPluginDataUsage,
+  ShellClearPluginData,
+  ShellClearOrphanData,
   ShellGetPluginReadme,
   ShellGetHardwareAccel,
   ShellSetHardwareAccel,
@@ -440,6 +461,14 @@ export const IpcChannels = {
   ShellAccountLogin,
   ShellAccountCancel,
   ShellAccountLogout,
+  ShellGithubCopyCode,
+  ShellGithubSyncState,
+  ShellGithubSyncDiscover,
+  ShellGithubSyncConnect,
+  ShellGithubSyncDisconnect,
+  ShellGithubSyncTransfer,
+  ShellGithubSyncCancel,
+  ShellGithubSyncAutomatic,
   ShellGithubLogin,
   ShellGithubCancelLogin,
   ShellGetProfile,
@@ -550,6 +579,8 @@ export type ShellEventPayload =
   | { type: 'quick-update-version'; version: string | null }
   /** GitHub 个人资料变化（登录成功 / 启动刷新 / 退出）；轨道头像与设置页即时更新 */
   | { type: 'profile-changed'; profile: UserProfile | null }
+  | { type: 'github-sync-progress'; accountId: number; repositoryId: number; done: number; total: number; pluginId: string }
+  | { type: 'github-sync-finished'; accountId: number; repositoryId: number }
   /** Provider-neutral account progress; retained GitHub event below supports older clients. */
   | { type: 'account-login-status'; providerId: string; phase: 'pending' | 'authorized' | 'error' | 'cancelled'; message?: string }
   /** 兼容 GitHub 登录进度 */
@@ -742,6 +773,12 @@ export type PluginEventPayload =
   | {
       type: 'mode-change'
       mode: PluginLaunchMode
+    }
+  | {
+      /** Mount location changed (shell / quick / detached / float); the page is not reloaded. */
+      type: 'placement-change'
+      placement: import('./plugin-window').PluginPlacementKind
+      alwaysOnTop?: boolean
     }
   | {
       type: 'quick-query'

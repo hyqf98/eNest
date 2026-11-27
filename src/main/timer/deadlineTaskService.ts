@@ -230,3 +230,16 @@ export function shutdownDeadlineTasksSync(): void {
   active.clear(); initialized = false
 }
 export async function shutdownDeadlineTasks(): Promise<void> { shutdownDeadlineTasksSync() }
+/** 数据根迁移后在新库上重载；沿用启动时的回调，运行中的任务与重启后一样归为暂停。 */
+export function reloadDeadlineTasks(): void {
+  const db = database()
+  db.exec('CREATE TABLE IF NOT EXISTS deadline_tasks (plugin_id TEXT NOT NULL, id TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (plugin_id,id)); CREATE TABLE IF NOT EXISTS deadline_receipts (seq INTEGER PRIMARY KEY AUTOINCREMENT, plugin_id TEXT NOT NULL, task_id TEXT NOT NULL, id TEXT NOT NULL, value TEXT NOT NULL); CREATE INDEX IF NOT EXISTS deadline_receipts_owner ON deadline_receipts(plugin_id,task_id,seq)')
+  runInTransaction(db, () => {
+    const rows = db.prepare('SELECT plugin_id, value FROM deadline_tasks').all() as Array<{ plugin_id: string; value: string }>
+    for (const row of rows) {
+      const task: DeadlineTaskState = JSON.parse(row.value)
+      if (task.status === 'running') { task.status = 'paused'; task.deadline = null; write(row.plugin_id, task) }
+    }
+  })
+  active.clear(); initialized = true; schedule()
+}

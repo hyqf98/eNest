@@ -1,9 +1,10 @@
 # The native Linux bundle uses the repository root only to include isolated fixtures.
 **
-!native/
-!native/clipboard/
-!native/clipboard/linux.c
-!native/clipboard/linux-build.mjs
+!src/
+!src/native/
+!src/native/clipboard/
+!src/native/clipboard/linux.c
+!src/native/clipboard/linux-build.mjs
 !tests/
 !tests/native/
 !tests/native/clipboard/

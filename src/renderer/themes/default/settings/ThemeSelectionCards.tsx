@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import type { AppearanceColorMode, ThemeIdentity, ThemePackV2 } from '@shared/types/appearance'
 import { themeProfileKey } from '@shared/theme/appearance'
+import { themePackDescription, themePackName } from '@shared/theme/themeLabels'
 import { useI18n } from '@renderer/hooks/useI18n'
 import { Button } from '@renderer/components/ui/Button'
 import './appearanceSettings.css'
@@ -49,7 +50,7 @@ function ThemePreview({ pack, mode }: { pack: ThemePackV2; mode: AppearanceColor
 
 /** Host-rendered switcher: every installed theme pack, built in or installed by a plugin. */
 export function ThemeSelectionCards({ packs, selected, mode, pendingKey, disabled, onSelect }: ThemeSelectionCardsProps) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const selectedKey = selected ? themeProfileKey(selected) : null
   return (
     <div className="appearance-themes" role="group" aria-label={t('settings.themeCards.groupAria')}>
@@ -57,6 +58,8 @@ export function ThemeSelectionCards({ packs, selected, mode, pendingKey, disable
         const key = themeProfileKey(pack)
         const active = key === selectedKey
         const pending = pendingKey === key
+        const name = themePackName(pack, locale)
+        const description = themePackDescription(pack, locale)
         return (
           <Button
             key={key}
@@ -64,7 +67,7 @@ export function ThemeSelectionCards({ packs, selected, mode, pendingKey, disable
             data-theme-source={pack.source}
             data-theme-id={pack.id}
             aria-pressed={active}
-            aria-label={active ? t('settings.themeCards.selectedAria', { name: pack.name }) : pack.name}
+            aria-label={active ? t('settings.themeCards.selectedAria', { name }) : name}
             disabled={disabled}
             onClick={() => onSelect({ source: pack.source, id: pack.id })}
           >
@@ -73,10 +76,10 @@ export function ThemeSelectionCards({ packs, selected, mode, pendingKey, disable
               <span className="appearance-theme-check" aria-hidden="true">{active ? '✓' : ''}</span>
             </span>
             <span className="appearance-theme-label">
-              <strong>{pack.name}</strong>
+              <strong>{name}</strong>
               <span className={pending ? 'is-pending' : undefined}>{pending ? t('settings.themeCards.switching') : active ? t('settings.themeCards.active') : pack.source === 'enest.builtin' ? t('settings.themeCards.sourceBuiltin') : t('settings.themeCards.sourcePlugin')}</span>
             </span>
-            {pack.description && <span className="appearance-theme-description">{pack.description}</span>}
+            {description && <span className="appearance-theme-description">{description}</span>}
           </Button>
         )
       })}

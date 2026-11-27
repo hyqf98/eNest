@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { verifyElectronResources, verifyShellArchiveEntries } from '../../tools/packaging/after-pack.mjs'
+import { verifyElectronResources, verifyShellArchiveEntries } from '../../scripts/packaging/after-pack.mjs'
 
 const notice = '/out/licenses/bundled-ui/manifest.json'
 test('shell payload permits generic ws and blocks migrated protocol drivers including nested dependencies', () => {

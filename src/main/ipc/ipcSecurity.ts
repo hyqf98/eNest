@@ -8,6 +8,10 @@ const installChannels = [IpcChannels.InstallDropState, IpcChannels.InstallDropFi
 const notificationClientChannels = [IpcChannels.NotificationShow, IpcChannels.NotificationDismiss]
 const notificationChannels = new Set<string>([IpcChannels.NotificationDismiss, IpcChannels.NotificationState, IpcChannels.NotificationMeasure, IpcChannels.NotificationOpenLink])
 const modalChannels = new Set<string>([IpcChannels.ModalReady, IpcChannels.ModalRespond])
+const accountChannels = new Set<string>([IpcChannels.ShellAccountState, IpcChannels.ShellAccountLogin, IpcChannels.ShellAccountCancel, IpcChannels.ShellAccountLogout,
+  IpcChannels.ShellGithubLogin, IpcChannels.ShellGithubCancelLogin, IpcChannels.ShellGetProfile, IpcChannels.ShellGithubLogout,
+  IpcChannels.ShellGithubCopyCode, IpcChannels.ShellGithubSyncState, IpcChannels.ShellGithubSyncDiscover, IpcChannels.ShellGithubSyncConnect,
+  IpcChannels.ShellGithubSyncDisconnect, IpcChannels.ShellGithubSyncTransfer, IpcChannels.ShellGithubSyncCancel, IpcChannels.ShellGithubSyncAutomatic])
 const appearanceWrites = new Set([
   IpcChannels.ShellUpdateThemeProfile,
   IpcChannels.ShellActivateTheme,
@@ -98,6 +102,7 @@ export function assertSurfaceSender(event: SenderEvent, channel: string): void {
   if (surface.role === 'install' && !(installChannels as readonly string[]).includes(channel)) throw new Error('IPC denied: install surface capability')
   if (surface.role === 'notification' && !notificationChannels.has(channel)) throw new Error('IPC denied: notification surface capability')
   if (appearanceWrites.has(channel as never) && surface.role !== 'shell') throw new Error('IPC denied: appearance write capability')
+  if (accountChannels.has(channel) && surface.role !== 'shell') throw new Error('IPC denied: account capability')
   if (
     surface.role === 'quick' && !quickChannels.has(channel) ||
     surface.role === 'orb' && !orbChannels.has(channel) ||

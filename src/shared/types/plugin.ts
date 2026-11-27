@@ -552,6 +552,12 @@ export interface EnestDevCommandConfig extends EnestCommandConfig {
 export interface EnestPackageConfig {
   dev?: EnestDevCommandConfig
   build?: EnestCommandConfig
+  /**
+   * 只构建后端/后台入口的命令，比完整 build 轻。
+   * 开发态发现产物比源码旧时优先用它：完整构建还要打包前端、过市场素材校验，
+   * 一处与后端无关的不合规就会让整条构建失败。
+   */
+  backend?: EnestCommandConfig
   /** 构建产物目录（相对插件源码根）；缺省 dist。 */
   output?: string
 }
@@ -573,6 +579,8 @@ export interface DevCommandPlan {
   devUrl?: string
   start?: DevCommandSpec
   build?: DevCommandSpec
+  /** 只重建后端/后台入口的命令；未声明时回退到 build。 */
+  backend?: DevCommandSpec
   /** package.json 依赖/命令推断出的框架；静态判定由调用方在无服务时落 'static'。 */
   framework: DevPluginKind
   output: string
@@ -766,6 +774,8 @@ export interface SessionTabRef {
   /** 显示名缓存；恢复时以已安装插件最新 name 为准 */
   title?: string
   detached?: DetachedWindowSession
+  /** 上次悬浮窗的几何；只用于复现位置尺寸，悬浮窗本身不跨重启恢复。 */
+  float?: PluginWindowGeometry
 }
 
 /** 允许的界面字号档（相对基准 14px 的倍率） */
@@ -815,6 +825,7 @@ export interface GeneralSettings {
 
 /** GitHub 账号个人资料（设置 profile 段 user 字段；access token 单独加密存储，不落设置） */
 export interface UserProfile {
+  githubId?: number
   /** GitHub 用户名（@login） */
   login: string
   /** 显示名（可为空） */
@@ -844,6 +855,73 @@ export interface AppPaths {
   themes: string
   settings: string
   database: string
+}
+
+/** 设置 → 插件数据：单个类别的占用 */
+export interface PluginDataCategory {
+  bytes: number
+  count: number
+}
+
+/** 设置 → 插件数据：某个已安装插件在数据根下的占用 */
+export interface PluginDataUsageItem {
+  pluginId: string
+  /** KV 存储 + 私有文档 */
+  data: PluginDataCategory
+  /** 图片资源 + 私有图片 blob + 旧 attachments */
+  images: PluginDataCategory
+  /** 完成输出文件 */
+  files: PluginDataCategory
+  /** 密钥、插件自建目录、插件包本体 */
+  other: PluginDataCategory
+  total: number
+  /** 插件包本体占用（含在 other 里，供「全部重置」时说明不删除的部分） */
+  packageBytes: number
+  /** 运行中（标签页或后台进程存活）；清理前会先自动关闭 */
+  running: boolean
+}
+
+/** 对不上任何已安装插件的目录：已卸载插件的残留或插件自建目录 */
+export interface OrphanDataItem {
+  /** 数据根下的相对路径，如 data/plugin-assets/abc… */
+  relativePath: string
+  bytes: number
+}
+
+export interface PluginDataUsage {
+  dataRoot: string
+  plugins: PluginDataUsageItem[]
+  orphans: OrphanDataItem[]
+  /** 统计失败、无法读取的条目（不阻断整体统计） */
+  unreadable: string[]
+  scannedAt: number
+}
+
+export interface PluginDataClearResult {
+  ok: boolean
+  /** 成功清理的插件数 */
+  cleared: number
+  /** pluginId → 错误信息 */
+  failed: Record<string, string>
+  /** 实际释放的字节数 */
+  releasedBytes: number
+}
+
+export interface OrphanDataClearResult {
+  ok: boolean
+  removed: number
+  failed: string[]
+}
+
+/** 数据根迁移结果；成功后需重启才完全生效 */
+export interface DataRootMigrationResult {
+  ok: boolean
+  error?: string
+  fromRoot?: string
+  toRoot?: string
+  /** 搬运的文件数与字节数 */
+  files?: number
+  bytes?: number
 }
 
 /** 插件填写的路径基准：home=用户目录，data=该插件持久化目录，cwd=进程工作目录 */
@@ -907,3 +985,12 @@ export type PluginLifecycleMessage =
   | { event: 'beforeClose'; reason: PluginCloseReason; operationId: string }
   | { event: 'beforeSuspend'; operationId: string }
   | { event: 'destroy' }
+export interface PluginBackendContext {
+  protocolVersion: 1
+  pluginId: string
+  appDataPath: string
+  packagePath: string
+  appExecPath: string
+  pageOrigin: string | null
+  extensionRoot: string
+}

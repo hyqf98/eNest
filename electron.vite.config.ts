@@ -5,6 +5,7 @@
  */
 import { defineConfig } from 'electron-vite'
 import { build as buildVite, loadEnv, type Plugin } from 'vite'
+import officialGithubApp from './src/main/auth/officialGithubApp.json'
 import react from '@vitejs/plugin-react'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -85,13 +86,16 @@ function sandboxedPreloads(production: boolean): Plugin {
 
 export default defineConfig(({ mode }) => {
   const env = { ...loadEnv(mode, process.cwd(), 'ENEST_'), ...process.env }
+  const clientId = env.ENEST_GITHUB_CLIENT_ID?.trim() || officialGithubApp.clientId
+  const official = clientId === officialGithubApp.clientId
   return {
   main: {
     define: {
       __ENEST_AUTH__: JSON.stringify({
-        githubClientId: env.ENEST_GITHUB_CLIENT_ID || '',
-        githubTokenExchangeUrl: env.ENEST_GITHUB_TOKEN_EXCHANGE_URL || '',
-        githubDeviceFlow: env.ENEST_GITHUB_DEVICE_FLOW === '1',
+        githubClientId: clientId,
+        githubAppSlug: official ? officialGithubApp.slug : env.ENEST_GITHUB_APP_SLUG || '',
+        githubTokenExchangeUrl: official ? '' : env.ENEST_GITHUB_TOKEN_EXCHANGE_URL || '',
+        githubDeviceFlow: official || env.ENEST_GITHUB_DEVICE_FLOW === '1',
       }),
     },
     // electron-vite 6 externalizes dependencies and injects AST-positioned ESM shims.

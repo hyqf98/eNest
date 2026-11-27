@@ -38,7 +38,7 @@ function unavailable(pid: number, parentPid = 0, startedAt = 0): ProcessMemorySa
 }
 
 function helperPath(file: string): string {
-  const dir = app.isPackaged ? join(process.resourcesPath, 'native') : join(app.getAppPath(), 'native/bin')
+  const dir = app.isPackaged ? join(process.resourcesPath, 'native') : join(app.getAppPath(), '.cache/native/bin')
   return join(dir, file)
 }
 

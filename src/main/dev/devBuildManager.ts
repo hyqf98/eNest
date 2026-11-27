@@ -3,7 +3,7 @@
  * 只有后端/后台入口必须来自编译产物；纯前端仍由 dev server 或源码静态预览负责。
  * 失败只记录并继续打开，后端调用仍会给出可执行错误。
  */
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { logInfo, logWarn } from '@main/logs/logService'
 import { registerPluginProcess } from '@main/plugin/pluginOwnedProcesses'
@@ -44,17 +44,82 @@ function missingDevBuild(target: DevBuildTarget): boolean {
   return requiredEntries(target.manifest).some(entry => !existsSync(join(target.outputPath, entry)))
 }
 
+/**
+ * 后端 / 后台入口是否比产物新：Electron 的 utilityProcess 没有模块重载能力
+ * （实例上只有 postMessage / kill），改后端源码必须重新编译再重启进程才生效。
+ *
+ * 只看产物在不在是不够的：产物存在但过期时，重载插件会重启进程、却仍旧加载旧代码，
+ * 表现为「改了后端、重载了、行为一点没变」——排查起来极难。
+ *
+ * 扫描插件源码树（跳过 node_modules / 产物目录）。后端会从 `../src/shared` 这类位置
+ * 导入跨端契约，所以不能只扫 backend 目录；但也不能只看插件根，否则改前端 UI
+ * 也会触发后端重建。
+ */
+const STALE_SCAN_MAX_FILES = 4000
+const STALE_SCAN_MAX_DEPTH = 12
+const SOURCE_FILE = /\.(?:ts|tsx|mts|cts|js|mjs|cjs|json)$/
+
+function latestSourceMtime(root: string): number {
+  let latest = 0
+  let visited = 0
+  const walk = (directory: string, depth: number): void => {
+    if (depth > STALE_SCAN_MAX_DEPTH || visited > STALE_SCAN_MAX_FILES) return
+    let entries: import('node:fs').Dirent[]
+    try { entries = readdirSync(directory, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+      if (++visited > STALE_SCAN_MAX_FILES) return
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) {
+        // 依赖、产物与缓存目录不是源码
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === 'out' || entry.name.startsWith('.')) continue
+        walk(path, depth + 1)
+      } else if (SOURCE_FILE.test(entry.name)) {
+        try {
+          const at = statSync(path).mtimeMs
+          if (at > latest) latest = at
+        } catch { /* 扫描期间被删掉，忽略 */ }
+      }
+    }
+  }
+  walk(root, 0)
+  return latest
+}
+
+/**
+ * 产物是否比后端源码旧。true 表示需要重新构建。
+ * 纯前端插件（没有后端/后台入口）永远返回 false，不受此逻辑影响。
+ */
+function staleDevBuild(target: DevBuildTarget): boolean {
+  const entries = requiredEntries(target.manifest)
+  if (!entries.length) return false
+  // 产物缺失由 missingDevBuild 负责；这里只判断「存在但过期」
+  let oldestOutput = Number.POSITIVE_INFINITY
+  for (const entry of entries) {
+    try { oldestOutput = Math.min(oldestOutput, statSync(join(target.outputPath, entry)).mtimeMs) }
+    catch { return false }
+  }
+  if (!Number.isFinite(oldestOutput)) return false
+  // 留 1 秒余量：同一次构建里产物与源码的时间戳可能相差不到一个文件系统刻度
+  return latestSourceMtime(target.sourcePath) > oldestOutput + 1000
+}
+
 /** Single-flight per plugin; resolves false instead of rejecting so opening never fails on a build. */
 export function ensureDevBuild(target: DevBuildTarget, options: DevBuildOptions = {}): Promise<boolean> {
   if (!requiredEntries(target.manifest).length) return Promise.resolve(true)
   const running = pending.get(target.id)
   if (running) return running
-  if (!missingDevBuild(target)) return Promise.resolve(true)
-  if (!target.plan.build) {
+  const missing = missingDevBuild(target)
+  // 产物存在但比源码旧：不重建的话，重载插件会重启进程却仍旧加载旧代码
+  const stale = !missing && staleDevBuild(target)
+  if (!missing && !stale) return Promise.resolve(true)
+  // 产物过期时优先用「只构建后端」的命令：完整构建还要打包前端并过市场素材校验，
+  // 一处与后端无关的不合规就会让整条构建失败，把后端改动一起拖下水。
+  const build = (stale ? target.plan.backend : undefined) ?? target.plan.build
+  if (!build) {
     emit(target.id, 'warn', '缺少构建产物，但 package.json 未声明构建命令；请在插件目录构建后重载')
     return Promise.resolve(false)
   }
-  const operation = runBuild(target, target.plan.build, options).finally(() => {
+  const operation = runBuild(target, build, options).finally(() => {
     if (pending.get(target.id) === operation) pending.delete(target.id)
   })
   pending.set(target.id, operation)
@@ -67,8 +132,9 @@ async function runBuild(target: DevBuildTarget, build: DevCommandSpec, options: 
   const abort = () => controller.abort()
   options.signal?.addEventListener('abort', abort, { once: true })
   const reason = /^[a-z0-9_.-]{1,64}$/i.test(options.reason ?? '') ? options.reason! : 'open'
+  const why = missingDevBuild(target) ? '缺少构建产物' : '后端源码已更新，产物需要重建'
   logInfo('dev', `${target.id}: build start reason=${reason} command=${build.label}`)
-  emit(target.id, 'info', `缺少构建产物，正在运行 ${build.label} …`)
+  emit(target.id, 'info', `${why}，正在运行 ${build.label} …`)
   let timer: NodeJS.Timeout | undefined
   try {
     const child = await spawnCommand(target.sourcePath, buildSpawnCandidates(build, []), { ...process.env },

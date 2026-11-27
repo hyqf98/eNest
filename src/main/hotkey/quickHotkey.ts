@@ -7,14 +7,12 @@ import { sendShellEvent } from '@main/window/createShellWindow'
 import { toggleQuickWindow } from '@main/window/createQuickWindow'
 import { logError } from '@main/logs/logService'
 import {
-  applyHotkeyChanges, disposeHotkeyRegistry, getHotkeyOwner, getOwnedHotkey,
+  applyHotkeyChanges, disposeHotkeyRegistry, getHotkeyOwner, getHotkeyRegistration, getOwnedHotkey,
   getOwnedHotkeyStatus, isShortcutCaptureActive, type HotkeyOwner
 } from './hotkeyRegistry'
 import { consumeShortcutOverride, overrideOwner, probeShortcutConflict } from './shortcutConflicts'
-import {
-  applyForceHotkeys, canForceHotkey, getForceHotkeyStatus, hasForceHotkeys,
-  isForceRegistered, onForceHotkeyStatusChange
-} from './forceHotkey'
+import { applyForceHotkeys, canForceHotkey, getForceHotkeyStatus, onForceHotkeyStatusChange } from './forceHotkey'
+import { configuredChordOwner, forcedChordOwner, registerForcedDispatcher, syncForcedHotkeys, type ForcedSync } from './forcedHotkeys'
 
 const owner: HotkeyOwner = { kind: 'quick', id: 'launcher' }
 let lastUsedHotkey = ''
@@ -54,11 +52,28 @@ function readSettings(): { enabled: boolean; hotkeys: string[]; activeHotkey: st
 
 /** 生效中的强制接管键（辅助服务已就绪且配置包含它）。 */
 function activeForcedHotkey(settings: { forcedHotkeys: string[] }): string | undefined {
-  return settings.forcedHotkeys.find(acc => isForceRegistered(acc))
+  return settings.forcedHotkeys.find(isQuickForced)
+}
+
+/** True when Quick itself holds this chord through the hook (not a plugin binding). */
+function isQuickForced(acc: string): boolean {
+  return forcedChordOwner(acc)?.source === 'quick'
+}
+
+/**
+ * Hand the hook the chords both Quick and plugin bindings are authorized to take over.
+ * `quick` states Quick's real intent before its settings are persisted: `null` releases
+ * Quick's chord, a chord takes one over now. Replaces direct `applyForceHotkeys` calls,
+ * which would have wiped plugin takeovers.
+ */
+function syncForce(quick?: { accelerator: string } | null): ForcedSync {
+  return syncForcedHotkeys({ quick })
 }
 
 function releaseForceIfIdle(): void {
-  if (hasForceHotkeys() && !activeForcedHotkey(readSettings())) applyForceHotkeys([])
+  // Runs after a normal registration succeeded but before it is persisted: state Quick's intent
+  // explicitly instead of relying on the settings still describing the previous state.
+  if (!activeForcedHotkey(readSettings())) syncForce(null)
 }
 
 function pluginConflictHint(accelerator: string): string | undefined {
@@ -67,7 +82,9 @@ function pluginConflictHint(accelerator: string): string | undefined {
   const id = occupied.pluginId
   const name = id ? pluginRegistry.get(id)?.name : undefined
   const label = name && name !== id ? `${name}（${id}）` : id ?? '未知插件'
-  return `快捷键 ${accelerator} 已被插件「${label}」的${occupied.kind === 'runtime' ? '运行时快捷键' : '快捷键绑定'}占用`
+  // A plugin runtime shortcut names its feature, which tells the user where to turn it off.
+  const feature = getHotkeyRegistration(accelerator)?.label
+  return `快捷键 ${accelerator} 已被插件「${label}」的${occupied.kind === 'runtime' ? `运行时快捷键${feature ? `「${feature}」` : ''}` : '快捷键绑定'}占用`
 }
 
 export function applyQuickHotkeys(
@@ -89,7 +106,8 @@ export function applyQuickHotkeys(
   const preferred = normalizeUserShortcut(patch?.activeHotkey ?? current.activeHotkey, process.platform)
   const wanted = preferred && hotkeys.includes(preferred) ? preferred : hotkeys[0] ?? ''
   if (!enabled) {
-    applyForceHotkeys([])
+    // Settings still say enabled here; state the intent explicitly so Quick's chord is released.
+    syncForce(null)
     const result = applyHotkeyChanges([{ owner, registration: null }])
     return { ok: result.ok, error: result.error, enabled: false, hotkeys, registered: [], failed: [], activeHotkey: wanted }
   }
@@ -110,17 +128,22 @@ export function applyQuickHotkeys(
     failed.push(acc)
   }
   // 用户已确认过的强制接管键：普通注册失败且确属外部占用时改用低级键盘钩子。
-  const forceTarget = tryOrder.find(acc => current.forcedHotkeys.includes(acc) && !getHotkeyOwner(acc)
+  // 恢复默认时授权视为已清空：设置此时还没落盘，照读旧值会把刚释放的键重新接管。
+  const authorized = patch?.reset === true ? [] : current.forcedHotkeys
+  const forceTarget = tryOrder.find(acc => authorized.includes(acc) && !getHotkeyOwner(acc)
     && probeShortcutConflict(acc, undefined, true).forceable)
   if (forceTarget) {
-    const forced = applyForceHotkeys([{ accelerator: forceTarget, onFire: () => fireToggle(forceTarget) }])
-    if (forced.ok) {
-      applyHotkeyChanges([{ owner, registration: null }])
-      const registered = isForceRegistered(forceTarget) ? [forceTarget] : []
+    // Release the failed normal registration first: the hook only takes chords no eNest owner holds.
+    applyHotkeyChanges([{ owner, registration: null }])
+    const synced = syncForce()
+    // Configured is not yet intercepting: the helper reports ready asynchronously.
+    if (synced.ok && configuredChordOwner(forceTarget)?.source === 'quick') {
+      const registered = isQuickForced(forceTarget) ? [forceTarget] : []
+      if (failed.length) sendShellEvent({ type: 'quick-hotkey-failed', failed, registered })
       return { ok: true, enabled, hotkeys, registered, failed, activeHotkey: forceTarget,
         forced: [forceTarget], systemConfirmationRequired: false }
     }
-    failureReason = `${forced.error ?? '强制覆盖失败'}；${failureReason}`
+    failureReason = `${synced.error ?? '强制覆盖失败'}；${failureReason}`
   }
   const result = retainCurrent(`${failureReason}；已保留原配置`, failed)
   sendShellEvent({ type: 'quick-hotkey-failed', failed, registered: result.registered })
@@ -155,10 +178,13 @@ export function saveQuickHotkeys(
     // 恢复默认：先无条件释放强制接管；即使默认键当前被外部占用，也保存默认选择，
     // 让用户至少回到干净状态并看到占用提示（而不是继续被旧钩子接管）。
     if (isShortcutCaptureActive()) return retained('请先结束快捷键录制')
-    applyForceHotkeys([])
+    // Reset drops Quick's takeovers only; it must be stated because settings are not written yet.
+    syncForce(null)
     // 先释放旧绑定，保证重置后的状态与默认选择一致（默认键可能仍被外部占用）。
     applyHotkeyChanges([{ owner, registration: null }])
-    const attempt = applyQuickHotkeys({ enabled, hotkeys, activeHotkey: wanted })
+    // `reset` tells the attempt its authorization is already gone: settings are not written yet,
+    // so without it the fallback would re-take the chord this branch has just released.
+    const attempt = applyQuickHotkeys({ enabled, hotkeys, activeHotkey: wanted, reset: true })
     const config = { enabled, hotkeys, activeHotkey: wanted, forcedHotkeys: [] }
     try { settingsStore.setQuickHotkeys(config) }
     catch (error) {
@@ -199,11 +225,13 @@ export function saveQuickHotkeys(
   ]) : undefined
   let applied: QuickHotkeyApplyResult
   if (forceRequested) {
-    const forced = applyForceHotkeys([{ accelerator: wanted, onFire: () => fireToggle(wanted) }])
-    if (!forced.ok) return retained(forced.error ?? '强制覆盖失败')
+    // Release the normal registration first: the hook only takes chords no eNest owner holds.
     applyHotkeyChanges([{ owner, registration: null }])
+    const synced = syncForce({ accelerator: wanted })
+    // Configured is not yet intercepting: the helper reports ready asynchronously.
+    if (!synced.ok || !configuredChordOwner(wanted)) return retained(synced.error ?? '强制覆盖失败')
     applied = { ok: true, enabled, hotkeys, activeHotkey: wanted,
-      registered: isForceRegistered(wanted) ? [wanted] : [], failed: [], forced: [wanted] }
+      registered: isQuickForced(wanted) ? [wanted] : [], failed: [], forced: [wanted] }
   } else {
     applied = replacement
       ? replacement.ok ? { ok: true, enabled, hotkeys, activeHotkey: wanted,
@@ -246,6 +274,7 @@ export function saveQuickHotkeys(
 
 export function initQuickHotkeys(): void {
   lastSaveError = undefined
+  registerForcedDispatcher('quick', fireToggle)
   unsubscribeForceStatus ??= onForceHotkeyStatusChange(() => {
     // 钩子就绪/退出会改变实际生效状态，设置页据此刷新「生效」徽标。
     try {
@@ -262,6 +291,8 @@ export function disposeQuickHotkeys(): void {
   lastSaveError = undefined
   unsubscribeForceStatus?.()
   unsubscribeForceStatus = undefined
+  // Application shutdown: drop every takeover, plugin bindings included. This is the one place
+  // that clears the hook outright rather than reconciling it.
   applyForceHotkeys([])
   disposeHotkeyRegistry()
 }
@@ -270,7 +301,8 @@ export function getQuickHotkeyConfig(): QuickHotkeyConfig {
   const { forcedHotkeys, ...settings } = readSettings()
   const registration = getOwnedHotkey(owner)
   const state = getOwnedHotkeyStatus(owner)
-  const forcedAcc = forcedHotkeys.find(acc => isForceRegistered(acc))
+  // Only a chord Quick itself holds counts; the hook may also hold plugin bindings.
+  const forcedAcc = forcedHotkeys.find(isQuickForced)
   const forceStatus = getForceHotkeyStatus()
   const forcePending = settings.enabled && !forcedAcc && forcedHotkeys.includes(settings.activeHotkey)
   return { ...settings, platform: process.platform, activeHotkey: forcedAcc ?? registration?.accelerator ?? settings.activeHotkey,

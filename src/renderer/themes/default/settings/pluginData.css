@@ -1,0 +1,75 @@
+/*
+ * 设置 → 插件数据。
+ * 卡内嵌套表面（汇总条 / 行内分段 / 色块）跟随设置页卡片透明度一起衰减，
+ * 不写死 var(--surface-2)：否则低透明度下会成为卡内唯一的实色块。
+ * 图片/文件两类从主题强调色混入固定参考色偏移色相，仍以主题色为主，浅深两种模式都跟随主题。
+ */
+.plugin-data-section { min-width: 0; --data-surface: color-mix(in srgb, var(--surface-2) calc(28% + var(--settings-card-opacity, 0.82) * 52%), transparent); }
+
+/* 四类固定色：数据=主题强调色，图片=偏青，文件=偏紫，其他=中性 */
+.plugin-data-swatch,
+.plugin-data-bar-seg { --data-color: var(--accent); }
+.plugin-data-swatch.is-images,
+.plugin-data-bar-seg.is-images { --data-color: color-mix(in srgb, var(--accent) 42%, #2aa7c9); }
+.plugin-data-swatch.is-files,
+.plugin-data-bar-seg.is-files { --data-color: color-mix(in srgb, var(--accent) 42%, #8a6cd9); }
+.plugin-data-swatch.is-other,
+.plugin-data-bar-seg.is-other { --data-color: color-mix(in srgb, var(--text-3) 78%, transparent); }
+.plugin-data-bar-seg.is-rest { --data-color: color-mix(in srgb, var(--text-3) 60%, transparent); }
+.plugin-data-bar-seg.is-orphan { --data-color: var(--danger); }
+
+.plugin-data-swatch { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px; background: var(--data-color); vertical-align: middle; }
+
+.plugin-data-summary { display: flex; flex-wrap: wrap; gap: 16px 32px; margin: 16px 0; }
+.plugin-data-summary > div { min-width: 0; }
+.plugin-data-summary dt { color: var(--text-2); font-size: 12px; line-height: 1.5; }
+.plugin-data-summary dd { margin: 4px 0 0; color: var(--text); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.plugin-data-summary > div:first-child dd { font-size: 20px; }
+
+/* 各插件占比的堆叠条 */
+.plugin-data-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--data-surface); transition: opacity .2s ease; }
+.plugin-data-bar.is-refreshing { opacity: .55; }
+.plugin-data-bar-seg { flex-basis: 0; min-width: 0; background: var(--data-color); }
+/* 相邻同色段之间留一道缝，避免连成一片分不清 */
+.plugin-data-bar-seg.is-plugin + .plugin-data-bar-seg.is-plugin { box-shadow: inset 1px 0 0 var(--surface); }
+
+.plugin-data-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; margin-top: 14px; }
+.plugin-data-toolbar .desc { color: var(--text-3); font-size: 11px; line-height: 1.5; }
+.plugin-data-toolbar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.plugin-data-message { margin: 16px 0; color: var(--text-2); font-size: 12px; line-height: 1.7; }
+.plugin-data-error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 12px 0; color: var(--danger); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.plugin-data-error > span { flex: 1; min-width: min(100%, 180px); }
+
+.plugin-data-list { list-style: none; margin: 8px 0 0; padding: 2px; }
+.plugin-data-list .dev-plugin-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.plugin-data-list .dev-plugin-item:has(button[aria-busy="true"]) { opacity: .55; }
+.plugin-data-row-details { grid-column: 2 / -1; min-width: 0; }
+.plugin-data-row-total { flex: none; color: var(--text); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.plugin-data-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--data-surface); color: var(--text-2); font-size: 10.5px; font-weight: 500; line-height: 1.6; }
+
+.plugin-data-row-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--data-surface); }
+.plugin-data-row-breakdown { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; }
+.plugin-data-cell { display: inline-flex; align-items: center; gap: 0 4px; color: var(--text-2); font-size: 11.5px; line-height: 1.6; white-space: nowrap; }
+.plugin-data-cell[data-empty] { opacity: .5; }
+.plugin-data-cell b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+.plugin-data-cell em { color: var(--text-3); font-style: normal; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.plugin-data-row-note { margin: 6px 0 0; color: var(--text-3); font-size: 11px; line-height: 1.5; }
+
+.plugin-data-orphans { margin-top: 20px; padding: 16px; border: 1px solid var(--settings-glass-edge, var(--border)); border-radius: var(--radius-sm); background: var(--data-surface); }
+.plugin-data-orphans-head { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; }
+.plugin-data-orphans h3 { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; color: var(--text); font-size: 13px; font-weight: 600; }
+.plugin-data-orphans .desc { margin: 6px 0 0; color: var(--text-3); font-size: 11px; line-height: 1.5; }
+.plugin-data-orphan-list { list-style: none; max-height: 220px; margin: 12px 0 0; padding: 0; overflow: auto; scrollbar-gutter: stable; }
+.plugin-data-orphan-list li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 6px 0; }
+.plugin-data-orphan-list li + li { border-top: 1px solid var(--border); }
+.plugin-data-orphan-list code { flex: 1; min-width: 0; color: var(--text-2); font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+.plugin-data-orphan-list span { flex: none; color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 580px) {
+  .plugin-data-summary { gap: 12px 24px; }
+  .plugin-data-summary dd { font-size: 14px; }
+  .plugin-data-summary > div:first-child dd { font-size: 16px; }
+  .plugin-data-row-details { grid-column: 1 / -1; }
+}

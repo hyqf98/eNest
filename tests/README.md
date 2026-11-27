@@ -60,7 +60,13 @@ The first command is a selected unit test; the last one requires existing build
 outputs and launches Electron with an isolated profile. Neither is part of
 `npm run typecheck` or `npm run build`.
 
-To locate a moved module, replace `src/` with `tests/`, or `tools/packaging/` with
+`node --test tests/main/auth/githubSync.integration.test.mjs` checks two separate SQLite profiles against an in-memory GitHub service. For an explicitly authorized live run, `node tests/main/auth/githubSync.live.mjs prepare <github-login>` prints the isolated directory and disposable repository name. Pass that directory to `connect-a`, `publish-a`, `restore-b`, `update-a` and `verify-b` in order, completing GitHub device authorization independently on both profiles. Only synthetic plugin content is used. Do not grant access to unrelated repositories. For the optional cached-profile UI check, build with `electron-vite build --outDir <directory>/compiled` and run the `profile-ui` stage after device A signs in.
+
+If an empty seed repository is used for selected-repository installation, record its verified numeric ID using `record-seed <directory> <id>` before cleanup. Delete only the disposable repositories whose owner, name and ID match the receipt. `clean-local <directory>` checks the original owner's private-repository visibility and both remote 404s before removing local credentials, fixtures and the receipt; it never deletes a GitHub repository itself.
+
+`ENEST_APP_SMOKE=1 node --test tests/main/auth/githubPersistence.native.test.mjs` uses a synthetic device grant with real OS encryption and SQLite across three isolated Electron processes (login, restart, logout verification). On macOS/Linux it needs `npm run native:build` and an already unlocked credential store; it will not prompt to unlock it. `githubAccountStorage.test.mjs` covers the prompt-free adapter, including an unavailable store, without touching real credentials. The `verify-proxy <directory>` stage of the live harness checks actual login and repository tunnel attempts against a non-forwarding loopback proxy without authorizing an account. The offline `profile-ui` stage also checks the revealed bottom-left settings avatar, shared developer-style rows in both data views, and mixed/all/cleared selection.
+
+To locate a moved module, replace `src/` with `tests/`, or `scripts/packaging/` with
 `tests/packaging/`. Native helper checks live in `tests/native/clipboard/`.
 Maintained filenames no longer include creation dates or edit-round numbers;
 use the module responsibility to locate a renamed case. See the shared

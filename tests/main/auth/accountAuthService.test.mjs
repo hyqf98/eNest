@@ -4,10 +4,11 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import ts from 'typescript'
 const require = createRequire(import.meta.url)
-function load(file, mocks) {
+const official = require('../../../src/main/auth/officialGithubApp.json')
+function load(file, mocks, bundle) {
   const module = { exports: {} }
   const js = ts.transpileModule(readFileSync(new URL(file, new URL("../../../src/main/auth/", import.meta.url)), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
-  new Function('require', 'module', 'exports', js)(id => mocks[id] ?? require(id), module, module.exports)
+  new Function('require', 'module', 'exports', '__ENEST_AUTH__', js)(id => id === './officialGithubApp.json' ? official : mocks[id] ?? require(id), module, module.exports, bundle)
   return module.exports
 }
 
@@ -43,12 +44,32 @@ test('release configuration requires a configured flow and rejects insecure remo
   } finally { for (const key of keys) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key] } }
 })
 
+test('the official client always uses the official no-server flow, never a stale exchange or installation URL', () => {
+  const keys = ['ENEST_GITHUB_CLIENT_ID', 'ENEST_GITHUB_APP_SLUG', 'ENEST_GITHUB_DEVICE_FLOW', 'ENEST_GITHUB_TOKEN_EXCHANGE_URL']
+  const previous = keys.map(key => process.env[key])
+  try {
+    for (const key of keys) delete process.env[key]
+    const { getGithubAuthConfig } = load('./authConfig.ts', { electron: { app: { isPackaged: true } } }, { githubClientId: official.clientId, githubAppSlug: official.slug, githubDeviceFlow: true })
+    process.env.ENEST_GITHUB_TOKEN_EXCHANGE_URL = 'https://previous-publisher.example/exchange'
+    process.env.ENEST_GITHUB_APP_SLUG = 'previous-publisher'
+    process.env.ENEST_GITHUB_DEVICE_FLOW = '0'
+    const config = getGithubAuthConfig()
+    assert.equal(config.deviceFlow, true); assert.equal(config.available, true); assert.equal(config.exchangeUrl, '')
+    assert.equal(config.installationUrl, `https://github.com/apps/${official.slug}/installations/new`)
+    process.env.ENEST_GITHUB_CLIENT_ID = 'custom-id'
+    assert.equal(getGithubAuthConfig().deviceFlow, false)
+    assert.equal(getGithubAuthConfig().exchangeUrl, 'https://previous-publisher.example/exchange')
+    delete process.env.ENEST_GITHUB_APP_SLUG
+    assert.equal(getGithubAuthConfig().installationUrl, 'https://github.com/settings/installations')
+  } finally { keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index] }) }
+})
+
 test('provider login returns the host configuration failure to the clickable login entry', async () => {
   const message = '此版本尚未配置 GitHub 登录应用，请联系发布方完成登录配置。'
   let calls = 0
   const api = load('./accountAuthService.ts', {
     './authConfig': { getGithubAuthConfig: () => ({ available: false, availabilityError: message }) },
-    './githubAuthService': { getProfileUser: () => null, getGithubLoginSession: () => null, isLoginPolling: () => false,
+    './githubAuthService': { getProfileUser: () => null, getGithubLoginSession: () => null, getGithubCredentialNotice: () => undefined, isLoginPolling: () => false,
       startGithubLogin: async () => { calls++; throw new Error(message) }, cancelGithubLogin() {}, logoutGithub() {} },
   })
   assert.equal(api.getAccountState().providers[0].available, false)
@@ -62,7 +83,7 @@ test('provider registry restores pending session and rejects inherited or unknow
   let calls = 0
   const api = load('./accountAuthService.ts', {
     './authConfig': { getGithubAuthConfig: () => ({ available: true }) },
-    './githubAuthService': { getProfileUser: () => null, getGithubLoginSession: () => session, isLoginPolling: () => true,
+    './githubAuthService': { getProfileUser: () => null, getGithubLoginSession: () => session, getGithubCredentialNotice: () => undefined, isLoginPolling: () => true,
       startGithubLogin: async () => { calls++; return session }, cancelGithubLogin() {}, logoutGithub() {} },
   })
   const state = api.getAccountState()

@@ -1,0 +1,53 @@
+.account-page.is-connected { padding: 12px 0 24px; }
+.account-page.is-connected .account-card { width: min(100%, 720px); display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 3px 16px; padding: 20px; text-align: start; border-radius: 16px; box-shadow: none; }
+.account-page.is-connected .account-brand { display: none; }
+.account-page.is-connected .account-avatar { grid-column: 1; grid-row: 1 / 4; width: 54px; height: 54px; margin: 0; }
+.account-page.is-connected .account-card h2 { grid-area: 1 / 2; margin: 0; font-size: calc(18px * var(--appearance-font-scale, 1)); overflow-wrap: anywhere; }
+.account-page.is-connected .account-description, .account-page.is-connected .account-connected { grid-column: 2; justify-content: start; max-width: none; margin: 0; }
+.account-page.is-connected .account-details { grid-area: 1 / 3 / 3; margin: 0; padding: 0; border: 0; }
+.account-page.is-connected .account-secondary { grid-area: 3 / 3; width: auto; padding: 4px 8px; justify-self: end; }
+.github-sync.s-card { width: min(100%, 720px); margin: 16px 0 0; text-align: start; min-width: 0; }
+.github-sync h2, .github-sync h3, .github-sync p { margin: 0; }
+.page-settings .github-sync .sync-heading h2 { margin: 0; }
+.github-sync h3 { font-size: calc(14px * var(--appearance-font-scale, 1)); }
+.github-sync p, .sync-caption, .sync-sizes small { color: var(--text-2); font-size: calc(12px * var(--appearance-font-scale, 1)); line-height: 1.6; }
+.github-sync p { margin-top: 5px; }
+.sync-heading, .sync-bound, .sync-auto, .sync-list-header, .sync-actions { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.sync-repository, .sync-auto, .sync-list-header, .sync-report { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px; }
+.sync-caption, .sync-bound strong { display: block; }
+.sync-bound strong { font-size: calc(15px * var(--appearance-font-scale, 1)); font-weight: 600; overflow-wrap: anywhere; }
+.sync-repository { container: sync-repository / inline-size; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.sync-repository > p { margin: 0; }
+.sync-connect { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: center; gap: 8px; }
+.sync-repo-label { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; font-size: calc(13px * var(--appearance-font-scale, 1)); font-weight: 550; }
+.sync-repo-label > :first-child { flex: none; }
+.sync-repo-owner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-weight: 400; }
+.sync-connect > input { width: 100%; }
+.sync-repo-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.sync-access { display: inline-block; max-width: 100%; color: var(--link); text-underline-offset: 3px; }
+@container sync-repository (max-width: 38em) {
+  .sync-connect { grid-template-columns: minmax(0, 1fr); }
+}
+@container sync-repository (max-width: 23em) {
+  .sync-repo-actions { grid-template-columns: minmax(0, 1fr); }
+}
+.sync-auto label, .sync-report strong { font-size: calc(13px * var(--appearance-font-scale, 1)); font-weight: 600; }
+.sync-auto .switch { flex-shrink: 0; }
+.sync-select-all { display: flex; gap: 6px; align-items: center; white-space: nowrap; font-size: calc(12px * var(--appearance-font-scale, 1)); }
+.sync-plugins { list-style: none; padding: 2px; margin: 8px 0; }
+.sync-plugins .dev-plugin-item { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; }
+.sync-plugins label:has(.ui-checkbox:enabled) { cursor: pointer; }
+.sync-plugins label:has(.ui-checkbox[data-state="checked"]) { border-color: var(--accent); }
+.sync-sizes { display: grid; text-align: end; font-size: calc(13px * var(--appearance-font-scale, 1)); font-variant-numeric: tabular-nums; }
+.sync-feedback { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.sync-actions { justify-content: end; flex-wrap: wrap; padding: 12px 0; }
+.sync-actions > span { margin-inline-end: auto; font-size: calc(12px * var(--appearance-font-scale, 1)); }
+.github-sync .sync-note { margin-top: 12px; }
+.github-sync .sync-error { color: var(--danger, var(--text)); overflow-wrap: anywhere; }
+.sync-issue { display: grid; gap: 4px; padding-top: 9px; font-size: calc(12px * var(--appearance-font-scale, 1)); overflow-wrap: anywhere; }
+.sync-issue > div { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 560px) {
+  .account-page:not(.is-connected) { padding-inline: 0; }
+  .account-page.is-connected .account-details { display: none; }
+  .account-page.is-connected .account-secondary { grid-area: 1 / 3 / 4; }
+}

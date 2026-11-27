@@ -3,6 +3,8 @@ import { useI18n } from '@renderer/hooks/useI18n'
 import type { Locale } from '@renderer/i18n'
 import { shellApi } from '@renderer/services/shellApi'
 import { toastStore } from '@renderer/hooks/useToast'
+import { confirmAction } from '@renderer/services/confirmAction'
+import { formatBytes } from '@shared/formatBytes'
 import type { ProxyConfig, ProxyType } from '@shared/types/plugin'
 
 type CloseBehavior = 'minimize-tray' | 'quit'
@@ -47,7 +49,7 @@ function normalizeProxyForm(
 /** Kept at page scope so tab switches retain drafts and the original loading lifetime. */
 export function useGeneralSettings() {
   const [hasLegacyCanvas, setHasLegacyCanvas] = useState(false)
-  const { t, setLocale } = useI18n()
+  const { t, locale, setLocale } = useI18n()
   const [hwAccel, setHwAccel] = useState(true)
   const [launchAtLoginSupported, setLaunchAtLoginSupported] = useState(false)
   const [launchAtLogin, setLaunchAtLogin] = useState(false)
@@ -298,10 +300,62 @@ export function useGeneralSettings() {
     })()
   }, [dataRoot, t])
 
+  // —— 数据目录迁移 ——
+  // 选好新目录后只进入「待迁移态」（本地状态，不写设置）；点「迁移数据」才真正搬数据并切根。
+  const [pendingRoot, setPendingRoot] = useState<string | null>(null)
+  const [migrating, setMigrating] = useState(false)
+
+  const pickNewDataRoot = useCallback(async () => {
+    if (!shellApi.pickDirectory) return
+    try {
+      const picked = await shellApi.pickDirectory()
+      if (picked) setPendingRoot(picked)
+    } catch (error) {
+      toastStore.getState().push(error instanceof Error ? error.message : String(error))
+    }
+  }, [])
+
+  const cancelMigrate = useCallback(() => setPendingRoot(null), [])
+
+  const handleMigrate = useCallback(() => {
+    const migrate = shellApi.migrateDataRoot
+    if (!pendingRoot || !migrate || migrating) return
+    void (async () => {
+      // 预估量只用于确认文案；它覆盖插件数据，不含日志与字体，实际以迁移结果为准
+      let estimate = 0
+      try { estimate = (await shellApi.getPluginDataUsage?.())?.plugins.reduce((sum, item) => sum + item.total, 0) ?? 0 } catch { /* 预估失败不阻断 */ }
+      const ok = await confirmAction({
+        title: t('settings.general.migrateConfirm'),
+        message: t('settings.general.migrateConfirmMessage', {
+          size: formatBytes(estimate, locale),
+          path: pendingRoot,
+        }),
+        confirmLabel: t('settings.general.migrateAction'),
+      })
+      if (!ok) return
+      setMigrating(true)
+      try {
+        const result = await migrate(pendingRoot)
+        if (result.ok) {
+          setPendingRoot(null)
+          // 换根后 settings-changed(dataRoot) 会把 dataRoot 更新成新路径
+          toastStore.getState().push(t('settings.general.migrateDone'))
+        } else {
+          toastStore.getState().push(t('settings.general.migrateFailed', { error: result.error ?? '' }))
+        }
+      } catch (error) {
+        toastStore.getState().push(t('settings.general.migrateFailed', { error: error instanceof Error ? error.message : String(error) }))
+      } finally {
+        setMigrating(false)
+      }
+    })()
+  }, [pendingRoot, migrating, t, locale])
+
   return {
     hwAccel, launchAtLogin, launchAtLoginSupported, launchAtLoginError, dataRoot, closeBehavior, notifyPosition, loadingGeneral,
     hasLegacyCanvas, exportLegacyCanvas: () => shellApi.exportLegacyCanvas?.().catch(error => toastStore.getState().push(String(error))),
     proxyType, proxyHost, proxyPort, testingProxy, setProxyHost, setProxyPort,
+    pendingRoot, migrating, pickNewDataRoot, cancelMigrate, handleMigrate,
     handleLocale, handleHwAccel, handleLaunchAtLogin, handleCloseBehavior, handleNotifyPosition,
     handleProxyType, handleProxyFieldBlur, handleTestProxy, handleOpenDataRoot
   }

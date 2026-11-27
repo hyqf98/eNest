@@ -6,7 +6,7 @@ import ts from 'typescript'
 
 const require = createRequire(import.meta.url)
 function load(file, adapters) {
-  const source = ts.transpileModule(readFileSync(new URL(`../../${file}`, new URL("../../tools/packaging/", import.meta.url)), 'utf8'), {
+  const source = ts.transpileModule(readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS }
   }).outputText
   const module = { exports: {} }
@@ -36,7 +36,7 @@ test('generic settings gate distinguishes private values from page actions and h
 
 test('both native settings write paths use the same gate and DSH links its existing plugin-owned manage route', () => {
   for (const file of ['src/main/ipc/pluginHandlers.ts', 'src/main/ipc/shellHandlers.ts']) {
-    assert.match(readFileSync(new URL(`../../${file}`, new URL("../../tools/packaging/", import.meta.url)), 'utf8'), /pluginSettingsBridge\.isWritableKey\(/)
+    assert.match(readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8'), /pluginSettingsBridge\.isWritableKey\(/)
   }
   const manifest = JSON.parse(readFileSync(new URL('../../eNest_plugin/plugins/dsh/plugin.json', import.meta.url), 'utf8'))
   const page = manifest.contributes.settings.flatMap(section => section.items).find(item => item.type === 'page')

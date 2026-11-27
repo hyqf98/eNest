@@ -9,7 +9,7 @@ import ts from 'typescript'
 const require = createRequire(import.meta.url)
 const compiled = new Map()
 function load(file, adapters = {}, globals = {}) {
-  if (!compiled.has(file)) compiled.set(file, ts.transpileModule(readFileSync(new URL(`../../${file}`, new URL("../../tools/packaging/", import.meta.url)), 'utf8'), {
+  if (!compiled.has(file)) compiled.set(file, ts.transpileModule(readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText)
   const module = { exports: {} }
@@ -152,6 +152,7 @@ function fixture() {
       './linuxWindowSystem': load('src/main/window/linuxWindowSystem.ts', { electron }, { process: { platform, env: environment } }),
       '@main/ipc/ipcSecurity': security, '@shared/constants': constants, '@shared/types/ipc': ipc,
       '@main/window/createShellWindow': windowService, '@main/settings/SettingsStore': { settingsStore: { getAll: () => ({ general: { animationLevel: 'low' } }) } },
+      '@main/auth/githubMemorySession': { getActiveGithubProfile: () => null },
       '@main/theme/resolveThemeCss': { resolveThemeTokens: () => ({ mode: 'light', tokens: {}, appearance: { layout: { orbDock: env.dock }, animation: { effective: 'low' } } }) },
       '@main/contrib/railContributions': rail, '@main/plugin/PluginRegistry': { pluginRegistry }, '@main/plugin/PluginHost': { pluginHost },
       '@main/logs/logService': { logInfo() {}, logWarn() {} }, '@main/theme/themeChromeSurface': api,

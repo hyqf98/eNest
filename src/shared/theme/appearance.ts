@@ -130,6 +130,13 @@ function resolveBackgroundMedia(background: AppearanceBackground, palettes?: Rea
   } else if (background.kind === 'none' || background.media?.type !== background.kind) {
     background.media = null
   } else background.media = { ...background.media, opacity, fit }
+  /*
+   * 图片/视频与背景动效互斥：动效开启时渲染层只画动效，媒体层永远出不来。
+   * 这里按"用户选了图片或视频"的意图让媒体生效，存储的动效选择原样保留，
+   * 切回无/渐变/纯色后动效自动恢复，不需要迁移也不丢配置。
+   * 氛围色（渐变/纯色）与动效可以叠加，不受影响。
+   */
+  if (background.kind === 'image' || background.kind === 'video') background.effect = 'none'
 }
 
 function animationLevel(value: unknown, fallback: AnimationLevel = 'medium'): AnimationLevel {

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
-import { collectBundledLicenses, rendererPackages } from '../../tools/packaging/collect-bundled-licenses.mjs'
+import { collectBundledLicenses, rendererPackages } from '../../scripts/packaging/collect-bundled-licenses.mjs'
 
 const repository = fileURLToPath(new URL('../../', import.meta.url))
 

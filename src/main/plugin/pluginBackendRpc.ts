@@ -4,9 +4,11 @@ import { resolvePluginBackendPackage } from './pluginBackend'
 import { pluginHost } from './PluginHost'
 import { registerPluginProcess } from './pluginOwnedProcesses'
 import { PluginBackendControl } from './pluginBackendControl'
-import { getAppPaths } from '@main/paths/pathsService'
+import { getAppPaths, retainAppPaths } from '@main/paths/pathsService'
 import { interactionErrorCode, runHostRpc } from '@main/plugin/pluginInteractionPolicy'
 import { resolveEffectiveProxyUrl } from '@main/proxy/proxyService'
+import { ensurePluginExtensionRoot } from '@main/plugin/pluginPrivatePaths'
+import type { PluginBackendContext } from '@shared/types/plugin'
 
 interface Pending {
   resolve: (value: unknown) => void
@@ -126,7 +128,11 @@ function backendFor(pluginId: string): Backend {
   const proxyEnv = effectiveProxy
     ? { HTTP_PROXY: effectiveProxy, HTTPS_PROXY: effectiveProxy, ALL_PROXY: effectiveProxy }
     : {}
+  const context: PluginBackendContext = { protocolVersion: 1, pluginId: scope.owner.pluginId,
+    appDataPath: getAppPaths().data, packagePath: root, appExecPath: process.execPath, pageOrigin: pageOrigin(scope),
+    extensionRoot: ensurePluginExtensionRoot(scope.owner.pluginId) }
   const child = utilityProcess.fork(entry, [], { serviceName: `eNest backend ${pluginId} #${scope.owner.generation}`, stdio: 'ignore', execArgv: ['--max-old-space-size=256'], env: { ...process.env, ...proxyEnv, NODE_USE_ENV_PROXY: '1' } })
+  const releasePaths = retainAppPaths()
   let resolveExit!: () => void
   const exit = new Promise<void>(resolve => { resolveExit = resolve })
   const backend: Backend = { scope, child, exit, resolveExit, pending: new Map(), closed: false, failedClose: false, exited: false, retired: false, detach: () => {}, unregister: () => {}, releases: new Set(),
@@ -136,7 +142,7 @@ function backendFor(pluginId: string): Backend {
   const abort = () => stop(backend, 'plugin backend closed')
   const shutdown = async () => { abort(); await waitForExit(backend) }
   const unregister = registerPluginProcess({ pluginId, generation: scope.owner.generation, kind: 'backend', getPid: () => backend.exited ? undefined : child.pid, stop: shutdown })
-  backend.unregister = () => { unregister(); scope.signal.removeEventListener('abort', abort) }
+  backend.unregister = () => { unregister(); releasePaths(); scope.signal.removeEventListener('abort', abort) }
   child.once('spawn', () => { trace(backend, 'spawn'); if (backend.closed || scope.signal.aborted) stop(backend, 'plugin backend closed') })
   // UtilityProcess fatal errors are followed by exit; retain ownership until then.
   child.once('error', () => stop(backend, 'plugin backend failed', true))
@@ -183,8 +189,7 @@ function backendFor(pluginId: string): Backend {
       else pending.reject(new Error(String(message.error || 'plugin backend request failed').slice(0, 4096)))
     } catch (error) { stop(backend, String(error), true) }
   })
-  child.postMessage({ type: 'init', pluginId, generation: scope.owner.generation, wcId: scope.owner.wcId,
-    context: { protocolVersion: 1, appDataPath: getAppPaths().data, packagePath: root, appExecPath: process.execPath, pageOrigin: pageOrigin(scope) } })
+  child.postMessage({ type: 'init', pluginId, generation: scope.owner.generation, wcId: scope.owner.wcId, context })
   return backend
 }
 

@@ -778,6 +778,14 @@ export function createMockApi(): ShellApi {
       return { user: null, providerId: null, providers: [{ id: 'github', name: 'GitHub', available: false }], pendingProviderId: null, session: null }
     },
     async loginAccount() { return { ok: false as const, error: '请在 eNest 桌面应用内登录' } },
+    async copyGithubDeviceCode() { throw new Error('Desktop sign-in required') },
+    async getGithubSyncState() { throw new Error('Desktop sign-in required') },
+    async discoverGithubRepositories() { throw new Error('Desktop sign-in required') },
+    async connectGithubRepository() { throw new Error('Desktop sign-in required') },
+    async disconnectGithubRepository() { throw new Error('Desktop sign-in required') },
+    async syncGithubPlugins() { throw new Error('Desktop sign-in required') },
+    async cancelGithubSync() { throw new Error('Desktop sign-in required') },
+    async setGithubAutoRestore() { throw new Error('Desktop sign-in required') },
     async cancelAccountLogin() {},
     async logoutAccount() {},
     async githubLogin() {

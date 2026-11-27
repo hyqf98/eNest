@@ -42,7 +42,9 @@ import { showMainWindowFromTray, showMainWindowOnActivate } from '@main/window/m
 import { pluginHost } from '@main/plugin/PluginHost'
 import { applyPluginMemoryMonitorSetting, startPluginMemoryMonitor, stopPluginMemoryMonitor } from '@main/plugin/pluginMemoryMonitor'
 import { broadcastNotice } from '@main/plugin/shellNotices'
-import { refreshProfileOnBoot } from '@main/auth/githubAuthService'
+import { disposeGithubSession, onGithubAuthenticated, refreshProfileOnBoot } from '@main/auth/githubAuthService'
+import { restoreGithubOnLogin, waitForGithubSync } from '@main/auth/githubSyncService'
+import { recoverPluginSync } from '@main/plugin/portablePluginData'
 import { pluginRegistry } from '@main/plugin/PluginRegistry'
 import { appearanceService } from '@main/theme/appearanceService'
 import { settingsStore } from '@main/settings/SettingsStore'
@@ -278,6 +280,7 @@ void app.whenReady().then(async () => {
     markStartupPhase('registry-metadata-ready')
     // 恢复上次加载过的开发态插件（dev.json → 源码目录仍存在则重新挂进 registry）
     await restoreDevPlugins()
+    if (backend === 'sqlite') await recoverPluginSync()
     logInfo('main', 'dev plugins restored')
     markStartupPhase('dev-registrations-ready')
     try {
@@ -412,7 +415,7 @@ void app.whenReady().then(async () => {
     // 快捷启动：注册全局热键 + 后台扫描；小窗懒创建（首次呼出时）
     // 不要在这里 ensureQuickWindow()：透明小窗按需创建，避免启动阶段并发初始化原生窗口。
     // 强制接管被外部占用的组合键：Windows 低级键盘钩子辅助进程（打包为 Resources/native）
-    initForceHotkeys(app.isPackaged ? join(process.resourcesPath, 'native') : join(app.getAppPath(), 'native/bin'))
+    initForceHotkeys(app.isPackaged ? join(process.resourcesPath, 'native') : join(app.getAppPath(), '.cache/native/bin'))
     initQuickHotkeys()
     // 用户插件绑定（settings.pluginShortcuts；不随插件关闭或休眠释放）
     initPluginLaunchHotkeys()
@@ -426,6 +429,7 @@ void app.whenReady().then(async () => {
     logInfo('main', 'update service ok')
 
     // 有保存的 GitHub token 则静默刷新资料（401 自动登出）；失败不影响启动
+    onGithubAuthenticated(restoreGithubOnLogin)
     void refreshProfileOnBoot().catch(() => { /* best effort */ })
 
     app.on('activate', () => {
@@ -468,6 +472,7 @@ app.on('before-quit', (event) => {
   if (quitPhase === 'draining') return
   quitPhase = 'draining'
   beginShutdown('before-quit')
+  disposeGithubSession()
   pluginHost.prepareSessionShutdown()
   cancelPluginWindowDrag()
   // Plugins receive the same bounded lifecycle grace; no business-specific shutdown services run in main.
@@ -491,7 +496,7 @@ app.on('before-quit', (event) => {
   destroyHomeSurface()
   // 先 destroyAll 再销毁 Quick 小窗：Quick 内嵌插件的 webContents 仍存活，
   // 能真正收到 beforeClose 并 flush；若先毁小窗，向已销毁目标只能空等 ack
-  void Promise.allSettled([pluginHost.destroyAll(), disposePluginInstallWorkers(), mcpService.shutdown(), shutdownDeadlineTasks().catch(error => logWarn('timer', `shutdown save failed: ${String(error)}`))])
+  void Promise.allSettled([waitForGithubSync(), pluginHost.destroyAll(), disposePluginInstallWorkers(), mcpService.shutdown(), shutdownDeadlineTasks().catch(error => logWarn('timer', `shutdown save failed: ${String(error)}`))])
     .catch((error) => logWarn('main', `shutdown cleanup failed: ${String(error)}`))
     .then(() => {
       disposeAuxiliaryWindows()

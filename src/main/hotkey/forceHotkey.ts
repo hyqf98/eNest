@@ -4,7 +4,7 @@
  * 平台调研结论（2026-11）：
  * - Windows：RegisterHotKey 无法抢占已被其他进程注册的键；唯一可行方案是
  *   WH_KEYBOARD_LL 低级键盘钩子，在系统把按键分发给 hotkey 之前吞掉事件。
- *   本模块通过 native/hotkey-hook/hotkey-hook.ps1 辅助进程实现（无需管理员）。
+ *   本模块通过 src/native/hotkey-hook/hotkey-hook.ps1 辅助进程实现（无需管理员）。
  * - macOS：需要 CGEventTap + 辅助功能（TCC）授权，Electron 无内置能力；
  *   当前版本不提供，返回明确原因。
  * - Linux(X11)：XGrabKey 对已被其他客户端 grab 的键返回 BadAccess，无法抢占；
@@ -105,6 +105,14 @@ export function canForceHotkey(value: string): ForceHotkeyAvailability {
   if (RESERVED.has(acc)) return { ok: false, reason: '该组合键由系统保留（如锁屏、任务切换），无法接管' }
   if (!parseAccelerator(acc)) return { ok: false, reason: '该按键暂不支持强制接管' }
   return { ok: true }
+}
+
+/**
+ * Identity the hook can actually observe. It reports fires by virtual key alone, so chords sharing
+ * a key are indistinguishable to it; callers must not hold two of them at once.
+ */
+export function forcedHotkeyKey(value: string): number | undefined {
+  return parseAccelerator(normalizeAccelerator(value, process.platform) ?? '')?.vk
 }
 
 function ensureChild(): ChildProcessWithoutNullStreams {

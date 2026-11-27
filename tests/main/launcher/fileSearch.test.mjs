@@ -18,6 +18,8 @@ function fixture() {
   const adapters = {
     electron: { dialog: {}, shell: { openPath: async path => { state.opened.push(path); return '' }, showItemInFolder: path => state.opened.push(path) } },
     '@main/plugin/pluginInteractionPolicy': { trackNativeInteraction: promise => promise },
+    // This fixture never opens a picker (dialog is empty); the wrapper only needs to resolve.
+    '@main/settings/dialogMemory': { openDialogWithMemory: async () => [] },
     '@main/settings/SettingsStore': { settingsStore: { getFileSearchSettings: () => state.preferences, commitFileSearch: prefs => { state.preferences = prefs } } },
     '@main/paths/pathsService': { getAppPathsGeneration: () => state.generation },
     './appScanner': { getCachedApps: () => ({ apps: [{ path: app }] }) },

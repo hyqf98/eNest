@@ -45,7 +45,7 @@ export const PERMISSION_LABELS: Record<PluginPermission, string> = {
   'fs.write': '写入用户选择的本地文件',
   'sys.control': '终止系统进程',
   'sys.sshAgent': '使用本机 SSH Agent 认证',
-  'sys.inspect': '查看系统进程与端口',
+  'sys.inspect': '查看系统进程、端口与 CPU 占用',
   theme: '注册主题包'
 }
 

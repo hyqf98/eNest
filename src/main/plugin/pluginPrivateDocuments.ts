@@ -5,7 +5,7 @@ import { basename, join } from 'node:path'
 import { getAppPaths } from '@main/paths/pathsService'
 import { existingOwnedDirectory } from '@main/paths/ownedDirectory'
 import { DATA_SUBDIR } from '@shared/constants'
-import { pluginDataDir as root } from './pluginPrivatePaths'
+import { pluginDataDir as root, PRIVATE_DOCUMENTS_DIR } from './pluginPrivatePaths'
 
 export interface PrivateDocumentOwner {
   readonly pluginId: string
@@ -19,6 +19,8 @@ const BASE_QUOTA = 200 * 1024 * 1024
 const MAX_FILES = 20_000
 const queues = new Map<string, { tail: Promise<unknown>; pending: number }>()
 const inventories = new Map<string, { bytes: number; count: number }>()
+export function resetPrivateDocumentInventory(pluginId: string): void { inventories.delete(root(pluginId)) }
+export async function drainPrivateDocumentWrites(pluginId: string): Promise<void> { await queues.get(pluginId)?.tail.catch(() => {}) }
 const clearing = new Set<string>()
 const clearTasks = new Map<string, Promise<void>>()
 interface MigrationAllowances { version: 1; sources: Record<string, { token: string; bytes: number }> }
@@ -227,7 +229,7 @@ export function clearPrivateDocuments(pluginId: string): Promise<void> {
   clearing.add(pluginId)
   const task = (async () => {
     await queues.get(pluginId)?.tail.catch(() => {})
-    const dir = await existingOwnedDirectory(getAppPaths().root, DATA_SUBDIR, 'plugin-documents', basename(root(pluginId)))
+    const dir = await existingOwnedDirectory(getAppPaths().root, DATA_SUBDIR, PRIVATE_DOCUMENTS_DIR, basename(root(pluginId)))
     if (dir) await rm(dir, { recursive: true, force: true })
     inventories.delete(root(pluginId))
   })().finally(() => { clearing.delete(pluginId); clearTasks.delete(pluginId) })

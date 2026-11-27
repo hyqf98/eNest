@@ -124,6 +124,17 @@ export function TerminalIcon(props: IconProps) {
   )
 }
 
+/** Lucide database（插件数据 tab） */
+export function DatabaseIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M3 5v14a9 3 0 0 0 18 0V5" />
+      <path d="M3 12a9 3 0 0 0 18 0" />
+    </svg>
+  )
+}
+
 /** Lucide trash-2（卸载） */
 export function Trash2Icon(props: IconProps) {
   return (

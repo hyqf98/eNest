@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import yaml from 'js-yaml'
-import { binaryIdentity, fileSha256, verifyNativePayload, verifyPackagedNative } from '../../tools/packaging/native-release.mjs'
-import { createReleaseManifest, verifyReleaseManifest } from '../../tools/packaging/release-manifest.mjs'
-import { assembleRelease, fileSha512, releaseJobs } from '../../tools/packaging/assemble-release.mjs'
+import { binaryIdentity, fileSha256, verifyNativePayload, verifyPackagedNative } from '../../scripts/packaging/native-release.mjs'
+import { createReleaseManifest, verifyReleaseManifest } from '../../scripts/packaging/release-manifest.mjs'
+import { assembleRelease, fileSha512, releaseJobs } from '../../scripts/packaging/assemble-release.mjs'
 
 const require = createRequire(import.meta.url)
 const { getFileMatchers, copyFiles } = require('app-builder-lib/out/fileMatcher.js')
@@ -36,6 +36,10 @@ async function workspace(t) {
 
 async function nativeFixture(directory, platform, arch = 'x64') {
   await mkdir(directory, { recursive: true })
+  if (platform !== 'win32') {
+    await writeFile(join(directory, 'account-storage.cjs'), "'use strict'\n")
+    await writeFile(join(directory, 'account-storage.node'), binary(platform === 'darwin' ? 'fat' : 'elf', arch), { mode: 0o755 })
+  }
   if (platform === 'win32') {
     for (const name of ['clipboard-helper.ps1', 'process-memory-helper.ps1']) await writeFile(join(directory, name), 'Write-Output "fixture"\n')
   } else if (platform === 'darwin') {
@@ -74,7 +78,7 @@ test('binary identity reads Mach-O, universal Mach-O, PE and ELF without executi
 
 test('per-platform electron-builder resources exclude foreign helpers from a mixed local native bin', async t => {
   await validateConfiguration(config, { isEnabled: false })
-  const root = await workspace(t), source = join(root, 'native/bin')
+  const root = await workspace(t), source = join(root, '.cache/native/bin')
   await nativeFixture(source, 'darwin'); await nativeFixture(source, 'win32')
   await mkdir(join(root, 'assets/icons'), { recursive: true })
   for (const name of ['dock-runtime.png', 'enest-icon-256.png']) await writeFile(join(root, 'assets/icons', name), 'png')
@@ -84,7 +88,7 @@ test('per-platform electron-builder resources exclude foreign helpers from a mix
       customBuildOptions: config[key], defaultSrc: root, globalOutDir: destination })
     await copyFiles(matchers)
     const { files } = await verifyNativePayload({ platform, arch: 'x64', directory: join(destination, 'native') })
-    assert.equal(files.length, platform === 'darwin' ? 3 : 2)
+    assert.equal(files.length, platform === 'darwin' ? 5 : 2)
     assert.equal((await readdir(join(destination, 'icons'))).length, 2)
   }
   assert.ok(config.win.target.some(target => target.target === 'zip'))

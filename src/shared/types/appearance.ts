@@ -16,6 +16,8 @@ export type ThemeBackgroundPalette = 'theme' | 'dawn' | 'mint' | 'linen' | 'peac
 export interface ThemeBackgroundPaletteDeclaration {
   id: string
   name: string
+  /** English label; the host falls back to `name` when absent. */
+  nameEn?: string
   css: string
   swatch?: string
 }
@@ -57,8 +59,12 @@ export type ThemeSettingOptionPreview =
 
 export interface ThemeSettingOption {
   label: string
+  /** English label; the host falls back to `label` when absent. */
+  labelEn?: string
   value: string | number | boolean
   description?: string
+  /** English description; falls back to `description` when absent. */
+  descriptionEn?: string
   /** Host-rendered thumbnail; omitted options render a text-only card. */
   preview?: ThemeSettingOptionPreview
 }
@@ -66,6 +72,8 @@ export interface ThemeSettingOption {
 export interface ThemeSettingsField {
   key: string
   label: string
+  /** English label; the host falls back to `label` when absent. */
+  labelEn?: string
   type: 'color' | 'slider' | 'switch' | 'select' | 'font' | 'media' | 'token'
   default: ThemeSettingValue
   binding: ThemeSettingBinding
@@ -76,12 +84,36 @@ export interface ThemeSettingsField {
   /** Preferred widget shape; the host validates it against the field's type and binding. */
   presentation?: ThemeSettingPresentation
   help?: string
+  /** English help text; falls back to `help` when absent. */
+  helpEn?: string
   visibleWhen?: { field: string; equals: string | number | boolean }
+  /**
+   * Kept visible but not editable while any listed condition holds; stored values are preserved.
+   * `not` inverts one condition, which is how mutually exclusive settings are declared.
+   */
+  disabledWhen?: ThemeFieldCondition | ThemeFieldCondition[]
+}
+
+export interface ThemeFieldCondition {
+  field: string
+  equals: string | number | boolean
+  not?: boolean
+}
+
+export interface ThemeSettingsGroup {
+  id: string
+  title: string
+  /** English title; the host falls back to `title` when absent. */
+  titleEn?: string
+  description?: string
+  /** English description; falls back to `description` when absent. */
+  descriptionEn?: string
+  fields: ThemeSettingsField[]
 }
 
 export interface ThemeSettingsSchema {
   version: number
-  groups: Array<{ id: string; title: string; description?: string; fields: ThemeSettingsField[] }>
+  groups: ThemeSettingsGroup[]
 }
 
 export interface HomePageContribution {
@@ -163,6 +195,10 @@ export interface ThemePackV2 extends ThemePack {
   schemaVersion: 2
   version: number
   description?: string
+  /** English pack name; the host falls back to `name` when absent. */
+  nameEn?: string
+  /** English pack description; falls back to `description` when absent. */
+  descriptionEn?: string
   variants: Record<AppearanceColorMode, ThemeVariant>
   settings: ThemeSettingsSchema
   /** Extra atmosphere presets usable from `background.palette`; ids never shadow host presets. */

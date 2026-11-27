@@ -1,79 +1,105 @@
-<div align="center">
+<p align="center">
+  <a href="https://hyqf98.github.io/eNest/"><img src="assets/icons/enest-icon-256.png" width="96" height="96" alt="访问 eNest 官网"></a>
+</p>
 
-<img src="assets/icons/enest-icon-256.png" width="112" alt="eNest" />
+<h1 align="center">eNest</h1>
+<p align="center">开源桌面插件工具箱</p>
 
-<br />
+<p align="center">
+  <a href="https://github.com/hyqf98/eNest/actions/workflows/build.yml"><img src="https://github.com/hyqf98/eNest/actions/workflows/build.yml/badge.svg" alt="构建状态"></a>
+  <a href="#从源码启动"><img src="https://img.shields.io/badge/desktop-macOS%20%7C%20Windows%20%7C%20Linux-36645a" alt="桌面平台：macOS、Windows、Linux"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-386790" alt="许可证：Apache 2.0"></a>
+</p>
 
-# eNest
+<p align="center">
+  <a href="https://hyqf98.github.io/eNest/"><strong>访问 eNest 官网</strong></a> · <a href="#从源码启动">从源码启动</a> · <a href="https://hyqf98.github.io/eNest/plugin/">插件开发指南</a> · <a href="https://github.com/hyqf98/eNest_plugin">官方插件仓库</a>
+</p>
 
-**插件化桌面工具箱** — 一个壳，装下所有临时活儿
+<p align="center">
+  <a href="assets/readme/quick-screen-assistant.png" title="查看屏幕助手截图"><img src="docs/site/assets/plugins/screen-assistant.svg" width="28" height="28" alt="查看屏幕助手截图"></a> &nbsp;
+  <a href="assets/readme/quick-pomodoro.png" title="查看番茄钟截图"><img src="docs/site/assets/plugins/pomodoro.svg" width="28" height="28" alt="查看番茄钟截图"></a> &nbsp;
+  <a href="assets/readme/desktop-database-connection.png" title="查看数据库截图"><img src="docs/site/assets/plugins/database.svg" width="28" height="28" alt="查看数据库截图"></a> &nbsp;
+  <a href="assets/readme/desktop-game-box.png" title="查看游戏盒子截图"><img src="assets/readme/icons/game-box.svg" width="28" height="28" alt="查看游戏盒子截图"></a> &nbsp;
+  <a href="assets/readme/desktop-comic-house.png" title="查看漫画屋截图"><img src="assets/readme/icons/comic-house.svg" width="28" height="28" alt="查看漫画屋截图"></a>
+</p>
 
-按一下 Quick 就出来，用完就走；要长时间用的工具留在标签页或拆成独立窗口。
+临时截一张图、开一轮番茄钟，用快捷键呼出 **Quick 小窗口**就够了。需要边查数据库边写笔记时，把数据库和 Markdown 编辑器放在**桌面主窗口**的两个标签页里，随时切换。
 
-[![Build](https://github.com/hyqf98/eNest/actions/workflows/build.yml/badge.svg)](https://github.com/hyqf98/eNest/actions/workflows/build.yml)
-[![Plugins](https://img.shields.io/badge/plugins-37-2ec4a6)](https://github.com/hyqf98/eNest_plugin)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-555)](https://github.com/hyqf98/eNest/releases)
+## 桌面主窗口与插件市场
 
-[官网](https://hyqf98.github.io/eNest/) · [安装与运行](#安装与运行) · [插件仓库](https://github.com/hyqf98/eNest_plugin) · [开发文档](https://hyqf98.github.io/eNest/plugin/) · [反馈](https://github.com/hyqf98/eNest/issues)
+首页就是插件市场。搜索工具名，或按「效率」「开发」「设计」等分类浏览；切到「已安装」，就只看自己装过的插件。打开的工具会排在窗口顶部：可以在数据库、剪贴板和编辑器之间切换，也可以把一个标签拖出去，变成独立窗口，与原来的工作并排放置，不必重新打开插件。
 
-</div>
+![eNest 桌面主窗口：顶部是已打开的插件标签，首页展示剪贴板推荐卡片和市场分类](assets/readme/desktop-plugin-marketplace.png)
 
-![eNest 主窗口中的插件目录](assets/readme/workspace.jpg)
+如果想把便笺、时钟留在桌面上，可以另装「自由画布」摆放浮动组件；想按区域收纳文件、设置壁纸和程序栏，则可以选「自由桌面」。这两个插件都不是使用主窗口或 Quick 的前提。
 
-<div align="center"><sub>截图来自 macOS 开发实例，使用独立演示数据；界面可能随开发更新。</sub></div>
+## Quick 小窗口
 
-<!-- workspace.jpg: native Electron JPEG capture, 2026-10-30, source 0.2.3, five existing demo plugin builds. -->
+不用先切回 eNest 主窗口。在「设置 → 快捷键 → 小窗口」启用呼出键后，按一下就能看到搜索框和常用入口。点图标，或者输入应用名、插件名、指令后按回车。切回原来的应用时 Quick 会收起；再次呼出，还能接着用刚才的插件。
 
-## 这是什么
+![Quick 启动器：搜索框下方列出截图、剪贴板、翻译、番茄钟等常用入口](assets/readme/quick-launcher.png)
 
-eNest 是一个开源的桌面插件工具箱。宿主只负责那些通用的事——窗口、标签页、快捷键、权限、安装更新、数据存储；翻译、Markdown、JSON、数据库、SSH 这些具体功能全部由插件提供。
+| <img src="docs/site/assets/plugins/screen-assistant.svg" width="20" height="20" align="middle" alt=""> 屏幕助手 | <img src="docs/site/assets/plugins/pomodoro.svg" width="20" height="20" align="middle" alt=""> 番茄钟 |
+| --- | --- |
+| 选区域、全屏或长截图，决定截完是标注、复制还是贴图。需要录一段操作时，切到「录屏」。 | 在顶部写下这轮要做的事，开始 25 分钟专注。可以切换长短休息，查看专注记录并导出 CSV。 |
+| ![屏幕助手小窗口：区域截图已选中，下方可选择截图后的操作](assets/readme/quick-screen-assistant.png) | ![番茄钟小窗口：25 分钟专注计时待开始，下方是专注记录](assets/readme/quick-pomodoro.png) |
 
-所以它不像一个装了很多工具的大软件，更像一个能长出工具的壳：装什么由你决定，界面还能换主题。
+## 在主窗口里使用插件
 
-<div align="center">
+这些工具按需安装。数据库用完整窗口放连接列表和查询页；游戏盒子和漫画屋则把空间留给封面、分类和搜索结果。
 
-[怎么用](#怎么用) · [安装](#安装与运行) · [开发插件](#开发自己的插件) · [数据与权限](#数据与权限) · [仓库结构](#仓库结构)
+<details>
+<summary><img src="docs/site/assets/plugins/database.svg" width="20" height="20" align="middle" alt=""> <strong>数据库</strong>：按环境管理连接，打开查询工作台</summary>
 
-</div>
+新建连接时可以取一个好认的名字，选择数据库类型和环境，再填写主机与身份信息。图中是尚未连接的 MySQL 配置页，保存前可以测试连接，也可以勾选只读或 TLS。
 
-## 怎么用
+![数据库插件的新建连接窗口：数据库类型、环境、主机、只读与 TLS 选项](assets/readme/desktop-database-connection.png)
 
-### 临时用一下：Quick
+</details>
 
-Quick 呼出键默认开启，可以在「设置 → 快捷键 → Quick 呼出键」调整。默认候选是 `Alt/Option + Space` 和 `Ctrl + Space`，只启用当前注册成功的一组；被系统或其他软件占用时，可以换一组。
+<details>
+<summary><img src="assets/readme/icons/game-box.svg" width="20" height="20" align="middle" alt=""> <strong>游戏盒子</strong>：按平台找游戏，管理自己的游戏和下载</summary>
 
-呼出后输入应用名、插件名或触发词，选中结果并按回车。默认主题支持拼音检索；插件也可以把自己的功能入口放进搜索结果。宿主提供前缀文本输入接口，具体填入和执行行为需要插件适配。当前翻译插件接收前缀文本仍有时序问题，内容可能未保留；可先打开插件，再手动输入。
+在「发现」里切换 PC 或主机游戏，按名称搜索、按分类筛选。点封面右上角的心形可以收藏；「我的游戏」和「下载管理」有各自的入口。
 
-进入插件后，切换到其他软件会收起 Quick，再次呼出仍停留在该插件。按 Esc 或点击返回按钮回到搜索；终端、编辑器和弹层可以自行处理 Esc。插件是否接管顶部输入框、如何处理传入内容，由插件决定。
+![游戏盒子的发现页：PC 游戏分类、搜索框、来源切换和带收藏按钮的封面](assets/readme/desktop-game-box.png)
 
-![在 Quick 中输入任务名称并使用番茄钟](assets/readme/quick.jpg)
+</details>
 
-<!-- quick.jpg: native Electron JPEG capture, 2026-10-30, task text entered through the host input. JSON capture: 2026-10-29; provenance in docs/site/assets/ASSETS.md. -->
+<details>
+<summary><img src="assets/readme/icons/comic-house.svg" width="20" height="20" align="middle" alt=""> <strong>漫画屋</strong>：跨来源搜索，按榜单挑一部漫画阅读</summary>
 
-### 持续工作：标签页和独立窗口
+知道书名可以直接搜；想找新作，可以在「发现」里切换来源，按最近七天、最近三十天或总榜浏览。选中封面后再挑章节阅读。
 
-主窗口可以同时保留多个插件标签。想把编辑器和另一个工具并排放置，可以把插件标签拖出主窗口，变成独立窗口；从 Quick 中也可以固定到主窗口继续使用。窗口移动沿用原来的插件实例，不必重新打开一份。
+![漫画屋的发现页：搜索框、来源筛选、时间榜单和漫画封面](assets/readme/desktop-comic-house.png)
 
-开发版的「设置 → 通用 → 文件检索」默认关闭。开启后，Quick 和首页在独立分组中展示文件名结果，可打开文件或定位所在目录。完整文件工作台仍由 Anything 提供，不是轻量检索的前置依赖。
+</details>
 
-自由画布、自由桌面分别按需安装。前者管理浮动区域及自己的六种组件；后者提供壁纸、文件收纳、便笺、时钟与四边程序栏。开启桌面接管需要在插件内确认，不支持的环境保留普通工作区。旧版画布布局可以手动[导出并导入](docs/site/plugin/panels.md)，原数据不会被删除。
+## 快捷键与系统集成
 
-面板默认透明，不给插件再套一层卡片。已有面板如果保留了底板颜色或毛玻璃，可以在同一设置区点击「设为透明」；也可以保留自己选的材质。
+**快捷键注册。** 新装时，小窗口呼出键默认关闭，不会抢占系统组合键。开启后可选 `Alt + Space`（Mac 上是 `Option + Space`）、`Ctrl + Space`，或录入自己的组合，以设置页标记的「生效中」为准。插件快捷键单独配置，同一插件可以为小窗口和主窗口分别绑键。
 
-![主窗口标签页中的 JSON 格式化工具](docs/site/assets/screens/native-json.webp)
+<details>
+<summary>查看快捷键设置：呼出键预设与插件绑定</summary>
 
-### 安装工具，调整外观
+![快捷键设置：Ctrl + Space 显示为生效中，下方可为插件添加快捷键](assets/readme/settings-keyboard-shortcuts.png)
 
-在插件目录中查看介绍并安装需要的工具。本地发布包也可以直接拖入 eNest，支持 `.enestplugin` 和符合插件包结构的 `.zip`；GitHub 下载的源码 ZIP 不能直接安装。
+</details>
 
-默认主题随软件提供，不需要单独下载。第三方主题可以更换首页、Quick、窗口导航和设置页的呈现。插件自己的设置既可以放在宿主设置页，也可以在插件内打开。
+**默认打开方式。** 在「设置 → 通用」中，可以让 `.md` 交给 Markdown 编辑器、让 `.json` 交给 JSON 工具。候选来自已安装插件声明的文件类型；操作系统的默认应用关联需在安装版中按系统流程确认。
 
-常用插件还可以绑定独立快捷键。支持文件打开入口的插件可在「打开方式」中配置。系统默认应用的注册和状态验证需要打包安装版，并遵循操作系统的设置流程。
+**本机 MCP 服务。** 同一页可以开启服务、查看状态、复制客户端连接配置，并查看已启用插件注册了哪些工具。服务默认关闭，只监听本机回环地址；客户端调用不会替插件取得新权限。
+
+<details>
+<summary>查看通用设置：默认打开方式与 MCP 管理</summary>
+
+![通用设置：Markdown 文档的默认处理插件，以及本机 MCP 服务的开关、端口和连接配置入口](assets/readme/settings-open-with-mcp.png)
+
+</details>
 
 ## 安装与运行
 
-当前源码版本为 `0.0.1`。公开发行已暂停，暂无桌面安装包；需要体验可从源码启动。恢复发行后，请以 [Releases](https://github.com/hyqf98/eNest/releases) 列出的实际附件为准。GitHub 自动生成的 Source code 压缩包不是桌面安装包。
+目前公开发行已暂停，体验桌面端请从源码启动。可在[官网查看下载说明](https://hyqf98.github.io/eNest/download.html)；恢复发行后，以 [GitHub Releases](https://github.com/hyqf98/eNest/releases) 的实际附件为准。GitHub 自动生成的 Source code 压缩包不是安装包。
 
 ### 从源码启动
 
@@ -104,13 +130,17 @@ npm run dev
 
 主进程或 preload 改动后需要重启开发进程；页面开发支持 HMR。用例入口和隔离数据要求见 [tests/README.md](tests/README.md)。
 
-打包配置在 [electron-builder.yml](electron-builder.yml)。CI 使用各平台的原生构建任务，只有 `v*` 标签触发公开发布，手动构建不会自动发布。签名、更新元数据和跨平台打包说明见 [发布工具文档](tools/packaging/README.md)；自行接入账号服务可参考 [发布者账号示例](tools/auth/README.md)。
+打包配置在 [electron-builder.yml](electron-builder.yml)。原生辅助程序从 `src/native/` 构建到 `.cache/native/bin/`，安装包仍放在应用资源的 `native/` 目录下。CI 使用各平台的原生构建任务，只有 `v*` 标签触发公开发布，手动构建不会自动发布。签名、更新元数据和跨平台打包说明见 [发布工具文档](scripts/packaging/README.md)。设置页支持通过默认浏览器登录 GitHub，选择插件备份到自己的私库或在另一台电脑恢复；发布者的一次性配置、自动建库及恢复范围见 [GitHub 登录与私库同步](scripts/auth/README.md)。
 
 ## 开发自己的插件
 
 插件是一个 Web 页面，加上一份 `plugin.json` 清单。可以使用 React、Vue 或原生 JavaScript，通过 `window.enest` 调用通知、私有存储、文件选择、快捷键等宿主能力，不需要把业务写进 Electron 主进程。
 
-从 [插件快速开始](docs/site/plugin/getting-started.md) 创建一个最小插件，再到「设置 → 开发者 → 加载插件」选择包含 `plugin.json` 的源码目录。官方插件、SDK、共享组件和构建工具在独立的 [eNest_plugin 仓库](https://github.com/hyqf98/eNest_plugin)。如果要联调官方插件或生成 SDK，将它克隆到宿主根目录下：
+按[插件快速开始](docs/site/plugin/getting-started.md)创建插件后，到「设置 → 开发者」点击「加载插件」，选择包含 `plugin.json` 的源码目录，也可以直接粘贴目录路径。加载后可在「开发中」列表启动调试；使用 Vite 的插件可以在桌面窗口里看到热更新。
+
+![插件开发者设置：选择本地插件目录，或粘贴目录路径后加载](assets/readme/settings-plugin-development.png)
+
+官方插件、SDK、共享组件和构建工具在独立的 [eNest_plugin 仓库](https://github.com/hyqf98/eNest_plugin)。如果要联调官方插件或生成 SDK，将它克隆到宿主根目录下：
 
 ```bash
 git clone https://github.com/hyqf98/eNest_plugin.git eNest_plugin
@@ -118,7 +148,7 @@ git clone https://github.com/hyqf98/eNest_plugin.git eNest_plugin
 
 这个目录不纳入宿主 Git。插件仓库有自己的依赖与构建步骤，按它的 README 操作即可；只运行宿主不要求检出全部插件源码。
 
-插件还可以贡献主题或 MCP 工具。本机 MCP 服务默认关闭，调用不会替用户授权或弹出文件选择器，接入前请阅读对应指南。
+插件也可以贡献主题或 MCP 工具。向其他用户分发时应提供 `.enestplugin` 或符合插件包结构的 `.zip`；仓库的源码 ZIP 不能直接当作插件安装。
 
 | 入口 | 内容 |
 | --- | --- |
@@ -147,10 +177,10 @@ src/main          原生宿主与通用服务
 src/preload       最小安全桥
 src/renderer      壳控制器、共享 UI 与默认主题
 src/shared        跨端契约、常量和纯模型
+src/native        原生剪贴板与平台辅助程序源码
 tests             用例、夹具与开发预览
 docs/site         产品官网与官方插件 API
-tools             构建发布工具与发布者示例
-native            原生剪贴板与平台辅助能力
+scripts           构建发布工具、静态审计与发布者示例
 assets/icons      运行时图标
 build             打包图标和系统关联声明
 eNest_plugin      独立插件仓库，不纳入宿主 Git

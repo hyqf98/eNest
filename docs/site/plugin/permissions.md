@@ -78,12 +78,12 @@ Linux 当前仅接受已识别的 `gnome_libsecret`、`kwallet`、`kwallet5`、`
 | `clipboard.paste` | 向宿主捕获的原应用回贴已复制内容；系统授权请求单独受此权限控制 |
 | `screen.capture` | 原生 `screen.capture` 截图；`screen.displays` 只读几何，无需此权限 |
 | `screen.record` | 通用辅助页一次指定显示器的捕获，还需系统许可、当前可见实例和真实原生用户手势；不是宿主录制业务 API |
-| `pin.create` | 兼容权限名：非捕获辅助窗口的原生 `alwaysOnTop` 位置能力；贴图内容与交互由插件实现 |
+| `pin.create` | 兼容权限名：非捕获辅助窗口与悬浮窗的原生 `alwaysOnTop` 位置能力；贴图内容与交互由插件实现 |
 | `backend.node` | 运行插件自有 Node 后端；完整本机信任，具有当前用户可用的文件、网络和进程能力；不是操作系统沙箱 |
 | `net.fetch` | 宿主 HTTP(S) 请求；分片、SSE 仍有字节预算 |
 | `net.socket` | TCP、宿主 WebSocket 客户端和限域连接桥 |
 | `fs.rename` | 同目录改名；需要可写句柄，批量操作需宿主确认 |
-| `sys.inspect` / `sys.control` | 查看进程、端口 / 结束具体进程 |
+| `sys.inspect` / `sys.control` | 查看进程、端口、整机 CPU 占用 / 结束具体进程 |
 | `shell.openExternal` | 系统浏览器打开 http、https、mailto、tel 链接 |
 | `launcher.access` | 由用户在宿主选择程序或插件，使用所有者绑定的 ID 启动；后台启动栏另需用户当次同意，不开放应用枚举或任意命令 |
 | `web.login` | 在应用内窗口登录外部站点并把会话 cookie 交回插件；站点必须在 manifest `net.loginOrigins` 里声明，窗口内无任何宿主能力 |
@@ -110,7 +110,7 @@ DSH 0.0.1 要求 eNest `>=0.0.1`，业务实现在插件自己的后端，通过
 
 普通辅助页只有 `enestAux` 的上下文/消息/关闭接口，没有完整 `enest` 或 Node。`screen.record` 不能变成任意 `getDisplayMedia`、摄像头或麦克风访问：宿主绑定当前主 frame、插件代次、指定显示器、可见且聚焦的辅助窗口与真实用户手势；每窗口只允许一次捕获。系统 loopback 音频是否可用取决于平台，不应宣传为通用麦克风权限。
 
-撤销 `screen.record` 关闭捕获辅助页，撤销 `pin.create` 关闭非捕获置顶辅助页；随后当前插件实例关闭，私有输出流也随运行域清理。录制与贴图状态由插件包管理，不能靠保留旧的 `enest.screen.record` / `enest.pin` 调用绕过上述流程。
+撤销 `screen.record` 关闭捕获辅助页，撤销 `pin.create` 关闭非捕获置顶辅助页并取消悬浮窗置顶；随后当前插件实例关闭，私有输出流也随运行域清理。录制与贴图状态由插件包管理，不能靠保留旧的 `enest.screen.record` / `enest.pin` 调用绕过上述流程。
 
 ## 系统文件：句柄，不是路径
 
